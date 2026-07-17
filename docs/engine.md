@@ -1,19 +1,29 @@
 # Engine integration
 
-Drift drives a stock `opencode serve` process. Nothing engine-side is forked or patched;
-all opencode config (agents, MCP servers, plugins, providers) applies unchanged.
+Drift embeds the opencode engine. Upstream source is vendored at `engine/upstream` via
+git subtree and never edited; all opencode config (agents, MCP servers, plugins,
+providers) applies unchanged. Users do not install opencode.
 
-## Process
+## Embedded engine lifecycle
 
-- Dev: `bun run dev` spawns `opencode serve --port 4096` and vite, forwarding
-  `OPENCODE_SERVER_PASSWORD` to the frontend as `VITE_ENGINE_PASSWORD` (the server
-  enforces basic auth whenever that env var is set).
-- Shell: `src-tauri/src/main.rs` spawns `opencode serve --port 0` with the password env
-  removed (localhost only), parses the printed URL, and serves it via the `engine_url`
-  command. The child is killed on exit.
-- The opencode CLI version must match the SDK generation. Symptom of drift: prompts 500
-  with `SQLiteError: no such column ...` because an older CLI reads a newer shared DB.
-  Fix with `opencode upgrade`.
+- Vendoring: `git subtree pull --prefix engine/upstream opencode dev --squash` pulls a
+  new engine drop. One-time setup after a pull: `bun install --ignore-scripts` inside
+  `engine/upstream` (native tree-sitter grammars are optional, wasm is used at runtime).
+- Building: `bun run build:engine` calls upstream's own build
+  (`script/build.ts --single --skip-embed-web-ui`) and copies the result to
+  `src-tauri/binaries/drift-engine[-<triple>].exe`. We never maintain our own bundling
+  of their code; their build script is the contract.
+- Dev: `bun run dev` spawns `drift-engine.exe serve --port 4096` (cwd = repo root) and
+  vite, forwarding `OPENCODE_SERVER_PASSWORD` to the frontend as `VITE_ENGINE_PASSWORD`
+  (the engine enforces basic auth whenever that env var is set).
+- Shell: `src-tauri/src/main.rs` locates the sidecar (next to the app exe, or
+  `src-tauri/binaries` in dev), spawns `serve --port 0` with the password env removed
+  (localhost only), parses the printed URL, and serves it via `engine_url`. The child
+  is killed on exit. The frontend polls `engine_url` until the sidecar is up.
+- Version drift symptom (engine binary older than the shared SQLite schema): prompts
+  500 with `SQLiteError: no such column ...`. Fix by rebuilding the engine binary.
+- The engine shares the user's global opencode data dir (auth, config, sessions), so
+  existing provider logins keep working inside Drift.
 
 ## Surface used
 

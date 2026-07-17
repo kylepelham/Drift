@@ -1,9 +1,21 @@
+import { existsSync } from "node:fs"
+import path from "node:path"
+
+const root = path.resolve(import.meta.dirname, "..")
+const binary = path.join(root, "src-tauri", "binaries", "drift-engine.exe")
+if (!existsSync(binary)) {
+  console.error("drift-engine binary missing. Run: bun run build:engine")
+  process.exit(1)
+}
+
 const port = process.env.DRIFT_ENGINE_PORT ?? "4096"
-const engine = Bun.spawn(["cmd", "/c", "opencode", "serve", "--port", port], {
+const engine = Bun.spawn([binary, "serve", "--port", port], {
+  cwd: root,
   stdout: "inherit",
   stderr: "inherit",
 })
 const vite = Bun.spawn(["bun", "x", "vite"], {
+  cwd: root,
   stdout: "inherit",
   stderr: "inherit",
   env: {

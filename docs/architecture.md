@@ -3,7 +3,9 @@
 Drift is three layers with strict one-way flow:
 
 ```
-opencode engine (sidecar process, HTTP + SSE)
+engine/upstream (vendored opencode source, git subtree, never edited)
+        | bun run build:engine
+drift-engine.exe (embedded sidecar, HTTP + SSE)
         ^                |
    actions (REST)   events (SSE)
         |                v

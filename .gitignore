@@ -6,3 +6,4 @@ examples/
 *.local
 .engine.log
 .vite.log
+.tauri.log

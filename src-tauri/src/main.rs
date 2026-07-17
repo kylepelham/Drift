@@ -21,14 +21,31 @@ fn engine_url(engine: State<Engine>) -> Result<String, String> {
         .ok_or_else(|| "engine starting".into())
 }
 
+fn engine_binary() -> Option<std::path::PathBuf> {
+    let name = "drift-engine.exe";
+    let bundled = std::env::current_exe().ok()?.parent()?.join(name);
+    if bundled.exists() {
+        return Some(bundled);
+    }
+    let dev = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("binaries")
+        .join(name);
+    dev.exists().then_some(dev)
+}
+
 fn spawn_engine(app: tauri::AppHandle) {
     std::thread::spawn(move || {
-        let mut command = Command::new("cmd");
+        let Some(binary) = engine_binary() else { return };
+        let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME"));
+        let mut command = Command::new(binary);
         command
-            .args(["/c", "opencode", "serve", "--port", "0"])
+            .args(["serve", "--port", "0"])
             .env_remove("OPENCODE_SERVER_PASSWORD")
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+        if let Ok(home) = home {
+            command.current_dir(home);
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
