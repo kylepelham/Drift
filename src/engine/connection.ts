@@ -1,4 +1,4 @@
-export type Connection = "connecting" | "online" | "offline"
+export type Connection = "idle" | "connecting" | "online" | "offline"
 export type EngineTarget = { url: string; headers?: Record<string, string> }
 
 type TauriGlobal = { core?: { invoke: (cmd: string) => Promise<string> } }

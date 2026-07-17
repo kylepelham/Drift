@@ -1,5 +1,5 @@
 import type { OpencodeClient, Session } from "@opencode-ai/sdk/client"
-import type { SetStoreFunction } from "solid-js/store"
+import { produce, type SetStoreFunction } from "solid-js/store"
 import type { EngineState, ModelRef } from "./store"
 
 export type PromptOptions = { model: ModelRef | null; agent: string }
@@ -15,6 +15,11 @@ export function createActions(
     const result = await requireClient().session.messages({ path: { id } })
     set("transcripts", id, result.data ?? [])
     set("loaded", id, true)
+  }
+
+  async function loadSessions(directory: string) {
+    const result = await requireClient().session.list({ query: { directory } })
+    for (const session of result.data ?? []) set("sessions", session.id, session)
   }
 
   async function newSession(): Promise<Session | undefined> {
@@ -46,6 +51,13 @@ export function createActions(
 
   async function remove(id: string) {
     await requireClient().session.delete({ path: { id } })
+    set(
+      produce((s) => {
+        delete s.sessions[id]
+        delete s.transcripts[id]
+        delete s.loaded[id]
+      }),
+    )
   }
 
   async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
@@ -55,7 +67,7 @@ export function createActions(
     })
   }
 
-  return { openSession, newSession, send, abort, rename, remove, replyPermission }
+  return { openSession, loadSessions, newSession, send, abort, rename, remove, replyPermission }
 }
 
 export type EngineActions = ReturnType<typeof createActions>

@@ -1,79 +1,71 @@
-import type { Session } from "@opencode-ai/sdk/client"
-import { createMemo, For, Show } from "solid-js"
+import { createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
-import { sessionBusy, visibleSessions } from "../engine/store"
-import { selectedSession, selectSession } from "../state/selection"
+import { pickFolder } from "../state/dialog"
 import { cycleTheme, theme } from "../state/theme"
+import { addWorkspace, workspaces } from "../state/workspaces"
+import { WorkspaceGroup, WorkspaceMenu, type WorkspaceMenuState } from "./workspaces"
 
 export function Sidebar() {
-  const engine = useEngine()
-  const sessions = createMemo(() => visibleSessions(engine.state))
+  const [menu, setMenu] = createSignal<WorkspaceMenuState | null>(null)
+
+  async function add() {
+    const path = await pickFolder()
+    if (path) await addWorkspace(path)
+  }
 
   return (
     <aside class="flex w-64 shrink-0 flex-col border-r border-edge bg-surface">
       <div class="flex items-center justify-between px-4 pt-3 pb-2">
-        <span class="text-[0.68rem] tracking-wider text-ink-faint uppercase">Threads</span>
+        <span class="text-[0.68rem] tracking-wider text-ink-faint uppercase">Workspaces</span>
         <button
           class="rounded-md border border-edge px-2 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
-          onClick={() => selectSession(null)}
+          title="Add workspace (pick a folder)"
+          onClick={() => void add()}
         >
-          + New
+          + Add
         </button>
       </div>
-      <nav class="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2">
-        <For each={sessions()}>{(session) => <ThreadItem session={session} />}</For>
-        <Show when={sessions().length === 0}>
-          <div class="px-2 py-4 text-xs text-ink-faint">No threads yet</div>
+      <nav class="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
+        <For each={workspaces()}>
+          {(workspace) => <WorkspaceGroup workspace={workspace} onMenu={setMenu} />}
+        </For>
+        <Show when={workspaces().length === 0}>
+          <div class="px-2 py-4 text-xs text-ink-faint">Add a workspace (a project folder) to get started.</div>
         </Show>
       </nav>
       <SidebarFooter />
+      <Show when={menuWorkspace()}>
+        {(entry) => <WorkspaceMenu state={entry().state} workspace={entry().workspace} onClose={() => setMenu(null)} />}
+      </Show>
     </aside>
   )
-}
 
-function ThreadItem(props: { session: Session }) {
-  const engine = useEngine()
-  const active = () => selectedSession() === props.session.id
-  return (
-    <div
-      class="group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors"
-      classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
-      onClick={() => selectSession(props.session.id)}
-    >
-      <Show when={sessionBusy(engine.state, props.session.id)}>
-        <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" />
-      </Show>
-      <div class="min-w-0 flex-1">
-        <div class="truncate text-sm" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
-          {props.session.title || "Untitled"}
-        </div>
-        <div class="text-[0.68rem] text-ink-faint">{ago(props.session.time.updated)}</div>
-      </div>
-      <button
-        class="hidden shrink-0 text-ink-faint transition-colors hover:text-danger group-hover:block"
-        title="Delete thread"
-        onClick={(event) => {
-          event.stopPropagation()
-          if (selectedSession() === props.session.id) selectSession(null)
-          void engine.actions.remove(props.session.id)
-        }}
-      >
-        <svg class="size-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M4 4l8 8M12 4l-8 8" />
-        </svg>
-      </button>
-    </div>
-  )
+  function menuWorkspace() {
+    const state = menu()
+    if (!state) return null
+    const workspace = workspaces().find((w) => w.id === state.workspaceId)
+    return workspace ? { state, workspace } : null
+  }
 }
 
 function SidebarFooter() {
   const engine = useEngine()
-  const dot: Record<string, string> = { online: "bg-ok", connecting: "bg-warn pulse-soft", offline: "bg-danger" }
+  const dot: Record<string, string> = {
+    online: "bg-ok",
+    connecting: "bg-warn pulse-soft",
+    offline: "bg-danger",
+    idle: "bg-ink-faint",
+  }
+  const label = () => {
+    if (engine.state.connection === "online") return shortPath(engine.state.directory)
+    if (engine.state.connection === "idle") return "no workspace"
+    return engine.state.connection
+  }
   return (
     <div class="flex items-center gap-2 border-t border-edge px-4 py-2.5 text-xs text-ink-faint">
       <span class={`size-1.5 rounded-full ${dot[engine.state.connection]}`} />
       <span class="min-w-0 flex-1 truncate" title={engine.state.directory}>
-        {engine.state.connection === "online" ? shortPath(engine.state.directory) : engine.state.connection}
+        {label()}
       </span>
       <button class="transition-colors hover:text-ink" title={`Theme: ${theme()}`} onClick={cycleTheme}>
         <svg class="size-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -88,12 +80,4 @@ function SidebarFooter() {
 function shortPath(path: string) {
   const parts = path.replaceAll("\\", "/").split("/").filter(Boolean)
   return parts.slice(-2).join("/") || path
-}
-
-function ago(timestamp: number) {
-  const seconds = Math.max(0, (Date.now() - timestamp) / 1000)
-  if (seconds < 60) return "just now"
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
-  return `${Math.floor(seconds / 86400)}d ago`
 }

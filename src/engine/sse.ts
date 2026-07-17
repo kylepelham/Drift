@@ -1,8 +1,15 @@
 import type { Event } from "@opencode-ai/sdk/client"
 import type { EngineTarget } from "./connection"
 
-export async function streamEvents(target: EngineTarget, signal: AbortSignal, onEvent: (event: Event) => void) {
-  const res = await fetch(`${target.url}/event`, { headers: target.headers, signal })
+export async function streamEvents(
+  target: EngineTarget,
+  directory: string,
+  signal: AbortSignal,
+  onEvent: (event: Event) => void,
+) {
+  const url = new URL(`${target.url}/event`)
+  url.searchParams.set("directory", directory)
+  const res = await fetch(url, { headers: target.headers, signal })
   if (!res.ok || !res.body) throw new Error(`event stream ${res.status}`)
   const reader = res.body.getReader()
   const decoder = new TextDecoder()

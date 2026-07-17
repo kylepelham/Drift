@@ -3,6 +3,7 @@ import { useEngine } from "../engine"
 import { resolveModel, sessionBusy } from "../engine/store"
 import { agentPref, modelPref, setAgentPref, setModelPref } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
+import { activeWorkspace } from "../state/workspaces"
 import { Picker, type PickerItem } from "./picker"
 
 export function Composer() {
@@ -15,6 +16,11 @@ export function Composer() {
     return !!id && sessionBusy(engine.state, id)
   }
   const online = () => engine.state.connection === "online"
+  const ready = () => online() && !!activeWorkspace()
+  const placeholder = () => {
+    if (!activeWorkspace()) return "Select a workspace to start"
+    return online() ? "Message Drift..." : "Connecting to engine..."
+  }
 
   const modelItems = createMemo<PickerItem[]>(() =>
     engine.state.providers
@@ -40,7 +46,7 @@ export function Composer() {
 
   async function submit() {
     const text = draft().trim()
-    if (!text || busy() || !online()) return
+    if (!text || busy() || !ready()) return
     const id = selectedSession() ?? (await engine.actions.newSession())?.id
     if (!id) return
     selectSession(id)
@@ -67,8 +73,8 @@ export function Composer() {
           ref={area}
           rows={1}
           class="max-h-50 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[0.925rem] outline-none placeholder:text-ink-faint"
-          placeholder={online() ? "Message Drift..." : "Connecting to engine..."}
-          disabled={!online()}
+          placeholder={placeholder()}
+          disabled={!ready()}
           value={draft()}
           onInput={(event) => {
             setDraft(event.currentTarget.value)
@@ -106,7 +112,7 @@ export function Composer() {
           >
             <button
               class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
-              disabled={!draft().trim() || !online()}
+              disabled={!draft().trim() || !ready()}
               onClick={() => void submit()}
             >
               Send

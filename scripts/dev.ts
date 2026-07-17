@@ -14,7 +14,7 @@ const engine = Bun.spawn([binary, "serve", "--port", port], {
   stdout: "inherit",
   stderr: "inherit",
 })
-const vite = Bun.spawn(["bun", "x", "vite"], {
+const vite = Bun.spawn([process.execPath, "x", "vite"], {
   cwd: root,
   stdout: "inherit",
   stderr: "inherit",

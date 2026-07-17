@@ -25,7 +25,7 @@ export type EngineState = {
 
 export function createEngineState() {
   return createStore<EngineState>({
-    connection: "connecting",
+    connection: "idle",
     directory: "",
     sessions: {},
     status: {},
@@ -50,10 +50,10 @@ export function normalizeDir(path: string) {
   return path.replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase()
 }
 
-export function visibleSessions(state: EngineState) {
-  const dir = normalizeDir(state.directory)
+export function sessionsFor(state: EngineState, directory: string) {
+  const dir = normalizeDir(directory)
   return Object.values(state.sessions)
-    .filter((session) => !session.parentID && (!dir || normalizeDir(session.directory) === dir))
+    .filter((session) => !session.parentID && normalizeDir(session.directory) === dir)
     .sort((a, b) => b.time.updated - a.time.updated)
 }
 

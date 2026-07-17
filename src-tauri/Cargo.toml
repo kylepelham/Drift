@@ -8,6 +8,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
 
 [profile.release]
 panic = "abort"
