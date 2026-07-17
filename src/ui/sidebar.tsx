@@ -11,8 +11,8 @@ export function Sidebar() {
 
   return (
     <aside class="flex w-64 shrink-0 flex-col border-r border-edge bg-surface">
-      <div class="flex items-center justify-between px-4 pt-4 pb-3">
-        <span class="text-sm font-semibold tracking-wide text-ink">drift</span>
+      <div class="flex items-center justify-between px-4 pt-3 pb-2">
+        <span class="text-[0.68rem] tracking-wider text-ink-faint uppercase">Threads</span>
         <button
           class="rounded-md border border-edge px-2 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
           onClick={() => selectSession(null)}
