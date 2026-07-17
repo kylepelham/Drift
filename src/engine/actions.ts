@@ -1,0 +1,61 @@
+import type { OpencodeClient, Session } from "@opencode-ai/sdk/client"
+import type { SetStoreFunction } from "solid-js/store"
+import type { EngineState, ModelRef } from "./store"
+
+export type PromptOptions = { model: ModelRef | null; agent: string }
+export type PermissionResponse = "once" | "always" | "reject"
+
+export function createActions(
+  requireClient: () => OpencodeClient,
+  state: EngineState,
+  set: SetStoreFunction<EngineState>,
+) {
+  async function openSession(id: string) {
+    if (state.loaded[id]) return
+    const result = await requireClient().session.messages({ path: { id } })
+    set("transcripts", id, result.data ?? [])
+    set("loaded", id, true)
+  }
+
+  async function newSession(): Promise<Session | undefined> {
+    const result = await requireClient().session.create({ body: {} })
+    if (result.data) set("sessions", result.data.id, result.data)
+    return result.data
+  }
+
+  async function send(id: string, text: string, options: PromptOptions) {
+    set("errors", id, undefined!)
+    const result = await requireClient().session.promptAsync({
+      path: { id },
+      body: {
+        parts: [{ type: "text", text }],
+        model: options.model ?? undefined,
+        agent: options.agent,
+      },
+    })
+    if (result.error) set("errors", id, "Prompt failed: engine rejected the request")
+  }
+
+  async function abort(id: string) {
+    await requireClient().session.abort({ path: { id } })
+  }
+
+  async function rename(id: string, title: string) {
+    await requireClient().session.update({ path: { id }, body: { title } })
+  }
+
+  async function remove(id: string) {
+    await requireClient().session.delete({ path: { id } })
+  }
+
+  async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
+    await requireClient().postSessionIdPermissionsPermissionId({
+      path: { id: sessionID, permissionID },
+      body: { response },
+    })
+  }
+
+  return { openSession, newSession, send, abort, rename, remove, replyPermission }
+}
+
+export type EngineActions = ReturnType<typeof createActions>
