@@ -1,13 +1,13 @@
-import type { AssistantMessage, Part } from "@opencode-ai/sdk/client"
-import { For, Show } from "solid-js"
+import type { AssistantMessage, Part, ToolPart } from "@opencode-ai/sdk/client"
+import { createMemo, For, Match, Show, Switch } from "solid-js"
 import type { MessageEntry } from "../engine/store"
 import { Markdown } from "./markdown"
-import { PartView } from "./parts"
+import { contextTools, ExploredGroup, PartView } from "./parts"
 
-export function MessageView(props: { entry: MessageEntry }) {
+export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
   return (
     <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble parts={props.entry.parts} />}>
-      <AssistantFlow entry={props.entry} />
+      <AssistantFlow entry={props.entry} footer={props.footer} />
     </Show>
   )
 }
@@ -27,11 +27,35 @@ function UserBubble(props: { parts: Part[] }) {
   )
 }
 
-function AssistantFlow(props: { entry: MessageEntry }) {
+type PartGroup = { key: string; explored: ToolPart[] } | { key: string; part: Part }
+
+function groupParts(parts: Part[]): PartGroup[] {
+  const groups: PartGroup[] = []
+  for (const part of parts) {
+    if (part.type === "tool" && contextTools.has(part.tool)) {
+      const last = groups.at(-1)
+      if (last && "explored" in last) last.explored.push(part)
+      else groups.push({ key: `explored:${part.id}`, explored: [part] })
+      continue
+    }
+    groups.push({ key: part.id, part })
+  }
+  return groups
+}
+
+function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
   const info = () => props.entry.info as AssistantMessage
+  const groups = createMemo(() => groupParts(props.entry.parts))
   return (
-    <div class="fade-up space-y-2.5">
-      <For each={props.entry.parts}>{(part) => <PartView part={part} />}</For>
+    <div class="fade-up group space-y-2.5">
+      <For each={groups()}>
+        {(group) => (
+          <Switch>
+            <Match when={"explored" in group && group}>{(g) => <ExploredGroup parts={g().explored} />}</Match>
+            <Match when={"part" in group && group}>{(g) => <PartView part={g().part} />}</Match>
+          </Switch>
+        )}
+      </For>
       <Show when={info().error}>
         {(error) => (
           <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
@@ -39,8 +63,8 @@ function AssistantFlow(props: { entry: MessageEntry }) {
           </div>
         )}
       </Show>
-      <Show when={info().time.completed}>
-        <div class="flex gap-3 text-[0.7rem] text-ink-faint">
+      <Show when={props.footer && info().time.completed}>
+        <div class="flex gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 group-hover:opacity-100">
           <span>{info().modelID}</span>
           <span>{formatTokens(info())}</span>
           <Show when={info().cost > 0}>

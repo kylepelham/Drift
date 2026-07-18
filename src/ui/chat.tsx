@@ -39,7 +39,11 @@ export function Chat() {
     >
       <Show when={selectedSession()} fallback={<EmptyState />}>
         <div class="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6">
-          <For each={entries()}>{(entry) => <MessageView entry={entry} />}</For>
+          <For each={entries()}>
+            {(entry, index) => (
+              <MessageView entry={entry} footer={entries()[index() + 1]?.info.role !== "assistant"} />
+            )}
+          </For>
           <Show when={busy()}>
             <div class="pulse-soft text-sm text-ink-faint">working...</div>
           </Show>
