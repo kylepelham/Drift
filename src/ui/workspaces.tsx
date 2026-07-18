@@ -1,4 +1,4 @@
-import { createEffect, createMemo, onCleanup, Show, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, Show, For, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { IconArchive, IconDots, IconSquarePen } from "./icons"
 import { sessionBusy, sessionsFor } from "../engine/store"
@@ -157,8 +157,14 @@ function initials(name: string) {
   return (letters.join("") || name.charAt(0)).toUpperCase()
 }
 
-export function WorkspaceMenu(props: { state: WorkspaceMenuState; workspace: Workspace; onClose: () => void }) {
+export function WorkspaceMenu(props: {
+  state: WorkspaceMenuState
+  workspace: Workspace
+  onEdit: () => void
+  onClose: () => void
+}) {
   let root!: HTMLDivElement
+  const [confirming, setConfirming] = createSignal(false)
 
   createEffect(() => {
     const away = (event: MouseEvent) => {
@@ -175,52 +181,118 @@ export function WorkspaceMenu(props: { state: WorkspaceMenuState; workspace: Wor
     })
   })
 
-  const rename = (name: string) => {
-    const next = name.trim()
-    if (next && next !== props.workspace.name) void updateWorkspace(props.workspace.id, { name: next })
-  }
-
-  async function changeIcon() {
-    const icon = await pickIconImage()
-    if (icon) await updateWorkspace(props.workspace.id, { icon })
-    props.onClose()
-  }
-
   return (
     <div
       ref={root}
-      class="fade-up fixed z-40 w-56 rounded-lg border border-edge bg-overlay p-1.5 shadow-xl shadow-black/40"
-      style={{ left: `${Math.min(props.state.x, window.innerWidth - 240)}px`, top: `${Math.min(props.state.y, window.innerHeight - 220)}px` }}
+      class="fade-up fixed z-40 w-52 rounded-lg border border-edge bg-overlay p-1.5 shadow-xl shadow-black/40"
+      style={{
+        left: `${Math.min(props.state.x, window.innerWidth - 220)}px`,
+        top: `${Math.min(props.state.y, window.innerHeight - 120)}px`,
+      }}
     >
-      <input
-        class="mb-1 w-full rounded-md border border-edge bg-surface px-2 py-1.5 text-sm outline-none focus:border-edge-strong"
-        value={props.workspace.name}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter") return
-          rename(event.currentTarget.value)
+      <MenuItem
+        label="Edit"
+        onClick={() => {
+          props.onEdit()
           props.onClose()
         }}
-        onBlur={(event) => rename(event.currentTarget.value)}
       />
-      <MenuItem label="Change icon image..." onClick={() => void changeIcon()} />
-      <Show when={props.workspace.icon}>
-        <MenuItem
-          label="Remove icon"
-          onClick={() => {
-            void updateWorkspace(props.workspace.id, { icon: "" })
-            props.onClose()
-          }}
-        />
-      </Show>
-      <div class="my-1 h-px bg-edge" />
       <MenuItem
-        label="Remove workspace"
+        label={confirming() ? "Click again to confirm" : "Remove"}
         danger
         onClick={() => {
+          if (!confirming()) return setConfirming(true)
           void removeWorkspace(props.workspace.id)
           props.onClose()
         }}
       />
+      <Show when={confirming()}>
+        <div class="px-2 pt-1 pb-0.5 text-[0.65rem] leading-snug text-ink-faint">
+          Threads are kept for 7 days; re-add the same folder to restore them.
+        </div>
+      </Show>
+    </div>
+  )
+}
+
+export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () => void }) {
+  const [name, setName] = createSignal(props.workspace.name)
+  const [icon, setIcon] = createSignal(props.workspace.icon)
+
+  createEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") props.onClose()
+    }
+    document.addEventListener("keydown", escape)
+    onCleanup(() => document.removeEventListener("keydown", escape))
+  })
+
+  async function save() {
+    const next = name().trim()
+    await updateWorkspace(props.workspace.id, { name: next || props.workspace.name, icon: icon() })
+    props.onClose()
+  }
+
+  return (
+    <div class="fixed inset-0 z-30 flex items-center justify-center bg-black/50" onClick={props.onClose}>
+      <div
+        class="fade-up w-96 rounded-xl border border-edge bg-overlay p-4 shadow-2xl shadow-black/40"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div class="mb-4 text-sm font-semibold text-ink">Edit workspace</div>
+        <div class="mb-4 flex items-center gap-3">
+          <Show
+            when={icon().startsWith("data:")}
+            fallback={
+              <span class="flex size-12 items-center justify-center rounded-lg bg-raised text-sm font-semibold text-ink-muted">
+                {initials(name() || props.workspace.name)}
+              </span>
+            }
+          >
+            <img src={icon()} alt="" class="size-12 rounded-lg object-cover" />
+          </Show>
+          <div class="flex flex-col gap-1.5">
+            <button
+              class="rounded-md border border-edge px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+              onClick={() => void pickIconImage().then((image) => image && setIcon(image))}
+            >
+              Change image...
+            </button>
+            <Show when={icon()}>
+              <button
+                class="rounded-md border border-edge px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+                onClick={() => setIcon("")}
+              >
+                Use initials
+              </button>
+            </Show>
+          </div>
+        </div>
+        <label class="mb-4 block">
+          <span class="mb-1 block text-[0.68rem] tracking-wide text-ink-faint uppercase">Name</span>
+          <input
+            class="w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-edge-strong"
+            value={name()}
+            onInput={(event) => setName(event.currentTarget.value)}
+            onKeyDown={(event) => event.key === "Enter" && void save()}
+          />
+        </label>
+        <div class="mb-3 text-[0.68rem] text-ink-faint">{props.workspace.path}</div>
+        <div class="flex justify-end gap-2">
+          <button
+            class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:text-ink"
+            onClick={props.onClose}
+          >
+            Cancel
+          </button>
+          <button
+            class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink"
+            onClick={() => void save()}
+          >
+            Save
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

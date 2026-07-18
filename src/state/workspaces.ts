@@ -25,13 +25,10 @@ export function selectWorkspace(id: string) {
 }
 
 export async function addWorkspace(path: string) {
-  const existing = workspaces().find((w) => w.path === path)
-  if (existing) return selectWorkspace(existing.id)
-  const id = crypto.randomUUID()
   const name = path.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? path
-  await driftStore.saveWorkspace({ id, path, name, icon: "" })
+  const workspace = await driftStore.addWorkspace({ id: crypto.randomUUID(), path, name, icon: "" })
   setWorkspaces(await driftStore.workspaces())
-  selectWorkspace(id)
+  selectWorkspace(workspace.id)
 }
 
 export async function updateWorkspace(id: string, patch: { name?: string; icon?: string }) {
@@ -47,7 +44,7 @@ export async function updateWorkspace(id: string, patch: { name?: string; icon?:
 }
 
 export async function removeWorkspace(id: string) {
-  await driftStore.deleteWorkspace(id)
+  await driftStore.removeWorkspace(id)
   setWorkspaces(await driftStore.workspaces())
   if (activeWorkspaceId() === id) {
     setActiveWorkspaceId(null)
@@ -64,4 +61,8 @@ const purgeAge = 7 * 24 * 60 * 60 * 1000
 
 export function purgeArchived() {
   return driftStore.purgeArchived(Date.now() - purgeAge)
+}
+
+export function purgeRemovedWorkspaces() {
+  return driftStore.purgeRemovedWorkspaces(Date.now() - purgeAge)
 }

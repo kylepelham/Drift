@@ -15,7 +15,7 @@ holds what Drift adds on top.
 
 | Table | Columns | Purpose |
 | --- | --- | --- |
-| `workspace` | id, path (unique), name, icon, last_used | workspaces = directories with display identity; `icon` is empty (initials rendered from name) or a small data-URL image thumbnail |
+| `workspace` | id, path (unique), name, icon, last_used, removed_at | workspaces = directories with display identity; `icon` is empty (initials rendered from name) or a small data-URL image thumbnail |
 | `session_meta` | session_id, workspace_id, archived_at | Drift metadata about engine sessions; today that is archive state |
 
 Workspace icons are images only, downscaled client-side to a 64px webp data URL
@@ -26,6 +26,14 @@ Workspace icons are images only, downscaled client-side to a 64px webp data URL
 Archiving never deletes: `archived_at` is set and the thread disappears from the
 sidebar. On startup (once the engine is online) Drift purges archive rows older than
 7 days and deletes those sessions from the engine.
+
+## Workspace removal lifecycle
+
+Removing a workspace is a soft delete (`removed_at`); its sessions are left completely
+untouched (not archived, not deleted). Re-adding the same folder within 7 days restores
+the workspace row, custom name and icon included, and all its threads are simply there
+again. The startup purge hard-deletes workspace rows removed more than 7 days ago and
+deletes all engine sessions in those directories.
 
 ## Access
 

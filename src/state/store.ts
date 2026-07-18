@@ -3,9 +3,11 @@ export type ArchivedSession = { sessionId: string; workspaceId: string; archived
 
 export interface DriftStore {
   workspaces(): Promise<Workspace[]>
+  addWorkspace(workspace: Omit<Workspace, "lastUsed">): Promise<Workspace>
   saveWorkspace(workspace: Omit<Workspace, "lastUsed">): Promise<void>
   touchWorkspace(id: string): Promise<void>
-  deleteWorkspace(id: string): Promise<void>
+  removeWorkspace(id: string): Promise<void>
+  purgeRemovedWorkspaces(before: number): Promise<string[]>
   archived(): Promise<ArchivedSession[]>
   archiveSession(sessionId: string, workspaceId: string): Promise<void>
   purgeArchived(before: number): Promise<string[]>
@@ -20,9 +22,11 @@ export function shellInvoke(): Invoke | undefined {
 function shellStore(invoke: Invoke): DriftStore {
   return {
     workspaces: () => invoke("store_workspaces"),
+    addWorkspace: (w) => invoke("store_add_workspace", { id: w.id, path: w.path, name: w.name, icon: w.icon }),
     saveWorkspace: (w) => invoke("store_save_workspace", { id: w.id, path: w.path, name: w.name, icon: w.icon }),
     touchWorkspace: (id) => invoke("store_touch_workspace", { id }),
-    deleteWorkspace: (id) => invoke("store_delete_workspace", { id }),
+    removeWorkspace: (id) => invoke("store_remove_workspace", { id }),
+    purgeRemovedWorkspaces: (before) => invoke("store_purge_removed_workspaces", { before }),
     archived: () => invoke("store_archived"),
     archiveSession: (sessionId, workspaceId) => invoke("store_archive_session", { sessionId, workspaceId }),
     purgeArchived: (before) => invoke("store_purge_archived", { before }),
@@ -38,21 +42,39 @@ function write(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value))
 }
 
+type StoredWorkspace = Workspace & { removedAt?: number }
+
 function browserStore(): DriftStore {
   const wsKey = "drift.store.workspaces"
   const arKey = "drift.store.archived"
+  const all = () => read<StoredWorkspace[]>(wsKey, [])
   return {
-    workspaces: async () => read<Workspace[]>(wsKey, []).sort((a, b) => b.lastUsed - a.lastUsed),
+    workspaces: async () => all().filter((w) => !w.removedAt).sort((a, b) => b.lastUsed - a.lastUsed),
+    addWorkspace: async (w) => {
+      const existing = all().find((x) => x.path === w.path)
+      if (existing) {
+        const restored = { ...existing, removedAt: undefined, lastUsed: Date.now() }
+        write(wsKey, [...all().filter((x) => x.id !== existing.id), restored])
+        return restored
+      }
+      const created = { ...w, lastUsed: Date.now() }
+      write(wsKey, [...all(), created])
+      return created
+    },
     saveWorkspace: async (w) => {
-      const list = read<Workspace[]>(wsKey, []).filter((x) => x.id !== w.id)
-      write(wsKey, [...list, { ...w, lastUsed: Date.now() }])
+      write(wsKey, all().map((x) => (x.id === w.id ? { ...x, name: w.name, icon: w.icon } : x)))
     },
     touchWorkspace: async (id) => {
-      write(wsKey, read<Workspace[]>(wsKey, []).map((w) => (w.id === id ? { ...w, lastUsed: Date.now() } : w)))
+      write(wsKey, all().map((w) => (w.id === id ? { ...w, lastUsed: Date.now() } : w)))
     },
-    deleteWorkspace: async (id) => {
-      write(wsKey, read<Workspace[]>(wsKey, []).filter((w) => w.id !== id))
-      write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => a.workspaceId !== id))
+    removeWorkspace: async (id) => {
+      write(wsKey, all().map((w) => (w.id === id ? { ...w, removedAt: Date.now() } : w)))
+    },
+    purgeRemovedWorkspaces: async (before) => {
+      const gone = all().filter((w) => w.removedAt && w.removedAt < before)
+      write(wsKey, all().filter((w) => !gone.some((g) => g.id === w.id)))
+      write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => !gone.some((g) => g.id === a.workspaceId)))
+      return gone.map((w) => w.path)
     },
     archived: async () => read<ArchivedSession[]>(arKey, []),
     archiveSession: async (sessionId, workspaceId) => {

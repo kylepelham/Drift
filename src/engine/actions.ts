@@ -22,6 +22,13 @@ export function createActions(
     for (const session of result.data ?? []) set("sessions", session.id, session)
   }
 
+  async function removeAllSessions(directory: string) {
+    const result = await requireClient().session.list({ query: { directory } })
+    for (const session of result.data ?? []) {
+      await requireClient().session.delete({ path: { id: session.id }, query: { directory } })
+    }
+  }
+
   async function newSession(): Promise<Session | undefined> {
     const result = await requireClient().session.create({ body: {} })
     if (result.data) set("sessions", result.data.id, result.data)
@@ -67,7 +74,7 @@ export function createActions(
     })
   }
 
-  return { openSession, loadSessions, newSession, send, abort, rename, remove, replyPermission }
+  return { openSession, loadSessions, removeAllSessions, newSession, send, abort, rename, remove, replyPermission }
 }
 
 export type EngineActions = ReturnType<typeof createActions>

@@ -1,7 +1,13 @@
 import { createEffect, onMount } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
 import { bindTheme } from "./state/theme"
-import { activeWorkspace, initWorkspaces, purgeArchived, workspaces } from "./state/workspaces"
+import {
+  activeWorkspace,
+  initWorkspaces,
+  purgeArchived,
+  purgeRemovedWorkspaces,
+  workspaces,
+} from "./state/workspaces"
 import { AttentionStrip } from "./ui/attention"
 import { Chat } from "./ui/chat"
 import { Composer } from "./ui/composer"
@@ -39,6 +45,7 @@ function WorkspaceBinding() {
     if (purged) return
     purged = true
     void purgeArchived().then((ids) => ids.forEach((id) => void engine.actions.remove(id)))
+    void purgeRemovedWorkspaces().then((paths) => paths.forEach((path) => void engine.actions.removeAllSessions(path)))
   })
   return null
 }

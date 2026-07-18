@@ -37,6 +37,17 @@ fn store_workspaces(store: State<Store>) -> Result<Vec<Workspace>, String> {
 }
 
 #[tauri::command]
+fn store_add_workspace(
+    store: State<Store>,
+    id: String,
+    path: String,
+    name: String,
+    icon: String,
+) -> Result<Workspace, String> {
+    store.add_workspace(&id, &path, &name, &icon).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn store_save_workspace(
     store: State<Store>,
     id: String,
@@ -53,8 +64,13 @@ fn store_touch_workspace(store: State<Store>, id: String) -> Result<(), String> 
 }
 
 #[tauri::command]
-fn store_delete_workspace(store: State<Store>, id: String) -> Result<(), String> {
-    store.delete_workspace(&id).map_err(|e| e.to_string())
+fn store_remove_workspace(store: State<Store>, id: String) -> Result<(), String> {
+    store.remove_workspace(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn store_purge_removed_workspaces(store: State<Store>, before: i64) -> Result<Vec<String>, String> {
+    store.purge_removed_workspaces(before).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -125,9 +141,11 @@ fn main() {
             engine_url,
             pick_folder,
             store_workspaces,
+            store_add_workspace,
             store_save_workspace,
             store_touch_workspace,
-            store_delete_workspace,
+            store_remove_workspace,
+            store_purge_removed_workspaces,
             store_archived,
             store_archive_session,
             store_purge_archived

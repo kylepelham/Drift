@@ -4,10 +4,11 @@ import { pickFolder } from "../state/dialog"
 import { addWorkspace, workspaces } from "../state/workspaces"
 import { IconGear } from "./icons"
 import { SettingsModal } from "./settings"
-import { WorkspaceGroup, WorkspaceMenu, type WorkspaceMenuState } from "./workspaces"
+import { WorkspaceEditModal, WorkspaceGroup, WorkspaceMenu, type WorkspaceMenuState } from "./workspaces"
 
 export function Sidebar() {
   const [menu, setMenu] = createSignal<WorkspaceMenuState | null>(null)
+  const [editing, setEditing] = createSignal<string | null>(null)
   const [settings, setSettings] = createSignal(false)
 
   async function add() {
@@ -35,7 +36,17 @@ export function Sidebar() {
       </nav>
       <SidebarFooter onSettings={() => setSettings(true)} />
       <Show when={menuWorkspace()}>
-        {(entry) => <WorkspaceMenu state={entry().state} workspace={entry().workspace} onClose={() => setMenu(null)} />}
+        {(entry) => (
+          <WorkspaceMenu
+            state={entry().state}
+            workspace={entry().workspace}
+            onEdit={() => setEditing(entry().workspace.id)}
+            onClose={() => setMenu(null)}
+          />
+        )}
+      </Show>
+      <Show when={editingWorkspace()}>
+        {(workspace) => <WorkspaceEditModal workspace={workspace()} onClose={() => setEditing(null)} />}
       </Show>
       <Show when={settings()}>
         <SettingsModal onClose={() => setSettings(false)} />
@@ -48,6 +59,10 @@ export function Sidebar() {
     if (!state) return null
     const workspace = workspaces().find((w) => w.id === state.workspaceId)
     return workspace ? { state, workspace } : null
+  }
+
+  function editingWorkspace() {
+    return workspaces().find((w) => w.id === editing()) ?? null
   }
 }
 
