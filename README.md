@@ -30,9 +30,12 @@ bun run build
 ## Desktop app
 
 ```
-bunx @tauri-apps/cli dev     # dev window, spawns its own engine on a random port
+bunx @tauri-apps/cli dev     # dev window; needs `bun run dev` running (it reuses that vite)
 bunx @tauri-apps/cli build   # release build
 ```
+
+The dev window spawns its own engine on a random port; the shared vite on :5180 serves
+both the browser and the webview, so frontend edits hot-reload everywhere.
 
 ## Updating the engine
 

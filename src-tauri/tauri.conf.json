@@ -4,7 +4,6 @@
   "version": "0.1.0",
   "identifier": "dev.drift.app",
   "build": {
-    "beforeDevCommand": "bun x vite",
     "devUrl": "http://localhost:5180",
     "beforeBuildCommand": "bun run build",
     "frontendDist": "../dist"
