@@ -1,7 +1,7 @@
 import type { Event, Message, Part, Permission, Session } from "@opencode-ai/sdk/client"
 import type { SetStoreFunction } from "solid-js/store"
 import { produce } from "solid-js/store"
-import type { EngineState } from "./store"
+import { spawnLink, type EngineState } from "./store"
 
 type Set = SetStoreFunction<EngineState>
 
@@ -81,8 +81,10 @@ function dropMessage(set: Set, sessionID: string, messageID: string) {
 }
 
 function upsertPart(set: Set, part: Part) {
+  const link = spawnLink(part)
   set(
     produce((s) => {
+      if (link) s.links[link.child] = link.parent
       const entry = s.transcripts[part.sessionID]?.find((item) => item.info.id === part.messageID)
       if (!entry) return
       const index = entry.parts.findIndex((existing) => existing.id === part.id)

@@ -1,6 +1,6 @@
 import type { OpencodeClient, Session } from "@opencode-ai/sdk/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
-import type { EngineState, ModelRef } from "./store"
+import { spawnLink, type EngineState, type ModelRef } from "./store"
 
 export type PromptOptions = { model: ModelRef | null; agent: string }
 export type PermissionResponse = "once" | "always" | "reject"
@@ -15,6 +15,12 @@ export function createActions(
     const result = await requireClient().session.messages({ path: { id } })
     set("transcripts", id, result.data ?? [])
     set("loaded", id, true)
+    for (const entry of result.data ?? []) {
+      for (const part of entry.parts) {
+        const link = spawnLink(part)
+        if (link) set("links", link.child, link.parent)
+      }
+    }
   }
 
   async function loadSessions(directory: string) {

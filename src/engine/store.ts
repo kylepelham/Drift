@@ -21,6 +21,7 @@ export type EngineState = {
   defaultModels: Record<string, string>
   agents: Agent[]
   errors: Record<string, string>
+  links: Record<string, string>
 }
 
 export function createEngineState() {
@@ -38,7 +39,16 @@ export function createEngineState() {
     defaultModels: {},
     agents: [],
     errors: {},
+    links: {},
   })
+}
+
+export function spawnLink(part: Part): { child: string; parent: string } | undefined {
+  if (part.type !== "tool" || (part.tool !== "task" && part.tool !== "spawn_thread")) return
+  const state = part.state
+  const meta = (("metadata" in state ? state.metadata : undefined) ?? part.metadata) as { sessionId?: string }
+  if (!meta?.sessionId) return
+  return { child: meta.sessionId, parent: part.sessionID }
 }
 
 export function sessionBusy(state: EngineState, id: string) {

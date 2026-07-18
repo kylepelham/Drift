@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup, Show, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, Match, onCleanup, Show, Switch, For, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
 import { childrenOf, sessionBusy, sessionsFor } from "../engine/store"
@@ -109,9 +109,7 @@ function ThreadItem(props: { sessionId: string; title: string; updated: number; 
         selectSession(props.sessionId)
       }}
     >
-      <Show when={sessionBusy(engine.state, props.sessionId)}>
-        <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" />
-      </Show>
+      <StatusDot sessionId={props.sessionId} />
       <span class="min-w-0 flex-1 truncate text-[0.8rem]" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
         {props.title || "Untitled"}
       </span>
@@ -139,8 +137,22 @@ function ThreadItem(props: { sessionId: string; title: string; updated: number; 
   )
 }
 
-function ChildThreadItem(props: { sessionId: string; title: string; workspace: Workspace }) {
+function StatusDot(props: { sessionId: string }) {
   const engine = useEngine()
+  const attention = () => (engine.state.permissions[props.sessionId]?.length ?? 0) > 0
+  return (
+    <Switch>
+      <Match when={attention()}>
+        <span class="size-1.5 shrink-0 rounded-full bg-warn" title="Waiting for permission" />
+      </Match>
+      <Match when={sessionBusy(engine.state, props.sessionId)}>
+        <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" />
+      </Match>
+    </Switch>
+  )
+}
+
+function ChildThreadItem(props: { sessionId: string; title: string; workspace: Workspace }) {
   const active = () => selectedSession() === props.sessionId
   return (
     <div
@@ -152,9 +164,7 @@ function ChildThreadItem(props: { sessionId: string; title: string; workspace: W
       }}
     >
       <span class="text-[0.7rem] text-ink-faint">&#8627;</span>
-      <Show when={sessionBusy(engine.state, props.sessionId)}>
-        <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" />
-      </Show>
+      <StatusDot sessionId={props.sessionId} />
       <span class="min-w-0 flex-1 truncate text-[0.75rem]" classList={{ "text-ink": active(), "text-ink-faint": !active() }}>
         {props.title || "Spawned thread"}
       </span>

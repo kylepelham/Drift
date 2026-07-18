@@ -1,5 +1,5 @@
 import type { Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
-import { createSignal, Match, Show, Switch } from "solid-js"
+import { createSignal, For, Match, Show, Switch } from "solid-js"
 import { selectSession } from "../state/selection"
 import { IconArrowUpRight } from "./icons"
 import { Markdown } from "./markdown"
@@ -120,25 +120,117 @@ function ToolCard(props: { part: ToolPart }) {
         <Chevron open={open()} />
       </button>
       <Show when={open()}>
-        <div class="space-y-2 border-t border-edge px-3 py-2">
-          <ToolDetail label="input" value={JSON.stringify(state().input, null, 2)} />
-          <Show when={state().status === "completed" && state()}>
-            {(s) => <ToolDetail label="output" value={(s() as { output: string }).output} />}
-          </Show>
-          <Show when={state().status === "error" && state()}>
-            {(s) => <ToolDetail label="error" value={(s() as { error: string }).error} danger />}
-          </Show>
+        <div class="border-t border-edge">
+          <ToolBody part={props.part} />
         </div>
       </Show>
     </div>
   )
 }
 
-function ToolDetail(props: { label: string; value: string; danger?: boolean }) {
-  const clipped = () => {
-    const clean = props.value.replace(/\u001b\[[0-9;]*m/g, "")
-    return clean.length > 4000 ? clean.slice(0, 4000) + "\n..." : clean
+function ToolBody(props: { part: ToolPart }) {
+  const state = () => props.part.state
+  const meta = () => {
+    const s = state()
+    return (("metadata" in s ? s.metadata : undefined) ?? props.part.metadata) as Record<string, unknown> | undefined
   }
+  const diff = () => (typeof meta()?.diff === "string" ? (meta()!.diff as string) : null)
+  const shell = () => {
+    if (props.part.tool !== "bash") return null
+    const command = (state().input as { command?: string }).command
+    const output =
+      state().status === "completed"
+        ? (state() as { output: string }).output
+        : ((meta()?.output as string | undefined) ?? "")
+    return { command: command ?? "", output }
+  }
+  return (
+    <Switch
+      fallback={
+        <div class="space-y-2 px-3 py-2">
+          <ToolDetail label="input" value={JSON.stringify(state().input, null, 2)} />
+          <Show when={state().status === "completed" && state()}>
+            {(s) => <ToolDetail label="output" value={(s() as { output: string }).output} />}
+          </Show>
+          <ErrorDetail state={state()} />
+        </div>
+      }
+    >
+      <Match when={diff()}>
+        {(patch) => (
+          <>
+            <DiffView diff={patch()} />
+            <ErrorDetail state={state()} padded />
+          </>
+        )}
+      </Match>
+      <Match when={shell()}>
+        {(run) => (
+          <div class="space-y-1.5 px-3 py-2">
+            <pre class="overflow-x-auto rounded-md bg-raised p-2 font-mono text-xs whitespace-pre-wrap text-ink">
+              <span class="text-accent select-none">$ </span>
+              {run().command}
+            </pre>
+            <Show when={run().output.trim()}>
+              <pre class="max-h-64 overflow-auto rounded-md bg-raised p-2 font-mono text-xs whitespace-pre-wrap text-ink-muted">
+                {clip(stripAnsi(run().output))}
+              </pre>
+            </Show>
+            <ErrorDetail state={state()} />
+          </div>
+        )}
+      </Match>
+    </Switch>
+  )
+}
+
+function ErrorDetail(props: { state: ToolPart["state"]; padded?: boolean }) {
+  return (
+    <Show when={props.state.status === "error" && props.state}>
+      {(s) => (
+        <div classList={{ "px-3 pb-2": props.padded }}>
+          <ToolDetail label="error" value={(s() as { error: string }).error} danger />
+        </div>
+      )}
+    </Show>
+  )
+}
+
+function DiffView(props: { diff: string }) {
+  const lines = () =>
+    props.diff
+      .split("\n")
+      .filter((line) => !line.startsWith("---") && !line.startsWith("+++") && !line.startsWith("\\") && line !== "")
+  return (
+    <div class="max-h-72 overflow-auto p-1 font-mono text-xs leading-relaxed">
+      <For each={lines()}>
+        {(line) => (
+          <div
+            class="rounded-xs px-2 whitespace-pre"
+            classList={{
+              "bg-ok/10 text-ok": line.startsWith("+"),
+              "bg-danger/10 text-danger": line.startsWith("-"),
+              "py-0.5 text-ink-faint": line.startsWith("@@"),
+              "text-ink-muted": !line.startsWith("+") && !line.startsWith("-") && !line.startsWith("@@"),
+            }}
+          >
+            {line}
+          </div>
+        )}
+      </For>
+    </div>
+  )
+}
+
+function stripAnsi(value: string) {
+  return value.replace(/\u001b\[[0-9;]*m/g, "")
+}
+
+function clip(value: string) {
+  return value.length > 4000 ? value.slice(0, 4000) + "\n..." : value
+}
+
+function ToolDetail(props: { label: string; value: string; danger?: boolean }) {
   return (
     <div>
       <div class="mb-0.5 text-[0.65rem] tracking-wide text-ink-faint uppercase">{props.label}</div>
@@ -146,7 +238,7 @@ function ToolDetail(props: { label: string; value: string; danger?: boolean }) {
         class="max-h-64 overflow-auto rounded-md bg-raised p-2 font-mono text-xs whitespace-pre-wrap"
         classList={{ "text-danger": props.danger, "text-ink-muted": !props.danger }}
       >
-        {clipped()}
+        {clip(stripAnsi(props.value))}
       </pre>
     </div>
   )
