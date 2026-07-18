@@ -11,6 +11,7 @@ import {
 import { AttentionStrip } from "./ui/attention"
 import { Chat } from "./ui/chat"
 import { Composer } from "./ui/composer"
+import { ChatHeader } from "./ui/header"
 import { Sidebar } from "./ui/sidebar"
 import { Titlebar } from "./ui/titlebar"
 
@@ -24,6 +25,7 @@ export function App() {
         <div class="flex min-h-0 flex-1">
           <Sidebar />
           <main class="flex min-w-0 flex-1 flex-col">
+            <ChatHeader />
             <Chat />
             <AttentionStrip />
             <Composer />

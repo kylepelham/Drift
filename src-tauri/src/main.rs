@@ -102,6 +102,18 @@ fn engine_binary() -> Option<std::path::PathBuf> {
     dev.exists().then_some(dev)
 }
 
+fn engine_extensions() -> Option<std::path::PathBuf> {
+    let bundled = std::env::current_exe().ok()?.parent()?.join("drift-extensions");
+    if bundled.exists() {
+        return Some(bundled);
+    }
+    let dev = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()?
+        .join("engine")
+        .join("opencode");
+    dev.exists().then_some(dev)
+}
+
 fn spawn_engine(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let Some(binary) = engine_binary() else { return };
@@ -112,6 +124,9 @@ fn spawn_engine(app: tauri::AppHandle) {
             .env_remove("OPENCODE_SERVER_PASSWORD")
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+        if let Some(extensions) = engine_extensions() {
+            command.env("OPENCODE_CONFIG_DIR", extensions);
+        }
         if let Ok(home) = home {
             command.current_dir(home);
         }

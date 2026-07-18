@@ -35,6 +35,12 @@ export function createActions(
     return result.data
   }
 
+  async function fork(id: string): Promise<Session | undefined> {
+    const result = await requireClient().session.fork({ path: { id }, body: {} })
+    if (result.data) set("sessions", result.data.id, result.data)
+    return result.data
+  }
+
   async function send(id: string, text: string, options: PromptOptions) {
     set("errors", id, undefined!)
     const result = await requireClient().session.promptAsync({
@@ -74,7 +80,18 @@ export function createActions(
     })
   }
 
-  return { openSession, loadSessions, removeAllSessions, newSession, send, abort, rename, remove, replyPermission }
+  return {
+    openSession,
+    loadSessions,
+    removeAllSessions,
+    newSession,
+    fork,
+    send,
+    abort,
+    rename,
+    remove,
+    replyPermission,
+  }
 }
 
 export type EngineActions = ReturnType<typeof createActions>

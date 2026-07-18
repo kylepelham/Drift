@@ -60,6 +60,38 @@ export function IconGear(props: IconProps) {
   )
 }
 
+export function IconBranch(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <circle cx="6" cy="6" r="2.5" />
+      <circle cx="18" cy="18" r="2.5" />
+      <path d="M6 8.5v3a4 4 0 0 0 4 4h5.5" />
+      <path d="m13 12.5 3 3-3 3" />
+    </>,
+  )
+}
+
+export function IconArrowUpRight(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="M7 17 17 7" />
+      <path d="M8 7h9v9" />
+    </>,
+  )
+}
+
+export function IconArrowUp(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="M12 19V5" />
+      <path d="m5 12 7-7 7 7" />
+    </>,
+  )
+}
+
 export function IconX(props: IconProps) {
   return frame(
     props,

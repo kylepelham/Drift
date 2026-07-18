@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show, For, type JSX } from "solid-js"
 import { useEngine } from "../engine"
-import { IconArchive, IconDots, IconSquarePen } from "./icons"
-import { sessionBusy, sessionsFor } from "../engine/store"
+import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
+import { childrenOf, sessionBusy, sessionsFor } from "../engine/store"
 import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
 import {
@@ -61,12 +61,17 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
       <div class="mt-0.5 ml-4 space-y-0.5 border-l border-edge pl-1.5">
         <For each={sessions()}>
           {(session) => (
-            <ThreadItem
-              sessionId={session.id}
-              title={session.title}
-              updated={session.time.updated}
-              workspace={props.workspace}
-            />
+            <>
+              <ThreadItem
+                sessionId={session.id}
+                title={session.title}
+                updated={session.time.updated}
+                workspace={props.workspace}
+              />
+              <For each={childrenOf(engine.state, session.id)}>
+                {(child) => <ChildThreadItem sessionId={child.id} title={child.title} workspace={props.workspace} />}
+              </For>
+            </>
           )}
         </For>
         <Show when={sessions().length === 0 && active()}>
@@ -111,7 +116,15 @@ function ThreadItem(props: { sessionId: string; title: string; updated: number; 
         {props.title || "Untitled"}
       </span>
       <span class="shrink-0 text-[0.65rem] text-ink-faint group-hover:hidden">{ago(props.updated)}</span>
-      <span class="hidden shrink-0 group-hover:block">
+      <span class="hidden shrink-0 items-center group-hover:flex">
+        <RowButton
+          title="Fork thread (duplicate with full history)"
+          onClick={() => {
+            void engine.actions.fork(props.sessionId).then((session) => session && selectSession(session.id))
+          }}
+        >
+          <IconBranch />
+        </RowButton>
         <RowButton
           title="Archive thread"
           onClick={() => {
@@ -121,6 +134,29 @@ function ThreadItem(props: { sessionId: string; title: string; updated: number; 
         >
           <IconArchive />
         </RowButton>
+      </span>
+    </div>
+  )
+}
+
+function ChildThreadItem(props: { sessionId: string; title: string; workspace: Workspace }) {
+  const engine = useEngine()
+  const active = () => selectedSession() === props.sessionId
+  return (
+    <div
+      class="flex h-7 cursor-pointer items-center gap-1.5 rounded-md py-0.5 pr-2 pl-5 transition-colors"
+      classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
+      onClick={() => {
+        selectWorkspace(props.workspace.id)
+        selectSession(props.sessionId)
+      }}
+    >
+      <span class="text-[0.7rem] text-ink-faint">&#8627;</span>
+      <Show when={sessionBusy(engine.state, props.sessionId)}>
+        <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" />
+      </Show>
+      <span class="min-w-0 flex-1 truncate text-[0.75rem]" classList={{ "text-ink": active(), "text-ink-faint": !active() }}>
+        {props.title || "Spawned thread"}
       </span>
     </div>
   )

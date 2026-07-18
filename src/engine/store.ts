@@ -57,6 +57,12 @@ export function sessionsFor(state: EngineState, directory: string) {
     .sort((a, b) => b.time.updated - a.time.updated)
 }
 
+export function childrenOf(state: EngineState, parentId: string) {
+  return Object.values(state.sessions)
+    .filter((session) => session.parentID === parentId)
+    .sort((a, b) => a.time.created - b.time.created)
+}
+
 const providerPriority = ["anthropic", "openai", "opencode", "github-copilot", "google", "zai", "xai"]
 
 export function resolveModel(state: EngineState, pref: ModelRef | null): ModelRef | null {

@@ -1,5 +1,7 @@
 import type { Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
 import { createSignal, Match, Show, Switch } from "solid-js"
+import { selectSession } from "../state/selection"
+import { IconArrowUpRight } from "./icons"
 import { Markdown } from "./markdown"
 
 export function PartView(props: { part: Part }) {
@@ -85,6 +87,12 @@ function ToolCard(props: { part: ToolPart }) {
     const s = state()
     return ("title" in s && s.title) || props.part.tool
   }
+  const spawnedId = () => {
+    if (props.part.tool !== "task" && props.part.tool !== "spawn_thread") return null
+    const s = state()
+    const meta = ("metadata" in s ? s.metadata : undefined) ?? props.part.metadata
+    return (meta as { sessionId?: string } | undefined)?.sessionId ?? null
+  }
   return (
     <div class="overflow-hidden rounded-lg border border-edge bg-surface text-sm">
       <button
@@ -94,6 +102,21 @@ function ToolCard(props: { part: ToolPart }) {
         <span class={`size-1.5 shrink-0 rounded-full ${statusColor[state().status]}`} />
         <span class="font-mono text-xs text-ink-faint">{props.part.tool}</span>
         <span class="min-w-0 flex-1 truncate text-ink-muted">{title()}</span>
+        <Show when={spawnedId()}>
+          {(childId) => (
+            <span
+              role="button"
+              title="Open spawned thread"
+              class="flex size-6 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+              onClick={(event) => {
+                event.stopPropagation()
+                selectSession(childId())
+              }}
+            >
+              <IconArrowUpRight class="size-3.5" />
+            </span>
+          )}
+        </Show>
         <Chevron open={open()} />
       </button>
       <Show when={open()}>

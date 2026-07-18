@@ -1,15 +1,15 @@
-# Extensibility (design, phases 5-6)
-
-Status: design notes. Engine-side extensibility works today because it is opencode's;
-Drift-side hooks and plugins are not built yet. This file is the contract to build to.
+# Extensibility
 
 ## Two plugin surfaces
 
-1. Engine side: standard opencode plugins (`.opencode/plugin`, npm packages in
-   opencode.json). They get `tool.execute.before/after`, `chat.*`, `permission.ask`,
-   custom tools, auth, etc. Drift does nothing special; document and lean on it.
+1. Engine side: standard opencode plugins. Drift ships its own in `engine/opencode/`
+   (injected via `OPENCODE_CONFIG_DIR`, which the engine treats as an extra config dir:
+   it auto-discovers `plugin/*.ts` and installs `@opencode-ai/plugin` there). User
+   plugins in `.opencode/` and global config work unchanged. Never patch
+   `engine/upstream` for engine behavior; add a plugin here instead.
 2. Drift side: UI/workflow hooks the engine cannot see. Modeled on claude-code's hook
    taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS).
+   Not built yet; contract below.
 
 ## Planned Drift hook events
 
@@ -21,14 +21,17 @@ Hooks are registered by Drift plugins: ESM modules listed in `drift.json`, loade
 startup, given a typed `DriftApi` (engine actions, store snapshots, UI registration
 points). No remote code; local files only.
 
-## Spawned threads (phase 5)
+## Spawned threads (shipped)
 
 The claude-code Task tool spawns subagents that die with their result. Drift adds a
-second primitive: spawn a sibling session that lives in the sidebar like any other
-thread, seeded with carried context (summary of the current thread plus user-picked
-notes). Implementation: engine-side custom tool `spawn_thread` registered via an
-opencode plugin (`tool` hook) that creates the session and prompts it; Drift recognises
-the tool call and links the two threads in its store.
+second primitive: `engine/opencode/plugin/spawn-thread.ts` registers a `spawn_thread`
+tool the model calls with a title, task, its own context summary, and optional verbatim
+excerpts (reasoning/CoT never crosses conversations; the model carries context as
+plain text by design). The tool creates a sibling session in the same workspace, seeds
+it with that carried context, and starts it on the parent's model. The new thread
+appears in the sidebar like any other chat; the tool card links to it. Manual
+counterpart: the fork button on a thread row duplicates a conversation with full
+history.
 
 ## Workflows (phase 6)
 

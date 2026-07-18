@@ -15,7 +15,8 @@ See CHECKLIST.md for status and docs/ for how it works.
 ```
 bun install
 bun install --ignore-scripts --cwd engine/upstream
-bun run build:engine         # compiles the embedded engine sidecar
+bun install --cwd engine/opencode   # deps for Drift's engine plugins
+bun run build:engine                # compiles the embedded engine sidecar
 ```
 
 ## Dev

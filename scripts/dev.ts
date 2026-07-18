@@ -8,11 +8,17 @@ if (!existsSync(binary)) {
   process.exit(1)
 }
 
+const extensions = path.join(root, "engine", "opencode")
+if (!existsSync(path.join(extensions, "node_modules"))) {
+  Bun.spawnSync([process.execPath, "install"], { cwd: extensions, stdout: "inherit", stderr: "inherit" })
+}
+
 const port = process.env.DRIFT_ENGINE_PORT ?? "4096"
 const engine = Bun.spawn([binary, "serve", "--port", port], {
   cwd: root,
   stdout: "inherit",
   stderr: "inherit",
+  env: { ...process.env, OPENCODE_CONFIG_DIR: extensions },
 })
 const vite = Bun.spawn([process.execPath, "x", "vite"], {
   cwd: root,
