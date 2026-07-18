@@ -1,15 +1,31 @@
-import { createMemo, createSignal, Show } from "solid-js"
+import { createMemo, createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import { resolveModel, sessionBusy } from "../engine/store"
 import { agentPref, modelPref, setAgentPref, setModelPref } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
 import { Picker, type PickerItem } from "./picker"
+import { parseSlash, runSlash, slashItems, type SlashItem } from "./slash"
 
 export function Composer() {
   const engine = useEngine()
   const [draft, setDraft] = createSignal("")
+  const [dismissed, setDismissed] = createSignal(false)
+  const [cursor, setCursor] = createSignal(0)
   let area!: HTMLTextAreaElement
+
+  const slash = () => (dismissed() ? null : parseSlash(draft()))
+  const matches = createMemo<SlashItem[]>(() => {
+    const parsed = slash()
+    return parsed ? slashItems(engine, parsed.query) : []
+  })
+
+  async function pickSlash(item: SlashItem) {
+    const args = slash()?.args ?? ""
+    setDraft("")
+    resize()
+    await runSlash(engine, item, args)
+  }
 
   const busy = () => {
     const id = selectedSession()
@@ -56,9 +72,21 @@ export function Composer() {
   }
 
   function onKey(event: KeyboardEvent) {
+    if (matches().length > 0 && handleSlashKey(event)) return
     if (event.key !== "Enter" || event.shiftKey) return
     event.preventDefault()
     void submit()
+  }
+
+  function handleSlashKey(event: KeyboardEvent) {
+    if (event.key === "ArrowDown") setCursor(Math.min(cursor() + 1, matches().length - 1))
+    else if (event.key === "ArrowUp") setCursor(Math.max(cursor() - 1, 0))
+    else if (event.key === "Escape") setDismissed(true)
+    else if (event.key === "Enter" && !event.shiftKey) void pickSlash(matches()[Math.min(cursor(), matches().length - 1)])
+    else if (event.key === "Tab") void pickSlash(matches()[Math.min(cursor(), matches().length - 1)])
+    else return false
+    event.preventDefault()
+    return true
   }
 
   function resize() {
@@ -68,7 +96,26 @@ export function Composer() {
 
   return (
     <div class="px-4 pb-4">
-      <div class="mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong">
+      <div class="relative mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong">
+        <Show when={matches().length > 0}>
+          <div class="absolute bottom-full left-3 z-20 mb-2 w-80 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
+            <For each={matches()}>
+              {(item, index) => (
+                <button
+                  class="flex w-full items-baseline gap-2.5 px-3 py-1.5 text-left text-sm transition-colors"
+                  classList={{
+                    "bg-raised": index() === Math.min(cursor(), matches().length - 1),
+                  }}
+                  onMouseEnter={() => setCursor(index())}
+                  onClick={() => void pickSlash(item)}
+                >
+                  <span class="shrink-0 font-mono text-xs text-accent">/{item.name}</span>
+                  <span class="min-w-0 truncate text-xs text-ink-faint">{item.description}</span>
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
         <textarea
           ref={area}
           rows={1}
@@ -78,6 +125,8 @@ export function Composer() {
           value={draft()}
           onInput={(event) => {
             setDraft(event.currentTarget.value)
+            setDismissed(false)
+            setCursor(0)
             resize()
           }}
           onKeyDown={onKey}

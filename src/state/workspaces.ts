@@ -57,6 +57,13 @@ export async function archiveSession(sessionId: string, workspaceId: string) {
   setArchivedIds(new Set([...archivedIds(), sessionId]))
 }
 
+export async function unarchiveSession(sessionId: string) {
+  await driftStore.unarchiveSession(sessionId)
+  const next = new Set(archivedIds())
+  next.delete(sessionId)
+  setArchivedIds(next)
+}
+
 const purgeAge = 7 * 24 * 60 * 60 * 1000
 
 export function purgeArchived() {

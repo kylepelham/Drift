@@ -1,6 +1,8 @@
 import { createEffect, createMemo, createSignal, Match, onCleanup, Show, Switch, For, type JSX } from "solid-js"
 import { useEngine } from "../engine"
-import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
+import type { Session } from "@opencode-ai/sdk/client"
+import { IconArchive, IconBranch, IconDots, IconRestore, IconSquarePen } from "./icons"
+import { Chevron } from "./parts"
 import { childrenOf, sessionBusy, sessionsFor } from "../engine/store"
 import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
@@ -10,6 +12,7 @@ import {
   archiveSession,
   removeWorkspace,
   selectWorkspace,
+  unarchiveSession,
   updateWorkspace,
 } from "../state/workspaces"
 
@@ -18,9 +21,9 @@ export type WorkspaceMenuState = { x: number; y: number; workspaceId: string }
 export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: WorkspaceMenuState) => void }) {
   const engine = useEngine()
   const active = () => activeWorkspaceId() === props.workspace.id
-  const sessions = createMemo(() =>
-    sessionsFor(engine.state, props.workspace.path).filter((session) => !archivedIds().has(session.id)),
-  )
+  const all = createMemo(() => sessionsFor(engine.state, props.workspace.path))
+  const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
+  const archived = createMemo(() => all().filter((session) => archivedIds().has(session.id)))
   const openMenu = (x: number, y: number) => props.onMenu({ x, y, workspaceId: props.workspace.id })
   return (
     <div>
@@ -77,7 +80,45 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
         <Show when={sessions().length === 0 && active()}>
           <div class="px-2 py-1.5 text-xs text-ink-faint">No threads yet</div>
         </Show>
+        <Show when={archived().length > 0 && active()}>
+          <ArchivedSection sessions={archived()} workspace={props.workspace} />
+        </Show>
       </div>
+    </div>
+  )
+}
+
+function ArchivedSection(props: { sessions: Session[]; workspace: Workspace }) {
+  const [open, setOpen] = createSignal(false)
+  return (
+    <div>
+      <button
+        class="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.68rem] text-ink-faint transition-colors hover:text-ink-muted"
+        onClick={() => setOpen(!open())}
+      >
+        <Chevron open={open()} />
+        Archived ({props.sessions.length})
+      </button>
+      <Show when={open()}>
+        <For each={props.sessions}>
+          {(session) => (
+            <div
+              class="group flex h-7 cursor-pointer items-center gap-2 rounded-md py-0.5 pr-1 pl-2 transition-colors hover:bg-raised/60"
+              onClick={() => {
+                selectWorkspace(props.workspace.id)
+                selectSession(session.id)
+              }}
+            >
+              <span class="min-w-0 flex-1 truncate text-[0.75rem] text-ink-faint">{session.title || "Untitled"}</span>
+              <span class="hidden shrink-0 group-hover:block">
+                <RowButton title="Restore thread" onClick={() => void unarchiveSession(session.id)}>
+                  <IconRestore />
+                </RowButton>
+              </span>
+            </div>
+          )}
+        </For>
+      </Show>
     </div>
   )
 }

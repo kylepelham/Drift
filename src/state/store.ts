@@ -10,6 +10,7 @@ export interface DriftStore {
   purgeRemovedWorkspaces(before: number): Promise<string[]>
   archived(): Promise<ArchivedSession[]>
   archiveSession(sessionId: string, workspaceId: string): Promise<void>
+  unarchiveSession(sessionId: string): Promise<void>
   purgeArchived(before: number): Promise<string[]>
 }
 
@@ -29,6 +30,7 @@ function shellStore(invoke: Invoke): DriftStore {
     purgeRemovedWorkspaces: (before) => invoke("store_purge_removed_workspaces", { before }),
     archived: () => invoke("store_archived"),
     archiveSession: (sessionId, workspaceId) => invoke("store_archive_session", { sessionId, workspaceId }),
+    unarchiveSession: (sessionId) => invoke("store_unarchive_session", { sessionId }),
     purgeArchived: (before) => invoke("store_purge_archived", { before }),
   }
 }
@@ -80,6 +82,9 @@ function browserStore(): DriftStore {
     archiveSession: async (sessionId, workspaceId) => {
       const list = read<ArchivedSession[]>(arKey, []).filter((a) => a.sessionId !== sessionId)
       write(arKey, [...list, { sessionId, workspaceId, archivedAt: Date.now() }])
+    },
+    unarchiveSession: async (sessionId) => {
+      write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => a.sessionId !== sessionId))
     },
     purgeArchived: async (before) => {
       const list = read<ArchivedSession[]>(arKey, [])

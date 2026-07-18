@@ -1,4 +1,14 @@
-import type { Agent, Message, Model, Part, Permission, Session, SessionStatus, Todo } from "@opencode-ai/sdk/client"
+import type {
+  Agent,
+  Command,
+  Message,
+  Model,
+  Part,
+  Permission,
+  Session,
+  SessionStatus,
+  Todo,
+} from "@opencode-ai/sdk/client"
 import { createStore } from "solid-js/store"
 import type { Connection } from "./connection"
 
@@ -20,6 +30,7 @@ export type EngineState = {
   connected: string[]
   defaultModels: Record<string, string>
   agents: Agent[]
+  commands: Command[]
   errors: Record<string, string>
   links: Record<string, string>
 }
@@ -38,6 +49,7 @@ export function createEngineState() {
     connected: [],
     defaultModels: {},
     agents: [],
+    commands: [],
     errors: {},
     links: {},
   })

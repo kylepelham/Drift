@@ -64,6 +64,15 @@ export function createActions(
     await requireClient().session.abort({ path: { id } })
   }
 
+  async function summarize(id: string, model: ModelRef | null) {
+    if (!model) return
+    await requireClient().session.summarize({ path: { id }, body: model })
+  }
+
+  async function runCommand(id: string, command: string, args: string) {
+    await requireClient().session.command({ path: { id }, body: { command, arguments: args } })
+  }
+
   async function rename(id: string, title: string) {
     await requireClient().session.update({ path: { id }, body: { title } })
   }
@@ -94,6 +103,8 @@ export function createActions(
     fork,
     send,
     abort,
+    summarize,
+    runCommand,
     rename,
     remove,
     replyPermission,

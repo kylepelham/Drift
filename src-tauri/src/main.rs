@@ -86,6 +86,11 @@ fn store_archive_session(store: State<Store>, session_id: String, workspace_id: 
 }
 
 #[tauri::command]
+fn store_unarchive_session(store: State<Store>, session_id: String) -> Result<(), String> {
+    store.unarchive_session(&session_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn store_purge_archived(store: State<Store>, before: i64) -> Result<Vec<String>, String> {
     store.purge_archived(before).map_err(|e| e.to_string())
 }
@@ -163,6 +168,7 @@ fn main() {
             store_purge_removed_workspaces,
             store_archived,
             store_archive_session,
+            store_unarchive_session,
             store_purge_archived
         ])
         .setup(|app| {

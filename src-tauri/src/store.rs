@@ -163,6 +163,13 @@ impl Store {
         rows.collect()
     }
 
+    pub fn unarchive_session(&self, session_id: &str) -> rusqlite::Result<()> {
+        let conn = self.0.lock().unwrap();
+        conn.prepare_cached("DELETE FROM session_meta WHERE session_id = ?1")?
+            .execute([session_id])?;
+        Ok(())
+    }
+
     pub fn archive_session(&self, session_id: &str, workspace_id: &str) -> rusqlite::Result<()> {
         let conn = self.0.lock().unwrap();
         conn.prepare_cached(
@@ -204,8 +211,10 @@ mod tests {
         store.archive_session("s1", "w1").unwrap();
         store.archive_session("s2", "w1").unwrap();
         assert_eq!(store.archived().unwrap().len(), 2);
+        store.unarchive_session("s1").unwrap();
+        assert_eq!(store.archived().unwrap().len(), 1);
         let purged = store.purge_archived(now() + 1000).unwrap();
-        assert_eq!(purged.len(), 2);
+        assert_eq!(purged.len(), 1);
         assert!(store.archived().unwrap().is_empty());
 
         store.remove_workspace("w1").unwrap();

@@ -33,12 +33,18 @@ export function EngineProvider(props: ParentProps) {
 
   async function hydrate() {
     const api = requireClient()
-    const [sessions, providers, agents] = await Promise.all([api.session.list(), api.provider.list(), api.app.agents()])
+    const [sessions, providers, agents, commands] = await Promise.all([
+      api.session.list(),
+      api.provider.list(),
+      api.app.agents(),
+      api.command.list(),
+    ])
     for (const session of sessions.data ?? []) set("sessions", session.id, session)
     set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
     set("connected", providers.data?.connected ?? [])
     set("defaultModels", providers.data?.default ?? {})
     set("agents", agents.data ?? [])
+    set("commands", commands.data ?? [])
     await Promise.all(Object.keys(state.loaded).map(reload))
   }
 
