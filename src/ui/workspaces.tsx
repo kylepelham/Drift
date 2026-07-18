@@ -1,5 +1,6 @@
-import { createEffect, createMemo, onCleanup, Show, For } from "solid-js"
+import { createEffect, createMemo, onCleanup, Show, For, type JSX } from "solid-js"
 import { useEngine } from "../engine"
+import { IconArchive, IconDots, IconSquarePen } from "./icons"
 import { sessionBusy, sessionsFor } from "../engine/store"
 import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
@@ -20,35 +21,44 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
   const sessions = createMemo(() =>
     sessionsFor(engine.state, props.workspace.path).filter((session) => !archivedIds().has(session.id)),
   )
+  const openMenu = (x: number, y: number) => props.onMenu({ x, y, workspaceId: props.workspace.id })
   return (
     <div>
       <div
-        class="group flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors"
+        class="group flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
         classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
         onClick={() => selectWorkspace(props.workspace.id)}
         onContextMenu={(event) => {
           event.preventDefault()
-          props.onMenu({ x: event.clientX, y: event.clientY, workspaceId: props.workspace.id })
+          openMenu(event.clientX, event.clientY)
         }}
       >
         <WorkspaceIcon workspace={props.workspace} />
         <span class="min-w-0 flex-1 truncate text-sm" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
           {props.workspace.name}
         </span>
-        <Show when={active()}>
-          <button
-            class="hidden rounded px-1.5 text-xs text-ink-faint transition-colors group-hover:block hover:text-ink"
+        <div class="items-center" classList={{ flex: active(), "hidden group-hover:flex": !active() }}>
+          <RowButton
             title="New thread"
-            onClick={(event) => {
-              event.stopPropagation()
+            onClick={() => {
+              selectWorkspace(props.workspace.id)
               selectSession(null)
             }}
           >
-            +
-          </button>
-        </Show>
+            <IconSquarePen />
+          </RowButton>
+          <RowButton
+            title="Workspace options"
+            onClick={(event) => {
+              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+              openMenu(rect.left, rect.bottom + 4)
+            }}
+          >
+            <IconDots />
+          </RowButton>
+        </div>
       </div>
-      <div class="mt-0.5 ml-3.5 space-y-0.5 border-l border-edge pl-2">
+      <div class="mt-0.5 ml-4 space-y-0.5 border-l border-edge pl-1.5">
         <For each={sessions()}>
           {(session) => (
             <ThreadItem
@@ -67,12 +77,27 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
   )
 }
 
+function RowButton(props: { title: string; onClick: (event: MouseEvent) => void; children: JSX.Element }) {
+  return (
+    <button
+      title={props.title}
+      class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+      onClick={(event) => {
+        event.stopPropagation()
+        props.onClick(event)
+      }}
+    >
+      {props.children}
+    </button>
+  )
+}
+
 function ThreadItem(props: { sessionId: string; title: string; updated: number; workspace: Workspace }) {
   const engine = useEngine()
   const active = () => selectedSession() === props.sessionId
   return (
     <div
-      class="group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 transition-colors"
+      class="group flex h-8 cursor-pointer items-center gap-2 rounded-md py-1 pr-1 pl-2 transition-colors"
       classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
       onClick={() => {
         selectWorkspace(props.workspace.id)
@@ -82,25 +107,21 @@ function ThreadItem(props: { sessionId: string; title: string; updated: number; 
       <Show when={sessionBusy(engine.state, props.sessionId)}>
         <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" />
       </Show>
-      <div class="min-w-0 flex-1">
-        <div class="truncate text-[0.8rem]" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
-          {props.title || "Untitled"}
-        </div>
-        <div class="text-[0.65rem] text-ink-faint">{ago(props.updated)}</div>
-      </div>
-      <button
-        class="hidden shrink-0 text-ink-faint transition-colors hover:text-warn group-hover:block"
-        title="Archive thread"
-        onClick={(event) => {
-          event.stopPropagation()
-          if (selectedSession() === props.sessionId) selectSession(null)
-          void archiveSession(props.sessionId, props.workspace.id)
-        }}
-      >
-        <svg class="size-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
-          <path d="M2 3h12v3H2zM3 6v7h10V6M6.5 9h3" />
-        </svg>
-      </button>
+      <span class="min-w-0 flex-1 truncate text-[0.8rem]" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
+        {props.title || "Untitled"}
+      </span>
+      <span class="shrink-0 text-[0.65rem] text-ink-faint group-hover:hidden">{ago(props.updated)}</span>
+      <span class="hidden shrink-0 group-hover:block">
+        <RowButton
+          title="Archive thread"
+          onClick={() => {
+            if (selectedSession() === props.sessionId) selectSession(null)
+            void archiveSession(props.sessionId, props.workspace.id)
+          }}
+        >
+          <IconArchive />
+        </RowButton>
+      </span>
     </div>
   )
 }

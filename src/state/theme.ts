@@ -6,10 +6,6 @@ export type ThemeName = (typeof themes)[number]
 
 export const [theme, setTheme] = persisted<ThemeName>("drift.theme", "drift-dark")
 
-export function cycleTheme() {
-  setTheme(themes[(themes.indexOf(theme()) + 1) % themes.length])
-}
-
 export function bindTheme() {
   createEffect(() => {
     document.documentElement.dataset.theme = theme()

@@ -1,12 +1,14 @@
 import { createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import { pickFolder } from "../state/dialog"
-import { cycleTheme, theme } from "../state/theme"
 import { addWorkspace, workspaces } from "../state/workspaces"
+import { IconGear } from "./icons"
+import { SettingsModal } from "./settings"
 import { WorkspaceGroup, WorkspaceMenu, type WorkspaceMenuState } from "./workspaces"
 
 export function Sidebar() {
   const [menu, setMenu] = createSignal<WorkspaceMenuState | null>(null)
+  const [settings, setSettings] = createSignal(false)
 
   async function add() {
     const path = await pickFolder()
@@ -26,16 +28,17 @@ export function Sidebar() {
         </button>
       </div>
       <nav class="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
-        <For each={workspaces()}>
-          {(workspace) => <WorkspaceGroup workspace={workspace} onMenu={setMenu} />}
-        </For>
+        <For each={workspaces()}>{(workspace) => <WorkspaceGroup workspace={workspace} onMenu={setMenu} />}</For>
         <Show when={workspaces().length === 0}>
           <div class="px-2 py-4 text-xs text-ink-faint">Add a workspace (a project folder) to get started.</div>
         </Show>
       </nav>
-      <SidebarFooter />
+      <SidebarFooter onSettings={() => setSettings(true)} />
       <Show when={menuWorkspace()}>
         {(entry) => <WorkspaceMenu state={entry().state} workspace={entry().workspace} onClose={() => setMenu(null)} />}
+      </Show>
+      <Show when={settings()}>
+        <SettingsModal onClose={() => setSettings(false)} />
       </Show>
     </aside>
   )
@@ -48,7 +51,7 @@ export function Sidebar() {
   }
 }
 
-function SidebarFooter() {
+function SidebarFooter(props: { onSettings: () => void }) {
   const engine = useEngine()
   const dot: Record<string, string> = {
     online: "bg-ok",
@@ -62,16 +65,18 @@ function SidebarFooter() {
     return engine.state.connection
   }
   return (
-    <div class="flex items-center gap-2 border-t border-edge px-4 py-2.5 text-xs text-ink-faint">
-      <span class={`size-1.5 rounded-full ${dot[engine.state.connection]}`} />
-      <span class="min-w-0 flex-1 truncate" title={engine.state.directory}>
-        {label()}
-      </span>
-      <button class="transition-colors hover:text-ink" title={`Theme: ${theme()}`} onClick={cycleTheme}>
-        <svg class="size-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="8" cy="8" r="6" />
-          <path d="M8 2a6 6 0 000 12z" fill="currentColor" stroke="none" />
-        </svg>
+    <div class="border-t border-edge px-2 py-2">
+      <button
+        class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+        onClick={props.onSettings}
+      >
+        <IconGear />
+        <span>Settings</span>
+        <span class="flex-1" />
+        <span class="flex items-center gap-1.5 text-[0.65rem] text-ink-faint" title={engine.state.directory}>
+          <span class={`size-1.5 rounded-full ${dot[engine.state.connection]}`} />
+          <span class="max-w-24 truncate">{label()}</span>
+        </span>
       </button>
     </div>
   )
