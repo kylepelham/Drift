@@ -2,7 +2,7 @@ import { createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import { pickFolder } from "../state/dialog"
 import { addWorkspace, workspaces } from "../state/workspaces"
-import { IconGear } from "./icons"
+import { IconGear, IconPlus } from "./icons"
 import { SettingsModal } from "./settings"
 import { WorkspaceEditModal, WorkspaceGroup, WorkspaceMenu, type WorkspaceMenuState } from "./workspaces"
 
@@ -18,14 +18,14 @@ export function Sidebar() {
 
   return (
     <aside class="flex w-64 shrink-0 flex-col border-r border-edge bg-surface">
-      <div class="flex items-center justify-between px-4 pt-3 pb-2">
+      <div class="flex items-center justify-between pt-2.5 pb-1.5 pr-3.5 pl-4">
         <span class="text-[0.68rem] tracking-wider text-ink-faint uppercase">Workspaces</span>
         <button
-          class="rounded-md border border-edge px-2 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+          class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
           title="Add workspace (pick a folder)"
           onClick={() => void add()}
         >
-          + Add
+          <IconPlus />
         </button>
       </div>
       <nav class="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
