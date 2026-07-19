@@ -1,3 +1,3 @@
-import { createSignal } from "solid-js"
+import { persisted } from "./persist"
 
-export const [selectedSession, selectSession] = createSignal<string | null>(null)
+export const [selectedSession, selectSession] = persisted<string | null>("drift.session", null)

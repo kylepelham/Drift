@@ -2,9 +2,10 @@ import { expect, test } from "bun:test"
 import type { Message, ToolPart } from "@opencode-ai/sdk/client"
 import { nextUserMessage, previousUserMessage, type MessageEntry } from "../src/engine/store"
 
-Object.defineProperty(globalThis, "localStorage", {
-  value: { getItem: () => null, setItem: () => undefined },
-})
+if (!("localStorage" in globalThis))
+  Object.defineProperty(globalThis, "localStorage", {
+    value: { getItem: () => null, setItem: () => undefined },
+  })
 
 test("pluginPaths keeps local JavaScript modules only", async () => {
   const { pluginPaths } = await import("../src/plugins")

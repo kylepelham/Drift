@@ -91,6 +91,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
         <div class="flex gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 group-hover:opacity-100">
           <span>{info().modelID}</span>
           <span>{formatTokens(info())}</span>
+          <Show when={tokensPerSecond(info())}>{(rate) => <span>{rate()} tok/s</span>}</Show>
           <Show when={info().cost > 0}>
             <span>${info().cost.toFixed(3)}</span>
           </Show>
@@ -103,6 +104,13 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
 function errorText(error: { name: string; data?: unknown }) {
   const data = error.data as { message?: string } | undefined
   return data?.message ?? error.name
+}
+
+function tokensPerSecond(info: AssistantMessage) {
+  const seconds = ((info.time.completed ?? 0) - info.time.created) / 1000
+  const tokens = info.tokens.output + info.tokens.reasoning
+  if (seconds <= 0 || tokens <= 0) return null
+  return (tokens / seconds).toFixed(1)
 }
 
 function formatTokens(info: AssistantMessage) {

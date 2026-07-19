@@ -1,5 +1,6 @@
 import type { Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
 import { createSignal, For, Match, Show, Switch } from "solid-js"
+import { useEngine } from "../engine"
 import { hasToolRenderer, PluginToolView } from "../plugins"
 import { showReasoning } from "../state/prefs"
 import { selectSession } from "../state/selection"
@@ -181,8 +182,16 @@ function diffStats(diff: string) {
 }
 
 export function ToolView(props: { part: ToolPart }) {
+  const engine = useEngine()
   const state = () => props.part.state
   const info = () => toolInfo(props.part)
+  const progress = () => {
+    const childId = spawnedId()
+    if (!childId || state().status !== "running") return null
+    const activity = engine.state.activity[childId]
+    if (!activity) return null
+    return `${activity.tools} tool${activity.tools === 1 ? "" : "s"}${activity.current ? " · " + activity.current : ""}`
+  }
   const diff = () => {
     const value = toolMeta(props.part)?.diff
     return typeof value === "string" && value.trim() ? value : null
@@ -202,7 +211,11 @@ export function ToolView(props: { part: ToolPart }) {
     <div class="text-sm">
       <button
         class="-mx-1.5 flex max-w-full items-center gap-2 rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-raised/60"
-        onClick={() => setOpen(!open())}
+        onClick={() => {
+          const childId = spawnedId()
+          if (childId && state().status !== "completed" && state().status !== "error") return selectSession(childId)
+          setOpen(!open())
+        }}
       >
         <Show when={error()}>
           <span class="size-3.5 shrink-0 text-danger">
@@ -234,6 +247,9 @@ export function ToolView(props: { part: ToolPart }) {
               <span class="text-ok">+{s().add}</span> <span class="text-danger">-{s().del}</span>
             </span>
           )}
+        </Show>
+        <Show when={progress()}>
+          {(text) => <span class="shrink-0 font-mono text-xs text-accent/80">{text()}</span>}
         </Show>
         <Show when={spawnedId()}>
           {(childId) => (
@@ -278,9 +294,26 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
     return typeof input.content === "string" ? { content: input.content, name: filename(input.filePath) } : null
   }
   const patched = () => (props.part.tool === "apply_patch" ? patchFiles(props.part) : [])
+  const tasked = () => taskBody(props.part)
   return (
     <>
       <Switch fallback={<GenericBody part={props.part} />}>
+        <Match when={tasked()}>
+          {(task) => (
+            <div class="space-y-2 border-l-2 border-edge pl-3">
+              <Show when={task().prompt}>
+                <div class="max-h-40 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-faint">
+                  {clip(task().prompt)}
+                </div>
+              </Show>
+              <Show when={task().result}>
+                <div class="max-h-80 overflow-auto text-ink-muted">
+                  <Markdown text={task().result} done />
+                </div>
+              </Show>
+            </div>
+          )}
+        </Match>
         <Match when={shell()}>
           {(run) => (
             <div class="rounded-lg border border-edge bg-surface px-3 py-2.5 font-mono text-xs leading-relaxed">
@@ -315,6 +348,14 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
       </Show>
     </>
   )
+}
+
+export function taskBody(part: ToolPart) {
+  if (part.tool !== "task" && part.tool !== "spawn_thread") return null
+  const input = part.state.input as { prompt?: string; task?: string }
+  const output = part.state.status === "completed" ? (part.state as { output: string }).output : ""
+  const result = output.match(/<task_result>\n?([\s\S]*?)\n?<\/task_result>/)?.[1] ?? output
+  return { prompt: input.prompt ?? input.task ?? "", result }
 }
 
 function GenericBody(props: { part: ToolPart }) {

@@ -9,7 +9,7 @@ import type {
   SessionStatus,
   Todo,
 } from "@opencode-ai/sdk/client"
-import { createStore } from "solid-js/store"
+import { createStore, type SetStoreFunction } from "solid-js/store"
 import type { Connection } from "./connection"
 
 export type ModelInfo = Model & { variants?: Record<string, unknown> }
@@ -35,6 +35,8 @@ export function nextUserMessage(entries: MessageEntry[], after: string) {
     .sort((a, b) => a.info.id.localeCompare(b.info.id))[0]
 }
 
+export type SessionActivity = { tools: number; lastPartId: string; current?: string }
+
 export type EngineState = {
   connection: Connection
   directory: string
@@ -51,6 +53,7 @@ export type EngineState = {
   commands: Command[]
   errors: Record<string, string>
   links: Record<string, string>
+  activity: Record<string, SessionActivity>
 }
 
 export function createEngineState() {
@@ -70,7 +73,13 @@ export function createEngineState() {
     commands: [],
     errors: {},
     links: {},
+    activity: {},
   })
+}
+
+// Store sets merge; optional keys the engine dropped (revert, share) must clear explicitly.
+export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
+  set("sessions", info.id, { revert: undefined, share: undefined, ...info })
 }
 
 export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo | undefined {

@@ -1,6 +1,6 @@
 import type { OpencodeClient, Session } from "@opencode-ai/sdk/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
-import { sessionBusy, spawnLink, type EngineState, type ModelRef } from "./store"
+import { putSession, sessionBusy, spawnLink, type EngineState, type ModelRef } from "./store"
 
 export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string }
 export type PermissionResponse = "once" | "always" | "reject"
@@ -29,7 +29,7 @@ export function createActions(
 
   async function loadSessions(directory: string) {
     const result = await requireClient().session.list({ query: { directory } })
-    for (const session of result.data ?? []) set("sessions", session.id, session)
+    for (const session of result.data ?? []) putSession(set, session)
   }
 
   async function removeAllSessions(directory: string) {
@@ -74,13 +74,13 @@ export function createActions(
 
   async function share(id: string) {
     const result = await requireClient().session.share({ path: { id } })
-    if (result.data) set("sessions", id, result.data)
+    if (result.data) putSession(set, result.data)
     return result.data?.share?.url
   }
 
   async function unshare(id: string) {
     const result = await requireClient().session.unshare({ path: { id } })
-    if (result.data) set("sessions", id, { ...result.data, share: undefined })
+    if (result.data) putSession(set, { ...result.data, share: undefined })
   }
 
   async function runCommand(id: string, command: string, args: string) {
@@ -112,14 +112,14 @@ export function createActions(
   async function revert(id: string, messageID: string) {
     if (sessionBusy(state, id)) await requireClient().session.abort({ path: { id } }).catch(() => {})
     const result = await requireClient().session.revert({ path: { id }, body: { messageID } })
-    if (result.data) set("sessions", id, result.data)
+    if (result.data) putSession(set, result.data)
     await reloadSession(id)
   }
 
   async function unrevert(id: string) {
     if (sessionBusy(state, id)) await requireClient().session.abort({ path: { id } }).catch(() => {})
     const result = await requireClient().session.unrevert({ path: { id } })
-    if (result.data) set("sessions", id, result.data)
+    if (result.data) putSession(set, result.data)
     await reloadSession(id)
   }
 

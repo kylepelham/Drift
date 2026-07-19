@@ -83,6 +83,7 @@ export function EngineProvider(props: ParentProps) {
         s.todos = {}
         s.status = {}
         s.errors = {}
+        s.activity = {}
         s.directory = dir ?? ""
         s.connection = dir ? "connecting" : "idle"
       }),

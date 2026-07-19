@@ -1,7 +1,7 @@
 import type { Event, Message, Part, Permission, Session } from "@opencode-ai/sdk/client"
 import type { SetStoreFunction } from "solid-js/store"
 import { produce } from "solid-js/store"
-import { spawnLink, type EngineState } from "./store"
+import { putSession, spawnLink, type EngineState } from "./store"
 
 type Set = SetStoreFunction<EngineState>
 
@@ -36,7 +36,7 @@ export function reduce(set: Set, event: Event) {
 }
 
 function upsertSession(set: Set, info: Session) {
-  set("sessions", info.id, info)
+  putSession(set, info)
 }
 
 function dropSession(set: Set, info: Session) {
@@ -48,6 +48,7 @@ function dropSession(set: Set, info: Session) {
       delete s.permissions[info.id]
       delete s.todos[info.id]
       delete s.status[info.id]
+      delete s.activity[info.id]
     }),
   )
 }
@@ -85,6 +86,7 @@ function upsertPart(set: Set, part: Part) {
   set(
     produce((s) => {
       if (link) s.links[link.child] = link.parent
+      if (part.type === "tool") trackActivity(s, part)
       const entry = s.transcripts[part.sessionID]?.find((item) => item.info.id === part.messageID)
       if (!entry) return
       const index = entry.parts.findIndex((existing) => existing.id === part.id)
@@ -92,6 +94,16 @@ function upsertPart(set: Set, part: Part) {
       else entry.parts.push(part)
     }),
   )
+}
+
+function trackActivity(s: EngineState, part: Part & { type: "tool" }) {
+  const entry = s.activity[part.sessionID] ?? { tools: 0, lastPartId: "" }
+  if (entry.lastPartId !== part.id) {
+    entry.tools += 1
+    entry.lastPartId = part.id
+  }
+  entry.current = part.state.status === "completed" || part.state.status === "error" ? undefined : part.tool
+  s.activity[part.sessionID] = entry
 }
 
 function dropPart(set: Set, ref: { sessionID: string; messageID: string; partID: string }) {

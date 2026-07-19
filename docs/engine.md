@@ -62,4 +62,6 @@ providers) applies unchanged. Users do not install opencode.
   stale `share` property (200 response body included). Drift clears it locally after
   unshare; the stale value resurfaces on rehydration until fixed upstream.
 - Solid store `set("sessions", id, info)` merges objects, it does not replace. Keys the
-  engine dropped (like `share`) must be cleared explicitly with `undefined`.
+  engine dropped (like `share` and `revert`) must be cleared explicitly with `undefined`;
+  all session upserts go through `putSession` in `src/engine/store.ts` for this reason.
+  A stale `revert` marker silently hides every message sent after a revert.

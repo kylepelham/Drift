@@ -1,4 +1,4 @@
-import { createEffect, onMount } from "solid-js"
+import { createEffect, onCleanup, onMount } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
 import { PluginHost } from "./plugins"
 import { bindTheme } from "./state/theme"
@@ -43,18 +43,26 @@ function PluginBinding() {
   return <PluginHost engine={engine} />
 }
 
+const dayMs = 24 * 60 * 60 * 1000
+
 function WorkspaceBinding() {
   const engine = useEngine()
-  let purged = false
+  let lastPurge = 0
   onMount(() => void initWorkspaces())
   createEffect(() => engine.setDirectory(activeWorkspace()?.path ?? null))
   createEffect(() => {
     if (engine.state.connection !== "online") return
     for (const workspace of workspaces()) void engine.actions.loadSessions(workspace.path)
-    if (purged) return
-    purged = true
+    purge()
+  })
+  const timer = setInterval(() => purge(), 60 * 60 * 1000)
+  onCleanup(() => clearInterval(timer))
+  return null
+
+  function purge() {
+    if (engine.state.connection !== "online" || Date.now() - lastPurge < dayMs) return
+    lastPurge = Date.now()
     void purgeArchived().then((ids) => ids.forEach((id) => void engine.actions.remove(id)))
     void purgeRemovedWorkspaces().then((paths) => paths.forEach((path) => void engine.actions.removeAllSessions(path)))
-  })
-  return null
+  }
 }
