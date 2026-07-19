@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
 
 export type PickerItem = { id: string; label: string; hint?: string; group?: string }
 
@@ -6,6 +6,8 @@ export function Picker(props: {
   items: PickerItem[]
   selected?: string
   label: string
+  icon?: JSX.Element
+  fallbackLabel?: string
   onPick: (id: string) => void
 }) {
   const [open, setOpen] = createSignal(false)
@@ -47,11 +49,17 @@ export function Picker(props: {
   return (
     <div ref={root} class="relative">
       <button
-        class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+        class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+        title={props.label}
         onClick={() => setOpen(!open())}
       >
-        <span class="text-ink-faint">{props.label}</span>
-        <span class="max-w-40 truncate">{props.items.find((item) => item.id === props.selected)?.label ?? "auto"}</span>
+        {props.icon}
+        <span class="max-w-40 truncate">
+          {props.items.find((item) => item.id === props.selected)?.label ?? props.fallbackLabel ?? "auto"}
+        </span>
+        <svg class="size-2.5 text-ink-faint" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 6l4 4 4-4" />
+        </svg>
       </button>
       <Show when={open()}>
         <div class="absolute bottom-full left-0 z-20 mb-2 w-72 overflow-hidden rounded-lg border border-edge bg-overlay shadow-xl shadow-black/30">

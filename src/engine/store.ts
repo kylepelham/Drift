@@ -12,8 +12,8 @@ import type {
 import { createStore } from "solid-js/store"
 import type { Connection } from "./connection"
 
-export type ProviderInfo = { id: string; name: string; models: Record<string, Model> }
-export type ModelInfo = Model
+export type ModelInfo = Model & { variants?: Record<string, unknown> }
+export type ProviderInfo = { id: string; name: string; models: Record<string, ModelInfo> }
 export type ModelRef = { providerID: string; modelID: string }
 export type MessageEntry = { info: Message; parts: Part[] }
 
@@ -53,6 +53,11 @@ export function createEngineState() {
     errors: {},
     links: {},
   })
+}
+
+export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo | undefined {
+  if (!ref) return undefined
+  return state.providers.find((p) => p.id === ref.providerID)?.models[ref.modelID]
 }
 
 export function spawnLink(part: Part): { child: string; parent: string } | undefined {

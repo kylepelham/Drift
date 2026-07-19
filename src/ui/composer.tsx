@@ -1,11 +1,14 @@
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
-import { resolveModel, sessionBusy } from "../engine/store"
-import { agentPref, modelPref, setAgentPref, setModelPref } from "../state/prefs"
+import { modelInfo, resolveModel, sessionBusy } from "../engine/store"
+import { agentPref, modelPref, setAgentPref, setModelPref, setVariantPref, variantPref } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
 import { Picker, type PickerItem } from "./picker"
+import { ProviderIcon } from "./provider-icon"
 import { parseSlash, runSlash, slashItems, type SlashItem } from "./slash"
+
+const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
 
 export function Composer() {
   const engine = useEngine()
@@ -51,13 +54,23 @@ export function Composer() {
   const agentItems = createMemo<PickerItem[]>(() =>
     engine.state.agents
       .filter((agent) => agent.mode !== "subagent")
-      .map((agent) => ({ id: agent.name, label: agent.name, hint: agent.description })),
+      .map((agent) => ({ id: agent.name, label: capitalize(agent.name), hint: agent.description })),
   )
 
   const model = () => resolveModel(engine.state, modelPref())
   const modelId = () => {
     const ref = model()
     return ref ? `${ref.providerID}/${ref.modelID}` : undefined
+  }
+
+  const variants = createMemo(() => Object.keys(modelInfo(engine.state, model())?.variants ?? {}))
+  const variantItems = createMemo<PickerItem[]>(() => [
+    { id: "default", label: "Default" },
+    ...variants().map((name) => ({ id: name, label: capitalize(name) })),
+  ])
+  const variant = () => {
+    const pref = variantPref()
+    return pref && variants().includes(pref) ? pref : undefined
   }
 
   async function submit() {
@@ -68,7 +81,7 @@ export function Composer() {
     selectSession(id)
     setDraft("")
     resize()
-    await engine.actions.send(id, text, { model: model(), agent: agentPref() })
+    await engine.actions.send(id, text, { model: model(), agent: agentPref(), variant: variant() })
   }
 
   function onKey(event: KeyboardEvent) {
@@ -133,20 +146,30 @@ export function Composer() {
         />
         <div class="flex items-center gap-1 px-2.5 pb-2">
           <Picker
-            label="agent"
+            label="Agent"
             items={agentItems()}
             selected={agentPref()}
+            fallbackLabel={capitalize(agentPref())}
             onPick={(id) => setAgentPref(id)}
           />
           <Picker
-            label="model"
+            label="Model"
             items={modelItems()}
             selected={modelId()}
+            icon={<ProviderIcon id={model()?.providerID} class="size-3.5 shrink-0" />}
             onPick={(id) => {
               const [providerID, ...rest] = id.split("/")
               setModelPref({ providerID, modelID: rest.join("/") })
             }}
           />
+          <Show when={variants().length > 0}>
+            <Picker
+              label="Thinking level"
+              items={variantItems()}
+              selected={variant() ?? "default"}
+              onPick={(id) => setVariantPref(id === "default" ? null : id)}
+            />
+          </Show>
           <div class="flex-1" />
           <Show
             when={!busy()}

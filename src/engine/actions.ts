@@ -2,7 +2,7 @@ import type { OpencodeClient, Session } from "@opencode-ai/sdk/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { spawnLink, type EngineState, type ModelRef } from "./store"
 
-export type PromptOptions = { model: ModelRef | null; agent: string }
+export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string }
 export type PermissionResponse = "once" | "always" | "reject"
 
 export function createActions(
@@ -49,14 +49,13 @@ export function createActions(
 
   async function send(id: string, text: string, options: PromptOptions) {
     set("errors", id, undefined!)
-    const result = await requireClient().session.promptAsync({
-      path: { id },
-      body: {
-        parts: [{ type: "text", text }],
-        model: options.model ?? undefined,
-        agent: options.agent,
-      },
-    })
+    const body = {
+      parts: [{ type: "text" as const, text }],
+      model: options.model ?? undefined,
+      agent: options.agent,
+      ...(options.variant ? { variant: options.variant } : {}),
+    }
+    const result = await requireClient().session.promptAsync({ path: { id }, body })
     if (result.error) set("errors", id, "Prompt failed: engine rejected the request")
   }
 
