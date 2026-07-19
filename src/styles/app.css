@@ -85,6 +85,12 @@ body {
   background: var(--bg);
   color: var(--ink);
   overflow: hidden;
+  user-select: none;
+}
+
+input,
+textarea {
+  user-select: text;
 }
 
 ::selection {

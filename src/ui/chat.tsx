@@ -41,7 +41,7 @@ export function Chat() {
       onScroll={() => setStick(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80)}
     >
       <Show when={selectedSession()} fallback={<EmptyState />}>
-        <div class="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6">
+        <div class="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6 select-text">
           <For each={entries()}>
             {(entry, index) => (
               <MessageView entry={entry} footer={entries()[index() + 1]?.info.role !== "assistant"} />

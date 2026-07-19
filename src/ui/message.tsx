@@ -88,13 +88,21 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
         )}
       </Show>
       <Show when={props.footer && info().time.completed}>
-        <div class="flex gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+        <div class="flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 group-hover:opacity-100">
           <span>{info().modelID}</span>
           <span>{formatTokens(info())}</span>
           <Show when={tokensPerSecond(info())}>{(rate) => <span>{rate()} tok/s</span>}</Show>
           <Show when={info().cost > 0}>
             <span>${info().cost.toFixed(3)}</span>
           </Show>
+          <span>{formatDuration(info().time.completed! - info().time.created)}</span>
+          <button
+            title="Copy response"
+            class="rounded p-0.5 hover:bg-raised hover:text-ink"
+            onClick={() => void navigator.clipboard.writeText(messageText(props.entry))}
+          >
+            <IconCopy class="size-3.5" />
+          </button>
         </div>
       </Show>
     </div>
@@ -104,6 +112,14 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
 function errorText(error: { name: string; data?: unknown }) {
   const data = error.data as { message?: string } | undefined
   return data?.message ?? error.name
+}
+
+function formatDuration(ms: number) {
+  const seconds = Math.max(1, Math.round(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
 function tokensPerSecond(info: AssistantMessage) {

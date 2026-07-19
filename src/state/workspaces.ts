@@ -3,16 +3,33 @@ import { selectSession } from "./selection"
 import { persisted } from "./persist"
 import { driftStore, type ArchivedSession, type Workspace } from "./store"
 
-const [workspaces, setWorkspaces] = createSignal<Workspace[]>([])
+const [rawWorkspaces, setWorkspaces] = createSignal<Workspace[]>([])
 const [archivedIds, setArchivedIds] = createSignal<ReadonlySet<string>>(new Set())
 const [archivedSessions, setArchivedSessions] = createSignal<ArchivedSession[]>([])
 const [removedWorkspaces, setRemovedWorkspaces] = createSignal<Workspace[]>([])
 const [activeWorkspaceId, setActiveWorkspaceId] = persisted<string | null>("drift.workspace", null)
+const [workspaceOrder, setWorkspaceOrder] = persisted<string[]>("drift.workspace.order", [])
 
-export { workspaces, archivedIds, archivedSessions, removedWorkspaces, activeWorkspaceId }
+export { archivedIds, archivedSessions, removedWorkspaces, activeWorkspaceId }
+
+export function workspaces() {
+  const order = workspaceOrder()
+  const rank = (w: Workspace) => {
+    const index = order.indexOf(w.id)
+    return index < 0 ? order.length : index
+  }
+  return [...rawWorkspaces()].sort((a, b) => rank(a) - rank(b))
+}
+
+export function moveWorkspace(id: string, beforeId: string | null) {
+  const ids = workspaces().map((w) => w.id).filter((x) => x !== id)
+  const index = beforeId ? ids.indexOf(beforeId) : -1
+  ids.splice(index < 0 ? ids.length : index, 0, id)
+  setWorkspaceOrder(ids)
+}
 
 export function activeWorkspace() {
-  return workspaces().find((w) => w.id === activeWorkspaceId()) ?? null
+  return rawWorkspaces().find((w) => w.id === activeWorkspaceId()) ?? null
 }
 
 export async function initWorkspaces() {
@@ -24,6 +41,10 @@ async function refreshWorkspaces() {
   const [active, removed] = await Promise.all([driftStore.workspaces(), driftStore.removedWorkspaces()])
   setWorkspaces(active)
   setRemovedWorkspaces(removed)
+  const ids = active.map((w) => w.id)
+  const kept = workspaceOrder().filter((id) => ids.includes(id))
+  const merged = [...kept, ...ids.filter((id) => !kept.includes(id))]
+  if (merged.join(",") !== workspaceOrder().join(",")) setWorkspaceOrder(merged)
 }
 
 async function refreshArchives() {

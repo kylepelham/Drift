@@ -19,7 +19,7 @@ function ErrorBanner() {
   const error = () => engine.state.errors[selectedSession() ?? ""]
   return (
     <Show when={error()}>
-      <div class="fade-up rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{error()}</div>
+      <div class="fade-up rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger select-text">{error()}</div>
     </Show>
   )
 }

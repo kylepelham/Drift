@@ -8,6 +8,7 @@ import {
   activeWorkspaceId,
   archivedIds,
   archiveSession,
+  moveWorkspace,
   removeWorkspace,
   selectWorkspace,
   updateWorkspace,
@@ -22,6 +23,7 @@ const sessionListCache = new Map<string, SessionList>()
 
 export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: WorkspaceMenuState) => void }) {
   const engine = useEngine()
+  let root!: HTMLDivElement
   const active = () => activeWorkspaceId() === props.workspace.id
   const all = createMemo(() => {
     const live = sessionsFor(engine.state, props.workspace.path)
@@ -33,11 +35,14 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
   const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
   const openMenu = (x: number, y: number) => props.onMenu({ x, y, workspaceId: props.workspace.id })
   return (
-    <div>
+    <div ref={root} data-workspace={props.workspace.id}>
       <div
         class="group flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
         classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
-        onClick={() => selectWorkspace(props.workspace.id)}
+        onPointerDown={(event) => dragWorkspace(event, root, props.workspace.id)}
+        onClick={() => {
+          if (!dragged) selectWorkspace(props.workspace.id)
+        }}
         onContextMenu={(event) => {
           event.preventDefault()
           openMenu(event.clientX, event.clientY)
@@ -90,6 +95,78 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
       </div>
     </div>
   )
+}
+
+let dragged = false
+
+type DragBox = { id: string; el: HTMLElement; mid: number }
+
+function dragWorkspace(event: PointerEvent, root: HTMLElement, id: string) {
+  if (event.button !== 0) return
+  const header = event.currentTarget as HTMLElement
+  const startY = event.clientY
+  let boxes: DragBox[] = []
+  let origIndex = 0
+  let slot = 0
+  let target = 0
+  let active = false
+  let minDy = 0
+  let maxDy = 0
+  let rectTop = 0
+  let rectBottom = 0
+
+  const begin = () => {
+    active = true
+    header.setPointerCapture(event.pointerId)
+    const els = Array.from(root.parentElement?.querySelectorAll<HTMLElement>(":scope > [data-workspace]") ?? [])
+    boxes = els.map((el) => {
+      const rect = el.getBoundingClientRect()
+      return { id: el.dataset.workspace ?? "", el, mid: rect.top + rect.height / 2 }
+    })
+    origIndex = boxes.findIndex((box) => box.el === root)
+    const rect = root.getBoundingClientRect()
+    slot = rect.height + 8
+    rectTop = rect.top
+    rectBottom = rect.bottom
+    minDy = els[0].getBoundingClientRect().top - rect.top
+    maxDy = els[els.length - 1].getBoundingClientRect().bottom - rect.bottom
+    root.style.position = "relative"
+    root.style.zIndex = "10"
+    for (const box of boxes) if (box.el !== root) box.el.style.transition = "transform 150ms ease"
+  }
+
+  const onMove = (e: PointerEvent) => {
+    let dy = e.clientY - startY
+    if (!active && Math.abs(dy) < 5) return
+    if (!active) begin()
+    dy = Math.min(maxDy, Math.max(minDy, dy))
+    root.style.transform = `translateY(${dy}px)`
+    const others = boxes.filter((box) => box.el !== root)
+    target = others.filter((box, i) => box.mid < (i < origIndex ? rectTop : rectBottom) + dy).length
+    others.forEach((box, i) => {
+      const shift = i >= target && i < origIndex ? slot : i >= origIndex && i < target ? -slot : 0
+      box.el.style.transform = shift ? `translateY(${shift}px)` : ""
+    })
+  }
+
+  const onUp = () => {
+    header.removeEventListener("pointermove", onMove)
+    header.removeEventListener("pointerup", onUp)
+    if (!active) return
+    for (const box of boxes) {
+      box.el.style.transform = ""
+      box.el.style.transition = ""
+    }
+    root.style.position = ""
+    root.style.zIndex = ""
+    const others = boxes.filter((box) => box.el !== root).map((box) => box.id)
+    moveWorkspace(id, others[target] ?? null)
+    dragged = true
+    setTimeout(() => (dragged = false), 0)
+  }
+
+  header.addEventListener("pointermove", onMove)
+  header.addEventListener("pointerup", onUp)
 }
 
 function RowButton(props: { title: string; onClick: (event: MouseEvent) => void; children: JSX.Element }) {
