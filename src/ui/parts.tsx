@@ -1,6 +1,7 @@
 import type { Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
 import { createSignal, For, Match, Show, Switch } from "solid-js"
 import { hasToolRenderer, PluginToolView } from "../plugins"
+import { showReasoning } from "../state/prefs"
 import { selectSession } from "../state/selection"
 import { IconArrowUpRight } from "./icons"
 import { Markdown } from "./markdown"
@@ -12,7 +13,7 @@ export function PartView(props: { part: Part }) {
   return (
     <Switch>
       <Match when={visibleText(props.part)}>{(part) => <Markdown text={part().text} done={!!part().time?.end} />}</Match>
-      <Match when={props.part.type === "reasoning" && (props.part as ReasoningPart)}>
+      <Match when={showReasoning() && props.part.type === "reasoning" && (props.part as ReasoningPart)}>
         {(part) => <ReasoningView part={part()} />}
       </Match>
       <Match

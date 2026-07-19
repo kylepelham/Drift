@@ -83,7 +83,7 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
   )
 }
 
-function Toggle(props: { label: string; checked: boolean; onChange: () => void }) {
+export function Toggle(props: { label: string; checked: boolean; onChange: () => void }) {
   return (
     <button
       role="switch"
@@ -94,7 +94,10 @@ function Toggle(props: { label: string; checked: boolean; onChange: () => void }
         "border-accent bg-accent": props.checked,
         "border-edge-strong bg-raised": !props.checked,
       }}
-      onClick={props.onChange}
+      onClick={(event) => {
+        event.stopPropagation()
+        props.onChange()
+      }}
     >
       <span
         class="absolute top-0.5 left-0.5 size-2.5 rounded-full bg-white transition-transform"

@@ -2,15 +2,7 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import { modelInfo, resolveModel, sessionBusy } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
-import {
-  agentPref,
-  hiddenModelIds,
-  modelPref,
-  setAgentPref,
-  setModelPref,
-  setVariantPref,
-  variantPref,
-} from "../state/prefs"
+import { hiddenModelIds, prefsFor, seedPrefs, updatePrefs } from "../state/prefs"
 import { restoredDraft, setRestoredDraft } from "../state/composer"
 import { selectedSession, selectSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
@@ -77,11 +69,12 @@ export function Composer() {
 
   const agentItems = createMemo<PickerItem[]>(() =>
     engine.state.agents
-      .filter((agent) => agent.mode !== "subagent")
+      .filter((agent) => agent.mode !== "subagent" && !(agent as { hidden?: boolean }).hidden)
       .map((agent) => ({ id: agent.name, label: capitalize(agent.name), hint: agent.description })),
   )
 
-  const model = () => resolveModel(engine.state, modelPref())
+  const prefs = () => prefsFor(selectedSession())
+  const model = () => resolveModel(engine.state, prefs().model)
   const modelId = () => {
     const ref = model()
     return ref ? `${ref.providerID}/${ref.modelID}` : undefined
@@ -93,7 +86,7 @@ export function Composer() {
     ...variants().map((name) => ({ id: name, label: capitalize(name) })),
   ])
   const variant = () => {
-    const pref = variantPref()
+    const pref = prefs().variant
     return pref && variants().includes(pref) ? pref : undefined
   }
 
@@ -106,18 +99,33 @@ export function Composer() {
     const existing = selectedSession()
     const id = existing ?? (await engine.actions.newSession())?.id
     if (!id) return
-    if (!existing) emitThreadCreated(id)
+    if (!existing) {
+      seedPrefs(id)
+      emitThreadCreated(id)
+    }
     selectSession(id)
     setDraft("")
     resize()
-    await engine.actions.send(id, text, { model: model(), agent: agentPref(), variant: variant() })
+    await engine.actions.send(id, text, { model: model(), agent: prefs().agent, variant: variant() })
   }
 
   function onKey(event: KeyboardEvent) {
     if (matches().length > 0 && handleSlashKey(event)) return
+    if (event.key === "Tab") {
+      event.preventDefault()
+      cycleAgent(event.shiftKey ? -1 : 1)
+      return
+    }
     if (event.key !== "Enter" || event.shiftKey) return
     event.preventDefault()
     void submit()
+  }
+
+  function cycleAgent(step: number) {
+    const items = agentItems()
+    if (items.length < 2) return
+    const index = items.findIndex((item) => item.id === prefs().agent)
+    updatePrefs(selectedSession(), { agent: items[(index + step + items.length) % items.length].id })
   }
 
   function handleSlashKey(event: KeyboardEvent) {
@@ -177,9 +185,9 @@ export function Composer() {
           <Picker
             label="Agent"
             items={agentItems()}
-            selected={agentPref()}
-            fallbackLabel={capitalize(agentPref())}
-            onPick={(id) => setAgentPref(id)}
+            selected={prefs().agent}
+            fallbackLabel={capitalize(prefs().agent)}
+            onPick={(id) => updatePrefs(selectedSession(), { agent: id })}
           />
           <Picker
             label="Model"
@@ -190,7 +198,7 @@ export function Composer() {
             onManage={() => setManageModels(true)}
             onPick={(id) => {
               const [providerID, ...rest] = id.split("/")
-              setModelPref({ providerID, modelID: rest.join("/") })
+              updatePrefs(selectedSession(), { model: { providerID, modelID: rest.join("/") } })
             }}
           />
           <Show when={variants().length > 0}>
@@ -198,7 +206,7 @@ export function Composer() {
               label="Thinking level"
               items={variantItems()}
               selected={variant() ?? "default"}
-              onPick={(id) => setVariantPref(id === "default" ? null : id)}
+              onPick={(id) => updatePrefs(selectedSession(), { variant: id === "default" ? null : id })}
             />
           </Show>
           <div class="flex-1" />

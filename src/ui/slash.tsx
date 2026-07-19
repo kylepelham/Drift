@@ -1,7 +1,7 @@
 import type { Engine } from "../engine"
 import { messageText, nextUserMessage, previousUserMessage, resolveModel } from "../engine/store"
 import { setRestoredDraft } from "../state/composer"
-import { modelPref } from "../state/prefs"
+import { prefsFor } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { setTheme, theme, themes } from "../state/theme"
 import { activeWorkspace, archiveSession } from "../state/workspaces"
@@ -15,6 +15,8 @@ const builtins: SlashItem[] = [
   { name: "undo", description: "Revert the last prompt and its file changes", needsSession: true },
   { name: "redo", description: "Restore the next reverted prompt", needsSession: true },
   { name: "compact", description: "Summarize this thread to reclaim context", needsSession: true },
+  { name: "share", description: "Share this thread and copy the link", needsSession: true },
+  { name: "unshare", description: "Remove this thread's share link", needsSession: true },
   { name: "theme", description: "Cycle theme" },
 ]
 
@@ -60,8 +62,14 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
     return archiveSession(current, workspace.id)
   }
   if (item.name === "compact" && current) {
-    return engine.actions.summarize(current, resolveModel(engine.state, modelPref()))
+    return engine.actions.summarize(current, resolveModel(engine.state, prefsFor(current).model))
   }
+  if (item.name === "share" && current) {
+    const url = await engine.actions.share(current)
+    if (url) await navigator.clipboard.writeText(url)
+    return
+  }
+  if (item.name === "unshare" && current) return engine.actions.unshare(current)
   if (item.name === "undo" && current) {
     const marker = engine.state.sessions[current]?.revert?.messageID
     const target = previousUserMessage(engine.state.transcripts[current] ?? [], marker)

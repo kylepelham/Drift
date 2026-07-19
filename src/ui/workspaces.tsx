@@ -15,10 +15,25 @@ import {
 
 export type WorkspaceMenuState = { x: number; y: number; workspaceId: string }
 
+type SessionList = ReturnType<typeof sessionsFor>
+
+// ponytail: last-known lists mask the engine store reset while switching workspaces
+const sessionListCache = new Map<string, SessionList>()
+const childListCache = new Map<string, SessionList>()
+
 export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: WorkspaceMenuState) => void }) {
   const engine = useEngine()
   const active = () => activeWorkspaceId() === props.workspace.id
-  const all = createMemo(() => sessionsFor(engine.state, props.workspace.path))
+  const all = createMemo(() => {
+    const live = sessionsFor(engine.state, props.workspace.path)
+    if (live.length) sessionListCache.set(props.workspace.path, live)
+    return live.length ? live : (sessionListCache.get(props.workspace.path) ?? live)
+  })
+  const children = (parentId: string) => {
+    const live = childrenOf(engine.state, parentId)
+    if (live.length) childListCache.set(parentId, live)
+    return live.length ? live : (childListCache.get(parentId) ?? live)
+  }
   const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
   const openMenu = (x: number, y: number) => props.onMenu({ x, y, workspaceId: props.workspace.id })
   return (
@@ -67,7 +82,7 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
                 updated={session.time.updated}
                 workspace={props.workspace}
               />
-              <For each={childrenOf(engine.state, session.id)}>
+              <For each={children(session.id)}>
                 {(child) => <ChildThreadItem sessionId={child.id} title={child.title} workspace={props.workspace} />}
               </For>
             </>

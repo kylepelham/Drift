@@ -72,6 +72,17 @@ export function createActions(
     await requireClient().session.summarize({ path: { id }, body: model })
   }
 
+  async function share(id: string) {
+    const result = await requireClient().session.share({ path: { id } })
+    if (result.data) set("sessions", id, result.data)
+    return result.data?.share?.url
+  }
+
+  async function unshare(id: string) {
+    const result = await requireClient().session.unshare({ path: { id } })
+    if (result.data) set("sessions", id, { ...result.data, share: undefined })
+  }
+
   async function runCommand(id: string, command: string, args: string) {
     await requireClient().session.command({ path: { id }, body: { command, arguments: args } })
   }
@@ -121,6 +132,8 @@ export function createActions(
     send,
     abort,
     summarize,
+    share,
+    unshare,
     runCommand,
     rename,
     remove,

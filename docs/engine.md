@@ -58,3 +58,8 @@ providers) applies unchanged. Users do not install opencode.
   session does not switch models mid-drain.
 - Model defaults from models.dev include non-chat models (video/image). Always filter on
   `capabilities.toolcall` before offering or auto-picking a model.
+- `DELETE /session/:id/share` revokes the remote share but the session record keeps a
+  stale `share` property (200 response body included). Drift clears it locally after
+  unshare; the stale value resurfaces on rehydration until fixed upstream.
+- Solid store `set("sessions", id, info)` merges objects, it does not replace. Keys the
+  engine dropped (like `share`) must be cleared explicitly with `undefined`.

@@ -1,6 +1,8 @@
 import { createEffect, For, onCleanup, Show } from "solid-js"
+import { setShowReasoning, showReasoning } from "../state/prefs"
 import { setTheme, theme, themes, type ThemeName } from "../state/theme"
 import { IconCheck, IconX } from "./icons"
+import { Toggle } from "./model-manager"
 
 const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, string] }> = {
   "drift-dark": { label: "Drift Dark", swatch: ["#141517", "#212429", "#7ba3e8"] },
@@ -36,6 +38,17 @@ export function SettingsModal(props: { onClose: () => void }) {
           <div class="mb-2 text-[0.68rem] tracking-wider text-ink-faint uppercase">Appearance</div>
           <div class="space-y-1">
             <For each={themes}>{(name) => <ThemeRow name={name} />}</For>
+          </div>
+          <div class="mt-4 mb-2 text-[0.68rem] tracking-wider text-ink-faint uppercase">Chat</div>
+          <div
+            class="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 hover:bg-raised/60"
+            onClick={() => setShowReasoning(!showReasoning())}
+          >
+            <div>
+              <div class="text-sm text-ink">Show thinking</div>
+              <div class="text-xs text-ink-faint">Show the model's reasoning above responses.</div>
+            </div>
+            <Toggle label="Show thinking" checked={showReasoning()} onChange={() => setShowReasoning(!showReasoning())} />
           </div>
         </div>
       </div>

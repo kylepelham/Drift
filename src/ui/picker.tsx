@@ -103,19 +103,17 @@ export function Picker(props: {
                     <div class="px-3 pt-3 pb-1 text-xs font-medium text-ink-faint first:pt-1.5">{item.group}</div>
                   </Show>
                   <button
-                    class="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm transition-colors"
+                    class="flex w-full items-center px-3 py-1.5 text-left text-sm transition-colors"
                     classList={{
                       "bg-raised text-ink": index() === cursor(),
                       "text-ink-muted": index() !== cursor(),
                       "text-accent": item.id === props.selected,
                     }}
+                    title={item.hint}
                     onMouseEnter={() => setCursor(index())}
                     onClick={() => pick(item.id)}
                   >
                     <span class="truncate">{item.label}</span>
-                    <Show when={item.hint}>
-                      <span class="ml-2 shrink-0 text-xs text-ink-faint">{item.hint}</span>
-                    </Show>
                   </button>
                 </>
               )}
