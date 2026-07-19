@@ -1,0 +1,2 @@
+* text=auto eol=lf
+engine/upstream/** -text -eol

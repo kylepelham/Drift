@@ -60,6 +60,17 @@ export function IconGear(props: IconProps) {
   )
 }
 
+export function IconSliders(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="M4 7h7M15 7h5M4 17h3M11 17h9" />
+      <circle cx="13" cy="7" r="2" />
+      <circle cx="9" cy="17" r="2" />
+    </>,
+  )
+}
+
 export function IconPlus(props: IconProps) {
   return frame(
     props,

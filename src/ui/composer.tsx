@@ -2,11 +2,20 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import { modelInfo, resolveModel, sessionBusy } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
-import { agentPref, modelPref, setAgentPref, setModelPref, setVariantPref, variantPref } from "../state/prefs"
+import {
+  agentPref,
+  hiddenModelIds,
+  modelPref,
+  setAgentPref,
+  setModelPref,
+  setVariantPref,
+  variantPref,
+} from "../state/prefs"
 import { restoredDraft, setRestoredDraft } from "../state/composer"
 import { selectedSession, selectSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
 import { Picker, type PickerItem } from "./picker"
+import { ModelManager } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
 import { parseSlash, runSlash, slashItems, type SlashItem } from "./slash"
 
@@ -17,6 +26,7 @@ export function Composer() {
   const [draft, setDraft] = createSignal("")
   const [dismissed, setDismissed] = createSignal(false)
   const [cursor, setCursor] = createSignal(0)
+  const [manageModels, setManageModels] = createSignal(false)
   let area!: HTMLTextAreaElement
 
   createEffect(() => {
@@ -54,15 +64,16 @@ export function Composer() {
     return online() ? "Message Drift..." : "Connecting to engine..."
   }
 
-  const modelItems = createMemo<PickerItem[]>(() =>
+  const availableModelItems = createMemo<PickerItem[]>(() =>
     engine.state.providers
       .filter((provider) => engine.state.connected.includes(provider.id) || engine.state.connected.length === 0)
       .flatMap((provider) =>
         Object.values(provider.models)
           .filter((model) => model.capabilities.toolcall)
-          .map((model) => ({ id: `${provider.id}/${model.id}`, label: model.name, hint: provider.name })),
+          .map((model) => ({ id: `${provider.id}/${model.id}`, label: model.name, group: provider.name })),
       ),
   )
+  const modelItems = createMemo(() => availableModelItems().filter((item) => !hiddenModelIds().includes(item.id)))
 
   const agentItems = createMemo<PickerItem[]>(() =>
     engine.state.agents
@@ -175,6 +186,8 @@ export function Composer() {
             items={modelItems()}
             selected={modelId()}
             icon={<ProviderIcon id={model()?.providerID} class="size-3.5 shrink-0" />}
+            fallbackLabel={modelInfo(engine.state, model())?.name}
+            onManage={() => setManageModels(true)}
             onPick={(id) => {
               const [providerID, ...rest] = id.split("/")
               setModelPref({ providerID, modelID: rest.join("/") })
@@ -210,6 +223,9 @@ export function Composer() {
           </Show>
         </div>
       </div>
+      <Show when={manageModels()}>
+        <ModelManager items={availableModelItems()} onClose={() => setManageModels(false)} />
+      </Show>
     </div>
   )
 }

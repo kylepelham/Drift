@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
+import { IconSliders } from "./icons"
 
 export type PickerItem = { id: string; label: string; hint?: string; group?: string }
 
@@ -8,6 +9,7 @@ export function Picker(props: {
   label: string
   icon?: JSX.Element
   fallbackLabel?: string
+  onManage?: () => void
   onPick: (id: string) => void
 }) {
   const [open, setOpen] = createSignal(false)
@@ -18,7 +20,12 @@ export function Picker(props: {
 
   const filtered = createMemo(() => {
     const q = query().toLowerCase()
-    return props.items.filter((item) => item.label.toLowerCase().includes(q) || item.id.toLowerCase().includes(q))
+    return props.items.filter(
+      (item) =>
+        item.label.toLowerCase().includes(q) ||
+        item.id.toLowerCase().includes(q) ||
+        item.group?.toLowerCase().includes(q),
+    )
   })
 
   createEffect(() => {
@@ -63,35 +70,54 @@ export function Picker(props: {
       </button>
       <Show when={open()}>
         <div class="absolute bottom-full left-0 z-20 mb-2 w-72 overflow-hidden rounded-lg border border-edge bg-overlay shadow-xl shadow-black/30">
-          <input
-            ref={input}
-            class="w-full border-b border-edge bg-transparent px-3 py-2 text-sm outline-none placeholder:text-ink-faint"
-            placeholder="Search..."
-            value={query()}
-            onInput={(event) => {
-              setQuery(event.currentTarget.value)
-              setCursor(0)
-            }}
-            onKeyDown={onKey}
-          />
+          <div class="flex items-center border-b border-edge">
+            <input
+              ref={input}
+              class="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-ink-faint"
+              placeholder="Search..."
+              value={query()}
+              onInput={(event) => {
+                setQuery(event.currentTarget.value)
+                setCursor(0)
+              }}
+              onKeyDown={onKey}
+            />
+            <Show when={props.onManage}>
+              <button
+                title="Manage models"
+                class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+                onClick={() => {
+                  setOpen(false)
+                  props.onManage?.()
+                }}
+              >
+                <IconSliders class="size-4" />
+              </button>
+            </Show>
+          </div>
           <div class="max-h-72 overflow-y-auto py-1">
             <For each={filtered()}>
               {(item, index) => (
-                <button
-                  class="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm transition-colors"
-                  classList={{
-                    "bg-raised text-ink": index() === cursor(),
-                    "text-ink-muted": index() !== cursor(),
-                    "text-accent": item.id === props.selected,
-                  }}
-                  onMouseEnter={() => setCursor(index())}
-                  onClick={() => pick(item.id)}
-                >
-                  <span class="truncate">{item.label}</span>
-                  <Show when={item.hint}>
-                    <span class="ml-2 shrink-0 text-xs text-ink-faint">{item.hint}</span>
+                <>
+                  <Show when={item.group && item.group !== filtered()[index() - 1]?.group}>
+                    <div class="px-3 pt-3 pb-1 text-xs font-medium text-ink-faint first:pt-1.5">{item.group}</div>
                   </Show>
-                </button>
+                  <button
+                    class="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm transition-colors"
+                    classList={{
+                      "bg-raised text-ink": index() === cursor(),
+                      "text-ink-muted": index() !== cursor(),
+                      "text-accent": item.id === props.selected,
+                    }}
+                    onMouseEnter={() => setCursor(index())}
+                    onClick={() => pick(item.id)}
+                  >
+                    <span class="truncate">{item.label}</span>
+                    <Show when={item.hint}>
+                      <span class="ml-2 shrink-0 text-xs text-ink-faint">{item.hint}</span>
+                    </Show>
+                  </button>
+                </>
               )}
             </For>
             <Show when={filtered().length === 0}>
