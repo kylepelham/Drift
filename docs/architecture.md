@@ -48,6 +48,16 @@ directory (`EngineProvider.setDirectory`). Session lists for inactive workspaces
 fetched over REST so the sidebar can group threads per workspace; only the active
 workspace streams live events.
 
+The sidebar keeps workspace row geometry fixed while revealing actions, so hover never
+moves the thread list. Its 192-480px width is pointer and keyboard resizable and stored
+as a UI preference.
+
+## Tool rendering
+
+Single-file edit and write tools keep their filename and stats in the clickable summary
+row. A multi-file `apply_patch` uses the engine's per-file metadata to render a header,
+status, additions/deletions, and numbered diff for every changed file.
+
 ## Known constraints
 
 - The engine's event stream is per-directory instance. Sessions are grouped by their

@@ -40,7 +40,7 @@ both the browser and the webview, so frontend edits hot-reload everywhere.
 ## Updating the engine
 
 ```
-git subtree pull --prefix engine/upstream opencode dev --squash
+git subtree pull --prefix engine/upstream https://github.com/sst/opencode.git dev --squash
 bun install --ignore-scripts --cwd engine/upstream
 bun run build:engine
 ```

@@ -1,23 +1,54 @@
-import { createSignal, For, Show } from "solid-js"
+import { createSignal, For, onCleanup, Show } from "solid-js"
 import { useEngine } from "../engine"
 import { pickFolder } from "../state/dialog"
+import { persisted } from "../state/persist"
 import { addWorkspace, workspaces } from "../state/workspaces"
 import { IconGear, IconPlus } from "./icons"
 import { SettingsModal } from "./settings"
 import { WorkspaceEditModal, WorkspaceGroup, WorkspaceMenu, type WorkspaceMenuState } from "./workspaces"
 
+const minSidebarWidth = 192
+const maxSidebarWidth = 480
+const [storedSidebarWidth, storeSidebarWidth] = persisted("drift.sidebar.width", 256)
+const clampSidebarWidth = (width: number) => Math.min(maxSidebarWidth, Math.max(minSidebarWidth, width))
+
 export function Sidebar() {
   const [menu, setMenu] = createSignal<WorkspaceMenuState | null>(null)
   const [editing, setEditing] = createSignal<string | null>(null)
   const [settings, setSettings] = createSignal(false)
+  const [width, setWidth] = createSignal(clampSidebarWidth(storedSidebarWidth()))
 
   async function add() {
     const path = await pickFolder()
     if (path) await addWorkspace(path)
   }
 
+  function moveResize(event: PointerEvent) {
+    const handle = event.currentTarget as HTMLElement
+    if (!handle.hasPointerCapture(event.pointerId)) return
+    const left = handle.parentElement?.getBoundingClientRect().left ?? 0
+    setWidth(clampSidebarWidth(event.clientX - left))
+  }
+
+  function finishResize() {
+    document.body.style.cursor = ""
+    document.body.style.userSelect = ""
+    storeSidebarWidth(width())
+  }
+
+  function resizeWithKeyboard(event: KeyboardEvent) {
+    const direction = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0
+    if (!direction) return
+    event.preventDefault()
+    const next = clampSidebarWidth(width() + direction * 16)
+    setWidth(next)
+    storeSidebarWidth(next)
+  }
+
+  onCleanup(finishResize)
+
   return (
-    <aside class="flex w-64 shrink-0 flex-col border-r border-edge bg-surface">
+    <aside class="relative flex shrink-0 flex-col border-r border-edge bg-surface" style={{ width: `${width()}px` }}>
       <div class="flex items-center justify-between pt-2.5 pb-1.5 pr-3.5 pl-4">
         <span class="text-[0.68rem] tracking-wider text-ink-faint uppercase">Workspaces</span>
         <button
@@ -51,6 +82,28 @@ export function Sidebar() {
       <Show when={settings()}>
         <SettingsModal onClose={() => setSettings(false)} />
       </Show>
+      <div
+        role="separator"
+        aria-label="Resize sidebar"
+        aria-orientation="vertical"
+        aria-valuemin={minSidebarWidth}
+        aria-valuemax={maxSidebarWidth}
+        aria-valuenow={Math.round(width())}
+        tabIndex={0}
+        class="absolute inset-y-0 right-0 z-20 w-1 translate-x-1/2 cursor-col-resize transition-colors hover:bg-accent/50 focus:bg-accent/50 focus:outline-none"
+        onPointerDown={(event) => {
+          event.preventDefault()
+          event.currentTarget.setPointerCapture(event.pointerId)
+          document.body.style.cursor = "col-resize"
+          document.body.style.userSelect = "none"
+        }}
+        onPointerMove={moveResize}
+        onPointerUp={(event) => {
+          event.currentTarget.releasePointerCapture(event.pointerId)
+        }}
+        onLostPointerCapture={finishResize}
+        onKeyDown={resizeWithKeyboard}
+      />
     </aside>
   )
 

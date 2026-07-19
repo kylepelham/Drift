@@ -3,6 +3,7 @@
 mod store;
 
 use std::io::{BufRead, BufReader};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use store::{ArchivedSession, Store, Workspace};
@@ -12,6 +13,38 @@ use tauri::{Manager, RunEvent, State};
 struct Engine {
     url: Mutex<Option<String>>,
     child: Mutex<Option<Child>>,
+}
+
+struct ConfigRoot(PathBuf);
+
+fn config_path(root: &Path, path: &str) -> Result<PathBuf, String> {
+    let relative = Path::new(path);
+    if relative
+        .components()
+        .any(|part| !matches!(part, Component::Normal(_)))
+    {
+        return Err("config path must be relative".into());
+    }
+    Ok(root.join(relative))
+}
+
+#[tauri::command]
+fn config_read(config: State<ConfigRoot>, path: String) -> Result<Option<String>, String> {
+    let root = config.0.canonicalize().map_err(|e| e.to_string())?;
+    let requested = config_path(&root, &path)?;
+    if !requested.exists() {
+        return Ok(None);
+    }
+    let requested = requested.canonicalize().map_err(|e| e.to_string())?;
+    if !requested.starts_with(&root) {
+        return Err("config path escapes Drift's config directory".into());
+    }
+    if requested.metadata().map_err(|e| e.to_string())?.len() > 1_048_576 {
+        return Err("config file exceeds 1 MiB".into());
+    }
+    std::fs::read_to_string(requested)
+        .map(Some)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -159,6 +192,7 @@ fn main() {
         .manage(Engine::default())
         .invoke_handler(tauri::generate_handler![
             engine_url,
+            config_read,
             pick_folder,
             store_workspaces,
             store_add_workspace,
@@ -173,6 +207,9 @@ fn main() {
         ])
         .setup(|app| {
             let data_dir = app.path().app_data_dir().expect("no app data dir");
+            let config_dir = app.path().app_config_dir().expect("no app config dir");
+            std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
+            app.manage(ConfigRoot(config_dir));
             app.manage(store::open(&data_dir).expect("failed to open drift store"));
             spawn_engine(app.handle().clone());
             Ok(())
@@ -188,4 +225,21 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::config_path;
+    use std::path::Path;
+
+    #[test]
+    fn config_paths_stay_under_the_config_directory() {
+        let root = Path::new("config");
+        assert_eq!(
+            config_path(root, "plugins/example.mjs").unwrap(),
+            root.join("plugins/example.mjs")
+        );
+        assert!(config_path(root, "../outside.mjs").is_err());
+        assert!(config_path(root, "C:\\outside.mjs").is_err());
+    }
 }

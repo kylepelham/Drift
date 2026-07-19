@@ -1,6 +1,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import { modelInfo, resolveModel, sessionBusy } from "../engine/store"
+import { emitThreadCreated, transformComposerSubmit } from "../plugins"
 import { agentPref, modelPref, setAgentPref, setModelPref, setVariantPref, variantPref } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
@@ -74,10 +75,15 @@ export function Composer() {
   }
 
   async function submit() {
-    const text = draft().trim()
+    const initial = draft().trim()
+    const text = initial
+      ? await transformComposerSubmit({ text: initial, sessionId: selectedSession(), workspace: activeWorkspace() })
+      : null
     if (!text || busy() || !ready()) return
-    const id = selectedSession() ?? (await engine.actions.newSession())?.id
+    const existing = selectedSession()
+    const id = existing ?? (await engine.actions.newSession())?.id
     if (!id) return
+    if (!existing) emitThreadCreated(id)
     selectSession(id)
     setDraft("")
     resize()

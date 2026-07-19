@@ -40,16 +40,7 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
         <span class="min-w-0 flex-1 truncate text-sm" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
           {props.workspace.name}
         </span>
-        <div class="items-center" classList={{ flex: active(), "hidden group-hover:flex": !active() }}>
-          <RowButton
-            title="New thread"
-            onClick={() => {
-              selectWorkspace(props.workspace.id)
-              selectSession(null)
-            }}
-          >
-            <IconSquarePen />
-          </RowButton>
+        <div class="flex items-center" classList={{ "invisible group-hover:visible": !active() }}>
           <RowButton
             title="Workspace options"
             onClick={(event) => {
@@ -58,6 +49,15 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
             }}
           >
             <IconDots />
+          </RowButton>
+          <RowButton
+            title="New thread"
+            onClick={() => {
+              selectWorkspace(props.workspace.id)
+              selectSession(null)
+            }}
+          >
+            <IconSquarePen />
           </RowButton>
         </div>
       </div>

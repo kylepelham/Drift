@@ -1,5 +1,6 @@
 import { createEffect, onMount } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
+import { PluginHost } from "./plugins"
 import { bindTheme } from "./state/theme"
 import {
   activeWorkspace,
@@ -20,6 +21,7 @@ export function App() {
   return (
     <EngineProvider>
       <WorkspaceBinding />
+      <PluginBinding />
       <div class="flex h-full flex-col bg-bg text-ink">
         <Titlebar />
         <div class="flex min-h-0 flex-1">
@@ -34,6 +36,11 @@ export function App() {
       </div>
     </EngineProvider>
   )
+}
+
+function PluginBinding() {
+  const engine = useEngine()
+  return <PluginHost engine={engine} />
 }
 
 function WorkspaceBinding() {
@@ -51,4 +58,3 @@ function WorkspaceBinding() {
   })
   return null
 }
-

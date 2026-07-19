@@ -1,5 +1,6 @@
 import type { Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
 import { createSignal, For, Match, Show, Switch } from "solid-js"
+import { hasToolRenderer, PluginToolView } from "../plugins"
 import { selectSession } from "../state/selection"
 import { IconArrowUpRight } from "./icons"
 import { Markdown } from "./markdown"
@@ -13,6 +14,15 @@ export function PartView(props: { part: Part }) {
       <Match when={visibleText(props.part)}>{(part) => <Markdown text={part().text} done={!!part().time?.end} />}</Match>
       <Match when={props.part.type === "reasoning" && (props.part as ReasoningPart)}>
         {(part) => <ReasoningView part={part()} />}
+      </Match>
+      <Match
+        when={
+          props.part.type === "tool" &&
+          hasToolRenderer((props.part as ToolPart).tool) &&
+          (props.part as ToolPart)
+        }
+      >
+        {(part) => <PluginToolView part={part()} />}
       </Match>
       <Match when={props.part.type === "tool" && !hiddenTools.has((props.part as ToolPart).tool) && (props.part as ToolPart)}>
         {(part) => <ToolView part={part()} />}
@@ -75,6 +85,14 @@ function ReasoningView(props: { part: ReasoningPart }) {
 }
 
 type ToolInfo = { title?: string; called?: string; subtitle?: string; mono?: boolean }
+type PatchFile = {
+  filePath: string
+  relativePath?: string
+  type?: "add" | "update" | "delete" | "move"
+  patch: string
+  additions: number
+  deletions: number
+}
 
 function toolInfo(part: ToolPart): ToolInfo {
   const input = part.state.input as Record<string, unknown>
@@ -87,7 +105,7 @@ function toolInfo(part: ToolPart): ToolInfo {
     case "write":
       return { title: "Write", subtitle: filename(text("filePath")) }
     case "apply_patch": {
-      const files = Array.isArray(input?.files) ? input.files.length : 0
+      const files = patchFiles(part).length || (Array.isArray(input?.files) ? input.files.length : 0)
       return { title: "Patch", subtitle: files ? `${files} file${files > 1 ? "s" : ""}` : undefined }
     }
     case "read":
@@ -135,6 +153,20 @@ function argsPreview(input: Record<string, unknown> | undefined) {
 function toolMeta(part: ToolPart) {
   const state = part.state
   return (("metadata" in state ? state.metadata : undefined) ?? part.metadata) as Record<string, unknown> | undefined
+}
+
+export function patchFiles(part: ToolPart) {
+  const files = toolMeta(part)?.files
+  if (!Array.isArray(files)) return []
+  return files.filter(
+    (file): file is PatchFile =>
+      !!file &&
+      typeof file === "object" &&
+      typeof (file as PatchFile).filePath === "string" &&
+      typeof (file as PatchFile).patch === "string" &&
+      typeof (file as PatchFile).additions === "number" &&
+      typeof (file as PatchFile).deletions === "number",
+  )
 }
 
 function diffStats(diff: string) {
@@ -244,6 +276,7 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
     const input = state().input as { content?: string; filePath?: string }
     return typeof input.content === "string" ? { content: input.content, name: filename(input.filePath) } : null
   }
+  const patched = () => (props.part.tool === "apply_patch" ? patchFiles(props.part) : [])
   return (
     <>
       <Switch fallback={<GenericBody part={props.part} />}>
@@ -269,6 +302,7 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
             </pre>
           )}
         </Match>
+        <Match when={patched().length > 1 && patched()}>{(files) => <PatchPanel files={files()} />}</Match>
         <Match when={props.diff}>{(patch) => <DiffPanel diff={patch()} />}</Match>
       </Switch>
       <Show when={props.error}>
@@ -326,10 +360,10 @@ function parseDiff(diff: string): DiffRow[] {
   return rows
 }
 
-function DiffPanel(props: { diff: string }) {
+function DiffPanel(props: { diff: string; bare?: boolean }) {
   const rows = () => parseDiff(props.diff)
   return (
-    <div class="overflow-hidden rounded-lg border border-edge">
+    <div class="overflow-hidden" classList={{ "rounded-lg border border-edge": !props.bare }}>
       <div class="max-h-80 overflow-auto py-1 font-mono text-xs leading-relaxed">
         <For each={rows()}>
           {(row) => (
@@ -354,6 +388,46 @@ function DiffPanel(props: { diff: string }) {
           )}
         </For>
       </div>
+    </div>
+  )
+}
+
+function PatchPanel(props: { files: PatchFile[] }) {
+  return (
+    <div class="space-y-2">
+      <For each={props.files}>{(file) => <PatchFilePanel file={file} />}</For>
+    </div>
+  )
+}
+
+function PatchFilePanel(props: { file: PatchFile }) {
+  const [open, setOpen] = createSignal(true)
+  const status = () => {
+    if (props.file.type === "add") return "Created"
+    if (props.file.type === "delete") return "Deleted"
+    if (props.file.type === "move") return "Moved"
+    return null
+  }
+  return (
+    <div class="overflow-hidden rounded-lg border border-edge">
+      <button
+        class="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-raised/50"
+        onClick={() => setOpen(!open())}
+      >
+        <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink-muted">
+          {props.file.relativePath ?? props.file.filePath}
+        </span>
+        <span class="shrink-0 font-mono text-xs">
+          <span class="text-ok">+{props.file.additions}</span> <span class="text-danger">-{props.file.deletions}</span>
+        </span>
+        <Show when={status()}>{(label) => <span class="shrink-0 text-xs text-ink-faint">{label()}</span>}</Show>
+        <Chevron open={open()} />
+      </button>
+      <Show when={open()}>
+        <div class="border-t border-edge">
+          <DiffPanel diff={props.file.patch} bare />
+        </div>
+      </Show>
     </div>
   )
 }

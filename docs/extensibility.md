@@ -8,18 +8,55 @@
    plugins in `.opencode/` and global config work unchanged. Never patch
    `engine/upstream` for engine behavior; add a plugin here instead.
 2. Drift side: UI/workflow hooks the engine cannot see. Modeled on claude-code's hook
-   taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS).
-   Not built yet; contract below.
+    taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS).
+    The Drift plugin foundation is built; the remaining planned events are listed
+    below.
+
+## Drift plugins
+
+Drift's platform config directory can list local JavaScript modules in `drift.json`:
+
+```json
+{
+  "plugins": ["plugins/example.mjs"]
+}
+```
+
+Paths are relative to that config directory, must stay inside it, and must end in `.js`
+or `.mjs`. Entry modules are self-contained ESM files with a default function. A cloned
+workspace can never make Drift execute plugin code merely by being opened.
+
+```js
+export default function (api) {
+  api.on("composer.submit", ({ text }) => {
+    if (text === "!!ping") return "Say exactly: pong"
+  })
+
+  api.registerToolRenderer("weather", (part) => {
+    const row = document.createElement("div")
+    row.textContent = part.state.status === "completed" ? part.state.output : "Loading weather..."
+    return row
+  })
+}
+```
+
+`api.version` is `1`. `api.context()` returns the active workspace, selected thread,
+and engine connection state. `api.threads.create()` creates and selects a thread;
+`api.threads.select(id)` changes the selected thread. Renderers may return a DOM node,
+plain text, or `null`; strings are never treated as HTML.
+
+The first hook set is `composer.submit`, `thread.created`, `thread.selected`,
+`workspace.changed`, and `theme.changed`. Composer hooks run in registration order and
+may return replacement text or `false` to cancel submission. Other hooks are
+notifications. Plugin failures are isolated and logged to the browser console.
 
 ## Planned Drift hook events
 
-`thread.created`, `thread.selected`, `thread.archived`, `composer.submit` (can rewrite
-or cancel), `message.rendered`, `part.render` (override renderer for a part/tool),
-`permission.requested`, `session.idle`, `workspace.changed`, `theme.changed`.
+Still to add: `thread.archived`, `message.rendered`, non-tool `part.render`,
+`permission.requested`, and `session.idle`.
 
-Hooks are registered by Drift plugins: ESM modules listed in `drift.json`, loaded at
-startup, given a typed `DriftApi` (engine actions, store snapshots, UI registration
-points). No remote code; local files only.
+Hooks are registered by Drift plugins loaded from Drift's config directory. No remote
+code; local files only.
 
 ## Spawned threads (shipped)
 
