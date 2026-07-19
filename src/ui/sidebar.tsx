@@ -3,7 +3,8 @@ import { useEngine } from "../engine"
 import { pickFolder } from "../state/dialog"
 import { persisted } from "../state/persist"
 import { addWorkspace, workspaces } from "../state/workspaces"
-import { IconGear, IconPlus } from "./icons"
+import { ArchiveModal } from "./archive"
+import { IconArchive, IconGear, IconPlus } from "./icons"
 import { SettingsModal } from "./settings"
 import { WorkspaceEditModal, WorkspaceGroup, WorkspaceMenu, type WorkspaceMenuState } from "./workspaces"
 
@@ -16,6 +17,7 @@ export function Sidebar() {
   const [menu, setMenu] = createSignal<WorkspaceMenuState | null>(null)
   const [editing, setEditing] = createSignal<string | null>(null)
   const [settings, setSettings] = createSignal(false)
+  const [archive, setArchive] = createSignal(false)
   const [width, setWidth] = createSignal(clampSidebarWidth(storedSidebarWidth()))
 
   async function add() {
@@ -51,13 +53,22 @@ export function Sidebar() {
     <aside class="relative flex shrink-0 flex-col border-r border-edge bg-surface" style={{ width: `${width()}px` }}>
       <div class="flex items-center justify-between pt-2.5 pb-1.5 pr-3.5 pl-4">
         <span class="text-[0.68rem] tracking-wider text-ink-faint uppercase">Workspaces</span>
-        <button
-          class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-          title="Add workspace (pick a folder)"
-          onClick={() => void add()}
-        >
-          <IconPlus />
-        </button>
+        <div class="flex items-center gap-0.5">
+          <button
+            class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+            title="Archived items"
+            onClick={() => setArchive(true)}
+          >
+            <IconArchive />
+          </button>
+          <button
+            class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+            title="Add workspace (pick a folder)"
+            onClick={() => void add()}
+          >
+            <IconPlus />
+          </button>
+        </div>
       </div>
       <nav class="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
         <For each={workspaces()}>{(workspace) => <WorkspaceGroup workspace={workspace} onMenu={setMenu} />}</For>
@@ -81,6 +92,9 @@ export function Sidebar() {
       </Show>
       <Show when={settings()}>
         <SettingsModal onClose={() => setSettings(false)} />
+      </Show>
+      <Show when={archive()}>
+        <ArchiveModal onClose={() => setArchive(false)} />
       </Show>
       <div
         role="separator"

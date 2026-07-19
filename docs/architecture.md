@@ -58,6 +58,11 @@ Single-file edit and write tools keep their filename and stats in the clickable 
 row. A multi-file `apply_patch` uses the engine's per-file metadata to render a header,
 status, additions/deletions, and numbered diff for every changed file.
 
+User prompts carry a hover-only footer with their agent, friendly model name, time,
+copy, and revert action. Revert state comes from the engine session record; the chat
+filters messages at that marker while `/undo` and `/redo` move it one user prompt at a
+time. Reverted prompt text is returned to the composer for editing.
+
 ## Known constraints
 
 - The engine's event stream is per-directory instance. Sessions are grouped by their

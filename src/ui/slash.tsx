@@ -1,5 +1,6 @@
 import type { Engine } from "../engine"
-import { resolveModel } from "../engine/store"
+import { messageText, nextUserMessage, previousUserMessage, resolveModel } from "../engine/store"
+import { setRestoredDraft } from "../state/composer"
 import { modelPref } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { setTheme, theme, themes } from "../state/theme"
@@ -11,6 +12,8 @@ const builtins: SlashItem[] = [
   { name: "new", description: "Start a new thread" },
   { name: "fork", description: "Duplicate this thread with full history", needsSession: true },
   { name: "archive", description: "Archive this thread", needsSession: true },
+  { name: "undo", description: "Revert the last prompt and its file changes", needsSession: true },
+  { name: "redo", description: "Restore the next reverted prompt", needsSession: true },
   { name: "compact", description: "Summarize this thread to reclaim context", needsSession: true },
   { name: "theme", description: "Cycle theme" },
 ]
@@ -58,6 +61,21 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
   }
   if (item.name === "compact" && current) {
     return engine.actions.summarize(current, resolveModel(engine.state, modelPref()))
+  }
+  if (item.name === "undo" && current) {
+    const marker = engine.state.sessions[current]?.revert?.messageID
+    const target = previousUserMessage(engine.state.transcripts[current] ?? [], marker)
+    if (!target) return
+    await engine.actions.revert(current, target.info.id)
+    setRestoredDraft(messageText(target))
+    return
+  }
+  if (item.name === "redo" && current) {
+    const marker = engine.state.sessions[current]?.revert?.messageID
+    if (!marker) return
+    const next = nextUserMessage(engine.state.transcripts[current] ?? [], marker)
+    setRestoredDraft("")
+    return next ? engine.actions.revert(current, next.info.id) : engine.actions.unrevert(current)
   }
   if (item.name === "theme") setTheme(themes[(themes.indexOf(theme()) + 1) % themes.length])
 }

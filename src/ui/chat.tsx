@@ -10,7 +10,10 @@ export function Chat() {
   const entries = createMemo(() => {
     const id = selectedSession()
     if (!id) return []
-    return [...(engine.state.transcripts[id] ?? [])].sort((a, b) => a.info.id.localeCompare(b.info.id))
+    const revertedAt = engine.state.sessions[id]?.revert?.messageID
+    return [...(engine.state.transcripts[id] ?? [])]
+      .filter((entry) => !revertedAt || entry.info.id < revertedAt)
+      .sort((a, b) => a.info.id.localeCompare(b.info.id))
   })
 
   createEffect(() => {

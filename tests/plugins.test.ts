@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
-import type { ToolPart } from "@opencode-ai/sdk/client"
+import type { Message, ToolPart } from "@opencode-ai/sdk/client"
+import { nextUserMessage, previousUserMessage, type MessageEntry } from "../src/engine/store"
 
 Object.defineProperty(globalThis, "localStorage", {
   value: { getItem: () => null, setItem: () => undefined },
@@ -38,4 +39,12 @@ test("patchFiles reads per-file apply_patch metadata", async () => {
   ]
   const part = { state: { status: "completed", metadata: { files } } } as unknown as ToolPart
   expect(patchFiles(part)).toEqual(files)
+})
+
+test("undo and redo move one user prompt at a time", () => {
+  const entry = (id: string, role: "user" | "assistant") => ({ info: { id, role } as Message, parts: [] })
+  const entries: MessageEntry[] = [entry("01", "user"), entry("02", "assistant"), entry("03", "user")]
+  expect(previousUserMessage(entries)?.info.id).toBe("03")
+  expect(previousUserMessage(entries, "03")?.info.id).toBe("01")
+  expect(nextUserMessage(entries, "01")?.info.id).toBe("03")
 })

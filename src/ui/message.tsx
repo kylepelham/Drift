@@ -1,31 +1,55 @@
-import type { AssistantMessage, Part, ToolPart } from "@opencode-ai/sdk/client"
+import type { AssistantMessage, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/client"
 import { createMemo, For, Match, Show, Switch } from "solid-js"
-import type { MessageEntry } from "../engine/store"
+import { useEngine } from "../engine"
+import { messageText, modelInfo, type MessageEntry } from "../engine/store"
+import { setRestoredDraft } from "../state/composer"
+import { IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
 import { contextTools, ExploredGroup, PartView } from "./parts"
 
 export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
   return (
-    <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble parts={props.entry.parts} />}>
+    <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} />}>
       <AssistantFlow entry={props.entry} footer={props.footer} />
     </Show>
   )
 }
 
-function UserBubble(props: { parts: Part[] }) {
-  const text = () =>
-    props.parts
-      .filter((part) => part.type === "text" && !part.synthetic)
-      .map((part) => (part as { text: string }).text)
-      .join("\n")
+function UserBubble(props: { entry: MessageEntry }) {
+  const engine = useEngine()
+  const info = () => props.entry.info as UserMessage
+  const text = () => messageText(props.entry)
+  const model = () => modelInfo(engine.state, info().model)?.name ?? info().model.modelID
+  const time = () => new Date(info().time.created).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+  const revert = async () => {
+    await engine.actions.revert(info().sessionID, info().id)
+    setRestoredDraft(text())
+  }
   return (
     <Show when={text()}>
-      <div class="fade-up ml-auto max-w-[85%] rounded-xl rounded-br-sm border border-edge bg-raised px-4 py-2.5">
-        <Markdown text={text()} done />
+      <div class="fade-up group ml-auto flex max-w-[85%] flex-col items-end gap-1">
+        <div class="rounded-lg border border-edge bg-surface px-3 py-2">
+          <Markdown text={text()} done />
+        </div>
+        <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+          <span>{capitalize(info().agent)} · {model()} · {time()}</span>
+          <button title="Revert to here" class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void revert()}>
+            <IconUndo class="size-3.5" />
+          </button>
+          <button
+            title="Copy message"
+            class="rounded p-0.5 hover:bg-raised hover:text-ink"
+            onClick={() => void navigator.clipboard.writeText(text())}
+          >
+            <IconCopy class="size-3.5" />
+          </button>
+        </div>
       </div>
     </Show>
   )
 }
+
+const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
 
 type PartGroup = { key: string; explored: ToolPart[] } | { key: string; part: Part }
 

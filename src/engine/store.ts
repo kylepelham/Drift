@@ -17,6 +17,24 @@ export type ProviderInfo = { id: string; name: string; models: Record<string, Mo
 export type ModelRef = { providerID: string; modelID: string }
 export type MessageEntry = { info: Message; parts: Part[] }
 
+export function messageText(entry: MessageEntry) {
+  return entry.parts
+    .flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : []))
+    .join("\n")
+}
+
+export function previousUserMessage(entries: MessageEntry[], before?: string) {
+  return entries
+    .filter((entry) => entry.info.role === "user" && (!before || entry.info.id < before))
+    .sort((a, b) => b.info.id.localeCompare(a.info.id))[0]
+}
+
+export function nextUserMessage(entries: MessageEntry[], after: string) {
+  return entries
+    .filter((entry) => entry.info.role === "user" && entry.info.id > after)
+    .sort((a, b) => a.info.id.localeCompare(b.info.id))[0]
+}
+
 export type EngineState = {
   connection: Connection
   directory: string

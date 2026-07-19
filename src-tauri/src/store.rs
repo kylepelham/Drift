@@ -13,6 +13,8 @@ pub struct Workspace {
     pub name: String,
     pub icon: String,
     pub last_used: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub removed_at: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -64,7 +66,7 @@ impl Store {
     pub fn workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT id, path, name, icon, last_used FROM workspace WHERE removed_at IS NULL ORDER BY last_used DESC",
+            "SELECT id, path, name, icon, last_used, removed_at FROM workspace WHERE removed_at IS NULL ORDER BY last_used DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Workspace {
@@ -73,6 +75,25 @@ impl Store {
                 name: row.get(2)?,
                 icon: row.get(3)?,
                 last_used: row.get(4)?,
+                removed_at: row.get(5)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn removed_workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT id, path, name, icon, last_used, removed_at FROM workspace WHERE removed_at IS NOT NULL ORDER BY removed_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(Workspace {
+                id: row.get(0)?,
+                path: row.get(1)?,
+                name: row.get(2)?,
+                icon: row.get(3)?,
+                last_used: row.get(4)?,
+                removed_at: row.get(5)?,
             })
         })?;
         rows.collect()
@@ -97,7 +118,7 @@ impl Store {
             }
         };
         let workspace = conn
-            .prepare_cached("SELECT id, path, name, icon, last_used FROM workspace WHERE id = ?1")?
+            .prepare_cached("SELECT id, path, name, icon, last_used, removed_at FROM workspace WHERE id = ?1")?
             .query_row([&target], |row| {
                 Ok(Workspace {
                     id: row.get(0)?,
@@ -105,6 +126,7 @@ impl Store {
                     name: row.get(2)?,
                     icon: row.get(3)?,
                     last_used: row.get(4)?,
+                    removed_at: row.get(5)?,
                 })
             })?;
         Ok(workspace)
@@ -219,6 +241,7 @@ mod tests {
 
         store.remove_workspace("w1").unwrap();
         assert!(store.workspaces().unwrap().is_empty());
+        assert_eq!(store.removed_workspaces().unwrap().len(), 1);
 
         let restored = store.add_workspace("w2", "S:/proj", "Ignored", "").unwrap();
         assert_eq!(restored.id, "w1");

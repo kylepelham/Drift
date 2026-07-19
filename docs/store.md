@@ -25,7 +25,9 @@ Workspace icons are images only, downscaled client-side to a 64px webp data URL
 
 Archiving never deletes: `archived_at` is set and the thread disappears from the
 sidebar. On startup (once the engine is online) Drift purges archive rows older than
-7 days and deletes those sessions from the engine.
+7 days and deletes those sessions from the engine. One archive drawer in the workspace
+header lists archived threads and soft-removed workspaces together; restoring a thread
+also restores its workspace when necessary.
 
 ## Workspace removal lifecycle
 

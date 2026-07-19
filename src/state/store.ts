@@ -1,8 +1,9 @@
-export type Workspace = { id: string; path: string; name: string; icon: string; lastUsed: number }
+export type Workspace = { id: string; path: string; name: string; icon: string; lastUsed: number; removedAt?: number }
 export type ArchivedSession = { sessionId: string; workspaceId: string; archivedAt: number }
 
 export interface DriftStore {
   workspaces(): Promise<Workspace[]>
+  removedWorkspaces(): Promise<Workspace[]>
   addWorkspace(workspace: Omit<Workspace, "lastUsed">): Promise<Workspace>
   saveWorkspace(workspace: Omit<Workspace, "lastUsed">): Promise<void>
   touchWorkspace(id: string): Promise<void>
@@ -23,6 +24,7 @@ export function shellInvoke(): Invoke | undefined {
 function shellStore(invoke: Invoke): DriftStore {
   return {
     workspaces: () => invoke("store_workspaces"),
+    removedWorkspaces: () => invoke("store_removed_workspaces"),
     addWorkspace: (w) => invoke("store_add_workspace", { id: w.id, path: w.path, name: w.name, icon: w.icon }),
     saveWorkspace: (w) => invoke("store_save_workspace", { id: w.id, path: w.path, name: w.name, icon: w.icon }),
     touchWorkspace: (id) => invoke("store_touch_workspace", { id }),
@@ -52,6 +54,7 @@ function browserStore(): DriftStore {
   const all = () => read<StoredWorkspace[]>(wsKey, [])
   return {
     workspaces: async () => all().filter((w) => !w.removedAt).sort((a, b) => b.lastUsed - a.lastUsed),
+    removedWorkspaces: async () => all().filter((w) => w.removedAt).sort((a, b) => (b.removedAt ?? 0) - (a.removedAt ?? 0)),
     addWorkspace: async (w) => {
       const existing = all().find((x) => x.path === w.path)
       if (existing) {

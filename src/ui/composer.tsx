@@ -1,8 +1,9 @@
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import { modelInfo, resolveModel, sessionBusy } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
 import { agentPref, modelPref, setAgentPref, setModelPref, setVariantPref, variantPref } from "../state/prefs"
+import { restoredDraft, setRestoredDraft } from "../state/composer"
 import { selectedSession, selectSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
 import { Picker, type PickerItem } from "./picker"
@@ -17,6 +18,17 @@ export function Composer() {
   const [dismissed, setDismissed] = createSignal(false)
   const [cursor, setCursor] = createSignal(0)
   let area!: HTMLTextAreaElement
+
+  createEffect(() => {
+    const restored = restoredDraft()
+    if (restored === null) return
+    setDraft(restored)
+    setRestoredDraft(null)
+    queueMicrotask(() => {
+      resize()
+      area.focus()
+    })
+  })
 
   const slash = () => (dismissed() ? null : parseSlash(draft()))
   const matches = createMemo<SlashItem[]>(() => {

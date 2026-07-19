@@ -70,6 +70,11 @@ fn store_workspaces(store: State<Store>) -> Result<Vec<Workspace>, String> {
 }
 
 #[tauri::command]
+fn store_removed_workspaces(store: State<Store>) -> Result<Vec<Workspace>, String> {
+    store.removed_workspaces().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn store_add_workspace(
     store: State<Store>,
     id: String,
@@ -195,6 +200,7 @@ fn main() {
             config_read,
             pick_folder,
             store_workspaces,
+            store_removed_workspaces,
             store_add_workspace,
             store_save_workspace,
             store_touch_workspace,

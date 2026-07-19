@@ -1,6 +1,6 @@
 import type { OpencodeClient, Session } from "@opencode-ai/sdk/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
-import { spawnLink, type EngineState, type ModelRef } from "./store"
+import { sessionBusy, spawnLink, type EngineState, type ModelRef } from "./store"
 
 export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string }
 export type PermissionResponse = "once" | "always" | "reject"
@@ -10,8 +10,7 @@ export function createActions(
   state: EngineState,
   set: SetStoreFunction<EngineState>,
 ) {
-  async function openSession(id: string) {
-    if (state.loaded[id]) return
+  async function reloadSession(id: string) {
     const result = await requireClient().session.messages({ path: { id } })
     set("transcripts", id, result.data ?? [])
     set("loaded", id, true)
@@ -21,6 +20,11 @@ export function createActions(
         if (link) set("links", link.child, link.parent)
       }
     }
+  }
+
+  async function openSession(id: string) {
+    if (state.loaded[id]) return
+    await reloadSession(id)
   }
 
   async function loadSessions(directory: string) {
@@ -94,6 +98,20 @@ export function createActions(
     })
   }
 
+  async function revert(id: string, messageID: string) {
+    if (sessionBusy(state, id)) await requireClient().session.abort({ path: { id } }).catch(() => {})
+    const result = await requireClient().session.revert({ path: { id }, body: { messageID } })
+    if (result.data) set("sessions", id, result.data)
+    await reloadSession(id)
+  }
+
+  async function unrevert(id: string) {
+    if (sessionBusy(state, id)) await requireClient().session.abort({ path: { id } }).catch(() => {})
+    const result = await requireClient().session.unrevert({ path: { id } })
+    if (result.data) set("sessions", id, result.data)
+    await reloadSession(id)
+  }
+
   return {
     openSession,
     loadSessions,
@@ -107,6 +125,8 @@ export function createActions(
     rename,
     remove,
     replyPermission,
+    revert,
+    unrevert,
   }
 }
 
