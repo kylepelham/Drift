@@ -3,7 +3,12 @@ import { produce, type SetStoreFunction } from "solid-js/store"
 import { sleep, type EngineTarget } from "./connection"
 import { normalizeDir, putSession, recordLink, sessionBusy, spawnLink, type EngineState, type ModelRef } from "./store"
 
-export type PromptFile = { filename?: string; mime: string; url: string }
+export type PromptFile = {
+  filename?: string
+  mime: string
+  url: string
+  source?: { type: "file"; path: string; text: { value: string; start: number; end: number } }
+}
 export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string; files?: PromptFile[] }
 export type PermissionResponse = "once" | "always" | "reject"
 
@@ -114,6 +119,11 @@ export function createActions(
   async function unshare(id: string) {
     const result = await requireClient().session.unshare({ path: { id } })
     if (result.data) putSession(set, { ...result.data, share: undefined })
+  }
+
+  async function findFiles(query: string) {
+    const result = await requireClient().find.files({ query: { query } }).catch(() => null)
+    return result?.data ?? []
   }
 
   async function runCommand(id: string, command: string, args: string) {
@@ -232,6 +242,7 @@ export function createActions(
     summarize,
     share,
     unshare,
+    findFiles,
     runCommand,
     rename,
     remove,
