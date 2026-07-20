@@ -45,15 +45,17 @@ and engine connection state. `api.threads.create()` creates and selects a thread
 `api.threads.select(id)` changes the selected thread. Renderers may return a DOM node,
 plain text, or `null`; strings are never treated as HTML.
 
-The first hook set is `composer.submit`, `thread.created`, `thread.selected`,
-`workspace.changed`, and `theme.changed`. Composer hooks run in registration order and
+Hook events: `composer.submit`, `thread.created`, `thread.selected`, `thread.archived`,
+`workspace.changed`, `theme.changed`, `message.rendered` (a message entered the
+transcript DOM), `permission.requested` (any session, subagents included), and
+`session.idle` (a busy session finished). Composer hooks run in registration order and
 may return replacement text or `false` to cancel submission. Other hooks are
 notifications. Plugin failures are isolated and logged to the browser console.
 
-## Planned Drift hook events
-
-Still to add: `thread.archived`, `message.rendered`, non-tool `part.render`,
-`permission.requested`, and `session.idle`.
+Renderers: `api.registerToolRenderer(toolName, fn)` overrides the card body for a tool;
+`api.registerPartRenderer(partType, fn)` renders non-tool part types (for example
+`reasoning` or `file`), including types Drift normally hides. Tool parts always go
+through tool renderers, never part renderers.
 
 Hooks are registered by Drift plugins loaded from Drift's config directory. No remote
 code; local files only.
@@ -70,9 +72,11 @@ appears in the sidebar like any other chat; the tool card links to it. Manual
 counterpart: the fork button on a thread row duplicates a conversation with full
 history.
 
-## Workflows (phase 6)
+## Workflows (design open)
 
-Markdown files with frontmatter (name, description, inputs, steps) discovered from
-`.drift/workflows` and exposed as slash commands. A workflow step is either a prompt
-template or a tool invocation; state passes through the thread itself, mirroring
-claude-code's skills-as-commands approach without a bespoke runtime.
+Not built yet; the shape is undecided. For reference, claude-code's WORKFLOW_SCRIPTS
+(ant-only, runtime stubbed in our example copy) are markdown-config-defined runs that
+execute as background tasks composed of per-step subagents (own transcripts, per-agent
+skip/retry, run kill), surfaced both as slash commands and as a model-invocable tool.
+A first Drift cut as markdown-steps-in-one-thread was built and removed; whatever lands
+here should be designed against real orchestration needs, not guessed.

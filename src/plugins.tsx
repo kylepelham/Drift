@@ -1,4 +1,4 @@
-import type { ToolPart } from "@opencode-ai/sdk/client"
+import type { Part, ToolPart } from "@opencode-ai/sdk/client"
 import { createEffect, createSignal, onCleanup, onMount, untrack } from "solid-js"
 import type { Engine } from "./engine"
 import { selectedSession, selectSession } from "./state/selection"
@@ -18,18 +18,24 @@ type HookEvents = {
   "theme.changed": { theme: string }
   "thread.created": { sessionId: string }
   "thread.selected": { sessionId: string | null }
+  "thread.archived": { sessionId: string }
   "workspace.changed": { workspace: WorkspaceInfo | null }
+  "message.rendered": { sessionId: string; messageId: string; role: string }
+  "permission.requested": { sessionId: string; permissionId: string; title: string; type: string; patterns: string[] }
+  "session.idle": { sessionId: string }
 }
 type HookName = keyof HookEvents
 type Hook<K extends HookName> = (event: HookEvents[K]) => unknown | Promise<unknown>
 type AnyHook = (event: never) => unknown | Promise<unknown>
 export type ToolRenderer = (part: ToolPart) => Node | string | null
+export type PartRenderer = (part: Part) => Node | string | null
 
 export type DriftPluginApi = {
   version: 1
   context: () => Context
   on: <K extends HookName>(name: K, hook: Hook<K>) => () => void
   registerToolRenderer: (tool: string, renderer: ToolRenderer) => () => void
+  registerPartRenderer: (type: string, renderer: PartRenderer) => () => void
   threads: {
     create: () => Promise<string | undefined>
     select: (sessionId: string | null) => void
@@ -41,6 +47,7 @@ type Config = { plugins?: unknown }
 
 const hooks = new Map<HookName, Set<AnyHook>>()
 const renderers = new Map<string, ToolRenderer>()
+const partRenderers = new Map<string, PartRenderer>()
 const cleanups = new Set<() => void>()
 const [rendererVersion, setRendererVersion] = createSignal(0)
 let generation = 0
@@ -94,6 +101,14 @@ export function emitThreadCreated(sessionId: string) {
   void emit("thread.created", { sessionId })
 }
 
+export function emitThreadArchived(sessionId: string) {
+  void emit("thread.archived", { sessionId })
+}
+
+export function emitMessageRendered(event: HookEvents["message.rendered"]) {
+  void emit("message.rendered", event)
+}
+
 export function hasToolRenderer(tool: string) {
   rendererVersion()
   return renderers.has(tool)
@@ -123,6 +138,35 @@ function registerToolRenderer(tool: string, renderer: ToolRenderer) {
   return off
 }
 
+export function hasPartRenderer(type: string) {
+  rendererVersion()
+  return partRenderers.has(type)
+}
+
+export function PluginPartView(props: { part: Part }) {
+  let root!: HTMLDivElement
+  createEffect(() => {
+    rendererVersion()
+    JSON.stringify(props.part)
+    const output = partRenderers.get(props.part.type)?.(props.part)
+    root.replaceChildren()
+    if (typeof output === "string") root.textContent = output
+    else if (output) root.append(output)
+  })
+  return <div ref={root} class="text-sm" />
+}
+
+function registerPartRenderer(type: string, renderer: PartRenderer) {
+  partRenderers.set(type, renderer)
+  setRendererVersion((value) => value + 1)
+  const off = () => {
+    if (partRenderers.get(type) !== renderer) return
+    partRenderers.delete(type)
+    setRendererVersion((value) => value + 1)
+  }
+  return off
+}
+
 function unloadPlugins() {
   for (const cleanup of cleanups) {
     try {
@@ -134,6 +178,7 @@ function unloadPlugins() {
   cleanups.clear()
   hooks.clear()
   renderers.clear()
+  partRenderers.clear()
   setRendererVersion((value) => value + 1)
 }
 
@@ -166,6 +211,7 @@ function createPluginApi(engine: Engine) {
     context: () => ({ connection: engine.state.connection, sessionId: selectedSession(), workspace: activeWorkspace() }),
     on: (name, hook) => track(on(name, hook)),
     registerToolRenderer: (tool, renderer) => track(registerToolRenderer(tool, renderer)),
+    registerPartRenderer: (type, renderer) => track(registerPartRenderer(type, renderer)),
     threads: {
       create: async () => {
         const session = await engine.actions.newSession()
@@ -233,6 +279,33 @@ export function PluginHost(props: { engine: Engine }) {
   createEffect(() => {
     const current = theme()
     untrack(() => void emit("theme.changed", { theme: current }))
+  })
+  const seenPermissions = new Set<string>()
+  createEffect(() => {
+    const all = Object.values(props.engine.state.permissions).flat()
+    const present = new Set(all.map((permission) => permission.id))
+    for (const id of seenPermissions) if (!present.has(id)) seenPermissions.delete(id)
+    for (const permission of all) {
+      if (seenPermissions.has(permission.id)) continue
+      seenPermissions.add(permission.id)
+      untrack(() =>
+        void emit("permission.requested", {
+          sessionId: permission.sessionID,
+          permissionId: permission.id,
+          title: permission.title,
+          type: permission.type,
+          patterns: [permission.pattern ?? []].flat(),
+        }),
+      )
+    }
+  })
+  const busySessions = new Set<string>()
+  createEffect(() => {
+    for (const [sessionId, status] of Object.entries(props.engine.state.status)) {
+      const busy = status.type === "busy" || status.type === "retry"
+      if (busy) busySessions.add(sessionId)
+      else if (busySessions.delete(sessionId)) untrack(() => void emit("session.idle", { sessionId }))
+    }
   })
   onCleanup(() => {
     generation++

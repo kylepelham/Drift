@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, Match, onCleanup, Show, Switch, For, type JSX } from "solid-js"
 import { useEngine } from "../engine"
+import { emitThreadArchived } from "../plugins"
 import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
 import { childrenOf, sessionBusy, sessionsFor } from "../engine/store"
 import { selectedSession, selectSession } from "../state/selection"
@@ -215,6 +216,7 @@ function ThreadItem(props: { sessionId: string; title: string; updated: number; 
           onClick={() => {
             if (selectedSession() === props.sessionId) selectSession(null)
             void archiveSession(props.sessionId, props.workspace.id)
+            emitThreadArchived(props.sessionId)
           }}
         >
           <IconArchive />

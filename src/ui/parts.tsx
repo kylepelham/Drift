@@ -1,7 +1,7 @@
 import type { Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
 import { createSignal, For, Match, Show, Switch } from "solid-js"
 import { useEngine } from "../engine"
-import { hasToolRenderer, PluginToolView } from "../plugins"
+import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
 import { showReasoning } from "../state/prefs"
 import { selectSession } from "../state/selection"
 import { IconArrowUpRight } from "./icons"
@@ -13,6 +13,9 @@ const hiddenTools = new Set(["todowrite", "todoread"])
 export function PartView(props: { part: Part }) {
   return (
     <Switch>
+      <Match when={props.part.type !== "tool" && hasPartRenderer(props.part.type) && props.part}>
+        {(part) => <PluginPartView part={part()} />}
+      </Match>
       <Match when={visibleText(props.part)}>{(part) => <Markdown text={part().text} done={!!part().time?.end} />}</Match>
       <Match when={showReasoning() && props.part.type === "reasoning" && (props.part as ReasoningPart)}>
         {(part) => <ReasoningView part={part()} />}
@@ -65,6 +68,7 @@ function visibleText(part: Part) {
 }
 
 export function partVisible(part: Part) {
+  if (part.type !== "tool" && hasPartRenderer(part.type)) return true
   switch (part.type) {
     case "text":
       return !!visibleText(part)

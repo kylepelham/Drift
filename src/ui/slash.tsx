@@ -1,5 +1,6 @@
 import type { Engine } from "../engine"
 import { messageText, nextUserMessage, previousUserMessage, resolveModel } from "../engine/store"
+import { emitThreadArchived } from "../plugins"
 import { setRestoredDraft } from "../state/composer"
 import { prefsFor } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
@@ -59,6 +60,7 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
     const workspace = activeWorkspace()
     if (!workspace) return
     selectSession(null)
+    emitThreadArchived(current)
     return archiveSession(current, workspace.id)
   }
   if (item.name === "compact" && current) {

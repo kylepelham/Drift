@@ -1,13 +1,21 @@
 import type { AssistantMessage, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/client"
-import { createMemo, For, Match, Show, Switch } from "solid-js"
+import { createMemo, For, Match, onMount, Show, Switch } from "solid-js"
 import { useEngine } from "../engine"
 import { messageText, modelInfo, type MessageEntry } from "../engine/store"
+import { emitMessageRendered } from "../plugins"
 import { setRestoredDraft } from "../state/composer"
 import { IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
 import { contextTools, ExploredGroup, PartView, partVisible } from "./parts"
 
 export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
+  onMount(() =>
+    emitMessageRendered({
+      sessionId: props.entry.info.sessionID,
+      messageId: props.entry.info.id,
+      role: props.entry.info.role,
+    }),
+  )
   return (
     <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} />}>
       <AssistantFlow entry={props.entry} footer={props.footer} />
