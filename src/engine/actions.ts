@@ -3,7 +3,8 @@ import { produce, type SetStoreFunction } from "solid-js/store"
 import { sleep, type EngineTarget } from "./connection"
 import { normalizeDir, putSession, recordLink, sessionBusy, spawnLink, type EngineState, type ModelRef } from "./store"
 
-export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string }
+export type PromptFile = { filename?: string; mime: string; url: string }
+export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string; files?: PromptFile[] }
 export type PermissionResponse = "once" | "always" | "reject"
 
 type PermissionRequest = {
@@ -82,11 +83,15 @@ export function createActions(
   async function send(id: string, text: string, options: PromptOptions) {
     set("errors", id, undefined!)
     const body = {
-      parts: [{ type: "text" as const, text }],
+      parts: [
+        ...(text.trim() ? [{ type: "text" as const, text }] : []),
+        ...(options.files ?? []).map((file) => ({ type: "file" as const, ...file })),
+      ],
       model: options.model ?? undefined,
       agent: options.agent,
       ...(options.variant ? { variant: options.variant } : {}),
     }
+    if (body.parts.length === 0) return
     const result = await requireClient().session.promptAsync({ path: { id }, body })
     if (result.error) set("errors", id, "Prompt failed: engine rejected the request")
   }

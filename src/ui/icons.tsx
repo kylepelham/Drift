@@ -143,6 +143,13 @@ export function IconArrowUp(props: IconProps) {
   )
 }
 
+export function IconPaperclip(props: IconProps) {
+  return frame(
+    props,
+    <path d="m21 12-8.5 8.5a5 5 0 0 1-7-7L14 5a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L16 7" />,
+  )
+}
+
 export function IconX(props: IconProps) {
   return frame(
     props,

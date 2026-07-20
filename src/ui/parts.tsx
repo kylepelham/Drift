@@ -1,7 +1,8 @@
-import type { Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
+import type { FilePart, Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
 import { createSignal, For, Match, Show, Switch } from "solid-js"
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
+import { openLightbox } from "./lightbox"
 import { showReasoning } from "../state/prefs"
 import { selectSession } from "../state/selection"
 import { IconArrowUpRight } from "./icons"
@@ -52,11 +53,7 @@ export function PartView(props: { part: Part }) {
         )}
       </Match>
       <Match when={props.part.type === "file" && props.part}>
-        {(part) => (
-          <span class="inline-flex items-center gap-1 rounded-md border border-edge bg-raised px-2 py-0.5 text-xs text-ink-muted">
-            {(part() as { filename?: string }).filename ?? "attachment"}
-          </span>
-        )}
+        {(part) => <FilePartView part={part() as FilePart} />}
       </Match>
     </Switch>
   )
@@ -84,6 +81,55 @@ export function partVisible(part: Part) {
     default:
       return false
   }
+}
+
+export function FilePartView(props: { part: Pick<FilePart, "mime" | "filename" | "url"> }) {
+  const linkable = () => props.part.url.startsWith("data:") || props.part.url.startsWith("http")
+  return (
+    <Switch
+      fallback={
+        <Show
+          when={linkable()}
+          fallback={
+            <span class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-edge bg-raised px-2 py-1 text-xs text-ink-muted">
+              <span class="truncate">{props.part.filename ?? "attachment"}</span>
+            </span>
+          }
+        >
+          <a
+            href={props.part.url}
+            download={props.part.filename ?? "attachment"}
+            title="Download"
+            class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-edge bg-raised px-2 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+          >
+            <span class="truncate">{props.part.filename ?? "attachment"}</span>
+          </a>
+        </Show>
+      }
+    >
+      <Match when={props.part.mime.startsWith("image/") && linkable()}>
+        <ImageThumb url={props.part.url} filename={props.part.filename} mime={props.part.mime} />
+      </Match>
+      <Match when={props.part.mime.startsWith("audio/") && linkable()}>
+        <audio controls src={props.part.url} class="max-w-full" />
+      </Match>
+      <Match when={props.part.mime.startsWith("video/") && linkable()}>
+        <video controls src={props.part.url} class="max-h-64 max-w-full rounded-lg border border-edge" />
+      </Match>
+    </Switch>
+  )
+}
+
+function ImageThumb(props: { url: string; filename?: string; mime?: string }) {
+  return (
+    <button
+      title={props.filename ?? "View image"}
+      class="block overflow-hidden rounded-md border border-edge transition-colors hover:border-edge-strong"
+      onClick={() => openLightbox({ url: props.url, filename: props.filename, mime: props.mime })}
+    >
+      <img src={props.url} alt={props.filename ?? ""} class="size-16 object-cover" />
+    </button>
+  )
 }
 
 function ReasoningView(props: { part: ReasoningPart }) {

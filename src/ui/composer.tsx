@@ -9,6 +9,7 @@ import { selectedSession, selectSession } from "../state/selection"
 import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
 import { normalizeDir } from "../engine/store"
 import { PermissionCard } from "./attention"
+import { IconPaperclip, IconX } from "./icons"
 import { Picker, type PickerItem } from "./picker"
 import { ModelManager } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
@@ -16,13 +17,54 @@ import { parseSlash, runSlash, slashItems, type SlashItem } from "./slash"
 
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
 
+type StagedFile = { id: string; filename: string; mime: string; dataUrl: string; size: number }
+
+const maxFileBytes = 10 * 1024 * 1024
+
+function readDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
 export function Composer() {
   const engine = useEngine()
   const [draft, setDraft] = createSignal("")
   const [dismissed, setDismissed] = createSignal(false)
   const [cursor, setCursor] = createSignal(0)
   const [manageModels, setManageModels] = createSignal(false)
+  const [staged, setStaged] = createSignal<StagedFile[]>([])
+  const [fileError, setFileError] = createSignal("")
   let area!: HTMLTextAreaElement
+  let filePicker!: HTMLInputElement
+
+  async function addFiles(files: Iterable<File>) {
+    setFileError("")
+    for (const file of files) {
+      if (file.size > maxFileBytes) {
+        setFileError(`${file.name} is over 10 MB`)
+        continue
+      }
+      const dataUrl = await readDataUrl(file).catch(() => null)
+      if (!dataUrl) {
+        setFileError(`Could not read ${file.name}`)
+        continue
+      }
+      setStaged((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          filename: file.name,
+          mime: file.type || "application/octet-stream",
+          dataUrl,
+          size: file.size,
+        },
+      ])
+    }
+  }
 
   createEffect(() => {
     const restored = restoredDraft()
@@ -97,8 +139,8 @@ export function Composer() {
     const initial = draft().trim()
     const text = initial
       ? await transformComposerSubmit({ text: initial, sessionId: selectedSession(), workspace: activeWorkspace() })
-      : null
-    if (!text || busy() || !ready()) return
+      : ""
+    if (text === null || (!text && staged().length === 0) || busy() || !ready()) return
     const existing = selectedSession()
     const id = existing ?? (await engine.actions.newSession())?.id
     if (!id) return
@@ -107,9 +149,12 @@ export function Composer() {
       emitThreadCreated(id)
     }
     selectSession(id)
+    const files = staged().map((file) => ({ filename: file.filename, mime: file.mime, url: file.dataUrl }))
     setDraft("")
+    setStaged([])
+    setFileError("")
     resize()
-    await engine.actions.send(id, text, { model: model(), agent: prefs().agent, variant: variant() })
+    await engine.actions.send(id, text ?? "", { model: model(), agent: prefs().agent, variant: variant(), files })
   }
 
   function onKey(event: KeyboardEvent) {
@@ -177,6 +222,14 @@ export function Composer() {
       <div
         class="relative mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong"
         classList={{ hidden: !!pendingPermission() }}
+        onDragOver={(event) => {
+          if (event.dataTransfer?.types.includes("Files")) event.preventDefault()
+        }}
+        onDrop={(event) => {
+          if (!event.dataTransfer?.files.length) return
+          event.preventDefault()
+          void addFiles(event.dataTransfer.files)
+        }}
       >
         <Show when={matches().length > 0}>
           <div class="absolute bottom-full left-3 z-20 mb-2 w-80 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
@@ -197,6 +250,33 @@ export function Composer() {
             </For>
           </div>
         </Show>
+        <Show when={staged().length > 0 || fileError()}>
+          <div class="flex flex-wrap items-center gap-2 px-3 pt-2.5">
+            <For each={staged()}>
+              {(file) => (
+                <span class="group/chip flex items-center gap-1.5 rounded-md border border-edge bg-raised py-1 pr-1 pl-1.5 text-xs text-ink-muted">
+                  <Show
+                    when={file.mime.startsWith("image/")}
+                    fallback={<span class="max-w-40 truncate">{file.filename}</span>}
+                  >
+                    <img src={file.dataUrl} alt={file.filename} class="size-8 rounded object-cover" />
+                    <span class="max-w-32 truncate">{file.filename}</span>
+                  </Show>
+                  <button
+                    title="Remove attachment"
+                    class="flex size-4 items-center justify-center rounded text-ink-faint hover:bg-overlay hover:text-ink"
+                    onClick={() => setStaged(staged().filter((item) => item.id !== file.id))}
+                  >
+                    <IconX class="size-3" />
+                  </button>
+                </span>
+              )}
+            </For>
+            <Show when={fileError()}>
+              <span class="text-xs text-danger">{fileError()}</span>
+            </Show>
+          </div>
+        </Show>
         <textarea
           ref={area}
           rows={1}
@@ -209,6 +289,11 @@ export function Composer() {
             setDismissed(false)
             setCursor(0)
             resize()
+          }}
+          onPaste={(event) => {
+            if (!event.clipboardData?.files.length) return
+            event.preventDefault()
+            void addFiles(event.clipboardData.files)
           }}
           onKeyDown={onKey}
         />
@@ -241,6 +326,24 @@ export function Composer() {
             />
           </Show>
           <div class="flex-1" />
+          <input
+            ref={filePicker}
+            type="file"
+            multiple
+            class="hidden"
+            onChange={(event) => {
+              if (event.currentTarget.files) void addFiles(event.currentTarget.files)
+              event.currentTarget.value = ""
+            }}
+          />
+          <button
+            title="Attach files"
+            class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+            disabled={!ready()}
+            onClick={() => filePicker.click()}
+          >
+            <IconPaperclip class="size-4" />
+          </button>
           <Show
             when={!busy()}
             fallback={
@@ -254,7 +357,7 @@ export function Composer() {
           >
             <button
               class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
-              disabled={!draft().trim() || !ready()}
+              disabled={(!draft().trim() && staged().length === 0) || !ready()}
               onClick={() => void submit()}
             >
               Send

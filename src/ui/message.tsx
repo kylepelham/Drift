@@ -6,7 +6,7 @@ import { emitMessageRendered } from "../plugins"
 import { setRestoredDraft } from "../state/composer"
 import { IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
-import { contextTools, ExploredGroup, PartView, partVisible } from "./parts"
+import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
 
 export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
   onMount(() =>
@@ -27,6 +27,7 @@ function UserBubble(props: { entry: MessageEntry }) {
   const engine = useEngine()
   const info = () => props.entry.info as UserMessage
   const text = () => messageText(props.entry)
+  const files = () => props.entry.parts.filter((part) => part.type === "file")
   const model = () => modelInfo(engine.state, info().model)?.name ?? info().model.modelID
   const time = () => new Date(info().time.created).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
   const revert = async () => {
@@ -34,10 +35,17 @@ function UserBubble(props: { entry: MessageEntry }) {
     setRestoredDraft(text())
   }
   return (
-    <Show when={text()}>
+    <Show when={text() || files().length > 0}>
       <div class="fade-up group flex flex-col items-end gap-1">
-        <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
-          <Markdown text={text()} done />
+        <div class="max-w-[85%] space-y-1.5 rounded-lg border border-edge bg-surface px-3 py-1.5">
+          <Show when={files().length > 0}>
+            <div class="flex flex-wrap justify-end gap-1.5 pt-1">
+              <For each={files()}>{(file) => <FilePartView part={file} />}</For>
+            </div>
+          </Show>
+          <Show when={text()}>
+            <Markdown text={text()} done />
+          </Show>
         </div>
         <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
           <span>{capitalize(info().agent)} · {model()} · {time()}</span>

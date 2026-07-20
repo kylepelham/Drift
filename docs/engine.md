@@ -41,7 +41,7 @@ providers) applies unchanged. Users do not install opencode.
 | --- | --- |
 | Sessions | `GET/POST /session`, `PATCH/DELETE /session/{id}` |
 | Transcript | `GET /session/{id}/message` |
-| Prompt | `POST /session/{id}/prompt_async` (body: parts, model, agent) |
+| Prompt | `POST /session/{id}/prompt_async` (body: parts, model, agent; attachments are `file` parts with data URLs, persisted by the engine) |
 | Revert | `POST /session/{id}/revert` and `/unrevert` (message and file rollback) |
 | Abort | `POST /session/{id}/abort` |
 | Permissions | `POST /session/{id}/permissions/{permissionID}` (once/always/reject) |

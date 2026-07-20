@@ -13,6 +13,7 @@ import { AttentionStrip } from "./ui/attention"
 import { Chat } from "./ui/chat"
 import { Composer } from "./ui/composer"
 import { ChatHeader } from "./ui/header"
+import { Lightbox } from "./ui/lightbox"
 import { Sidebar } from "./ui/sidebar"
 import { Titlebar } from "./ui/titlebar"
 
@@ -33,6 +34,7 @@ export function App() {
             <Composer />
           </main>
         </div>
+        <Lightbox />
       </div>
     </EngineProvider>
   )
