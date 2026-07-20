@@ -3,9 +3,12 @@ import { useEngine } from "../engine"
 import { modelInfo, resolveModel, sessionBusy } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
 import { hiddenModelIds, prefsFor, seedPrefs, updatePrefs } from "../state/prefs"
+import type { Permission } from "@opencode-ai/sdk/client"
 import { restoredDraft, setRestoredDraft } from "../state/composer"
 import { selectedSession, selectSession } from "../state/selection"
-import { activeWorkspace } from "../state/workspaces"
+import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
+import { normalizeDir } from "../engine/store"
+import { PermissionCard } from "./attention"
 import { Picker, type PickerItem } from "./picker"
 import { ModelManager } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
@@ -144,9 +147,37 @@ export function Composer() {
     area.style.height = `${Math.min(area.scrollHeight, 200)}px`
   }
 
+  const pendingPermission = () => Object.values(engine.state.permissions).flat()[0]
+
+  function openPermissionSession(permission: Permission) {
+    const dir = (permission.metadata?.directory as string | undefined) ?? engine.state.sessions[permission.sessionID]?.directory
+    const workspace = dir && workspaces().find((w) => normalizeDir(w.path) === normalizeDir(dir))
+    if (workspace && workspace.id !== activeWorkspace()?.id) selectWorkspace(workspace.id)
+    selectSession(permission.sessionID)
+  }
+
   return (
     <div class="px-4 pb-4">
-      <div class="relative mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong">
+      <Show when={pendingPermission()}>
+        {(permission) => (
+          <div class="mx-auto max-w-3xl">
+            <Show when={permission().sessionID !== selectedSession()}>
+              <button
+                class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
+                title="Open that thread"
+                onClick={() => openPermissionSession(permission())}
+              >
+                in {engine.state.sessions[permission().sessionID]?.title || "another thread"}
+              </button>
+            </Show>
+            <PermissionCard permission={permission()} />
+          </div>
+        )}
+      </Show>
+      <div
+        class="relative mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong"
+        classList={{ hidden: !!pendingPermission() }}
+      >
         <Show when={matches().length > 0}>
           <div class="absolute bottom-full left-3 z-20 mb-2 w-80 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
             <For each={matches()}>

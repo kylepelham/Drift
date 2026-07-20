@@ -5,7 +5,7 @@ import { messageText, modelInfo, type MessageEntry } from "../engine/store"
 import { setRestoredDraft } from "../state/composer"
 import { IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
-import { contextTools, ExploredGroup, PartView } from "./parts"
+import { contextTools, ExploredGroup, PartView, partVisible } from "./parts"
 
 export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
   return (
@@ -70,8 +70,10 @@ function groupParts(parts: Part[]): PartGroup[] {
 function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
   const info = () => props.entry.info as AssistantMessage
   const groups = createMemo(() => groupParts(props.entry.parts))
+  const visible = () => props.entry.parts.some(partVisible) || !!info().error
   return (
-    <div class="fade-up group space-y-2.5">
+    <Show when={visible()}>
+      <div class="fade-up group space-y-2.5">
       <For each={groups()}>
         {(group) => (
           <Switch>
@@ -105,7 +107,8 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
           </button>
         </div>
       </Show>
-    </div>
+      </div>
+    </Show>
   )
 }
 

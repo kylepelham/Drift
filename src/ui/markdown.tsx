@@ -21,9 +21,23 @@ async function highlightBlocks(root: HTMLElement) {
   }
 }
 
+// Model output like **C:\** never closes its emphasis because \ escapes the delimiter.
+// Only path-shaped backslashes (after a drive colon or another segment) get self-escaped.
+export function fixEscapedEmphasis(text: string) {
+  return text
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+    .map((chunk, index) => {
+      if (index % 2) return chunk
+      return chunk
+        .replace(/(:)\\(?=\*\*?|__?)/g, "$1\\\\")
+        .replace(/(\\[\w .()-]+)\\(?=\*\*?|__?)/g, "$1\\\\")
+    })
+    .join("")
+}
+
 export function Markdown(props: { text: string; done?: boolean }) {
   let root!: HTMLDivElement
-  const html = createMemo(() => DOMPurify.sanitize(marked.parse(props.text, { async: false })))
+  const html = createMemo(() => DOMPurify.sanitize(marked.parse(fixEscapedEmphasis(props.text), { async: false })))
   createEffect(() => {
     if (html() && props.done) void highlightBlocks(root)
   })

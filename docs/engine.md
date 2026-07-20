@@ -58,6 +58,13 @@ providers) applies unchanged. Users do not install opencode.
   session does not switch models mid-drain.
 - Model defaults from models.dev include non-chat models (video/image). Always filter on
   `capabilities.toolcall` before offering or auto-picking a model.
+- Pending permissions only arrive as `permission.updated` events, and only for the
+  active directory's instance. Reload the UI (or switch workspace) and they're gone
+  from local state while the engine drain stays parked waiting: the run looks stuck
+  with no prompt, and revert bounces off the busy session. Drift refreshes
+  `GET /permission` (missing from the generated SDK, fetched raw) for every workspace
+  directory on connect plus a 10s tick, and replies route to the owning instance via
+  an explicit `directory` query.
 - `DELETE /session/:id/share` revokes the remote share but the session record keeps a
   stale `share` property (200 response body included). Drift clears it locally after
   unshare; the stale value resurfaces on rehydration until fixed upstream.

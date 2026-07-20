@@ -27,6 +27,14 @@ test("session.updated clears revert and share keys the engine dropped", () => {
   expect(state.sessions["s1"].share).toBeUndefined()
 })
 
+test("fixEscapedEmphasis lets path-ending emphasis close without touching escapes or code", async () => {
+  const { fixEscapedEmphasis } = await import("../src/ui/markdown")
+  expect(fixEscapedEmphasis("*C:\\* (30 entries)")).toBe("*C:\\\\* (30 entries)")
+  expect(fixEscapedEmphasis("**S:\\Personal\\Drift\\** done")).toBe("**S:\\Personal\\Drift\\\\** done")
+  expect(fixEscapedEmphasis("`**C:\\**` and ```\nS:\\**\n```")).toBe("`**C:\\**` and ```\nS:\\**\n```")
+  expect(fixEscapedEmphasis("literal \\*star\\* stays and 5 \\* 3")).toBe("literal \\*star\\* stays and 5 \\* 3")
+})
+
 test("taskBody extracts prompt and task_result for task cards", async () => {
   const { taskBody } = await import("../src/ui/parts")
   const part = (tool: string, input: Record<string, string>, output: string) =>

@@ -29,7 +29,7 @@ export function EngineProvider(props: ParentProps) {
     if (!client) throw new Error("engine offline")
     return client
   }
-  const actions = createActions(requireClient, state, set)
+  const actions = createActions(requireClient, state, set, () => base)
 
   async function hydrate() {
     const api = requireClient()

@@ -53,11 +53,22 @@ function WorkspaceBinding() {
   createEffect(() => {
     if (engine.state.connection !== "online") return
     for (const workspace of workspaces()) void engine.actions.loadSessions(workspace.path)
+    refreshPermissions()
     purge()
   })
   const timer = setInterval(() => purge(), 60 * 60 * 1000)
-  onCleanup(() => clearInterval(timer))
+  // ponytail: 10s poll; other workspaces have no event stream, this is how their asks surface
+  const permissionTimer = setInterval(() => refreshPermissions(), 10000)
+  onCleanup(() => {
+    clearInterval(timer)
+    clearInterval(permissionTimer)
+  })
   return null
+
+  function refreshPermissions() {
+    if (engine.state.connection !== "online") return
+    void engine.actions.refreshPermissions(workspaces().map((workspace) => workspace.path))
+  }
 
   function purge() {
     if (engine.state.connection !== "online" || Date.now() - lastPurge < dayMs) return

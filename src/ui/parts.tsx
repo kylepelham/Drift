@@ -64,6 +64,24 @@ function visibleText(part: Part) {
   return part
 }
 
+export function partVisible(part: Part) {
+  switch (part.type) {
+    case "text":
+      return !!visibleText(part)
+    case "reasoning":
+      return showReasoning()
+    case "tool":
+      return !hiddenTools.has((part as ToolPart).tool)
+    case "retry":
+    case "compaction":
+    case "subtask":
+    case "file":
+      return true
+    default:
+      return false
+  }
+}
+
 function ReasoningView(props: { part: ReasoningPart }) {
   const [open, setOpen] = createSignal(false)
   const thinking = () => !props.part.time.end
@@ -152,6 +170,10 @@ function argsPreview(input: Record<string, unknown> | undefined) {
   return joined.length > 120 ? joined.slice(0, 120) + "..." : joined
 }
 
+function awaitingPermission(state: { permissions: Record<string, { callID?: string }[]> }, part: ToolPart) {
+  return (state.permissions[part.sessionID] ?? []).some((permission) => permission.callID === part.callID)
+}
+
 function toolMeta(part: ToolPart) {
   const state = part.state
   return (("metadata" in state ? state.metadata : undefined) ?? part.metadata) as Record<string, unknown> | undefined
@@ -225,7 +247,10 @@ export function ToolView(props: { part: ToolPart }) {
             </svg>
           </span>
         </Show>
-        <Show when={state().status === "running" || state().status === "pending"}>
+        <Show when={awaitingPermission(engine.state, props.part)}>
+          <span class="size-1.5 shrink-0 rounded-full bg-warn" title="Waiting for permission" />
+        </Show>
+        <Show when={!awaitingPermission(engine.state, props.part) && (state().status === "running" || state().status === "pending")}>
           <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" />
         </Show>
         <Show when={info().called} fallback={<span class="shrink-0 font-semibold text-ink">{info().title}</span>}>
@@ -250,6 +275,9 @@ export function ToolView(props: { part: ToolPart }) {
         </Show>
         <Show when={progress()}>
           {(text) => <span class="shrink-0 font-mono text-xs text-accent/80">{text()}</span>}
+        </Show>
+        <Show when={awaitingPermission(engine.state, props.part)}>
+          <span class="shrink-0 text-xs text-warn/90">waiting for permission</span>
         </Show>
         <Show when={spawnedId()}>
           {(childId) => (
@@ -475,19 +503,33 @@ function PatchFilePanel(props: { file: PatchFile }) {
 }
 
 export function ExploredGroup(props: { parts: ToolPart[] }) {
+  const engine = useEngine()
   const [open, setOpen] = createSignal(false)
   const label = () => `${props.parts.length} ${props.parts.length === 1 ? "read" : "reads"}`
+  const waiting = () => props.parts.some((part) => awaitingPermission(engine.state, part))
+  const running = () =>
+    props.parts.some((part) => part.state.status === "running" || part.state.status === "pending")
+  const expanded = () => open() || waiting()
   return (
     <div class="text-sm">
       <button
         class="-mx-1.5 flex items-center gap-2 rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-raised/60"
         onClick={() => setOpen(!open())}
       >
+        <Show when={waiting()}>
+          <span class="size-1.5 shrink-0 rounded-full bg-warn" title="Waiting for permission" />
+        </Show>
+        <Show when={!waiting() && running()}>
+          <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" />
+        </Show>
         <span class="font-semibold text-ink">Explored</span>
         <span class="text-ink-faint">{label()}</span>
-        <Chevron open={open()} />
+        <Show when={waiting()}>
+          <span class="text-xs text-warn/90">waiting for permission</span>
+        </Show>
+        <Chevron open={expanded()} />
       </button>
-      <Show when={open()}>
+      <Show when={expanded()}>
         <div class="mt-1 ml-2 space-y-0.5 border-l-2 border-edge pl-3">
           <For each={props.parts}>{(part) => <ToolView part={part} />}</For>
         </div>

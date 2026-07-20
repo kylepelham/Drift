@@ -1,3 +1,4 @@
+import type { Permission } from "@opencode-ai/sdk/client"
 import { createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import type { PermissionResponse } from "../engine/actions"
@@ -9,7 +10,6 @@ export function AttentionStrip() {
     <div class="mx-auto w-full max-w-3xl space-y-2 px-4">
       <ErrorBanner />
       <TodoStrip />
-      <PermissionBar />
     </div>
   )
 }
@@ -68,34 +68,26 @@ function TodoStrip() {
   )
 }
 
-function PermissionBar() {
+export function PermissionCard(props: { permission: Permission }) {
   const engine = useEngine()
-  const pending = () => engine.state.permissions[selectedSession() ?? ""]?.[0]
-  const reply = (response: PermissionResponse) => {
-    const permission = pending()
-    if (permission) void engine.actions.replyPermission(permission.sessionID, permission.id, response)
-  }
+  const reply = (response: PermissionResponse) =>
+    void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response)
   return (
-    <Show when={pending()}>
-      {(permission) => (
-        <div class="fade-up rounded-lg border border-warn/40 bg-warn/10 px-3 py-2.5">
-          <div class="mb-2 text-sm">
-            <span class="text-warn">Permission</span>{" "}
-            <span class="text-ink">{permission().title}</span>
-            <Show when={permission().pattern}>
-              <code class="ml-2 rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-ink-muted">
-                {[permission().pattern].flat().join(", ")}
-              </code>
-            </Show>
-          </div>
-          <div class="flex gap-2">
-            <ActionButton label="Allow once" onClick={() => reply("once")} />
-            <ActionButton label="Always allow" onClick={() => reply("always")} />
-            <ActionButton label="Deny" danger onClick={() => reply("reject")} />
-          </div>
-        </div>
-      )}
-    </Show>
+    <div class="fade-up rounded-lg border border-warn/40 bg-warn/10 px-3 py-2.5">
+      <div class="mb-2 text-sm">
+        <span class="text-warn">Permission</span> <span class="text-ink">{props.permission.title}</span>
+        <Show when={props.permission.pattern}>
+          <code class="ml-2 rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-ink-muted">
+            {[props.permission.pattern].flat().join(", ")}
+          </code>
+        </Show>
+      </div>
+      <div class="flex gap-2">
+        <ActionButton label="Allow once" onClick={() => reply("once")} />
+        <ActionButton label="Always allow" onClick={() => reply("always")} />
+        <ActionButton label="Deny" danger onClick={() => reply("reject")} />
+      </div>
+    </div>
   )
 }
 
