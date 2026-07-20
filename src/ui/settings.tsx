@@ -1,6 +1,7 @@
 import { createEffect, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import { useEngine } from "../engine"
-import { setShowReasoning, showReasoning } from "../state/prefs"
+import { notifyAttention, setNotifyAttention, setShowReasoning, showReasoning } from "../state/prefs"
+import { requestNotificationPermission } from "./notifications"
 import { setTheme, theme, themes, type ThemeName } from "../state/theme"
 import { IconCheck, IconX } from "./icons"
 import { Toggle } from "./model-manager"
@@ -81,16 +82,35 @@ export function SettingsModal(props: { onClose: () => void }) {
 }
 
 function GeneralSection() {
+  const toggleNotifications = () => {
+    const next = !notifyAttention()
+    if (next) requestNotificationPermission()
+    setNotifyAttention(next)
+  }
   return (
-    <div
-      class="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 hover:bg-raised/60"
-      onClick={() => setShowReasoning(!showReasoning())}
-    >
-      <div>
-        <div class="text-sm text-ink">Show thinking</div>
-        <div class="text-xs text-ink-faint">Show the model's reasoning above responses.</div>
+    <div class="space-y-1">
+      <div
+        class="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 hover:bg-raised/60"
+        onClick={() => setShowReasoning(!showReasoning())}
+      >
+        <div>
+          <div class="text-sm text-ink">Show thinking</div>
+          <div class="text-xs text-ink-faint">Show the model's reasoning above responses.</div>
+        </div>
+        <Toggle label="Show thinking" checked={showReasoning()} onChange={() => setShowReasoning(!showReasoning())} />
       </div>
-      <Toggle label="Show thinking" checked={showReasoning()} onChange={() => setShowReasoning(!showReasoning())} />
+      <div
+        class="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 hover:bg-raised/60"
+        onClick={toggleNotifications}
+      >
+        <div>
+          <div class="text-sm text-ink">Notifications</div>
+          <div class="text-xs text-ink-faint">
+            Notify when a background thread finishes or asks for permission while Drift is unfocused.
+          </div>
+        </div>
+        <Toggle label="Notifications" checked={notifyAttention()} onChange={toggleNotifications} />
+      </div>
     </div>
   )
 }

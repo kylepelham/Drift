@@ -194,6 +194,7 @@ fn spawn_engine(app: tauri::AppHandle) {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(Engine::default())
         .invoke_handler(tauri::generate_handler![
             engine_url,

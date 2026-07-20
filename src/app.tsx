@@ -15,6 +15,7 @@ import { Composer } from "./ui/composer"
 import { ChatHeader } from "./ui/header"
 import { Lightbox } from "./ui/lightbox"
 import { McpServersModal } from "./ui/mcp"
+import { AttentionNotifier } from "./ui/notifications"
 import { Sidebar } from "./ui/sidebar"
 import { Titlebar } from "./ui/titlebar"
 
@@ -44,7 +45,12 @@ export function App() {
 
 function PluginBinding() {
   const engine = useEngine()
-  return <PluginHost engine={engine} />
+  return (
+    <>
+      <PluginHost engine={engine} />
+      <AttentionNotifier engine={engine} />
+    </>
+  )
 }
 
 const dayMs = 24 * 60 * 60 * 1000

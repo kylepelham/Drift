@@ -6,6 +6,7 @@ export const [agentPref, setAgentPref] = persisted<string>("drift.agent", "build
 export const [variantPref, setVariantPref] = persisted<string | null>("drift.variant", null)
 export const [hiddenModelIds, setHiddenModelIds] = persisted<string[]>("drift.models.hidden", [])
 export const [showReasoning, setShowReasoning] = persisted<boolean>("drift.reasoning", false)
+export const [notifyAttention, setNotifyAttention] = persisted<boolean>("drift.notifications", false)
 
 type SessionPrefs = { model?: ModelRef | null; agent?: string; variant?: string | null }
 const [sessionPrefs, setSessionPrefs] = persisted<Record<string, SessionPrefs>>("drift.session.prefs", {})
