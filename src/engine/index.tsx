@@ -47,6 +47,12 @@ export function EngineProvider(props: ParentProps) {
     set("agents", agents.data ?? [])
     set("commands", commands.data ?? [])
     await Promise.all(stale.map(reload))
+    if (!state.version && base) {
+      const health = await fetch(`${base.url}/global/health`, { headers: base.headers })
+        .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
+        .catch(() => null)
+      if (health?.version) set("version", health.version)
+    }
   }
 
   async function reload(id: string) {

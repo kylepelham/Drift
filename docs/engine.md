@@ -25,6 +25,16 @@ providers) applies unchanged. Users do not install opencode.
 - The engine shares the user's global opencode data dir (auth, config, sessions), so
   existing provider logins keep working inside Drift.
 
+## Engine update runbook
+
+1. `git subtree pull --prefix engine/upstream https://github.com/sst/opencode.git dev --squash`
+2. `bun install --ignore-scripts` inside `engine/upstream` (skips optional native grammars).
+3. `bun run build:engine` from the repo root to rebuild `src-tauri/binaries/drift-engine.exe`.
+4. Restart the dev loop or the app, then confirm the new version in Settings > About
+   (served live from `GET /global/health`).
+5. Smoke: send a prompt, run a tool, answer a permission. Schema errors mean step 3
+   was skipped or failed.
+
 ## Surface used
 
 | Concern | Endpoint |

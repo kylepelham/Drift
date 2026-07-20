@@ -54,6 +54,7 @@ export type EngineState = {
   errors: Record<string, string>
   links: Record<string, string>
   activity: Record<string, SessionActivity>
+  version: string
 }
 
 let storedLinks: Record<string, string> | undefined
@@ -93,6 +94,7 @@ export function createEngineState() {
     errors: {},
     links: { ...loadLinks() },
     activity: {},
+    version: "",
   })
 }
 

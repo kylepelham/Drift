@@ -1,4 +1,5 @@
 import { createEffect, For, onCleanup, Show } from "solid-js"
+import { useEngine } from "../engine"
 import { setShowReasoning, showReasoning } from "../state/prefs"
 import { setTheme, theme, themes, type ThemeName } from "../state/theme"
 import { IconCheck, IconX } from "./icons"
@@ -11,6 +12,8 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
 }
 
 export function SettingsModal(props: { onClose: () => void }) {
+  const engine = useEngine()
+  const engineVersion = () => engine.state.version
   createEffect(() => {
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") props.onClose()
@@ -49,6 +52,10 @@ export function SettingsModal(props: { onClose: () => void }) {
               <div class="text-xs text-ink-faint">Show the model's reasoning above responses.</div>
             </div>
             <Toggle label="Show thinking" checked={showReasoning()} onChange={() => setShowReasoning(!showReasoning())} />
+          </div>
+          <div class="mt-4 mb-2 text-[0.68rem] tracking-wider text-ink-faint uppercase">About</div>
+          <div class="px-3 text-xs text-ink-faint select-text">
+            Engine opencode {engineVersion() || "(connecting...)"}
           </div>
         </div>
       </div>

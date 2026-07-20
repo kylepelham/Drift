@@ -31,7 +31,7 @@ function UserBubble(props: { entry: MessageEntry }) {
         <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
           <Markdown text={text()} done />
         </div>
-        <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+        <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
           <span>{capitalize(info().agent)} · {model()} · {time()}</span>
           <button title="Revert to here" class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void revert()}>
             <IconUndo class="size-3.5" />
@@ -90,7 +90,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
         )}
       </Show>
       <Show when={props.footer && info().time.completed}>
-        <div class="flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+        <div class="flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
           <span>{info().modelID}</span>
           <span>{formatTokens(info())}</span>
           <Show when={tokensPerSecond(info())}>{(rate) => <span>{rate()} tok/s</span>}</Show>

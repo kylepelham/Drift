@@ -130,6 +130,9 @@ export function createActions(
     )
   }
 
+  // Replied ids are filtered out of poll snapshots that raced the reply.
+  const answered = new Set<string>()
+
   // The generated SDK lags the engine here; GET /permission recovers asks raised while
   // we weren't listening, across every workspace directory.
   async function refreshPermissions(directories: string[]) {
@@ -144,10 +147,13 @@ export function createActions(
         return requests.map((request) => toPermission(request, dir))
       }),
     )
+    const reported = new Set(results.flat().map((permission) => permission.id))
+    for (const id of answered) if (!reported.has(id)) answered.delete(id)
     set(
       produce((s) => {
         s.permissions = {}
-        for (const permission of results.flat()) (s.permissions[permission.sessionID] ??= []).push(permission)
+        for (const permission of results.flat())
+          if (!answered.has(permission.id)) (s.permissions[permission.sessionID] ??= []).push(permission)
       }),
     )
   }
@@ -155,11 +161,21 @@ export function createActions(
   async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
     const permission = (state.permissions[sessionID] ?? []).find((p) => p.id === permissionID)
     const dir = permission?.metadata?.directory as string | undefined
-    if (dir && normalizeDir(dir) !== normalizeDir(state.directory)) return replyElsewhere(sessionID, permissionID, response, dir)
-    await requireClient().postSessionIdPermissionsPermissionId({
-      path: { id: sessionID, permissionID },
-      body: { response },
-    })
+    if (dir && normalizeDir(dir) !== normalizeDir(state.directory)) {
+      await replyElsewhere(sessionID, permissionID, response, dir)
+    } else {
+      const result = await requireClient().postSessionIdPermissionsPermissionId({
+        path: { id: sessionID, permissionID },
+        body: { response },
+      })
+      if (result.error) return
+    }
+    answered.add(permissionID)
+    set(
+      produce((s) => {
+        s.permissions[sessionID] = (s.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID)
+      }),
+    )
   }
 
   async function replyElsewhere(sessionID: string, permissionID: string, response: PermissionResponse, dir: string) {
@@ -171,11 +187,6 @@ export function createActions(
       headers: { "content-type": "application/json", ...base.headers },
       body: JSON.stringify({ response }),
     }).catch(() => {})
-    set(
-      produce((s) => {
-        s.permissions[sessionID] = (s.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID)
-      }),
-    )
   }
 
   async function interrupt(id: string) {
