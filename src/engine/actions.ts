@@ -121,6 +121,23 @@ export function createActions(
     if (result.data) putSession(set, { ...result.data, share: undefined })
   }
 
+  async function mcpStatus() {
+    const result = await requireClient().mcp.status().catch(() => null)
+    return result?.data ?? {}
+  }
+
+  async function mcpConnect(name: string) {
+    await requireClient().mcp.connect({ path: { name } }).catch(() => {})
+  }
+
+  async function mcpDisconnect(name: string) {
+    await requireClient().mcp.disconnect({ path: { name } }).catch(() => {})
+  }
+
+  async function mcpAuthenticate(name: string) {
+    await requireClient().mcp.auth.authenticate({ path: { name } }).catch(() => {})
+  }
+
   async function findFiles(query: string) {
     const result = await requireClient().find.files({ query: { query } }).catch(() => null)
     return result?.data ?? []
@@ -243,6 +260,10 @@ export function createActions(
     share,
     unshare,
     findFiles,
+    mcpStatus,
+    mcpConnect,
+    mcpDisconnect,
+    mcpAuthenticate,
     runCommand,
     rename,
     remove,

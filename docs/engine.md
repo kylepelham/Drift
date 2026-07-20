@@ -48,6 +48,7 @@ providers) applies unchanged. Users do not install opencode.
 | Models | `GET /provider` (all + connected + per-provider defaults) |
 | Agents | `GET /agent` |
 | Directory | `GET /path` |
+| File search | `GET /find/file` (fuzzy paths for composer @-mentions; mention parts use `file://` URLs + `source.text`, content read engine-side) |
 | Events | `GET /event` (SSE) |
 
 ## Events reduced into the store

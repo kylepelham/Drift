@@ -6,6 +6,7 @@ import { prefsFor } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { setTheme, theme, themes } from "../state/theme"
 import { activeWorkspace, archiveSession } from "../state/workspaces"
+import { openMcpServers } from "./mcp"
 
 export type SlashItem = { name: string; description: string; needsSession?: boolean; engine?: boolean }
 
@@ -19,6 +20,7 @@ const builtins: SlashItem[] = [
   { name: "share", description: "Share this thread and copy the link", needsSession: true },
   { name: "unshare", description: "Remove this thread's share link", needsSession: true },
   { name: "theme", description: "Cycle theme" },
+  { name: "mcp", description: "Manage MCP servers" },
 ]
 
 export function parseSlash(draft: string) {
@@ -88,4 +90,5 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
     return next ? engine.actions.revert(current, next.info.id) : engine.actions.unrevert(current)
   }
   if (item.name === "theme") setTheme(themes[(themes.indexOf(theme()) + 1) % themes.length])
+  if (item.name === "mcp") openMcpServers()
 }

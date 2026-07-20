@@ -1,4 +1,4 @@
-import { createEffect, For, onCleanup, Show } from "solid-js"
+import { createEffect, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import { useEngine } from "../engine"
 import { setShowReasoning, showReasoning } from "../state/prefs"
 import { setTheme, theme, themes, type ThemeName } from "../state/theme"
@@ -11,9 +11,11 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-light": { label: "Drift Light", swatch: ["#f4f4f5", "#ffffff", "#3a6fd8"] },
 }
 
+const sections = ["General", "Appearance", "Models", "About"] as const
+type Section = (typeof sections)[number]
+
 export function SettingsModal(props: { onClose: () => void }) {
-  const engine = useEngine()
-  const engineVersion = () => engine.state.version
+  const [section, setSection] = createSignal<Section>("General")
   createEffect(() => {
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") props.onClose()
@@ -25,40 +27,109 @@ export function SettingsModal(props: { onClose: () => void }) {
   return (
     <div class="fixed inset-0 z-30 flex items-center justify-center bg-black/50" onClick={props.onClose}>
       <div
-        class="fade-up w-[26rem] rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40"
+        class="fade-up flex h-[30rem] w-[42rem] overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40"
         onClick={(event) => event.stopPropagation()}
       >
-        <div class="flex items-center justify-between border-b border-edge px-4 py-3">
-          <span class="text-sm font-semibold text-ink">Settings</span>
-          <button
-            class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-            onClick={props.onClose}
-          >
-            <IconX />
-          </button>
-        </div>
-        <div class="px-4 py-4">
-          <div class="mb-2 text-[0.68rem] tracking-wider text-ink-faint uppercase">Appearance</div>
-          <div class="space-y-1">
-            <For each={themes}>{(name) => <ThemeRow name={name} />}</For>
+        <nav class="flex w-40 shrink-0 flex-col gap-0.5 border-r border-edge p-2">
+          <For each={sections}>
+            {(name) => (
+              <button
+                class="rounded-md px-2.5 py-1.5 text-left text-sm transition-colors"
+                classList={{
+                  "bg-raised text-ink": section() === name,
+                  "text-ink-muted hover:bg-raised/60 hover:text-ink": section() !== name,
+                }}
+                onClick={() => setSection(name)}
+              >
+                {name}
+              </button>
+            )}
+          </For>
+        </nav>
+        <div class="flex min-w-0 flex-1 flex-col">
+          <div class="flex items-center justify-between border-b border-edge px-4 py-3">
+            <span class="text-sm font-semibold text-ink">{section()}</span>
+            <button
+              class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+              onClick={props.onClose}
+            >
+              <IconX />
+            </button>
           </div>
-          <div class="mt-4 mb-2 text-[0.68rem] tracking-wider text-ink-faint uppercase">Chat</div>
-          <div
-            class="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 hover:bg-raised/60"
-            onClick={() => setShowReasoning(!showReasoning())}
-          >
-            <div>
-              <div class="text-sm text-ink">Show thinking</div>
-              <div class="text-xs text-ink-faint">Show the model's reasoning above responses.</div>
-            </div>
-            <Toggle label="Show thinking" checked={showReasoning()} onChange={() => setShowReasoning(!showReasoning())} />
-          </div>
-          <div class="mt-4 mb-2 text-[0.68rem] tracking-wider text-ink-faint uppercase">About</div>
-          <div class="px-3 text-xs text-ink-faint select-text">
-            Engine opencode {engineVersion() || "(connecting...)"}
+          <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+            <Switch>
+              <Match when={section() === "General"}>
+                <GeneralSection />
+              </Match>
+              <Match when={section() === "Appearance"}>
+                <div class="space-y-1">
+                  <For each={themes}>{(name) => <ThemeRow name={name} />}</For>
+                </div>
+              </Match>
+              <Match when={section() === "Models"}>
+                <ModelsSection />
+              </Match>
+              <Match when={section() === "About"}>
+                <AboutSection />
+              </Match>
+            </Switch>
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function GeneralSection() {
+  return (
+    <div
+      class="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 hover:bg-raised/60"
+      onClick={() => setShowReasoning(!showReasoning())}
+    >
+      <div>
+        <div class="text-sm text-ink">Show thinking</div>
+        <div class="text-xs text-ink-faint">Show the model's reasoning above responses.</div>
+      </div>
+      <Toggle label="Show thinking" checked={showReasoning()} onChange={() => setShowReasoning(!showReasoning())} />
+    </div>
+  )
+}
+
+function ModelsSection() {
+  const engine = useEngine()
+  return (
+    <div class="space-y-1">
+      <For each={engine.state.providers}>
+        {(provider) => (
+          <div class="flex items-center gap-2.5 rounded-lg px-3 py-2">
+            <span
+              class="size-1.5 shrink-0 rounded-full"
+              classList={{
+                "bg-ok": engine.state.connected.includes(provider.id),
+                "bg-ink-faint": !engine.state.connected.includes(provider.id),
+              }}
+            />
+            <span class="min-w-0 flex-1 truncate text-sm text-ink">{provider.name}</span>
+            <span class="shrink-0 text-xs text-ink-faint">
+              {Object.keys(provider.models).length} models
+              {engine.state.connected.includes(provider.id) ? " · connected" : ""}
+            </span>
+          </div>
+        )}
+      </For>
+      <div class="px-3 pt-3 text-xs text-ink-faint">
+        Providers connect through opencode (`opencode auth login`). Model visibility is managed from the model picker.
+      </div>
+    </div>
+  )
+}
+
+function AboutSection() {
+  const engine = useEngine()
+  return (
+    <div class="space-y-1 px-3 text-sm text-ink-muted select-text">
+      <div>Drift, an embedded-opencode desktop agent.</div>
+      <div class="text-xs text-ink-faint">Engine opencode {engine.state.version || "(connecting...)"}</div>
     </div>
   )
 }

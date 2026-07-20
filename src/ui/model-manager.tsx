@@ -83,13 +83,14 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
   )
 }
 
-export function Toggle(props: { label: string; checked: boolean; onChange: () => void }) {
+export function Toggle(props: { label: string; checked: boolean; disabled?: boolean; onChange: () => void }) {
   return (
     <button
       role="switch"
       aria-label={props.label}
       aria-checked={props.checked}
-      class="relative h-4 w-7 shrink-0 rounded-full border transition-colors"
+      disabled={props.disabled}
+      class="relative h-4 w-7 shrink-0 rounded-full border transition-colors disabled:opacity-50"
       classList={{
         "border-accent bg-accent": props.checked,
         "border-edge-strong bg-raised": !props.checked,

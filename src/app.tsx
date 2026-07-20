@@ -14,6 +14,7 @@ import { Chat } from "./ui/chat"
 import { Composer } from "./ui/composer"
 import { ChatHeader } from "./ui/header"
 import { Lightbox } from "./ui/lightbox"
+import { McpServersModal } from "./ui/mcp"
 import { Sidebar } from "./ui/sidebar"
 import { Titlebar } from "./ui/titlebar"
 
@@ -35,6 +36,7 @@ export function App() {
           </main>
         </div>
         <Lightbox />
+        <McpServersModal />
       </div>
     </EngineProvider>
   )
