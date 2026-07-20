@@ -1,6 +1,6 @@
 import type { OpencodeClient, Session } from "@opencode-ai/sdk/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
-import { putSession, sessionBusy, spawnLink, type EngineState, type ModelRef } from "./store"
+import { putSession, recordLink, sessionBusy, spawnLink, type EngineState, type ModelRef } from "./store"
 
 export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string }
 export type PermissionResponse = "once" | "always" | "reject"
@@ -17,13 +17,16 @@ export function createActions(
     for (const entry of result.data ?? []) {
       for (const part of entry.parts) {
         const link = spawnLink(part)
-        if (link) set("links", link.child, link.parent)
+        if (!link) continue
+        recordLink(link)
+        set("links", link.child, link.parent)
       }
     }
   }
 
   async function openSession(id: string) {
     if (state.loaded[id]) return
+    set("loaded", id, true)
     await reloadSession(id)
   }
 

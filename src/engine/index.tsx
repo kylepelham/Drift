@@ -33,6 +33,7 @@ export function EngineProvider(props: ParentProps) {
 
   async function hydrate() {
     const api = requireClient()
+    const stale = Object.keys(state.loaded)
     const [sessions, providers, agents, commands] = await Promise.all([
       api.session.list(),
       api.provider.list(),
@@ -45,7 +46,7 @@ export function EngineProvider(props: ParentProps) {
     set("defaultModels", providers.data?.default ?? {})
     set("agents", agents.data ?? [])
     set("commands", commands.data ?? [])
-    await Promise.all(Object.keys(state.loaded).map(reload))
+    await Promise.all(stale.map(reload))
   }
 
   async function reload(id: string) {

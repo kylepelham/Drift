@@ -56,6 +56,25 @@ export type EngineState = {
   activity: Record<string, SessionActivity>
 }
 
+let storedLinks: Record<string, string> | undefined
+
+function loadLinks(): Record<string, string> {
+  if (storedLinks) return storedLinks
+  try {
+    storedLinks = JSON.parse(localStorage.getItem("drift.links") ?? "{}") as Record<string, string>
+  } catch {
+    storedLinks = {}
+  }
+  return storedLinks
+}
+
+export function recordLink(link: { child: string; parent: string }) {
+  const links = loadLinks()
+  if (links[link.child] === link.parent) return
+  links[link.child] = link.parent
+  localStorage.setItem("drift.links", JSON.stringify(links))
+}
+
 export function createEngineState() {
   return createStore<EngineState>({
     connection: "idle",
@@ -72,7 +91,7 @@ export function createEngineState() {
     agents: [],
     commands: [],
     errors: {},
-    links: {},
+    links: { ...loadLinks() },
     activity: {},
   })
 }

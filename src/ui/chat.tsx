@@ -18,7 +18,8 @@ export function Chat() {
 
   createEffect(() => {
     const id = selectedSession()
-    if (id && engine.state.connection === "online") void engine.actions.openSession(id)
+    const known = !!id && !!engine.state.sessions[id]
+    if (known && engine.state.connection === "online") void engine.actions.openSession(id)
   })
 
   let scroller!: HTMLDivElement
