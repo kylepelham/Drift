@@ -4,8 +4,11 @@
 
 1. Engine side: standard opencode plugins. Drift ships its own in `engine/opencode/`
    (injected via `OPENCODE_CONFIG_DIR`, which the engine treats as an extra config dir:
-   it auto-discovers `plugin/*.ts` and installs `@opencode-ai/plugin` there). User
-   plugins in `.opencode/` and global config work unchanged. Never patch
+   it auto-discovers `plugin/*.ts`, reads its `opencode.json`, and installs
+   `@opencode-ai/plugin` there). That `opencode.json` also pins npm plugins Drift ships
+   by default, currently `@ex-machina/opencode-anthropic-auth` so Claude Pro/Max plan
+   sign-ins work out of the box (installed on demand into the opencode package cache).
+   User plugins in `.opencode/` and global config work unchanged. Never patch
    `engine/upstream` for engine behavior; add a plugin here instead.
 2. Drift side: UI/workflow hooks the engine cannot see. Modeled on claude-code's hook
     taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS).
