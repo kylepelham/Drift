@@ -20,6 +20,10 @@ providers) applies unchanged. Users do not install opencode.
   `src-tauri/binaries` in dev), spawns `serve --port 0` with the password env removed
   (localhost only), parses the printed URL, and serves it via `engine_url`. The child
   is killed on exit. The frontend polls `engine_url` until the sidecar is up.
+- Packaging: `tauri build` produces an NSIS installer bundling the sidecar
+  (`externalBin`) plus `engine/opencode` as `drift-extensions/` beside the exe
+  (opencode.json, package.json, plugin sources; no node_modules, the engine installs
+  plugin deps on first boot into the per-user install dir).
 - Version drift symptom (engine binary older than the shared SQLite schema): prompts
   500 with `SQLiteError: no such column ...`. Fix by rebuilding the engine binary.
 - The engine shares the user's global opencode data dir (auth, config, sessions), so

@@ -23,5 +23,15 @@
     ],
     "security": { "csp": null }
   },
-  "bundle": { "active": false }
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "externalBin": ["binaries/drift-engine"],
+    "resources": {
+      "../engine/opencode/opencode.json": "drift-extensions/opencode.json",
+      "../engine/opencode/package.json": "drift-extensions/package.json",
+      "../engine/opencode/plugin/": "drift-extensions/plugin/"
+    }
+  }
 }
