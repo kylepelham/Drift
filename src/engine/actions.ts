@@ -1,7 +1,16 @@
 import type { OpencodeClient, Permission, Session } from "@opencode-ai/sdk/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { sleep, type EngineTarget } from "./connection"
-import { normalizeDir, putSession, recordLink, sessionBusy, spawnLink, type EngineState, type ModelRef } from "./store"
+import {
+  normalizeDir,
+  putSession,
+  recordLink,
+  sessionBusy,
+  spawnLink,
+  type EngineState,
+  type ModelRef,
+  type ProviderInfo,
+} from "./store"
 
 export type PromptFile = {
   filename?: string
@@ -119,6 +128,38 @@ export function createActions(
   async function unshare(id: string) {
     const result = await requireClient().session.unshare({ path: { id } })
     if (result.data) putSession(set, { ...result.data, share: undefined })
+  }
+
+  async function refreshProviders() {
+    const result = await requireClient().provider.list().catch(() => null)
+    if (!result?.data) return
+    set("providers", (result.data.all ?? []) as unknown as ProviderInfo[])
+    set("connected", result.data.connected ?? [])
+    set("defaultModels", result.data.default ?? {})
+  }
+
+  async function providerAuthMethods() {
+    const result = await requireClient().provider.auth().catch(() => null)
+    return result?.data ?? {}
+  }
+
+  async function providerAuthorize(id: string, method: number) {
+    const result = await requireClient().provider.oauth.authorize({ path: { id }, body: { method } })
+    return result.data ?? null
+  }
+
+  async function providerCallback(id: string, method: number, code?: string) {
+    const result = await requireClient()
+      .provider.oauth.callback({ path: { id }, body: { method, ...(code ? { code } : {}) } })
+      .catch(() => null)
+    return result?.data === true
+  }
+
+  async function setProviderKey(id: string, key: string) {
+    const result = await requireClient()
+      .auth.set({ path: { id }, body: { type: "api", key } })
+      .catch(() => null)
+    return result?.data === true
   }
 
   async function mcpStatus() {
@@ -260,6 +301,11 @@ export function createActions(
     share,
     unshare,
     findFiles,
+    refreshProviders,
+    providerAuthMethods,
+    providerAuthorize,
+    providerCallback,
+    setProviderKey,
     mcpStatus,
     mcpConnect,
     mcpDisconnect,

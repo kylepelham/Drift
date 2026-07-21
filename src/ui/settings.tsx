@@ -1,10 +1,13 @@
-import { createEffect, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
+import type { ProviderAuthMethod } from "@opencode-ai/sdk/client"
+import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { useEngine } from "../engine"
 import { notifyAttention, setNotifyAttention, setShowReasoning, showReasoning } from "../state/prefs"
+import { shellInvoke } from "../state/store"
 import { requestNotificationPermission } from "./notifications"
 import { setTheme, theme, themes, type ThemeName } from "../state/theme"
 import { IconCheck, IconX } from "./icons"
 import { Toggle } from "./model-manager"
+import { ProviderIcon } from "./provider-icon"
 
 const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, string] }> = {
   "drift-dark": { label: "Drift Dark", swatch: ["#141517", "#212429", "#7ba3e8"] },
@@ -12,7 +15,7 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-light": { label: "Drift Light", swatch: ["#f4f4f5", "#ffffff", "#3a6fd8"] },
 }
 
-const sections = ["General", "Appearance", "Models", "About"] as const
+const sections = ["General", "Appearance", "Providers", "About"] as const
 type Section = (typeof sections)[number]
 
 const [settingsOpen, setSettingsOpen] = createSignal(false)
@@ -81,8 +84,8 @@ function SettingsModal(props: { onClose: () => void }) {
                   <For each={themes}>{(name) => <ThemeRow name={name} />}</For>
                 </div>
               </Match>
-              <Match when={section() === "Models"}>
-                <ModelsSection />
+              <Match when={section() === "Providers"}>
+                <ProvidersSection />
               </Match>
               <Match when={section() === "About"}>
                 <AboutSection />
@@ -129,33 +132,229 @@ function GeneralSection() {
   )
 }
 
-function ModelsSection() {
+function ProvidersSection() {
   const engine = useEngine()
+  const [methods, setMethods] = createSignal<Record<string, ProviderAuthMethod[]>>({})
+  const [expanded, setExpanded] = createSignal<string | null>(null)
+  const [query, setQuery] = createSignal("")
+  onMount(() => void engine.actions.providerAuthMethods().then((map) => setMethods({ ...map })))
+
+  const groups = createMemo(() => {
+    const value = query().toLowerCase()
+    const matching = engine.state.providers
+      .filter((provider) => provider.name.toLowerCase().includes(value) || provider.id.toLowerCase().includes(value))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    return {
+      connected: matching.filter((provider) => engine.state.connected.includes(provider.id)),
+      rest: matching.filter((provider) => !engine.state.connected.includes(provider.id)),
+    }
+  })
+
+  const row = (provider: (typeof engine.state.providers)[number]) => (
+    <div class="rounded-lg" classList={{ "bg-raised/40": expanded() === provider.id }}>
+      <div
+        class="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-raised/60"
+        onClick={() => setExpanded(expanded() === provider.id ? null : provider.id)}
+      >
+        <ProviderIcon id={provider.id} class="size-4 shrink-0" />
+        <span class="min-w-0 flex-1 truncate text-sm text-ink">{provider.name}</span>
+        <span
+          class="size-1.5 shrink-0 rounded-full"
+          classList={{
+            "bg-ok": engine.state.connected.includes(provider.id),
+            "bg-ink-faint": !engine.state.connected.includes(provider.id),
+          }}
+        />
+      </div>
+      <Show when={expanded() === provider.id}>
+        <ProviderConnect
+          providerId={provider.id}
+          methods={methods()[provider.id] ?? [{ type: "api", label: "API key" }]}
+          onDone={() => setExpanded(null)}
+        />
+      </Show>
+    </div>
+  )
+
   return (
     <div class="space-y-1">
-      <For each={engine.state.providers}>
-        {(provider) => (
-          <div class="flex items-center gap-2.5 rounded-lg px-3 py-2">
-            <span
-              class="size-1.5 shrink-0 rounded-full"
-              classList={{
-                "bg-ok": engine.state.connected.includes(provider.id),
-                "bg-ink-faint": !engine.state.connected.includes(provider.id),
-              }}
-            />
-            <span class="min-w-0 flex-1 truncate text-sm text-ink">{provider.name}</span>
-            <span class="shrink-0 text-xs text-ink-faint">
-              {Object.keys(provider.models).length} models
-              {engine.state.connected.includes(provider.id) ? " · connected" : ""}
-            </span>
-          </div>
-        )}
-      </For>
+      <input
+        class="mb-2 w-full rounded-lg border border-edge bg-surface px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-edge-strong"
+        placeholder="Search providers..."
+        value={query()}
+        onInput={(event) => setQuery(event.currentTarget.value)}
+      />
+      <Show when={groups().connected.length > 0}>
+        <div class="px-3 pt-1 pb-1 text-[0.68rem] tracking-wider text-ink-faint uppercase">Connected</div>
+        <For each={groups().connected}>{row}</For>
+      </Show>
+      <Show when={groups().rest.length > 0}>
+        <div class="px-3 pt-3 pb-1 text-[0.68rem] tracking-wider text-ink-faint uppercase">Not connected</div>
+        <For each={groups().rest}>{row}</For>
+      </Show>
+      <Show when={groups().connected.length === 0 && groups().rest.length === 0}>
+        <div class="px-3 py-4 text-sm text-ink-faint">No matching providers.</div>
+      </Show>
       <div class="px-3 pt-3 text-xs text-ink-faint">
-        Providers connect through opencode (`opencode auth login`). Model visibility is managed from the model picker.
+        Credentials are stored by the engine (shared with opencode). Model visibility is managed from the model picker.
       </div>
     </div>
   )
+}
+
+function ProviderConnect(props: { providerId: string; methods: ProviderAuthMethod[]; onDone: () => void }) {
+  const engine = useEngine()
+  const [methodIndex, setMethodIndex] = createSignal(0)
+  const [key, setKey] = createSignal("")
+  const [code, setCode] = createSignal("")
+  const [pending, setPending] = createSignal(false)
+  const [error, setError] = createSignal("")
+  const [authorization, setAuthorization] = createSignal<{ url: string; method: string; instructions: string } | null>(null)
+  const method = () => props.methods[methodIndex()] ?? props.methods[0]
+
+  async function finish(ok: boolean) {
+    if (!ok) {
+      setError("Connection failed. Check the credentials and try again.")
+      setPending(false)
+      return
+    }
+    await engine.actions.refreshProviders()
+    setPending(false)
+    props.onDone()
+  }
+
+  async function connectApi() {
+    if (!key().trim()) return
+    setPending(true)
+    setError("")
+    await finish(await engine.actions.setProviderKey(props.providerId, key().trim()))
+  }
+
+  async function startOauth() {
+    setPending(true)
+    setError("")
+    const auth = await engine.actions.providerAuthorize(props.providerId, methodIndex()).catch(() => null)
+    if (!auth) {
+      setError("Could not start the sign-in flow.")
+      setPending(false)
+      return
+    }
+    setAuthorization(auth)
+    openExternal(auth.url)
+    if (auth.method === "auto") {
+      await finish(await engine.actions.providerCallback(props.providerId, methodIndex()))
+      setAuthorization(null)
+      return
+    }
+    setPending(false)
+  }
+
+  async function submitCode() {
+    if (!code().trim()) return
+    setPending(true)
+    setError("")
+    await finish(await engine.actions.providerCallback(props.providerId, methodIndex(), code().trim()))
+  }
+
+  return (
+    <div class="space-y-2 px-3 pt-1 pb-3">
+      <Show when={props.methods.length > 1}>
+        <div class="flex gap-1.5">
+          <For each={props.methods}>
+            {(item, index) => (
+              <button
+                class="rounded-md border px-2 py-0.5 text-xs transition-colors"
+                classList={{
+                  "border-accent text-ink": index() === methodIndex(),
+                  "border-edge text-ink-muted hover:text-ink": index() !== methodIndex(),
+                }}
+                onClick={() => {
+                  setMethodIndex(index())
+                  setAuthorization(null)
+                  setError("")
+                }}
+              >
+                {item.label}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show when={method()?.type === "api"}>
+        <div class="flex gap-2">
+          <input
+            type="password"
+            class="min-w-0 flex-1 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-edge-strong"
+            placeholder="API key"
+            value={key()}
+            onInput={(event) => setKey(event.currentTarget.value)}
+            onKeyDown={(event) => event.key === "Enter" && void connectApi()}
+          />
+          <button
+            class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink disabled:opacity-40"
+            disabled={pending() || !key().trim()}
+            onClick={() => void connectApi()}
+          >
+            {pending() ? "Connecting..." : "Connect"}
+          </button>
+        </div>
+      </Show>
+      <Show when={method()?.type === "oauth"}>
+        <Show
+          when={authorization()}
+          fallback={
+            <button
+              class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink disabled:opacity-40"
+              disabled={pending()}
+              onClick={() => void startOauth()}
+            >
+              {pending() ? "Waiting for sign-in..." : `Sign in with ${method()?.label ?? "browser"}`}
+            </button>
+          }
+        >
+          {(auth) => (
+            <div class="space-y-2">
+              <div class="text-xs text-ink-muted">{auth().instructions || "Finish signing in via the browser."}</div>
+              <div class="text-xs break-all text-ink-faint select-text">{auth().url}</div>
+              <Show when={auth().method === "code"}>
+                <div class="flex gap-2">
+                  <input
+                    class="min-w-0 flex-1 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-edge-strong"
+                    placeholder="Paste the code"
+                    value={code()}
+                    onInput={(event) => setCode(event.currentTarget.value)}
+                    onKeyDown={(event) => event.key === "Enter" && void submitCode()}
+                  />
+                  <button
+                    class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink disabled:opacity-40"
+                    disabled={pending() || !code().trim()}
+                    onClick={() => void submitCode()}
+                  >
+                    {pending() ? "Verifying..." : "Submit"}
+                  </button>
+                </div>
+              </Show>
+              <Show when={auth().method === "auto" && pending()}>
+                <div class="pulse-soft text-xs text-ink-faint">Waiting for the browser sign-in to complete...</div>
+              </Show>
+            </div>
+          )}
+        </Show>
+      </Show>
+      <Show when={error()}>
+        <div class="text-xs text-danger">{error()}</div>
+      </Show>
+    </div>
+  )
+}
+
+function openExternal(url: string) {
+  const invoke = shellInvoke()
+  if (invoke) {
+    void invoke("plugin:opener|open_url", { url }).catch(() => {})
+    return
+  }
+  window.open(url, "_blank")
 }
 
 function AboutSection() {
