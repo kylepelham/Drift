@@ -16,6 +16,8 @@ import { ChatHeader } from "./ui/header"
 import { Lightbox } from "./ui/lightbox"
 import { McpServersModal } from "./ui/mcp"
 import { AttentionNotifier } from "./ui/notifications"
+import { PaletteHost } from "./ui/palette"
+import { SettingsHost } from "./ui/settings"
 import { Sidebar } from "./ui/sidebar"
 import { Titlebar } from "./ui/titlebar"
 
@@ -38,6 +40,8 @@ export function App() {
         </div>
         <Lightbox />
         <McpServersModal />
+        <SettingsHost />
+        <PaletteHost />
       </div>
     </EngineProvider>
   )

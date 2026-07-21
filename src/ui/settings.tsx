@@ -15,7 +15,21 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
 const sections = ["General", "Appearance", "Models", "About"] as const
 type Section = (typeof sections)[number]
 
-export function SettingsModal(props: { onClose: () => void }) {
+const [settingsOpen, setSettingsOpen] = createSignal(false)
+
+export function openSettings() {
+  setSettingsOpen(true)
+}
+
+export function SettingsHost() {
+  return (
+    <Show when={settingsOpen()}>
+      <SettingsModal onClose={() => setSettingsOpen(false)} />
+    </Show>
+  )
+}
+
+function SettingsModal(props: { onClose: () => void }) {
   const [section, setSection] = createSignal<Section>("General")
   createEffect(() => {
     const escape = (event: KeyboardEvent) => {

@@ -5,7 +5,7 @@ import { persisted } from "../state/persist"
 import { addWorkspace, workspaces } from "../state/workspaces"
 import { ArchiveModal } from "./archive"
 import { IconArchive, IconGear, IconPlus } from "./icons"
-import { SettingsModal } from "./settings"
+import { openSettings } from "./settings"
 import { WorkspaceEditModal, WorkspaceGroup, WorkspaceMenu, type WorkspaceMenuState } from "./workspaces"
 
 const minSidebarWidth = 192
@@ -16,7 +16,6 @@ const clampSidebarWidth = (width: number) => Math.min(maxSidebarWidth, Math.max(
 export function Sidebar() {
   const [menu, setMenu] = createSignal<WorkspaceMenuState | null>(null)
   const [editing, setEditing] = createSignal<string | null>(null)
-  const [settings, setSettings] = createSignal(false)
   const [archive, setArchive] = createSignal(false)
   const [width, setWidth] = createSignal(clampSidebarWidth(storedSidebarWidth()))
 
@@ -76,7 +75,7 @@ export function Sidebar() {
           <div class="px-2 py-4 text-xs text-ink-faint">Add a workspace (a project folder) to get started.</div>
         </Show>
       </nav>
-      <SidebarFooter onSettings={() => setSettings(true)} />
+      <SidebarFooter onSettings={openSettings} />
       <Show when={menuWorkspace()}>
         {(entry) => (
           <WorkspaceMenu
@@ -89,9 +88,6 @@ export function Sidebar() {
       </Show>
       <Show when={editingWorkspace()}>
         {(workspace) => <WorkspaceEditModal workspace={workspace()} onClose={() => setEditing(null)} />}
-      </Show>
-      <Show when={settings()}>
-        <SettingsModal onClose={() => setSettings(false)} />
       </Show>
       <Show when={archive()}>
         <ArchiveModal onClose={() => setArchive(false)} />
