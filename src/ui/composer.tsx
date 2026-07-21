@@ -10,6 +10,7 @@ import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspace
 import { normalizeDir } from "../engine/store"
 import { PermissionCard } from "./attention"
 import { IconPaperclip, IconX } from "./icons"
+import { openLightbox } from "./lightbox"
 import { Picker, type PickerItem } from "./picker"
 import { ModelManager } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
@@ -348,24 +349,46 @@ export function Composer() {
         <Show when={staged().length > 0 || fileError()}>
           <div class="flex flex-wrap items-center gap-2 px-3 pt-2.5">
             <For each={staged()}>
-              {(file) => (
-                <span class="group/chip flex items-center gap-1.5 rounded-md border border-edge bg-raised py-1 pr-1 pl-1.5 text-xs text-ink-muted">
+              {(file) => {
+                const remove = () => setStaged(staged().filter((item) => item.id !== file.id))
+                return (
                   <Show
                     when={file.mime.startsWith("image/")}
-                    fallback={<span class="max-w-40 truncate">{file.filename}</span>}
+                    fallback={
+                      <span class="group/chip flex items-center gap-1.5 rounded-md border border-edge bg-raised py-1 pr-1 pl-1.5 text-xs text-ink-muted">
+                        <span class="max-w-40 truncate">{file.filename}</span>
+                        <button
+                          title="Remove attachment"
+                          class="flex size-4 items-center justify-center rounded text-ink-faint hover:bg-overlay hover:text-ink"
+                          onClick={remove}
+                        >
+                          <IconX class="size-3" />
+                        </button>
+                      </span>
+                    }
                   >
-                    <img src={file.dataUrl} alt={file.filename} class="size-8 rounded object-cover" />
-                    <span class="max-w-32 truncate">{file.filename}</span>
+                    <div class="group/chip relative">
+                      <img
+                        src={file.dataUrl}
+                        alt={file.filename}
+                        title={file.filename}
+                        class="size-16 cursor-pointer rounded-md border border-edge object-cover transition-colors hover:border-edge-strong"
+                        onClick={() => openLightbox({ url: file.dataUrl, filename: file.filename, mime: file.mime })}
+                      />
+                      <div class="pointer-events-none absolute right-0 bottom-0 left-0 rounded-b-md bg-black/50 px-1 py-0.5">
+                        <span class="block truncate text-[0.6rem] text-white">{file.filename}</span>
+                      </div>
+                      <button
+                        title="Remove attachment"
+                        class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-edge bg-overlay text-ink-muted opacity-0 transition-opacity group-hover/chip:opacity-100 hover:bg-raised hover:text-ink"
+                        onClick={remove}
+                      >
+                        <IconX class="size-3" />
+                      </button>
+                    </div>
                   </Show>
-                  <button
-                    title="Remove attachment"
-                    class="flex size-4 items-center justify-center rounded text-ink-faint hover:bg-overlay hover:text-ink"
-                    onClick={() => setStaged(staged().filter((item) => item.id !== file.id))}
-                  >
-                    <IconX class="size-3" />
-                  </button>
-                </span>
-              )}
+                )
+              }}
             </For>
             <Show when={fileError()}>
               <span class="text-xs text-danger">{fileError()}</span>

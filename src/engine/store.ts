@@ -110,6 +110,31 @@ export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo |
   return state.providers.find((p) => p.id === ref.providerID)?.models[ref.modelID]
 }
 
+type TokenUsage = { input: number; output: number; reasoning: number; cache: { read: number; write: number }; total?: number }
+
+// Mirrors the engine's session/overflow.ts so the meter predicts the same compaction point.
+export function contextStats(state: EngineState, sessionId: string) {
+  const entries = state.transcripts[sessionId] ?? []
+  const last = [...entries].reverse().find((entry) => entry.info.role === "assistant" && "tokens" in entry.info)
+  if (!last || !("tokens" in last.info)) return null
+  const tokens = last.info.tokens as TokenUsage
+  const count = tokens.total || tokens.input + tokens.output + tokens.cache.read + tokens.cache.write
+  const model = modelInfo(state, { providerID: last.info.providerID, modelID: last.info.modelID })
+  const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number }
+  const context = limits.context ?? 0
+  if (!context || !count) return null
+  const maxOutput = limits.output || 4096
+  const reserved = Math.min(20000, maxOutput)
+  const usable = limits.input ? Math.max(0, limits.input - reserved) : Math.max(0, context - maxOutput)
+  return {
+    count,
+    context,
+    percent: Math.min(100, Math.round((count / context) * 100)),
+    untilCompaction: Math.max(0, usable - count),
+    cost: (state.sessions[sessionId] as { cost?: number } | undefined)?.cost ?? 0,
+  }
+}
+
 export function spawnLink(part: Part): { child: string; parent: string } | undefined {
   if (part.type !== "tool" || (part.tool !== "task" && part.tool !== "spawn_thread")) return
   const state = part.state

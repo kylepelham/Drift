@@ -12,6 +12,7 @@ import {
 import { AttentionStrip } from "./ui/attention"
 import { Chat } from "./ui/chat"
 import { Composer } from "./ui/composer"
+import { DebugPanel } from "./ui/debug"
 import { ChatHeader } from "./ui/header"
 import { Lightbox } from "./ui/lightbox"
 import { McpServersModal } from "./ui/mcp"
@@ -31,11 +32,16 @@ export function App() {
         <Titlebar />
         <div class="flex min-h-0 flex-1">
           <Sidebar />
-          <main class="flex min-w-0 flex-1 flex-col">
-            <ChatHeader />
-            <Chat />
-            <AttentionStrip />
-            <Composer />
+          <main class="flex min-w-0 flex-1">
+            <div class="flex min-w-0 flex-1 flex-col">
+              <div class="relative flex min-h-0 flex-1 flex-col">
+                <ChatHeader />
+                <Chat />
+              </div>
+              <AttentionStrip />
+              <Composer />
+            </div>
+            <DebugPanel />
           </main>
         </div>
         <Lightbox />

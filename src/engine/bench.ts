@@ -85,6 +85,24 @@ export function seedBench(set: SetStoreFunction<EngineState>, directory: string)
   const entries: MessageEntry[] = []
   for (let index = 0; index < count; index++)
     entries.push(index % 2 === 0 ? userEntry(index, sessionID) : assistantEntry(index, sessionID))
+  const middle = entries[Math.floor(count / 2)]
+  if (middle?.info.role === "assistant")
+    middle.parts.unshift({
+      id: id("prt", Math.floor(count / 2), "c"),
+      messageID: middle.info.id,
+      sessionID,
+      type: "compaction",
+      auto: true,
+    } as unknown as Part)
+  const tail = entries[count - 1]
+  if (tail && "tokens" in tail.info)
+    (tail.info as { tokens: unknown }).tokens = {
+      input: 2,
+      output: 310,
+      reasoning: 0,
+      cache: { read: 150000, write: 6000 },
+      total: 156312,
+    }
   const session = {
     id: sessionID,
     title: `Bench ${count}`,

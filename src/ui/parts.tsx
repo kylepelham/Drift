@@ -127,7 +127,7 @@ function ImageThumb(props: { url: string; filename?: string; mime?: string }) {
       class="block overflow-hidden rounded-md border border-edge transition-colors hover:border-edge-strong"
       onClick={() => openLightbox({ url: props.url, filename: props.filename, mime: props.mime })}
     >
-      <img src={props.url} alt={props.filename ?? ""} class="size-16 object-cover" />
+      <img src={props.url} alt={props.filename ?? ""} class="size-20 object-cover" />
     </button>
   )
 }

@@ -36,17 +36,17 @@ function UserBubble(props: { entry: MessageEntry }) {
   }
   return (
     <Show when={text() || files().length > 0}>
-      <div class="group flex flex-col items-end gap-1">
-        <div class="max-w-[85%] space-y-1.5 rounded-lg border border-edge bg-surface px-3 py-1.5">
-          <Show when={files().length > 0}>
-            <div class="flex flex-wrap justify-end gap-1.5 pt-1">
-              <For each={files()}>{(file) => <FilePartView part={file} />}</For>
-            </div>
-          </Show>
-          <Show when={text()}>
+      <div class="group flex flex-col items-end gap-1.5">
+        <Show when={files().length > 0}>
+          <div class="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+            <For each={files()}>{(file) => <FilePartView part={file} />}</For>
+          </div>
+        </Show>
+        <Show when={text()}>
+          <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
             <Markdown text={text()} done />
-          </Show>
-        </div>
+          </div>
+        </Show>
         <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
           <span>{capitalize(info().agent)} · {model()} · {time()}</span>
           <button title="Revert to here" class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void revert()}>
