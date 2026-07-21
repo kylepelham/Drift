@@ -54,6 +54,7 @@ export type EngineState = {
   errors: Record<string, string>
   links: Record<string, string>
   activity: Record<string, SessionActivity>
+  cursors: Record<string, string | null>
   version: string
 }
 
@@ -94,6 +95,7 @@ export function createEngineState() {
     errors: {},
     links: { ...loadLinks() },
     activity: {},
+    cursors: {},
     version: "",
   })
 }

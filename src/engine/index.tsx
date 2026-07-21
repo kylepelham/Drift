@@ -5,6 +5,7 @@ import { createActions, type EngineActions } from "./actions"
 import { resolveEngine, sleep, type EngineTarget } from "./connection"
 import { reduce } from "./events"
 import { streamEvents } from "./sse"
+import { seedBench } from "./bench"
 import { createEngineState, type EngineState, type ProviderInfo } from "./store"
 
 export type Engine = { state: EngineState; actions: EngineActions; setDirectory: (path: string | null) => void }
@@ -55,9 +56,13 @@ export function EngineProvider(props: ParentProps) {
     }
   }
 
+  // ponytail: reconnect catch-up reloads the tail page only; deep scrollback refetches on demand
   async function reload(id: string) {
-    const result = await requireClient().session.messages({ path: { id } })
-    set("transcripts", id, result.data ?? [])
+    const result = await requireClient().session.messages({ path: { id }, query: { limit: 100 } })
+    if (!result.data) return
+    const entries = [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id))
+    set("transcripts", id, entries)
+    set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
   }
 
   async function pump(target: EngineTarget, dir: string, signal: AbortSignal) {
@@ -91,6 +96,7 @@ export function EngineProvider(props: ParentProps) {
         s.status = {}
         s.errors = {}
         s.activity = {}
+        s.cursors = {}
         s.directory = dir ?? ""
         s.connection = dir ? "connecting" : "idle"
       }),
@@ -103,6 +109,7 @@ export function EngineProvider(props: ParentProps) {
     pumpAbort = undefined
     client = undefined
     reset(directory)
+    if (import.meta.env.DEV && directory) seedBench(set, directory)
     if (!directory) return
     client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
     pumpAbort = new AbortController()

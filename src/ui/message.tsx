@@ -36,7 +36,7 @@ function UserBubble(props: { entry: MessageEntry }) {
   }
   return (
     <Show when={text() || files().length > 0}>
-      <div class="fade-up group flex flex-col items-end gap-1">
+      <div class="group flex flex-col items-end gap-1">
         <div class="max-w-[85%] space-y-1.5 rounded-lg border border-edge bg-surface px-3 py-1.5">
           <Show when={files().length > 0}>
             <div class="flex flex-wrap justify-end gap-1.5 pt-1">
@@ -89,7 +89,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
   const visible = () => props.entry.parts.some(partVisible) || !!info().error
   return (
     <Show when={visible()}>
-      <div class="fade-up group space-y-2.5">
+      <div class="group space-y-2.5">
       <For each={groups()}>
         {(group) => (
           <Switch>

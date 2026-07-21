@@ -1,6 +1,7 @@
 import type { OpencodeClient, Permission, Session } from "@opencode-ai/sdk/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { sleep, type EngineTarget } from "./connection"
+import type { MessageEntry } from "./store"
 import {
   normalizeDir,
   putSession,
@@ -50,18 +51,49 @@ export function createActions(
   set: SetStoreFunction<EngineState>,
   target: () => EngineTarget | undefined,
 ) {
-  async function reloadSession(id: string) {
-    const result = await requireClient().session.messages({ path: { id } })
-    set("transcripts", id, result.data ?? [])
-    set("loaded", id, true)
-    for (const entry of result.data ?? []) {
-      for (const part of entry.parts) {
+  const pageSize = 100
+
+  function recordLinks(entries: { parts: { id: string }[] }[]) {
+    for (const entry of entries) {
+      for (const part of entry.parts as Parameters<typeof spawnLink>[0][]) {
         const link = spawnLink(part)
         if (!link) continue
         recordLink(link)
         set("links", link.child, link.parent)
       }
     }
+  }
+
+  async function reloadSession(id: string) {
+    const result = await requireClient().session.messages({ path: { id }, query: { limit: pageSize } })
+    const entries = [...(result.data ?? [])].sort((a, b) => a.info.id.localeCompare(b.info.id))
+    set("transcripts", id, entries)
+    set("loaded", id, true)
+    set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
+    recordLinks(entries)
+  }
+
+  // Older pages come via the raw route because the generated SDK lacks the cursor param.
+  async function loadOlder(id: string) {
+    const cursor = state.cursors[id]
+    const base = target()
+    if (!cursor || !base) return false
+    const url =
+      `${base.url}/session/${id}/message?directory=${encodeURIComponent(state.directory)}` +
+      `&limit=${pageSize}&before=${encodeURIComponent(cursor)}`
+    const response = await fetch(url, { headers: base.headers }).catch(() => null)
+    if (!response?.ok) return false
+    const older = ((await response.json().catch(() => [])) ?? []) as MessageEntry[]
+    const sorted = [...older].sort((a, b) => a.info.id.localeCompare(b.info.id))
+    set(
+      produce((s) => {
+        const existing = new Set((s.transcripts[id] ?? []).map((entry) => entry.info.id))
+        s.transcripts[id] = [...sorted.filter((entry) => !existing.has(entry.info.id)), ...(s.transcripts[id] ?? [])]
+      }),
+    )
+    set("cursors", id, response.headers.get("x-next-cursor"))
+    recordLinks(sorted)
+    return sorted.length > 0
   }
 
   async function openSession(id: string) {
@@ -291,6 +323,7 @@ export function createActions(
 
   return {
     openSession,
+    loadOlder,
     loadSessions,
     removeAllSessions,
     newSession,
