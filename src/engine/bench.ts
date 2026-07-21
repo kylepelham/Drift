@@ -85,10 +85,11 @@ export function seedBench(set: SetStoreFunction<EngineState>, directory: string)
   const entries: MessageEntry[] = []
   for (let index = 0; index < count; index++)
     entries.push(index % 2 === 0 ? userEntry(index, sessionID) : assistantEntry(index, sessionID))
-  const middle = entries[Math.floor(count / 2)]
+  const middleIndex = Math.floor(count / 2) | 1
+  const middle = entries[middleIndex]
   if (middle?.info.role === "assistant")
     middle.parts.unshift({
-      id: id("prt", Math.floor(count / 2), "c"),
+      id: id("prt", middleIndex, "c"),
       messageID: middle.info.id,
       sessionID,
       type: "compaction",

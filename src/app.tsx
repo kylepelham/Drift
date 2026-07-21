@@ -2,6 +2,7 @@ import { createEffect, onCleanup, onMount } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
 import { PluginHost } from "./plugins"
 import { bindTheme } from "./state/theme"
+import { initZoom } from "./state/zoom"
 import {
   activeWorkspace,
   initWorkspaces,
@@ -24,6 +25,7 @@ import { Titlebar } from "./ui/titlebar"
 
 export function App() {
   bindTheme()
+  initZoom()
   return (
     <EngineProvider>
       <WorkspaceBinding />
