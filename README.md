@@ -69,10 +69,14 @@ hot-reload in both.
 ### Updating the vendored engine
 
 ```
-git subtree pull --prefix engine/upstream https://github.com/sst/opencode.git dev --squash
+git fetch --no-tags https://github.com/sst/opencode.git dev
+git subtree merge --prefix engine/upstream FETCH_HEAD --squash
 bun install --ignore-scripts --cwd engine/upstream
 bun run build:engine
 ```
+
+Fetch with `--no-tags`: a plain `git subtree pull` drags in every opencode release
+tag, and this repo's release workflow triggers on `v*` tags.
 
 `docs/engine.md` covers the gotchas.
 

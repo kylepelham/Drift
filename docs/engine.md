@@ -6,9 +6,10 @@ providers) applies unchanged. Users do not install opencode.
 
 ## Embedded engine lifecycle
 
-- Vendoring: `git subtree pull --prefix engine/upstream opencode dev --squash` pulls a
-  new engine drop. One-time setup after a pull: `bun install --ignore-scripts` inside
-  `engine/upstream` (native tree-sitter grammars are optional, wasm is used at runtime).
+- Vendoring: a `--no-tags` fetch plus `git subtree merge --squash` pulls a new engine
+  drop (see the runbook below). One-time setup after a pull: `bun install
+  --ignore-scripts` inside `engine/upstream` (native tree-sitter grammars are optional,
+  wasm is used at runtime).
 - Building: `bun run build:engine` calls upstream's own build
   (`script/build.ts --single --skip-embed-web-ui`) and copies the result to
   `src-tauri/binaries/drift-engine[-<triple>].exe`. We never maintain our own bundling
@@ -39,7 +40,10 @@ providers) applies unchanged. Users do not install opencode.
 
 ## Engine update runbook
 
-1. `git subtree pull --prefix engine/upstream https://github.com/sst/opencode.git dev --squash`
+1. `git fetch --no-tags https://github.com/sst/opencode.git dev` then
+   `git subtree merge --prefix engine/upstream FETCH_HEAD --squash`. Never plain
+   `git subtree pull`: it follows upstream's ~1000 release tags into the local repo,
+   and pushing any of them would trigger Drift's own `v*` release workflow.
 2. `bun install --ignore-scripts` inside `engine/upstream` (skips optional native grammars).
 3. `bun run build:engine` from the repo root to rebuild `src-tauri/binaries/drift-engine.exe`.
 4. Restart the dev loop or the app, then confirm the new version in Settings > About
