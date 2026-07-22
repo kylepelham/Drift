@@ -51,7 +51,6 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
         onPointerDown={(event) => dragWorkspace(event, root, props.workspace.id)}
         onClick={() => {
           if (dragged) return
-          selectWorkspace(props.workspace.id)
           toggleWorkspaceCollapsed(props.workspace.id)
         }}
         onContextMenu={(event) => {

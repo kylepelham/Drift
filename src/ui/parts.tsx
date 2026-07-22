@@ -457,9 +457,23 @@ export function shellTranscript(command: string, output: string) {
   return `$ ${command}${normalized.trim() ? `\n\n${normalized}` : ""}`
 }
 
+function ShellLine(props: { line: string; last: boolean }) {
+  const command = () => (props.line.startsWith("$ ") ? props.line.slice(2) : null)
+  return (
+    <>
+      <Show when={command() !== null} fallback={<span class="text-ink-muted">{props.line}</span>}>
+        <span class="text-accent select-none">$ </span>
+        <span class="font-medium text-ink">{command()}</span>
+      </Show>
+      {props.last ? "" : "\n"}
+    </>
+  )
+}
+
 function ShellOutput(props: { command: string; output: string }) {
   const [copied, setCopied] = createSignal(false)
   const transcript = () => shellTranscript(props.command, props.output)
+  const lines = () => transcript().split("\n")
   const copy = async () => {
     await navigator.clipboard.writeText(transcript())
     setCopied(true)
@@ -482,7 +496,9 @@ function ShellOutput(props: { command: string; output: string }) {
         aria-label="Shell output"
         tabIndex={0}
       >
-        <code class="break-words">{transcript()}</code>
+        <code class="break-words">
+          <For each={lines()}>{(line, index) => <ShellLine line={line} last={index() === lines().length - 1} />}</For>
+        </code>
       </pre>
     </div>
   )
