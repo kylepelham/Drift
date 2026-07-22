@@ -128,7 +128,7 @@ export function Chat() {
   }
 
   return (
-    <div ref={scroller} class="min-h-0 flex-1 overflow-y-auto" onScroll={onScroll}>
+    <div ref={scroller} class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto" onScroll={onScroll}>
       <Show when={selectedSession()} keyed fallback={<EmptyState />}>
         <div
           class="fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text"
@@ -177,7 +177,7 @@ function Row(props: {
 }) {
   const fresh = Date.now() - props.entry.info.time.created < 2000
   return (
-    <div ref={props.measure} data-mid={props.entry.info.id} class="pb-6" classList={{ "fade-up": fresh }}>
+    <div ref={props.measure} data-mid={props.entry.info.id} class="min-w-0 max-w-full pb-6" classList={{ "fade-up": fresh }}>
       <MessageView entry={props.entry} footer={props.next?.info.role !== "assistant"} />
       <Show when={props.thinking}>
         <div class="timeline-thinking" role="status" aria-live="polite">

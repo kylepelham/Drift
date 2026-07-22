@@ -149,6 +149,7 @@ function SidebarFooter(props: { onSettings: () => void }) {
     idle: "bg-ink-faint",
   }
   const label = () => {
+    if (engine.state.startupError) return "engine failed"
     if (engine.state.connection === "online") return shortPath(engine.state.directory)
     if (engine.state.connection === "idle") return "no workspace"
     return engine.state.connection
@@ -162,7 +163,10 @@ function SidebarFooter(props: { onSettings: () => void }) {
         <IconGear />
         <span>Settings</span>
         <span class="flex-1" />
-        <span class="flex items-center gap-1.5 text-[0.65rem] text-ink-faint" title={engine.state.directory}>
+        <span
+          class="flex items-center gap-1.5 text-[0.65rem] text-ink-faint"
+          title={engine.state.startupError || engine.state.directory}
+        >
           <span class={`size-1.5 rounded-full ${dot[engine.state.connection]}`} />
           <span class="max-w-24 truncate">{label()}</span>
         </span>

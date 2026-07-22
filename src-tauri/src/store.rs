@@ -63,6 +63,27 @@ fn now() -> i64 {
 }
 
 impl Store {
+    pub fn import_opencode_workspaces(&self, database: &Path) -> rusqlite::Result<usize> {
+        if !database.is_file() {
+            return Ok(0);
+        }
+        let conn = self.0.lock().unwrap();
+        conn.execute("ATTACH DATABASE ?1 AS opencode_import", [database.to_string_lossy().as_ref()])?;
+        let result = conn.execute(
+            "INSERT OR IGNORE INTO workspace(id, path, name, icon, last_used)
+             SELECT project.id, project.worktree,
+                    COALESCE(NULLIF(project.name, ''), project.worktree), '',
+                    MAX(COALESCE(session.time_updated, project.time_updated, 0))
+             FROM opencode_import.project project
+             LEFT JOIN opencode_import.session session ON session.project_id = project.id
+             WHERE project.worktree <> '' AND project.worktree <> '/'
+             GROUP BY project.id, project.worktree, project.name",
+            [],
+        );
+        let _ = conn.execute_batch("DETACH DATABASE opencode_import");
+        result
+    }
+
     pub fn workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare_cached(
@@ -253,6 +274,32 @@ mod tests {
         assert_eq!(paths, vec!["S:/proj".to_string()]);
         assert!(store.workspaces().unwrap().is_empty());
         assert!(store.add_workspace("w3", "S:/proj", "Fresh", "").unwrap().id == "w3");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn imports_opencode_projects_without_overwriting_drift_metadata() {
+        let dir = std::env::temp_dir().join(format!("drift-import-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("opencode.db");
+        let conn = Connection::open(&source).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
+             CREATE TABLE session(id TEXT PRIMARY KEY, project_id TEXT, time_updated INTEGER);
+             INSERT INTO project VALUES('p1', 'S:/one', 'One', 10);
+             INSERT INTO project VALUES('global', '/', 'Global', 20);
+             INSERT INTO session VALUES('s1', 'p1', 30);",
+        )
+        .unwrap();
+        drop(conn);
+
+        let store = open_at(&dir.join("drift.db")).unwrap();
+        assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 1);
+        assert_eq!(store.workspaces().unwrap()[0].path, "S:/one");
+        store.save_workspace("p1", "S:/one", "Custom", "C").unwrap();
+        assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 0);
+        assert_eq!(store.workspaces().unwrap()[0].name, "Custom");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

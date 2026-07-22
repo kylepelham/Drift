@@ -99,7 +99,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
   const visible = () => props.entry.parts.some(partVisible) || !!info().error
   return (
     <Show when={visible()}>
-      <div class="group flex flex-col gap-3">
+      <div class="group flex min-w-0 max-w-full flex-col gap-3">
         <For each={groups()}>
           {(group) => (
             <Switch>
@@ -110,7 +110,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
         </For>
         <Show when={info().error}>
           {(error) => (
-            <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger">
               {errorText(error())}
             </div>
           )}

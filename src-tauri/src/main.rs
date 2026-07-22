@@ -3,6 +3,7 @@
 mod engine_db;
 mod store;
 
+use serde::Serialize;
 use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -14,6 +15,13 @@ use tauri::{Manager, RunEvent, State};
 struct Engine {
     url: Mutex<Option<String>>,
     child: Mutex<Option<Child>>,
+    diagnostic: Mutex<String>,
+}
+
+#[derive(Serialize)]
+struct EngineStatus {
+    url: Option<String>,
+    error: Option<String>,
 }
 
 struct ConfigRoot(PathBuf);
@@ -49,13 +57,26 @@ fn config_read(config: State<ConfigRoot>, path: String) -> Result<Option<String>
 }
 
 #[tauri::command]
-fn engine_url(engine: State<Engine>) -> Result<String, String> {
-    engine
-        .url
-        .lock()
-        .unwrap()
-        .clone()
-        .ok_or_else(|| "engine starting".into())
+fn engine_status(engine: State<Engine>) -> EngineStatus {
+    let url = engine.url.lock().unwrap().clone();
+    if url.is_some() {
+        return EngineStatus { url, error: None };
+    }
+    let (has_child, status) = {
+        let mut child = engine.child.lock().unwrap();
+        (child.is_some(), child.as_mut().and_then(|child| child.try_wait().ok().flatten()))
+    };
+    let diagnostic = engine.diagnostic.lock().unwrap();
+    let error = status
+        .map(|status| {
+            if diagnostic.is_empty() {
+                format!("embedded engine exited with {status}")
+            } else {
+                format!("embedded engine exited with {status}: {diagnostic}")
+            }
+        })
+        .or_else(|| (!has_child && !diagnostic.is_empty()).then(|| diagnostic.clone()));
+    EngineStatus { url: None, error }
 }
 
 #[tauri::command]
@@ -160,14 +181,17 @@ fn engine_extensions() -> Option<std::path::PathBuf> {
 
 fn spawn_engine(app: tauri::AppHandle, shared_database: bool) {
     std::thread::spawn(move || {
-        let Some(binary) = engine_binary() else { return };
+        let Some(binary) = engine_binary() else {
+            *app.state::<Engine>().diagnostic.lock().unwrap() = "embedded engine binary not found".into();
+            return;
+        };
         let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME"));
         let mut command = Command::new(binary);
         command
             .args(["serve", "--port", "0"])
             .env_remove("OPENCODE_SERVER_PASSWORD")
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
         if shared_database {
             engine_db::configure_shared(&mut command);
         }
@@ -182,10 +206,27 @@ fn spawn_engine(app: tauri::AppHandle, shared_database: bool) {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x0800_0000);
         }
-        let Ok(mut child) = command.spawn() else { return };
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                *app.state::<Engine>().diagnostic.lock().unwrap() = format!("failed to start embedded engine: {error}");
+                return;
+            }
+        };
         let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
         let engine = app.state::<Engine>();
         *engine.child.lock().unwrap() = Some(child);
+        if let Some(stderr) = stderr {
+            let diagnostics_app = app.clone();
+            std::thread::spawn(move || {
+                for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                    if !line.trim().is_empty() {
+                        *diagnostics_app.state::<Engine>().diagnostic.lock().unwrap() = line;
+                    }
+                }
+            });
+        }
         let Some(stdout) = stdout else { return };
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             if let Some(index) = line.find("http://") {
@@ -208,7 +249,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .manage(Engine::default())
         .invoke_handler(tauri::generate_handler![
-            engine_url,
+            engine_status,
             config_read,
             pick_folder,
             store_workspaces,
@@ -228,12 +269,11 @@ fn main() {
             let config_dir = app.path().app_config_dir().expect("no app config dir");
             std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
             app.manage(ConfigRoot(config_dir));
-            app.manage(store::open(&data_dir).expect("failed to open drift store"));
             let shared_database = if cfg!(debug_assertions) {
                 false
             } else {
                 engine_binary()
-                    .map(|binary| match engine_db::prepare_shared(&binary) {
+                    .map(|_| match engine_db::prepare_shared() {
                         Ok(imported) => {
                             if imported > 0 {
                                 eprintln!("imported {imported} Drift sessions into the shared OpenCode database");
@@ -247,6 +287,13 @@ fn main() {
                     })
                     .unwrap_or(false)
             };
+            let store = store::open(&data_dir).expect("failed to open drift store");
+            if let Ok(database) = engine_db::database_path(shared_database) {
+                if let Err(error) = store.import_opencode_workspaces(&database) {
+                    eprintln!("failed to import OpenCode workspaces: {error}");
+                }
+            }
+            app.manage(store);
             spawn_engine(app.handle().clone(), shared_database);
             Ok(())
         })

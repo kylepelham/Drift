@@ -301,9 +301,9 @@ export function ToolView(props: { part: ToolPart }) {
     return (toolMeta(props.part) as { sessionId?: string } | undefined)?.sessionId ?? null
   }
   return (
-    <div class="flex flex-col gap-1 text-sm">
+    <div class="flex min-w-0 max-w-full flex-col gap-1 text-sm">
       <button
-        class="flex min-h-8 max-w-full items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-raised/40"
+        class="flex min-h-8 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md px-1.5 text-left transition-colors hover:bg-raised/40"
         classList={{ "border-l-2 border-accent/35 pl-2": delegated() }}
         onClick={() => {
           const childId = spawnedId()
@@ -379,7 +379,7 @@ export function ToolView(props: { part: ToolPart }) {
         </Show>
       </button>
       <Show when={expanded()}>
-        <div>
+        <div class="min-w-0 max-w-full">
           <ToolBody part={props.part} diff={diff()} error={error()} />
         </div>
       </Show>
@@ -439,7 +439,7 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
       </Switch>
       <Show when={props.error}>
         {(message) => (
-          <div class="mt-1.5 border-l-2 border-danger py-0.5 pl-3 text-[0.85rem] whitespace-pre-wrap text-ink-muted">
+          <div class="mt-1.5 border-l-2 border-danger py-0.5 pl-3 text-[0.85rem] break-words whitespace-pre-wrap text-ink-muted">
             {clip(stripAnsi(message()))}
           </div>
         )}

@@ -1,7 +1,8 @@
 export type Connection = "idle" | "connecting" | "online" | "offline"
 export type EngineTarget = { url: string; headers?: Record<string, string> }
 
-type TauriGlobal = { core?: { invoke: (cmd: string) => Promise<string> } }
+type TauriGlobal = { core?: { invoke: (cmd: string) => Promise<unknown> } }
+type ShellEngineStatus = { url?: string; error?: string }
 
 export async function resolveEngine(): Promise<EngineTarget> {
   const tauri = (globalThis as { __TAURI__?: TauriGlobal }).__TAURI__
@@ -13,9 +14,12 @@ export async function resolveEngine(): Promise<EngineTarget> {
 }
 
 async function waitForShellEngine(core: NonNullable<TauriGlobal["core"]>): Promise<string> {
+  const deadline = Date.now() + 45_000
   for (;;) {
-    const url = await core.invoke("engine_url").catch(() => null)
-    if (url) return url
+    const status = (await core.invoke("engine_status")) as ShellEngineStatus
+    if (status.url) return status.url
+    if (status.error) throw new Error(status.error)
+    if (Date.now() >= deadline) throw new Error("embedded engine did not become ready within 45 seconds")
     await sleep(300)
   }
 }

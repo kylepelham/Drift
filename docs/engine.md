@@ -18,8 +18,9 @@ providers) applies unchanged. Users do not install opencode.
   (the engine enforces basic auth whenever that env var is set).
 - Shell: `src-tauri/src/main.rs` locates the sidecar (next to the app exe, or
   `src-tauri/binaries` in dev), spawns `serve --port 0` with the password env removed
-  (localhost only), parses the printed URL, and serves it via `engine_url`. The child
-  is killed on exit. The frontend polls `engine_url` until the sidecar is up.
+  (localhost only), parses the printed URL, and serves it via `engine_status`. The child
+  is killed on exit. The frontend polls status until the sidecar is up, surfaces an
+  early process failure with its last stderr line, and times out after 45 seconds.
 - Packaging: `tauri build` produces an NSIS installer bundling the sidecar
   (`externalBin`) plus `engine/opencode` as `drift-extensions/` beside the exe
   (opencode.json, package.json, plugin sources; no node_modules, the engine installs
@@ -29,8 +30,9 @@ providers) applies unchanged. Users do not install opencode.
 - Release builds use the canonical `opencode.db`, so existing provider logins and
   sessions remain available without duplicating transcript or event data. Before the
   first switch, Drift transactionally merges any sessions created in its channel-specific
-  database; that database is retained as rollback data. Development builds keep their
-  channel database isolated.
+  database; that database is retained as rollback data. Existing OpenCode project paths
+  are inserted into Drift's workspace list without overwriting Drift names, icons, or
+  removals. Development builds keep their channel database isolated.
 
 ## Engine update runbook
 

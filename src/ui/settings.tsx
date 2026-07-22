@@ -412,7 +412,12 @@ function AboutSection() {
   return (
     <div class="space-y-1 px-3 text-sm text-ink-muted select-text">
       <div>Drift, an embedded-opencode desktop agent.</div>
-      <div class="text-xs text-ink-faint">Engine opencode {engine.state.version || "(connecting...)"}</div>
+      <div class="text-xs text-ink-faint">
+        Engine opencode {engine.state.version || (engine.state.startupError ? "(failed)" : "(starting...)")}
+      </div>
+      <Show when={engine.state.startupError}>
+        <div class="text-xs text-danger">{engine.state.startupError}</div>
+      </Show>
     </div>
   )
 }

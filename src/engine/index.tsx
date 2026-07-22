@@ -123,10 +123,19 @@ export function EngineProvider(props: ParentProps) {
     apply()
   }
 
-  void resolveEngine().then((target) => {
-    base = target
-    apply()
-  })
+  void resolveEngine()
+    .then(async (target) => {
+      base = target
+      const health = await fetch(`${target.url}/global/health`, { headers: target.headers })
+        .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
+        .catch(() => null)
+      if (health?.version) set("version", health.version)
+      apply()
+    })
+    .catch((error: unknown) => {
+      set("startupError", error instanceof Error ? error.message : String(error))
+      if (directory) set("connection", "offline")
+    })
   onCleanup(() => {
     disposed = true
     pumpAbort?.abort()

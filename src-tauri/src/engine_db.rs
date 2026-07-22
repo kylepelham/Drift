@@ -1,13 +1,15 @@
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
+use std::env;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::Duration;
 
 const SHARED_DATABASE_ENV: &str = "OPENCODE_DISABLE_CHANNEL_DB";
+const LEGACY_DATABASE: &str = "opencode-master.db";
 
-pub fn prepare_shared(binary: &Path) -> Result<usize, String> {
-    let source = database_path(binary, false)?;
-    let target = database_path(binary, true)?;
+pub fn prepare_shared() -> Result<usize, String> {
+    let source = database_path(false)?;
+    let target = database_path(true)?;
     if source == target {
         return Ok(0);
     }
@@ -23,28 +25,23 @@ pub fn prepare_shared(binary: &Path) -> Result<usize, String> {
     merge_sessions(&source, &target).map_err(|error| error.to_string())
 }
 
-fn database_path(binary: &Path, shared: bool) -> Result<PathBuf, String> {
-    let mut command = Command::new(binary);
-    command
-        .args(["db", "path"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    if shared {
-        command.env(SHARED_DATABASE_ENV, "1");
+pub fn database_path(shared: bool) -> Result<PathBuf, String> {
+    Ok(opencode_data_dir()?.join(if shared {
+        "opencode.db"
     } else {
-        command.env_remove(SHARED_DATABASE_ENV);
+        LEGACY_DATABASE
+    }))
+}
+
+fn opencode_data_dir() -> Result<PathBuf, String> {
+    if let Some(path) = env::var_os("XDG_DATA_HOME") {
+        return Ok(PathBuf::from(path).join("opencode"));
     }
-    let output = command.output().map_err(|error| error.to_string())?;
-    if !output.status.success() {
-        return Err("engine failed to report its database path".into());
-    }
-    let output = String::from_utf8(output.stdout).map_err(|error| error.to_string())?;
-    output
-        .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .map(|line| PathBuf::from(line.trim()))
-        .ok_or_else(|| "engine reported an empty database path".into())
+    env::var_os("USERPROFILE")
+        .or_else(|| env::var_os("HOME"))
+        .map(PathBuf::from)
+        .map(|home| home.join(".local").join("share").join("opencode"))
+        .ok_or_else(|| "cannot resolve the OpenCode data directory".into())
 }
 
 fn merge_sessions(source: &Path, target: &Path) -> rusqlite::Result<usize> {
