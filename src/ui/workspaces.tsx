@@ -228,7 +228,9 @@ function ThreadItem(props: { sessionId: string; title: string; updated: number; 
 
 function StatusDot(props: { sessionId: string }) {
   const engine = useEngine()
-  const attention = () => (engine.state.permissions[props.sessionId]?.length ?? 0) > 0
+  const attention = () =>
+    (engine.state.permissions[props.sessionId]?.length ?? 0) > 0 ||
+    (engine.state.questions[props.sessionId]?.length ?? 0) > 0
   return (
     <Switch>
       <Match when={attention()}>

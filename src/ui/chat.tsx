@@ -130,7 +130,7 @@ export function Chat() {
   return (
     <div ref={scroller} class="min-h-0 flex-1 overflow-y-auto" onScroll={onScroll}>
       <Show when={selectedSession()} fallback={<EmptyState />}>
-        <div class="relative mx-auto max-w-3xl px-4 pt-14 pb-6 select-text" style={{ height: `${offsets().at(-1)}px` }}>
+        <div class="relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text" style={{ height: `${offsets().at(-1)}px` }}>
           <div style={{ transform: `translateY(${offsets()[range().start]}px)` }}>
             <For each={slice()}>{(entry, index) => <Row entry={entry} next={slice()[index() + 1]} measure={measureRow} />}</For>
           </div>

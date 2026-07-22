@@ -37,6 +37,21 @@ export function nextUserMessage(entries: MessageEntry[], after: string) {
 
 export type SessionActivity = { tools: number; lastPartId: string; current?: string }
 
+export type QuestionInfo = {
+  question: string
+  header: string
+  options: { label: string; description: string }[]
+  multiple?: boolean
+  custom?: boolean
+}
+export type QuestionRequest = {
+  id: string
+  sessionID: string
+  questions: QuestionInfo[]
+  tool?: { messageID: string; callID: string }
+  directory?: string
+}
+
 export type EngineState = {
   connection: Connection
   directory: string
@@ -45,6 +60,7 @@ export type EngineState = {
   transcripts: Record<string, MessageEntry[]>
   loaded: Record<string, boolean>
   permissions: Record<string, Permission[]>
+  questions: Record<string, QuestionRequest[]>
   todos: Record<string, Todo[]>
   providers: ProviderInfo[]
   connected: string[]
@@ -86,6 +102,7 @@ export function createEngineState() {
     transcripts: {},
     loaded: {},
     permissions: {},
+    questions: {},
     todos: {},
     providers: [],
     connected: [],
@@ -113,17 +130,19 @@ export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo |
 type TokenUsage = { input: number; output: number; reasoning: number; cache: { read: number; write: number }; total?: number }
 
 // Mirrors the engine's session/overflow.ts so the meter predicts the same compaction point.
-export function contextStats(state: EngineState, sessionId: string) {
+// Limits come from the model the next prompt would use; token counts from the last reply.
+export function contextStats(state: EngineState, sessionId: string, modelRef?: ModelRef | null) {
   const entries = state.transcripts[sessionId] ?? []
   const last = [...entries].reverse().find((entry) => entry.info.role === "assistant" && "tokens" in entry.info)
   if (!last || !("tokens" in last.info)) return null
   const tokens = last.info.tokens as TokenUsage
   const count = tokens.total || tokens.input + tokens.output + tokens.cache.read + tokens.cache.write
-  const model = modelInfo(state, { providerID: last.info.providerID, modelID: last.info.modelID })
+  const model =
+    modelInfo(state, modelRef ?? null) ?? modelInfo(state, { providerID: last.info.providerID, modelID: last.info.modelID })
   const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number }
   const context = limits.context ?? 0
   if (!context || !count) return null
-  const maxOutput = limits.output || 4096
+  const maxOutput = Math.min(limits.output || 0, 32000) || 32000
   const reserved = Math.min(20000, maxOutput)
   const usable = limits.input ? Math.max(0, limits.input - reserved) : Math.max(0, context - maxOutput)
   return {

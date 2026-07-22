@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { useEngine } from "../engine"
 import { sessionsFor } from "../engine/store"
+import { onKeybind } from "../state/keybinds"
 import { selectSession } from "../state/selection"
 import { setTheme, theme, themes } from "../state/theme"
 import { archivedIds, selectWorkspace, workspaces } from "../state/workspaces"
@@ -17,18 +18,8 @@ export function openPalette() {
 
 export function PaletteHost() {
   onMount(() => {
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey)) {
-        event.preventDefault()
-        setOpen(!open())
-      }
-      if (event.key.toLowerCase() === "n" && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
-        event.preventDefault()
-        selectSession(null)
-      }
-    }
-    document.addEventListener("keydown", keydown)
-    onCleanup(() => document.removeEventListener("keydown", keydown))
+    onKeybind("palette", () => setOpen(!open()))
+    onKeybind("newThread", () => selectSession(null))
   })
   return (
     <Show when={open()}>

@@ -1,3 +1,4 @@
+import { onKeybind } from "./keybinds"
 import { persisted } from "./persist"
 
 const [zoom, setZoom] = persisted<number>("drift.zoom", 1)
@@ -16,12 +17,7 @@ function update(next: number) {
 
 export function initZoom() {
   apply(zoom())
-  document.addEventListener("keydown", (event) => {
-    if (!(event.ctrlKey || event.metaKey) || event.altKey) return
-    if (event.key === "=" || event.key === "+") update(zoom() + 0.1)
-    else if (event.key === "-") update(zoom() - 0.1)
-    else if (event.key === "0") update(1)
-    else return
-    event.preventDefault()
-  })
+  onKeybind("zoomIn", () => update(zoom() + 0.1))
+  onKeybind("zoomOut", () => update(zoom() - 0.1))
+  onKeybind("zoomReset", () => update(1))
 }

@@ -166,7 +166,11 @@ type PatchFile = {
 
 function toolInfo(part: ToolPart): ToolInfo {
   const input = part.state.input as Record<string, unknown>
+  const meta = toolMeta(part) ?? {}
   const text = (key: string) => (typeof input?.[key] === "string" ? (input[key] as string) : undefined)
+  const output = () => (part.state.status === "completed" ? (part.state as { output: string }).output : "")
+  const count = (value: unknown, singular: string, plural = `${singular}s`) =>
+    typeof value === "number" ? ` · ${value} ${value === 1 ? singular : plural}${meta.truncated ? "+" : ""}` : ""
   switch (part.tool) {
     case "bash":
       return { title: "Shell", subtitle: text("command"), mono: true }
@@ -178,18 +182,22 @@ function toolInfo(part: ToolPart): ToolInfo {
       const files = patchFiles(part).length || (Array.isArray(input?.files) ? input.files.length : 0)
       return { title: "Patch", subtitle: files ? `${files} file${files > 1 ? "s" : ""}` : undefined }
     }
-    case "read":
-      return { title: "Read", subtitle: filename(text("filePath")) }
+    case "read": {
+      const lines = output() ? output().split("\n").length : undefined
+      return { title: "Read", subtitle: `${filename(text("filePath")) ?? ""}${count(lines, "line")}` }
+    }
     case "list":
-      return { title: "List", subtitle: filename(text("path")) }
+      return { title: "List", subtitle: `${filename(text("path")) ?? ""}${count(meta.count, "entry", "entries")}` }
     case "glob":
-      return { title: "Glob", subtitle: text("pattern"), mono: true }
+      return { title: "Glob", subtitle: `${text("pattern") ?? ""}${count(meta.count, "file")}`, mono: true }
     case "grep":
-      return { title: "Grep", subtitle: text("pattern"), mono: true }
+      return { title: "Grep", subtitle: `${text("pattern") ?? ""}${count(meta.matches, "match", "matches")}`, mono: true }
     case "webfetch":
       return { title: "Fetch", subtitle: text("url"), mono: true }
-    case "websearch":
-      return { title: "Search", subtitle: text("query") }
+    case "websearch": {
+      const results = output() ? (output().match(/^#|^\d+\./gm)?.length ?? undefined) : undefined
+      return { title: "Search", subtitle: `${text("query") ?? ""}${count(results, "result")}` }
+    }
     case "task": {
       const agent = text("subagent_type")
       return { title: agent ? agent.charAt(0).toUpperCase() + agent.slice(1) : "Task", subtitle: text("description") }
@@ -197,7 +205,7 @@ function toolInfo(part: ToolPart): ToolInfo {
     case "spawn_thread":
       return { title: "Spawn", subtitle: text("title") }
     case "question":
-      return { title: "Question" }
+      return { title: "Question", subtitle: text("question") ?? (input?.questions as { header?: string }[] | undefined)?.[0]?.header }
     case "skill":
       return { title: text("name") ?? "Skill" }
     default:
@@ -220,8 +228,17 @@ function argsPreview(input: Record<string, unknown> | undefined) {
   return joined.length > 120 ? joined.slice(0, 120) + "..." : joined
 }
 
-function awaitingPermission(state: { permissions: Record<string, { callID?: string }[]> }, part: ToolPart) {
-  return (state.permissions[part.sessionID] ?? []).some((permission) => permission.callID === part.callID)
+function awaitingPermission(
+  state: {
+    permissions: Record<string, { callID?: string }[]>
+    questions: Record<string, { tool?: { callID: string } }[]>
+  },
+  part: ToolPart,
+) {
+  return (
+    (state.permissions[part.sessionID] ?? []).some((permission) => permission.callID === part.callID) ||
+    (state.questions[part.sessionID] ?? []).some((question) => question.tool?.callID === part.callID)
+  )
 }
 
 function toolMeta(part: ToolPart) {

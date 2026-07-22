@@ -8,6 +8,15 @@ export const [hiddenModelIds, setHiddenModelIds] = persisted<string[]>("drift.mo
 export const [showReasoning, setShowReasoning] = persisted<boolean>("drift.reasoning", false)
 export const [notifyAttention, setNotifyAttention] = persisted<boolean>("drift.notifications", false)
 
+export const [autoAcceptSessions, setAutoAcceptSessions] = persisted<string[]>("drift.autoAccept", [])
+
+export function toggleAutoAccept(sessionId: string) {
+  const current = autoAcceptSessions()
+  setAutoAcceptSessions(
+    current.includes(sessionId) ? current.filter((id) => id !== sessionId) : [...current, sessionId],
+  )
+}
+
 type SessionPrefs = { model?: ModelRef | null; agent?: string; variant?: string | null }
 const [sessionPrefs, setSessionPrefs] = persisted<Record<string, SessionPrefs>>("drift.session.prefs", {})
 

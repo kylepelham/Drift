@@ -1,8 +1,9 @@
 import { createSignal, onCleanup, Show } from "solid-js"
 import { useEngine } from "../engine"
-import { contextStats } from "../engine/store"
+import { contextStats, resolveModel } from "../engine/store"
+import { prefsFor } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
-import { toggleDebugPanel } from "./debug"
+import { toggleDebugPanel } from "../state/panels"
 import { IconArrowUp } from "./icons"
 
 const chatColumnWidth = 768
@@ -81,7 +82,7 @@ export function ChatHeader() {
 
 function ContextMeter(props: { sessionId: string }) {
   const engine = useEngine()
-  const stats = () => contextStats(engine.state, props.sessionId)
+  const stats = () => contextStats(engine.state, props.sessionId, resolveModel(engine.state, prefsFor(props.sessionId).model))
   return (
     <Show when={stats()}>
       {(usage) => (

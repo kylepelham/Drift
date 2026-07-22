@@ -37,6 +37,21 @@ export function AttentionNotifier(props: { engine: Engine }) {
     }
   })
 
+  const seenQuestions = new Set<string>()
+  createEffect(() => {
+    const all = Object.values(props.engine.state.questions).flat()
+    const present = new Set(all.map((question) => question.id))
+    for (const id of seenQuestions) if (!present.has(id)) seenQuestions.delete(id)
+    for (const question of all) {
+      if (seenQuestions.has(question.id)) continue
+      seenQuestions.add(question.id)
+      untrack(() => {
+        const session = props.engine.state.sessions[question.sessionID]
+        show(question.sessionID, "Drift has a question", question.questions[0]?.header ?? session?.title ?? "thread")
+      })
+    }
+  })
+
   const busy = new Set<string>()
   createEffect(() => {
     for (const [sessionId, status] of Object.entries(props.engine.state.status)) {

@@ -92,6 +92,7 @@ export function EngineProvider(props: ParentProps) {
         s.transcripts = {}
         s.loaded = {}
         s.permissions = {}
+        s.questions = {}
         s.todos = {}
         s.status = {}
         s.errors = {}

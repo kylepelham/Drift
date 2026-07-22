@@ -2,6 +2,7 @@ import type { Permission } from "@opencode-ai/sdk/client"
 import { createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import type { PermissionResponse } from "../engine/actions"
+import type { QuestionInfo } from "../engine/store"
 import { selectedSession } from "../state/selection"
 import { Chevron } from "./parts"
 
@@ -88,6 +89,83 @@ export function PermissionCard(props: { permission: Permission }) {
         <ActionButton label="Deny" danger onClick={() => reply("reject")} />
       </div>
     </div>
+  )
+}
+
+export function QuestionCard(props: { questions: QuestionInfo[]; onAnswer: (answers: string[][] | null) => void }) {
+  const [step, setStep] = createSignal(0)
+  const [collected, setCollected] = createSignal<string[][]>([])
+  const [picked, setPicked] = createSignal<string[]>([])
+  const [custom, setCustom] = createSignal("")
+  const current = () => props.questions[step()]
+
+  function submitStep(answer: string[]) {
+    const answers = [...collected(), answer]
+    if (step() + 1 < props.questions.length) {
+      setCollected(answers)
+      setStep(step() + 1)
+      setPicked([])
+      setCustom("")
+      return
+    }
+    props.onAnswer(answers)
+  }
+
+  function togglePick(label: string) {
+    if (!current()?.multiple) return submitStep([label])
+    setPicked(picked().includes(label) ? picked().filter((item) => item !== label) : [...picked(), label])
+  }
+
+  return (
+    <Show when={current()}>
+      {(question) => (
+        <div class="fade-up rounded-lg border border-accent/40 bg-accent/5 px-3 py-2.5">
+          <div class="mb-2 text-sm">
+            <span class="text-accent">{question().header}</span>{" "}
+            <span class="text-ink">{question().question}</span>
+            <Show when={props.questions.length > 1}>
+              <span class="ml-2 text-xs text-ink-faint">
+                {step() + 1}/{props.questions.length}
+              </span>
+            </Show>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <For each={question().options}>
+              {(option) => (
+                <button
+                  class="rounded-md border px-2.5 py-1 text-left text-xs transition-colors"
+                  classList={{
+                    "border-accent text-ink": picked().includes(option.label),
+                    "border-edge text-ink-muted hover:border-edge-strong hover:text-ink": !picked().includes(option.label),
+                  }}
+                  title={option.description}
+                  onClick={() => togglePick(option.label)}
+                >
+                  {option.label}
+                </button>
+              )}
+            </For>
+          </div>
+          <Show when={question().custom !== false}>
+            <input
+              class="mt-2 w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-sm outline-none placeholder:text-ink-faint focus:border-edge-strong"
+              placeholder="Type your own answer..."
+              value={custom()}
+              onInput={(event) => setCustom(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && custom().trim()) submitStep([custom().trim()])
+              }}
+            />
+          </Show>
+          <div class="mt-2 flex gap-2">
+            <Show when={question().multiple}>
+              <ActionButton label="Submit" onClick={() => picked().length > 0 && submitStep(picked())} />
+            </Show>
+            <ActionButton label="Dismiss" danger onClick={() => props.onAnswer(null)} />
+          </div>
+        </div>
+      )}
+    </Show>
   )
 }
 

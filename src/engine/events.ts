@@ -1,11 +1,16 @@
 import type { Event, Message, Part, Permission, Session } from "@opencode-ai/sdk/client"
 import type { SetStoreFunction } from "solid-js/store"
 import { produce } from "solid-js/store"
-import { putSession, recordLink, spawnLink, type EngineState } from "./store"
+import { putSession, recordLink, spawnLink, type EngineState, type QuestionRequest } from "./store"
 
 type Set = SetStoreFunction<EngineState>
 
 export function reduce(set: Set, event: Event) {
+  // question.v2 events are newer than the generated SDK's Event union.
+  const raw = event as { type: string; properties: Record<string, unknown> }
+  if (raw.type === "question.v2.asked") return addQuestion(set, raw.properties as unknown as QuestionRequest)
+  if (raw.type === "question.v2.replied" || raw.type === "question.v2.rejected")
+    return dropQuestion(set, raw.properties.sessionID as string, raw.properties.requestID as string)
   switch (event.type) {
     case "session.created":
     case "session.updated":
@@ -46,6 +51,7 @@ function dropSession(set: Set, info: Session) {
       delete s.transcripts[info.id]
       delete s.loaded[info.id]
       delete s.permissions[info.id]
+      delete s.questions[info.id]
       delete s.todos[info.id]
       delete s.status[info.id]
       delete s.activity[info.id]
@@ -112,6 +118,25 @@ function dropPart(set: Set, ref: { sessionID: string; messageID: string; partID:
     produce((s) => {
       const entry = s.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
       if (entry) entry.parts = entry.parts.filter((part) => part.id !== ref.partID)
+    }),
+  )
+}
+
+function addQuestion(set: Set, question: QuestionRequest) {
+  set(
+    produce((s) => {
+      const list = s.questions[question.sessionID] ?? []
+      if (!list.some((existing) => existing.id === question.id)) list.push(question)
+      s.questions[question.sessionID] = list
+    }),
+  )
+}
+
+function dropQuestion(set: Set, sessionID: string, requestID: string) {
+  set(
+    produce((s) => {
+      const list = s.questions[sessionID]
+      if (list) s.questions[sessionID] = list.filter((question) => question.id !== requestID)
     }),
   )
 }

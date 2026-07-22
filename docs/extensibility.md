@@ -60,6 +60,13 @@ Renderers: `api.registerToolRenderer(toolName, fn)` overrides the card body for 
 `reasoning` or `file`), including types Drift normally hides. Tool parts always go
 through tool renderers, never part renderers.
 
+Asks: `api.ask({ header, question, options: [{ label, description }], multiple?, custom? })`
+(or an array of them) takes over the composer with the same card the engine's question
+tool uses and resolves with the selected labels (`string[][]`, one array per question)
+or `null` if dismissed. This is the intended plumbing for MCP-elicitation-style flows:
+anything that needs a structured user answer shares one queue with engine questions and
+permissions. The `question.requested` hook fires when the engine asks.
+
 Hooks are registered by Drift plugins loaded from Drift's config directory. No remote
 code; local files only.
 

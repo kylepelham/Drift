@@ -1,32 +1,28 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
-import { contextStats, type MessageEntry } from "../engine/store"
+import { contextStats, resolveModel, type MessageEntry } from "../engine/store"
+import { prefsFor } from "../state/prefs"
+import { debugPanelOpen, setDebugPanelOpen } from "../state/panels"
 import { selectedSession } from "../state/selection"
 import { theme } from "../state/theme"
 import { IconX } from "./icons"
-
-const [open, setOpen] = createSignal(false)
-
-export function toggleDebugPanel() {
-  setOpen(!open())
-}
 
 export function DebugPanel() {
   const engine = useEngine()
   const entries = () => engine.state.transcripts[selectedSession() ?? ""] ?? []
   const stats = () => {
     const id = selectedSession()
-    return id ? contextStats(engine.state, id) : null
+    return id ? contextStats(engine.state, id, resolveModel(engine.state, prefsFor(id).model)) : null
   }
   return (
-    <Show when={open() && selectedSession()}>
+    <Show when={debugPanelOpen() && selectedSession()}>
       <div class="flex w-[26rem] shrink-0 flex-col border-l border-edge bg-surface">
         <div class="flex items-center justify-between border-b border-edge px-3 py-2.5">
           <span class="text-sm font-semibold text-ink">Context</span>
           <button
             title="Close"
             class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-            onClick={() => setOpen(false)}
+            onClick={() => setDebugPanelOpen(false)}
           >
             <IconX />
           </button>

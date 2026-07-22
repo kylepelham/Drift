@@ -1,6 +1,7 @@
 import { createEffect, onCleanup, onMount } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
 import { PluginHost } from "./plugins"
+import { initKeybinds } from "./state/keybinds"
 import { bindTheme } from "./state/theme"
 import { initZoom } from "./state/zoom"
 import {
@@ -25,6 +26,7 @@ import { Titlebar } from "./ui/titlebar"
 
 export function App() {
   bindTheme()
+  initKeybinds()
   initZoom()
   return (
     <EngineProvider>

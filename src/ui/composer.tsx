@@ -1,14 +1,16 @@
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
 import { modelInfo, resolveModel, sessionBusy } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
-import { hiddenModelIds, prefsFor, seedPrefs, updatePrefs } from "../state/prefs"
+import { autoAcceptSessions, hiddenModelIds, prefsFor, seedPrefs, toggleAutoAccept, updatePrefs } from "../state/prefs"
+import { onKeybind } from "../state/keybinds"
 import type { Permission } from "@opencode-ai/sdk/client"
 import { restoredDraft, setRestoredDraft } from "../state/composer"
 import { selectedSession, selectSession } from "../state/selection"
 import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
 import { normalizeDir } from "../engine/store"
-import { PermissionCard } from "./attention"
+import { localAsks, resolveAsk } from "../state/asks"
+import { PermissionCard, QuestionCard } from "./attention"
 import { IconPaperclip, IconX } from "./icons"
 import { openLightbox } from "./lightbox"
 import { Picker, type PickerItem } from "./picker"
@@ -269,7 +271,36 @@ export function Composer() {
     area.style.height = `${Math.min(area.scrollHeight, 200)}px`
   }
 
+  const autoAcceptOn = () => {
+    const id = selectedSession()
+    return !!id && autoAcceptSessions().includes(id)
+  }
+
+  function autoAccepted(sessionId: string) {
+    const set = autoAcceptSessions()
+    if (set.includes(sessionId)) return true
+    const parent = engine.state.sessions[sessionId]?.parentID ?? engine.state.links[sessionId]
+    return !!parent && set.includes(parent)
+  }
+
+  onMount(() =>
+    onKeybind("autoAccept", () => {
+      const id = selectedSession()
+      if (id) toggleAutoAccept(id)
+    }),
+  )
+
+  createEffect(() => {
+    for (const permission of Object.values(engine.state.permissions).flat()) {
+      if (!autoAccepted(permission.sessionID)) continue
+      untrack(() => void engine.actions.replyPermission(permission.sessionID, permission.id, "once"))
+    }
+  })
+
   const pendingPermission = () => Object.values(engine.state.permissions).flat()[0]
+  const pendingQuestion = () => Object.values(engine.state.questions).flat()[0]
+  const pendingAsk = () => localAsks()[0]
+  const takeover = () => !!pendingPermission() || !!pendingQuestion() || !!pendingAsk()
 
   function openPermissionSession(permission: Permission) {
     const dir = (permission.metadata?.directory as string | undefined) ?? engine.state.sessions[permission.sessionID]?.directory
@@ -296,9 +327,35 @@ export function Composer() {
           </div>
         )}
       </Show>
+      <Show when={pendingPermission() ? undefined : pendingQuestion()}>
+        {(question) => (
+          <div class="mx-auto max-w-3xl">
+            <Show when={question().sessionID !== selectedSession()}>
+              <button
+                class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
+                title="Open that thread"
+                onClick={() => selectSession(question().sessionID)}
+              >
+                in {engine.state.sessions[question().sessionID]?.title || "another thread"}
+              </button>
+            </Show>
+            <QuestionCard
+              questions={[...question().questions]}
+              onAnswer={(answers) => void engine.actions.answerQuestion(question().sessionID, question().id, answers)}
+            />
+          </div>
+        )}
+      </Show>
+      <Show when={pendingPermission() || pendingQuestion() ? undefined : pendingAsk()}>
+        {(ask) => (
+          <div class="mx-auto max-w-3xl">
+            <QuestionCard questions={ask().questions} onAnswer={(answers) => resolveAsk(ask().id, answers)} />
+          </div>
+        )}
+      </Show>
       <div
         class="relative mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong"
-        classList={{ hidden: !!pendingPermission() }}
+        classList={{ hidden: takeover() }}
         onDragOver={(event) => {
           if (event.dataTransfer?.types.includes("Files")) event.preventDefault()
         }}
@@ -446,6 +503,15 @@ export function Composer() {
             />
           </Show>
           <div class="flex-1" />
+          <Show when={autoAcceptOn()}>
+            <button
+              class="rounded-full border border-warn/50 bg-warn/10 px-2 py-0.5 text-[0.65rem] text-warn transition-colors select-none hover:bg-warn/20"
+              title="Auto-accepting permissions for this thread (Ctrl+Shift+A to toggle)"
+              onClick={() => toggleAutoAccept(selectedSession()!)}
+            >
+              auto-accept
+            </button>
+          </Show>
           <input
             ref={filePicker}
             type="file"

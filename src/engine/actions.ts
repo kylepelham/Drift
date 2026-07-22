@@ -11,6 +11,7 @@ import {
   type EngineState,
   type ModelRef,
   type ProviderInfo,
+  type QuestionRequest,
 } from "./store"
 
 export type PromptFile = {
@@ -238,27 +239,45 @@ export function createActions(
   // Replied ids are filtered out of poll snapshots that raced the reply.
   const answered = new Set<string>()
 
-  // The generated SDK lags the engine here; GET /permission recovers asks raised while
-  // we weren't listening, across every workspace directory.
-  async function refreshPermissions(directories: string[]) {
+  async function fetchJson<T>(path: string, dir: string): Promise<T | null> {
     const base = target()
-    if (!base) return
+    if (!base) return null
+    const joiner = path.includes("?") ? "&" : "?"
+    const response = await fetch(`${base.url}${path}${joiner}directory=${encodeURIComponent(dir)}`, {
+      headers: base.headers,
+    }).catch(() => null)
+    if (!response?.ok) return null
+    return (await response.json().catch(() => null)) as T | null
+  }
+
+  // The generated SDK lags the engine here; GET /permission and /question recover asks
+  // raised while we weren't listening, across every workspace directory.
+  async function refreshPermissions(directories: string[]) {
+    if (!target()) return
     const results = await Promise.all(
       directories.map(async (dir) => {
-        const url = `${base.url}/permission?directory=${encodeURIComponent(dir)}`
-        const response = await fetch(url, { headers: base.headers }).catch(() => null)
-        if (!response?.ok) return []
-        const requests = ((await response.json().catch(() => [])) ?? []) as PermissionRequest[]
-        return requests.map((request) => toPermission(request, dir))
+        const [permissions, questions] = await Promise.all([
+          fetchJson<PermissionRequest[]>("/permission", dir),
+          fetchJson<QuestionRequest[]>("/question", dir),
+        ])
+        return {
+          permissions: (permissions ?? []).map((request) => toPermission(request, dir)),
+          questions: (questions ?? []).map((request) => ({ ...request, directory: dir })),
+        }
       }),
     )
-    const reported = new Set(results.flat().map((permission) => permission.id))
+    const reported = new Set(results.flatMap((r) => [...r.permissions, ...r.questions].map((item) => item.id)))
     for (const id of answered) if (!reported.has(id)) answered.delete(id)
     set(
       produce((s) => {
         s.permissions = {}
-        for (const permission of results.flat())
-          if (!answered.has(permission.id)) (s.permissions[permission.sessionID] ??= []).push(permission)
+        s.questions = {}
+        for (const result of results) {
+          for (const permission of result.permissions)
+            if (!answered.has(permission.id)) (s.permissions[permission.sessionID] ??= []).push(permission)
+          for (const question of result.questions)
+            if (!answered.has(question.id)) (s.questions[question.sessionID] ??= []).push(question)
+        }
       }),
     )
   }
@@ -283,6 +302,27 @@ export function createActions(
     )
   }
 
+  async function answerQuestion(sessionID: string, requestID: string, answers: string[][] | null) {
+    const base = target()
+    if (!base) return
+    const question = (state.questions[sessionID] ?? []).find((item) => item.id === requestID)
+    const dir = question?.directory ?? state.directory
+    const action = answers ? "reply" : "reject"
+    const url = `${base.url}/question/${requestID}/${action}?directory=${encodeURIComponent(dir)}`
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...base.headers },
+      body: JSON.stringify(answers ? { answers } : {}),
+    }).catch(() => null)
+    if (!response?.ok) return
+    answered.add(requestID)
+    set(
+      produce((s) => {
+        s.questions[sessionID] = (s.questions[sessionID] ?? []).filter((item) => item.id !== requestID)
+      }),
+    )
+  }
+
   async function replyElsewhere(sessionID: string, permissionID: string, response: PermissionResponse, dir: string) {
     const base = target()
     if (!base) return
@@ -297,6 +337,7 @@ export function createActions(
   async function interrupt(id: string) {
     for (const permission of state.permissions[id] ?? [])
       await replyPermission(id, permission.id, "reject").catch(() => {})
+    for (const question of state.questions[id] ?? []) await answerQuestion(id, question.id, null)
     if (!sessionBusy(state, id)) return
     await requireClient().session.abort({ path: { id } }).catch(() => {})
     for (let waited = 0; waited < 5000 && sessionBusy(state, id); waited += 100) await sleep(100)
@@ -348,6 +389,7 @@ export function createActions(
     remove,
     refreshPermissions,
     replyPermission,
+    answerQuestion,
     revert,
     unrevert,
   }

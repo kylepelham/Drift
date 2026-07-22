@@ -1,6 +1,7 @@
 import type { ProviderAuthMethod } from "@opencode-ai/sdk/client"
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { useEngine } from "../engine"
+import { comboFor, eventCombo, formatCombo, keybindDefs, setCombo, type KeybindAction } from "../state/keybinds"
 import { notifyAttention, setNotifyAttention, setShowReasoning, showReasoning } from "../state/prefs"
 import { shellInvoke } from "../state/store"
 import { requestNotificationPermission } from "./notifications"
@@ -15,7 +16,7 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-light": { label: "Drift Light", swatch: ["#f4f4f5", "#ffffff", "#3a6fd8"] },
 }
 
-const sections = ["General", "Appearance", "Providers", "About"] as const
+const sections = ["General", "Appearance", "Providers", "Keybinds", "About"] as const
 type Section = (typeof sections)[number]
 
 const [settingsOpen, setSettingsOpen] = createSignal(false)
@@ -86,6 +87,9 @@ function SettingsModal(props: { onClose: () => void }) {
               </Match>
               <Match when={section() === "Providers"}>
                 <ProvidersSection />
+              </Match>
+              <Match when={section() === "Keybinds"}>
+                <KeybindsSection />
               </Match>
               <Match when={section() === "About"}>
                 <AboutSection />
@@ -355,6 +359,58 @@ function openExternal(url: string) {
     return
   }
   window.open(url, "_blank")
+}
+
+function KeybindsSection() {
+  const [capturing, setCapturing] = createSignal<KeybindAction | null>(null)
+
+  createEffect(() => {
+    const action = capturing()
+    if (!action) return
+    const capture = (event: KeyboardEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (event.key === "Escape") return setCapturing(null)
+      const combo = eventCombo(event)
+      if (!combo) return
+      setCombo(action, combo)
+      setCapturing(null)
+    }
+    document.addEventListener("keydown", capture, true)
+    onCleanup(() => document.removeEventListener("keydown", capture, true))
+  })
+
+  return (
+    <div class="space-y-1">
+      <For each={keybindDefs}>
+        {(def) => (
+          <div class="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-raised/60">
+            <span class="min-w-0 flex-1 truncate text-sm text-ink">{def.label}</span>
+            <button
+              class="rounded-md border px-2.5 py-1 font-mono text-xs transition-colors"
+              classList={{
+                "border-accent text-accent": capturing() === def.action,
+                "border-edge text-ink-muted hover:border-edge-strong hover:text-ink": capturing() !== def.action,
+              }}
+              onClick={() => setCapturing(capturing() === def.action ? null : def.action)}
+            >
+              {capturing() === def.action ? "Press keys..." : formatCombo(comboFor(def.action))}
+            </button>
+            <button
+              title="Unbind"
+              class="flex size-6 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+              onClick={() => setCombo(def.action, null)}
+            >
+              <IconX class="size-3.5" />
+            </button>
+          </div>
+        )}
+      </For>
+      <div class="px-3 pt-3 text-xs text-ink-faint">
+        Click a binding, then press the new keys. Escape cancels, the X unbinds.
+      </div>
+    </div>
+  )
 }
 
 function AboutSection() {

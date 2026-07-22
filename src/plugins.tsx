@@ -1,6 +1,8 @@
 import type { Part, ToolPart } from "@opencode-ai/sdk/client"
 import { createEffect, createSignal, onCleanup, onMount, untrack } from "solid-js"
 import type { Engine } from "./engine"
+import type { QuestionInfo } from "./engine/store"
+import { pushAsk } from "./state/asks"
 import { selectedSession, selectSession } from "./state/selection"
 import { shellInvoke } from "./state/store"
 import { theme } from "./state/theme"
@@ -22,6 +24,7 @@ type HookEvents = {
   "workspace.changed": { workspace: WorkspaceInfo | null }
   "message.rendered": { sessionId: string; messageId: string; role: string }
   "permission.requested": { sessionId: string; permissionId: string; title: string; type: string; patterns: string[] }
+  "question.requested": { sessionId: string; requestId: string; headers: string[] }
   "session.idle": { sessionId: string }
 }
 type HookName = keyof HookEvents
@@ -36,6 +39,7 @@ export type DriftPluginApi = {
   on: <K extends HookName>(name: K, hook: Hook<K>) => () => void
   registerToolRenderer: (tool: string, renderer: ToolRenderer) => () => void
   registerPartRenderer: (type: string, renderer: PartRenderer) => () => void
+  ask: (question: QuestionInfo | QuestionInfo[]) => Promise<string[][] | null>
   threads: {
     create: () => Promise<string | undefined>
     select: (sessionId: string | null) => void
@@ -212,6 +216,7 @@ function createPluginApi(engine: Engine) {
     on: (name, hook) => track(on(name, hook)),
     registerToolRenderer: (tool, renderer) => track(registerToolRenderer(tool, renderer)),
     registerPartRenderer: (type, renderer) => track(registerPartRenderer(type, renderer)),
+    ask: (question) => pushAsk(Array.isArray(question) ? question : [question], selectedSession()),
     threads: {
       create: async () => {
         const session = await engine.actions.newSession()
@@ -295,6 +300,23 @@ export function PluginHost(props: { engine: Engine }) {
           title: permission.title,
           type: permission.type,
           patterns: [permission.pattern ?? []].flat(),
+        }),
+      )
+    }
+  })
+  const seenQuestions = new Set<string>()
+  createEffect(() => {
+    const all = Object.values(props.engine.state.questions).flat()
+    const present = new Set(all.map((question) => question.id))
+    for (const id of seenQuestions) if (!present.has(id)) seenQuestions.delete(id)
+    for (const question of all) {
+      if (seenQuestions.has(question.id)) continue
+      seenQuestions.add(question.id)
+      untrack(() =>
+        void emit("question.requested", {
+          sessionId: question.sessionID,
+          requestId: question.id,
+          headers: question.questions.map((item) => item.header),
         }),
       )
     }
