@@ -69,7 +69,7 @@ export function Picker(props: {
         </svg>
       </button>
       <Show when={open()}>
-        <div class="absolute bottom-full left-0 z-20 mb-2 w-72 overflow-hidden rounded-lg border border-edge bg-overlay shadow-xl shadow-black/30">
+        <div class="pop-in absolute bottom-full left-0 z-20 mb-2 w-72 overflow-hidden rounded-lg border border-edge bg-overlay shadow-xl shadow-black/30">
           <div class="flex items-center border-b border-edge">
             <input
               ref={input}

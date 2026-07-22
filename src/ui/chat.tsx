@@ -129,8 +129,11 @@ export function Chat() {
 
   return (
     <div ref={scroller} class="min-h-0 flex-1 overflow-y-auto" onScroll={onScroll}>
-      <Show when={selectedSession()} fallback={<EmptyState />}>
-        <div class="relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text" style={{ height: `${offsets().at(-1)}px` }}>
+      <Show when={selectedSession()} keyed fallback={<EmptyState />}>
+        <div
+          class="fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text"
+          style={{ height: `${offsets().at(-1)}px` }}
+        >
           <div style={{ transform: `translateY(${offsets()[range().start]}px)` }}>
             <For each={slice()}>{(entry, index) => <Row entry={entry} next={slice()[index() + 1]} measure={measureRow} />}</For>
           </div>
@@ -146,8 +149,9 @@ export function Chat() {
 }
 
 function Row(props: { entry: MessageEntry; next?: MessageEntry; measure: (element: HTMLDivElement) => void }) {
+  const fresh = Date.now() - props.entry.info.time.created < 2000
   return (
-    <div ref={props.measure} data-mid={props.entry.info.id} class="pb-5">
+    <div ref={props.measure} data-mid={props.entry.info.id} class="pb-5" classList={{ "fade-up": fresh }}>
       <MessageView entry={props.entry} footer={props.next?.info.role !== "assistant"} />
     </div>
   )

@@ -101,7 +101,7 @@ function ContextMeter(props: { sessionId: string }) {
             />
             {usage().percent}%
           </button>
-          <div class="absolute top-full right-0 z-30 mt-1.5 hidden w-56 rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/40 select-none group-hover/meter:block">
+          <div class="pop-in absolute top-full right-0 z-30 mt-1.5 hidden w-56 rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/40 select-none group-hover/meter:block">
             <MeterRow label="Cost" value={`$${usage().cost.toFixed(2)}`} />
             <MeterRow label="Usage" value={`${usage().percent}%`} />
             <MeterRow label="Tokens" value={usage().count.toLocaleString()} />

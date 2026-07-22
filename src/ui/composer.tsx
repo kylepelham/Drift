@@ -366,7 +366,7 @@ export function Composer() {
         }}
       >
         <Show when={mentionQuery() !== null && fileHits().length > 0}>
-          <div class="absolute bottom-full left-3 z-20 mb-2 w-96 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
+          <div class="pop-in absolute bottom-full left-3 z-20 mb-2 w-96 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
             <For each={fileHits()}>
               {(path, index) => (
                 <button
@@ -385,7 +385,7 @@ export function Composer() {
           </div>
         </Show>
         <Show when={matches().length > 0}>
-          <div class="absolute bottom-full left-3 z-20 mb-2 w-80 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
+          <div class="pop-in absolute bottom-full left-3 z-20 mb-2 w-80 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
             <For each={matches()}>
               {(item, index) => (
                 <button
