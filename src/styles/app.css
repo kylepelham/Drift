@@ -354,6 +354,17 @@ textarea {
   background: var(--raised) !important;
 }
 
+.code-view :where(pre) {
+  background: var(--raised) !important;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.625;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-muted);
+}
+
 .md :where(blockquote) {
   border-inline-start: 3px solid var(--edge-strong);
   padding-inline-start: 0.9em;

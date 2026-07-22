@@ -27,6 +27,7 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
+    "windows": { "nsis": { "compression": "zlib" } },
     "externalBin": ["binaries/drift-engine"],
     "resources": {
       "../engine/opencode/opencode.json": "drift-extensions/opencode.json",

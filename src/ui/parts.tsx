@@ -6,7 +6,7 @@ import { openLightbox } from "./lightbox"
 import { showReasoning } from "../state/prefs"
 import { selectSession } from "../state/selection"
 import { IconArrowUpRight, IconBranch, IconCheck, IconCopy } from "./icons"
-import { Markdown } from "./markdown"
+import { CodeView, Markdown } from "./markdown"
 import { TextShimmer } from "./text-shimmer"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
@@ -216,6 +216,10 @@ function toolInfo(part: ToolPart): ToolInfo {
 function filename(path?: string) {
   if (!path) return undefined
   return path.replaceAll("\\", "/").split("/").filter(Boolean).at(-1)
+}
+
+function extension(name?: string) {
+  return name?.match(/\.(\w+)$/)?.[1]?.toLowerCase() ?? "text"
 }
 
 function argsPreview(input: Record<string, unknown> | undefined) {
@@ -429,9 +433,9 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
         </Match>
         <Match when={written()}>
           {(file) => (
-            <pre class="max-h-80 overflow-auto rounded-lg border border-edge px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">
-              {clip(file().content)}
-            </pre>
+            <div class="code-view max-h-80 overflow-auto rounded-lg border border-edge">
+              <CodeView code={clip(file().content)} lang={extension(file().name)} />
+            </div>
           )}
         </Match>
         <Match when={patched().length > 1 && patched()}>{(files) => <PatchPanel files={files()} />}</Match>

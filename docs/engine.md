@@ -25,6 +25,9 @@ providers) applies unchanged. Users do not install opencode.
   (`externalBin`) plus `engine/opencode` as `drift-extensions/` beside the exe
   (opencode.json, package.json, plugin sources; no node_modules, the engine installs
   plugin deps on first boot into the per-user install dir).
+- Iteration: `bun run build:native` compiles without bundling; `bun run package` creates
+  the installer. Release builds use incremental parallel codegen and NSIS zlib so a
+  warm native build takes about 9 seconds and a packaged build about 20 seconds.
 - Version drift symptom (engine binary older than the shared SQLite schema): prompts
   500 with `SQLiteError: no such column ...`. Fix by rebuilding the engine binary.
 - Release builds use the canonical `opencode.db`, so existing provider logins and

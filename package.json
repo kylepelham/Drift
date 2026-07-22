@@ -8,6 +8,8 @@
     "dev:ui": "vite",
     "build": "vite build",
     "build:engine": "bun scripts/build-engine.ts",
+    "build:native": "tauri build --no-bundle",
+    "package": "tauri build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -19,6 +21,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.3",
+    "@tauri-apps/cli": "2.11.4",
     "tailwindcss": "^4.1.3",
     "typescript": "^5.8.2",
     "vite": "^6.2.5",

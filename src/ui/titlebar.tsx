@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, onMount, Show, type JSX } from "solid-js"
+import appIcon from "../../src-tauri/icons/32x32.png"
 
 type ShellWindow = {
   minimize(): void
@@ -34,11 +35,7 @@ export function Titlebar() {
       class="flex h-9 shrink-0 items-center justify-between border-b border-edge bg-surface select-none"
     >
       <div class="pointer-events-none flex items-center gap-2 px-3.5">
-        <svg class="size-4 text-accent" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-          <path d="M3 5.5h8.5a4.5 4.5 0 0 1 0 9H8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-          <path d="M3 9h7a2.25 2.25 0 1 1 0 4.5H5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".58" />
-          <circle cx="3" cy="5.5" r="1" fill="currentColor" />
-        </svg>
+        <img src={appIcon} alt="" class="size-4" />
         <span class="drift-wordmark">Drift</span>
       </div>
       <Show when={controls}>

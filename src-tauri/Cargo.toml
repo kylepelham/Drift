@@ -17,7 +17,6 @@ serde = { version = "1", features = ["derive"] }
 
 [profile.release]
 panic = "abort"
-codegen-units = 1
-lto = true
+incremental = true
 opt-level = "s"
 strip = true

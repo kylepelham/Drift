@@ -84,45 +84,35 @@ function ContextMeter(props: { sessionId: string }) {
   const engine = useEngine()
   const stats = () => contextStats(engine.state, props.sessionId, resolveModel(engine.state, prefsFor(props.sessionId).model))
   const percent = () => stats()?.percent ?? 0
-  const arc = () => percent() * 0.75
   return (
     <div class="group/meter relative shrink-0">
       <button
-        class="relative flex size-[2.025rem] items-center justify-center rounded-full text-ink-faint transition-colors select-none hover:text-ink"
-        classList={{
-          "text-ok": !!stats() && percent() < 60,
-          "text-warn": !!stats() && percent() >= 60 && percent() < 85,
-          "text-danger": !!stats() && percent() >= 85,
-        }}
+        class="flex h-6 items-center gap-1.5 rounded-md px-1 text-ink-faint transition-colors select-none hover:bg-raised hover:text-ink"
         title="Open context details"
         onClick={toggleDebugPanel}
       >
-        <svg class="size-[2.025rem] -rotate-0" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+        <svg class="size-4 shrink-0 -rotate-90" viewBox="0 0 20 20" fill="none" aria-hidden="true">
           <circle
-            cx="18"
-            cy="18"
-            r="13"
+            cx="10"
+            cy="10"
+            r="7"
             pathLength="100"
             stroke="var(--edge-strong)"
-            stroke-width="2.5"
-            stroke-linecap="round"
-            stroke-dasharray="75 25"
-            transform="rotate(135 18 18)"
+            stroke-width="2"
           />
           <circle
-            cx="18"
-            cy="18"
-            r="13"
+            cx="10"
+            cy="10"
+            r="7"
             pathLength="100"
             stroke="currentColor"
-            stroke-width="2.5"
+            stroke-width="2"
             stroke-linecap="round"
-            stroke-dasharray={`${arc()} ${100 - arc()}`}
-            transform="rotate(135 18 18)"
+            stroke-dasharray={`${percent()} ${100 - percent()}`}
             class="transition-[stroke-dasharray] duration-300"
           />
         </svg>
-        <span class="absolute inset-x-0 bottom-0.5 text-center text-[0.6rem] leading-none font-semibold">
+        <span class="text-[0.68rem] leading-none font-medium tabular-nums">
           {stats() ? `${percent()}%` : "--"}
         </span>
       </button>
