@@ -26,8 +26,11 @@ providers) applies unchanged. Users do not install opencode.
   plugin deps on first boot into the per-user install dir).
 - Version drift symptom (engine binary older than the shared SQLite schema): prompts
   500 with `SQLiteError: no such column ...`. Fix by rebuilding the engine binary.
-- The engine shares the user's global opencode data dir (auth, config, sessions), so
-  existing provider logins keep working inside Drift.
+- Release builds use the canonical `opencode.db`, so existing provider logins and
+  sessions remain available without duplicating transcript or event data. Before the
+  first switch, Drift transactionally merges any sessions created in its channel-specific
+  database; that database is retained as rollback data. Development builds keep their
+  channel database isolated.
 
 ## Engine update runbook
 

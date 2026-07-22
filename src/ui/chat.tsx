@@ -1,9 +1,10 @@
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
-import { sessionBusy, type MessageEntry } from "../engine/store"
+import type { MessageEntry } from "../engine/store"
 import { selectedSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
 import { MessageView } from "./message"
+import { TextShimmer } from "./text-shimmer"
 
 const estimatedRow = 96
 const overscan = 800
@@ -56,6 +57,10 @@ export function Chat() {
   })
 
   const slice = createMemo(() => entries().slice(range().start, range().end))
+  const thinkingAfter = createMemo(() => {
+    const id = selectedSession()
+    return id ? thinkingAfterMessage(entries(), engine.state.status[id]?.type) : null
+  })
 
   const observer = new ResizeObserver((observations) => {
     let deltaAbove = 0
@@ -122,11 +127,6 @@ export function Chat() {
     })
   }
 
-  const busy = () => {
-    const id = selectedSession()
-    return !!id && sessionBusy(engine.state, id)
-  }
-
   return (
     <div ref={scroller} class="min-h-0 flex-1 overflow-y-auto" onScroll={onScroll}>
       <Show when={selectedSession()} keyed fallback={<EmptyState />}>
@@ -135,24 +135,55 @@ export function Chat() {
           style={{ height: `${offsets().at(-1)}px` }}
         >
           <div style={{ transform: `translateY(${offsets()[range().start]}px)` }}>
-            <For each={slice()}>{(entry, index) => <Row entry={entry} next={slice()[index() + 1]} measure={measureRow} />}</For>
+            <For each={slice()}>
+              {(entry, index) => (
+                <Row
+                  entry={entry}
+                  next={slice()[index() + 1]}
+                  thinking={thinkingAfter() === entry.info.id}
+                  measure={measureRow}
+                />
+              )}
+            </For>
           </div>
         </div>
-        <Show when={busy()}>
-          <div class="mx-auto max-w-3xl px-4 pb-4">
-            <div class="pulse-soft text-sm text-ink-faint">working...</div>
-          </div>
-        </Show>
       </Show>
     </div>
   )
 }
 
-function Row(props: { entry: MessageEntry; next?: MessageEntry; measure: (element: HTMLDivElement) => void }) {
+export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {
+  if (status !== "busy") return null
+  const newestFirst = [...entries].reverse()
+  const unfinished = newestFirst.find(
+    (entry) => entry.info.role === "assistant" && !(entry.info as { time: { completed?: number } }).time.completed,
+  )
+  const parentID = unfinished && "parentID" in unfinished.info ? unfinished.info.parentID : undefined
+  const activeUser =
+    (parentID && entries.find((entry) => entry.info.role === "user" && entry.info.id === parentID)) ??
+    newestFirst.find((entry) => entry.info.role === "user")
+  if (!activeUser) return null
+  const assistant = newestFirst.find(
+    (entry) => entry.info.role === "assistant" && "parentID" in entry.info && entry.info.parentID === activeUser.info.id,
+  )
+  return assistant?.info.id ?? activeUser.info.id
+}
+
+function Row(props: {
+  entry: MessageEntry
+  next?: MessageEntry
+  thinking: boolean
+  measure: (element: HTMLDivElement) => void
+}) {
   const fresh = Date.now() - props.entry.info.time.created < 2000
   return (
-    <div ref={props.measure} data-mid={props.entry.info.id} class="pb-5" classList={{ "fade-up": fresh }}>
+    <div ref={props.measure} data-mid={props.entry.info.id} class="pb-6" classList={{ "fade-up": fresh }}>
       <MessageView entry={props.entry} footer={props.next?.info.role !== "assistant"} />
+      <Show when={props.thinking}>
+        <div class="timeline-thinking" role="status" aria-live="polite">
+          <TextShimmer text="Thinking" />
+        </div>
+      </Show>
     </div>
   )
 }

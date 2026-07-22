@@ -199,9 +199,6 @@ function ProvidersSection() {
       <Show when={groups().connected.length === 0 && groups().rest.length === 0}>
         <div class="px-3 py-4 text-sm text-ink-faint">No matching providers.</div>
       </Show>
-      <div class="px-3 pt-3 text-xs text-ink-faint">
-        Credentials are stored by the engine (shared with opencode). Model visibility is managed from the model picker.
-      </div>
     </div>
   )
 }
@@ -406,9 +403,6 @@ function KeybindsSection() {
           </div>
         )}
       </For>
-      <div class="px-3 pt-3 text-xs text-ink-faint">
-        Click a binding, then press the new keys. Escape cancels, the X unbinds.
-      </div>
     </div>
   )
 }

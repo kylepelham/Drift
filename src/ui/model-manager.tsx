@@ -61,13 +61,18 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
                   <div class="px-2 py-1.5 text-xs font-medium text-ink-faint">{group}</div>
                   <For each={visibleItems()}>
                     {(item) => {
-                      const enabled = () => !hiddenModelIds().includes(item.id)
-                      return (
-                        <div class="flex items-center justify-between rounded-lg px-2 py-2 hover:bg-raised/60">
-                          <span class="min-w-0 truncate text-sm text-ink">{item.label}</span>
-                          <Toggle label={`Show ${item.label}`} checked={enabled()} onChange={() => setModelVisible(item.id, !enabled())} />
-                        </div>
-                      )
+                       const enabled = () => !hiddenModelIds().includes(item.id)
+                       return (
+                         <button
+                           role="switch"
+                           aria-checked={enabled()}
+                           class="flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-2 text-left hover:bg-raised/60"
+                           onClick={() => setModelVisible(item.id, !enabled())}
+                         >
+                           <span class="min-w-0 truncate text-sm text-ink">{item.label}</span>
+                           <ToggleTrack checked={enabled()} />
+                         </button>
+                       )
                     }}
                   </For>
                 </section>
@@ -90,20 +95,30 @@ export function Toggle(props: { label: string; checked: boolean; disabled?: bool
       aria-label={props.label}
       aria-checked={props.checked}
       disabled={props.disabled}
-      class="relative h-4 w-7 shrink-0 rounded-full border transition-colors disabled:opacity-50"
-      classList={{
-        "border-accent bg-accent": props.checked,
-        "border-edge-strong bg-raised": !props.checked,
-      }}
+      class="shrink-0 disabled:opacity-50"
       onClick={(event) => {
         event.stopPropagation()
         props.onChange()
+      }}
+    >
+      <ToggleTrack checked={props.checked} />
+    </button>
+  )
+}
+
+function ToggleTrack(props: { checked: boolean }) {
+  return (
+    <span
+      class="relative block h-4 w-7 shrink-0 rounded-full border transition-colors"
+      classList={{
+        "border-accent bg-accent": props.checked,
+        "border-edge-strong bg-raised": !props.checked,
       }}
     >
       <span
         class="absolute top-0.5 left-0.5 size-2.5 rounded-full bg-white transition-transform"
         classList={{ "translate-x-3": props.checked }}
       />
-    </button>
+    </span>
   )
 }

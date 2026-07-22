@@ -8,7 +8,7 @@ import { Chevron } from "./parts"
 
 export function AttentionStrip() {
   return (
-    <div class="mx-auto w-full max-w-3xl space-y-2 px-4">
+    <div class="mx-auto flex w-full max-w-3xl flex-col gap-2">
       <ErrorBanner />
       <TodoStrip />
     </div>
@@ -20,7 +20,7 @@ function ErrorBanner() {
   const error = () => engine.state.errors[selectedSession() ?? ""]
   return (
     <Show when={error()}>
-      <div class="fade-up rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger select-text">{error()}</div>
+      <div class="dock-card fade-up rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger select-text">{error()}</div>
     </Show>
   )
 }
@@ -32,14 +32,14 @@ function TodoStrip() {
   const remaining = () => todos().filter((todo) => todo.status !== "completed" && todo.status !== "cancelled")
   return (
     <Show when={remaining().length > 0}>
-      <div class="fade-up rounded-lg border border-edge bg-surface text-sm">
+      <div class="dock-card plan-card rounded-lg border border-edge bg-surface text-sm">
         <button
           class="flex w-full items-center gap-2 px-3 py-1.5 text-ink-muted"
           onClick={() => setOpen(!open())}
         >
           <Chevron open={open()} />
           <span>
-            plan · {todos().length - remaining().length}/{todos().length} done
+            Plan · {todos().length - remaining().length}/{todos().length} done
           </span>
           <span class="truncate text-ink-faint">
             {todos().find((todo) => todo.status === "in_progress")?.content}

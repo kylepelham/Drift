@@ -42,8 +42,10 @@ export function App() {
                 <ChatHeader />
                 <Chat />
               </div>
-              <AttentionStrip />
-              <Composer />
+              <div class="composer-dock shrink-0 px-4 pb-4">
+                <AttentionStrip />
+                <Composer />
+              </div>
             </div>
             <DebugPanel />
           </main>

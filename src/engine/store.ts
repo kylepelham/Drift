@@ -129,14 +129,21 @@ export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo |
 
 type TokenUsage = { input: number; output: number; reasoning: number; cache: { read: number; write: number }; total?: number }
 
+function tokenCount(tokens: TokenUsage) {
+  return tokens.total || tokens.input + tokens.output + tokens.cache.read + tokens.cache.write
+}
+
 // Mirrors the engine's session/overflow.ts so the meter predicts the same compaction point.
 // Limits come from the model the next prompt would use; token counts from the last reply.
 export function contextStats(state: EngineState, sessionId: string, modelRef?: ModelRef | null) {
   const entries = state.transcripts[sessionId] ?? []
-  const last = [...entries].reverse().find((entry) => entry.info.role === "assistant" && "tokens" in entry.info)
+  const last = [...entries].reverse().find((entry) => {
+    if (entry.info.role !== "assistant" || !("tokens" in entry.info)) return false
+    return tokenCount(entry.info.tokens as TokenUsage) > 0
+  })
   if (!last || !("tokens" in last.info)) return null
   const tokens = last.info.tokens as TokenUsage
-  const count = tokens.total || tokens.input + tokens.output + tokens.cache.read + tokens.cache.write
+  const count = tokenCount(tokens)
   const model =
     modelInfo(state, modelRef ?? null) ?? modelInfo(state, { providerID: last.info.providerID, modelID: last.info.modelID })
   const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number }

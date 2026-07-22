@@ -33,7 +33,14 @@ export function Titlebar() {
       data-tauri-drag-region
       class="flex h-9 shrink-0 items-center justify-between border-b border-edge bg-surface select-none"
     >
-      <span class="pointer-events-none px-4 text-[0.7rem] font-semibold tracking-[0.2em] text-ink-muted">DRIFT</span>
+      <div class="pointer-events-none flex items-center gap-2 px-3.5">
+        <svg class="size-4 text-accent" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M3 5.5h8.5a4.5 4.5 0 0 1 0 9H8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          <path d="M3 9h7a2.25 2.25 0 1 1 0 4.5H5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".58" />
+          <circle cx="3" cy="5.5" r="1" fill="currentColor" />
+        </svg>
+        <span class="drift-wordmark">Drift</span>
+      </div>
       <Show when={controls}>
         <div class="flex h-full">
           <WindowButton label="Minimize" onClick={() => shellWindow()?.minimize()}>

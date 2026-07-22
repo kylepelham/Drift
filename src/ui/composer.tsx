@@ -5,13 +5,19 @@ import { emitThreadCreated, transformComposerSubmit } from "../plugins"
 import { autoAcceptSessions, hiddenModelIds, prefsFor, seedPrefs, toggleAutoAccept, updatePrefs } from "../state/prefs"
 import { onKeybind } from "../state/keybinds"
 import type { Permission } from "@opencode-ai/sdk/client"
-import { restoredDraft, setRestoredDraft } from "../state/composer"
+import {
+  clearComposerDraft,
+  composerDraft,
+  composerScope,
+  patchComposerDraft,
+  type StagedFile,
+} from "../state/composer"
 import { selectedSession, selectSession } from "../state/selection"
 import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
 import { normalizeDir } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"
 import { PermissionCard, QuestionCard } from "./attention"
-import { IconPaperclip, IconX } from "./icons"
+import { IconPaperclip, IconShieldCheck, IconX } from "./icons"
 import { openLightbox } from "./lightbox"
 import { Picker, type PickerItem } from "./picker"
 import { ModelManager } from "./model-manager"
@@ -19,8 +25,6 @@ import { ProviderIcon } from "./provider-icon"
 import { parseSlash, runSlash, slashItems, type SlashItem } from "./slash"
 
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
-
-type StagedFile = { id: string; filename: string; mime: string; dataUrl: string; size: number }
 
 const maxFileBytes = 10 * 1024 * 1024
 
@@ -35,16 +39,27 @@ function readDataUrl(file: File) {
 
 export function Composer() {
   const engine = useEngine()
-  const [draft, setDraft] = createSignal("")
   const [dismissed, setDismissed] = createSignal(false)
   const [cursor, setCursor] = createSignal(0)
   const [manageModels, setManageModels] = createSignal(false)
-  const [staged, setStaged] = createSignal<StagedFile[]>([])
   const [fileError, setFileError] = createSignal("")
   let area!: HTMLTextAreaElement
   let filePicker!: HTMLInputElement
 
+  const scope = () => composerScope(selectedSession(), activeWorkspace()?.id)
+  const draft = () => composerDraft(scope()).text
+  const staged = () => composerDraft(scope()).staged
+  const mentions = () => composerDraft(scope()).mentions
+  const setDraft = (text: string) => patchComposerDraft(scope(), { text })
+  const setStaged = (value: StagedFile[] | ((current: StagedFile[]) => StagedFile[])) => {
+    const key = scope()
+    const current = composerDraft(key).staged
+    patchComposerDraft(key, { staged: typeof value === "function" ? value(current) : value })
+  }
+  const setMentions = (mentions: string[]) => patchComposerDraft(scope(), { mentions })
+
   async function addFiles(files: Iterable<File>) {
+    const key = scope()
     setFileError("")
     for (const file of files) {
       if (file.size > maxFileBytes) {
@@ -56,27 +71,29 @@ export function Composer() {
         setFileError(`Could not read ${file.name}`)
         continue
       }
-      setStaged((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          filename: file.name,
-          mime: file.type || "application/octet-stream",
-          dataUrl,
-          size: file.size,
-        },
-      ])
+      patchComposerDraft(key, {
+        staged: [
+          ...composerDraft(key).staged,
+          {
+            id: crypto.randomUUID(),
+            filename: file.name,
+            mime: file.type || "application/octet-stream",
+            dataUrl,
+            size: file.size,
+          },
+        ],
+      })
     }
   }
 
   createEffect(() => {
-    const restored = restoredDraft()
-    if (restored === null) return
-    setDraft(restored)
-    setRestoredDraft(null)
+    scope()
+    setDismissed(false)
+    setMentionQuery(null)
+    setFileError("")
     queueMicrotask(() => {
+      if (!area) return
       resize()
-      area.focus()
     })
   })
 
@@ -89,7 +106,6 @@ export function Composer() {
   const [mentionQuery, setMentionQuery] = createSignal<string | null>(null)
   const [fileHits, setFileHits] = createSignal<string[]>([])
   const [fileCursor, setFileCursor] = createSignal(0)
-  const [mentions, setMentions] = createSignal<string[]>([])
   let mentionToken = 0
 
   function updateMention() {
@@ -139,9 +155,9 @@ export function Composer() {
     return true
   }
 
-  function mentionFiles(text: string) {
-    const directory = engine.state.directory.replaceAll("\\", "/").replace(/\/+$/, "")
-    return mentions().flatMap((path) => {
+  function mentionFiles(text: string, paths: string[], root: string) {
+    const directory = root.replaceAll("\\", "/").replace(/\/+$/, "")
+    return paths.flatMap((path) => {
       const value = "@" + path
       const start = text.indexOf(value)
       if (start < 0 || !directory) return []
@@ -172,7 +188,8 @@ export function Composer() {
   const ready = () => online() && !!activeWorkspace()
   const placeholder = () => {
     if (!activeWorkspace()) return "Select a workspace to start"
-    return online() ? "Message Drift..." : "Connecting to engine..."
+    if (!online()) return "Connecting to engine..."
+    return busy() ? "Steer the current run..." : "Message Drift..."
   }
 
   const availableModelItems = createMemo<PickerItem[]>(() =>
@@ -210,12 +227,20 @@ export function Composer() {
   }
 
   async function submit() {
-    const initial = draft().trim()
-    const text = initial
-      ? await transformComposerSubmit({ text: initial, sessionId: selectedSession(), workspace: activeWorkspace() })
-      : ""
-    if (text === null || (!text && staged().length === 0) || busy() || !ready()) return
+    const key = scope()
+    const snapshot = composerDraft(key)
     const existing = selectedSession()
+    const workspace = activeWorkspace()
+    const selectedPrefs = prefsFor(existing)
+    const selectedModel = resolveModel(engine.state, selectedPrefs.model)
+    const selectedVariants = Object.keys(modelInfo(engine.state, selectedModel)?.variants ?? {})
+    const selectedVariant =
+      selectedPrefs.variant && selectedVariants.includes(selectedPrefs.variant) ? selectedPrefs.variant : undefined
+    const initial = snapshot.text.trim()
+    const text = initial
+      ? await transformComposerSubmit({ text: initial, sessionId: existing, workspace })
+      : ""
+    if (text === null || (!text && snapshot.staged.length === 0) || !workspace || !online()) return
     const id = existing ?? (await engine.actions.newSession())?.id
     if (!id) return
     if (!existing) {
@@ -224,15 +249,19 @@ export function Composer() {
     }
     selectSession(id)
     const files = [
-      ...mentionFiles(text ?? ""),
-      ...staged().map((file) => ({ filename: file.filename, mime: file.mime, url: file.dataUrl })),
+      ...mentionFiles(text ?? "", snapshot.mentions, workspace.path),
+      ...snapshot.staged.map((file) => ({ filename: file.filename, mime: file.mime, url: file.dataUrl })),
     ]
-    setDraft("")
-    setStaged([])
-    setMentions([])
+    clearComposerDraft(key)
     setFileError("")
     resize()
-    await engine.actions.send(id, text ?? "", { model: model(), agent: prefs().agent, variant: variant(), files })
+    queueMicrotask(() => area.focus())
+    await engine.actions.send(id, text ?? "", {
+      model: selectedModel,
+      agent: selectedPrefs.agent,
+      variant: selectedVariant,
+      files,
+    })
   }
 
   function onKey(event: KeyboardEvent) {
@@ -300,7 +329,6 @@ export function Composer() {
   const pendingPermission = () => Object.values(engine.state.permissions).flat()[0]
   const pendingQuestion = () => Object.values(engine.state.questions).flat()[0]
   const pendingAsk = () => localAsks()[0]
-  const takeover = () => !!pendingPermission() || !!pendingQuestion() || !!pendingAsk()
 
   function openPermissionSession(permission: Permission) {
     const dir = (permission.metadata?.directory as string | undefined) ?? engine.state.sessions[permission.sessionID]?.directory
@@ -310,7 +338,7 @@ export function Composer() {
   }
 
   return (
-    <div class="px-4 pb-4">
+    <div class="composer-shell relative z-10">
       <Show when={pendingPermission()}>
         {(permission) => (
           <div class="mx-auto max-w-3xl">
@@ -355,7 +383,6 @@ export function Composer() {
       </Show>
       <div
         class="relative mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong"
-        classList={{ hidden: takeover() }}
         onDragOver={(event) => {
           if (event.dataTransfer?.types.includes("Files")) event.preventDefault()
         }}
@@ -505,11 +532,12 @@ export function Composer() {
           <div class="flex-1" />
           <Show when={autoAcceptOn()}>
             <button
-              class="rounded-full border border-warn/50 bg-warn/10 px-2 py-0.5 text-[0.65rem] text-warn transition-colors select-none hover:bg-warn/20"
+              class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
               title="Auto-accepting permissions for this thread (Ctrl+Shift+A to toggle)"
+              aria-label="Disable auto-accept permissions"
               onClick={() => toggleAutoAccept(selectedSession()!)}
             >
-              auto-accept
+              <IconShieldCheck class="size-3.5" />
             </button>
           </Show>
           <input
@@ -530,25 +558,23 @@ export function Composer() {
           >
             <IconPaperclip class="size-4" />
           </button>
-          <Show
-            when={!busy()}
-            fallback={
-              <button
-                class="rounded-md border border-edge px-3 py-1 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
-                onClick={() => void engine.actions.abort(selectedSession()!)}
-              >
-                Stop
-              </button>
-            }
-          >
+          <Show when={busy()}>
             <button
-              class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
-              disabled={(!draft().trim() && staged().length === 0) || !ready()}
-              onClick={() => void submit()}
+              class="rounded-md border border-edge px-3 py-1 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
+              title="Stop the current run"
+              onClick={() => void engine.actions.abort(selectedSession()!)}
             >
-              Send
+              Stop
             </button>
           </Show>
+          <button
+            class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
+            title={busy() ? "Send guidance into the current run" : "Send message"}
+            disabled={(!draft().trim() && staged().length === 0) || !ready()}
+            onClick={() => void submit()}
+          >
+            {busy() ? "Steer" : "Send"}
+          </button>
         </div>
       </div>
       <Show when={manageModels()}>

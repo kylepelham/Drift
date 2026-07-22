@@ -5,6 +5,7 @@ import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
 import { childrenOf, sessionBusy, sessionsFor } from "../engine/store"
 import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
+import { Chevron } from "./parts"
 import {
   activeWorkspaceId,
   archivedIds,
@@ -12,12 +13,15 @@ import {
   moveWorkspace,
   removeWorkspace,
   selectWorkspace,
+  toggleWorkspaceCollapsed,
   updateWorkspace,
+  workspaceCollapsed,
 } from "../state/workspaces"
 
 export type WorkspaceMenuState = { x: number; y: number; workspaceId: string }
 
 type SessionList = ReturnType<typeof sessionsFor>
+const sessionPageSize = 5
 
 // ponytail: last-known lists mask the engine store reset while switching workspaces
 const sessionListCache = new Map<string, SessionList>()
@@ -25,6 +29,8 @@ const sessionListCache = new Map<string, SessionList>()
 export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: WorkspaceMenuState) => void }) {
   const engine = useEngine()
   let root!: HTMLDivElement
+  const collapsed = () => workspaceCollapsed(props.workspace.id)
+  const [visibleCount, setVisibleCount] = createSignal(sessionPageSize)
   const active = () => activeWorkspaceId() === props.workspace.id
   const all = createMemo(() => {
     const live = sessionsFor(engine.state, props.workspace.path)
@@ -34,6 +40,8 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
   const children = (parentId: string) =>
     childrenOf(engine.state, parentId).filter((child) => sessionBusy(engine.state, child.id))
   const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
+  const visibleSessions = createMemo(() => sessions().slice(0, visibleCount()))
+  const remaining = createMemo(() => Math.max(0, sessions().length - visibleSessions().length))
   const openMenu = (x: number, y: number) => props.onMenu({ x, y, workspaceId: props.workspace.id })
   return (
     <div ref={root} data-workspace={props.workspace.id}>
@@ -42,13 +50,27 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
         classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
         onPointerDown={(event) => dragWorkspace(event, root, props.workspace.id)}
         onClick={() => {
-          if (!dragged) selectWorkspace(props.workspace.id)
+          if (dragged) return
+          selectWorkspace(props.workspace.id)
+          toggleWorkspaceCollapsed(props.workspace.id)
         }}
         onContextMenu={(event) => {
           event.preventDefault()
           openMenu(event.clientX, event.clientY)
         }}
       >
+        <button
+          title={collapsed() ? "Show threads" : "Hide threads"}
+          aria-expanded={!collapsed()}
+          class="-mr-1 -ml-1 flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            toggleWorkspaceCollapsed(props.workspace.id)
+          }}
+        >
+          <Chevron open={!collapsed()} />
+        </button>
         <WorkspaceIcon workspace={props.workspace} />
         <span class="min-w-0 flex-1 truncate text-sm" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
           {props.workspace.name}
@@ -74,26 +96,36 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
           </RowButton>
         </div>
       </div>
-      <div class="mt-0.5 ml-4 space-y-0.5 border-l border-edge pl-1.5">
-        <For each={sessions()}>
-          {(session) => (
-            <>
-              <ThreadItem
-                sessionId={session.id}
-                title={session.title}
-                updated={session.time.updated}
-                workspace={props.workspace}
-              />
-              <For each={children(session.id)}>
-                {(child) => <ChildThreadItem sessionId={child.id} title={child.title} workspace={props.workspace} />}
-              </For>
-            </>
-          )}
-        </For>
-        <Show when={sessions().length === 0 && active()}>
-          <div class="px-2 py-1.5 text-xs text-ink-faint">No threads yet</div>
-        </Show>
-      </div>
+      <Show when={!collapsed()}>
+        <div class="mt-0.5 ml-4 space-y-0.5 border-l border-edge pl-1.5">
+          <For each={visibleSessions()}>
+            {(session) => (
+              <>
+                <ThreadItem
+                  sessionId={session.id}
+                  title={session.title}
+                  updated={session.time.updated}
+                  workspace={props.workspace}
+                />
+                <For each={children(session.id)}>
+                  {(child) => <ChildThreadItem sessionId={child.id} title={child.title} workspace={props.workspace} />}
+                </For>
+              </>
+            )}
+          </For>
+          <Show when={remaining() > 0}>
+            <button
+              class="flex h-7 w-full items-center rounded-md px-2 text-left text-[0.72rem] text-ink-faint transition-colors hover:bg-raised/60 hover:text-ink-muted"
+              onClick={() => setVisibleCount((count) => Math.min(count + sessionPageSize, sessions().length))}
+            >
+              Load {Math.min(sessionPageSize, remaining())} more
+            </button>
+          </Show>
+          <Show when={sessions().length === 0 && active()}>
+            <div class="px-2 py-1.5 text-xs text-ink-faint">No threads yet</div>
+          </Show>
+        </div>
+      </Show>
     </div>
   )
 }

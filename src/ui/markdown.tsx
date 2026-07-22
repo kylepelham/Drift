@@ -41,5 +41,5 @@ export function Markdown(props: { text: string; done?: boolean }) {
   createEffect(() => {
     if (html() && props.done) void highlightBlocks(root)
   })
-  return <div ref={root} class="md text-[0.925rem]" innerHTML={html()} />
+  return <div ref={root} class="md" innerHTML={html()} />
 }

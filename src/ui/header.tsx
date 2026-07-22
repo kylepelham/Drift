@@ -83,33 +83,65 @@ export function ChatHeader() {
 function ContextMeter(props: { sessionId: string }) {
   const engine = useEngine()
   const stats = () => contextStats(engine.state, props.sessionId, resolveModel(engine.state, prefsFor(props.sessionId).model))
+  const percent = () => stats()?.percent ?? 0
+  const arc = () => percent() * 0.75
   return (
-    <Show when={stats()}>
-      {(usage) => (
-        <div class="group/meter relative shrink-0">
-          <button
-            class="flex items-center gap-1.5 rounded-full border border-edge px-2 py-0.5 text-[0.65rem] text-ink-muted transition-colors select-none hover:border-edge-strong hover:text-ink"
-            onClick={toggleDebugPanel}
-          >
-            <span
-              class="size-1.5 rounded-full"
-              classList={{
-                "bg-ok": usage().percent < 60,
-                "bg-warn": usage().percent >= 60 && usage().percent < 85,
-                "bg-danger": usage().percent >= 85,
-              }}
-            />
-            {usage().percent}%
-          </button>
-          <div class="pop-in absolute top-full right-0 z-30 mt-1.5 hidden w-56 rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/40 select-none group-hover/meter:block">
-            <MeterRow label="Cost" value={`$${usage().cost.toFixed(2)}`} />
-            <MeterRow label="Usage" value={`${usage().percent}%`} />
-            <MeterRow label="Tokens" value={usage().count.toLocaleString()} />
-            <MeterRow label="Until compaction" value={usage().untilCompaction.toLocaleString()} />
-          </div>
-        </div>
-      )}
-    </Show>
+    <div class="group/meter relative shrink-0">
+      <button
+        class="relative flex size-[2.025rem] items-center justify-center rounded-full text-ink-faint transition-colors select-none hover:text-ink"
+        classList={{
+          "text-ok": !!stats() && percent() < 60,
+          "text-warn": !!stats() && percent() >= 60 && percent() < 85,
+          "text-danger": !!stats() && percent() >= 85,
+        }}
+        title="Open context details"
+        onClick={toggleDebugPanel}
+      >
+        <svg class="size-[2.025rem] -rotate-0" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+          <circle
+            cx="18"
+            cy="18"
+            r="13"
+            pathLength="100"
+            stroke="var(--edge-strong)"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-dasharray="75 25"
+            transform="rotate(135 18 18)"
+          />
+          <circle
+            cx="18"
+            cy="18"
+            r="13"
+            pathLength="100"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-dasharray={`${arc()} ${100 - arc()}`}
+            transform="rotate(135 18 18)"
+            class="transition-[stroke-dasharray] duration-300"
+          />
+        </svg>
+        <span class="absolute inset-x-0 bottom-0.5 text-center text-[0.6rem] leading-none font-semibold">
+          {stats() ? `${percent()}%` : "--"}
+        </span>
+      </button>
+      <div class="pop-in absolute top-full right-0 z-30 mt-1.5 hidden w-56 rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/40 select-none group-hover/meter:block">
+        <Show
+          when={stats()}
+          fallback={<div class="px-3 py-2 text-xs text-ink-faint">Usage appears after the first response.</div>}
+        >
+          {(usage) => (
+            <>
+              <MeterRow label="Cost" value={`$${usage().cost.toFixed(2)}`} />
+              <MeterRow label="Usage" value={`${usage().percent}%`} />
+              <MeterRow label="Tokens" value={usage().count.toLocaleString()} />
+              <MeterRow label="Until compaction" value={usage().untilCompaction.toLocaleString()} />
+            </>
+          )}
+        </Show>
+      </div>
+    </div>
   )
 }
 

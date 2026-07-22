@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod engine_db;
 mod store;
 
 use std::io::{BufRead, BufReader};
@@ -157,7 +158,7 @@ fn engine_extensions() -> Option<std::path::PathBuf> {
     dev.exists().then_some(dev)
 }
 
-fn spawn_engine(app: tauri::AppHandle) {
+fn spawn_engine(app: tauri::AppHandle, shared_database: bool) {
     std::thread::spawn(move || {
         let Some(binary) = engine_binary() else { return };
         let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME"));
@@ -167,6 +168,9 @@ fn spawn_engine(app: tauri::AppHandle) {
             .env_remove("OPENCODE_SERVER_PASSWORD")
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+        if shared_database {
+            engine_db::configure_shared(&mut command);
+        }
         if let Some(extensions) = engine_extensions() {
             command.env("OPENCODE_CONFIG_DIR", extensions);
         }
@@ -225,7 +229,25 @@ fn main() {
             std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
             app.manage(ConfigRoot(config_dir));
             app.manage(store::open(&data_dir).expect("failed to open drift store"));
-            spawn_engine(app.handle().clone());
+            let shared_database = if cfg!(debug_assertions) {
+                false
+            } else {
+                engine_binary()
+                    .map(|binary| match engine_db::prepare_shared(&binary) {
+                        Ok(imported) => {
+                            if imported > 0 {
+                                eprintln!("imported {imported} Drift sessions into the shared OpenCode database");
+                            }
+                            true
+                        }
+                        Err(error) => {
+                            eprintln!("keeping Drift's channel database: {error}");
+                            false
+                        }
+                    })
+                    .unwrap_or(false)
+            };
+            spawn_engine(app.handle().clone(), shared_database);
             Ok(())
         })
         .build(tauri::generate_context!())

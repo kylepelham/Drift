@@ -9,6 +9,7 @@ const [archivedSessions, setArchivedSessions] = createSignal<ArchivedSession[]>(
 const [removedWorkspaces, setRemovedWorkspaces] = createSignal<Workspace[]>([])
 const [activeWorkspaceId, setActiveWorkspaceId] = persisted<string | null>("drift.workspace", null)
 const [workspaceOrder, setWorkspaceOrder] = persisted<string[]>("drift.workspace.order", [])
+const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = persisted<string[]>("drift.workspace.collapsed", [])
 
 export { archivedIds, archivedSessions, removedWorkspaces, activeWorkspaceId }
 
@@ -30,6 +31,18 @@ export function moveWorkspace(id: string, beforeId: string | null) {
 
 export function activeWorkspace() {
   return rawWorkspaces().find((w) => w.id === activeWorkspaceId()) ?? null
+}
+
+export function workspaceCollapsed(id: string) {
+  return collapsedWorkspaceIds().includes(id)
+}
+
+export function nextCollapsedWorkspaceIds(current: string[], id: string) {
+  return current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+}
+
+export function toggleWorkspaceCollapsed(id: string) {
+  setCollapsedWorkspaceIds(nextCollapsedWorkspaceIds(collapsedWorkspaceIds(), id))
 }
 
 export async function initWorkspaces() {

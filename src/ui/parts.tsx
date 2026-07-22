@@ -5,8 +5,9 @@ import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from
 import { openLightbox } from "./lightbox"
 import { showReasoning } from "../state/prefs"
 import { selectSession } from "../state/selection"
-import { IconArrowUpRight } from "./icons"
+import { IconArrowUpRight, IconBranch, IconCheck, IconCopy } from "./icons"
 import { Markdown } from "./markdown"
+import { TextShimmer } from "./text-shimmer"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -39,7 +40,7 @@ export function PartView(props: { part: Part }) {
       <Match when={props.part.type === "compaction"}>
         <div class="my-2 flex items-center gap-3 text-xs text-ink-faint">
           <div class="h-px flex-1 bg-edge" />
-          context compacted
+          Context compacted
           <div class="h-px flex-1 bg-edge" />
         </div>
       </Match>
@@ -139,11 +140,10 @@ function ReasoningView(props: { part: ReasoningPart }) {
     <div class="text-sm">
       <button
         class="flex items-center gap-1.5 text-ink-faint transition-colors hover:text-ink-muted"
-        classList={{ "pulse-soft": thinking() }}
         onClick={() => setOpen(!open())}
       >
         <Chevron open={open()} />
-        {thinking() ? "Thinking" : "Thought"}
+        <TextShimmer text={thinking() ? "Thinking" : "Thought"} active={thinking()} />
       </button>
       <Show when={open()}>
         <div class="mt-1.5 border-l-2 border-edge pl-3 text-ink-muted">
@@ -274,6 +274,10 @@ export function ToolView(props: { part: ToolPart }) {
   const engine = useEngine()
   const state = () => props.part.state
   const info = () => toolInfo(props.part)
+  const delegated = () => props.part.tool === "task" || props.part.tool === "spawn_thread"
+  const active = () =>
+    !awaitingPermission(engine.state, props.part) && (state().status === "running" || state().status === "pending")
+  const title = () => (info().called ? `Called ${info().called}` : (info().title ?? props.part.tool))
   const progress = () => {
     const childId = spawnedId()
     if (!childId || state().status !== "running") return null
@@ -297,9 +301,10 @@ export function ToolView(props: { part: ToolPart }) {
     return (toolMeta(props.part) as { sessionId?: string } | undefined)?.sessionId ?? null
   }
   return (
-    <div class="text-sm">
+    <div class="flex flex-col gap-1 text-sm">
       <button
-        class="-mx-1.5 flex max-w-full items-center gap-2 rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-raised/60"
+        class="flex min-h-8 max-w-full items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-raised/40"
+        classList={{ "border-l-2 border-accent/35 pl-2": delegated() }}
         onClick={() => {
           const childId = spawnedId()
           if (childId && state().status !== "completed" && state().status !== "error") return selectSession(childId)
@@ -317,15 +322,23 @@ export function ToolView(props: { part: ToolPart }) {
         <Show when={awaitingPermission(engine.state, props.part)}>
           <span class="size-1.5 shrink-0 rounded-full bg-warn" title="Waiting for permission" />
         </Show>
-        <Show when={!awaitingPermission(engine.state, props.part) && (state().status === "running" || state().status === "pending")}>
-          <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" />
+        <Show when={delegated()}>
+          <IconBranch class="size-3.5 shrink-0 text-accent/70" />
+          <span class="shrink-0 text-[0.62rem] font-semibold tracking-[0.12em] text-ink-faint uppercase">Delegate</span>
         </Show>
-        <Show when={info().called} fallback={<span class="shrink-0 font-semibold text-ink">{info().title}</span>}>
-          <span class="shrink-0 font-semibold text-ink">
-            Called <code class="rounded bg-raised px-1 font-mono text-xs font-normal">{info().called}</code>
-          </span>
+        <Show
+          when={active()}
+          fallback={
+            <Show when={info().called} fallback={<span class="shrink-0 font-semibold text-ink">{info().title}</span>}>
+              <span class="shrink-0 font-semibold text-ink">
+                Called <code class="rounded bg-raised px-1 font-mono text-xs font-normal">{info().called}</code>
+              </span>
+            </Show>
+          }
+        >
+          <TextShimmer text={title()} class="shrink-0 font-semibold" />
         </Show>
-        <Show when={info().subtitle}>
+        <Show when={info().subtitle && !active() && !(props.part.tool === "bash" && expanded())}>
           <span
             class="min-w-0 truncate text-ink-faint"
             classList={{ "font-mono text-xs": info().mono, "text-[0.85rem]": !info().mono }}
@@ -361,10 +374,12 @@ export function ToolView(props: { part: ToolPart }) {
             </span>
           )}
         </Show>
-        <Chevron open={expanded()} />
+        <Show when={!active()}>
+          <Chevron open={expanded()} />
+        </Show>
       </button>
       <Show when={expanded()}>
-        <div class="mt-1.5 mb-1">
+        <div>
           <ToolBody part={props.part} diff={diff()} error={error()} />
         </div>
       </Show>
@@ -410,19 +425,7 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
           )}
         </Match>
         <Match when={shell()}>
-          {(run) => (
-            <div class="rounded-lg border border-edge bg-surface px-3 py-2.5 font-mono text-xs leading-relaxed">
-              <div class="whitespace-pre-wrap text-ink">
-                <span class="text-accent select-none">$ </span>
-                {run().command}
-              </div>
-              <Show when={run().output.trim()}>
-                <div class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-ink-muted">
-                  {clip(stripAnsi(run().output))}
-                </div>
-              </Show>
-            </div>
-          )}
+          {(run) => <ShellOutput command={run().command} output={run().output} />}
         </Match>
         <Match when={written()}>
           {(file) => (
@@ -445,6 +448,42 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
   )
 }
 
+export function shellTranscript(command: string, output: string) {
+  const normalized = stripAnsi(output).replace(/\r\n?/g, "\n")
+  return `$ ${command}${normalized.trim() ? `\n\n${normalized}` : ""}`
+}
+
+function ShellOutput(props: { command: string; output: string }) {
+  const [copied, setCopied] = createSignal(false)
+  const transcript = () => shellTranscript(props.command, props.output)
+  const copy = async () => {
+    await navigator.clipboard.writeText(transcript())
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <div class="group/shell relative overflow-hidden rounded-[6px] border-[0.5px] border-edge">
+      <button
+        title="Copy shell output"
+        class="absolute top-1 right-1 z-10 flex size-6 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity group-focus-within/shell:opacity-100 group-hover/shell:opacity-100 hover:bg-raised hover:text-ink"
+        onClick={() => void copy()}
+      >
+        <Show when={copied()} fallback={<IconCopy class="size-3.5" />}>
+          <IconCheck class="size-3.5" />
+        </Show>
+      </button>
+      <pre
+        class="shell-output max-h-60 overflow-x-hidden overflow-y-auto p-3 pr-10 font-mono text-[13px] leading-[1.5] whitespace-pre-wrap text-ink"
+        role="region"
+        aria-label="Shell output"
+        tabIndex={0}
+      >
+        <code class="break-words">{transcript()}</code>
+      </pre>
+    </div>
+  )
+}
+
 export function taskBody(part: ToolPart) {
   if (part.tool !== "task" && part.tool !== "spawn_thread") return null
   const input = part.state.input as { prompt?: string; task?: string }
@@ -456,11 +495,14 @@ export function taskBody(part: ToolPart) {
 function GenericBody(props: { part: ToolPart }) {
   const state = () => props.part.state
   const output = () => (state().status === "completed" ? (state() as { output: string }).output : "")
+  const showInput = () => !!toolInfo(props.part).called
   return (
     <div class="space-y-1.5 border-l-2 border-edge pl-3">
-      <div class="font-mono text-xs break-all whitespace-pre-wrap text-ink-faint">
-        {JSON.stringify(state().input, null, 1)}
-      </div>
+      <Show when={showInput()}>
+        <div class="font-mono text-xs break-all whitespace-pre-wrap text-ink-faint">
+          {JSON.stringify(state().input, null, 1)}
+        </div>
+      </Show>
       <Show when={output().trim()}>
         <div class="max-h-64 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-muted">
           {clip(stripAnsi(output()))}
@@ -578,18 +620,17 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
     props.parts.some((part) => part.state.status === "running" || part.state.status === "pending")
   const expanded = () => open() || waiting()
   return (
-    <div class="text-sm">
+    <div class="flex flex-col gap-1.5 text-sm">
       <button
-        class="-mx-1.5 flex items-center gap-2 rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-raised/60"
+        class="flex min-h-8 items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-raised/40"
         onClick={() => setOpen(!open())}
       >
         <Show when={waiting()}>
           <span class="size-1.5 shrink-0 rounded-full bg-warn" title="Waiting for permission" />
         </Show>
-        <Show when={!waiting() && running()}>
-          <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" />
+        <Show when={!waiting() && running()} fallback={<span class="font-semibold text-ink">Explored</span>}>
+          <TextShimmer text="Explored" class="font-semibold" />
         </Show>
-        <span class="font-semibold text-ink">Explored</span>
         <span class="text-ink-faint">{label()}</span>
         <Show when={waiting()}>
           <span class="text-xs text-warn/90">waiting for permission</span>
@@ -597,7 +638,7 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
         <Chevron open={expanded()} />
       </button>
       <Show when={expanded()}>
-        <div class="mt-1 ml-2 space-y-0.5 border-l-2 border-edge pl-3">
+        <div class="ml-2 flex flex-col gap-0.5 border-l-2 border-edge pl-3">
           <For each={props.parts}>{(part) => <ToolView part={part} />}</For>
         </div>
       </Show>
@@ -606,7 +647,7 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
 }
 
 function stripAnsi(value: string) {
-  return value.replace(/\u001b\[[0-9;]*m/g, "")
+  return value.replace(/\u001b(?:\[[0-?]*[ -/]*[@-~]|[@-_])/g, "")
 }
 
 function clip(value: string) {

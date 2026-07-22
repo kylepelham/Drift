@@ -50,6 +50,62 @@ test("taskBody extracts prompt and task_result for task cards", async () => {
   expect(taskBody(part("bash", {}, "x"))).toBeNull()
 })
 
+test("compaction-only user messages retain their delimiter part", async () => {
+  const { compactionParts } = await import("../src/ui/message")
+  const entry = {
+    info: { id: "m1", role: "user", sessionID: "s1" },
+    parts: [{ id: "p1", messageID: "m1", sessionID: "s1", type: "compaction", auto: true }],
+  } as never
+  expect(compactionParts(entry).map((part) => part.id)).toEqual(["p1"])
+})
+
+test("sidebar drag converts screen movement through the current zoom scale", async () => {
+  const { sidebarWidthFromDrag } = await import("../src/ui/sidebar")
+  expect(sidebarWidthFromDrag(256, 30, 1.5)).toBe(276)
+  expect(sidebarWidthFromDrag(470, 30, 1)).toBe(480)
+})
+
+test("thinking follows OpenCode's active user turn", async () => {
+  const { thinkingAfterMessage } = await import("../src/ui/chat")
+  const message = (id: string, role: "user" | "assistant", parentID?: string, completed?: number) =>
+    ({ info: { id, role, parentID, time: { created: 1, completed } }, parts: [] }) as never
+  const first = message("u1", "user")
+  const response = message("a1", "assistant", "u1")
+  const steer = message("u2", "user")
+  expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("a1")
+  response.info.time.completed = 2
+  expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("u2")
+  const steeredResponse = message("a2", "assistant", "u2")
+  expect(thinkingAfterMessage([first, response, steer, steeredResponse], "busy")).toBe("a2")
+  expect(thinkingAfterMessage([first, response, steer, steeredResponse], "idle")).toBeNull()
+})
+
+test("context usage skips a trailing zero-token assistant message", async () => {
+  const { contextStats } = await import("../src/engine/store")
+  const [state, set] = createEngineState()
+  const assistant = (id: string, total: number) => ({
+    info: {
+      id,
+      sessionID: "s1",
+      role: "assistant",
+      providerID: "openai",
+      modelID: "gpt-5",
+      tokens: { total, input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    },
+    parts: [],
+  })
+  set("transcripts", "s1", [assistant("a1", 50_000), assistant("a2", 0)] as never)
+  set("providers", [
+    {
+      id: "openai",
+      name: "OpenAI",
+      models: { "gpt-5": { id: "gpt-5", limit: { context: 100_000 } } },
+    },
+  ] as never)
+  expect(contextStats(state, "s1")?.count).toBe(50_000)
+  expect(contextStats(state, "s1")?.percent).toBe(50)
+})
+
 test("activity counts distinct tool parts and tracks the running tool", () => {
   const [state, set] = createEngineState()
   reduce(set, toolEvent("p1", "grep", "running"))

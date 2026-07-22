@@ -93,6 +93,15 @@ textarea {
   user-select: text;
 }
 
+.shell-output {
+  overflow-wrap: anywhere;
+  scrollbar-width: none;
+}
+
+.shell-output::-webkit-scrollbar {
+  display: none;
+}
+
 ::selection {
   background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
@@ -155,8 +164,121 @@ textarea {
   animation: fade-in 160ms ease-out both;
 }
 
+.composer-dock {
+  position: relative;
+  isolation: isolate;
+  background: var(--bg);
+}
+
+.composer-shell {
+  background: var(--bg);
+}
+
+.composer-dock::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -2.75rem 0 auto;
+  height: 2.75rem;
+  pointer-events: none;
+  background: linear-gradient(to top, color-mix(in srgb, var(--bg) 96%, transparent), transparent);
+}
+
+.dock-card {
+  box-shadow: 0 -12px 32px color-mix(in srgb, black 13%, transparent);
+}
+
+.plan-card {
+  position: relative;
+  z-index: 0;
+  margin-bottom: -0.75rem;
+  padding-bottom: 0.75rem;
+  box-shadow: 0 -14px 38px color-mix(in srgb, black 18%, transparent);
+}
+
+.drift-wordmark {
+  color: color-mix(in srgb, var(--ink) 78%, var(--accent));
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.82rem;
+  font-style: italic;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  text-shadow: 0 1px 8px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.timeline-thinking {
+  width: fit-content;
+  padding-top: 0.45rem;
+  font-size: 0.78rem;
+}
+
+[data-component="text-shimmer"] {
+  --text-shimmer-base: linear-gradient(var(--ink-faint), var(--ink-faint));
+  --text-shimmer-sweep: linear-gradient(90deg, transparent calc(50% - 5.2ch), var(--ink) 50%, transparent calc(50% + 5.2ch));
+  display: inline-flex;
+  align-items: baseline;
+  color: var(--ink-faint);
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+}
+
+[data-component="text-shimmer"] [data-slot="text-shimmer-char"] {
+  display: inline-grid;
+  white-space: pre;
+}
+
+[data-component="text-shimmer"] :where([data-slot="text-shimmer-base"], [data-slot="text-shimmer-sweep"]) {
+  grid-area: 1 / 1;
+  white-space: pre;
+  transition: opacity 220ms ease-out;
+}
+
+[data-component="text-shimmer"] [data-slot="text-shimmer-sweep"] {
+  color: transparent;
+  opacity: 0;
+  background-image: var(--text-shimmer-sweep), var(--text-shimmer-base);
+  background-position: 100% 0, 0 0;
+  background-size: 360% 100%, 100% 100%;
+  background-repeat: no-repeat;
+  background-clip: text;
+}
+
+[data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-base"] {
+  opacity: 0;
+}
+
+[data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-sweep"] {
+  opacity: 1;
+}
+
+[data-component="text-shimmer"] [data-slot="text-shimmer-sweep"][data-run="true"] {
+  animation: text-shimmer-sweep 1.2s linear infinite both;
+}
+
+@keyframes text-shimmer-sweep {
+  to {
+    background-position: 0 0, 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"] {
+    animation: none;
+  }
+
+  [data-component="text-shimmer"] [data-slot="text-shimmer-base"] {
+    opacity: 1 !important;
+  }
+
+  [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"] {
+    opacity: 0 !important;
+  }
+}
+
 .md {
-  line-height: 1.65;
+  font-size: 0.875rem;
+  line-height: 1.6;
   word-break: break-word;
 }
 
@@ -178,15 +300,16 @@ textarea {
 }
 
 .md :where(h1) {
-  font-size: 1.25rem;
+  font-size: 1.0625rem;
 }
 
 .md :where(h2) {
-  font-size: 1.1rem;
+  font-size: 0.9375rem;
 }
 
 .md :where(h3, h4) {
-  font-size: 1rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
 
 .md :where(ul) {
@@ -208,10 +331,7 @@ textarea {
 .md :where(code) {
   font-family: var(--font-mono);
   font-size: 0.86em;
-  background: var(--raised);
-  border: 1px solid var(--edge);
-  border-radius: 4px;
-  padding: 0.1em 0.35em;
+  color: var(--accent);
 }
 
 .md :where(pre) {
@@ -223,10 +343,11 @@ textarea {
 }
 
 .md :where(pre) code {
+  color: inherit;
   background: none;
   border: none;
   padding: 0;
-  font-size: 0.82rem;
+  font-size: 0.8125rem;
 }
 
 .md :where(pre.shiki) {

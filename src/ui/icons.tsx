@@ -163,3 +163,13 @@ export function IconX(props: IconProps) {
 export function IconCheck(props: IconProps) {
   return frame(props, <path d="M20 6 9 17l-5-5" />)
 }
+
+export function IconShieldCheck(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="M12 3 5 6v5c0 4.6 2.9 8 7 10 4.1-2 7-5.4 7-10V6Z" />
+      <path d="m9 12 2 2 4-4" />
+    </>,
+  )
+}

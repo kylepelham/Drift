@@ -13,11 +13,18 @@ const maxSidebarWidth = 480
 const [storedSidebarWidth, storeSidebarWidth] = persisted("drift.sidebar.width", 256)
 const clampSidebarWidth = (width: number) => Math.min(maxSidebarWidth, Math.max(minSidebarWidth, width))
 
+export function sidebarWidthFromDrag(startWidth: number, deltaX: number, scale: number) {
+  return clampSidebarWidth(startWidth + deltaX / Math.max(scale, 0.01))
+}
+
 export function Sidebar() {
   const [menu, setMenu] = createSignal<WorkspaceMenuState | null>(null)
   const [editing, setEditing] = createSignal<string | null>(null)
   const [archive, setArchive] = createSignal(false)
   const [width, setWidth] = createSignal(clampSidebarWidth(storedSidebarWidth()))
+  let resizeStartX = 0
+  let resizeStartWidth = width()
+  let resizeScale = 1
 
   async function add() {
     const path = await pickFolder()
@@ -27,8 +34,7 @@ export function Sidebar() {
   function moveResize(event: PointerEvent) {
     const handle = event.currentTarget as HTMLElement
     if (!handle.hasPointerCapture(event.pointerId)) return
-    const left = handle.parentElement?.getBoundingClientRect().left ?? 0
-    setWidth(clampSidebarWidth(event.clientX - left))
+    setWidth(sidebarWidthFromDrag(resizeStartWidth, event.clientX - resizeStartX, resizeScale))
   }
 
   function finishResize() {
@@ -103,6 +109,11 @@ export function Sidebar() {
         class="absolute inset-y-0 right-0 z-20 w-1 translate-x-1/2 cursor-col-resize transition-colors hover:bg-accent/50 focus:bg-accent/50 focus:outline-none"
         onPointerDown={(event) => {
           event.preventDefault()
+          const aside = event.currentTarget.parentElement
+          const renderedWidth = aside?.getBoundingClientRect().width ?? width()
+          resizeStartX = event.clientX
+          resizeStartWidth = width()
+          resizeScale = renderedWidth / Math.max(resizeStartWidth, 1)
           event.currentTarget.setPointerCapture(event.pointerId)
           document.body.style.cursor = "col-resize"
           document.body.style.userSelect = "none"

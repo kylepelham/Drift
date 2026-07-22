@@ -348,18 +348,21 @@ export function createActions(
     const result = await requireClient().session.revert({ path: { id }, body: { messageID } })
     if (result.error) {
       set("errors", id, "Revert failed: the engine rejected the request")
-      return
+      return false
     }
     set("errors", id, undefined!)
     if (result.data) putSession(set, result.data)
     await reloadSession(id)
+    return true
   }
 
   async function unrevert(id: string) {
     await interrupt(id)
     const result = await requireClient().session.unrevert({ path: { id } })
-    if (result.data) putSession(set, result.data)
+    if (!result.data) return false
+    putSession(set, result.data)
     await reloadSession(id)
+    return true
   }
 
   return {
