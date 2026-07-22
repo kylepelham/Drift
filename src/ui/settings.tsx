@@ -2,7 +2,16 @@ import type { ProviderAuthMethod } from "@opencode-ai/sdk/client"
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { useEngine } from "../engine"
 import { comboFor, eventCombo, formatCombo, keybindDefs, setCombo, type KeybindAction } from "../state/keybinds"
-import { notifyAttention, setNotifyAttention, setShowReasoning, showReasoning } from "../state/prefs"
+import {
+  collapseCompaction,
+  compactionCollapsed,
+  notifyAttention,
+  setCollapseCompaction,
+  setCompactionCollapsed,
+  setNotifyAttention,
+  setShowReasoning,
+  showReasoning,
+} from "../state/prefs"
 import { shellInvoke } from "../state/store"
 import { requestNotificationPermission } from "./notifications"
 import { setTheme, theme, themes, type ThemeName } from "../state/theme"
@@ -131,6 +140,42 @@ function GeneralSection() {
           </div>
         </div>
         <Toggle label="Notifications" checked={notifyAttention()} onChange={toggleNotifications} />
+      </div>
+      <div
+        class="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 hover:bg-raised/60"
+        onClick={() => setCollapseCompaction(!collapseCompaction())}
+      >
+        <div>
+          <div class="text-sm text-ink">Collapsible compaction summaries</div>
+          <div class="text-xs text-ink-faint">
+            When a thread runs low on context, the engine compacts it into a summary message. This folds that
+            summary behind a divider you can expand.
+          </div>
+        </div>
+        <Toggle
+          label="Collapsible compaction summaries"
+          checked={collapseCompaction()}
+          onChange={() => setCollapseCompaction(!collapseCompaction())}
+        />
+      </div>
+      <div
+        class="flex items-center justify-between rounded-lg px-3 py-2.5"
+        classList={{
+          "cursor-pointer hover:bg-raised/60": collapseCompaction(),
+          "opacity-50": !collapseCompaction(),
+        }}
+        onClick={() => collapseCompaction() && setCompactionCollapsed(!compactionCollapsed())}
+      >
+        <div>
+          <div class="text-sm text-ink">Collapse summaries by default</div>
+          <div class="text-xs text-ink-faint">Start compaction summaries folded; expand them per message.</div>
+        </div>
+        <Toggle
+          label="Collapse summaries by default"
+          checked={compactionCollapsed()}
+          disabled={!collapseCompaction()}
+          onChange={() => setCompactionCollapsed(!compactionCollapsed())}
+        />
       </div>
     </div>
   )

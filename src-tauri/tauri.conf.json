@@ -32,7 +32,9 @@
     "resources": {
       "../engine/opencode/opencode.json": "drift-extensions/opencode.json",
       "../engine/opencode/package.json": "drift-extensions/package.json",
-      "../engine/opencode/plugin/": "drift-extensions/plugin/"
+      "../engine/opencode/plugin/": "drift-extensions/plugin/",
+      "../LICENSE": "licenses/drift-LICENSE.txt",
+      "../engine/upstream/LICENSE": "licenses/opencode-LICENSE.txt"
     }
   }
 }

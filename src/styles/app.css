@@ -197,13 +197,12 @@ textarea {
 }
 
 .drift-wordmark {
-  color: color-mix(in srgb, var(--ink) 78%, var(--accent));
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 0.82rem;
-  font-style: italic;
-  font-weight: 700;
-  letter-spacing: 0.035em;
-  text-shadow: 0 1px 8px color-mix(in srgb, var(--accent) 18%, transparent);
+  color: color-mix(in srgb, var(--ink) 72%, var(--accent));
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  margin-right: -0.24em;
 }
 
 .timeline-thinking {

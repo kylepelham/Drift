@@ -1,12 +1,13 @@
 import type { AssistantMessage, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/client"
-import { createMemo, For, Match, onMount, Show, Switch } from "solid-js"
+import { createMemo, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 import { useEngine } from "../engine"
 import { messageText, modelInfo, type MessageEntry } from "../engine/store"
 import { emitMessageRendered } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
+import { collapseCompaction, compactionCollapsed } from "../state/prefs"
 import { IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
-import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
+import { Chevron, contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
 
 export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
   onMount(() =>
@@ -16,10 +17,38 @@ export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
       role: props.entry.info.role,
     }),
   )
+  const summary = () => (props.entry.info as AssistantMessage).summary && collapseCompaction()
   return (
     <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} />}>
-      <AssistantFlow entry={props.entry} footer={props.footer} />
+      <Show when={summary()} fallback={<AssistantFlow entry={props.entry} footer={props.footer} />}>
+        <CompactionSummary entry={props.entry} footer={props.footer} />
+      </Show>
     </Show>
+  )
+}
+
+function CompactionSummary(props: { entry: MessageEntry; footer?: boolean }) {
+  const [open, setOpen] = createSignal(!compactionCollapsed())
+  return (
+    <div class="min-w-0 max-w-full">
+      <button
+        class="flex w-full items-center gap-3 py-1 text-xs text-ink-faint transition-colors hover:text-ink-muted"
+        aria-expanded={open()}
+        onClick={() => setOpen(!open())}
+      >
+        <div class="h-px flex-1 bg-edge" />
+        <span class="flex items-center gap-1.5">
+          <Chevron open={open()} />
+          Context compacted · summary
+        </span>
+        <div class="h-px flex-1 bg-edge" />
+      </button>
+      <Show when={open()}>
+        <div class="mt-2 border-l-2 border-edge pl-3">
+          <AssistantFlow entry={props.entry} footer={props.footer} />
+        </div>
+      </Show>
+    </div>
   )
 }
 

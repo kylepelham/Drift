@@ -35,8 +35,8 @@ export function Titlebar() {
       class="flex h-9 shrink-0 items-center justify-between border-b border-edge bg-surface select-none"
     >
       <div class="pointer-events-none flex items-center gap-2 px-3.5">
-        <img src={appIcon} alt="" class="size-4" />
-        <span class="drift-wordmark">Drift</span>
+        <img src={appIcon} alt="" class="size-[18px]" />
+        <span class="drift-wordmark">drift</span>
       </div>
       <Show when={controls}>
         <div class="flex h-full">

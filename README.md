@@ -1,46 +1,88 @@
 # Drift
 
-A standalone desktop coding agent. Embeds the opencode engine (vendored source,
-compiled into a bundled sidecar binary), fronted by a Codex-feel UI: one sidebar of
-workspaces and threads, one chat pane, no tabs. Nothing to install besides Drift.
-See CHECKLIST.md for status and docs/ for how it works.
+A standalone desktop coding agent for Windows.
 
-## Requirements (development)
+Drift embeds the [opencode](https://github.com/sst/opencode) engine as a compiled
+sidecar binary, wrapped in a fast native shell. Install one thing, point it at your
+project folders, and work with an agent across as many threads as you need. There is
+nothing else to set up: no Node install, no CLI, no separate server.
 
-- bun
-- Rust toolchain for the Tauri shell
+The UI is deliberately plain: a sidebar of workspaces and their threads, one chat
+pane, and a composer. No tabs.
 
-## First-time setup
+## Install
+
+Grab the latest installer from [Releases](../../releases). Windows x64 only for now.
+
+On first run, add a workspace (any directory), pick a model, and connect a provider
+under Settings > Providers. Anthropic, OpenAI, and everything else opencode supports
+works here, including OAuth sign-in where the provider offers it.
+
+## Features
+
+- Workspaces are directories. Threads live under them in the sidebar, with archive
+  and restore (archived threads keep for 7 days).
+- Full opencode engine underneath: build/plan agents, custom agents, MCP servers,
+  permissions, plugins, todo tracking.
+- Sessions are shared with opencode. Drift and the opencode CLI/desktop can run
+  against the same projects at the same time.
+- Virtualized transcript that stays smooth at thousands of messages.
+- Command palette (Ctrl+K), rebindable keys, per-session model/agent/thinking
+  preferences, light/dark/slate themes.
+- Fork threads, spawn subagent threads, revert to any point in a conversation.
+
+## Development
+
+Requirements: [bun](https://bun.sh) and a Rust toolchain (for the Tauri shell).
 
 ```
 bun install
 bun install --ignore-scripts --cwd engine/upstream
-bun install --cwd engine/opencode   # deps for Drift's engine plugins
-bun run build:engine                # compiles the embedded engine sidecar
+bun install --cwd engine/opencode
+bun run build:engine
 ```
 
-## Dev
+Then:
 
 ```
-bun run dev        # embedded engine (port 4096) + vite on :5180, in the browser
+bun run dev          # engine + vite dev server, runs in the browser
 bun run typecheck
-bun run build
+bun run test
+bun run build:native # native window, no installer
+bun run package      # NSIS installer
 ```
 
-## Desktop app
+`bun run dev` serves the UI at `localhost:5180` against an engine on port 4096.
+The native dev window (`bunx tauri dev`) reuses that vite server, so frontend edits
+hot-reload in both.
 
-```
-bunx @tauri-apps/cli dev     # dev window; needs `bun run dev` running (it reuses that vite)
-bunx @tauri-apps/cli build   # release build
-```
+### Project layout
 
-The dev window spawns its own engine on a random port; the shared vite on :5180 serves
-both the browser and the webview, so frontend edits hot-reload everywhere.
+| Path | What it is |
+| --- | --- |
+| `src/` | SolidJS frontend. `engine/` talks to the engine, `state/` is app state, `ui/` is components. |
+| `src-tauri/` | Tauri v2 shell: sidecar lifecycle, SQLite store, native commands. |
+| `engine/upstream/` | Pristine opencode monorepo, vendored via git subtree. Never edited. |
+| `engine/opencode/` | Drift's engine extensions, applied as opencode plugins/config. |
+| `docs/` | Architecture, engine integration, theming, extensibility. |
 
-## Updating the engine
+### Updating the vendored engine
 
 ```
 git subtree pull --prefix engine/upstream https://github.com/sst/opencode.git dev --squash
 bun install --ignore-scripts --cwd engine/upstream
 bun run build:engine
 ```
+
+`docs/engine.md` covers the gotchas.
+
+## Releases
+
+Pushing a tag like `v1.0.0` builds the app and publishes the installer to GitHub
+Releases automatically.
+
+## License
+
+MIT. Drift bundles a compiled copy of [opencode](https://github.com/sst/opencode),
+which is also MIT licensed; its license ships with the app under
+`licenses/opencode-LICENSE.txt`.

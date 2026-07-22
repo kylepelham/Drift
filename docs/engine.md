@@ -61,20 +61,28 @@ providers) applies unchanged. Users do not install opencode.
 | Agents | `GET /agent` |
 | Directory | `GET /path` |
 | File search | `GET /find/file` (fuzzy paths for composer @-mentions; mention parts use `file://` URLs + `source.text`, content read engine-side) |
-| Events | `GET /event` (SSE) |
+| Events | `GET /global/event` (SSE, all instances; frames are `{ directory, payload }`) |
+| Statuses | `GET /session/status` (per-instance map of non-idle sessions) |
 
 ## Events reduced into the store
 
 `message.updated`, `message.removed`, `message.part.updated`, `message.part.removed`,
 `session.created/updated/deleted`, `session.status`, `session.idle`, `session.error`,
 `permission.updated`, `permission.replied`, `todo.updated`. `server.connected` triggers
-(re)hydration; everything else is ignored on purpose.
+(re)hydration; `sync` and `server.heartbeat` frames are dropped in the SSE parser;
+everything else is ignored on purpose.
 
 ## Gotchas learned the hard way
 
-- Events are scoped to the per-directory instance resolved from the request. If you
-  prompt a session whose directory differs from your event stream's directory, you will
-  never hear about it. Keep session list and event stream on the same directory.
+- `GET /event` is scoped to the per-directory instance resolved from the request, so a
+  per-directory stream goes silent for every other workspace: busy dots and thinking
+  indicators froze the moment you switched. Drift streams `GET /global/event` instead
+  (every instance's events wrapped as `{ directory, payload }`, plus a 10s heartbeat)
+  and keeps session-keyed state (status, permissions, questions, todos) across
+  directory switches; only transcripts reset and rehydrate per workspace.
+- Status is event-sourced, so any gap (reconnect, missed idle) leaves a stale dot.
+  Hydration reconciles from `GET /session/status`: sessions absent from the map are
+  explicitly set back to idle.
 - `POST .../prompt_async` returns 204 even when the run later fails; failures arrive as
   `session.error` events.
 - A session's active drain keeps its original model; steering a new prompt into a busy

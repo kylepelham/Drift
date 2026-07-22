@@ -7,6 +7,8 @@ export const [variantPref, setVariantPref] = persisted<string | null>("drift.var
 export const [hiddenModelIds, setHiddenModelIds] = persisted<string[]>("drift.models.hidden", [])
 export const [showReasoning, setShowReasoning] = persisted<boolean>("drift.reasoning", false)
 export const [notifyAttention, setNotifyAttention] = persisted<boolean>("drift.notifications", false)
+export const [collapseCompaction, setCollapseCompaction] = persisted<boolean>("drift.compaction.collapsible", true)
+export const [compactionCollapsed, setCompactionCollapsed] = persisted<boolean>("drift.compaction.collapsed", true)
 
 export const [autoAcceptSessions, setAutoAcceptSessions] = persisted<string[]>("drift.autoAccept", [])
 

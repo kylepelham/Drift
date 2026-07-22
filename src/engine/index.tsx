@@ -35,13 +35,20 @@ export function EngineProvider(props: ParentProps) {
   async function hydrate() {
     const api = requireClient()
     const stale = Object.keys(state.loaded)
-    const [sessions, providers, agents, commands] = await Promise.all([
+    const [sessions, statuses, providers, agents, commands] = await Promise.all([
       api.session.list(),
+      api.session.status(),
       api.provider.list(),
       api.app.agents(),
       api.command.list(),
     ])
     for (const session of sessions.data ?? []) set("sessions", session.id, session)
+    set(
+      produce((s) => {
+        const live = statuses.data ?? {}
+        for (const session of sessions.data ?? []) s.status[session.id] = live[session.id] ?? { type: "idle" }
+      }),
+    )
     set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
     set("connected", providers.data?.connected ?? [])
     set("defaultModels", providers.data?.default ?? {})
@@ -65,10 +72,10 @@ export function EngineProvider(props: ParentProps) {
     set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
   }
 
-  async function pump(target: EngineTarget, dir: string, signal: AbortSignal) {
+  async function pump(target: EngineTarget, signal: AbortSignal) {
     while (!signal.aborted) {
       try {
-        await streamEvents(target, dir, signal, (event) => {
+        await streamEvents(target, signal, (event) => {
           if (event.type === "server.connected") {
             set("connection", "online")
             void hydrate()
@@ -85,18 +92,13 @@ export function EngineProvider(props: ParentProps) {
     }
   }
 
+  // Session-keyed state (status, asks, todos) survives directory switches; the global
+  // event stream keeps it fresh for every workspace, not just the active one.
   function reset(dir: string | null) {
     set(
       produce((s) => {
-        s.sessions = {}
         s.transcripts = {}
         s.loaded = {}
-        s.permissions = {}
-        s.questions = {}
-        s.todos = {}
-        s.status = {}
-        s.errors = {}
-        s.activity = {}
         s.cursors = {}
         s.directory = dir ?? ""
         s.connection = dir ? "connecting" : "idle"
@@ -114,7 +116,7 @@ export function EngineProvider(props: ParentProps) {
     if (!directory) return
     client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
     pumpAbort = new AbortController()
-    void pump(base, directory, pumpAbort.signal)
+    void pump(base, pumpAbort.signal)
   }
 
   function setDirectory(path: string | null) {

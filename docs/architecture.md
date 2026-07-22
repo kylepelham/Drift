@@ -41,12 +41,11 @@ src-tauri   -> shell: spawns the sidecar, exposes engine_url, owns Drift's SQLit
 ## Workspaces
 
 Workspaces are directories with a stored name and icon (docs/store.md). The active
-workspace drives everything engine-side: the client carries its directory (header on
-writes, query on reads) and the SSE stream subscribes with `?directory=`. Switching
-workspaces aborts the pump, resets engine state, and reconnects scoped to the new
-directory (`EngineProvider.setDirectory`). Session lists for inactive workspaces are
-fetched over REST so the sidebar can group threads per workspace; only the active
-workspace streams live events.
+workspace drives REST calls: the client carries its directory (header on writes, query
+on reads). Live events come from the engine's global stream, which covers every
+instance, so busy dots, thinking indicators, and pending asks stay accurate for all
+workspaces at once. Switching workspaces (`EngineProvider.setDirectory`) resets only
+transcript state and rehydrates the new directory; session-keyed state persists.
 
 The sidebar keeps workspace row geometry fixed while revealing actions, so hover never
 moves the thread list. Its 192-480px width is pointer and keyboard resizable and stored
@@ -65,8 +64,9 @@ time. Reverted prompt text is returned to the composer for editing.
 
 ## Known constraints
 
-- The engine's event stream is per-directory instance. Sessions are grouped by their
-  `directory` field (`sessionsFor`) so the stream and the lists always agree.
+- REST calls are scoped to the per-directory instance; the event stream is global.
+  Sessions are grouped by their `directory` field (`sessionsFor`) so cross-instance
+  events never leak into the wrong workspace list.
 - The engine resolves a directory to its project root (git root). A directory that
   becomes a git repo becomes a new project; sessions created before that stay with the
   old project.
