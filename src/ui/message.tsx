@@ -1,6 +1,7 @@
 import type { AssistantMessage, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/client"
 import { createMemo, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 import { useEngine } from "../engine"
+import { errorText } from "../engine/error"
 import { messageText, modelInfo, type MessageEntry } from "../engine/store"
 import { emitMessageRendered } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
@@ -139,9 +140,20 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
         </For>
         <Show when={info().error}>
           {(error) => (
-            <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger">
-              {errorText(error())}
-            </div>
+            <Show
+              when={error().name !== "MessageAbortedError"}
+              fallback={
+                <div class="flex items-center gap-3 py-1 text-xs text-ink-faint" role="status">
+                  <div class="h-px flex-1 bg-edge" />
+                  Interrupted
+                  <div class="h-px flex-1 bg-edge" />
+                </div>
+              }
+            >
+              <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger" role="alert">
+                {errorText(error())}
+              </div>
+            </Show>
           )}
         </Show>
         <Show when={props.footer && info().time.completed}>
@@ -167,10 +179,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
   )
 }
 
-function errorText(error: { name: string; data?: unknown }) {
-  const data = error.data as { message?: string } | undefined
-  return data?.message ?? error.name
-}
+export { errorText, unwrapErrorMessage } from "../engine/error"
 
 function formatDuration(ms: number) {
   const seconds = Math.max(1, Math.round(ms / 1000))

@@ -231,13 +231,18 @@ function StatusDot(props: { sessionId: string }) {
   const attention = () =>
     (engine.state.permissions[props.sessionId]?.length ?? 0) > 0 ||
     (engine.state.questions[props.sessionId]?.length ?? 0) > 0
+  const attentionTitle = () =>
+    (engine.state.permissions[props.sessionId]?.length ?? 0) > 0 ? "Waiting for permission" : "Waiting for an answer"
   return (
     <Switch>
       <Match when={attention()}>
-        <span class="size-1.5 shrink-0 rounded-full bg-warn" title="Waiting for permission" />
+        <span class="size-1.5 shrink-0 rounded-full bg-warn" title={attentionTitle()} />
       </Match>
       <Match when={sessionBusy(engine.state, props.sessionId)}>
-        <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" />
+        <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" title="Working" />
+      </Match>
+      <Match when={engine.state.errors[props.sessionId]}>
+        <span class="size-1.5 shrink-0 rounded-full bg-danger" title="Thread failed" />
       </Match>
     </Switch>
   )

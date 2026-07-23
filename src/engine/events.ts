@@ -1,16 +1,40 @@
 import type { Event, Message, Part, Permission, Session } from "@opencode-ai/sdk/client"
 import type { SetStoreFunction } from "solid-js/store"
 import { produce } from "solid-js/store"
-import { putSession, recordLink, spawnLink, type EngineState, type QuestionRequest } from "./store"
+import { errorText } from "./error"
+import { putSession, recordLink, spawnLink, type EngineState, type Notice, type QuestionRequest } from "./store"
 
 type Set = SetStoreFunction<EngineState>
 
-export function reduce(set: Set, event: Event) {
+export function reduce(set: Set, event: Event, directory?: string) {
   // These events are newer than the generated v1 SDK's Event union.
-  const raw = event as { type: string; properties: Record<string, unknown> }
-  if (raw.type === "question.v2.asked") return addQuestion(set, raw.properties as unknown as QuestionRequest)
-  if (raw.type === "question.v2.replied" || raw.type === "question.v2.rejected")
+  const raw = event as { id?: string; type: string; properties: Record<string, unknown> }
+  if (raw.type === "question.v2.asked" || raw.type === "question.asked")
+    return addQuestion(set, { ...(raw.properties as unknown as QuestionRequest), directory })
+  if (
+    raw.type === "question.v2.replied" ||
+    raw.type === "question.v2.rejected" ||
+    raw.type === "question.replied" ||
+    raw.type === "question.rejected"
+  )
     return dropQuestion(set, raw.properties.sessionID as string, raw.properties.requestID as string)
+  if (raw.type === "permission.asked" || raw.type === "permission.v2.asked")
+    return addPermission(set, permissionFromEvent(raw.properties, directory))
+  if (raw.type === "permission.v2.replied" || raw.type === "permission.replied")
+    return dropPermission(
+      set,
+      raw.properties.sessionID as string,
+      (raw.properties.requestID ?? raw.properties.permissionID) as string,
+    )
+  if (raw.type === "tui.toast.show")
+    return pushNotice(set, {
+      id: raw.id ?? `notice-${Date.now()}-${noticeSequence++}`,
+      title: typeof raw.properties.title === "string" ? raw.properties.title : undefined,
+      message: String(raw.properties.message ?? ""),
+      variant: noticeVariant(raw.properties.variant),
+      created: Date.now(),
+      duration: typeof raw.properties.duration === "number" ? raw.properties.duration : 5000,
+    })
   if (raw.type === "message.part.delta")
     return appendPartDelta(set, raw.properties as { sessionID: string; messageID: string; partID: string; field: string; delta: string })
   if (raw.type === "session.compacted") return clearError(set, raw.properties.sessionID as string)
@@ -32,7 +56,9 @@ export function reduce(set: Set, event: Event) {
     case "session.deleted":
       return dropSession(set, event.properties.info)
     case "session.status":
-      return set("status", event.properties.sessionID, event.properties.status)
+      set("status", event.properties.sessionID, event.properties.status)
+      if (event.properties.status.type !== "idle") clearError(set, event.properties.sessionID)
+      return
     case "session.idle":
       return set("status", event.properties.sessionID, { type: "idle" })
     case "session.error":
@@ -69,6 +95,7 @@ function dropSession(set: Set, info: Session) {
       delete s.todos[info.id]
       delete s.status[info.id]
       delete s.activity[info.id]
+      delete s.errors[info.id]
     }),
   )
 }
@@ -95,14 +122,24 @@ function moveSession(
 }
 
 function recordError(set: Set, sessionID?: string, error?: { name: string; data?: unknown }) {
-  if (!sessionID) return
+  const message = errorText(error)
+  if (!sessionID) {
+    pushNotice(set, {
+      id: `session-error-${Date.now()}-${noticeSequence++}`,
+      title: "Drift error",
+      message,
+      variant: "error",
+      created: Date.now(),
+      duration: 8000,
+    })
+    return
+  }
   set(
     produce((s) => {
       s.status[sessionID] = { type: "idle" }
       if (s.activity[sessionID]) s.activity[sessionID].current = undefined
-      if (!error || error.name === "MessageAbortedError") return
-      const data = error.data as { message?: string } | undefined
-      s.errors[sessionID] = data?.message ?? error.name
+      if (error?.name === "MessageAbortedError") return
+      s.errors[sessionID] = message
     }),
   )
 }
@@ -216,11 +253,44 @@ function addPermission(set: Set, permission: Permission) {
   )
 }
 
+function permissionFromEvent(properties: Record<string, unknown>, directory?: string): Permission {
+  const source = properties.source as { messageID?: string; callID?: string } | undefined
+  const tool = properties.tool as { messageID?: string; callID?: string } | undefined
+  const metadata = (properties.metadata as Record<string, unknown> | undefined) ?? {}
+  const type = String(properties.permission ?? properties.action ?? "permission")
+  const patterns = properties.patterns ?? properties.resources
+  return {
+    id: String(properties.id),
+    type,
+    pattern: Array.isArray(patterns) ? patterns.map(String) : undefined,
+    sessionID: String(properties.sessionID),
+    messageID: tool?.messageID ?? source?.messageID ?? "",
+    callID: tool?.callID ?? source?.callID,
+    title: String(metadata.title ?? type),
+    metadata: directory ? { ...metadata, directory } : metadata,
+    time: { created: Date.now() },
+  }
+}
+
 function dropPermission(set: Set, sessionID: string, permissionID: string) {
   set(
     produce((s) => {
       const list = s.permissions[sessionID]
       if (list) s.permissions[sessionID] = list.filter((permission) => permission.id !== permissionID)
+    }),
+  )
+}
+
+let noticeSequence = 0
+
+function noticeVariant(value: unknown): Notice["variant"] {
+  return value === "success" || value === "warning" || value === "error" ? value : "info"
+}
+
+export function pushNotice(set: Set, notice: Notice) {
+  set(
+    produce((state) => {
+      state.notices = [...state.notices.filter((item) => item.id !== notice.id), notice].slice(-6)
     }),
   )
 }

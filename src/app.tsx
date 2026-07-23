@@ -18,7 +18,7 @@ import { DebugPanel } from "./ui/debug"
 import { ChatHeader } from "./ui/header"
 import { Lightbox } from "./ui/lightbox"
 import { McpServersModal } from "./ui/mcp"
-import { AttentionNotifier } from "./ui/notifications"
+import { AttentionNotifier, NoticeHost } from "./ui/notifications"
 import { PaletteHost } from "./ui/palette"
 import { SettingsHost } from "./ui/settings"
 import { Sidebar } from "./ui/sidebar"
@@ -59,6 +59,7 @@ export function App() {
         <SettingsHost />
         <PaletteHost />
         <ToolContextMenuHost />
+        <NoticeHost />
       </div>
     </EngineProvider>
   )

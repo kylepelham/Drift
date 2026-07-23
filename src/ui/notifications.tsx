@@ -1,5 +1,5 @@
-import { createEffect, untrack } from "solid-js"
-import type { Engine } from "../engine"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js"
+import { useEngine, type Engine } from "../engine"
 import { notifyAttention } from "../state/prefs"
 import { selectSession } from "../state/selection"
 import { shellInvoke } from "../state/store"
@@ -57,14 +57,65 @@ export function AttentionNotifier(props: { engine: Engine }) {
     for (const [sessionId, status] of Object.entries(props.engine.state.status)) {
       const running = status.type === "busy" || status.type === "retry"
       if (running) busy.add(sessionId)
-      else if (busy.delete(sessionId))
+      else if (busy.delete(sessionId) && !props.engine.state.errors[sessionId])
         untrack(() => {
           const session = props.engine.state.sessions[sessionId]
           show(sessionId, "Drift finished", session?.title || "A thread finished working")
         })
     }
   })
+
+  const errors = new Map<string, string>()
+  createEffect(() => {
+    for (const [sessionId, error] of Object.entries(props.engine.state.errors)) {
+      if (errors.get(sessionId) === error) continue
+      errors.set(sessionId, error)
+      untrack(() => {
+        const session = props.engine.state.sessions[sessionId]
+        show(sessionId, "Drift error", session?.title ? `${session.title} - ${error}` : error)
+      })
+    }
+    for (const id of errors.keys()) if (!props.engine.state.errors[id]) errors.delete(id)
+  })
   return null
+}
+
+export function NoticeHost() {
+  const engine = useEngine()
+  const [now, setNow] = createSignal(Date.now())
+  const [dismissed, setDismissed] = createSignal(new Set<string>())
+  const timer = setInterval(() => setNow(Date.now()), 250)
+  onCleanup(() => clearInterval(timer))
+  const visible = createMemo(() =>
+    engine.state.notices.filter((notice) => !dismissed().has(notice.id) && notice.created + notice.duration > now()),
+  )
+  const dismiss = (id: string) => setDismissed((current) => new Set([...current, id]))
+  return (
+    <div class="pointer-events-none fixed right-5 bottom-5 z-[80] flex w-[min(24rem,calc(100vw-2.5rem))] flex-col gap-2" aria-live="polite">
+      <For each={visible()}>
+        {(notice) => (
+          <div
+            class="pointer-events-auto rounded-lg border bg-surface/95 px-3 py-2 shadow-xl backdrop-blur"
+            classList={{
+              "border-edge-strong text-ink": notice.variant === "info",
+              "border-ok/40 text-ok": notice.variant === "success",
+              "border-warn/40 text-warn": notice.variant === "warning",
+              "border-danger/40 text-danger": notice.variant === "error",
+            }}
+            role={notice.variant === "error" ? "alert" : "status"}
+          >
+            <div class="flex items-start gap-3">
+              <div class="min-w-0 flex-1">
+                <Show when={notice.title}>{(title) => <div class="text-sm font-semibold">{title()}</div>}</Show>
+                <div class="text-sm break-words" classList={{ "mt-0.5": !!notice.title }}>{notice.message}</div>
+              </div>
+              <button class="shrink-0 text-xs opacity-60 hover:opacity-100" onClick={() => dismiss(notice.id)}>Dismiss</button>
+            </div>
+          </div>
+        )}
+      </For>
+    </div>
+  )
 }
 
 export function requestNotificationPermission() {

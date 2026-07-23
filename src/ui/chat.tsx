@@ -1,3 +1,4 @@
+import type { SessionStatus } from "@opencode-ai/sdk/client"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
 import type { MessageEntry } from "../engine/store"
@@ -29,8 +30,7 @@ export function Chat() {
     const latest = entries().at(-1)
     if (latest?.info.role !== "assistant") return error
     const messageError = (latest.info as { error?: { name: string; data?: unknown } }).error
-    const data = messageError?.data as { message?: string } | undefined
-    return (data?.message ?? messageError?.name) === error ? null : error
+    return messageError && messageError.name !== "MessageAbortedError" ? null : error
   })
 
   createEffect(() => {
@@ -72,6 +72,11 @@ export function Chat() {
   const thinking = createMemo(() => {
     const id = selectedSession()
     return id ? thinkingState(entries(), engine.state.status[id]?.type) : null
+  })
+  const retry = createMemo(() => {
+    const id = selectedSession()
+    const status = id ? engine.state.status[id] : undefined
+    return status?.type === "retry" ? status : undefined
   })
 
   const observer = new ResizeObserver((observations) => {
@@ -116,6 +121,7 @@ export function Chat() {
     if (last) JSON.stringify(last.parts)
     offsets()
     sessionError()
+    thinking()
     if (untrack(stick)) queueMicrotask(() => scroller.scrollTo({ top: scroller.scrollHeight }))
   })
 
@@ -196,8 +202,9 @@ export function Chat() {
                   <Row
                     entry={entry}
                     next={slice()[index() + 1]}
-                    thinking={thinking()?.messageID === entry.info.id}
+                    thinking={thinking()?.messageID === entry.info.id && !retry()}
                     thinkingHeading={thinking()?.heading}
+                    retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
                     measure={measureRow}
                   />
                 )}
@@ -291,7 +298,7 @@ export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {
 }
 
 export function thinkingState(entries: MessageEntry[], status?: string) {
-  if (status !== "busy") return null
+  if (status !== "busy" && status !== "retry") return null
   const newestFirst = [...entries].reverse()
   const unfinished = newestFirst.find(
     (entry) => entry.info.role === "assistant" && !(entry.info as { time: { completed?: number } }).time.completed,
@@ -304,6 +311,12 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
   const assistants = entries.filter(
     (entry) => entry.info.role === "assistant" && "parentID" in entry.info && entry.info.parentID === activeUser.info.id,
   )
+  const error = assistants.find(
+    (entry) =>
+      (entry.info as { error?: { name?: string } }).error &&
+      (entry.info as { error?: { name?: string } }).error?.name !== "MessageAbortedError",
+  )
+  if (status === "busy" && error) return null
   const heading = assistants
     .flatMap((entry) => entry.parts)
     .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
@@ -346,6 +359,7 @@ function Row(props: {
   next?: MessageEntry
   thinking: boolean
   thinkingHeading?: string
+  retry?: Extract<SessionStatus, { type: "retry" }>
   measure: (element: HTMLDivElement) => void
 }) {
   const fresh = Date.now() - props.entry.info.time.created < 2000
@@ -358,8 +372,37 @@ function Row(props: {
           <Show when={props.thinkingHeading}>{(heading) => <span class="timeline-thinking-heading">{heading()}</span>}</Show>
         </div>
       </Show>
+      <Show when={props.retry}>{(status) => <SessionRetry status={status()} />}</Show>
     </div>
   )
+}
+
+function SessionRetry(props: { status: Extract<SessionStatus, { type: "retry" }> }) {
+  const [now, setNow] = createSignal(Date.now())
+  const timer = setInterval(() => setNow(Date.now()), 1000)
+  onCleanup(() => clearInterval(timer))
+  const display = createMemo(() => retryPresentation(props.status, now()))
+  return (
+    <div class="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger" role="status" aria-live="polite">
+      <div class="flex items-start gap-2">
+        <span class="pulse-soft mt-1.5 size-2 shrink-0 rounded-full bg-danger" aria-hidden="true" />
+        <div class="min-w-0">
+          <div class="break-words" classList={{ "cursor-help": display().truncated }} title={display().truncated ? props.status.message : undefined}>
+            {display().message}
+          </div>
+          <div class="mt-0.5 text-xs text-danger/75">{display().info}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function retryPresentation(status: Extract<SessionStatus, { type: "retry" }>, now: number) {
+  const normalized = status.message.trim() || "The provider did not accept the request"
+  const message = normalized.length > 80 ? normalized.slice(0, 80) + "..." : normalized
+  const seconds = Math.max(0, Math.round((status.next - now) / 1000))
+  const line = seconds > 0 ? `Retrying in ${seconds}s` : "Retrying"
+  return { message, truncated: normalized.length > 80, info: `${line} - attempt #${status.attempt}` }
 }
 
 function EmptyState() {

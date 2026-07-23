@@ -1,5 +1,5 @@
 import type { FilePart, Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
-import { createEffect, createMemo, createSignal, For, Match, Show, Switch, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Match, on, Show, Switch, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
 import { openLightbox } from "./lightbox"
@@ -43,9 +43,6 @@ export function PartView(props: { part: Part }) {
           </ToolContextTarget>
         )}
       </Match>
-      <Match when={props.part.type === "retry" && props.part}>
-        {(part) => <div class="text-xs text-warn">retrying (attempt {(part() as { attempt: number }).attempt})</div>}
-      </Match>
       <Match when={props.part.type === "compaction"}>
         <div class="my-2 flex items-center gap-3 text-xs text-ink-faint">
           <div class="h-px flex-1 bg-edge" />
@@ -87,7 +84,6 @@ export function partVisible(part: Part) {
       return showReasoning()
     case "tool":
       return !hiddenTools.has((part as ToolPart).tool)
-    case "retry":
     case "compaction":
     case "subtask":
     case "file":
@@ -406,15 +402,11 @@ export function ToolView(props: { part: ToolPart }) {
 
 function ToolBody(props: { part: ToolPart; diff: string | null; error: string | null }) {
   const state = () => props.part.state
-  const shell = () => {
-    if (props.part.tool !== "bash") return null
-    const command = (state().input as { command?: string }).command ?? ""
-    const output =
-      state().status === "completed"
-        ? (state() as { output: string }).output
-        : ((toolMeta(props.part)?.output as string | undefined) ?? "")
-    return { command, output }
-  }
+  const shellCommand = () => (state().input as { command?: string }).command ?? ""
+  const shellOutput = () =>
+    state().status === "completed"
+      ? (state() as { output: string }).output
+      : ((toolMeta(props.part)?.output as string | undefined) ?? "")
   const written = () => {
     if (props.part.tool !== "write") return null
     const input = state().input as { content?: string; filePath?: string }
@@ -446,8 +438,8 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
             </div>
           )}
         </Match>
-        <Match when={shell()}>
-          {(run) => <ShellOutput command={run().command} output={run().output} />}
+        <Match when={props.part.tool === "bash"}>
+          <ShellOutput command={shellCommand()} output={shellOutput()} />
         </Match>
         <Match when={written()}>
           {(file) => (
@@ -488,6 +480,9 @@ function ShellLine(props: { line: string; last: boolean }) {
 
 function ShellOutput(props: { command: string; output: string }) {
   const [copied, setCopied] = createSignal(false)
+  let viewport!: HTMLPreElement
+  let savedTop = 0
+  let following = true
   const transcript = () => shellTranscript(props.command, props.output)
   const lines = () => transcript().split("\n")
   const copy = async () => {
@@ -495,6 +490,18 @@ function ShellOutput(props: { command: string; output: string }) {
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
+  createEffect(
+    on(
+      () => props.output,
+      () => {
+        const top = savedTop
+        const follow = following
+        queueMicrotask(() => {
+          viewport.scrollTop = shellScrollTarget(top, follow, viewport.scrollHeight)
+        })
+      },
+    ),
+  )
   return (
     <div class="group/shell relative overflow-hidden rounded-[6px] border-[0.5px] border-edge">
       <button
@@ -507,10 +514,15 @@ function ShellOutput(props: { command: string; output: string }) {
         </Show>
       </button>
       <pre
+        ref={viewport}
         class="shell-output max-h-60 overflow-x-hidden overflow-y-auto p-3 pr-10 font-mono text-[13px] leading-[1.5] whitespace-pre-wrap text-ink"
         role="region"
         aria-label="Shell output"
         tabIndex={0}
+        onScroll={(event) => {
+          savedTop = event.currentTarget.scrollTop
+          following = shellAtBottom(savedTop, event.currentTarget.clientHeight, event.currentTarget.scrollHeight)
+        }}
       >
         <code class="break-words">
           <For each={lines()}>{(line, index) => <ShellLine line={line} last={index() === lines().length - 1} />}</For>
@@ -518,6 +530,14 @@ function ShellOutput(props: { command: string; output: string }) {
       </pre>
     </div>
   )
+}
+
+export function shellAtBottom(scrollTop: number, clientHeight: number, scrollHeight: number) {
+  return scrollHeight - clientHeight - scrollTop <= 2
+}
+
+export function shellScrollTarget(savedTop: number, following: boolean, scrollHeight: number) {
+  return following ? scrollHeight : savedTop
 }
 
 export function taskBody(part: ToolPart) {

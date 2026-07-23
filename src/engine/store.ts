@@ -52,6 +52,15 @@ export type QuestionRequest = {
   directory?: string
 }
 
+export type Notice = {
+  id: string
+  title?: string
+  message: string
+  variant: "info" | "success" | "warning" | "error"
+  created: number
+  duration: number
+}
+
 export type EngineState = {
   connection: Connection
   directory: string
@@ -68,6 +77,7 @@ export type EngineState = {
   agents: Agent[]
   commands: Command[]
   errors: Record<string, string>
+  notices: Notice[]
   links: Record<string, string>
   activity: Record<string, SessionActivity>
   cursors: Record<string, string | null>
@@ -111,6 +121,7 @@ export function createEngineState() {
     agents: [],
     commands: [],
     errors: {},
+    notices: [],
     links: { ...loadLinks() },
     activity: {},
     startupError: "",

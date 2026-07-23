@@ -178,6 +178,7 @@ test("thinking follows OpenCode's active user turn", async () => {
   expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("u2")
   const steeredResponse = message("a2", "assistant", "u2")
   expect(thinkingAfterMessage([first, response, steer, steeredResponse], "busy")).toBe("a2")
+  expect(thinkingAfterMessage([first, response, steer, steeredResponse], "retry")).toBe("a2")
   expect(thinkingAfterMessage([first, response, steer, steeredResponse], "idle")).toBeNull()
 })
 
@@ -197,6 +198,47 @@ test("thinking derives the first provider reasoning heading for the active turn"
     messageID: "a1",
     heading: "Tracing session state",
   })
+})
+
+test("retry presentation follows OpenCode countdown and truncation", async () => {
+  const { retryPresentation } = await import("../src/ui/chat")
+  const status = { type: "retry", attempt: 3, message: "x".repeat(90), next: 15_000 } as const
+  expect(retryPresentation(status, 7_400)).toEqual({
+    message: "x".repeat(80) + "...",
+    truncated: true,
+    info: "Retrying in 8s - attempt #3",
+  })
+  expect(retryPresentation({ ...status, message: "Rate limited" }, 16_000).info).toBe("Retrying - attempt #3")
+})
+
+test("busy thinking is suppressed by an assistant error while retry remains visible", async () => {
+  const { thinkingState } = await import("../src/ui/chat")
+  const entries = [
+    { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] },
+    {
+      info: {
+        id: "a1",
+        role: "assistant",
+        parentID: "u1",
+        time: { created: 2 },
+        error: { name: "APIError", data: { message: "failed" } },
+      },
+      parts: [],
+    },
+  ] as never
+  expect(thinkingState(entries, "busy")).toBeNull()
+  expect(thinkingState(entries, "retry")?.messageID).toBe("a1")
+})
+
+test("assistant errors unwrap provider JSON and preserve plain text", async () => {
+  const { errorText, unwrapErrorMessage } = await import("../src/ui/message")
+  expect(unwrapErrorMessage('Error: {"error":{"type":"rate_limit","message":"slow down"}}')).toBe(
+    "rate_limit: slow down",
+  )
+  expect(unwrapErrorMessage('prefix {"message":"credit balance is too low"} suffix')).toBe(
+    "credit balance is too low",
+  )
+  expect(errorText({ name: "ProviderError", data: { message: "plain failure" } })).toBe("plain failure")
 })
 
 test("message part deltas accumulate streamed reasoning summaries", () => {
@@ -271,4 +313,72 @@ test("session errors terminate busy activity and remain visible", () => {
   expect(state.status["s1"].type).toBe("idle")
   expect(state.activity["s1"].current).toBeUndefined()
   expect(state.errors["s1"]).toBe("credit balance is too low")
+})
+
+test("current ask events update immediately and retain their workspace directory", () => {
+  const [state, set] = createEngineState()
+  reduce(
+    set,
+    {
+      type: "permission.asked",
+      properties: {
+        id: "perm-1",
+        sessionID: "s1",
+        permission: "bash",
+        patterns: ["git status"],
+        metadata: { title: "Run command" },
+        tool: { messageID: "m1", callID: "c1" },
+      },
+    } as never,
+    "C:/repo",
+  )
+  reduce(
+    set,
+    {
+      type: "question.asked",
+      properties: { id: "q1", sessionID: "s1", questions: [{ question: "Continue?", header: "Continue", options: [] }] },
+    } as never,
+    "C:/repo",
+  )
+  expect(state.permissions.s1[0]).toMatchObject({
+    id: "perm-1",
+    type: "bash",
+    pattern: ["git status"],
+    title: "Run command",
+    metadata: { directory: "C:/repo" },
+  })
+  expect(state.questions.s1[0].directory).toBe("C:/repo")
+
+  reduce(set, { type: "permission.replied", properties: { sessionID: "s1", requestID: "perm-1" } } as never)
+  reduce(set, { type: "question.rejected", properties: { sessionID: "s1", requestID: "q1" } } as never)
+  expect(state.permissions.s1).toEqual([])
+  expect(state.questions.s1).toEqual([])
+})
+
+test("toast and sessionless error events become visible notices", () => {
+  const [state, set] = createEngineState()
+  reduce(
+    set,
+    {
+      id: "toast-1",
+      type: "tui.toast.show",
+      properties: { title: "Connected", message: "Provider ready", variant: "success", duration: 2500 },
+    } as never,
+  )
+  reduce(set, { type: "session.error", properties: {} } as never)
+  expect(state.notices[0]).toMatchObject({
+    id: "toast-1",
+    title: "Connected",
+    message: "Provider ready",
+    variant: "success",
+    duration: 2500,
+  })
+  expect(state.notices[1]).toMatchObject({ title: "Drift error", message: "An error occurred", variant: "error" })
+})
+
+test("a new active status clears stale fallback errors", () => {
+  const [state, set] = createEngineState()
+  set("errors", "s1", "old failure")
+  reduce(set, { type: "session.status", properties: { sessionID: "s1", status: { type: "busy" } } } as never)
+  expect(state.errors.s1).toBeUndefined()
 })

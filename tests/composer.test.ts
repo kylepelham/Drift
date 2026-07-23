@@ -118,6 +118,10 @@ test("model manager orders enabled models first and preserves provider rearrange
 })
 
 test("shell transcript preserves a visible command-output gap and normalizes output", async () => {
-  const { shellTranscript } = await import("../src/ui/parts")
+  const { shellAtBottom, shellScrollTarget, shellTranscript } = await import("../src/ui/parts")
   expect(shellTranscript("bun run build", "\u001b[32mok\u001b[0m\r\ndone")).toBe("$ bun run build\n\nok\ndone")
+  expect(shellAtBottom(300, 200, 501)).toBe(true)
+  expect(shellAtBottom(250, 200, 501)).toBe(false)
+  expect(shellScrollTarget(250, false, 700)).toBe(250)
+  expect(shellScrollTarget(300, true, 700)).toBe(700)
 })

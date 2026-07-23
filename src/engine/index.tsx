@@ -75,13 +75,13 @@ export function EngineProvider(props: ParentProps) {
   async function pump(target: EngineTarget, signal: AbortSignal) {
     while (!signal.aborted) {
       try {
-        await streamEvents(target, signal, (event) => {
+        await streamEvents(target, signal, (event, eventDirectory) => {
           if (event.type === "server.connected") {
             set("connection", "online")
             void hydrate()
             return
           }
-          reduce(set, event)
+          reduce(set, event, eventDirectory)
         })
       } catch {}
       if (signal.aborted) return
