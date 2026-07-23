@@ -6,11 +6,13 @@ import { putSession, recordLink, spawnLink, type EngineState, type QuestionReque
 type Set = SetStoreFunction<EngineState>
 
 export function reduce(set: Set, event: Event) {
-  // question.v2 events are newer than the generated SDK's Event union.
+  // These events are newer than the generated v1 SDK's Event union.
   const raw = event as { type: string; properties: Record<string, unknown> }
   if (raw.type === "question.v2.asked") return addQuestion(set, raw.properties as unknown as QuestionRequest)
   if (raw.type === "question.v2.replied" || raw.type === "question.v2.rejected")
     return dropQuestion(set, raw.properties.sessionID as string, raw.properties.requestID as string)
+  if (raw.type === "message.part.delta")
+    return appendPartDelta(set, raw.properties as { sessionID: string; messageID: string; partID: string; field: string; delta: string })
   switch (event.type) {
     case "session.created":
     case "session.updated":
@@ -105,6 +107,22 @@ function upsertPart(set: Set, part: Part) {
       const index = entry.parts.findIndex((existing) => existing.id === part.id)
       if (index >= 0) entry.parts[index] = part
       else entry.parts.push(part)
+    }),
+  )
+}
+
+function appendPartDelta(
+  set: Set,
+  ref: { sessionID: string; messageID: string; partID: string; field: string; delta: string },
+) {
+  set(
+    produce((s) => {
+      const entry = s.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
+      const part = entry?.parts.find((item) => item.id === ref.partID)
+      if (!part) return
+      const record = part as unknown as Record<string, unknown>
+      const current = record[ref.field]
+      if (typeof current === "string") record[ref.field] = current + ref.delta
     }),
   )
 }

@@ -93,6 +93,19 @@ test("fixed menus convert visual coordinates and viewport bounds through CSS zoo
   expect(fixedMenuPosition(1170, 870, 200, 100, metrics)).toEqual({ left: 592, top: 492, viewportHeight: 600 })
 })
 
+test("upward transcript gestures unstick immediately near the bottom", async () => {
+  const { scrollGestureSticks } = await import("../src/ui/chat")
+  expect(scrollGestureSticks(1000, 980, 20)).toBeFalse()
+  expect(scrollGestureSticks(980, 1000, 20)).toBeTrue()
+  expect(scrollGestureSticks(980, 1000, 120)).toBeFalse()
+})
+
+test("tall row measurement only compensates rows actually above the viewport", async () => {
+  const { resizeCompensation } = await import("../src/ui/chat")
+  expect(resizeCompensation(96, 2000, 2100, 1000)).toBe(0)
+  expect(resizeCompensation(96, 2000, 900, 1000)).toBe(1904)
+})
+
 test("thinking follows OpenCode's active user turn", async () => {
   const { thinkingAfterMessage } = await import("../src/ui/chat")
   const message = (id: string, role: "user" | "assistant", parentID?: string, completed?: number) =>
@@ -106,6 +119,43 @@ test("thinking follows OpenCode's active user turn", async () => {
   const steeredResponse = message("a2", "assistant", "u2")
   expect(thinkingAfterMessage([first, response, steer, steeredResponse], "busy")).toBe("a2")
   expect(thinkingAfterMessage([first, response, steer, steeredResponse], "idle")).toBeNull()
+})
+
+test("thinking derives the first provider reasoning heading for the active turn", async () => {
+  const { reasoningHeading, thinkingState } = await import("../src/ui/chat")
+  expect(reasoningHeading("## Inspecting `events.ts` ##\n\nChecking the reducer.")).toBe("Inspecting events.ts")
+  expect(reasoningHeading("<h3>Comparing <em>providers</em></h3>")).toBe("Comparing providers")
+  expect(reasoningHeading("**Reading [OpenCode](https://opencode.ai) behavior**\n\nDetails")).toBe("Reading OpenCode behavior")
+  expect(reasoningHeading("Unformatted reasoning text")).toBeUndefined()
+
+  const user = { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] }
+  const assistant = {
+    info: { id: "a1", role: "assistant", parentID: "u1", time: { created: 2 } },
+    parts: [{ id: "p1", type: "reasoning", text: "**Tracing session state**", time: { start: 2 } }],
+  }
+  expect(thinkingState([user, assistant] as never, "busy")).toEqual({
+    messageID: "a1",
+    heading: "Tracing session state",
+  })
+})
+
+test("message part deltas accumulate streamed reasoning summaries", () => {
+  const [state, set] = createEngineState()
+  set("loaded", "s1", true)
+  set("transcripts", "s1", [
+    {
+      info: { id: "a1", sessionID: "s1", role: "assistant", time: { created: 1 } },
+      parts: [{ id: "p1", sessionID: "s1", messageID: "a1", type: "reasoning", text: "**Tracing" }],
+    },
+  ] as never)
+  reduce(
+    set,
+    {
+      type: "message.part.delta",
+      properties: { sessionID: "s1", messageID: "a1", partID: "p1", field: "text", delta: " events**" },
+    } as never,
+  )
+  expect((state.transcripts.s1[0].parts[0] as { text: string }).text).toBe("**Tracing events**")
 })
 
 test("context usage skips a trailing zero-token assistant message", async () => {

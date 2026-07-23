@@ -69,28 +69,26 @@ export function Chat() {
   })
 
   const slice = createMemo(() => entries().slice(range().start, range().end))
-  const thinkingAfter = createMemo(() => {
+  const thinking = createMemo(() => {
     const id = selectedSession()
-    return id ? thinkingAfterMessage(entries(), engine.state.status[id]?.type) : null
+    return id ? thinkingState(entries(), engine.state.status[id]?.type) : null
   })
 
   const observer = new ResizeObserver((observations) => {
     let deltaAbove = 0
     let changed = false
-    const list = untrack(entries)
-    const offs = untrack(offsets)
-    const top = untrack(viewTop)
+    const viewportTop = scroller.getBoundingClientRect().top
     for (const observation of observations) {
-      const id = (observation.target as HTMLElement).dataset.mid
+      const row = observation.target as HTMLElement
+      const id = row.dataset.mid
       if (!id) continue
-      const next = observation.borderBoxSize[0]?.blockSize ?? (observation.target as HTMLElement).offsetHeight
+      const next = observation.borderBoxSize[0]?.blockSize ?? row.offsetHeight
       if (next === 0) continue
       const previous = heights.get(id) ?? estimatedRow
       if (Math.abs(next - previous) < 1) continue
       heights.set(id, next)
       changed = true
-      const index = list.findIndex((entry) => entry.info.id === id)
-      if (index >= 0 && offs[index + 1] < top) deltaAbove += next - previous
+      deltaAbove += resizeCompensation(previous, next, row.getBoundingClientRect().bottom, viewportTop)
     }
     if (!changed) return
     setMeasured((value) => value + 1)
@@ -132,10 +130,13 @@ export function Chat() {
 
   function onScroll() {
     const top = scroller.scrollTop
+    const previous = untrack(viewTop)
     setViewTop(top)
     setViewHeight(scroller.clientHeight)
-    if (dragging || Date.now() - gestureAt < 250)
-      setStick(scroller.scrollHeight - top - scroller.clientHeight < 80)
+    if (dragging || Date.now() - gestureAt < 250) {
+      const distance = scroller.scrollHeight - top - scroller.clientHeight
+      setStick(scrollGestureSticks(previous, top, distance))
+    }
     maybeLoadOlder(top)
   }
 
@@ -173,7 +174,8 @@ export function Chat() {
                   <Row
                     entry={entry}
                     next={slice()[index() + 1]}
-                    thinking={thinkingAfter() === entry.info.id}
+                    thinking={thinking()?.messageID === entry.info.id}
+                    thinkingHeading={thinking()?.heading}
                     measure={measureRow}
                   />
                 )}
@@ -195,6 +197,15 @@ export function Chat() {
   )
 }
 
+export function resizeCompensation(previous: number, next: number, rowBottom: number, viewportTop: number) {
+  return rowBottom < viewportTop ? next - previous : 0
+}
+
+export function scrollGestureSticks(previousTop: number, nextTop: number, distanceFromBottom: number) {
+  if (nextTop < previousTop) return false
+  return distanceFromBottom < 80
+}
+
 export function mergeCompactionEntries(entries: MessageEntry[]) {
   return entries.filter((entry, index) => {
     const next = entries[index + 1]
@@ -212,6 +223,10 @@ export function mergeCompactionEntries(entries: MessageEntry[]) {
 }
 
 export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {
+  return thinkingState(entries, status)?.messageID ?? null
+}
+
+export function thinkingState(entries: MessageEntry[], status?: string) {
   if (status !== "busy") return null
   const newestFirst = [...entries].reverse()
   const unfinished = newestFirst.find(
@@ -222,16 +237,51 @@ export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {
     (parentID && entries.find((entry) => entry.info.role === "user" && entry.info.id === parentID)) ??
     newestFirst.find((entry) => entry.info.role === "user")
   if (!activeUser) return null
-  const assistant = newestFirst.find(
+  const assistants = entries.filter(
     (entry) => entry.info.role === "assistant" && "parentID" in entry.info && entry.info.parentID === activeUser.info.id,
   )
-  return assistant?.info.id ?? activeUser.info.id
+  const heading = assistants
+    .flatMap((entry) => entry.parts)
+    .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
+    .find((value): value is string => !!value)
+  return { messageID: assistants.at(-1)?.info.id ?? activeUser.info.id, heading }
+}
+
+export function reasoningHeading(text: string) {
+  const markdown = text.replace(/\r\n?/g, "\n")
+  const html = markdown.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i)
+  if (html?.[1]) {
+    const value = cleanHeading(html[1].replace(/<[^>]+>/g, " "))
+    if (value) return value
+  }
+  const atx = markdown.match(/^\s{0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+[ \t]*)?$/m)
+  if (atx?.[1]) {
+    const value = cleanHeading(atx[1])
+    if (value) return value
+  }
+  const setext = markdown.match(/^([^\n]+)\n(?:=+|-+)\s*$/m)
+  if (setext?.[1]) {
+    const value = cleanHeading(setext[1])
+    if (value) return value
+  }
+  const strong = markdown.match(/^\s*(?:\*\*|__)(.+?)(?:\*\*|__)\s*$/m)
+  if (strong?.[1]) return cleanHeading(strong[1]) || undefined
+}
+
+function cleanHeading(value: string) {
+  return value
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[*_~]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
 }
 
 function Row(props: {
   entry: MessageEntry
   next?: MessageEntry
   thinking: boolean
+  thinkingHeading?: string
   measure: (element: HTMLDivElement) => void
 }) {
   const fresh = Date.now() - props.entry.info.time.created < 2000
@@ -241,6 +291,7 @@ function Row(props: {
       <Show when={props.thinking}>
         <div class="timeline-thinking" role="status" aria-live="polite">
           <TextShimmer text="Thinking" />
+          <Show when={props.thinkingHeading}>{(heading) => <span class="timeline-thinking-heading">{heading()}</span>}</Show>
         </div>
       </Show>
     </div>

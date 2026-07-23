@@ -206,9 +206,16 @@ textarea {
 }
 
 .timeline-thinking {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
   width: fit-content;
   padding-top: 0.45rem;
   font-size: 0.78rem;
+}
+
+.timeline-thinking-heading {
+  color: var(--ink-faint);
 }
 
 [data-component="text-shimmer"] {
@@ -348,23 +355,33 @@ textarea {
 
 .md .code-block :where(pre) {
   margin: 0;
-  padding-bottom: 2.8rem;
+  padding-right: 3rem;
 }
 
 .md .code-copy {
   position: absolute;
-  bottom: 0.65rem;
-  left: 0.7rem;
+  top: 0.5rem;
+  right: 0.5rem;
   z-index: 1;
   border: 1px solid var(--edge);
-  border-radius: 5px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--raised) 92%, var(--overlay));
-  padding: 0.18rem 0.5rem;
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
   color: var(--ink-faint);
-  font-family: var(--font-sans);
-  font-size: 0.68rem;
-  line-height: 1.2;
   transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.md .code-copy svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .md .code-copy:hover {

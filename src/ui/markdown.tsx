@@ -8,6 +8,9 @@ marked.use({ gfm: true, breaks: true })
 
 let shikiModule: Promise<typeof import("shiki")> | undefined
 const codeBlocks = new WeakMap<HTMLElement, string>()
+const copyIcon =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>'
+const copiedIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
 
 export type SyntaxToken = { content: string; color?: string; fontStyle?: number }
 
@@ -79,7 +82,8 @@ function decorateCodeBlocks(root: HTMLElement) {
     button.type = "button"
     button.className = "code-copy"
     button.dataset.copyCode = ""
-    button.textContent = "Copy"
+    button.innerHTML = copyIcon
+    button.setAttribute("aria-label", "Copy code")
     button.title = "Copy code"
     pre.before(wrapper)
     wrapper.append(pre, button)
@@ -95,8 +99,14 @@ function markdownClick(event: MouseEvent) {
   if (code === undefined) return
   void writeClipboard(code)
     .then(() => {
-      button.textContent = "Copied"
-      setTimeout(() => (button.textContent = "Copy"), 1600)
+      button.innerHTML = copiedIcon
+      button.setAttribute("aria-label", "Code copied")
+      button.title = "Copied"
+      setTimeout(() => {
+        button.innerHTML = copyIcon
+        button.setAttribute("aria-label", "Copy code")
+        button.title = "Copy code"
+      }, 1600)
     })
     .catch((error) => console.warn("[Drift] Could not copy code", error))
 }

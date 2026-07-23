@@ -59,7 +59,7 @@ status, additions/deletions, and numbered syntax-highlighted diff for every chan
 file. Write output renders every line immediately, then lazily highlights 160-line
 chunks near its own scroll viewport; large files stay complete and cheap to open.
 Assistant Markdown code blocks keep their original source beside the rendered DOM and
-add a bottom-left copy control, so Shiki token markup never changes copied text.
+add a top-right icon copy control, so Shiki token markup never changes copied text.
 
 Every visible tool renderer shares one context-action registry. Built-in edit, write,
 and patch providers offer file and first-change opens; Drift plugins register through
@@ -71,6 +71,15 @@ Desktop zoom uses the webview's native zoom API rather than CSS `zoom`, keeping 
 events, fixed overlays, viewport units, and anchored popovers in one coordinate system.
 Browser development retains CSS zoom and converts detached context-menu coordinates
 through the active scale.
+
+Transcript scrolling unsticks on the first upward movement, including inside the
+bottom follow zone. Virtual row resize correction uses the measured row's real viewport
+position so a tall row cannot be mistaken for a short row above the viewport.
+
+Busy turns derive an optional topic beside `Thinking` from the first heading in streamed
+reasoning text. The provider/model supplies that text; Drift recognizes the same HTML,
+Markdown heading, Setext, and standalone-bold forms as OpenCode and otherwise keeps the
+plain indicator. Reasoning deltas accumulate in the engine store before presentation.
 
 An adjacent compaction-only user boundary and its assistant summary become one
 collapsible transcript row. Session-level engine errors defensively end busy activity
