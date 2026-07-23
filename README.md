@@ -82,8 +82,11 @@ tag, and this repo's release workflow triggers on `v*` tags.
 
 ## Releases
 
-Pushing a tag like `v1.0.0` builds the app and publishes the installer to GitHub
-Releases automatically.
+Pushing a tag like `v1.0.0` builds the app, signs the update artifacts, and publishes
+the installer plus an update manifest to GitHub Releases. Installed copies check that
+manifest on startup and offer one-click updates (Settings > General to turn this off).
+Updates only ever move forward; deleting a bad release retracts it for anyone who has
+not installed it yet.
 
 ## License
 

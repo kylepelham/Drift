@@ -9,6 +9,7 @@ export const [showReasoning, setShowReasoning] = persisted<boolean>("drift.reaso
 export const [notifyAttention, setNotifyAttention] = persisted<boolean>("drift.notifications", false)
 export const [collapseCompaction, setCollapseCompaction] = persisted<boolean>("drift.compaction.collapsible", true)
 export const [compactionCollapsed, setCompactionCollapsed] = persisted<boolean>("drift.compaction.collapsed", true)
+export const [autoUpdate, setAutoUpdate] = persisted<boolean>("drift.autoUpdate", true)
 
 export const [autoAcceptSessions, setAutoAcceptSessions] = persisted<string[]>("drift.autoAccept", [])
 

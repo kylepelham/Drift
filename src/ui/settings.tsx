@@ -3,9 +3,11 @@ import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount,
 import { useEngine } from "../engine"
 import { comboFor, eventCombo, formatCombo, keybindDefs, setCombo, type KeybindAction } from "../state/keybinds"
 import {
+  autoUpdate,
   collapseCompaction,
   compactionCollapsed,
   notifyAttention,
+  setAutoUpdate,
   setCollapseCompaction,
   setCompactionCollapsed,
   setNotifyAttention,
@@ -140,6 +142,19 @@ function GeneralSection() {
           </div>
         </div>
         <Toggle label="Notifications" checked={notifyAttention()} onChange={toggleNotifications} />
+      </div>
+      <div
+        class="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 hover:bg-raised/60"
+        onClick={() => setAutoUpdate(!autoUpdate())}
+      >
+        <div>
+          <div class="text-sm text-ink">Automatic updates</div>
+          <div class="text-xs text-ink-faint">
+            Check GitHub releases on startup and show an update button when a newer version ships. Never
+            downgrades.
+          </div>
+        </div>
+        <Toggle label="Automatic updates" checked={autoUpdate()} onChange={() => setAutoUpdate(!autoUpdate())} />
       </div>
       <div
         class="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 hover:bg-raised/60"

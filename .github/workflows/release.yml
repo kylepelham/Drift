@@ -33,8 +33,32 @@ jobs:
           $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
           $conf.version = $version
           $conf | ConvertTo-Json -Depth 32 | Set-Content src-tauri/tauri.conf.json
-      - run: bun run package
+      - name: Build signed installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: bunx tauri build -c src-tauri/ci.conf.json
+      - name: Write update manifest
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $bundle = "src-tauri/target/release/bundle/nsis"
+          $sig = Get-Content (Get-ChildItem "$bundle/*.sig").FullName -Raw
+          $exe = (Get-ChildItem "$bundle/*-setup.exe").Name
+          @{
+            version = $version
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $sig.Trim()
+                url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$exe"
+              }
+            }
+          } | ConvertTo-Json -Depth 8 | Set-Content "$bundle/latest.json"
       - uses: softprops/action-gh-release@v2
         with:
-          files: src-tauri/target/release/bundle/nsis/*.exe
+          files: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.sig
+            src-tauri/target/release/bundle/nsis/latest.json
           generate_release_notes: true

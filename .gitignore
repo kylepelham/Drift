@@ -8,3 +8,4 @@ examples/
 .engine.log
 .vite.log
 .tauri.log
+.tauri/

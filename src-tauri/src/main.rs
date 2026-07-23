@@ -56,6 +56,33 @@ fn config_read(config: State<ConfigRoot>, path: String) -> Result<Option<String>
         .map_err(|e| e.to_string())
 }
 
+// Update checks compare semver against the release manifest; the plugin only offers
+// strictly newer versions, so dev builds ahead of the latest release stay put.
+#[tauri::command]
+async fn check_update(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    if cfg!(debug_assertions) {
+        return Ok(None);
+    }
+    let updater = tauri_plugin_updater::UpdaterExt::updater(&app).map_err(|e| e.to_string())?;
+    let update = updater.check().await.map_err(|e| e.to_string())?;
+    Ok(update.map(|u| u.version))
+}
+
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    let updater = tauri_plugin_updater::UpdaterExt::updater(&app).map_err(|e| e.to_string())?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("no update available")?;
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart();
+}
+
 #[tauri::command]
 fn engine_status(engine: State<Engine>) -> EngineStatus {
     let url = engine.url.lock().unwrap().clone();
@@ -247,9 +274,12 @@ fn main() {
         }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Engine::default())
         .invoke_handler(tauri::generate_handler![
             engine_status,
+            check_update,
+            install_update,
             config_read,
             pick_folder,
             store_workspaces,
