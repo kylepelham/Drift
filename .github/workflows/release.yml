@@ -17,6 +17,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'engine/upstream/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install
       - run: bun install --ignore-scripts --cwd engine/upstream
       - run: bun install --cwd engine/opencode
