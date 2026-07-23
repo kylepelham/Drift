@@ -1,12 +1,22 @@
 import { createSignal, For, onCleanup, Show } from "solid-js"
 import { useEngine } from "../engine"
+import { normalizeDir } from "../engine/store"
 import { pickFolder } from "../state/dialog"
 import { persisted } from "../state/persist"
-import { addWorkspace, workspaces } from "../state/workspaces"
+import { selectedSession, selectSession } from "../state/selection"
+import type { Workspace } from "../state/store"
+import { addWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, workspaces } from "../state/workspaces"
 import { ArchiveModal } from "./archive"
 import { IconArchive, IconGear, IconPlus } from "./icons"
 import { openSettings } from "./settings"
-import { WorkspaceEditModal, WorkspaceGroup, WorkspaceMenu, type WorkspaceMenuState } from "./workspaces"
+import {
+  SessionMenu,
+  WorkspaceEditModal,
+  WorkspaceGroup,
+  WorkspaceMenu,
+  type SessionMenuState,
+  type WorkspaceMenuState,
+} from "./workspaces"
 
 const minSidebarWidth = 192
 const maxSidebarWidth = 480
@@ -18,9 +28,12 @@ export function sidebarWidthFromDrag(startWidth: number, deltaX: number, scale: 
 }
 
 export function Sidebar() {
+  const engine = useEngine()
   const [menu, setMenu] = createSignal<WorkspaceMenuState | null>(null)
+  const [sessionMenu, setSessionMenu] = createSignal<SessionMenuState | null>(null)
   const [editing, setEditing] = createSignal<string | null>(null)
   const [archive, setArchive] = createSignal(false)
+  const [moveStatus, setMoveStatus] = createSignal<{ error: boolean; text: string } | null>(null)
   const [width, setWidth] = createSignal(clampSidebarWidth(storedSidebarWidth()))
   let resizeStartX = 0
   let resizeStartWidth = width()
@@ -29,6 +42,45 @@ export function Sidebar() {
   async function add() {
     const path = await pickFolder()
     if (path) await addWorkspace(path)
+  }
+
+  async function moveSessionTo(state: SessionMenuState, destination: Workspace) {
+    const selected = selectedSession()
+    setMoveStatus({ error: false, text: `Moving session to ${destination.name}...` })
+    const result = await engine.actions.moveSession(state.sessionId, destination.path)
+    if (!result.ok) return setMoveStatus({ error: true, text: result.error ?? "Could not move the session" })
+    if (selected && result.moved.includes(selected)) {
+      selectWorkspace(destination.id)
+      selectSession(selected)
+    }
+    setMoveStatus(null)
+  }
+
+  async function retargetWorkspace(workspace: Workspace) {
+    const path = await pickFolder()
+    if (!path || normalizeDir(path) === normalizeDir(workspace.path)) return
+    const collision = [...workspaces(), ...removedWorkspaces()].find(
+      (entry) => entry.id !== workspace.id && normalizeDir(entry.path) === normalizeDir(path),
+    )
+    if (collision) {
+      setMoveStatus({ error: true, text: `${path} is already saved as ${collision.name}` })
+      return
+    }
+
+    setMoveStatus({ error: false, text: `Moving ${workspace.name} sessions...` })
+    const result = await engine.actions.moveWorkspaceSessions(workspace.path, path)
+    if (!result.ok) return setMoveStatus({ error: true, text: result.error ?? "Could not move the workspace" })
+    try {
+      await updateWorkspace(workspace.id, { path })
+      setMoveStatus(null)
+    } catch (error) {
+      const rollback = await engine.actions.moveWorkspaceSessions(path, workspace.path)
+      const detail = error instanceof Error ? error.message : String(error)
+      setMoveStatus({
+        error: true,
+        text: rollback.ok ? `Could not save the new workspace path: ${detail}` : `Workspace move was only partially applied: ${detail}`,
+      })
+    }
   }
 
   function moveResize(event: PointerEvent) {
@@ -76,7 +128,9 @@ export function Sidebar() {
         </div>
       </div>
       <nav class="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
-        <For each={workspaces()}>{(workspace) => <WorkspaceGroup workspace={workspace} onMenu={setMenu} />}</For>
+        <For each={workspaces()}>
+          {(workspace) => <WorkspaceGroup workspace={workspace} onMenu={setMenu} onSessionMenu={setSessionMenu} />}
+        </For>
         <Show when={workspaces().length === 0}>
           <div class="px-2 py-4 text-xs text-ink-faint">Add a workspace (a project folder) to get started.</div>
         </Show>
@@ -88,7 +142,18 @@ export function Sidebar() {
             state={entry().state}
             workspace={entry().workspace}
             onEdit={() => setEditing(entry().workspace.id)}
+            onMove={() => void retargetWorkspace(entry().workspace)}
             onClose={() => setMenu(null)}
+          />
+        )}
+      </Show>
+      <Show when={sessionMenu()}>
+        {(state) => (
+          <SessionMenu
+            state={state()}
+            workspaces={workspaces()}
+            onMove={(workspace) => void moveSessionTo(state(), workspace)}
+            onClose={() => setSessionMenu(null)}
           />
         )}
       </Show>
@@ -97,6 +162,17 @@ export function Sidebar() {
       </Show>
       <Show when={archive()}>
         <ArchiveModal onClose={() => setArchive(false)} />
+      </Show>
+      <Show when={moveStatus()}>
+        {(status) => (
+          <button
+            class="fixed bottom-4 left-1/2 z-50 max-w-lg -translate-x-1/2 rounded-lg border border-edge bg-overlay px-3 py-2 text-xs shadow-xl shadow-black/40"
+            classList={{ "text-danger": status().error, "text-ink-muted": !status().error }}
+            onClick={() => status().error && setMoveStatus(null)}
+          >
+            {status().text}
+          </button>
+        )}
       </Show>
       <div
         role="separator"

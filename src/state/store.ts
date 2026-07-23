@@ -67,7 +67,7 @@ function browserStore(): DriftStore {
       return created
     },
     saveWorkspace: async (w) => {
-      write(wsKey, all().map((x) => (x.id === w.id ? { ...x, name: w.name, icon: w.icon } : x)))
+      write(wsKey, all().map((x) => (x.id === w.id ? { ...x, path: w.path, name: w.name, icon: w.icon } : x)))
     },
     touchWorkspace: async (id) => {
       write(wsKey, all().map((w) => (w.id === id ? { ...w, lastUsed: Date.now() } : w)))

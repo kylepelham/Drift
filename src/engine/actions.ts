@@ -1,4 +1,5 @@
 import type { OpencodeClient, Permission, Session } from "@opencode-ai/sdk/client"
+import { createOpencodeClient as createControlClient } from "@opencode-ai/sdk/v2/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { sleep, type EngineTarget } from "./connection"
 import type { MessageEntry } from "./store"
@@ -22,6 +23,8 @@ export type PromptFile = {
 }
 export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string; files?: PromptFile[] }
 export type PermissionResponse = "once" | "always" | "reject"
+export type ProviderAuthResult = { ok: boolean; connected: boolean }
+export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
 
 type PermissionRequest = {
   id: string
@@ -127,6 +130,67 @@ export function createActions(
     return result.data
   }
 
+  async function sessionsAt(directory: string): Promise<Session[] | null> {
+    const base = target()
+    if (!base) return null
+    const query = new URLSearchParams({ directory, archived: "true", limit: "10000" })
+    const response = await fetch(`${base.url}/experimental/session?${query}`, { headers: base.headers }).catch(() => null)
+    if (!response?.ok) return null
+    return (await response.json().catch(() => null)) as Session[] | null
+  }
+
+  async function rebindSession(id: string, destination: string): Promise<string | null> {
+    const base = target()
+    if (!base) return "Engine is offline"
+    const response = await fetch(`${base.url}/experimental/control-plane/move-session`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...base.headers },
+      body: JSON.stringify({ sessionID: id, destination: { directory: destination }, moveChanges: false }),
+    }).catch(() => null)
+    if (!response) return "Could not reach the engine"
+    if (response.ok) return null
+    const body = (await response.json().catch(() => null)) as { data?: { message?: string } } | null
+    return body?.data?.message ?? `Engine rejected the move (${response.status})`
+  }
+
+  async function moveSessions(entries: Session[], destination: string): Promise<SessionMoveResult> {
+    const moving = entries.filter((session) => normalizeDir(session.directory) !== normalizeDir(destination))
+    if (!moving.length) return { ok: true, moved: [] }
+    for (const session of moving) await interrupt(session.id)
+
+    const completed: Session[] = []
+    for (const session of moving) {
+      const error = await rebindSession(session.id, destination)
+      if (error) {
+        for (const rollback of completed.reverse()) await rebindSession(rollback.id, rollback.directory)
+        const restored = await sessionsAt(moving[0].directory)
+        for (const info of restored ?? []) putSession(set, info)
+        return { ok: false, moved: [], error }
+      }
+      completed.push(session)
+      putSession(set, { ...session, directory: destination })
+    }
+
+    const refreshed = await sessionsAt(destination)
+    const ids = new Set(moving.map((session) => session.id))
+    for (const info of refreshed ?? []) if (ids.has(info.id)) putSession(set, info)
+    return { ok: true, moved: moving.map((session) => session.id) }
+  }
+
+  async function moveSession(id: string, destination: string): Promise<SessionMoveResult> {
+    const session = state.sessions[id]
+    if (!session) return { ok: false, moved: [], error: "Session is no longer available" }
+    const entries = await sessionsAt(session.directory)
+    if (!entries) return { ok: false, moved: [], error: "Could not load the session tree" }
+    return moveSessions(sessionTree(entries, id), destination)
+  }
+
+  async function moveWorkspaceSessions(source: string, destination: string): Promise<SessionMoveResult> {
+    const entries = await sessionsAt(source)
+    if (!entries) return { ok: false, moved: [], error: "Could not load sessions from this workspace" }
+    return moveSessions(entries, destination)
+  }
+
   async function send(id: string, text: string, options: PromptOptions) {
     set("errors", id, undefined!)
     const body = {
@@ -165,10 +229,28 @@ export function createActions(
 
   async function refreshProviders() {
     const result = await requireClient().provider.list().catch(() => null)
-    if (!result?.data) return
+    if (!result?.data) return null
     set("providers", (result.data.all ?? []) as unknown as ProviderInfo[])
     set("connected", result.data.connected ?? [])
     set("defaultModels", result.data.default ?? {})
+    return result.data.connected ?? []
+  }
+
+  function controlClient() {
+    const endpoint = target()
+    if (!endpoint) return null
+    return createControlClient({ baseUrl: endpoint.url, headers: endpoint.headers, directory: state.directory })
+  }
+
+  async function syncProvider(id: string, changed: boolean): Promise<ProviderAuthResult> {
+    if (!changed) return { ok: false, connected: state.connected.includes(id) }
+    const control = controlClient()
+    if (!control) return { ok: false, connected: state.connected.includes(id) }
+    const disposed = await control.global.dispose().catch(() => null)
+    if (disposed?.data !== true) return { ok: false, connected: state.connected.includes(id) }
+    await sleep(50)
+    const connected = await refreshProviders()
+    return { ok: connected !== null, connected: connected?.includes(id) ?? false }
   }
 
   async function providerAuthMethods() {
@@ -185,14 +267,21 @@ export function createActions(
     const result = await requireClient()
       .provider.oauth.callback({ path: { id }, body: { method, ...(code ? { code } : {}) } })
       .catch(() => null)
-    return result?.data === true
+    return syncProvider(id, result?.data === true)
   }
 
   async function setProviderKey(id: string, key: string) {
     const result = await requireClient()
       .auth.set({ path: { id }, body: { type: "api", key } })
       .catch(() => null)
-    return result?.data === true
+    return syncProvider(id, result?.data === true)
+  }
+
+  async function disconnectProvider(id: string) {
+    const control = controlClient()
+    if (!control) return { ok: false, connected: state.connected.includes(id) }
+    const result = await control.auth.remove({ providerID: id }).catch(() => null)
+    return syncProvider(id, result?.data === true)
   }
 
   async function mcpStatus() {
@@ -372,6 +461,8 @@ export function createActions(
     removeAllSessions,
     newSession,
     fork,
+    moveSession,
+    moveWorkspaceSessions,
     send,
     abort,
     summarize,
@@ -383,6 +474,7 @@ export function createActions(
     providerAuthorize,
     providerCallback,
     setProviderKey,
+    disconnectProvider,
     mcpStatus,
     mcpConnect,
     mcpDisconnect,
@@ -399,3 +491,17 @@ export function createActions(
 }
 
 export type EngineActions = ReturnType<typeof createActions>
+
+export function sessionTree(sessions: Session[], rootId: string) {
+  const ids = new Set([rootId])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const session of sessions) {
+      if (!session.parentID || !ids.has(session.parentID) || ids.has(session.id)) continue
+      ids.add(session.id)
+      changed = true
+    }
+  }
+  return sessions.filter((session) => ids.has(session.id))
+}

@@ -51,6 +51,66 @@ async function initRepo(directory: string) {
 }
 
 describe("MoveSession", () => {
+  it.live("rebinds a session after its old directory was moved without copying files", () =>
+    Effect.gen(function* () {
+      const root = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(() => initRepo(root.path))
+      const source = abs(yield* Effect.promise(() => fs.realpath(root.path)))
+      const destination = abs(`${root.path}-relocated`)
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(() => fs.rm(destination, { recursive: true, force: true })).pipe(Effect.ignore),
+      )
+      yield* Effect.promise(() => fs.mkdir(destination))
+
+      const projectID = (yield* Project.Service.use((service) => service.resolve(source))).id
+      const sessionID = SessionV2.ID.make("ses_rebind_missing_source")
+      const { db } = yield* Database.Service
+      yield* db
+        .insert(ProjectTable)
+        .values({ id: projectID, worktree: source, sandboxes: [], time_created: 1, time_updated: 1 })
+        .run()
+        .pipe(Effect.orDie)
+      yield* db
+        .insert(SessionTable)
+        .values({
+          id: sessionID,
+          project_id: projectID,
+          slug: "rebind",
+          directory: source,
+          title: "rebind",
+          version: "test",
+          time_created: 1,
+          time_updated: 1,
+        })
+        .run()
+        .pipe(Effect.orDie)
+      yield* Effect.promise(() => fs.rename(source, `${root.path}-old`))
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(() => fs.rm(`${root.path}-old`, { recursive: true, force: true })).pipe(Effect.ignore),
+      )
+
+      yield* MoveSession.Service.use((service) =>
+        service.moveSession({ sessionID, destination: { directory: destination }, moveChanges: false }),
+      )
+
+      expect(
+        yield* db
+          .select({ projectID: SessionTable.project_id, directory: SessionTable.directory, path: SessionTable.path })
+          .from(SessionTable)
+          .where(eq(SessionTable.id, sessionID))
+          .get(),
+      ).toEqual({
+        projectID: Project.ID.global,
+        directory: destination,
+        path: path.relative(path.parse(destination).root, destination).replaceAll("\\", "/"),
+      })
+      expect(yield* Effect.promise(() => fs.readdir(destination))).toEqual([])
+    }),
+  )
+
   it.live("moves session changes to another project directory", () =>
     Effect.gen(function* () {
       const root = yield* Effect.acquireRelease(

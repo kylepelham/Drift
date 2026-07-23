@@ -170,10 +170,6 @@ textarea {
   background: var(--bg);
 }
 
-.composer-shell {
-  background: var(--bg);
-}
-
 .composer-dock::before {
   content: "";
   position: absolute;
@@ -191,8 +187,8 @@ textarea {
 .plan-card {
   position: relative;
   z-index: 0;
-  margin-bottom: -0.75rem;
-  padding-bottom: 0.75rem;
+  margin-bottom: -1.125rem;
+  padding-bottom: 1.125rem;
   box-shadow: 0 -14px 38px color-mix(in srgb, black 18%, transparent);
 }
 

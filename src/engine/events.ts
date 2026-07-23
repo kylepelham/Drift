@@ -13,6 +13,17 @@ export function reduce(set: Set, event: Event) {
     return dropQuestion(set, raw.properties.sessionID as string, raw.properties.requestID as string)
   if (raw.type === "message.part.delta")
     return appendPartDelta(set, raw.properties as { sessionID: string; messageID: string; partID: string; field: string; delta: string })
+  if (raw.type === "session.next.moved")
+    return moveSession(
+      set,
+      raw.properties as {
+        sessionID: string
+        projectID?: string
+        location: { directory: string; workspaceID?: string }
+        subdirectory?: string
+        timestamp: number
+      },
+    )
   switch (event.type) {
     case "session.created":
     case "session.updated":
@@ -57,6 +68,27 @@ function dropSession(set: Set, info: Session) {
       delete s.todos[info.id]
       delete s.status[info.id]
       delete s.activity[info.id]
+    }),
+  )
+}
+
+function moveSession(
+  set: Set,
+  moved: {
+    sessionID: string
+    projectID?: string
+    location: { directory: string; workspaceID?: string }
+    subdirectory?: string
+    timestamp: number
+  },
+) {
+  set(
+    produce((state) => {
+      const session = state.sessions[moved.sessionID]
+      if (!session) return
+      session.directory = moved.location.directory
+      if (moved.projectID) session.projectID = moved.projectID
+      session.time.updated = moved.timestamp
     }),
   )
 }

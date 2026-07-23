@@ -1,11 +1,13 @@
 export * as MoveSession from "./move-session"
 
 import { Context, DateTime, Effect, Layer, Schema } from "effect"
+import { Database } from "../database/database"
 import { makeGlobalNode } from "../effect/app-node"
 import { EventV2 } from "../event"
 import { Git } from "../git"
 import { Location } from "../location"
 import { ProjectV2 } from "../project"
+import { ProjectTable } from "../project/sql"
 import { SessionV2 } from "../session"
 import { SessionEvent } from "../session/event"
 import { SessionSchema } from "../session/schema"
@@ -70,6 +72,7 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const git = yield* Git.Service
+    const { db } = yield* Database.Service
     const events = yield* EventV2.Service
     const project = yield* ProjectV2.Service
     const sessions = yield* SessionStore.Service
@@ -80,13 +83,13 @@ const layer = Layer.effect(
       const directory = AbsolutePath.make(input.destination.directory)
       if (current.location.directory === directory) return
 
-      const source = yield* project.resolve(current.location.directory)
       const destination = yield* project.resolve(directory)
-      if (current.projectID !== destination.id) {
+      const source = input.moveChanges ? yield* project.resolve(current.location.directory) : undefined
+      if (input.moveChanges && current.projectID !== destination.id) {
         return yield* new DestinationProjectMismatchError({ expected: current.projectID, actual: destination.id })
       }
 
-      const moveChanges = input.moveChanges && source.directory !== destination.directory
+      const moveChanges = input.moveChanges && source?.directory !== destination.directory
       const sourceRepository = moveChanges ? yield* git.repo.discover(current.location.directory) : undefined
       if (moveChanges && !sourceRepository)
         return yield* new CaptureChangesError({ message: "Source is not a Git repository" })
@@ -103,8 +106,16 @@ const layer = Layer.effect(
           .pipe(Effect.mapError((error) => new ApplyChangesError({ message: error.message })))
       }
 
+      yield* db
+        .insert(ProjectTable)
+        .values({ id: destination.id, worktree: destination.directory, vcs: destination.vcs?.type, sandboxes: [] })
+        .onConflictDoNothing()
+        .run()
+        .pipe(Effect.orDie)
+
       yield* events.publish(SessionEvent.Moved, {
         sessionID: input.sessionID,
+        projectID: destination.id,
         location: Location.Ref.make({ directory }),
         subdirectory: RelativePath.make(path.relative(destination.directory, directory).replaceAll("\\", "/")),
         timestamp: yield* DateTime.now,
@@ -144,5 +155,5 @@ const layer = Layer.effect(
 export const node = makeGlobalNode({
   service: Service,
   layer,
-  deps: [Git.node, EventV2.node, ProjectV2.node, SessionStore.node],
+  deps: [Database.node, Git.node, EventV2.node, ProjectV2.node, SessionStore.node],
 })

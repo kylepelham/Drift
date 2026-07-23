@@ -79,12 +79,12 @@ export async function addWorkspace(path: string) {
   selectWorkspace(workspace.id)
 }
 
-export async function updateWorkspace(id: string, patch: { name?: string; icon?: string }) {
+export async function updateWorkspace(id: string, patch: { path?: string; name?: string; icon?: string }) {
   const workspace = workspaces().find((w) => w.id === id)
   if (!workspace) return
   await driftStore.saveWorkspace({
     id,
-    path: workspace.path,
+    path: patch.path ?? workspace.path,
     name: patch.name ?? workspace.name,
     icon: patch.icon ?? workspace.icon,
   })

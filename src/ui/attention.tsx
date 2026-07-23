@@ -4,6 +4,7 @@ import { useEngine } from "../engine"
 import type { PermissionResponse } from "../engine/actions"
 import type { QuestionInfo } from "../engine/store"
 import { selectedSession } from "../state/selection"
+import { IconCheck } from "./icons"
 import { Chevron } from "./parts"
 
 export function AttentionStrip() {
@@ -35,19 +36,38 @@ function TodoStrip() {
           </span>
         </button>
         <Show when={open()}>
-          <ul class="space-y-1 border-t border-edge px-3 py-2">
+          <ul class="space-y-0.5 border-t border-edge px-2 py-2">
             <For each={todos()}>
               {(todo) => (
                 <li
-                  class="flex items-center gap-2 text-xs"
+                  class="flex items-start gap-2 rounded-md px-2 py-1 text-xs"
                   classList={{
-                    "text-ink-faint line-through": todo.status === "completed",
-                    "text-accent": todo.status === "in_progress",
+                    "text-ink-faint": todo.status === "completed" || todo.status === "cancelled",
+                    "bg-accent/5 text-ink": todo.status === "in_progress",
                     "text-ink-muted": todo.status === "pending",
                   }}
                 >
-                  <span class="size-1 rounded-full bg-current" />
-                  {todo.content}
+                  <span
+                    class="mt-px flex size-3.5 shrink-0 items-center justify-center rounded-full border"
+                    classList={{
+                      "border-edge-strong": todo.status === "completed" || todo.status === "cancelled",
+                      "border-accent/60 bg-accent/10 text-accent": todo.status === "in_progress",
+                      "border-edge text-ink-faint": todo.status === "pending",
+                    }}
+                  >
+                    <Show when={todo.status === "completed"}>
+                      <IconCheck class="size-2.5" />
+                    </Show>
+                    <Show when={todo.status === "in_progress"}>
+                      <span class="size-1.5 rounded-full bg-current" />
+                    </Show>
+                    <Show when={todo.status === "cancelled"}>
+                      <span class="h-px w-1.5 bg-current" />
+                    </Show>
+                  </span>
+                  <span classList={{ "line-through": todo.status === "completed" || todo.status === "cancelled" }}>
+                    {todo.content}
+                  </span>
                 </li>
               )}
             </For>

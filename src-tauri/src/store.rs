@@ -273,9 +273,10 @@ mod tests {
         let created = store.add_workspace("w1", "S:/proj", "Proj", "").unwrap();
         assert_eq!(created.id, "w1");
         store
-            .save_workspace("w1", "S:/proj", "Renamed", "R")
+            .save_workspace("w1", "S:/moved", "Renamed", "R")
             .unwrap();
         assert_eq!(store.workspaces().unwrap()[0].name, "Renamed");
+        assert_eq!(store.workspaces().unwrap()[0].path, "S:/moved");
 
         store.archive_session("s1", "w1").unwrap();
         store.archive_session("s2", "w1").unwrap();
@@ -290,18 +291,18 @@ mod tests {
         assert!(store.workspaces().unwrap().is_empty());
         assert_eq!(store.removed_workspaces().unwrap().len(), 1);
 
-        let restored = store.add_workspace("w2", "S:/proj", "Ignored", "").unwrap();
+        let restored = store.add_workspace("w2", "S:/moved", "Ignored", "").unwrap();
         assert_eq!(restored.id, "w1");
         assert_eq!(restored.name, "Renamed");
         assert_eq!(store.workspaces().unwrap().len(), 1);
 
         store.remove_workspace("w1").unwrap();
         let paths = store.purge_removed_workspaces(now() + 1000).unwrap();
-        assert_eq!(paths, vec!["S:/proj".to_string()]);
+        assert_eq!(paths, vec!["S:/moved".to_string()]);
         assert!(store.workspaces().unwrap().is_empty());
         assert!(
             store
-                .add_workspace("w3", "S:/proj", "Fresh", "")
+                .add_workspace("w3", "S:/moved", "Fresh", "")
                 .unwrap()
                 .id
                 == "w3"

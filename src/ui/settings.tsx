@@ -21,6 +21,8 @@ import { IconCheck, IconX } from "./icons"
 import { Toggle } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
 
+type ProviderNotice = { tone: "success" | "warning" | "error"; text: string }
+
 const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, string] }> = {
   "drift-dark": { label: "Drift Dark", swatch: ["#141517", "#212429", "#7ba3e8"] },
   "drift-slate": { label: "Drift Slate", swatch: ["#0f1419", "#1b232c", "#6cb2c9"] },
@@ -201,6 +203,7 @@ function ProvidersSection() {
   const [methods, setMethods] = createSignal<Record<string, ProviderAuthMethod[]>>({})
   const [expanded, setExpanded] = createSignal<string | null>(null)
   const [query, setQuery] = createSignal("")
+  const [notice, setNotice] = createSignal<ProviderNotice | null>(null)
   onMount(() => void engine.actions.providerAuthMethods().then((map) => setMethods({ ...map })))
 
   const groups = createMemo(() => {
@@ -233,8 +236,10 @@ function ProvidersSection() {
       <Show when={expanded() === provider.id}>
         <ProviderConnect
           providerId={provider.id}
+          providerName={provider.name}
+          connected={engine.state.connected.includes(provider.id)}
           methods={methods()[provider.id] ?? [{ type: "api", label: "API key" }]}
-          onDone={() => setExpanded(null)}
+          onNotice={setNotice}
         />
       </Show>
     </div>
@@ -248,6 +253,20 @@ function ProvidersSection() {
         value={query()}
         onInput={(event) => setQuery(event.currentTarget.value)}
       />
+      <Show when={notice()}>
+        {(item) => (
+          <div
+            class="mb-2 rounded-md border px-3 py-2 text-xs"
+            classList={{
+              "border-ok/35 bg-ok/10 text-ok": item().tone === "success",
+              "border-warn/35 bg-warn/10 text-warn": item().tone === "warning",
+              "border-danger/35 bg-danger/10 text-danger": item().tone === "error",
+            }}
+          >
+            {item().text}
+          </div>
+        )}
+      </Show>
       <Show when={groups().connected.length > 0}>
         <div class="px-3 pt-1 pb-1 text-[0.68rem] tracking-wider text-ink-faint uppercase">Connected</div>
         <For each={groups().connected}>{row}</For>
@@ -263,41 +282,58 @@ function ProvidersSection() {
   )
 }
 
-function ProviderConnect(props: { providerId: string; methods: ProviderAuthMethod[]; onDone: () => void }) {
+function ProviderConnect(props: {
+  providerId: string
+  providerName: string
+  connected: boolean
+  methods: ProviderAuthMethod[]
+  onNotice: (notice: ProviderNotice) => void
+}) {
   const engine = useEngine()
   const [methodIndex, setMethodIndex] = createSignal(0)
   const [key, setKey] = createSignal("")
   const [code, setCode] = createSignal("")
-  const [pending, setPending] = createSignal(false)
+  const [pending, setPending] = createSignal<"connect" | "disconnect" | null>(null)
   const [error, setError] = createSignal("")
   const [authorization, setAuthorization] = createSignal<{ url: string; method: string; instructions: string } | null>(null)
   const method = () => props.methods[methodIndex()] ?? props.methods[0]
 
-  async function finish(ok: boolean) {
-    if (!ok) {
-      setError("Connection failed. Check the credentials and try again.")
-      setPending(false)
+  function fail(message: string) {
+    setError(message)
+    setPending(null)
+    props.onNotice({ tone: "error", text: message })
+  }
+
+  async function finish(result: { ok: boolean; connected: boolean }) {
+    if (!result.ok) {
+      fail(`Could not connect ${props.providerName}. Check the credential and try again.`)
       return
     }
-    await engine.actions.refreshProviders()
-    setPending(false)
-    props.onDone()
+    if (!result.connected) {
+      fail(`Credential saved, but ${props.providerName} did not become available.`)
+      return
+    }
+    setKey("")
+    setCode("")
+    setPending(null)
+    props.onNotice({ tone: "success", text: `${props.providerName} connected. Credential saved.` })
   }
 
   async function connectApi() {
     if (!key().trim()) return
-    setPending(true)
+    setPending("connect")
     setError("")
     await finish(await engine.actions.setProviderKey(props.providerId, key().trim()))
   }
 
   async function startOauth() {
-    setPending(true)
+    setPending("connect")
     setError("")
     const auth = await engine.actions.providerAuthorize(props.providerId, methodIndex()).catch(() => null)
     if (!auth) {
       setError("Could not start the sign-in flow.")
-      setPending(false)
+      setPending(null)
+      props.onNotice({ tone: "error", text: `Could not start the ${props.providerName} sign-in flow.` })
       return
     }
     setAuthorization(auth)
@@ -307,14 +343,33 @@ function ProviderConnect(props: { providerId: string; methods: ProviderAuthMetho
       setAuthorization(null)
       return
     }
-    setPending(false)
+    setPending(null)
   }
 
   async function submitCode() {
     if (!code().trim()) return
-    setPending(true)
+    setPending("connect")
     setError("")
     await finish(await engine.actions.providerCallback(props.providerId, methodIndex(), code().trim()))
+  }
+
+  async function disconnect() {
+    setPending("disconnect")
+    setError("")
+    const result = await engine.actions.disconnectProvider(props.providerId)
+    setPending(null)
+    if (!result.ok) {
+      fail(`Could not disconnect ${props.providerName}. Try again.`)
+      return
+    }
+    if (result.connected) {
+      props.onNotice({
+        tone: "warning",
+        text: `${props.providerName}'s saved credential was removed, but it remains connected through environment or config.`,
+      })
+      return
+    }
+    props.onNotice({ tone: "success", text: `${props.providerName} disconnected. Stored credential removed.` })
   }
 
   return (
@@ -353,10 +408,10 @@ function ProviderConnect(props: { providerId: string; methods: ProviderAuthMetho
           />
           <button
             class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink disabled:opacity-40"
-            disabled={pending() || !key().trim()}
+            disabled={pending() !== null || !key().trim()}
             onClick={() => void connectApi()}
           >
-            {pending() ? "Connecting..." : "Connect"}
+            {pending() === "connect" ? "Connecting..." : props.connected ? "Update key" : "Connect"}
           </button>
         </div>
       </Show>
@@ -366,10 +421,10 @@ function ProviderConnect(props: { providerId: string; methods: ProviderAuthMetho
           fallback={
             <button
               class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink disabled:opacity-40"
-              disabled={pending()}
+              disabled={pending() !== null}
               onClick={() => void startOauth()}
             >
-              {pending() ? "Waiting for sign-in..." : `Sign in with ${method()?.label ?? "browser"}`}
+              {pending() === "connect" ? "Waiting for sign-in..." : `Sign in with ${method()?.label ?? "browser"}`}
             </button>
           }
         >
@@ -388,14 +443,14 @@ function ProviderConnect(props: { providerId: string; methods: ProviderAuthMetho
                   />
                   <button
                     class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink disabled:opacity-40"
-                    disabled={pending() || !code().trim()}
+                    disabled={pending() !== null || !code().trim()}
                     onClick={() => void submitCode()}
                   >
-                    {pending() ? "Verifying..." : "Submit"}
+                    {pending() === "connect" ? "Verifying..." : "Submit"}
                   </button>
                 </div>
               </Show>
-              <Show when={auth().method === "auto" && pending()}>
+              <Show when={auth().method === "auto" && pending() === "connect"}>
                 <div class="pulse-soft text-xs text-ink-faint">Waiting for the browser sign-in to complete...</div>
               </Show>
             </div>
@@ -404,6 +459,18 @@ function ProviderConnect(props: { providerId: string; methods: ProviderAuthMetho
       </Show>
       <Show when={error()}>
         <div class="text-xs text-danger">{error()}</div>
+      </Show>
+      <Show when={props.connected}>
+        <div class="flex items-center justify-between gap-3 border-t border-edge pt-2">
+          <span class="text-xs text-ink-faint">Disconnect removes Drift's stored credential.</span>
+          <button
+            class="rounded-md border border-danger/40 px-2.5 py-1 text-xs text-danger transition-colors hover:bg-danger/10 disabled:opacity-40"
+            disabled={pending() !== null}
+            onClick={() => void disconnect()}
+          >
+            {pending() === "disconnect" ? "Disconnecting..." : "Disconnect"}
+          </button>
+        </div>
       </Show>
     </div>
   )

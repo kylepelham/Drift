@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, Match, onCleanup, Show, Switch,
 import { useEngine } from "../engine"
 import { emitThreadArchived } from "../plugins"
 import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
-import { childrenOf, sessionBusy, sessionsFor } from "../engine/store"
+import { childrenOf, normalizeDir, sessionBusy, sessionsFor } from "../engine/store"
 import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
 import { fixedMenuPosition } from "../state/zoom"
@@ -20,6 +20,7 @@ import {
 } from "../state/workspaces"
 
 export type WorkspaceMenuState = { x: number; y: number; workspaceId: string }
+export type SessionMenuState = { x: number; y: number; sessionId: string; workspaceId: string }
 
 type SessionList = ReturnType<typeof sessionsFor>
 const sessionPageSize = 5
@@ -27,7 +28,11 @@ const sessionPageSize = 5
 // ponytail: last-known lists mask the engine store reset while switching workspaces
 const sessionListCache = new Map<string, SessionList>()
 
-export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: WorkspaceMenuState) => void }) {
+export function WorkspaceGroup(props: {
+  workspace: Workspace
+  onMenu: (state: WorkspaceMenuState) => void
+  onSessionMenu: (state: SessionMenuState) => void
+}) {
   const engine = useEngine()
   let root!: HTMLDivElement
   const collapsed = () => workspaceCollapsed(props.workspace.id)
@@ -36,7 +41,8 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
   const all = createMemo(() => {
     const live = sessionsFor(engine.state, props.workspace.path)
     if (live.length) sessionListCache.set(props.workspace.path, live)
-    return live.length ? live : (sessionListCache.get(props.workspace.path) ?? live)
+    if (engine.state.connection === "online" && !live.length) sessionListCache.delete(props.workspace.path)
+    return live.length || engine.state.connection === "online" ? live : (sessionListCache.get(props.workspace.path) ?? live)
   })
   const children = (parentId: string) =>
     childrenOf(engine.state, parentId).filter((child) => sessionBusy(engine.state, child.id))
@@ -106,9 +112,17 @@ export function WorkspaceGroup(props: { workspace: Workspace; onMenu: (state: Wo
                   title={session.title}
                   updated={session.time.updated}
                   workspace={props.workspace}
+                  onMenu={props.onSessionMenu}
                 />
                 <For each={children(session.id)}>
-                  {(child) => <ChildThreadItem sessionId={child.id} title={child.title} workspace={props.workspace} />}
+                  {(child) => (
+                    <ChildThreadItem
+                      sessionId={child.id}
+                      title={child.title}
+                      workspace={props.workspace}
+                      onMenu={props.onSessionMenu}
+                    />
+                  )}
                 </For>
               </>
             )}
@@ -217,7 +231,13 @@ function RowButton(props: { title: string; onClick: (event: MouseEvent) => void;
   )
 }
 
-function ThreadItem(props: { sessionId: string; title: string; updated: number; workspace: Workspace }) {
+function ThreadItem(props: {
+  sessionId: string
+  title: string
+  updated: number
+  workspace: Workspace
+  onMenu: (state: SessionMenuState) => void
+}) {
   const engine = useEngine()
   const active = () => selectedSession() === props.sessionId
   return (
@@ -227,6 +247,10 @@ function ThreadItem(props: { sessionId: string; title: string; updated: number; 
       onClick={() => {
         selectWorkspace(props.workspace.id)
         selectSession(props.sessionId)
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        props.onMenu({ x: event.clientX, y: event.clientY, sessionId: props.sessionId, workspaceId: props.workspace.id })
       }}
     >
       <StatusDot sessionId={props.sessionId} />
@@ -275,7 +299,12 @@ function StatusDot(props: { sessionId: string }) {
   )
 }
 
-function ChildThreadItem(props: { sessionId: string; title: string; workspace: Workspace }) {
+function ChildThreadItem(props: {
+  sessionId: string
+  title: string
+  workspace: Workspace
+  onMenu: (state: SessionMenuState) => void
+}) {
   const active = () => selectedSession() === props.sessionId
   return (
     <div
@@ -284,6 +313,10 @@ function ChildThreadItem(props: { sessionId: string; title: string; workspace: W
       onClick={() => {
         selectWorkspace(props.workspace.id)
         selectSession(props.sessionId)
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        props.onMenu({ x: event.clientX, y: event.clientY, sessionId: props.sessionId, workspaceId: props.workspace.id })
       }}
     >
       <span class="text-[0.7rem] text-ink-faint">&#8627;</span>
@@ -330,11 +363,12 @@ export function WorkspaceMenu(props: {
   state: WorkspaceMenuState
   workspace: Workspace
   onEdit: () => void
+  onMove: () => void
   onClose: () => void
 }) {
   let root!: HTMLDivElement
   const [confirming, setConfirming] = createSignal(false)
-  const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, confirming() ? 144 : 112)
+  const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, confirming() ? 176 : 144)
 
   createEffect(() => {
     const away = (event: MouseEvent) => {
@@ -368,6 +402,13 @@ export function WorkspaceMenu(props: {
         }}
       />
       <MenuItem
+        label="Move..."
+        onClick={() => {
+          props.onMove()
+          props.onClose()
+        }}
+      />
+      <MenuItem
         label={confirming() ? "Click again to confirm" : "Remove"}
         danger
         onClick={() => {
@@ -380,6 +421,67 @@ export function WorkspaceMenu(props: {
         <div class="px-2 pt-1 pb-0.5 text-[0.65rem] leading-snug text-ink-faint">
           Threads are kept for 7 days; re-add the same folder to restore them.
         </div>
+      </Show>
+    </div>
+  )
+}
+
+export function SessionMenu(props: {
+  state: SessionMenuState
+  workspaces: Workspace[]
+  onMove: (workspace: Workspace) => void
+  onClose: () => void
+}) {
+  let root!: HTMLDivElement
+  const [choosing, setChoosing] = createSignal(false)
+  const targets = () => {
+    const source = props.workspaces.find((workspace) => workspace.id === props.state.workspaceId)
+    return props.workspaces.filter(
+      (workspace) =>
+        workspace.id !== props.state.workspaceId && (!source || normalizeDir(workspace.path) !== normalizeDir(source.path)),
+    )
+  }
+  const height = () => (choosing() ? Math.min(320, 48 + Math.max(1, targets().length) * 36) : 48)
+  const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, height())
+
+  createEffect(() => {
+    const away = (event: MouseEvent) => {
+      if (!root.contains(event.target as Node)) props.onClose()
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") props.onClose()
+    }
+    document.addEventListener("mousedown", away)
+    document.addEventListener("keydown", escape)
+    onCleanup(() => {
+      document.removeEventListener("mousedown", away)
+      document.removeEventListener("keydown", escape)
+    })
+  })
+
+  return (
+    <div
+      ref={root}
+      class="fade-up fixed z-40 max-h-80 w-52 overflow-y-auto rounded-lg border border-edge bg-overlay p-1.5 shadow-xl shadow-black/40"
+      style={{ left: `${position().left}px`, top: `${position().top}px` }}
+    >
+      <MenuItem label={choosing() ? "Move to workspace" : "Move"} onClick={() => setChoosing(true)} />
+      <Show when={choosing()}>
+        <div class="my-1 border-t border-edge" />
+        <For each={targets()}>
+          {(workspace) => (
+            <MenuItem
+              label={workspace.name}
+              onClick={() => {
+                props.onMove(workspace)
+                props.onClose()
+              }}
+            />
+          )}
+        </For>
+        <Show when={targets().length === 0}>
+          <MenuItem label="No other workspaces" disabled onClick={() => {}} />
+        </Show>
       </Show>
     </div>
   )
@@ -467,14 +569,16 @@ export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () =>
   )
 }
 
-function MenuItem(props: { label: string; danger?: boolean; onClick: () => void }) {
+function MenuItem(props: { label: string; danger?: boolean; disabled?: boolean; onClick: () => void }) {
   return (
     <button
       class="w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors"
       classList={{
-        "text-ink-muted hover:bg-raised hover:text-ink": !props.danger,
-        "text-danger hover:bg-danger/10": props.danger,
+        "text-ink-muted hover:bg-raised hover:text-ink": !props.danger && !props.disabled,
+        "text-danger hover:bg-danger/10": props.danger && !props.disabled,
+        "cursor-default text-ink-faint": props.disabled,
       }}
+      disabled={props.disabled}
       onClick={props.onClick}
     >
       {props.label}

@@ -93,6 +93,50 @@ test("fixed menus convert visual coordinates and viewport bounds through CSS zoo
   expect(fixedMenuPosition(1170, 870, 200, 100, metrics)).toEqual({ left: 592, top: 492, viewportHeight: 600 })
 })
 
+test("provider credentials dispose cached instances and refresh connection state", async () => {
+  const { createActions } = await import("../src/engine/actions")
+  const [state, set] = createEngineState()
+  set("directory", "C:\\repo")
+  const requests: string[] = []
+  const providerLists = [["opencode"], []]
+  const client = {
+    auth: {
+      set: async () => ({ data: true }),
+    },
+    provider: {
+      list: async () => ({
+        data: { all: [], connected: providerLists.shift() ?? [], default: {} },
+      }),
+    },
+  }
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    requests.push(`${request.method} ${new URL(request.url).pathname}`)
+    return new Response("true", { status: 200, headers: { "content-type": "application/json" } })
+  }) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => client as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+    )
+    expect(await actions.setProviderKey("opencode", "test-key")).toEqual({ ok: true, connected: true })
+    expect(state.connected).toEqual(["opencode"])
+    expect(await actions.disconnectProvider("opencode")).toEqual({ ok: true, connected: false })
+    expect(state.connected).toEqual([])
+    expect(requests).toEqual([
+      "POST /global/dispose",
+      "DELETE /auth/opencode",
+      "POST /global/dispose",
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test("upward transcript gestures unstick immediately near the bottom", async () => {
   const { scrollGestureSticks } = await import("../src/ui/chat")
   expect(scrollGestureSticks(1000, 980, 20)).toBeFalse()
