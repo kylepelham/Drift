@@ -3,7 +3,8 @@
 Drift is three layers with strict one-way flow:
 
 ```
-engine/upstream (vendored opencode source, git subtree, never edited)
+engine/upstream (pristine opencode git subtree)
+        | temporary engine/overlays during build/test
         | bun run build:engine
 drift-engine.exe (embedded sidecar, HTTP + SSE)
         ^                |
@@ -35,6 +36,8 @@ src-tauri   -> shell: spawns the sidecar, exposes engine_url, owns Drift's SQLit
 - Engine layer never imports UI.
 - Anything persistent and Drift-specific (workspace names, icons, archive state,
   attachments) belongs to the shell's SQLite store (phase 4.5), not the engine.
+- Never edit `engine/upstream` directly. Internal adaptations that cannot use a public
+  plugin/API belong in `engine/overlays`; tooling applies and reverses them atomically.
 - Transcripts are only loaded for sessions the user opened (`loaded` map); events for
   unloaded sessions only touch cheap state (status, sessions list).
 

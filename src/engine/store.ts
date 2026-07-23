@@ -12,7 +12,7 @@ import type {
 import { createStore, type SetStoreFunction } from "solid-js/store"
 import type { Connection } from "./connection"
 
-export type ModelInfo = Model & { variants?: Record<string, unknown> }
+export type ModelInfo = Model & { family?: string; release_date?: string; variants?: Record<string, unknown> }
 export type ProviderInfo = { id: string; name: string; models: Record<string, ModelInfo> }
 export type ModelRef = { providerID: string; modelID: string }
 export type MessageEntry = { info: Message; parts: Part[] }

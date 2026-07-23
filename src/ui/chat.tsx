@@ -123,10 +123,32 @@ export function Chat() {
   // measurement churn fire scroll events too and used to unstick mid-settle.
   let gestureAt = 0
   let dragging = false
+  let forwardedTarget: number | null = null
+  let forwardedReset: ReturnType<typeof setTimeout> | undefined
   const gesture = () => (gestureAt = Date.now())
+  const nativeWheel = () => {
+    forwardedTarget = null
+    clearTimeout(forwardedReset)
+    gesture()
+  }
   const releaseDrag = () => (dragging = false)
+  const forwardedWheel = (event: Event) => {
+    const detail = (event as CustomEvent<ForwardedWheel>).detail
+    gesture()
+    const delta = normalizedWheelDelta(detail.deltaY, detail.deltaMode, scroller.clientHeight)
+    const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+    forwardedTarget = accumulatedWheelTarget(scroller.scrollTop, forwardedTarget, delta, max)
+    scroller.scrollTo({ top: forwardedTarget, behavior: "smooth" })
+    clearTimeout(forwardedReset)
+    forwardedReset = setTimeout(() => (forwardedTarget = null), 180)
+  }
   window.addEventListener("pointerup", releaseDrag)
-  onCleanup(() => window.removeEventListener("pointerup", releaseDrag))
+  window.addEventListener(chatWheelEvent, forwardedWheel)
+  onCleanup(() => {
+    clearTimeout(forwardedReset)
+    window.removeEventListener("pointerup", releaseDrag)
+    window.removeEventListener(chatWheelEvent, forwardedWheel)
+  })
 
   function onScroll() {
     const top = scroller.scrollTop
@@ -158,7 +180,7 @@ export function Chat() {
       ref={scroller}
       class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
       onScroll={onScroll}
-      onWheel={gesture}
+      onWheel={nativeWheel}
       onPointerDown={(event) => {
         gesture()
         dragging = event.target === scroller
@@ -195,6 +217,48 @@ export function Chat() {
       </Show>
     </div>
   )
+}
+
+type ForwardedWheel = { deltaY: number; deltaMode: number }
+const chatWheelEvent = "drift:chat-wheel"
+
+export function forwardWheelToChat(event: WheelEvent, boundary: HTMLElement) {
+  if (event.ctrlKey || event.deltaY === 0 || wheelTargetConsumes(event.target, boundary, event.deltaY)) return false
+  window.dispatchEvent(
+    new CustomEvent<ForwardedWheel>(chatWheelEvent, {
+      detail: { deltaY: event.deltaY, deltaMode: event.deltaMode },
+    }),
+  )
+  event.preventDefault()
+  return true
+}
+
+function wheelTargetConsumes(target: EventTarget | null, boundary: HTMLElement, deltaY: number) {
+  let element = target instanceof Element ? target : null
+  while (element) {
+    if (element.hasAttribute("data-wheel-lock")) return true
+    if (element !== boundary) {
+      const style = getComputedStyle(element)
+      const scrollable = style.overflowY === "auto" || style.overflowY === "scroll"
+      if (scrollable && element.scrollHeight > element.clientHeight) {
+        const remaining = element.scrollHeight - element.clientHeight - element.scrollTop
+        if ((deltaY < 0 && element.scrollTop > 0) || (deltaY > 0 && remaining > 1)) return true
+      }
+    }
+    if (element === boundary) break
+    element = element.parentElement
+  }
+  return false
+}
+
+export function normalizedWheelDelta(deltaY: number, deltaMode: number, viewportHeight: number) {
+  if (deltaMode === 1) return deltaY * 16
+  if (deltaMode === 2) return deltaY * viewportHeight
+  return deltaY
+}
+
+export function accumulatedWheelTarget(scrollTop: number, pendingTarget: number | null, delta: number, max: number) {
+  return Math.min(max, Math.max(0, (pendingTarget ?? scrollTop) + delta))
 }
 
 export function resizeCompensation(previous: number, next: number, rowBottom: number, viewportTop: number) {
@@ -289,7 +353,7 @@ function Row(props: {
     <div ref={props.measure} data-mid={props.entry.info.id} class="min-w-0 max-w-full pb-6" classList={{ "fade-up": fresh }}>
       <MessageView entry={props.entry} footer={props.next?.info.role !== "assistant"} />
       <Show when={props.thinking}>
-        <div class="timeline-thinking" role="status" aria-live="polite">
+        <div class="timeline-thinking select-none" role="status" aria-live="polite">
           <TextShimmer text="Thinking" />
           <Show when={props.thinkingHeading}>{(heading) => <span class="timeline-thinking-heading">{heading()}</span>}</Show>
         </div>

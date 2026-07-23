@@ -80,6 +80,16 @@ test("compaction boundary merges into its adjacent summary", async () => {
   expect(mergeCompactionEntries([boundary] as never).map((entry) => entry.info.id)).toEqual(["u1"])
 })
 
+test("successful compaction clears a transient session error", () => {
+  const [state, set] = createEngineState()
+  set("errors", "s1", "Your input exceeds the context window")
+  reduce(
+    set,
+    { type: "session.compacted", properties: { sessionID: "s1" } } as unknown as Event,
+  )
+  expect(state.errors["s1"]).toBeUndefined()
+})
+
 test("sidebar drag converts screen movement through the current zoom scale", async () => {
   const { sidebarWidthFromDrag } = await import("../src/ui/sidebar")
   expect(sidebarWidthFromDrag(256, 30, 1.5)).toBe(276)
@@ -138,10 +148,16 @@ test("provider credentials dispose cached instances and refresh connection state
 })
 
 test("upward transcript gestures unstick immediately near the bottom", async () => {
-  const { scrollGestureSticks } = await import("../src/ui/chat")
+  const { accumulatedWheelTarget, normalizedWheelDelta, scrollGestureSticks } = await import("../src/ui/chat")
   expect(scrollGestureSticks(1000, 980, 20)).toBeFalse()
   expect(scrollGestureSticks(980, 1000, 20)).toBeTrue()
   expect(scrollGestureSticks(980, 1000, 120)).toBeFalse()
+  expect(normalizedWheelDelta(3, 0, 800)).toBe(3)
+  expect(normalizedWheelDelta(3, 1, 800)).toBe(48)
+  expect(normalizedWheelDelta(2, 2, 800)).toBe(1600)
+  expect(accumulatedWheelTarget(100, null, 40, 500)).toBe(140)
+  expect(accumulatedWheelTarget(105, 140, 40, 500)).toBe(180)
+  expect(accumulatedWheelTarget(490, null, 40, 500)).toBe(500)
 })
 
 test("tall row measurement only compensates rows actually above the viewport", async () => {

@@ -12,7 +12,7 @@ import {
   workspaces,
 } from "./state/workspaces"
 import { AttentionStrip } from "./ui/attention"
-import { Chat } from "./ui/chat"
+import { Chat, forwardWheelToChat } from "./ui/chat"
 import { Composer } from "./ui/composer"
 import { DebugPanel } from "./ui/debug"
 import { ChatHeader } from "./ui/header"
@@ -43,7 +43,10 @@ export function App() {
                 <ChatHeader />
                 <Chat />
               </div>
-              <div class="composer-dock shrink-0 px-4 pb-4">
+              <div
+                class="composer-dock shrink-0 px-4 pb-4"
+                onWheel={(event) => forwardWheelToChat(event, event.currentTarget)}
+              >
                 <AttentionStrip />
                 <Composer />
               </div>

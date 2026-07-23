@@ -6,7 +6,6 @@ import { Event } from "./event"
 import { ProviderMetadata, ToolContent } from "./llm"
 import { Delivery } from "./session-delivery"
 import { Model } from "./model"
-import { Project } from "./project"
 import { DateTimeUtcFromMillis, NonNegativeInt, RelativePath } from "./schema"
 import { FileAttachment, Prompt } from "./prompt"
 import { SessionID } from "./session-id"
@@ -79,7 +78,6 @@ export const Moved = Event.define({
   ...options,
   schema: {
     ...Base,
-    projectID: Project.ID.pipe(optional),
     location: Location.Ref,
     subdirectory: RelativePath.pipe(optional),
   },

@@ -245,7 +245,6 @@ const layer = Layer.effectDiscard(
         yield* db
           .update(SessionTable)
           .set({
-            ...(event.data.projectID ? { project_id: event.data.projectID } : {}),
             directory: event.data.location.directory,
             path: event.data.subdirectory,
             workspace_id: event.data.location.workspaceID ? WorkspaceV2.ID.make(event.data.location.workspaceID) : null,

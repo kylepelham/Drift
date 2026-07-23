@@ -13,6 +13,7 @@ export function reduce(set: Set, event: Event) {
     return dropQuestion(set, raw.properties.sessionID as string, raw.properties.requestID as string)
   if (raw.type === "message.part.delta")
     return appendPartDelta(set, raw.properties as { sessionID: string; messageID: string; partID: string; field: string; delta: string })
+  if (raw.type === "session.compacted") return clearError(set, raw.properties.sessionID as string)
   if (raw.type === "session.next.moved")
     return moveSession(
       set,
@@ -102,6 +103,14 @@ function recordError(set: Set, sessionID?: string, error?: { name: string; data?
       if (!error || error.name === "MessageAbortedError") return
       const data = error.data as { message?: string } | undefined
       s.errors[sessionID] = data?.message ?? error.name
+    }),
+  )
+}
+
+function clearError(set: Set, sessionID: string) {
+  set(
+    produce((state) => {
+      delete state.errors[sessionID]
     }),
   )
 }

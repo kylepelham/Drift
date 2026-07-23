@@ -2,7 +2,15 @@ import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } f
 import { useEngine } from "../engine"
 import { modelInfo, resolveModel, sessionBusy } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
-import { autoAcceptSessions, hiddenModelIds, prefsFor, seedPrefs, toggleAutoAccept, updatePrefs } from "../state/prefs"
+import {
+  autoAcceptSessions,
+  modelVisible,
+  orderedModelProviderIds,
+  prefsFor,
+  seedPrefs,
+  toggleAutoAccept,
+  updatePrefs,
+} from "../state/prefs"
 import { onKeybind } from "../state/keybinds"
 import type { Permission } from "@opencode-ai/sdk/client"
 import {
@@ -20,7 +28,7 @@ import { PermissionCard, QuestionCard } from "./attention"
 import { IconPaperclip, IconShieldCheck, IconX } from "./icons"
 import { openLightbox } from "./lightbox"
 import { Picker, type PickerItem } from "./picker"
-import { ModelManager } from "./model-manager"
+import { defaultVisibleModelIds, ModelManager } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
 import { parseSlash, runSlash, slashItems, type SlashItem } from "./slash"
 
@@ -197,16 +205,31 @@ export function Composer() {
     return busy() ? "Steer the current run..." : "Message Drift..."
   }
 
-  const availableModelItems = createMemo<PickerItem[]>(() =>
-    engine.state.providers
-      .filter((provider) => engine.state.connected.includes(provider.id) || engine.state.connected.length === 0)
-      .flatMap((provider) =>
-        Object.values(provider.models)
-          .filter((model) => model.capabilities.toolcall)
-          .map((model) => ({ id: `${provider.id}/${model.id}`, label: model.name, group: provider.name })),
-      ),
+  const availableModelItems = createMemo<PickerItem[]>(() => {
+    const providers = engine.state.providers.filter(
+      (provider) => engine.state.connected.includes(provider.id) || engine.state.connected.length === 0,
+    )
+    const order = orderedModelProviderIds(providers.map((provider) => provider.id))
+    return order.flatMap((providerID) => {
+      const provider = providers.find((item) => item.id === providerID)
+      if (!provider) return []
+      return Object.values(provider.models)
+        .filter((model) => model.capabilities.toolcall)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((model) => ({
+          id: `${provider.id}/${model.id}`,
+          label: model.name,
+          group: provider.name,
+          providerID: provider.id,
+          family: model.family,
+          releaseDate: model.release_date,
+        }))
+    })
+  })
+  const defaultModelIds = createMemo(() => defaultVisibleModelIds(availableModelItems()))
+  const modelItems = createMemo(() =>
+    availableModelItems().filter((item) => modelVisible(item.id, defaultModelIds().has(item.id))),
   )
-  const modelItems = createMemo(() => availableModelItems().filter((item) => !hiddenModelIds().includes(item.id)))
 
   const agentItems = createMemo<PickerItem[]>(() =>
     engine.state.agents

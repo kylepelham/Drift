@@ -69,6 +69,54 @@ test("workspace collapse IDs toggle without losing other workspaces", async () =
   expect(nextCollapsedWorkspaceIds(["w1", "w2"], "w1")).toEqual(["w2"])
 })
 
+test("model manager defaults to OpenCode's newest recent model per provider family", async () => {
+  const { defaultVisibleModelIds } = await import("../src/ui/model-manager")
+  const now = Date.UTC(2026, 6, 22)
+  const visible = defaultVisibleModelIds(
+    [
+      { id: "xai/grok-old", label: "Grok old", providerID: "xai", family: "grok", releaseDate: "2026-04-01" },
+      { id: "xai/grok-new", label: "Grok new", providerID: "xai", family: "grok", releaseDate: "2026-06-01" },
+      { id: "xai/code", label: "Code", providerID: "xai", family: "code", releaseDate: "2026-05-01" },
+      { id: "other/grok", label: "Other Grok", providerID: "other", family: "grok", releaseDate: "2026-05-15" },
+      { id: "xai/legacy", label: "Legacy", providerID: "xai", family: "legacy", releaseDate: "2025-01-01" },
+      { id: "xai/undated", label: "Undated", providerID: "xai", family: "unknown" },
+    ],
+    now,
+  )
+  expect([...visible]).toEqual(["xai/undated", "xai/grok-new", "xai/code", "other/grok"])
+})
+
+test("model manager orders enabled models first and preserves provider rearrangement", async () => {
+  const { mergeModelProviderOrder, reorderModelProviderIds } = await import("../src/state/prefs")
+  const { sortManagerModelItems } = await import("../src/ui/model-manager")
+  expect(mergeModelProviderOrder(["nvidia", "xai"], ["xai", "openai", "nvidia"])).toEqual([
+    "nvidia",
+    "xai",
+    "openai",
+  ])
+  expect(reorderModelProviderIds(["nvidia", "xai", "openai"], "openai", "nvidia")).toEqual([
+    "openai",
+    "nvidia",
+    "xai",
+  ])
+  expect(reorderModelProviderIds(["nvidia", "xai", "openai"], "nvidia", "openai")).toEqual([
+    "xai",
+    "nvidia",
+    "openai",
+  ])
+  expect(reorderModelProviderIds(["nvidia", "xai", "openai"], "nvidia", null)).toEqual([
+    "xai",
+    "openai",
+    "nvidia",
+  ])
+  const items = [
+    { id: "z", label: "Zulu" },
+    { id: "b", label: "Beta" },
+    { id: "a", label: "Alpha" },
+  ]
+  expect(sortManagerModelItems(items, (item) => item.id !== "b").map((item) => item.id)).toEqual(["a", "z", "b"])
+})
+
 test("shell transcript preserves a visible command-output gap and normalizes output", async () => {
   const { shellTranscript } = await import("../src/ui/parts")
   expect(shellTranscript("bun run build", "\u001b[32mok\u001b[0m\r\ndone")).toBe("$ bun run build\n\nok\ndone")

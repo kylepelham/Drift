@@ -1,8 +1,8 @@
 # Engine integration
 
 Drift embeds the opencode engine. Upstream source is vendored at `engine/upstream` via
-git subtree and never edited; all opencode config (agents, MCP servers, plugins,
-providers) applies unchanged. Users do not install opencode.
+git subtree and remains byte-for-byte upstream; all opencode config (agents, MCP
+servers, plugins, providers) applies unchanged. Users do not install opencode.
 
 ## Embedded engine lifecycle
 
@@ -14,6 +14,11 @@ providers) applies unchanged. Users do not install opencode.
   (`script/build.ts --single --skip-embed-web-ui`) and copies the result to
   `src-tauri/binaries/drift-engine[-<triple>].exe`. We never maintain our own bundling
   of their code; their build script is the contract.
+- Drift-specific engine adaptations live as named patches in `engine/overlays`, outside
+  the subtree. Build and engine-test commands apply them under a process lock and reverse
+  them in `finally`, including recovery after an interrupted prior command. A patch that
+  no longer applies fails with an explicit refresh message instead of creating a subtree
+  merge conflict.
 - Dev: `bun run dev` spawns `drift-engine.exe serve --port 4096` (cwd = repo root) and
   vite, forwarding `OPENCODE_SERVER_PASSWORD` to the frontend as `VITE_ENGINE_PASSWORD`
   (the engine enforces basic auth whenever that env var is set).
@@ -45,10 +50,12 @@ providers) applies unchanged. Users do not install opencode.
    `git subtree pull`: it follows upstream's ~1000 release tags into the local repo,
    and pushing any of them would trigger Drift's own `v*` release workflow.
 2. `bun install --ignore-scripts` inside `engine/upstream` (skips optional native grammars).
-3. `bun run build:engine` from the repo root to rebuild `src-tauri/binaries/drift-engine.exe`.
-4. Restart the dev loop or the app, then confirm the new version in Settings > About
+3. `bun run test:engine` from the repo root. If an overlay no longer applies, refresh
+   that isolated patch against the new source; never resolve it inside `engine/upstream`.
+4. `bun run build:engine` from the repo root to rebuild `src-tauri/binaries/drift-engine.exe`.
+5. Restart the dev loop or the app, then confirm the new version in Settings > About
    (served live from `GET /global/health`).
-5. Smoke: send a prompt, run a tool, answer a permission. Schema errors mean step 3
+6. Smoke: send a prompt, run a tool, answer a permission. Schema errors mean step 4
    was skipped or failed.
 
 ## Surface used

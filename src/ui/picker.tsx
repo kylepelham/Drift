@@ -1,7 +1,15 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
 import { IconSliders } from "./icons"
 
-export type PickerItem = { id: string; label: string; hint?: string; group?: string }
+export type PickerItem = {
+  id: string
+  label: string
+  hint?: string
+  group?: string
+  providerID?: string
+  family?: string
+  releaseDate?: string
+}
 
 export function Picker(props: {
   items: PickerItem[]

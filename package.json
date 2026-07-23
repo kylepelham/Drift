@@ -11,6 +11,7 @@
     "build:native": "tauri build --no-bundle",
     "package": "tauri build",
     "test": "bun test tests",
+    "test:engine": "bun scripts/test-engine.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
