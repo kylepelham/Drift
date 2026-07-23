@@ -372,15 +372,34 @@ textarea {
 
 .md :where(table) {
   display: block;
+  width: max-content;
   max-width: 100%;
   overflow-x: auto;
-  border-collapse: collapse;
-  font-size: 0.9em;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  font-size: 0.875em;
 }
 
 .md :where(th, td) {
-  border: 1px solid var(--edge);
-  padding: 0.35em 0.7em;
+  padding: 0.5em 0.9em;
+  text-align: left;
+  vertical-align: top;
+  word-break: normal;
+  overflow-wrap: break-word;
+  border-bottom: 1px solid color-mix(in srgb, var(--edge) 72%, transparent);
+}
+
+.md :where(th) {
+  background: var(--raised);
+  border-bottom-color: var(--edge);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.md :where(tr:last-child td) {
+  border-bottom: none;
 }
 
 .md :where(hr) {
