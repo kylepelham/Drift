@@ -60,10 +60,16 @@ function dropSession(set: Set, info: Session) {
 }
 
 function recordError(set: Set, sessionID?: string, error?: { name: string; data?: unknown }) {
-  if (!sessionID || !error) return
-  if (error.name === "MessageAbortedError") return
-  const data = error.data as { message?: string } | undefined
-  set("errors", sessionID, data?.message ?? error.name)
+  if (!sessionID) return
+  set(
+    produce((s) => {
+      s.status[sessionID] = { type: "idle" }
+      if (s.activity[sessionID]) s.activity[sessionID].current = undefined
+      if (!error || error.name === "MessageAbortedError") return
+      const data = error.data as { message?: string } | undefined
+      s.errors[sessionID] = data?.message ?? error.name
+    }),
+  )
 }
 
 function upsertMessage(set: Set, info: Message) {

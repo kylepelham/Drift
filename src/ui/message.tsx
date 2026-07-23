@@ -44,7 +44,7 @@ function CompactionSummary(props: { entry: MessageEntry; footer?: boolean }) {
         <div class="h-px flex-1 bg-edge" />
       </button>
       <Show when={open()}>
-        <div class="mt-2 border-l-2 border-edge pl-3">
+        <div class="mt-2 cursor-pointer border-l-2 border-edge pl-3" onClick={() => setOpen(false)}>
           <AssistantFlow entry={props.entry} footer={props.footer} />
         </div>
       </Show>

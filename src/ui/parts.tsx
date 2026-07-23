@@ -1,13 +1,14 @@
 import type { FilePart, Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
-import { createSignal, For, Match, Show, Switch } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Match, Show, Switch, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
 import { openLightbox } from "./lightbox"
 import { showReasoning } from "../state/prefs"
 import { selectSession } from "../state/selection"
 import { IconArrowUpRight, IconBranch, IconCheck, IconCopy } from "./icons"
-import { CodeView, Markdown } from "./markdown"
+import { codeTokens, Markdown, ProgressiveCodeView, type SyntaxToken } from "./markdown"
 import { TextShimmer } from "./text-shimmer"
+import { openToolContextMenu } from "./tool-context-menu"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -29,10 +30,18 @@ export function PartView(props: { part: Part }) {
           (props.part as ToolPart)
         }
       >
-        {(part) => <PluginToolView part={part()} />}
+        {(part) => (
+          <ToolContextTarget part={part()}>
+            <PluginToolView part={part()} />
+          </ToolContextTarget>
+        )}
       </Match>
       <Match when={props.part.type === "tool" && !hiddenTools.has((props.part as ToolPart).tool) && (props.part as ToolPart)}>
-        {(part) => <ToolView part={part()} />}
+        {(part) => (
+          <ToolContextTarget part={part()}>
+            <ToolView part={part()} />
+          </ToolContextTarget>
+        )}
       </Match>
       <Match when={props.part.type === "retry" && props.part}>
         {(part) => <div class="text-xs text-warn">retrying (attempt {(part() as { attempt: number }).attempt})</div>}
@@ -58,6 +67,10 @@ export function PartView(props: { part: Part }) {
       </Match>
     </Switch>
   )
+}
+
+function ToolContextTarget(props: { part: ToolPart; children: JSX.Element }) {
+  return <div onContextMenu={(event) => openToolContextMenu(event, props.part)}>{props.children}</div>
 }
 
 function visibleText(part: Part) {
@@ -408,6 +421,11 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
     return typeof input.content === "string" ? { content: input.content, name: filename(input.filePath) } : null
   }
   const patched = () => (props.part.tool === "apply_patch" ? patchFiles(props.part) : [])
+  const diffLanguage = () => {
+    const input = state().input as { filePath?: string }
+    const file = patched()[0]
+    return extension(file?.relativePath ?? file?.filePath ?? input.filePath)
+  }
   const tasked = () => taskBody(props.part)
   return (
     <>
@@ -433,13 +451,11 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
         </Match>
         <Match when={written()}>
           {(file) => (
-            <div class="code-view max-h-80 overflow-auto rounded-lg border border-edge">
-              <CodeView code={clip(file().content)} lang={extension(file().name)} />
-            </div>
+            <ProgressiveCodeView code={file().content} lang={extension(file().name)} />
           )}
         </Match>
         <Match when={patched().length > 1 && patched()}>{(files) => <PatchPanel files={files()} />}</Match>
-        <Match when={props.diff}>{(patch) => <DiffPanel diff={patch()} />}</Match>
+        <Match when={props.diff}>{(patch) => <DiffPanel diff={patch()} lang={diffLanguage()} />}</Match>
       </Switch>
       <Show when={props.error}>
         {(message) => (
@@ -559,28 +575,37 @@ function parseDiff(diff: string): DiffRow[] {
   return rows
 }
 
-function DiffPanel(props: { diff: string; bare?: boolean }) {
-  const rows = () => parseDiff(props.diff)
+function DiffPanel(props: { diff: string; lang: string; bare?: boolean }) {
+  const rows = createMemo(() => parseDiff(props.diff))
+  const [tokens, setTokens] = createSignal<SyntaxToken[][]>([])
+  let request = 0
+  createEffect(() => {
+    const current = ++request
+    const code = rows().map((row) => row.text).join("\n")
+    void codeTokens(code, props.lang).then((result) => current === request && setTokens(result))
+  })
   return (
     <div class="overflow-hidden" classList={{ "rounded-lg border border-edge": !props.bare }}>
       <div class="max-h-80 overflow-auto py-1 font-mono text-xs leading-relaxed">
         <For each={rows()}>
-          {(row) => (
+          {(row, index) => (
             <Show when={row.kind !== "gap"} fallback={<div class="my-1 border-t border-dashed border-edge" />}>
               <div
                 class="flex"
                 classList={{ "bg-ok/10": row.kind === "add", "bg-danger/10": row.kind === "del" }}
               >
                 <span class="w-10 shrink-0 pr-2 text-right text-ink-faint select-none">{row.line}</span>
-                <span
-                  class="min-w-0 flex-1 pr-3 whitespace-pre-wrap"
-                  classList={{
-                    "text-ok": row.kind === "add",
-                    "text-danger": row.kind === "del",
-                    "text-ink-muted": row.kind === "ctx",
-                  }}
-                >
-                  {row.text}
+                <span class="min-w-0 flex-1 pr-3 whitespace-pre-wrap text-ink-muted">
+                  <Show
+                    when={tokens()[index()]?.length ? tokens()[index()] : undefined}
+                    fallback={
+                      <span classList={{ "text-ok": row.kind === "add", "text-danger": row.kind === "del" }}>
+                        {row.text}
+                      </span>
+                    }
+                  >
+                    {(line) => <For each={line()}>{(token) => <SyntaxTokenView token={token} />}</For>}
+                  </Show>
                 </span>
               </div>
             </Show>
@@ -589,6 +614,19 @@ function DiffPanel(props: { diff: string; bare?: boolean }) {
       </div>
     </div>
   )
+}
+
+function SyntaxTokenView(props: { token: SyntaxToken }) {
+  const style = () => {
+    const fontStyle = props.token.fontStyle ?? 0
+    return {
+      color: props.token.color,
+      "font-style": fontStyle & 1 ? "italic" : undefined,
+      "font-weight": fontStyle & 2 ? "bold" : undefined,
+      "text-decoration": fontStyle & 4 ? "underline" : undefined,
+    }
+  }
+  return <span style={style()}>{props.token.content}</span>
 }
 
 function PatchPanel(props: { files: PatchFile[] }) {
@@ -624,7 +662,7 @@ function PatchFilePanel(props: { file: PatchFile }) {
       </button>
       <Show when={open()}>
         <div class="border-t border-edge">
-          <DiffPanel diff={props.file.patch} bare />
+          <DiffPanel diff={props.file.patch} lang={extension(props.file.relativePath ?? props.file.filePath)} bare />
         </div>
       </Show>
     </div>

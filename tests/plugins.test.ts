@@ -42,6 +42,58 @@ test("patchFiles reads per-file apply_patch metadata", async () => {
   expect(patchFiles(part)).toEqual(files)
 })
 
+test("tool context actions compose wildcard and tool providers with cleanup", async () => {
+  const { registerToolContextActions, toolContextActions } = await import("../src/tool-actions")
+  const part = { tool: "custom", state: { status: "completed", input: {} } } as unknown as ToolPart
+  const offAny = registerToolContextActions("*", () => ({ id: "any", label: "Any", run: () => undefined }))
+  const offTool = registerToolContextActions("custom", () => [
+    { id: "one", label: "One", run: () => undefined },
+    { id: "two", label: "Two", run: () => undefined },
+  ])
+  expect(toolContextActions(part).map((action) => action.id)).toEqual(["any", "one", "two"])
+  offAny()
+  offTool()
+  expect(toolContextActions(part)).toEqual([])
+})
+
+test("file tool actions resolve changed lines and patch targets", async () => {
+  const { builtinFileTargets, firstChangedLine } = await import("../src/tool-actions")
+  expect(firstChangedLine("@@ -10,3 +20,4 @@\n context\n-old\n+new")).toBe(21)
+  const edit = {
+    tool: "edit",
+    state: {
+      status: "completed",
+      input: { filePath: "src/app.tsx" },
+      metadata: { diff: "@@ -4 +7 @@\n-old\n+new" },
+    },
+  } as unknown as ToolPart
+  expect(builtinFileTargets(edit, "S:\\Personal\\Drift")).toEqual([
+    { path: "S:\\Personal\\Drift\\src/app.tsx", label: "src/app.tsx", line: 7 },
+  ])
+  const patch = {
+    tool: "apply_patch",
+    state: {
+      status: "completed",
+      input: {},
+      metadata: {
+        files: [
+          {
+            filePath: "S:/Personal/Drift/old.ts",
+            movePath: "S:/Personal/Drift/new.ts",
+            relativePath: "new.ts",
+            type: "move",
+            patch: "@@ -1 +3 @@\n-old\n+new",
+          },
+          { filePath: "S:/Personal/Drift/gone.ts", relativePath: "gone.ts", type: "delete", patch: "" },
+        ],
+      },
+    },
+  } as unknown as ToolPart
+  expect(builtinFileTargets(patch, "S:/Personal/Drift")).toEqual([
+    { path: "S:/Personal/Drift/new.ts", label: "new.ts", line: 3 },
+  ])
+})
+
 test("undo and redo move one user prompt at a time", () => {
   const entry = (id: string, role: "user" | "assistant") => ({ info: { id, role } as Message, parts: [] })
   const entries: MessageEntry[] = [entry("01", "user"), entry("02", "assistant"), entry("03", "user")]

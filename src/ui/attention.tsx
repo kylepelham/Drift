@@ -9,19 +9,8 @@ import { Chevron } from "./parts"
 export function AttentionStrip() {
   return (
     <div class="mx-auto flex w-full max-w-3xl flex-col gap-2">
-      <ErrorBanner />
       <TodoStrip />
     </div>
-  )
-}
-
-function ErrorBanner() {
-  const engine = useEngine()
-  const error = () => engine.state.errors[selectedSession() ?? ""]
-  return (
-    <Show when={error()}>
-      <div class="dock-card fade-up rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger select-text">{error()}</div>
-    </Show>
   )
 }
 

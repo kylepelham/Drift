@@ -5,6 +5,7 @@ import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
 import { childrenOf, sessionBusy, sessionsFor } from "../engine/store"
 import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
+import { fixedMenuPosition } from "../state/zoom"
 import { Chevron } from "./parts"
 import {
   activeWorkspaceId,
@@ -333,6 +334,7 @@ export function WorkspaceMenu(props: {
 }) {
   let root!: HTMLDivElement
   const [confirming, setConfirming] = createSignal(false)
+  const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, confirming() ? 144 : 112)
 
   createEffect(() => {
     const away = (event: MouseEvent) => {
@@ -354,8 +356,8 @@ export function WorkspaceMenu(props: {
       ref={root}
       class="fade-up fixed z-40 w-52 rounded-lg border border-edge bg-overlay p-1.5 shadow-xl shadow-black/40"
       style={{
-        left: `${Math.min(props.state.x, window.innerWidth - 220)}px`,
-        top: `${Math.min(props.state.y, window.innerHeight - 120)}px`,
+        left: `${position().left}px`,
+        top: `${position().top}px`,
       }}
     >
       <MenuItem

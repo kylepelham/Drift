@@ -68,7 +68,10 @@ impl Store {
             return Ok(0);
         }
         let conn = self.0.lock().unwrap();
-        conn.execute("ATTACH DATABASE ?1 AS opencode_import", [database.to_string_lossy().as_ref()])?;
+        conn.execute(
+            "ATTACH DATABASE ?1 AS opencode_import",
+            [database.to_string_lossy().as_ref()],
+        )?;
         let result = conn.execute(
             "INSERT OR IGNORE INTO workspace(id, path, name, icon, last_used)
              SELECT project.id, project.worktree,
@@ -120,7 +123,13 @@ impl Store {
         rows.collect()
     }
 
-    pub fn add_workspace(&self, id: &str, path: &str, name: &str, icon: &str) -> rusqlite::Result<Workspace> {
+    pub fn add_workspace(
+        &self,
+        id: &str,
+        path: &str,
+        name: &str,
+        icon: &str,
+    ) -> rusqlite::Result<Workspace> {
         let conn = self.0.lock().unwrap();
         let existing: Option<String> = conn
             .prepare_cached("SELECT id FROM workspace WHERE path = ?1")?
@@ -128,8 +137,10 @@ impl Store {
             .optional()?;
         let target = match existing {
             Some(found) => {
-                conn.prepare_cached("UPDATE workspace SET removed_at = NULL, last_used = ?2 WHERE id = ?1")?
-                    .execute((&found, now()))?;
+                conn.prepare_cached(
+                    "UPDATE workspace SET removed_at = NULL, last_used = ?2 WHERE id = ?1",
+                )?
+                .execute((&found, now()))?;
                 found
             }
             None => {
@@ -139,7 +150,9 @@ impl Store {
             }
         };
         let workspace = conn
-            .prepare_cached("SELECT id, path, name, icon, last_used, removed_at FROM workspace WHERE id = ?1")?
+            .prepare_cached(
+                "SELECT id, path, name, icon, last_used, removed_at FROM workspace WHERE id = ?1",
+            )?
             .query_row([&target], |row| {
                 Ok(Workspace {
                     id: row.get(0)?,
@@ -153,7 +166,13 @@ impl Store {
         Ok(workspace)
     }
 
-    pub fn save_workspace(&self, id: &str, path: &str, name: &str, icon: &str) -> rusqlite::Result<()> {
+    pub fn save_workspace(
+        &self,
+        id: &str,
+        path: &str,
+        name: &str,
+        icon: &str,
+    ) -> rusqlite::Result<()> {
         let conn = self.0.lock().unwrap();
         conn.prepare_cached(
             "INSERT INTO workspace(id, path, name, icon, last_used) VALUES(?1, ?2, ?3, ?4, ?5)
@@ -180,13 +199,16 @@ impl Store {
     pub fn purge_removed_workspaces(&self, before: i64) -> rusqlite::Result<Vec<String>> {
         let conn = self.0.lock().unwrap();
         let rows: Vec<(String, String)> = conn
-            .prepare_cached("SELECT id, path FROM workspace WHERE removed_at IS NOT NULL AND removed_at < ?1")?
+            .prepare_cached(
+                "SELECT id, path FROM workspace WHERE removed_at IS NOT NULL AND removed_at < ?1",
+            )?
             .query_map([before], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<Result<_, _>>()?;
         for (id, _) in &rows {
             conn.prepare_cached("DELETE FROM session_meta WHERE workspace_id = ?1")?
                 .execute([id])?;
-            conn.prepare_cached("DELETE FROM workspace WHERE id = ?1")?.execute([id])?;
+            conn.prepare_cached("DELETE FROM workspace WHERE id = ?1")?
+                .execute([id])?;
         }
         Ok(rows.into_iter().map(|(_, path)| path).collect())
     }
@@ -229,8 +251,10 @@ impl Store {
             .prepare_cached("SELECT session_id FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1")?
             .query_map([before], |row| row.get(0))?
             .collect::<Result<_, _>>()?;
-        conn.prepare_cached("DELETE FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1")?
-            .execute([before])?;
+        conn.prepare_cached(
+            "DELETE FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1",
+        )?
+        .execute([before])?;
         Ok(ids)
     }
 }
@@ -248,7 +272,9 @@ mod tests {
 
         let created = store.add_workspace("w1", "S:/proj", "Proj", "").unwrap();
         assert_eq!(created.id, "w1");
-        store.save_workspace("w1", "S:/proj", "Renamed", "R").unwrap();
+        store
+            .save_workspace("w1", "S:/proj", "Renamed", "R")
+            .unwrap();
         assert_eq!(store.workspaces().unwrap()[0].name, "Renamed");
 
         store.archive_session("s1", "w1").unwrap();
@@ -273,7 +299,13 @@ mod tests {
         let paths = store.purge_removed_workspaces(now() + 1000).unwrap();
         assert_eq!(paths, vec!["S:/proj".to_string()]);
         assert!(store.workspaces().unwrap().is_empty());
-        assert!(store.add_workspace("w3", "S:/proj", "Fresh", "").unwrap().id == "w3");
+        assert!(
+            store
+                .add_workspace("w3", "S:/proj", "Fresh", "")
+                .unwrap()
+                .id
+                == "w3"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

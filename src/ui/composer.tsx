@@ -91,6 +91,11 @@ export function Composer() {
     setDismissed(false)
     setMentionQuery(null)
     setFileError("")
+  })
+
+  // Tracks draft, not just scope: programmatic restores (revert, /undo) must re-measure.
+  createEffect(() => {
+    draft()
     queueMicrotask(() => {
       if (!area) return
       resize()

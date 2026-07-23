@@ -8,6 +8,12 @@ import { shellInvoke } from "./state/store"
 import { theme } from "./state/theme"
 import { activeWorkspace } from "./state/workspaces"
 import type { Workspace } from "./state/store"
+import {
+  openFile,
+  registerToolContextActions,
+  type FileLocation,
+  type ToolContextActionProvider,
+} from "./tool-actions"
 
 type WorkspaceInfo = Pick<Workspace, "id" | "name" | "path">
 type Context = {
@@ -39,7 +45,11 @@ export type DriftPluginApi = {
   on: <K extends HookName>(name: K, hook: Hook<K>) => () => void
   registerToolRenderer: (tool: string, renderer: ToolRenderer) => () => void
   registerPartRenderer: (type: string, renderer: PartRenderer) => () => void
+  registerToolContextActions: (tool: string, provider: ToolContextActionProvider) => () => void
   ask: (question: QuestionInfo | QuestionInfo[]) => Promise<string[][] | null>
+  files: {
+    open: (path: string, location?: FileLocation) => Promise<{ positioned: boolean }>
+  }
   threads: {
     create: () => Promise<string | undefined>
     select: (sessionId: string | null) => void
@@ -216,7 +226,9 @@ function createPluginApi(engine: Engine) {
     on: (name, hook) => track(on(name, hook)),
     registerToolRenderer: (tool, renderer) => track(registerToolRenderer(tool, renderer)),
     registerPartRenderer: (type, renderer) => track(registerPartRenderer(type, renderer)),
+    registerToolContextActions: (tool, provider) => track(registerToolContextActions(tool, provider)),
     ask: (question) => pushAsk(Array.isArray(question) ? question : [question], selectedSession()),
+    files: { open: openFile },
     threads: {
       create: async () => {
         const session = await engine.actions.newSession()

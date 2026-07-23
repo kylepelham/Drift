@@ -35,6 +35,13 @@ test("fixEscapedEmphasis lets path-ending emphasis close without touching escape
   expect(fixEscapedEmphasis("literal \\*star\\* stays and 5 \\* 3")).toBe("literal \\*star\\* stays and 5 \\* 3")
 })
 
+test("progressive code chunks retain the complete file", async () => {
+  const { codeChunks } = await import("../src/ui/markdown")
+  const code = Array.from({ length: 401 }, (_, index) => `line ${index + 1}`).join("\n")
+  expect(codeChunks(code).length).toBe(3)
+  expect(codeChunks(code).join("\n")).toBe(code)
+})
+
 test("taskBody extracts prompt and task_result for task cards", async () => {
   const { taskBody } = await import("../src/ui/parts")
   const part = (tool: string, input: Record<string, string>, output: string) =>
@@ -59,10 +66,31 @@ test("compaction-only user messages retain their delimiter part", async () => {
   expect(compactionParts(entry).map((part) => part.id)).toEqual(["p1"])
 })
 
+test("compaction boundary merges into its adjacent summary", async () => {
+  const { mergeCompactionEntries } = await import("../src/ui/chat")
+  const boundary = {
+    info: { id: "u1", role: "user", sessionID: "s1" },
+    parts: [{ id: "p1", messageID: "u1", sessionID: "s1", type: "compaction", auto: true }],
+  }
+  const summary = {
+    info: { id: "a1", role: "assistant", sessionID: "s1", parentID: "u1", summary: true },
+    parts: [{ id: "p2", messageID: "a1", sessionID: "s1", type: "text", text: "summary" }],
+  }
+  expect(mergeCompactionEntries([boundary, summary] as never).map((entry) => entry.info.id)).toEqual(["a1"])
+  expect(mergeCompactionEntries([boundary] as never).map((entry) => entry.info.id)).toEqual(["u1"])
+})
+
 test("sidebar drag converts screen movement through the current zoom scale", async () => {
   const { sidebarWidthFromDrag } = await import("../src/ui/sidebar")
   expect(sidebarWidthFromDrag(256, 30, 1.5)).toBe(276)
   expect(sidebarWidthFromDrag(470, 30, 1)).toBe(480)
+})
+
+test("fixed menus convert visual coordinates and viewport bounds through CSS zoom", async () => {
+  const { fixedMenuPosition } = await import("../src/state/zoom")
+  const metrics = { scale: 1.5, viewportWidth: 1200, viewportHeight: 900 }
+  expect(fixedMenuPosition(300, 225, 200, 100, metrics)).toEqual({ left: 200, top: 150, viewportHeight: 600 })
+  expect(fixedMenuPosition(1170, 870, 200, 100, metrics)).toEqual({ left: 592, top: 492, viewportHeight: 600 })
 })
 
 test("thinking follows OpenCode's active user turn", async () => {
@@ -117,4 +145,20 @@ test("activity counts distinct tool parts and tracks the running tool", () => {
   reduce(set, toolEvent("p2", "read", "completed"))
   expect(state.activity["child"].tools).toBe(2)
   expect(state.activity["child"].current).toBeUndefined()
+})
+
+test("session errors terminate busy activity and remain visible", () => {
+  const [state, set] = createEngineState()
+  set("status", "s1", { type: "busy" })
+  set("activity", "s1", { tools: 1, lastPartId: "p1", current: "bash" })
+  reduce(
+    set,
+    {
+      type: "session.error",
+      properties: { sessionID: "s1", error: { name: "ProviderError", data: { message: "credit balance is too low" } } },
+    } as never,
+  )
+  expect(state.status["s1"].type).toBe("idle")
+  expect(state.activity["s1"].current).toBeUndefined()
+  expect(state.errors["s1"]).toBe("credit balance is too low")
 })

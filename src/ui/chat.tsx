@@ -16,9 +16,21 @@ export function Chat() {
     const id = selectedSession()
     if (!id) return []
     const revertedAt = engine.state.sessions[id]?.revert?.messageID
-    return [...(engine.state.transcripts[id] ?? [])]
+    const sorted = [...(engine.state.transcripts[id] ?? [])]
       .filter((entry) => !revertedAt || entry.info.id < revertedAt)
       .sort((a, b) => a.info.id.localeCompare(b.info.id))
+    return mergeCompactionEntries(sorted)
+  })
+  const sessionError = createMemo(() => {
+    const id = selectedSession()
+    if (!id) return null
+    const error = engine.state.errors[id]
+    if (!error) return null
+    const latest = entries().at(-1)
+    if (latest?.info.role !== "assistant") return error
+    const messageError = (latest.info as { error?: { name: string; data?: unknown } }).error
+    const data = messageError?.data as { message?: string } | undefined
+    return (data?.message ?? messageError?.name) === error ? null : error
   })
 
   createEffect(() => {
@@ -99,18 +111,31 @@ export function Chat() {
     })
   }))
 
+  // Untracked stick: content growth follows the bottom, but flipping stick on its own
+  // never scrolls, so easing into the stick zone by hand cannot yank the view.
   createEffect(() => {
     const last = entries().at(-1)
     if (last) JSON.stringify(last.parts)
     offsets()
-    if (stick()) queueMicrotask(() => scroller.scrollTo({ top: scroller.scrollHeight }))
+    sessionError()
+    if (untrack(stick)) queueMicrotask(() => scroller.scrollTo({ top: scroller.scrollHeight }))
   })
+
+  // Only user gestures may change stickiness; programmatic snaps, browser clamps, and
+  // measurement churn fire scroll events too and used to unstick mid-settle.
+  let gestureAt = 0
+  let dragging = false
+  const gesture = () => (gestureAt = Date.now())
+  const releaseDrag = () => (dragging = false)
+  window.addEventListener("pointerup", releaseDrag)
+  onCleanup(() => window.removeEventListener("pointerup", releaseDrag))
 
   function onScroll() {
     const top = scroller.scrollTop
     setViewTop(top)
     setViewHeight(scroller.clientHeight)
-    setStick(scroller.scrollHeight - top - scroller.clientHeight < 80)
+    if (dragging || Date.now() - gestureAt < 250)
+      setStick(scroller.scrollHeight - top - scroller.clientHeight < 80)
     maybeLoadOlder(top)
   }
 
@@ -128,28 +153,62 @@ export function Chat() {
   }
 
   return (
-    <div ref={scroller} class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto" onScroll={onScroll}>
+    <div
+      ref={scroller}
+      class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+      onScroll={onScroll}
+      onWheel={gesture}
+      onPointerDown={(event) => {
+        gesture()
+        dragging = event.target === scroller
+      }}
+      onTouchStart={gesture}
+    >
       <Show when={selectedSession()} keyed fallback={<EmptyState />}>
-        <div
-          class="fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text"
-          style={{ height: `${offsets().at(-1)}px` }}
-        >
-          <div style={{ transform: `translateY(${offsets()[range().start]}px)` }}>
-            <For each={slice()}>
-              {(entry, index) => (
-                <Row
-                  entry={entry}
-                  next={slice()[index() + 1]}
-                  thinking={thinkingAfter() === entry.info.id}
-                  measure={measureRow}
-                />
-              )}
-            </For>
+        <div class="fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
+          <div style={{ height: `${offsets().at(-1)}px` }}>
+            <div style={{ transform: `translateY(${offsets()[range().start]}px)` }}>
+              <For each={slice()}>
+                {(entry, index) => (
+                  <Row
+                    entry={entry}
+                    next={slice()[index() + 1]}
+                    thinking={thinkingAfter() === entry.info.id}
+                    measure={measureRow}
+                  />
+                )}
+              </For>
+            </div>
           </div>
+          <Show when={sessionError()}>
+            {(error) => (
+              <div class="pb-6" role="alert">
+                <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger">
+                  {error()}
+                </div>
+              </div>
+            )}
+          </Show>
         </div>
       </Show>
     </div>
   )
+}
+
+export function mergeCompactionEntries(entries: MessageEntry[]) {
+  return entries.filter((entry, index) => {
+    const next = entries[index + 1]
+    const boundary =
+      entry.info.role === "user" &&
+      entry.parts.some((part) => part.type === "compaction") &&
+      entry.parts.every((part) => part.type === "compaction" || (part.type === "text" && part.synthetic))
+    const summary =
+      next?.info.role === "assistant" &&
+      !!(next.info as { summary?: boolean }).summary &&
+      "parentID" in next.info &&
+      next.info.parentID === entry.info.id
+    return !boundary || !summary
+  })
 }
 
 export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {

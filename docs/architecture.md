@@ -55,7 +55,27 @@ as a UI preference.
 
 Single-file edit and write tools keep their filename and stats in the clickable summary
 row. A multi-file `apply_patch` uses the engine's per-file metadata to render a header,
-status, additions/deletions, and numbered diff for every changed file.
+status, additions/deletions, and numbered syntax-highlighted diff for every changed
+file. Write output renders every line immediately, then lazily highlights 160-line
+chunks near its own scroll viewport; large files stay complete and cheap to open.
+Assistant Markdown code blocks keep their original source beside the rendered DOM and
+add a bottom-left copy control, so Shiki token markup never changes copied text.
+
+Every visible tool renderer shares one context-action registry. Built-in edit, write,
+and patch providers offer file and first-change opens; Drift plugins register through
+the same API for custom or wildcard tool behavior. Positioned file opens cross one
+Tauri command boundary, use a cached direct GUI executable without shell probing, and
+fall back to the system association if no supported editor is installed.
+
+Desktop zoom uses the webview's native zoom API rather than CSS `zoom`, keeping pointer
+events, fixed overlays, viewport units, and anchored popovers in one coordinate system.
+Browser development retains CSS zoom and converts detached context-menu coordinates
+through the active scale.
+
+An adjacent compaction-only user boundary and its assistant summary become one
+collapsible transcript row. Session-level engine errors defensively end busy activity
+and render after the virtualized transcript unless the assistant message already owns
+the same visible error state.
 
 User prompts carry a hover-only footer with their agent, friendly model name, time,
 copy, and revert action. Revert state comes from the engine session record; the chat

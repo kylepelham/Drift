@@ -40,6 +40,12 @@ export default function (api) {
     row.textContent = part.state.status === "completed" ? part.state.output : "Loading weather..."
     return row
   })
+
+  api.registerToolContextActions("weather", (part) => ({
+    id: "open-source",
+    label: "Open weather source",
+    run: () => api.files.open(part.state.input.filePath, { line: 1 }),
+  }))
 }
 ```
 
@@ -59,6 +65,17 @@ Renderers: `api.registerToolRenderer(toolName, fn)` overrides the card body for 
 `api.registerPartRenderer(partType, fn)` renders non-tool part types (for example
 `reasoning` or `file`), including types Drift normally hides. Tool parts always go
 through tool renderers, never part renderers.
+
+Context actions: `api.registerToolContextActions(toolName, fn)` adds right-click actions
+to any tool card, including cards with plugin renderers. Use `"*"` to contribute an
+action to every tool. Providers run when the menu opens and return one action, an array,
+or `null`; each action has `id`, `label`, optional `detail`, `disabled`, and `separator`,
+plus a sync or async `run` function. Registrations compose instead of replacing each
+other and are removed automatically when the plugin unloads. `api.files.open(path,
+{ line?, column? })` opens a local file; positioned opens prefer `DRIFT_EDITOR`,
+`VISUAL`, or `EDITOR` when they contain a GUI executable path, then common installed
+editors, and fall back to the system file association. Editor detection is cached and
+launches the GUI executable directly, without command-shell probing or wrapper scripts.
 
 Asks: `api.ask({ header, question, options: [{ label, description }], multiple?, custom? })`
 (or an array of them) takes over the composer with the same card the engine's question

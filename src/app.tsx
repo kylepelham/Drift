@@ -23,6 +23,7 @@ import { PaletteHost } from "./ui/palette"
 import { SettingsHost } from "./ui/settings"
 import { Sidebar } from "./ui/sidebar"
 import { Titlebar } from "./ui/titlebar"
+import { ToolContextMenuHost } from "./ui/tool-context-menu"
 
 export function App() {
   bindTheme()
@@ -54,6 +55,7 @@ export function App() {
         <McpServersModal />
         <SettingsHost />
         <PaletteHost />
+        <ToolContextMenuHost />
       </div>
     </EngineProvider>
   )

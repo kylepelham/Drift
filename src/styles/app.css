@@ -341,6 +341,38 @@ textarea {
   overflow-x: auto;
 }
 
+.md .code-block {
+  position: relative;
+  margin-block: 0.6em;
+}
+
+.md .code-block :where(pre) {
+  margin: 0;
+  padding-bottom: 2.8rem;
+}
+
+.md .code-copy {
+  position: absolute;
+  bottom: 0.65rem;
+  left: 0.7rem;
+  z-index: 1;
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--raised) 92%, var(--overlay));
+  padding: 0.18rem 0.5rem;
+  color: var(--ink-faint);
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  line-height: 1.2;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.md .code-copy:hover {
+  border-color: var(--edge-strong);
+  background: var(--overlay);
+  color: var(--ink);
+}
+
 .md :where(pre) code {
   color: inherit;
   background: none;
@@ -362,6 +394,14 @@ textarea {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--ink-muted);
+}
+
+.code-stream-chunk:not(:first-child) :where(pre) {
+  padding-top: 0;
+}
+
+.code-stream-chunk:not(:last-child) :where(pre) {
+  padding-bottom: 0;
 }
 
 .md :where(blockquote) {

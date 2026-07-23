@@ -88,7 +88,9 @@ everything else is ignored on purpose.
   Hydration reconciles from `GET /session/status`: sessions absent from the map are
   explicitly set back to idle.
 - `POST .../prompt_async` returns 204 even when the run later fails; failures arrive as
-  `session.error` events.
+  `session.error` events. Drift treats that event as terminal even if the following
+  idle event is missed: it clears current activity, sets the session idle, and retains
+  the error at the transcript bottom until the next prompt.
 - A session's active drain keeps its original model; steering a new prompt into a busy
   session does not switch models mid-drain.
 - Model defaults from models.dev include non-chat models (video/image). Always filter on
