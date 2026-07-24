@@ -56,6 +56,85 @@ export function fixEscapedEmphasis(text: string) {
     .join("")
 }
 
+export function preserveLiteralBackslashes(text: string) {
+  return text
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+    .map((chunk, index) => (index % 2 ? chunk : chunk.replaceAll("\\", "&#92;")))
+    .join("")
+}
+
+const voidHtml = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+])
+
+// Marked accepts raw HTML. Escape only unmatched tags so model-written examples cannot
+// turn the rest of a streamed response into one giant heading or emphasis element.
+export function escapeUnbalancedHtml(text: string) {
+  return text
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+    .map((chunk, index) => (index % 2 ? chunk : escapeUnbalancedHtmlChunk(chunk)))
+    .join("")
+}
+
+function escapeUnbalancedHtmlChunk(text: string) {
+  const tags = [...text.matchAll(/<!--[^]*?-->|<\/?[A-Za-z][^>\n]*>/g)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+    value: match[0],
+    name: match[0].match(/^<\/?\s*([A-Za-z][\w:-]*)/)?.[1]?.toLowerCase(),
+    closing: /^<\//.test(match[0]),
+    matched: false,
+  }))
+  const stack: number[] = []
+  for (let index = 0; index < tags.length; index++) {
+    const tag = tags[index]
+    if (!tag.name || tag.value.startsWith("<!--") || voidHtml.has(tag.name) || /\/\s*>$/.test(tag.value)) {
+      tag.matched = true
+      continue
+    }
+    if (!tag.closing) {
+      stack.push(index)
+      continue
+    }
+    let opener = -1
+    for (let position = stack.length - 1; position >= 0; position--) {
+      if (tags[stack[position]].name !== tag.name) continue
+      opener = position
+      break
+    }
+    if (opener < 0) continue
+    const openIndex = stack[opener]
+    tags[openIndex].matched = true
+    tag.matched = true
+    stack.splice(opener, 1)
+  }
+  let result = ""
+  let cursor = 0
+  for (const tag of tags) {
+    result += text.slice(cursor, tag.start)
+    result += tag.matched ? tag.value : tag.value.replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    cursor = tag.end
+  }
+  return result + text.slice(cursor)
+}
+
+export function prepareMarkdown(text: string, literalBackslashes = false) {
+  return escapeUnbalancedHtml(literalBackslashes ? preserveLiteralBackslashes(text) : fixEscapedEmphasis(text))
+}
+
 function openExternalLink(event: MouseEvent) {
   const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[href]")
   if (!anchor) return
@@ -198,9 +277,11 @@ export function ProgressiveCodeView(props: { code: string; lang: string }) {
   )
 }
 
-export function Markdown(props: { text: string; done?: boolean }) {
+export function Markdown(props: { text: string; done?: boolean; literalBackslashes?: boolean }) {
   let root!: HTMLDivElement
-  const html = createMemo(() => DOMPurify.sanitize(marked.parse(fixEscapedEmphasis(props.text), { async: false })))
+  const html = createMemo(() =>
+    DOMPurify.sanitize(marked.parse(prepareMarkdown(props.text, props.literalBackslashes), { async: false })),
+  )
   createEffect(() => {
     if (!html()) return
     queueMicrotask(() => decorateCodeBlocks(root))

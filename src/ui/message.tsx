@@ -82,7 +82,7 @@ function UserBubble(props: { entry: MessageEntry }) {
           </Show>
           <Show when={text()}>
             <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
-              <Markdown text={text()} done />
+              <Markdown text={text()} done literalBackslashes />
             </div>
           </Show>
           <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">

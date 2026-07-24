@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js"
 import type { QuestionInfo } from "../engine/store"
+import { clearQuestionDraft } from "./question-drafts"
 
 export type LocalAsk = {
   id: string
@@ -23,11 +24,15 @@ export function pushAsk(questions: QuestionInfo[], sessionID: string | null = nu
 export function resolveAsk(id: string, answers: string[][] | null) {
   resolvers.get(id)?.(answers)
   resolvers.delete(id)
+  clearQuestionDraft(id)
   setLocalAsks(localAsks().filter((ask) => ask.id !== id))
 }
 
 export function clearAsks() {
-  for (const ask of localAsks()) resolvers.get(ask.id)?.(null)
+  for (const ask of localAsks()) {
+    resolvers.get(ask.id)?.(null)
+    clearQuestionDraft(ask.id)
+  }
   resolvers.clear()
   setLocalAsks([])
 }

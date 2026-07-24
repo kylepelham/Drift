@@ -146,3 +146,66 @@ test("question drafts preserve single, multiple, and custom answers", async () =
   ])
   expect(selectQuestionCustom(single, false).selected).toEqual([])
 })
+
+test("auto-approved permissions never become the visible manual request", async () => {
+  const { firstManualPermission } = await import("../src/ui/composer")
+  const permission = (id: string, sessionID: string) => ({ id, sessionID }) as never
+  const permissions = [permission("auto", "s1"), permission("manual", "s2")]
+  expect(firstManualPermission(permissions, (item) => item.sessionID === "s1")?.id).toBe("manual")
+  expect(firstManualPermission([permissions[0]], () => true)).toBeUndefined()
+})
+
+test("queued questions retain focus while other requests arrive or reorder", async () => {
+  const { focusedQuestion } = await import("../src/ui/composer")
+  const question = (id: string) => ({ id }) as never
+  const first = question("q1")
+  const second = question("q2")
+  expect(focusedQuestion([first, second])?.id).toBe("q1")
+  expect(focusedQuestion([second, first], "q1")?.id).toBe("q1")
+  expect(focusedQuestion([second], "q1")?.id).toBe("q2")
+})
+
+test("question steps and answers persist independently by request id", async () => {
+  const { clearQuestionDraft, questionDraftState, setQuestionDraftStep, updateQuestionDraft } = await import(
+    "../src/state/question-drafts"
+  )
+  clearQuestionDraft("q1")
+  clearQuestionDraft("q2")
+
+  updateQuestionDraft("q1", 2, 0, { selected: ["Tests"], custom: "", customSelected: false })
+  setQuestionDraftStep("q1", 2, 1)
+  updateQuestionDraft("q1", 2, 1, { selected: [], custom: "Benchmarks", customSelected: true })
+  updateQuestionDraft("q2", 1, 0, { selected: ["Docs"], custom: "", customSelected: false })
+
+  expect(questionDraftState("q1", 2)).toEqual({
+    step: 1,
+    drafts: [
+      { selected: ["Tests"], custom: "", customSelected: false },
+      { selected: [], custom: "Benchmarks", customSelected: true },
+    ],
+  })
+  expect(questionDraftState("q2", 1).drafts[0].selected).toEqual(["Docs"])
+  expect(questionDraftState("q1", 2).step).toBe(1)
+
+  clearQuestionDraft("q1")
+  clearQuestionDraft("q2")
+})
+
+test("confirmed question events clear the matching persisted draft", async () => {
+  const { reduce } = await import("../src/engine/events")
+  const { createEngineState } = await import("../src/engine/store")
+  const { questionDraftState, updateQuestionDraft } = await import("../src/state/question-drafts")
+  const [state, set] = createEngineState()
+  const asked = {
+    type: "question.asked",
+    properties: { id: "q-event", sessionID: "s1", questions: [] },
+  } as never
+  reduce(set, asked)
+  updateQuestionDraft("q-event", 1, 0, { selected: ["Keep me"], custom: "", customSelected: false })
+  reduce(set, {
+    type: "question.replied",
+    properties: { requestID: "q-event", sessionID: "s1" },
+  } as never)
+  expect(state.questions.s1).toEqual([])
+  expect(questionDraftState("q-event", 1).drafts[0].selected).toEqual([])
+})

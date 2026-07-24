@@ -1,6 +1,7 @@
 import type { Event, Message, Part, Permission, Session } from "@opencode-ai/sdk/client"
 import type { SetStoreFunction } from "solid-js/store"
 import { produce } from "solid-js/store"
+import { clearQuestionDraft } from "../state/question-drafts"
 import { errorText } from "./error"
 import { putSession, recordLink, spawnLink, type EngineState, type Notice, type QuestionRequest } from "./store"
 
@@ -235,6 +236,7 @@ function addQuestion(set: Set, question: QuestionRequest) {
 }
 
 function dropQuestion(set: Set, sessionID: string, requestID: string) {
+  clearQuestionDraft(requestID)
   set(
     produce((s) => {
       const list = s.questions[sessionID]

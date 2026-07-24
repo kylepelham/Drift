@@ -35,6 +35,36 @@ test("fixEscapedEmphasis lets path-ending emphasis close without touching escape
   expect(fixEscapedEmphasis("literal \\*star\\* stays and 5 \\* 3")).toBe("literal \\*star\\* stays and 5 \\* 3")
 })
 
+test("markdown escapes the unclosed HTML tag that enlarged the rest of a stored response", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  const response =
+    'contains the game title in an <h1 class="post-title">. A 404 won\'t.\n\nLet me check the lengths.'
+  expect(prepareMarkdown(response)).toBe(
+    'contains the game title in an &lt;h1 class="post-title"&gt;. A 404 won\'t.\n\nLet me check the lengths.',
+  )
+})
+
+test("markdown preserves balanced, void, and code-fenced HTML", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  expect(prepareMarkdown("<details><summary>More</summary>Text</details><br>")).toBe(
+    "<details><summary>More</summary>Text</details><br>",
+  )
+  expect(prepareMarkdown("`<h1>`\n```html\n<h2>Example</h2>\n```")).toBe(
+    "`<h1>`\n```html\n<h2>Example</h2>\n```",
+  )
+  expect(prepareMarkdown("orphan </strong> text")).toBe("orphan &lt;/strong&gt; text")
+})
+
+test("user markdown preserves literal Windows path backslashes", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  expect(prepareMarkdown("Open \\\\server\\share\\folder", true)).toBe(
+    "Open &#92;&#92;server&#92;share&#92;folder",
+  )
+  expect(prepareMarkdown("`\\\\server\\share` and ```text\nC:\\work\n```", true)).toBe(
+    "`\\\\server\\share` and ```text\nC:\\work\n```",
+  )
+})
+
 test("progressive code chunks retain the complete file", async () => {
   const { codeChunks } = await import("../src/ui/markdown")
   const code = Array.from({ length: 401 }, (_, index) => `line ${index + 1}`).join("\n")

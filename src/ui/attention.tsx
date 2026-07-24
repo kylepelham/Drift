@@ -3,6 +3,13 @@ import { createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import type { PermissionResponse } from "../engine/actions"
 import type { QuestionInfo } from "../engine/store"
+import {
+  clearQuestionDraft,
+  questionDraftState,
+  setQuestionDraftStep,
+  updateQuestionDraft,
+  type QuestionDraft,
+} from "../state/question-drafts"
 import { selectedSession } from "../state/selection"
 import { t } from "../state/i18n"
 import { IconCheck } from "./icons"
@@ -25,14 +32,14 @@ function TodoStrip() {
     <Show when={remaining().length > 0}>
       <div class="dock-card plan-card rounded-lg border border-edge bg-surface text-sm">
         <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-ink-muted"
+          class="flex w-full min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap px-3 py-1.5 text-ink-muted"
           onClick={() => setOpen(!open())}
         >
           <Chevron open={open()} />
-          <span>
+          <span class="shrink-0">
             {t("session.todo.title")} · {t("session.todo.progress", { done: todos().length - remaining().length, total: todos().length })}
           </span>
-          <span class="truncate text-ink-faint">
+          <span class="min-w-0 flex-1 truncate text-left text-ink-faint">
             {todos().find((todo) => todo.status === "in_progress")?.content}
           </span>
         </button>
@@ -103,19 +110,35 @@ export function PermissionCard(props: { permission: Permission }) {
   )
 }
 
-export function QuestionCard(props: { questions: QuestionInfo[]; onAnswer: (answers: string[][] | null) => void }) {
-  const [step, setStep] = createSignal(0)
-  const [drafts, setDrafts] = createSignal<QuestionDraft[]>(props.questions.map(() => ({ selected: [], custom: "", customSelected: false })))
+export function QuestionCard(props: {
+  requestID: string
+  questions: QuestionInfo[]
+  onAnswer: (answers: string[][] | null) => boolean | void | Promise<boolean | void>
+}) {
+  const state = () => questionDraftState(props.requestID, props.questions.length)
+  const step = () => state().step
+  const drafts = () => state().drafts
   const current = () => props.questions[step()]
   const draft = () => drafts()[step()] ?? { selected: [], custom: "", customSelected: false }
 
   function update(next: QuestionDraft) {
-    setDrafts((current) => current.map((item, index) => (index === step() ? next : item)))
+    updateQuestionDraft(props.requestID, props.questions.length, step(), next)
+  }
+
+  function setStep(next: number) {
+    setQuestionDraftStep(props.requestID, props.questions.length, next)
+  }
+
+  async function answer(answers: string[][] | null) {
+    const requestID = props.requestID
+    const completed = await props.onAnswer(answers)
+    if (completed === false) return
+    clearQuestionDraft(requestID)
   }
 
   function advance() {
     if (step() + 1 < props.questions.length) return setStep(step() + 1)
-    props.onAnswer(drafts().map(questionAnswer))
+    void answer(drafts().map(questionAnswer))
   }
 
   return (
@@ -124,7 +147,7 @@ export function QuestionCard(props: { questions: QuestionInfo[]; onAnswer: (answ
         <div
           class="fade-up overflow-hidden rounded-xl border border-edge-strong bg-surface shadow-xl shadow-black/15"
           onKeyDown={(event) => {
-            if (event.key === "Escape") props.onAnswer(null)
+            if (event.key === "Escape") void answer(null)
             if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) advance()
           }}
         >
@@ -230,7 +253,7 @@ export function QuestionCard(props: { questions: QuestionInfo[]; onAnswer: (answ
             </div>
           </div>
           <div class="flex items-center justify-between border-t border-edge bg-raised/20 px-4 py-3">
-            <ActionButton label={t("common.dismiss")} danger onClick={() => props.onAnswer(null)} />
+            <ActionButton label={t("common.dismiss")} danger onClick={() => void answer(null)} />
             <div class="flex gap-2">
               <Show when={step() > 0}>
                 <ActionButton label={t("common.goBack")} onClick={() => setStep(step() - 1)} />
@@ -248,8 +271,6 @@ export function QuestionCard(props: { questions: QuestionInfo[]; onAnswer: (answ
     </Show>
   )
 }
-
-export type QuestionDraft = { selected: string[]; custom: string; customSelected: boolean }
 
 export function selectQuestionOption(draft: QuestionDraft, label: string, multiple: boolean): QuestionDraft {
   if (!multiple) return { ...draft, selected: [label], customSelected: false }

@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
-import { modelInfo, resolveModel, sessionBusy } from "../engine/store"
+import { modelInfo, resolveModel, sessionBusy, type QuestionRequest } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
 import {
   autoAcceptAllowed,
@@ -46,12 +46,21 @@ function readDataUrl(file: File) {
   })
 }
 
+export function firstManualPermission(permissions: Permission[], autoAccepted: (permission: Permission) => boolean) {
+  return permissions.find((permission) => !autoAccepted(permission))
+}
+
+export function focusedQuestion(questions: QuestionRequest[], requestID?: string) {
+  return questions.find((question) => question.id === requestID) ?? questions[0]
+}
+
 export function Composer() {
   const engine = useEngine()
   const [dismissed, setDismissed] = createSignal(false)
   const [cursor, setCursor] = createSignal(0)
   const [manageModels, setManageModels] = createSignal(false)
   const [fileError, setFileError] = createSignal("")
+  const [focusedQuestionID, setFocusedQuestionID] = createSignal<string>()
   let area!: HTMLTextAreaElement
   let filePicker!: HTMLInputElement
 
@@ -359,9 +368,16 @@ export function Composer() {
     }
   })
 
-  const pendingPermission = () => Object.values(engine.state.permissions).flat()[0]
-  const pendingQuestion = () => Object.values(engine.state.questions).flat()[0]
+  const permissions = () => Object.values(engine.state.permissions).flat()
+  const questions = () => Object.values(engine.state.questions).flat()
+  const pendingPermission = () => firstManualPermission(permissions(), (permission) => autoAccepted(permission.sessionID))
+  const pendingQuestion = () => focusedQuestion(questions(), focusedQuestionID())
   const pendingAsk = () => localAsks()[0]
+
+  createEffect(() => {
+    const next = pendingQuestion()?.id
+    if (next !== focusedQuestionID()) setFocusedQuestionID(next)
+  })
 
   function openPermissionSession(permission: Permission) {
     const dir = (permission.metadata?.directory as string | undefined) ?? engine.state.sessions[permission.sessionID]?.directory
@@ -390,31 +406,46 @@ export function Composer() {
           </div>
         )}
       </Show>
-      <Show when={pendingPermission() ? undefined : pendingQuestion()}>
-        {(question) => (
-          <div class="mx-auto max-w-3xl">
-            <Show when={question().sessionID !== selectedSession()}>
-              <button
-                class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
-                title={t("drift.composer.openThread")}
-                onClick={() => selectSession(question().sessionID)}
-              >
-                {t("drift.composer.pendingInThread", {
-                  thread: engine.state.sessions[question().sessionID]?.title || t("drift.composer.anotherThread"),
-                })}
-              </button>
+      <Show keyed when={pendingPermission() ? undefined : pendingQuestion()?.id}>
+        {(questionID) => {
+          const question = () => questions().find((item) => item.id === questionID)
+          return (
+            <Show when={question()}>
+              {(request) => (
+                <div class="mx-auto max-w-3xl">
+                  <Show when={request().sessionID !== selectedSession()}>
+                    <button
+                      class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
+                      title={t("drift.composer.openThread")}
+                      onClick={() => selectSession(request().sessionID)}
+                    >
+                      {t("drift.composer.pendingInThread", {
+                        thread: engine.state.sessions[request().sessionID]?.title || t("drift.composer.anotherThread"),
+                      })}
+                    </button>
+                  </Show>
+                  <QuestionCard
+                    requestID={questionID}
+                    questions={[...request().questions]}
+                    onAnswer={(answers) => engine.actions.answerQuestion(request().sessionID, questionID, answers)}
+                  />
+                </div>
+              )}
             </Show>
-            <QuestionCard
-              questions={[...question().questions]}
-              onAnswer={(answers) => void engine.actions.answerQuestion(question().sessionID, question().id, answers)}
-            />
-          </div>
-        )}
+          )
+        }}
       </Show>
       <Show when={pendingPermission() || pendingQuestion() ? undefined : pendingAsk()}>
         {(ask) => (
           <div class="mx-auto max-w-3xl">
-            <QuestionCard questions={ask().questions} onAnswer={(answers) => resolveAsk(ask().id, answers)} />
+            <QuestionCard
+              requestID={ask().id}
+              questions={ask().questions}
+              onAnswer={(answers) => {
+                resolveAsk(ask().id, answers)
+                return true
+              }}
+            />
           </div>
         )}
       </Show>

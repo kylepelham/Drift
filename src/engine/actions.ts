@@ -393,7 +393,7 @@ export function createActions(
 
   async function answerQuestion(sessionID: string, requestID: string, answers: string[][] | null) {
     const base = target()
-    if (!base) return
+    if (!base) return false
     const question = (state.questions[sessionID] ?? []).find((item) => item.id === requestID)
     const dir = question?.directory ?? state.directory
     const action = answers ? "reply" : "reject"
@@ -403,13 +403,14 @@ export function createActions(
       headers: { "content-type": "application/json", ...base.headers },
       body: JSON.stringify(answers ? { answers } : {}),
     }).catch(() => null)
-    if (!response?.ok) return
+    if (!response?.ok) return false
     answered.add(requestID)
     set(
       produce((s) => {
         s.questions[sessionID] = (s.questions[sessionID] ?? []).filter((item) => item.id !== requestID)
       }),
     )
+    return true
   }
 
   async function replyElsewhere(sessionID: string, permissionID: string, response: PermissionResponse, dir: string) {
