@@ -35,7 +35,7 @@ src-tauri   -> shell: spawns the sidecar, exposes engine_url, owns Drift's SQLit
 - UI components never import from `@opencode-ai/sdk` except types via the engine layer.
 - Engine layer never imports UI.
 - Anything persistent and Drift-specific (workspace names, icons, archive state,
-  attachments) belongs to the shell's SQLite store (phase 4.5), not the engine.
+  attachments) belongs to the shell's SQLite store, not the engine.
 - Never edit `engine/upstream` directly. Internal adaptations that cannot use a public
   plugin/API belong in `engine/overlays`; tooling applies and reverses them atomically.
 - Transcripts are only loaded for sessions the user opened (`loaded` map); events for

@@ -1160,12 +1160,16 @@ function agentConfig(agent: Agent | undefined, snapshot: PromptSnapshot | null, 
 
 function AboutSection() {
   const engine = useEngine()
+  const engineVersion =
+    engine.state.version || (engine.state.startupError ? t("drift.about.failed") : t("drift.about.starting"))
   return (
     <div class="space-y-1 px-3 text-sm text-ink-muted select-text">
       <div>{t("drift.about.description")}</div>
       <div class="text-xs text-ink-faint">
-        {t("drift.about.engine")} opencode{" "}
-        {engine.state.version || (engine.state.startupError ? t("drift.about.failed") : t("drift.about.starting"))}
+        {t("drift.about.version", { version: __DRIFT_VERSION__ })}
+      </div>
+      <div class="text-xs text-ink-faint">
+        {t("drift.about.engine", { version: engineVersion })}
       </div>
       <Show when={engine.state.startupError}>
         <div class="text-xs text-danger">{engine.state.startupError}</div>
