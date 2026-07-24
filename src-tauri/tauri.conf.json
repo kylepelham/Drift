@@ -26,7 +26,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZDRUYwMzgxQUYxRDkxNUIKUldSYmtSMnZnUVB2L09aMW5zK3lPK01lSzV1UW43UHNiWVdTcnFydURJelZ1ZW5SZGhMLzdrb2UK",
-      "endpoints": ["https://github.com/kylepelham/Drift2/releases/latest/download/latest.json"],
+      "endpoints": ["https://github.com/kylepelham/Drift/releases/latest/download/latest.json"],
       "windows": { "installMode": "passive" }
     }
   },

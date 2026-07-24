@@ -25,7 +25,7 @@ The UI stays deliberately plain: a sidebar of workspaces and threads, one chat p
 
 ## Install
 
-Download the latest Windows x64 installer from [Releases](https://github.com/kylepelham/Drift2/releases).
+Download the latest Windows x64 installer from [Releases](https://github.com/kylepelham/Drift/releases).
 
 On first launch:
 
