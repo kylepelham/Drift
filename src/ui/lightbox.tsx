@@ -1,5 +1,6 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { Portal } from "solid-js/web"
+import { t } from "../state/i18n"
 import { IconX } from "./icons"
 
 type LightboxImage = { url: string; filename?: string; mime?: string }
@@ -58,12 +59,12 @@ export function Lightbox() {
         <Portal>
           <div
             class="fixed inset-0 z-50 flex flex-col bg-black/85"
-            onClick={(event) => {
+            onPointerDown={(event) => {
               if (!(event.target as HTMLElement).closest("img, button")) setImage(null)
             }}
           >
             <div class="flex items-center gap-3 px-4 py-2.5 text-xs text-white/70 select-none">
-              <span class="truncate text-white/90">{img().filename ?? "image"}</span>
+              <span class="truncate text-white/90">{img().filename ?? t("drift.lightbox.image")}</span>
               <Show when={img().mime}>
                 <span>{img().mime}</span>
               </Show>
@@ -75,7 +76,7 @@ export function Lightbox() {
               </button>
               <button
                 class="w-14 rounded px-2 py-0.5 text-center hover:bg-white/10 hover:text-white"
-                title="Reset zoom"
+                title={t("drift.lightbox.resetZoom")}
                 onClick={() => setZoom(1)}
               >
                 {percent()}%
@@ -85,13 +86,13 @@ export function Lightbox() {
               </button>
               <button
                 class="rounded px-2 py-0.5 hover:bg-white/10 hover:text-white"
-                title="Actual size"
+                title={t("drift.lightbox.actualSize")}
                 onClick={() => setZoom(clampZoom(1 / fitScale()))}
               >
                 1:1
               </button>
               <button
-                title="Close"
+                title={t("common.close")}
                 class="flex size-7 items-center justify-center rounded text-white/70 hover:bg-white/10 hover:text-white"
                 onClick={() => setImage(null)}
               >
@@ -115,7 +116,7 @@ export function Lightbox() {
               <div class="flex min-h-full min-w-fit items-center justify-center p-8">
                 <img
                   src={img().url}
-                  alt={img().filename ?? ""}
+                  alt={img().filename ?? t("drift.lightbox.image")}
                   class="select-none"
                   style={{ width: width(), "max-width": natural() ? undefined : "90vw" }}
                   onLoad={(event) => measure(event.currentTarget)}

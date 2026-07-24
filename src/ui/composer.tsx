@@ -3,6 +3,8 @@ import { useEngine } from "../engine"
 import { modelInfo, resolveModel, sessionBusy } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
 import {
+  autoAcceptAllowed,
+  autoAcceptGlobal,
   autoAcceptSessions,
   modelVisible,
   orderedModelProviderIds,
@@ -12,6 +14,7 @@ import {
   updatePrefs,
 } from "../state/prefs"
 import { onKeybind } from "../state/keybinds"
+import { agentLabel, reasoningLevelLabel, t } from "../state/i18n"
 import type { Permission } from "@opencode-ai/sdk/client"
 import {
   clearComposerDraft,
@@ -31,8 +34,6 @@ import { Picker, type PickerItem } from "./picker"
 import { defaultVisibleModelIds, ModelManager } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
 import { parseSlash, runSlash, slashItems, type SlashItem } from "./slash"
-
-const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
 
 const maxFileBytes = 10 * 1024 * 1024
 
@@ -71,12 +72,12 @@ export function Composer() {
     setFileError("")
     for (const file of files) {
       if (file.size > maxFileBytes) {
-        setFileError(`${file.name} is over 10 MB`)
+        setFileError(t("drift.composer.fileTooLarge", { filename: file.name }))
         continue
       }
       const dataUrl = await readDataUrl(file).catch(() => null)
       if (!dataUrl) {
-        setFileError(`Could not read ${file.name}`)
+        setFileError(t("drift.composer.fileReadFailed", { filename: file.name }))
         continue
       }
       patchComposerDraft(key, {
@@ -200,9 +201,9 @@ export function Composer() {
   const online = () => engine.state.connection === "online"
   const ready = () => online() && !!activeWorkspace()
   const placeholder = () => {
-    if (!activeWorkspace()) return "Select a workspace to start"
-    if (!online()) return "Connecting to engine..."
-    return busy() ? "Steer the current run..." : "Message Drift..."
+    if (!activeWorkspace()) return t("drift.composer.selectWorkspace")
+    if (!online()) return t("drift.composer.connecting")
+    return busy() ? `${t("drift.prompt.steer")}...` : t("prompt.placeholder.simple")
   }
 
   const availableModelItems = createMemo<PickerItem[]>(() => {
@@ -234,7 +235,7 @@ export function Composer() {
   const agentItems = createMemo<PickerItem[]>(() =>
     engine.state.agents
       .filter((agent) => agent.mode !== "subagent" && !(agent as { hidden?: boolean }).hidden)
-      .map((agent) => ({ id: agent.name, label: capitalize(agent.name), hint: agent.description })),
+      .map((agent) => ({ id: agent.name, label: agentLabel(agent.name), hint: agent.description })),
   )
 
   const prefs = () => prefsFor(selectedSession())
@@ -246,8 +247,8 @@ export function Composer() {
 
   const variants = createMemo(() => Object.keys(modelInfo(engine.state, model())?.variants ?? {}))
   const variantItems = createMemo<PickerItem[]>(() => [
-    { id: "default", label: "Default" },
-    ...variants().map((name) => ({ id: name, label: capitalize(name) })),
+    { id: "default", label: t("common.default") },
+    ...variants().map((name) => ({ id: name, label: reasoningLevelLabel(name) })),
   ])
   const variant = () => {
     const pref = prefs().variant
@@ -330,18 +331,22 @@ export function Composer() {
 
   const autoAcceptOn = () => {
     const id = selectedSession()
-    return !!id && autoAcceptSessions().includes(id)
+    return autoAcceptGlobal() || (!!id && autoAcceptSessions().includes(id))
   }
 
   function autoAccepted(sessionId: string) {
-    const set = autoAcceptSessions()
-    if (set.includes(sessionId)) return true
-    const parent = engine.state.sessions[sessionId]?.parentID ?? engine.state.links[sessionId]
-    return !!parent && set.includes(parent)
+    return autoAcceptAllowed(
+      autoAcceptGlobal(),
+      autoAcceptSessions(),
+      sessionId,
+      engine.state.sessions[sessionId]?.parentID,
+      engine.state.links[sessionId],
+    )
   }
 
   onMount(() =>
     onKeybind("autoAccept", () => {
+      if (autoAcceptGlobal()) return
       const id = selectedSession()
       if (id) toggleAutoAccept(id)
     }),
@@ -373,10 +378,12 @@ export function Composer() {
             <Show when={permission().sessionID !== selectedSession()}>
               <button
                 class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
-                title="Open that thread"
+                title={t("drift.composer.openThread")}
                 onClick={() => openPermissionSession(permission())}
               >
-                in {engine.state.sessions[permission().sessionID]?.title || "another thread"}
+                {t("drift.composer.pendingInThread", {
+                  thread: engine.state.sessions[permission().sessionID]?.title || t("drift.composer.anotherThread"),
+                })}
               </button>
             </Show>
             <PermissionCard permission={permission()} />
@@ -389,10 +396,12 @@ export function Composer() {
             <Show when={question().sessionID !== selectedSession()}>
               <button
                 class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
-                title="Open that thread"
+                title={t("drift.composer.openThread")}
                 onClick={() => selectSession(question().sessionID)}
               >
-                in {engine.state.sessions[question().sessionID]?.title || "another thread"}
+                {t("drift.composer.pendingInThread", {
+                  thread: engine.state.sessions[question().sessionID]?.title || t("drift.composer.anotherThread"),
+                })}
               </button>
             </Show>
             <QuestionCard
@@ -470,7 +479,7 @@ export function Composer() {
                       <span class="group/chip flex items-center gap-1.5 rounded-md border border-edge bg-raised py-1 pr-1 pl-1.5 text-xs text-ink-muted">
                         <span class="max-w-40 truncate">{file.filename}</span>
                         <button
-                          title="Remove attachment"
+                          title={t("prompt.attachment.remove")}
                           class="flex size-4 items-center justify-center rounded text-ink-faint hover:bg-overlay hover:text-ink"
                           onClick={remove}
                         >
@@ -491,7 +500,7 @@ export function Composer() {
                         <span class="block truncate text-[0.6rem] text-white">{file.filename}</span>
                       </div>
                       <button
-                        title="Remove attachment"
+                        title={t("prompt.attachment.remove")}
                         class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-edge bg-overlay text-ink-muted opacity-0 transition-opacity group-hover/chip:opacity-100 hover:bg-raised hover:text-ink"
                         onClick={remove}
                       >
@@ -531,14 +540,14 @@ export function Composer() {
         />
         <div class="flex items-center gap-1 px-2.5 pb-2">
           <Picker
-            label="Agent"
+            label={t("command.category.agent")}
             items={agentItems()}
             selected={prefs().agent}
-            fallbackLabel={capitalize(prefs().agent)}
+            fallbackLabel={agentLabel(prefs().agent)}
             onPick={(id) => updatePrefs(selectedSession(), { agent: id })}
           />
           <Picker
-            label="Model"
+            label={t("command.category.model")}
             items={modelItems()}
             selected={modelId()}
             icon={<ProviderIcon id={model()?.providerID} class="size-3.5 shrink-0" />}
@@ -551,7 +560,7 @@ export function Composer() {
           />
           <Show when={variants().length > 0}>
             <Picker
-              label="Thinking level"
+              label={t("drift.composer.thinkingLevel")}
               items={variantItems()}
               selected={variant() ?? "default"}
               onPick={(id) => updatePrefs(selectedSession(), { variant: id === "default" ? null : id })}
@@ -560,9 +569,10 @@ export function Composer() {
           <div class="flex-1" />
           <Show when={autoAcceptOn()}>
             <button
-              class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-              title="Auto-accepting permissions for this thread (Ctrl+Shift+A to toggle)"
-              aria-label="Disable auto-accept permissions"
+              class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
+              title={autoAcceptGlobal() ? t("drift.permissions.autoGlobal") : t("drift.permissions.autoThread")}
+              aria-label={t("command.permissions.autoaccept.disable")}
+              disabled={autoAcceptGlobal()}
               onClick={() => toggleAutoAccept(selectedSession()!)}
             >
               <IconShieldCheck class="size-3.5" />
@@ -579,7 +589,7 @@ export function Composer() {
             }}
           />
           <button
-            title="Attach files"
+            title={t("prompt.action.attachFile")}
             class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
             disabled={!ready()}
             onClick={() => filePicker.click()}
@@ -589,19 +599,19 @@ export function Composer() {
           <Show when={busy()}>
             <button
               class="rounded-md border border-edge px-3 py-1 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
-              title="Stop the current run"
+              title={t("prompt.action.stop")}
               onClick={() => void engine.actions.abort(selectedSession()!)}
             >
-              Stop
+              {t("prompt.action.stop")}
             </button>
           </Show>
           <button
             class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
-            title={busy() ? "Send guidance into the current run" : "Send message"}
+            title={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
             disabled={(!draft().trim() && staged().length === 0) || !ready()}
             onClick={() => void submit()}
           >
-            {busy() ? "Steer" : "Send"}
+            {busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
           </button>
         </div>
       </div>

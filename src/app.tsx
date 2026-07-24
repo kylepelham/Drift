@@ -2,6 +2,7 @@ import { createEffect, onCleanup, onMount } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
 import { PluginHost } from "./plugins"
 import { initKeybinds } from "./state/keybinds"
+import { bindLanguage } from "./state/language"
 import { bindTheme } from "./state/theme"
 import { initZoom } from "./state/zoom"
 import {
@@ -27,6 +28,7 @@ import { ToolContextMenuHost } from "./ui/tool-context-menu"
 
 export function App() {
   bindTheme()
+  bindLanguage()
   initKeybinds()
   initZoom()
   return (

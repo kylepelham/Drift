@@ -6,7 +6,9 @@ import { selectSession } from "../state/selection"
 import { setTheme, theme, themes } from "../state/theme"
 import { archivedIds, selectWorkspace, workspaces } from "../state/workspaces"
 import { openMcpServers } from "./mcp"
+import { closeOnBackdropPointerDown } from "./modal"
 import { openSettings } from "./settings"
+import { t } from "../state/i18n"
 
 type PaletteItem = { label: string; hint: string; run: () => void }
 
@@ -43,25 +45,25 @@ function Palette(props: { onClose: () => void }) {
 
   const items = createMemo<PaletteItem[]>(() => {
     const actions: PaletteItem[] = [
-      { label: "New thread", hint: "action", run: () => selectSession(null) },
-      { label: "Settings", hint: "action", run: openSettings },
-      { label: "MCP servers", hint: "action", run: openMcpServers },
+      { label: t("drift.thread.new"), hint: t("command.category.suggested"), run: () => selectSession(null) },
+      { label: t("sidebar.settings"), hint: "action", run: openSettings },
+      { label: t("dialog.mcp.title"), hint: t("command.category.suggested"), run: openMcpServers },
       {
-        label: "Cycle theme",
-        hint: "action",
+        label: t("command.theme.cycle"),
+        hint: t("command.category.suggested"),
         run: () => setTheme(themes[(themes.indexOf(theme()) + 1) % themes.length]),
       },
     ]
     const spaces = workspaces().map((workspace) => ({
       label: workspace.name,
-      hint: "workspace",
+      hint: t("command.category.workspace"),
       run: () => selectWorkspace(workspace.id),
     }))
     const threads = workspaces().flatMap((workspace) =>
       sessionsFor(engine.state, workspace.path)
         .filter((session) => !archivedIds().has(session.id))
         .map((session) => ({
-          label: session.title || "Untitled",
+          label: session.title || t("drift.thread.untitled"),
           hint: workspace.name,
           run: () => {
             selectWorkspace(workspace.id)
@@ -94,7 +96,10 @@ function Palette(props: { onClose: () => void }) {
   }
 
   return (
-    <div class="fixed inset-0 z-40 flex justify-center bg-black/50 pt-[18vh]" onClick={props.onClose}>
+    <div
+      class="fixed inset-0 z-40 flex justify-center bg-black/50 pt-[18vh]"
+      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose)}
+    >
       <div
         class="fade-up flex h-fit max-h-[50vh] w-[34rem] flex-col overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40"
         onClick={(event) => event.stopPropagation()}
@@ -102,7 +107,7 @@ function Palette(props: { onClose: () => void }) {
         <input
           autofocus
           class="border-b border-edge bg-transparent px-4 py-3 text-sm outline-none placeholder:text-ink-faint"
-          placeholder="Search threads, workspaces, actions..."
+          placeholder={t("palette.search.placeholder")}
           value={query()}
           onInput={(event) => {
             setQuery(event.currentTarget.value)
@@ -128,7 +133,7 @@ function Palette(props: { onClose: () => void }) {
             )}
           </For>
           <Show when={filtered().length === 0}>
-            <div class="px-4 py-3 text-sm text-ink-faint">No matches</div>
+            <div class="px-4 py-3 text-sm text-ink-faint">{t("palette.empty")}</div>
           </Show>
         </div>
       </div>

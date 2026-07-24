@@ -5,6 +5,7 @@ import { errorText } from "../engine/error"
 import { messageText, modelInfo, type MessageEntry } from "../engine/store"
 import { emitMessageRendered } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
+import { agentLabel, t } from "../state/i18n"
 import { collapseCompaction, compactionCollapsed } from "../state/prefs"
 import { IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
@@ -40,7 +41,7 @@ function CompactionSummary(props: { entry: MessageEntry; footer?: boolean }) {
         <div class="h-px flex-1 bg-edge" />
         <span class="flex items-center gap-1.5">
           <Chevron open={open()} />
-          Context compacted · summary
+          {t("drift.message.compactedSummary")}
         </span>
         <div class="h-px flex-1 bg-edge" />
       </button>
@@ -85,12 +86,12 @@ function UserBubble(props: { entry: MessageEntry }) {
             </div>
           </Show>
           <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
-            <span>{capitalize(info().agent)} · {model()} · {time()}</span>
-            <button title="Revert to here" class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void revert()}>
+            <span>{agentLabel(info().agent)} · {model()} · {time()}</span>
+            <button title={t("drift.message.revertHere")} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void revert()}>
               <IconUndo class="size-3.5" />
             </button>
             <button
-              title="Copy message"
+              title={t("drift.message.copy")}
               class="rounded p-0.5 hover:bg-raised hover:text-ink"
               onClick={() => void navigator.clipboard.writeText(text())}
             >
@@ -103,8 +104,6 @@ function UserBubble(props: { entry: MessageEntry }) {
     </>
   )
 }
-
-const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
 
 type PartGroup = { key: string; explored: ToolPart[] } | { key: string; part: Part }
 
@@ -145,7 +144,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
               fallback={
                 <div class="flex items-center gap-3 py-1 text-xs text-ink-faint" role="status">
                   <div class="h-px flex-1 bg-edge" />
-                  Interrupted
+                  {t("drift.message.interrupted")}
                   <div class="h-px flex-1 bg-edge" />
                 </div>
               }
@@ -160,13 +159,15 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
           <div class="flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
             <span>{info().modelID}</span>
             <span>{formatTokens(info())}</span>
-            <Show when={tokensPerSecond(info())}>{(rate) => <span>{rate()} tok/s</span>}</Show>
+            <Show when={tokensPerSecond(info())}>
+              {(rate) => <span>{t("drift.message.tokensPerSecond", { rate: rate() })}</span>}
+            </Show>
             <Show when={info().cost > 0}>
               <span>${info().cost.toFixed(3)}</span>
             </Show>
             <span>{formatDuration(info().time.completed! - info().time.created)}</span>
             <button
-              title="Copy response"
+              title={t("drift.message.copyResponse")}
               class="rounded p-0.5 hover:bg-raised hover:text-ink"
               onClick={() => void navigator.clipboard.writeText(messageText(props.entry))}
             >
@@ -183,10 +184,10 @@ export { errorText, unwrapErrorMessage } from "../engine/error"
 
 function formatDuration(ms: number) {
   const seconds = Math.max(1, Math.round(ms / 1000))
-  if (seconds < 60) return `${seconds}s`
+  if (seconds < 60) return t("drift.message.duration.seconds", { seconds })
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+  if (minutes < 60) return t("drift.message.duration.minutes", { minutes, seconds: seconds % 60 })
+  return t("drift.message.duration.hours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 })
 }
 
 function tokensPerSecond(info: AssistantMessage) {
@@ -198,5 +199,8 @@ function tokensPerSecond(info: AssistantMessage) {
 
 function formatTokens(info: AssistantMessage) {
   const compact = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`)
-  return `${compact(info.tokens.input)} in / ${compact(info.tokens.output)} out`
+  return t("drift.message.tokenCounts", {
+    input: compact(info.tokens.input),
+    output: compact(info.tokens.output),
+  })
 }

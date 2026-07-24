@@ -57,6 +57,12 @@ test("taskBody extracts prompt and task_result for task cards", async () => {
   expect(taskBody(part("bash", {}, "x"))).toBeNull()
 })
 
+test("task headings retain the agent and task title", async () => {
+  const { taskHeading } = await import("../src/ui/parts")
+  expect(taskHeading("explore", "Map settings translations")).toBe("Explore Map settings translations")
+  expect(taskHeading("general")).toBe("General")
+})
+
 test("compaction-only user messages retain their delimiter part", async () => {
   const { compactionParts } = await import("../src/ui/message")
   const entry = {

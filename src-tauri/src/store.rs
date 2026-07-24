@@ -1,4 +1,4 @@
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::path::Path;
 use std::sync::Mutex;
@@ -72,13 +72,34 @@ impl Store {
             "ATTACH DATABASE ?1 AS opencode_import",
             [database.to_string_lossy().as_ref()],
         )?;
+        let temp_prefix = format!(
+            "{}/",
+            std::env::temp_dir()
+                .to_string_lossy()
+                .replace('\\', "/")
+                .trim_end_matches('/')
+        );
+        conn.execute(
+            "DELETE FROM workspace
+             WHERE removed_at IS NULL AND icon = ''
+               AND (REPLACE(path, '\\', '/') LIKE ?1 || '%' OR REPLACE(path, '\\', '/') LIKE '/tmp/%')
+               AND EXISTS (
+                   SELECT 1 FROM opencode_import.project project
+                   WHERE project.id = workspace.id AND project.worktree = workspace.path
+                     AND workspace.name = COALESCE(NULLIF(project.name, ''), project.worktree)
+                     AND NOT EXISTS (
+                         SELECT 1 FROM opencode_import.session session WHERE session.project_id = project.id
+                     )
+               )",
+            params![temp_prefix],
+        )?;
         let result = conn.execute(
             "INSERT OR IGNORE INTO workspace(id, path, name, icon, last_used)
              SELECT project.id, project.worktree,
                     COALESCE(NULLIF(project.name, ''), project.worktree), '',
                     MAX(COALESCE(session.time_updated, project.time_updated, 0))
              FROM opencode_import.project project
-             LEFT JOIN opencode_import.session session ON session.project_id = project.id
+             JOIN opencode_import.session session ON session.project_id = project.id
              WHERE project.worktree <> '' AND project.worktree <> '/'
              GROUP BY project.id, project.worktree, project.name",
             [],
@@ -321,6 +342,8 @@ mod tests {
             "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
              CREATE TABLE session(id TEXT PRIMARY KEY, project_id TEXT, time_updated INTEGER);
              INSERT INTO project VALUES('p1', 'S:/one', 'One', 10);
+             INSERT INTO project VALUES('p2', '/tmp/project-directories', 'Temporary', 15);
+             INSERT INTO project VALUES('p3', '/tmp/manual', 'Manual project', 16);
              INSERT INTO project VALUES('global', '/', 'Global', 20);
              INSERT INTO session VALUES('s1', 'p1', 30);",
         )
@@ -328,11 +351,32 @@ mod tests {
         drop(conn);
 
         let store = open_at(&dir.join("drift.db")).unwrap();
+        store
+            .add_workspace("p2", "/tmp/project-directories", "Temporary", "")
+            .unwrap();
+        store
+            .add_workspace("manual", "/tmp/manual", "Manual", "")
+            .unwrap();
         assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 1);
-        assert_eq!(store.workspaces().unwrap()[0].path, "S:/one");
+        let workspaces = store.workspaces().unwrap();
+        assert_eq!(workspaces.len(), 2);
+        assert!(workspaces.iter().any(|workspace| workspace.path == "S:/one"));
+        assert!(workspaces.iter().any(|workspace| workspace.path == "/tmp/manual"));
+        assert!(!workspaces
+            .iter()
+            .any(|workspace| workspace.path == "/tmp/project-directories"));
         store.save_workspace("p1", "S:/one", "Custom", "C").unwrap();
         assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 0);
-        assert_eq!(store.workspaces().unwrap()[0].name, "Custom");
+        assert_eq!(
+            store
+                .workspaces()
+                .unwrap()
+                .into_iter()
+                .find(|workspace| workspace.id == "p1")
+                .unwrap()
+                .name,
+            "Custom"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

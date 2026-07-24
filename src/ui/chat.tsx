@@ -2,6 +2,7 @@ import type { SessionStatus } from "@opencode-ai/sdk/client"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
 import type { MessageEntry } from "../engine/store"
+import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
 import { MessageView } from "./message"
@@ -368,7 +369,7 @@ function Row(props: {
       <MessageView entry={props.entry} footer={props.next?.info.role !== "assistant"} />
       <Show when={props.thinking}>
         <div class="timeline-thinking select-none" role="status" aria-live="polite">
-          <TextShimmer text="Thinking" />
+          <TextShimmer text={t("drift.chat.thinking")} />
           <Show when={props.thinkingHeading}>{(heading) => <span class="timeline-thinking-heading">{heading()}</span>}</Show>
         </div>
       </Show>
@@ -398,11 +399,15 @@ function SessionRetry(props: { status: Extract<SessionStatus, { type: "retry" }>
 }
 
 export function retryPresentation(status: Extract<SessionStatus, { type: "retry" }>, now: number) {
-  const normalized = status.message.trim() || "The provider did not accept the request"
+  const normalized = status.message.trim() || t("drift.chat.retry.providerRejected")
   const message = normalized.length > 80 ? normalized.slice(0, 80) + "..." : normalized
   const seconds = Math.max(0, Math.round((status.next - now) / 1000))
-  const line = seconds > 0 ? `Retrying in ${seconds}s` : "Retrying"
-  return { message, truncated: normalized.length > 80, info: `${line} - attempt #${status.attempt}` }
+  const retry = seconds > 0 ? t("drift.chat.retry.inSeconds", { seconds }) : t("drift.chat.retry.now")
+  return {
+    message,
+    truncated: normalized.length > 80,
+    info: t("drift.chat.retry.info", { retry, attempt: status.attempt }),
+  }
 }
 
 function EmptyState() {
@@ -413,16 +418,16 @@ function EmptyState() {
         when={activeWorkspace()}
         fallback={
           <div class="fade-up text-sm text-ink-muted" style={{ "animation-delay": "80ms" }}>
-            Add or select a workspace on the left to start.
+            {t("drift.chat.empty.noWorkspace")}
           </div>
         }
       >
         <div class="fade-up text-sm text-ink-muted" style={{ "animation-delay": "80ms" }}>
-          Start typing below. Enter sends, Shift+Enter breaks the line.
+          {t("drift.chat.empty.promptHint")}
         </div>
       </Show>
       <div class="fade-up text-xs text-ink-faint" style={{ "animation-delay": "160ms" }}>
-        Threads live on the left. No tabs. Ever.
+        {t("drift.chat.empty.threadHint")}
       </div>
     </div>
   )

@@ -4,6 +4,7 @@ import { useEngine } from "../engine"
 import type { PermissionResponse } from "../engine/actions"
 import type { QuestionInfo } from "../engine/store"
 import { selectedSession } from "../state/selection"
+import { t } from "../state/i18n"
 import { IconCheck } from "./icons"
 import { Chevron } from "./parts"
 
@@ -29,7 +30,7 @@ function TodoStrip() {
         >
           <Chevron open={open()} />
           <span>
-            Plan · {todos().length - remaining().length}/{todos().length} done
+            {t("session.todo.title")} · {t("session.todo.progress", { done: todos().length - remaining().length, total: todos().length })}
           </span>
           <span class="truncate text-ink-faint">
             {todos().find((todo) => todo.status === "in_progress")?.content}
@@ -85,7 +86,8 @@ export function PermissionCard(props: { permission: Permission }) {
   return (
     <div class="fade-up rounded-lg border border-warn/40 bg-warn/10 px-3 py-2.5">
       <div class="mb-2 text-sm">
-        <span class="text-warn">Permission</span> <span class="text-ink">{props.permission.title}</span>
+        <span class="text-warn">{t("notification.permission.title")}</span>{" "}
+        <span class="text-ink">{props.permission.title}</span>
         <Show when={props.permission.pattern}>
           <code class="ml-2 rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-ink-muted">
             {[props.permission.pattern].flat().join(", ")}
@@ -93,9 +95,9 @@ export function PermissionCard(props: { permission: Permission }) {
         </Show>
       </div>
       <div class="flex gap-2">
-        <ActionButton label="Allow once" onClick={() => reply("once")} />
-        <ActionButton label="Always allow" onClick={() => reply("always")} />
-        <ActionButton label="Deny" danger onClick={() => reply("reject")} />
+        <ActionButton label={t("settings.permissions.action.allow")} onClick={() => reply("once")} />
+        <ActionButton label={t("command.permissions.autoaccept.enable")} onClick={() => reply("always")} />
+        <ActionButton label={t("settings.permissions.action.deny")} danger onClick={() => reply("reject")} />
       </div>
     </div>
   )
@@ -128,7 +130,9 @@ export function QuestionCard(props: { questions: QuestionInfo[]; onAnswer: (answ
         >
           <div class="border-b border-edge px-4 py-3.5">
             <div class="flex items-center justify-between gap-3 text-xs font-medium">
-              <span class="text-ink-muted">{step() + 1} of {props.questions.length} questions</span>
+              <span class="text-ink-muted">
+                {t("session.question.progress", { current: step() + 1, total: props.questions.length })}
+              </span>
               <span class="truncate text-accent">{question().header}</span>
             </div>
             <Show when={props.questions.length > 1}>
@@ -142,7 +146,7 @@ export function QuestionCard(props: { questions: QuestionInfo[]; onAnswer: (answ
                         "bg-accent/35": index() !== step() && questionAnswer(drafts()[index()]).length > 0,
                         "bg-edge": index() !== step() && questionAnswer(drafts()[index()]).length === 0,
                       }}
-                      title={`Question ${index() + 1}`}
+                      title={t("drift.question.number", { number: index() + 1 })}
                       onClick={() => setStep(index())}
                     />
                   )}
@@ -153,7 +157,7 @@ export function QuestionCard(props: { questions: QuestionInfo[]; onAnswer: (answ
           <div class="px-4 pt-3.5 pb-4">
             <div class="text-sm font-medium text-ink">{question().question}</div>
             <div class="mt-1 text-xs text-ink-faint">
-              {question().multiple ? "Select all answers that apply" : "Select one answer"}
+              {question().multiple ? t("drift.question.selectMultiple") : t("drift.question.selectOne")}
             </div>
             <div class="mt-3 max-h-[min(26rem,52vh)] space-y-2 overflow-y-auto pr-1">
               <For each={question().options}>
@@ -203,14 +207,14 @@ export function QuestionCard(props: { questions: QuestionInfo[]; onAnswer: (answ
                 >
                   <ChoiceMark checked={draft().customSelected} multiple={!!question().multiple} />
                   <div class="min-w-0 flex-1">
-                    <div class="text-sm font-medium text-ink">Type your own answer</div>
+                    <div class="text-sm font-medium text-ink">{t("drift.question.custom")}</div>
                     <Show
                       when={draft().customSelected}
-                      fallback={<div class="mt-0.5 text-xs text-ink-muted">Add an answer not listed above</div>}
+                      fallback={<div class="mt-0.5 text-xs text-ink-muted">{t("drift.question.customHint")}</div>}
                     >
                       <input
                         class="mt-2 w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-accent/70"
-                        placeholder="Type your own answer..."
+                        placeholder={t("drift.question.customPlaceholder")}
                         value={draft().custom}
                         onClick={(event) => event.stopPropagation()}
                         onInput={(event) => update({ ...draft(), custom: event.currentTarget.value, customSelected: true })}
@@ -226,16 +230,16 @@ export function QuestionCard(props: { questions: QuestionInfo[]; onAnswer: (answ
             </div>
           </div>
           <div class="flex items-center justify-between border-t border-edge bg-raised/20 px-4 py-3">
-            <ActionButton label="Dismiss" danger onClick={() => props.onAnswer(null)} />
+            <ActionButton label={t("common.dismiss")} danger onClick={() => props.onAnswer(null)} />
             <div class="flex gap-2">
               <Show when={step() > 0}>
-                <ActionButton label="Back" onClick={() => setStep(step() - 1)} />
+                <ActionButton label={t("common.goBack")} onClick={() => setStep(step() - 1)} />
               </Show>
               <button
                 class="rounded-md border border-accent/60 bg-accent/15 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-accent/25"
                 onClick={advance}
               >
-                {step() + 1 < props.questions.length ? "Next" : "Submit"}
+                {step() + 1 < props.questions.length ? t("dialog.releaseNotes.action.next") : t("common.submit")}
               </button>
             </div>
           </div>

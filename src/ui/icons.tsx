@@ -173,3 +173,57 @@ export function IconShieldCheck(props: IconProps) {
     </>,
   )
 }
+
+export function IconBell(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+      <path d="M10 21h4" />
+    </>,
+  )
+}
+
+export function IconKeyboard(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M10 13h.01M14 13h.01M18 13h.01M7 16h10" />
+    </>,
+  )
+}
+
+export function IconPalette(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="M12 3a9 9 0 0 0 0 18h1.5a2 2 0 0 0 0-4H12a1.5 1.5 0 0 1 0-3h3a6 6 0 0 0 0-11Z" />
+      <circle cx="7.5" cy="10" r=".8" fill="currentColor" />
+      <circle cx="9.5" cy="6.5" r=".8" fill="currentColor" />
+      <circle cx="14" cy="6" r=".8" fill="currentColor" />
+    </>,
+  )
+}
+
+export function IconChip(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+      <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3" />
+      <rect x="9" y="9" width="6" height="6" rx="1" />
+    </>,
+  )
+}
+
+export function IconInfo(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5" />
+      <path d="M12 8h.01" />
+    </>,
+  )
+}

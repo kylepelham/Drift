@@ -6,21 +6,22 @@ import { prefsFor } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { setTheme, theme, themes } from "../state/theme"
 import { activeWorkspace, archiveSession } from "../state/workspaces"
+import { t } from "../state/i18n"
 import { openMcpServers } from "./mcp"
 
 export type SlashItem = { name: string; description: string; needsSession?: boolean; engine?: boolean }
 
 const builtins: SlashItem[] = [
-  { name: "new", description: "Start a new thread" },
-  { name: "fork", description: "Duplicate this thread with full history", needsSession: true },
-  { name: "archive", description: "Archive this thread", needsSession: true },
-  { name: "undo", description: "Revert the last prompt and its file changes", needsSession: true },
-  { name: "redo", description: "Restore the next reverted prompt", needsSession: true },
-  { name: "compact", description: "Summarize this thread to reclaim context", needsSession: true },
-  { name: "share", description: "Share this thread and copy the link", needsSession: true },
-  { name: "unshare", description: "Remove this thread's share link", needsSession: true },
-  { name: "theme", description: "Cycle theme" },
-  { name: "mcp", description: "Manage MCP servers" },
+  { name: "new", description: "command.session.new" },
+  { name: "fork", description: "command.session.fork.description", needsSession: true },
+  { name: "archive", description: "command.session.archive", needsSession: true },
+  { name: "undo", description: "command.session.undo.description", needsSession: true },
+  { name: "redo", description: "command.session.redo.description", needsSession: true },
+  { name: "compact", description: "command.session.compact.description", needsSession: true },
+  { name: "share", description: "command.session.share.description", needsSession: true },
+  { name: "unshare", description: "command.session.unshare.description", needsSession: true },
+  { name: "theme", description: "command.theme.cycle" },
+  { name: "mcp", description: "drift.slash.mcp" },
 ]
 
 export function parseSlash(draft: string) {
@@ -35,10 +36,10 @@ export function slashItems(engine: Engine, query: string): SlashItem[] {
   const q = query.toLowerCase()
   const engineItems: SlashItem[] = engine.state.commands.map((command) => ({
     name: command.name,
-    description: command.description ?? "workspace command",
+    description: command.description ?? t("drift.slash.workspaceCommand"),
     engine: true,
   }))
-  return [...builtins, ...engineItems]
+  return [...builtins.map((item) => ({ ...item, description: t(item.description) })), ...engineItems]
     .filter((item) => !item.needsSession || selectedSession())
     .filter((item) => item.name.toLowerCase().startsWith(q))
     .slice(0, 8)

@@ -5,6 +5,7 @@ import { prefsFor } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { toggleDebugPanel } from "../state/panels"
 import { IconArrowUp } from "./icons"
+import { t } from "../state/i18n"
 
 const chatColumnWidth = 768
 
@@ -50,7 +51,7 @@ export function ChatHeader() {
               {(target) => (
                 <button
                   class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-                  title="Back to the thread this was spawned from"
+                  title={t("drift.thread.backToParent")}
                   onClick={() => selectSession(target())}
                 >
                   <IconArrowUp />
@@ -66,10 +67,10 @@ export function ChatHeader() {
               {(url) => (
                 <button
                   class="shrink-0 rounded-full border border-edge px-2 py-0.5 text-[0.65rem] text-ink-faint transition-colors hover:border-edge-strong hover:text-ink"
-                  title={`Copy share link: ${url()}`}
+                  title={t("drift.thread.copyShareLink", { url: url() })}
                   onClick={() => void navigator.clipboard.writeText(url())}
                 >
-                  Shared
+                  {t("drift.thread.shared")}
                 </button>
               )}
             </Show>
@@ -88,7 +89,7 @@ function ContextMeter(props: { sessionId: string }) {
     <div class="group/meter relative shrink-0">
       <button
         class="flex h-6 items-center gap-1.5 rounded-md px-1 text-ink-faint transition-colors select-none hover:bg-raised hover:text-ink"
-        title="Open context details"
+        title={t("context.usage.clickToView")}
         onClick={toggleDebugPanel}
       >
         <svg class="size-4 shrink-0 -rotate-90" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -116,17 +117,17 @@ function ContextMeter(props: { sessionId: string }) {
           {stats() ? `${percent()}%` : "--"}
         </span>
       </button>
-      <div class="pop-in absolute top-full right-0 z-30 mt-1.5 hidden w-56 rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/40 select-none group-hover/meter:block">
+      <div class="context-meter-popover pop-in absolute top-full right-0 z-30 mt-1.5 hidden w-56 rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/40 select-none group-hover/meter:block">
         <Show
           when={stats()}
-          fallback={<div class="px-3 py-2 text-xs text-ink-faint">Usage appears after the first response.</div>}
+          fallback={<div class="px-3 py-2 text-xs text-ink-faint">{t("drift.context.pending")}</div>}
         >
           {(usage) => (
             <>
-              <MeterRow label="Cost" value={`$${usage().cost.toFixed(2)}`} />
-              <MeterRow label="Usage" value={`${usage().percent}%`} />
-              <MeterRow label="Tokens" value={usage().count.toLocaleString()} />
-              <MeterRow label="Until compaction" value={usage().untilCompaction.toLocaleString()} />
+              <MeterRow label={t("context.usage.cost")} value={`$${usage().cost.toFixed(2)}`} />
+              <MeterRow label={t("context.usage.usage")} value={`${usage().percent}%`} />
+              <MeterRow label={t("context.usage.tokens")} value={usage().count.toLocaleString()} />
+              <MeterRow label={t("drift.context.untilCompaction")} value={usage().untilCompaction.toLocaleString()} />
             </>
           )}
         </Show>
@@ -160,10 +161,10 @@ function Title(props: { id: string; title: string }) {
       fallback={
         <span
           class="min-w-0 cursor-text truncate text-sm text-ink"
-          title="Double-click to rename"
+          title={t("drift.thread.renameHint")}
           onDblClick={() => setEditing(true)}
         >
-          {props.title || "Untitled"}
+          {props.title || t("drift.thread.untitled")}
         </span>
       }
     >

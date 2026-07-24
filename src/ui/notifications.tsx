@@ -1,12 +1,23 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js"
 import { useEngine, type Engine } from "../engine"
-import { notifyAttention } from "../state/prefs"
+import {
+  alertSounds,
+  autoAcceptAllowed,
+  autoAcceptGlobal,
+  autoAcceptSessions,
+  customSound,
+  systemNotifications,
+  type AttentionKind,
+} from "../state/prefs"
 import { selectSession } from "../state/selection"
+import { t } from "../state/i18n"
 import { shellInvoke } from "../state/store"
+import { playAlertSound } from "./sounds"
 
 // WebView2 stubs the Web Notification API, so the shell path uses the Tauri plugin.
-function show(sessionId: string, title: string, body: string) {
-  if (!notifyAttention() || document.hasFocus()) return
+function show(kind: AttentionKind, sessionId: string, title: string, body: string) {
+  void playAlertSound(alertSounds()[kind] ?? "none", customSound())
+  if (!systemNotifications()[kind] || document.hasFocus()) return
   const invoke = shellInvoke()
   if (invoke) {
     void invoke("plugin:notification|notify", { options: { title, body } }).catch(() => {})
@@ -30,9 +41,23 @@ export function AttentionNotifier(props: { engine: Engine }) {
     for (const permission of all) {
       if (seen.has(permission.id)) continue
       seen.add(permission.id)
+      if (
+        autoAcceptAllowed(
+          autoAcceptGlobal(),
+          autoAcceptSessions(),
+          permission.sessionID,
+          props.engine.state.sessions[permission.sessionID]?.parentID,
+          props.engine.state.links[permission.sessionID],
+        )
+      ) continue
       untrack(() => {
         const session = props.engine.state.sessions[permission.sessionID]
-        show(permission.sessionID, "Drift needs permission", `${permission.title} · ${session?.title ?? "thread"}`)
+        show(
+          "permission",
+          permission.sessionID,
+          t("notification.permission.title"),
+          `${permission.title} · ${session?.title ?? t("drift.thread.untitled")}`,
+        )
       })
     }
   })
@@ -47,7 +72,12 @@ export function AttentionNotifier(props: { engine: Engine }) {
       seenQuestions.add(question.id)
       untrack(() => {
         const session = props.engine.state.sessions[question.sessionID]
-        show(question.sessionID, "Drift has a question", question.questions[0]?.header ?? session?.title ?? "thread")
+        show(
+          "agent",
+          question.sessionID,
+          t("notification.question.title"),
+          question.questions[0]?.header ?? session?.title ?? t("drift.thread.untitled"),
+        )
       })
     }
   })
@@ -60,7 +90,12 @@ export function AttentionNotifier(props: { engine: Engine }) {
       else if (busy.delete(sessionId) && !props.engine.state.errors[sessionId])
         untrack(() => {
           const session = props.engine.state.sessions[sessionId]
-          show(sessionId, "Drift finished", session?.title || "A thread finished working")
+          show(
+            "agent",
+            sessionId,
+            t("notification.session.responseReady.title"),
+            session?.title || t("drift.notification.threadFinished"),
+          )
         })
     }
   })
@@ -72,7 +107,12 @@ export function AttentionNotifier(props: { engine: Engine }) {
       errors.set(sessionId, error)
       untrack(() => {
         const session = props.engine.state.sessions[sessionId]
-        show(sessionId, "Drift error", session?.title ? `${session.title} - ${error}` : error)
+        show(
+          "error",
+          sessionId,
+          t("notification.session.error.title"),
+          session?.title ? t("drift.notification.threadError", { title: session.title, error }) : error,
+        )
       })
     }
     for (const id of errors.keys()) if (!props.engine.state.errors[id]) errors.delete(id)
@@ -109,7 +149,9 @@ export function NoticeHost() {
                 <Show when={notice.title}>{(title) => <div class="text-sm font-semibold">{title()}</div>}</Show>
                 <div class="text-sm break-words" classList={{ "mt-0.5": !!notice.title }}>{notice.message}</div>
               </div>
-              <button class="shrink-0 text-xs opacity-60 hover:opacity-100" onClick={() => dismiss(notice.id)}>Dismiss</button>
+              <button class="shrink-0 text-xs opacity-60 hover:opacity-100" onClick={() => dismiss(notice.id)}>
+                {t("common.dismiss")}
+              </button>
             </div>
           </div>
         )}

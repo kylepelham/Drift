@@ -75,6 +75,17 @@ events, fixed overlays, viewport units, and anchored popovers in one coordinate 
 Browser development retains CSS zoom and converts detached context-menu coordinates
 through the active scale.
 
+Modal backdrops dismiss only when a pointer press begins on the backdrop. A text
+selection or drag that starts inside a dialog remains open when released outside.
+
+Settings persist the selected interface locale, appearance overrides, per-event system
+notification and sound choices, custom sound data, and global permission auto-accept.
+Built-in sounds are Vite-managed URLs from the vendored OpenCode MIT sound catalog;
+audio bytes load only when played and require no asset-copy build step. Custom audio is
+stored locally as a capped data URL. Drift owns its English and 17 localized catalogs;
+only the selected non-English catalog loads as a cached Vite chunk. Custom CSS
+persistence and application are debounced.
+
 Transcript scrolling unsticks on the first upward movement, including inside the
 bottom follow zone. Virtual row resize correction uses the measured row's real viewport
 position so a tall row cannot be mistaken for a short row above the viewport.

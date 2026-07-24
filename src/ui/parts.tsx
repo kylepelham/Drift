@@ -4,6 +4,7 @@ import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
 import { openLightbox } from "./lightbox"
 import { showReasoning, toolErrorsExpanded } from "../state/prefs"
+import { agentLabel, t } from "../state/i18n"
 import { selectSession } from "../state/selection"
 import { IconArrowUpRight, IconBranch, IconCheck, IconCopy } from "./icons"
 import { codeTokens, Markdown, ProgressiveCodeView, type SyntaxToken } from "./markdown"
@@ -46,15 +47,15 @@ export function PartView(props: { part: Part }) {
       <Match when={props.part.type === "compaction"}>
         <div class="my-2 flex items-center gap-3 text-xs text-ink-faint">
           <div class="h-px flex-1 bg-edge" />
-          Context compacted
+          {t("drift.context.compacted")}
           <div class="h-px flex-1 bg-edge" />
         </div>
       </Match>
       <Match when={props.part.type === "subtask" && props.part}>
         {(part) => (
           <div class="text-sm text-ink-muted">
-            <span class="font-semibold text-ink">Subtask</span>{" "}
-            <span class="text-ink-faint">{(part() as { agent: string }).agent}</span>{" "}
+            <span class="font-semibold text-ink">{t("drift.tool.subtask")}</span>{" "}
+            <span class="text-ink-faint">{agentLabel((part() as { agent: string }).agent)}</span>{" "}
             {(part() as { description: string }).description}
           </div>
         )}
@@ -102,17 +103,17 @@ export function FilePartView(props: { part: Pick<FilePart, "mime" | "filename" |
           when={linkable()}
           fallback={
             <span class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-edge bg-raised px-2 py-1 text-xs text-ink-muted">
-              <span class="truncate">{props.part.filename ?? "attachment"}</span>
+              <span class="truncate">{props.part.filename ?? t("common.attachment")}</span>
             </span>
           }
         >
           <a
             href={props.part.url}
             download={props.part.filename ?? "attachment"}
-            title="Download"
+            title={t("drift.attachment.download")}
             class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-edge bg-raised px-2 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
           >
-            <span class="truncate">{props.part.filename ?? "attachment"}</span>
+            <span class="truncate">{props.part.filename ?? t("common.attachment")}</span>
           </a>
         </Show>
       }
@@ -133,11 +134,11 @@ export function FilePartView(props: { part: Pick<FilePart, "mime" | "filename" |
 function ImageThumb(props: { url: string; filename?: string; mime?: string }) {
   return (
     <button
-      title={props.filename ?? "View image"}
+      title={props.filename ?? t("drift.attachment.viewImage")}
       class="block overflow-hidden rounded-md border border-edge transition-colors hover:border-edge-strong"
       onClick={() => openLightbox({ url: props.url, filename: props.filename, mime: props.mime })}
     >
-      <img src={props.url} alt={props.filename ?? ""} class="size-20 object-cover" />
+      <img src={props.url} alt={props.filename ?? t("drift.attachment.image")} class="size-20 object-cover" />
     </button>
   )
 }
@@ -152,7 +153,7 @@ function ReasoningView(props: { part: ReasoningPart }) {
         onClick={() => setOpen(!open())}
       >
         <Chevron open={open()} />
-        <TextShimmer text={thinking() ? "Thinking" : "Thought"} active={thinking()} />
+        <TextShimmer text={thinking() ? t("drift.reasoning.thinking") : t("drift.reasoning.thought")} active={thinking()} />
       </button>
       <Show when={open()}>
         <div class="mt-1.5 border-l-2 border-edge pl-3 text-ink-muted">
@@ -178,46 +179,72 @@ function toolInfo(part: ToolPart): ToolInfo {
   const meta = toolMeta(part) ?? {}
   const text = (key: string) => (typeof input?.[key] === "string" ? (input[key] as string) : undefined)
   const output = () => (part.state.status === "completed" ? (part.state as { output: string }).output : "")
-  const count = (value: unknown, singular: string, plural = `${singular}s`) =>
-    typeof value === "number" ? ` · ${value} ${value === 1 ? singular : plural}${meta.truncated ? "+" : ""}` : ""
+  const count = (value: unknown, singular: string, plural: string) =>
+    typeof value === "number"
+      ? ` · ${t(value === 1 ? singular : plural, { count: `${value}${meta.truncated ? "+" : ""}` })}`
+      : ""
   switch (part.tool) {
     case "bash":
-      return { title: "Shell", subtitle: text("command"), mono: true }
+      return { title: t("prompt.mode.shell"), subtitle: text("command"), mono: true }
     case "edit":
-      return { title: "Edit", subtitle: filename(text("filePath")) }
+      return { title: t("settings.permissions.tool.edit.title"), subtitle: filename(text("filePath")) }
     case "write":
-      return { title: "Write", subtitle: filename(text("filePath")) }
+      return { title: t("settings.permissions.tool.edit.title"), subtitle: filename(text("filePath")) }
     case "apply_patch":
-      return { title: "Patch", subtitle: patchSubtitle(part) }
+      return { title: t("settings.permissions.tool.edit.title"), subtitle: patchSubtitle(part) }
     case "read": {
       const lines = output() ? output().split("\n").length : undefined
-      return { title: "Read", subtitle: `${filename(text("filePath")) ?? ""}${count(lines, "line")}` }
+      return {
+        title: t("settings.permissions.tool.read.title"),
+        subtitle: `${filename(text("filePath")) ?? ""}${count(lines, "drift.count.line.one", "drift.count.line.other")}`,
+      }
     }
     case "list":
-      return { title: "List", subtitle: `${filename(text("path")) ?? ""}${count(meta.count, "entry", "entries")}` }
+      return {
+        title: t("settings.permissions.tool.list.title"),
+        subtitle: `${filename(text("path")) ?? ""}${count(meta.count, "drift.count.entry.one", "drift.count.entry.other")}`,
+      }
     case "glob":
-      return { title: "Glob", subtitle: `${text("pattern") ?? ""}${count(meta.count, "file")}`, mono: true }
+      return {
+        title: t("settings.permissions.tool.glob.title"),
+        subtitle: `${text("pattern") ?? ""}${count(meta.count, "drift.count.file.one", "drift.count.file.other")}`,
+        mono: true,
+      }
     case "grep":
-      return { title: "Grep", subtitle: `${text("pattern") ?? ""}${count(meta.matches, "match", "matches")}`, mono: true }
+      return {
+        title: t("settings.permissions.tool.grep.title"),
+        subtitle: `${text("pattern") ?? ""}${count(meta.matches, "drift.count.match.one", "drift.count.match.other")}`,
+        mono: true,
+      }
     case "webfetch":
-      return { title: "Fetch", subtitle: text("url"), mono: true }
+      return { title: t("drift.tool.fetch"), subtitle: text("url"), mono: true }
     case "websearch": {
       const results = output() ? (output().match(/^#|^\d+\./gm)?.length ?? undefined) : undefined
-      return { title: "Search", subtitle: `${text("query") ?? ""}${count(results, "result")}` }
+      return {
+        title: t("common.search.placeholder"),
+        subtitle: `${text("query") ?? ""}${count(results, "drift.count.result.one", "drift.count.result.other")}`,
+      }
     }
     case "task": {
       const agent = text("subagent_type")
-      return { title: agent ? agent.charAt(0).toUpperCase() + agent.slice(1) : "Task", subtitle: text("description") }
+      return { title: taskHeading(agent, text("description")) }
     }
-    case "spawn_thread":
-      return { title: "Spawn", subtitle: text("title") }
+    case "spawn_thread": {
+      const title = text("title")
+      return { title: title ? `${t("drift.tool.spawn")} ${title}` : t("drift.tool.spawn") }
+    }
     case "question":
-      return { title: "Question", subtitle: text("question") ?? (input?.questions as { header?: string }[] | undefined)?.[0]?.header }
+      return { title: t("notification.question.title"), subtitle: text("question") ?? (input?.questions as { header?: string }[] | undefined)?.[0]?.header }
     case "skill":
-      return { title: text("name") ?? "Skill" }
+      return { title: text("name") ?? t("prompt.slash.badge.skill") }
     default:
       return { called: part.tool, subtitle: argsPreview(input), mono: true }
   }
+}
+
+export function taskHeading(agent?: string, description?: string) {
+  const label = agent ? agentLabel(agent) : t("drift.tool.task")
+  return description ? `${label} ${description}` : label
 }
 
 function filename(path?: string) {
@@ -276,7 +303,7 @@ export function patchSubtitle(part: ToolPart) {
   if (files.length === 1) return filename(files[0].relativePath ?? files[0].filePath)
   const input = part.state.input as { files?: unknown[] } | undefined
   const count = files.length || input?.files?.length || 0
-  return count ? `${count} files` : undefined
+  return count ? t(count === 1 ? "drift.count.file.one" : "drift.count.file.other", { count }) : undefined
 }
 
 export function nextToolOpen(current: boolean, hadError: boolean, hasError: boolean, errorsExpanded: boolean) {
@@ -300,13 +327,14 @@ export function ToolView(props: { part: ToolPart }) {
   const delegated = () => props.part.tool === "task" || props.part.tool === "spawn_thread"
   const active = () =>
     !awaitingPermission(engine.state, props.part) && (state().status === "running" || state().status === "pending")
-  const title = () => (info().called ? `Called ${info().called}` : (info().title ?? props.part.tool))
+  const title = () => (info().called ? `${t("drift.tool.called")} ${info().called}` : (info().title ?? props.part.tool))
   const progress = () => {
     const childId = spawnedId()
     if (!childId || state().status !== "running") return null
     const activity = engine.state.activity[childId]
     if (!activity) return null
-    return `${activity.tools} tool${activity.tools === 1 ? "" : "s"}${activity.current ? " · " + activity.current : ""}`
+    const count = t(activity.tools === 1 ? "drift.count.tool.one" : "drift.count.tool.other", { count: activity.tools })
+    return `${count}${activity.current ? " · " + activity.current : ""}`
   }
   const diff = () => {
     const value = toolMeta(props.part)?.diff
@@ -328,7 +356,7 @@ export function ToolView(props: { part: ToolPart }) {
     <div class="flex min-w-0 max-w-full flex-col gap-1 text-sm">
       <button
         class="flex min-h-8 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md px-1.5 text-left transition-colors hover:bg-raised/40"
-        classList={{ "border-l-2 border-accent/35 pl-2": delegated() }}
+        classList={{ "delegate-tool border-accent/35": delegated() }}
         onClick={() => {
           const childId = spawnedId()
           if (childId && state().status !== "completed" && state().status !== "error") return selectSession(childId)
@@ -344,18 +372,18 @@ export function ToolView(props: { part: ToolPart }) {
           </span>
         </Show>
         <Show when={awaitingPermission(engine.state, props.part)}>
-          <span class="size-1.5 shrink-0 rounded-full bg-warn" title="Waiting for permission" />
+          <span class="size-1.5 shrink-0 rounded-full bg-warn" title={t("drift.status.waitingForPermission")} />
         </Show>
         <Show when={delegated()}>
-          <IconBranch class="size-3.5 shrink-0 text-accent/70" />
-          <span class="shrink-0 text-[0.62rem] font-semibold tracking-[0.12em] text-ink-faint uppercase">Delegate</span>
+          <IconBranch class="delegate-tool-icon size-3.5 shrink-0 text-accent/70" />
         </Show>
         <Show
           when={active()}
           fallback={
             <Show when={info().called} fallback={<span class="shrink-0 font-semibold text-ink">{info().title}</span>}>
               <span class="shrink-0 font-semibold text-ink">
-                Called <code class="rounded bg-raised px-1 font-mono text-xs font-normal">{info().called}</code>
+                {t("drift.tool.called")}{" "}
+                <code class="rounded bg-raised px-1 font-mono text-xs font-normal">{info().called}</code>
               </span>
             </Show>
           }
@@ -381,13 +409,13 @@ export function ToolView(props: { part: ToolPart }) {
           {(text) => <span class="shrink-0 font-mono text-xs text-accent/80">{text()}</span>}
         </Show>
         <Show when={awaitingPermission(engine.state, props.part)}>
-          <span class="shrink-0 text-xs text-warn/90">waiting for permission</span>
+          <span class="shrink-0 text-xs text-warn/90">{t("drift.status.waitingForPermission")}</span>
         </Show>
         <Show when={spawnedId()}>
           {(childId) => (
             <span
               role="button"
-              title="Open spawned thread"
+              title={t("drift.thread.openSpawned")}
               class="flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
               onClick={(event) => {
                 event.stopPropagation()
@@ -516,7 +544,7 @@ function ShellOutput(props: { command: string; output: string }) {
   return (
     <div class="group/shell relative overflow-hidden rounded-[6px] border-[0.5px] border-edge">
       <button
-        title="Copy shell output"
+        title={t("drift.shell.copyOutput")}
         class="absolute top-1 right-1 z-10 flex size-6 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity group-focus-within/shell:opacity-100 group-hover/shell:opacity-100 hover:bg-raised hover:text-ink"
         onClick={() => void copy()}
       >
@@ -528,7 +556,7 @@ function ShellOutput(props: { command: string; output: string }) {
         ref={viewport}
         class="shell-output max-h-60 overflow-x-hidden overflow-y-auto p-3 pr-10 font-mono text-[13px] leading-[1.5] whitespace-pre-wrap text-ink"
         role="region"
-        aria-label="Shell output"
+        aria-label={t("drift.shell.output")}
         tabIndex={0}
         onScroll={(event) => {
           savedTop = event.currentTarget.scrollTop
@@ -671,9 +699,9 @@ function PatchPanel(props: { files: PatchFile[] }) {
 function PatchFilePanel(props: { file: PatchFile }) {
   const [open, setOpen] = createSignal(true)
   const status = () => {
-    if (props.file.type === "add") return "Created"
-    if (props.file.type === "delete") return "Deleted"
-    if (props.file.type === "move") return "Moved"
+    if (props.file.type === "add") return t("drift.file.created")
+    if (props.file.type === "delete") return t("drift.file.deleted")
+    if (props.file.type === "move") return t("drift.file.moved")
     return null
   }
   return (
@@ -703,7 +731,7 @@ function PatchFilePanel(props: { file: PatchFile }) {
 export function ExploredGroup(props: { parts: ToolPart[] }) {
   const engine = useEngine()
   const [open, setOpen] = createSignal(false)
-  const label = () => `${props.parts.length} ${props.parts.length === 1 ? "read" : "reads"}`
+  const label = () => `${t("settings.permissions.tool.read.title")} · ${props.parts.length}`
   const waiting = () => props.parts.some((part) => awaitingPermission(engine.state, part))
   const running = () =>
     props.parts.some((part) => part.state.status === "running" || part.state.status === "pending")
@@ -715,14 +743,17 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
         onClick={() => setOpen(!open())}
       >
         <Show when={waiting()}>
-          <span class="size-1.5 shrink-0 rounded-full bg-warn" title="Waiting for permission" />
+          <span class="size-1.5 shrink-0 rounded-full bg-warn" title={t("notification.permission.title")} />
         </Show>
-        <Show when={!waiting() && running()} fallback={<span class="font-semibold text-ink">Explored</span>}>
-          <TextShimmer text="Explored" class="font-semibold" />
+        <Show
+          when={!waiting() && running()}
+          fallback={<span class="font-semibold text-ink">{t("settings.permissions.tool.read.title")}</span>}
+        >
+          <TextShimmer text={t("settings.permissions.tool.read.title")} class="font-semibold" />
         </Show>
         <span class="text-ink-faint">{label()}</span>
         <Show when={waiting()}>
-          <span class="text-xs text-warn/90">waiting for permission</span>
+          <span class="text-xs text-warn/90">{t("notification.permission.title")}</span>
         </Show>
         <Chevron open={expanded()} />
       </button>

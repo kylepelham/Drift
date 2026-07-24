@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { t } from "../state/i18n"
 import { autoUpdate } from "../state/prefs"
 import appIcon from "../../src-tauri/icons/32x32.png"
 
@@ -23,14 +24,13 @@ function shellInvoke() {
 }
 
 export function Titlebar() {
-  const controls = !!shellWindow() || import.meta.env.DEV
+  const shell = shellWindow()
+  if (!shell) return null
   const [maximized, setMaximized] = createSignal(false)
   const [update, setUpdate] = createSignal<string | null>(null)
   const [installing, setInstalling] = createSignal(false)
 
   onMount(() => {
-    const shell = shellWindow()
-    if (!shell) return
     const refresh = () => void shell.isMaximized().then(setMaximized).catch(() => {})
     refresh()
     void shell
@@ -70,18 +70,17 @@ export function Titlebar() {
               disabled={installing()}
               onClick={install}
             >
-              {installing() ? "Installing..." : `Update to v${version()}`}
+              {installing() ? t("settings.updates.action.installing") : t("error.page.action.updateTo", { version: version() })}
             </button>
           )}
         </Show>
-        <Show when={controls}>
           <div class="flex h-full">
-            <WindowButton label="Minimize" onClick={() => shellWindow()?.minimize()}>
+            <WindowButton label={t("drift.titlebar.minimize")} onClick={() => shell.minimize()}>
               <path d="M3 8h10" />
             </WindowButton>
             <WindowButton
-              label={maximized() ? "Restore" : "Maximize"}
-              onClick={() => shellWindow()?.toggleMaximize()}
+              label={maximized() ? t("drift.titlebar.restore") : t("drift.titlebar.maximize")}
+              onClick={() => shell.toggleMaximize()}
             >
               <Show when={maximized()} fallback={<rect x="4" y="4" width="8" height="8" rx="1" />}>
                 <>
@@ -90,11 +89,10 @@ export function Titlebar() {
                 </>
               </Show>
             </WindowButton>
-            <WindowButton label="Close" danger onClick={() => shellWindow()?.close()}>
+            <WindowButton label={t("common.close")} danger onClick={() => shell.close()}>
               <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
             </WindowButton>
           </div>
-        </Show>
       </div>
     </header>
   )

@@ -2,8 +2,10 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "so
 import { modelVisible, moveModelProvider, setModelsVisible, setModelVisible } from "../state/prefs"
 import { IconX } from "./icons"
 import { dragReorder } from "./drag-reorder"
+import { closeOnBackdropPointerDown } from "./modal"
 import { Chevron } from "./parts"
 import type { PickerItem } from "./picker"
+import { t } from "../state/i18n"
 
 export function ModelManager(props: { items: PickerItem[]; onClose: () => void }) {
   const [query, setQuery] = createSignal("")
@@ -24,7 +26,7 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
   const enabled = (item: PickerItem) => modelVisible(item.id, defaults().has(item.id))
   const providerItems = (providerID: string, source = filtered()) =>
     sortManagerModelItems(
-      source.filter((item) => (item.providerID ?? item.group ?? "Other") === providerID),
+      source.filter((item) => (item.providerID ?? item.group ?? t("dialog.provider.group.other")) === providerID),
       enabled,
     )
   const providerOpen = (providerID: string) => !!query().trim() || expanded().includes(providerID)
@@ -41,15 +43,19 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
   })
 
   return (
-    <div data-wheel-lock class="fixed inset-0 z-30 flex items-center justify-center bg-black/50" onClick={props.onClose}>
+    <div
+      data-wheel-lock
+      class="fixed inset-0 z-30 flex items-center justify-center bg-black/50"
+      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose)}
+    >
       <div
         class="fade-up flex max-h-[80vh] w-[35rem] flex-col overflow-hidden rounded-2xl border border-edge bg-overlay shadow-2xl shadow-black/40"
         onClick={(event) => event.stopPropagation()}
       >
         <div class="flex items-center justify-between border-b border-edge px-5 py-4">
-          <div class="text-sm font-semibold tracking-wide text-ink">Manage models</div>
+          <div class="text-sm font-semibold tracking-wide text-ink">{t("dialog.model.manage")}</div>
           <button
-            title="Close"
+            title={t("common.close")}
             class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
             onClick={props.onClose}
           >
@@ -60,7 +66,7 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
           <input
             autofocus
             class="w-full rounded-xl border border-edge bg-surface px-3.5 py-2.5 text-sm outline-none transition-colors placeholder:text-ink-faint focus:border-edge-strong"
-            placeholder="Search models..."
+            placeholder={t("dialog.model.search.placeholder")}
             value={query()}
             onInput={(event) => setQuery(event.currentTarget.value)}
           />
@@ -100,10 +106,10 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
                     </span>
                     <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{provider.label}</span>
                     <span class="shrink-0 rounded-full bg-raised px-2 py-0.5 text-[0.65rem] tabular-nums text-ink-faint">
-                      {enabledCount()} of {all().length}
+                      {t("drift.model.enabledCount", { enabled: enabledCount(), total: all().length })}
                     </span>
                     <Toggle
-                      label={`${allEnabled() ? "Hide" : "Show"} all ${provider.label} models`}
+                      label={t("dialog.model.manage.provider.toggle", { provider: provider.label })}
                       checked={allEnabled()}
                       onChange={() => setModelsVisible(all().map((item) => item.id), !allEnabled())}
                     />
@@ -130,7 +136,7 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
             }}
           </For>
           <Show when={filtered().length === 0}>
-            <div class="py-8 text-center text-sm text-ink-faint">No matching models.</div>
+            <div class="py-8 text-center text-sm text-ink-faint">{t("dialog.model.empty")}</div>
           </Show>
         </div>
       </div>
@@ -141,8 +147,8 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
 function providerGroups(items: PickerItem[]) {
   const groups = new Map<string, string>()
   for (const item of items) {
-    const id = item.providerID ?? item.group ?? "Other"
-    if (!groups.has(id)) groups.set(id, item.group ?? "Other")
+    const id = item.providerID ?? item.group ?? t("dialog.provider.group.other")
+    if (!groups.has(id)) groups.set(id, item.group ?? t("dialog.provider.group.other"))
   }
   return [...groups].map(([id, label]) => ({ id, label }))
 }

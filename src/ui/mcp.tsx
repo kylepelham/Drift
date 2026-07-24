@@ -1,7 +1,9 @@
 import type { McpStatus } from "@opencode-ai/sdk/client"
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { useEngine } from "../engine"
+import { t } from "../state/i18n"
 import { IconX } from "./icons"
+import { closeOnBackdropPointerDown } from "./modal"
 import { Toggle } from "./model-manager"
 
 const [open, setOpen] = createSignal(false)
@@ -50,36 +52,41 @@ function McpDialog(props: { onClose: () => void }) {
   }
 
   const label = (name: string, status: McpStatus) => {
-    if (pending()[name]) return { text: status.status === "connected" ? "disconnecting..." : "connecting...", tone: "text-ink-faint" }
+    if (pending()[name])
+      return {
+        text: t(status.status === "connected" ? "drift.mcp.status.disconnecting" : "drift.mcp.status.connecting"),
+        tone: "text-ink-faint",
+      }
     switch (status.status) {
       case "connected":
-        return { text: "connected", tone: "text-ok" }
+        return { text: t("mcp.status.connected"), tone: "text-ok" }
       case "disabled":
-        return { text: "off", tone: "text-ink-faint" }
+        return { text: t("mcp.status.disabled"), tone: "text-ink-faint" }
       case "failed":
-        return { text: "failed", tone: "text-danger" }
+        return { text: t("mcp.status.failed"), tone: "text-danger" }
       case "needs_auth":
-        return { text: "needs auth, toggle to sign in", tone: "text-warn" }
+        return { text: t("mcp.status.needs_auth"), tone: "text-warn" }
       default:
-        return { text: "needs registration", tone: "text-warn" }
+        return { text: t("mcp.status.needs_client_registration"), tone: "text-warn" }
     }
   }
 
   return (
-    <div class="fixed inset-0 z-30 flex items-center justify-center bg-black/50" onClick={props.onClose}>
+    <div
+      class="fixed inset-0 z-30 flex items-center justify-center bg-black/50"
+      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose)}
+    >
       <div
         class="fade-up flex max-h-[70vh] w-[34rem] flex-col overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40"
         onClick={(event) => event.stopPropagation()}
       >
         <div class="flex items-start justify-between border-b border-edge px-4 py-3">
           <div>
-            <div class="text-sm font-semibold text-ink">MCP servers</div>
-            <div class="mt-0.5 text-xs text-ink-faint">
-              Connections for this workspace's engine instance. Configure servers in opencode config.
-            </div>
+            <div class="text-sm font-semibold text-ink">{t("dialog.mcp.title")}</div>
+            <div class="mt-0.5 text-xs text-ink-faint">{t("drift.mcp.description")}</div>
           </div>
           <button
-            title="Close"
+            title={t("common.close")}
             class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
             onClick={props.onClose}
           >
@@ -102,7 +109,7 @@ function McpDialog(props: { onClose: () => void }) {
                     {label(name, status).text}
                   </span>
                   <Toggle
-                    label={`Enable ${name}`}
+                    label={t("drift.mcp.enable", { name })}
                     checked={status.status === "connected"}
                     disabled={!!pending()[name]}
                     onChange={() => void toggle(name, status)}
@@ -119,14 +126,10 @@ function McpDialog(props: { onClose: () => void }) {
             )}
           </For>
           <Show when={loaded() && Object.keys(servers()).length === 0}>
-            <div class="px-3 py-4 text-sm text-ink-faint">
-              No MCP servers configured. Add them in opencode config (`mcp` section).
-            </div>
+            <div class="px-3 py-4 text-sm text-ink-faint">{t("dialog.mcp.empty")}</div>
           </Show>
         </div>
       </div>
     </div>
   )
 }
-
-

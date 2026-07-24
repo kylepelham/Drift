@@ -6,8 +6,10 @@ import { childrenOf, normalizeDir, sessionBusy, sessionsFor } from "../engine/st
 import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
 import { fixedMenuPosition } from "../state/zoom"
+import { t } from "../state/i18n"
 import { Chevron } from "./parts"
 import { dragReorder } from "./drag-reorder"
+import { closeOnBackdropPointerDown } from "./modal"
 import {
   activeWorkspaceId,
   archivedIds,
@@ -75,7 +77,7 @@ export function WorkspaceGroup(props: {
         }}
       >
         <button
-          title={collapsed() ? "Show threads" : "Hide threads"}
+          title={collapsed() ? t("drift.workspace.showThreads") : t("drift.workspace.hideThreads")}
           aria-expanded={!collapsed()}
           class="-mr-1 -ml-1 flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
           onPointerDown={(event) => event.stopPropagation()}
@@ -92,7 +94,7 @@ export function WorkspaceGroup(props: {
         </span>
         <div class="flex items-center" classList={{ "invisible group-hover:visible": !active() }}>
           <RowButton
-            title="Workspace options"
+            title={t("common.moreOptions")}
             onClick={(event) => {
               const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
               openMenu(rect.left, rect.bottom + 4)
@@ -101,7 +103,7 @@ export function WorkspaceGroup(props: {
             <IconDots />
           </RowButton>
           <RowButton
-            title="New thread"
+            title={t("drift.thread.new")}
             onClick={() => {
               selectWorkspace(props.workspace.id)
               selectSession(null)
@@ -141,11 +143,11 @@ export function WorkspaceGroup(props: {
               class="flex h-7 w-full items-center rounded-md px-2 text-left text-[0.72rem] text-ink-faint transition-colors hover:bg-raised/60 hover:text-ink-muted"
               onClick={() => setVisibleCount((count) => Math.min(count + sessionPageSize, sessions().length))}
             >
-              Load {Math.min(sessionPageSize, remaining())} more
+              {t("drift.thread.loadMore", { count: Math.min(sessionPageSize, remaining()) })}
             </button>
           </Show>
           <Show when={sessions().length === 0 && active()}>
-            <div class="px-2 py-1.5 text-xs text-ink-faint">No threads yet</div>
+            <div class="px-2 py-1.5 text-xs text-ink-faint">{t("drift.thread.empty")}</div>
           </Show>
         </div>
       </Show>
@@ -199,12 +201,12 @@ function ThreadItem(props: {
     >
       <StatusDot sessionId={props.sessionId} />
       <span class="min-w-0 flex-1 truncate text-[0.8rem]" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
-        {props.title || "Untitled"}
+        {props.title || t("drift.thread.untitled")}
       </span>
       <span class="shrink-0 text-[0.65rem] text-ink-faint group-hover:hidden">{ago(props.updated)}</span>
       <span class="hidden shrink-0 items-center group-hover:flex">
         <RowButton
-          title="Fork thread (duplicate with full history)"
+          title={t("command.session.fork.description")}
           onClick={() => {
             void engine.actions.fork(props.sessionId).then((session) => session && selectSession(session.id))
           }}
@@ -212,7 +214,7 @@ function ThreadItem(props: {
           <IconBranch />
         </RowButton>
         <RowButton
-          title="Archive thread"
+          title={t("command.session.archive")}
           onClick={() => {
             if (selectedSession() === props.sessionId) selectSession(null)
             void archiveSession(props.sessionId, props.workspace.id)
@@ -232,17 +234,19 @@ function StatusDot(props: { sessionId: string }) {
     (engine.state.permissions[props.sessionId]?.length ?? 0) > 0 ||
     (engine.state.questions[props.sessionId]?.length ?? 0) > 0
   const attentionTitle = () =>
-    (engine.state.permissions[props.sessionId]?.length ?? 0) > 0 ? "Waiting for permission" : "Waiting for an answer"
+    (engine.state.permissions[props.sessionId]?.length ?? 0) > 0
+      ? t("drift.thread.waitingForPermission")
+      : t("drift.thread.waitingForAnswer")
   return (
     <Switch>
       <Match when={attention()}>
         <span class="size-1.5 shrink-0 rounded-full bg-warn" title={attentionTitle()} />
       </Match>
       <Match when={sessionBusy(engine.state, props.sessionId)}>
-        <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" title="Working" />
+        <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" title={t("drift.thread.working")} />
       </Match>
       <Match when={engine.state.errors[props.sessionId]}>
-        <span class="size-1.5 shrink-0 rounded-full bg-danger" title="Thread failed" />
+        <span class="size-1.5 shrink-0 rounded-full bg-danger" title={t("notification.session.error.title")} />
       </Match>
     </Switch>
   )
@@ -271,7 +275,7 @@ function ChildThreadItem(props: {
       <span class="text-[0.7rem] text-ink-faint">&#8627;</span>
       <StatusDot sessionId={props.sessionId} />
       <span class="min-w-0 flex-1 truncate text-[0.75rem]" classList={{ "text-ink": active(), "text-ink-faint": !active() }}>
-        {props.title || "Spawned thread"}
+        {props.title || t("drift.thread.untitled")}
       </span>
     </div>
   )
@@ -344,21 +348,21 @@ export function WorkspaceMenu(props: {
       }}
     >
       <MenuItem
-        label="Edit"
+        label={t("common.edit")}
         onClick={() => {
           props.onEdit()
           props.onClose()
         }}
       />
       <MenuItem
-        label="Move..."
+        label={t("drift.workspace.move")}
         onClick={() => {
           props.onMove()
           props.onClose()
         }}
       />
       <MenuItem
-        label={confirming() ? "Click again to confirm" : "Remove"}
+        label={confirming() ? t("drift.workspace.confirmRemove") : t("drift.workspace.remove")}
         danger
         onClick={() => {
           if (!confirming()) return setConfirming(true)
@@ -367,9 +371,7 @@ export function WorkspaceMenu(props: {
         }}
       />
       <Show when={confirming()}>
-        <div class="px-2 pt-1 pb-0.5 text-[0.65rem] leading-snug text-ink-faint">
-          Threads are kept for 7 days; re-add the same folder to restore them.
-        </div>
+        <div class="px-2 pt-1 pb-0.5 text-[0.65rem] leading-snug text-ink-faint">{t("drift.workspace.removeHint")}</div>
       </Show>
     </div>
   )
@@ -414,7 +416,10 @@ export function SessionMenu(props: {
       class="fade-up fixed z-40 max-h-80 w-52 overflow-y-auto rounded-lg border border-edge bg-overlay p-1.5 shadow-xl shadow-black/40"
       style={{ left: `${position().left}px`, top: `${position().top}px` }}
     >
-      <MenuItem label={choosing() ? "Move to workspace" : "Move"} onClick={() => setChoosing(true)} />
+      <MenuItem
+        label={choosing() ? t("drift.thread.moveToWorkspace") : t("drift.thread.move")}
+        onClick={() => setChoosing(true)}
+      />
       <Show when={choosing()}>
         <div class="my-1 border-t border-edge" />
         <For each={targets()}>
@@ -429,7 +434,7 @@ export function SessionMenu(props: {
           )}
         </For>
         <Show when={targets().length === 0}>
-          <MenuItem label="No other workspaces" disabled onClick={() => {}} />
+          <MenuItem label={t("drift.thread.noOtherWorkspaces")} disabled onClick={() => {}} />
         </Show>
       </Show>
     </div>
@@ -455,12 +460,15 @@ export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () =>
   }
 
   return (
-    <div class="fixed inset-0 z-30 flex items-center justify-center bg-black/50" onClick={props.onClose}>
+    <div
+      class="fixed inset-0 z-30 flex items-center justify-center bg-black/50"
+      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose)}
+    >
       <div
         class="fade-up w-96 rounded-xl border border-edge bg-overlay p-4 shadow-2xl shadow-black/40"
         onClick={(event) => event.stopPropagation()}
       >
-        <div class="mb-4 text-sm font-semibold text-ink">Edit workspace</div>
+        <div class="mb-4 text-sm font-semibold text-ink">{t("dialog.project.edit.title")}</div>
         <div class="mb-4 flex items-center gap-3">
           <Show
             when={icon().startsWith("data:")}
@@ -477,20 +485,22 @@ export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () =>
               class="rounded-md border border-edge px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
               onClick={() => void pickIconImage().then((image) => image && setIcon(image))}
             >
-              Change image...
+              {t("drift.workspace.changeImage")}
             </button>
             <Show when={icon()}>
               <button
                 class="rounded-md border border-edge px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
                 onClick={() => setIcon("")}
               >
-                Use initials
+                {t("drift.workspace.useInitials")}
               </button>
             </Show>
           </div>
         </div>
         <label class="mb-4 block">
-          <span class="mb-1 block text-[0.68rem] tracking-wide text-ink-faint uppercase">Name</span>
+          <span class="mb-1 block text-[0.68rem] tracking-wide text-ink-faint uppercase">
+            {t("dialog.project.edit.name")}
+          </span>
           <input
             class="w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-edge-strong"
             value={name()}
@@ -504,13 +514,13 @@ export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () =>
             class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:text-ink"
             onClick={props.onClose}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink"
             onClick={() => void save()}
           >
-            Save
+            {t("common.save")}
           </button>
         </div>
       </div>
@@ -565,8 +575,8 @@ function pickFile(accept: string): Promise<File | null> {
 
 export function ago(timestamp: number) {
   const seconds = Math.max(0, (Date.now() - timestamp) / 1000)
-  if (seconds < 60) return "just now"
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
-  return `${Math.floor(seconds / 86400)}d ago`
+  if (seconds < 60) return t("common.time.justNow")
+  if (seconds < 3600) return t("common.time.minutesAgo.short", { count: Math.floor(seconds / 60) })
+  if (seconds < 86400) return t("common.time.hoursAgo.short", { count: Math.floor(seconds / 3600) })
+  return t("common.time.daysAgo.short", { count: Math.floor(seconds / 86400) })
 }

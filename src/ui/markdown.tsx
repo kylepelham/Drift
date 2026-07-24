@@ -2,7 +2,8 @@ import DOMPurify from "dompurify"
 import { marked } from "marked"
 import type { BundledLanguage, SpecialLanguage } from "shiki"
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
-import { theme } from "../state/theme"
+import { t } from "../state/i18n"
+import { lightTheme } from "../state/theme"
 
 marked.use({ gfm: true, breaks: true })
 
@@ -15,7 +16,7 @@ const copiedIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9
 export type SyntaxToken = { content: string; color?: string; fontStyle?: number }
 
 export async function codeTokens(code: string, lang: string): Promise<SyntaxToken[][]> {
-  const shikiTheme = theme() === "drift-light" ? "github-light" : "github-dark-default"
+  const shikiTheme = lightTheme() ? "github-light" : "github-dark-default"
   const shiki = await (shikiModule ??= import("shiki"))
   return shiki
     .codeToTokens(code, { lang: lang as BundledLanguage | SpecialLanguage, theme: shikiTheme })
@@ -29,7 +30,7 @@ export async function codeTokens(code: string, lang: string): Promise<SyntaxToke
 
 async function highlightBlocks(root: HTMLElement) {
   const shiki = await (shikiModule ??= import("shiki"))
-  const shikiTheme = theme() === "drift-light" ? "github-light" : "github-dark-default"
+  const shikiTheme = lightTheme() ? "github-light" : "github-dark-default"
   for (const code of root.querySelectorAll<HTMLElement>("pre > code[class*='language-']")) {
     const lang = code.className.match(/language-([\w-]+)/)?.[1] ?? "text"
     const pre = code.parentElement
@@ -83,8 +84,8 @@ function decorateCodeBlocks(root: HTMLElement) {
     button.className = "code-copy"
     button.dataset.copyCode = ""
     button.innerHTML = copyIcon
-    button.setAttribute("aria-label", "Copy code")
-    button.title = "Copy code"
+    button.setAttribute("aria-label", t("drift.markdown.copyCode"))
+    button.title = t("drift.markdown.copyCode")
     pre.before(wrapper)
     wrapper.append(pre, button)
     codeBlocks.set(wrapper, code)
@@ -100,12 +101,12 @@ function markdownClick(event: MouseEvent) {
   void writeClipboard(code)
     .then(() => {
       button.innerHTML = copiedIcon
-      button.setAttribute("aria-label", "Code copied")
-      button.title = "Copied"
+      button.setAttribute("aria-label", t("drift.markdown.codeCopied"))
+      button.title = t("drift.markdown.copied")
       setTimeout(() => {
         button.innerHTML = copyIcon
-        button.setAttribute("aria-label", "Copy code")
-        button.title = "Copy code"
+        button.setAttribute("aria-label", t("drift.markdown.copyCode"))
+        button.title = t("drift.markdown.copyCode")
       }, 1600)
     })
     .catch((error) => console.warn("[Drift] Could not copy code", error))
@@ -133,7 +134,7 @@ export function CodeView(props: { code: string; lang: string }) {
   let request = 0
   createEffect(() => {
     const { code, lang } = props
-    const shikiTheme = theme() === "drift-light" ? "github-light" : "github-dark-default"
+    const shikiTheme = lightTheme() ? "github-light" : "github-dark-default"
     const current = ++request
     setHtml("")
     void (shikiModule ??= import("shiki"))

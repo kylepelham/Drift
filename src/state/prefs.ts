@@ -1,6 +1,19 @@
 import type { ModelRef } from "../engine/store"
 import { persisted } from "./persist"
 
+export const attentionKinds = ["agent", "permission", "error"] as const
+export type AttentionKind = (typeof attentionKinds)[number]
+export type AlertSound = "none" | "custom" | string
+export type CustomSound = { name: string; dataUrl: string }
+
+export function notificationDefaults(enabled: boolean) {
+  return Object.fromEntries(attentionKinds.map((kind) => [kind, enabled])) as Record<AttentionKind, boolean>
+}
+
+export function soundDefaults() {
+  return Object.fromEntries(attentionKinds.map((kind) => [kind, "none"])) as Record<AttentionKind, AlertSound>
+}
+
 export const [modelPref, setModelPref] = persisted<ModelRef | null>("drift.model", null)
 export const [agentPref, setAgentPref] = persisted<string>("drift.agent", "build")
 export const [variantPref, setVariantPref] = persisted<string | null>("drift.variant", null)
@@ -9,10 +22,20 @@ export const [shownModelIds, setShownModelIds] = persisted<string[]>("drift.mode
 export const [modelProviderOrder, setModelProviderOrder] = persisted<string[]>("drift.models.providerOrder", [])
 export const [showReasoning, setShowReasoning] = persisted<boolean>("drift.reasoning", false)
 export const [toolErrorsExpanded, setToolErrorsExpanded] = persisted<boolean>("drift.toolErrors.expanded", false)
-export const [notifyAttention, setNotifyAttention] = persisted<boolean>("drift.notifications", false)
+const [legacyNotifications] = persisted<boolean>("drift.notifications", false)
+export const [systemNotifications, setSystemNotifications] = persisted<Record<AttentionKind, boolean>>(
+  "drift.notifications.events",
+  notificationDefaults(legacyNotifications()),
+)
+export const [alertSounds, setAlertSounds] = persisted<Record<AttentionKind, AlertSound>>(
+  "drift.notifications.sounds",
+  soundDefaults(),
+)
+export const [customSound, setCustomSound] = persisted<CustomSound | null>("drift.notifications.customSound", null)
 export const [collapseCompaction, setCollapseCompaction] = persisted<boolean>("drift.compaction.collapsible", true)
 export const [compactionCollapsed, setCompactionCollapsed] = persisted<boolean>("drift.compaction.collapsed", true)
 export const [autoUpdate, setAutoUpdate] = persisted<boolean>("drift.autoUpdate", true)
+export const [autoAcceptGlobal, setAutoAcceptGlobal] = persisted<boolean>("drift.autoAccept.global", false)
 
 export const [autoAcceptSessions, setAutoAcceptSessions] = persisted<string[]>("drift.autoAccept", [])
 
@@ -21,6 +44,25 @@ export function toggleAutoAccept(sessionId: string) {
   setAutoAcceptSessions(
     current.includes(sessionId) ? current.filter((id) => id !== sessionId) : [...current, sessionId],
   )
+}
+
+export function setSystemNotification(kind: AttentionKind, enabled: boolean) {
+  setSystemNotifications({ ...notificationDefaults(false), ...systemNotifications(), [kind]: enabled })
+}
+
+export function setAlertSound(kind: AttentionKind, sound: AlertSound) {
+  setAlertSounds({ ...soundDefaults(), ...alertSounds(), [kind]: sound })
+}
+
+export function autoAcceptAllowed(
+  global: boolean,
+  sessions: string[],
+  sessionId: string,
+  parentId?: string,
+  linkedParentId?: string,
+) {
+  if (global || sessions.includes(sessionId)) return true
+  return !!(parentId && sessions.includes(parentId)) || !!(linkedParentId && sessions.includes(linkedParentId))
 }
 
 type SessionPrefs = { model?: ModelRef | null; agent?: string; variant?: string | null }

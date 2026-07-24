@@ -28,7 +28,7 @@ works here, including OAuth sign-in where the provider offers it.
   against the same projects at the same time.
 - Virtualized transcript that stays smooth at thousands of messages.
 - Command palette (Ctrl+K), rebindable keys, per-session model/agent/thinking
-  preferences, light/dark/slate themes.
+  preferences, localized settings, expanded themes, custom palette, CSS, and fonts.
 - Fork threads, spawn subagent threads, revert to any point in a conversation.
 
 ## Development

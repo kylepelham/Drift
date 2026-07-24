@@ -3,8 +3,9 @@ import { useEngine } from "../engine"
 import { contextStats, resolveModel, type MessageEntry } from "../engine/store"
 import { prefsFor } from "../state/prefs"
 import { debugPanelOpen, setDebugPanelOpen } from "../state/panels"
+import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
-import { theme } from "../state/theme"
+import { lightTheme } from "../state/theme"
 import { IconX } from "./icons"
 
 export function DebugPanel() {
@@ -18,9 +19,9 @@ export function DebugPanel() {
     <Show when={debugPanelOpen() && selectedSession()}>
       <div class="flex w-[26rem] shrink-0 flex-col border-l border-edge bg-surface">
         <div class="flex items-center justify-between border-b border-edge px-3 py-2.5">
-          <span class="text-sm font-semibold text-ink">Context</span>
+          <span class="text-sm font-semibold text-ink">{t("drift.debug.context")}</span>
           <button
-            title="Close"
+            title={t("common.close")}
             class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
             onClick={() => setDebugPanelOpen(false)}
           >
@@ -31,22 +32,22 @@ export function DebugPanel() {
           {(usage) => (
             <div class="space-y-1 border-b border-edge px-3 py-2.5 text-xs text-ink-muted select-text">
               <div class="flex justify-between">
-                <span>Usage</span>
+                <span>{t("context.usage.usage")}</span>
                 <span class="text-ink">{usage().percent}%</span>
               </div>
               <div class="flex justify-between">
-                <span>Tokens</span>
+                <span>{t("context.usage.tokens")}</span>
                 <span class="text-ink">
                   {usage().count.toLocaleString()} / {usage().context.toLocaleString()}
                 </span>
               </div>
               <div class="flex justify-between">
-                <span>Until compaction</span>
+                <span>{t("drift.context.untilCompaction")}</span>
                 <span class="text-ink">{usage().untilCompaction.toLocaleString()}</span>
               </div>
               <Show when={usage().cost > 0}>
                 <div class="flex justify-between">
-                  <span>Cost</span>
+                  <span>{t("context.usage.cost")}</span>
                   <span class="text-ink">${usage().cost.toFixed(2)}</span>
                 </div>
               </Show>
@@ -95,7 +96,7 @@ function JsonView(props: { value: unknown }) {
   let generation = 0
   createEffect(() => {
     const value = text()
-    const shikiTheme = theme() === "drift-light" ? "github-light" : "github-dark-default"
+    const shikiTheme = lightTheme() ? "github-light" : "github-dark-default"
     const current = ++generation
     if (value.length > 200_000) return setHtml("")
     void import("shiki").then(async (shiki) => {

@@ -21,6 +21,10 @@ holds what Drift adds on top.
 Workspace icons are images only, downscaled client-side to a 64px webp data URL
 (a few KB) before storage, so no blob handling or asset protocol is needed.
 
+Native startup imports OpenCode projects only when they own at least one session. Drift
+also removes untouched temporary rows created by the older project-only importer while
+preserving workspaces explicitly added through Drift, including empty ones.
+
 ## Archive lifecycle
 
 Archiving never deletes: `archived_at` is set and the thread disappears from the

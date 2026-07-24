@@ -9,6 +9,7 @@ import { addWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, work
 import { ArchiveModal } from "./archive"
 import { IconArchive, IconGear, IconPlus } from "./icons"
 import { openSettings } from "./settings"
+import { t } from "../state/i18n"
 import {
   SessionMenu,
   WorkspaceEditModal,
@@ -46,9 +47,9 @@ export function Sidebar() {
 
   async function moveSessionTo(state: SessionMenuState, destination: Workspace) {
     const selected = selectedSession()
-    setMoveStatus({ error: false, text: `Moving session to ${destination.name}...` })
+    setMoveStatus({ error: false, text: t("drift.sidebar.movingSession", { workspace: destination.name }) })
     const result = await engine.actions.moveSession(state.sessionId, destination.path)
-    if (!result.ok) return setMoveStatus({ error: true, text: result.error ?? "Could not move the session" })
+    if (!result.ok) return setMoveStatus({ error: true, text: result.error ?? t("drift.sidebar.moveSessionFailed") })
     if (selected && result.moved.includes(selected)) {
       selectWorkspace(destination.id)
       selectSession(selected)
@@ -63,13 +64,13 @@ export function Sidebar() {
       (entry) => entry.id !== workspace.id && normalizeDir(entry.path) === normalizeDir(path),
     )
     if (collision) {
-      setMoveStatus({ error: true, text: `${path} is already saved as ${collision.name}` })
+      setMoveStatus({ error: true, text: t("drift.sidebar.pathAlreadySaved", { path, workspace: collision.name }) })
       return
     }
 
-    setMoveStatus({ error: false, text: `Moving ${workspace.name} sessions...` })
+    setMoveStatus({ error: false, text: t("drift.sidebar.movingWorkspaceSessions", { workspace: workspace.name }) })
     const result = await engine.actions.moveWorkspaceSessions(workspace.path, path)
-    if (!result.ok) return setMoveStatus({ error: true, text: result.error ?? "Could not move the workspace" })
+    if (!result.ok) return setMoveStatus({ error: true, text: result.error ?? t("drift.sidebar.moveWorkspaceFailed") })
     try {
       await updateWorkspace(workspace.id, { path })
       setMoveStatus(null)
@@ -78,7 +79,9 @@ export function Sidebar() {
       const detail = error instanceof Error ? error.message : String(error)
       setMoveStatus({
         error: true,
-        text: rollback.ok ? `Could not save the new workspace path: ${detail}` : `Workspace move was only partially applied: ${detail}`,
+        text: rollback.ok
+          ? t("drift.sidebar.saveWorkspacePathFailed", { error: detail })
+          : t("drift.sidebar.workspaceMovePartial", { error: detail }),
       })
     }
   }
@@ -109,18 +112,20 @@ export function Sidebar() {
   return (
     <aside class="relative flex shrink-0 flex-col border-r border-edge bg-surface" style={{ width: `${width()}px` }}>
       <div class="flex items-center justify-between pt-2.5 pb-1.5 pr-3.5 pl-4">
-        <span class="text-[0.68rem] tracking-wider text-ink-faint uppercase">Workspaces</span>
+        <span class="min-w-0 truncate text-[0.68rem] tracking-wider text-ink-faint uppercase">
+          {t("drift.sidebar.workspaces")}
+        </span>
         <div class="flex items-center gap-0.5">
           <button
             class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-            title="Archived items"
+            title={t("drift.sidebar.archived")}
             onClick={() => setArchive(true)}
           >
             <IconArchive />
           </button>
           <button
             class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-            title="Add workspace (pick a folder)"
+            title={t("drift.sidebar.addWorkspace")}
             onClick={() => void add()}
           >
             <IconPlus />
@@ -132,7 +137,7 @@ export function Sidebar() {
           {(workspace) => <WorkspaceGroup workspace={workspace} onMenu={setMenu} onSessionMenu={setSessionMenu} />}
         </For>
         <Show when={workspaces().length === 0}>
-          <div class="px-2 py-4 text-xs text-ink-faint">Add a workspace (a project folder) to get started.</div>
+          <div class="px-2 py-4 text-xs text-ink-faint">{t("drift.sidebar.empty")}</div>
         </Show>
       </nav>
       <SidebarFooter onSettings={openSettings} />
@@ -176,7 +181,7 @@ export function Sidebar() {
       </Show>
       <div
         role="separator"
-        aria-label="Resize sidebar"
+        aria-label={t("drift.sidebar.resize")}
         aria-orientation="vertical"
         aria-valuemin={minSidebarWidth}
         aria-valuemax={maxSidebarWidth}
@@ -225,19 +230,19 @@ function SidebarFooter(props: { onSettings: () => void }) {
     idle: "bg-ink-faint",
   }
   const label = () => {
-    if (engine.state.startupError) return "engine failed"
+    if (engine.state.startupError) return t("notification.session.error.title")
     if (engine.state.connection === "online") return shortPath(engine.state.directory)
-    if (engine.state.connection === "idle") return "no workspace"
-    return engine.state.connection
+    if (engine.state.connection === "idle") return t("drift.composer.selectWorkspace")
+    return engine.state.connection === "connecting" ? t("common.loading") : t("drift.sidebar.offline")
   }
   return (
-    <div class="border-t border-edge px-2 py-2">
+    <div class="px-2 py-2">
       <button
         class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-ink-muted transition-colors hover:bg-raised hover:text-ink"
         onClick={props.onSettings}
       >
         <IconGear />
-        <span>Settings</span>
+        <span>{t("sidebar.settings")}</span>
         <span class="flex-1" />
         <span
           class="flex items-center gap-1.5 text-[0.65rem] text-ink-faint"

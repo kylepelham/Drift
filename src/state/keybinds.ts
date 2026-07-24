@@ -2,13 +2,13 @@ import { persisted } from "./persist"
 
 export type KeybindAction = "palette" | "newThread" | "autoAccept" | "zoomIn" | "zoomOut" | "zoomReset"
 
-export const keybindDefs: { action: KeybindAction; label: string; combo: string | null }[] = [
-  { action: "palette", label: "Command palette", combo: "ctrl+k" },
-  { action: "newThread", label: "New thread", combo: "ctrl+n" },
-  { action: "autoAccept", label: "Toggle auto-accept permissions", combo: "ctrl+shift+a" },
-  { action: "zoomIn", label: "Zoom in", combo: "ctrl+=" },
-  { action: "zoomOut", label: "Zoom out", combo: "ctrl+-" },
-  { action: "zoomReset", label: "Reset zoom", combo: "ctrl+0" },
+export const keybindDefs: { action: KeybindAction; combo: string | null }[] = [
+  { action: "palette", combo: "ctrl+k" },
+  { action: "newThread", combo: "ctrl+n" },
+  { action: "autoAccept", combo: "ctrl+shift+a" },
+  { action: "zoomIn", combo: "ctrl+=" },
+  { action: "zoomOut", combo: "ctrl+-" },
+  { action: "zoomReset", combo: "ctrl+0" },
 ]
 
 const [overrides, setOverrides] = persisted<Partial<Record<KeybindAction, string | null>>>("drift.keybinds", {})
