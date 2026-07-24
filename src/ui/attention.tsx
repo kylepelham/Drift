@@ -103,78 +103,184 @@ export function PermissionCard(props: { permission: Permission }) {
 
 export function QuestionCard(props: { questions: QuestionInfo[]; onAnswer: (answers: string[][] | null) => void }) {
   const [step, setStep] = createSignal(0)
-  const [collected, setCollected] = createSignal<string[][]>([])
-  const [picked, setPicked] = createSignal<string[]>([])
-  const [custom, setCustom] = createSignal("")
+  const [drafts, setDrafts] = createSignal<QuestionDraft[]>(props.questions.map(() => ({ selected: [], custom: "", customSelected: false })))
   const current = () => props.questions[step()]
+  const draft = () => drafts()[step()] ?? { selected: [], custom: "", customSelected: false }
 
-  function submitStep(answer: string[]) {
-    const answers = [...collected(), answer]
-    if (step() + 1 < props.questions.length) {
-      setCollected(answers)
-      setStep(step() + 1)
-      setPicked([])
-      setCustom("")
-      return
-    }
-    props.onAnswer(answers)
+  function update(next: QuestionDraft) {
+    setDrafts((current) => current.map((item, index) => (index === step() ? next : item)))
   }
 
-  function togglePick(label: string) {
-    if (!current()?.multiple) return submitStep([label])
-    setPicked(picked().includes(label) ? picked().filter((item) => item !== label) : [...picked(), label])
+  function advance() {
+    if (step() + 1 < props.questions.length) return setStep(step() + 1)
+    props.onAnswer(drafts().map(questionAnswer))
   }
 
   return (
     <Show when={current()}>
       {(question) => (
-        <div class="fade-up rounded-lg border border-accent/40 bg-accent/5 px-3 py-2.5">
-          <div class="mb-2 text-sm">
-            <span class="text-accent">{question().header}</span>{" "}
-            <span class="text-ink">{question().question}</span>
+        <div
+          class="fade-up overflow-hidden rounded-xl border border-edge-strong bg-surface shadow-xl shadow-black/15"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") props.onAnswer(null)
+            if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) advance()
+          }}
+        >
+          <div class="border-b border-edge px-4 py-3.5">
+            <div class="flex items-center justify-between gap-3 text-xs font-medium">
+              <span class="text-ink-muted">{step() + 1} of {props.questions.length} questions</span>
+              <span class="truncate text-accent">{question().header}</span>
+            </div>
             <Show when={props.questions.length > 1}>
-              <span class="ml-2 text-xs text-ink-faint">
-                {step() + 1}/{props.questions.length}
-              </span>
+              <div class="mt-3 flex gap-1.5">
+                <For each={props.questions}>
+                  {(_, index) => (
+                    <button
+                      class="h-1 flex-1 rounded-full transition-colors"
+                      classList={{
+                        "bg-accent": index() === step(),
+                        "bg-accent/35": index() !== step() && questionAnswer(drafts()[index()]).length > 0,
+                        "bg-edge": index() !== step() && questionAnswer(drafts()[index()]).length === 0,
+                      }}
+                      title={`Question ${index() + 1}`}
+                      onClick={() => setStep(index())}
+                    />
+                  )}
+                </For>
+              </div>
             </Show>
           </div>
-          <div class="flex flex-wrap gap-2">
-            <For each={question().options}>
-              {(option) => (
-                <button
-                  class="rounded-md border px-2.5 py-1 text-left text-xs transition-colors"
+          <div class="px-4 pt-3.5 pb-4">
+            <div class="text-sm font-medium text-ink">{question().question}</div>
+            <div class="mt-1 text-xs text-ink-faint">
+              {question().multiple ? "Select all answers that apply" : "Select one answer"}
+            </div>
+            <div class="mt-3 max-h-[min(26rem,52vh)] space-y-2 overflow-y-auto pr-1">
+              <For each={question().options}>
+                {(option) => {
+                  const selected = () => draft().selected.includes(option.label)
+                  return (
+                    <button
+                      class="flex w-full items-start gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors"
+                      classList={{
+                        "border-accent/70 bg-accent/8": selected(),
+                        "border-edge bg-raised/30 hover:border-edge-strong hover:bg-raised/60": !selected(),
+                      }}
+                      role={question().multiple ? "checkbox" : "radio"}
+                      aria-checked={selected()}
+                      onClick={() => update(selectQuestionOption(draft(), option.label, !!question().multiple))}
+                    >
+                      <ChoiceMark checked={selected()} multiple={!!question().multiple} />
+                      <span class="min-w-0">
+                        <span class="block text-sm font-medium text-ink">{option.label}</span>
+                        <Show when={option.description}>
+                          <span class="mt-0.5 block text-xs leading-relaxed text-ink-muted">{option.description}</span>
+                        </Show>
+                      </span>
+                    </button>
+                  )
+                }}
+              </For>
+              <Show when={question().custom !== false}>
+                <div
+                  class="flex w-full cursor-pointer items-start gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors"
                   classList={{
-                    "border-accent text-ink": picked().includes(option.label),
-                    "border-edge text-ink-muted hover:border-edge-strong hover:text-ink": !picked().includes(option.label),
+                    "border-accent/70 bg-accent/8": draft().customSelected,
+                    "border-edge bg-raised/30 hover:border-edge-strong hover:bg-raised/60": !draft().customSelected,
                   }}
-                  title={option.description}
-                  onClick={() => togglePick(option.label)}
+                  role={question().multiple ? "checkbox" : "radio"}
+                  aria-checked={draft().customSelected}
+                  tabIndex={0}
+                  onClick={(event) => {
+                    if (event.target instanceof HTMLInputElement) return
+                    const row = event.currentTarget
+                    update(selectQuestionCustom(draft(), !!question().multiple))
+                    queueMicrotask(() => row.querySelector("input")?.focus())
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") update(selectQuestionCustom(draft(), !!question().multiple))
+                  }}
                 >
-                  {option.label}
-                </button>
-              )}
-            </For>
+                  <ChoiceMark checked={draft().customSelected} multiple={!!question().multiple} />
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm font-medium text-ink">Type your own answer</div>
+                    <Show
+                      when={draft().customSelected}
+                      fallback={<div class="mt-0.5 text-xs text-ink-muted">Add an answer not listed above</div>}
+                    >
+                      <input
+                        class="mt-2 w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-accent/70"
+                        placeholder="Type your own answer..."
+                        value={draft().custom}
+                        onClick={(event) => event.stopPropagation()}
+                        onInput={(event) => update({ ...draft(), custom: event.currentTarget.value, customSelected: true })}
+                        onKeyDown={(event) => {
+                          event.stopPropagation()
+                          if (event.key === "Enter" && !event.shiftKey) advance()
+                        }}
+                      />
+                    </Show>
+                  </div>
+                </div>
+              </Show>
+            </div>
           </div>
-          <Show when={question().custom !== false}>
-            <input
-              class="mt-2 w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-sm outline-none placeholder:text-ink-faint focus:border-edge-strong"
-              placeholder="Type your own answer..."
-              value={custom()}
-              onInput={(event) => setCustom(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && custom().trim()) submitStep([custom().trim()])
-              }}
-            />
-          </Show>
-          <div class="mt-2 flex gap-2">
-            <Show when={question().multiple}>
-              <ActionButton label="Submit" onClick={() => picked().length > 0 && submitStep(picked())} />
-            </Show>
+          <div class="flex items-center justify-between border-t border-edge bg-raised/20 px-4 py-3">
             <ActionButton label="Dismiss" danger onClick={() => props.onAnswer(null)} />
+            <div class="flex gap-2">
+              <Show when={step() > 0}>
+                <ActionButton label="Back" onClick={() => setStep(step() - 1)} />
+              </Show>
+              <button
+                class="rounded-md border border-accent/60 bg-accent/15 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-accent/25"
+                onClick={advance}
+              >
+                {step() + 1 < props.questions.length ? "Next" : "Submit"}
+              </button>
+            </div>
           </div>
         </div>
       )}
     </Show>
+  )
+}
+
+export type QuestionDraft = { selected: string[]; custom: string; customSelected: boolean }
+
+export function selectQuestionOption(draft: QuestionDraft, label: string, multiple: boolean): QuestionDraft {
+  if (!multiple) return { ...draft, selected: [label], customSelected: false }
+  const selected = draft.selected.includes(label)
+    ? draft.selected.filter((item) => item !== label)
+    : [...draft.selected, label]
+  return { ...draft, selected }
+}
+
+export function selectQuestionCustom(draft: QuestionDraft, multiple: boolean): QuestionDraft {
+  return { ...draft, selected: multiple ? draft.selected : [], customSelected: true }
+}
+
+export function questionAnswer(draft: QuestionDraft) {
+  const custom = draft.custom.trim()
+  return [...draft.selected, ...(draft.customSelected && custom ? [custom] : [])]
+}
+
+function ChoiceMark(props: { checked: boolean; multiple: boolean }) {
+  return (
+    <span
+      class="mt-0.5 flex size-4 shrink-0 items-center justify-center border transition-colors"
+      classList={{
+        "rounded-[4px]": props.multiple,
+        "rounded-full": !props.multiple,
+        "border-accent bg-accent text-white": props.checked,
+        "border-edge-strong bg-surface": !props.checked,
+      }}
+    >
+      <Show when={props.checked}>
+        <Show when={props.multiple} fallback={<span class="size-1.5 rounded-full bg-white" />}>
+          <IconCheck class="size-3" />
+        </Show>
+      </Show>
+    </span>
   )
 }
 

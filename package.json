@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "bun scripts/dev.ts",
     "dev:ui": "vite",
-    "build": "vite build",
+    "build": "bun run build:extensions && vite build",
+    "build:tauri": "bun scripts/build-extensions.ts --clean-release && vite build",
     "build:engine": "bun scripts/build-engine.ts",
+    "build:extensions": "bun scripts/build-extensions.ts",
     "build:native": "tauri build --no-bundle",
     "package": "tauri build",
     "test": "bun test tests",

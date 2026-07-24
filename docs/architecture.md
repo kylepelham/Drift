@@ -84,6 +84,10 @@ reasoning text. The provider/model supplies that text; Drift recognizes the same
 Markdown heading, Setext, and standalone-bold forms as OpenCode and otherwise keeps the
 plain indicator. Reasoning deltas accumulate in the engine store before presentation.
 
+Tool errors use the same clickable disclosure as successful tool rows. A preference
+controls whether a newly failed tool starts expanded or collapsed; it never locks the
+row in that state.
+
 An adjacent compaction-only user boundary and its assistant summary become one
 collapsible transcript row. Session-level engine errors defensively end busy activity
 and render after the virtualized transcript unless the assistant message already owns

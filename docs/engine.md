@@ -28,9 +28,12 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   is killed on exit. The frontend polls status until the sidecar is up, surfaces an
   early process failure with its last stderr line, and times out after 45 seconds.
 - Packaging: `tauri build` produces an NSIS installer bundling the sidecar
-  (`externalBin`) plus `engine/opencode` as `drift-extensions/` beside the exe
-  (opencode.json, package.json, plugin sources; no node_modules, the engine installs
-  plugin deps on first boot into the per-user install dir).
+  (`externalBin`) plus generated `drift-extensions/` beside the exe. Tauri builds
+  clear the raw release resource directory before copying it so removed plugins
+  cannot survive incremental builds. Before every
+  frontend/native build, Bun bundles local extension imports and schemas into standalone
+  ESM, then writes a dependency-free package manifest. Release startup never resolves
+  packages from a developer checkout or installs local plugin dependencies.
 - Iteration: `bun run build:native` compiles without bundling; `bun run package` creates
   the installer. Release builds use incremental parallel codegen and NSIS zlib so a
   warm native build takes about 9 seconds and a packaged build about 20 seconds.

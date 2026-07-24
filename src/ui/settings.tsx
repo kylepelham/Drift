@@ -12,7 +12,9 @@ import {
   setCompactionCollapsed,
   setNotifyAttention,
   setShowReasoning,
+  setToolErrorsExpanded,
   showReasoning,
+  toolErrorsExpanded,
 } from "../state/prefs"
 import { shellInvoke } from "../state/store"
 import { requestNotificationPermission } from "./notifications"
@@ -132,6 +134,20 @@ function GeneralSection() {
           <div class="text-xs text-ink-faint">Show the model's reasoning above responses.</div>
         </div>
         <Toggle label="Show thinking" checked={showReasoning()} onChange={() => setShowReasoning(!showReasoning())} />
+      </div>
+      <div
+        class="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 hover:bg-raised/60"
+        onClick={() => setToolErrorsExpanded(!toolErrorsExpanded())}
+      >
+        <div>
+          <div class="text-sm text-ink">Expand tool errors by default</div>
+          <div class="text-xs text-ink-faint">Choose the initial state. Error rows remain clickable either way.</div>
+        </div>
+        <Toggle
+          label="Expand tool errors by default"
+          checked={toolErrorsExpanded()}
+          onChange={() => setToolErrorsExpanded(!toolErrorsExpanded())}
+        />
       </div>
       <div
         class="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 hover:bg-raised/60"

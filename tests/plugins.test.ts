@@ -19,7 +19,7 @@ test("pluginPaths keeps local JavaScript modules only", async () => {
 })
 
 test("patchFiles reads per-file apply_patch metadata", async () => {
-  const { patchFiles } = await import("../src/ui/parts")
+  const { nextToolOpen, patchFiles, patchSubtitle } = await import("../src/ui/parts")
   const files = [
     {
       filePath: "S:/Personal/Drift/src/app.tsx",
@@ -40,6 +40,13 @@ test("patchFiles reads per-file apply_patch metadata", async () => {
   ]
   const part = { state: { status: "completed", metadata: { files } } } as unknown as ToolPart
   expect(patchFiles(part)).toEqual(files)
+  expect(patchSubtitle(part)).toBe("2 files")
+  expect(
+    patchSubtitle({ state: { status: "completed", metadata: { files: [files[0]] } } } as unknown as ToolPart),
+  ).toBe("app.tsx")
+  expect(nextToolOpen(true, false, true, false)).toBeFalse()
+  expect(nextToolOpen(false, false, true, true)).toBeTrue()
+  expect(nextToolOpen(false, true, true, true)).toBeFalse()
 })
 
 test("tool context actions compose wildcard and tool providers with cleanup", async () => {

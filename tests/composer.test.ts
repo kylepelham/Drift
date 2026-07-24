@@ -125,3 +125,24 @@ test("shell transcript preserves a visible command-output gap and normalizes out
   expect(shellScrollTarget(250, false, 700)).toBe(250)
   expect(shellScrollTarget(300, true, 700)).toBe(700)
 })
+
+test("question drafts preserve single, multiple, and custom answers", async () => {
+  const { questionAnswer, selectQuestionCustom, selectQuestionOption } = await import("../src/ui/attention")
+  const empty = { selected: [], custom: "", customSelected: false }
+  const single = selectQuestionOption(empty, "Desktop app", false)
+  expect(questionAnswer(single)).toEqual(["Desktop app"])
+  expect(selectQuestionOption(single, "Web app", false)).toEqual({
+    selected: ["Web app"],
+    custom: "",
+    customSelected: false,
+  })
+  const multiple = selectQuestionOption(selectQuestionOption(empty, "Tests", true), "Docs", true)
+  expect(questionAnswer(multiple)).toEqual(["Tests", "Docs"])
+  expect(questionAnswer(selectQuestionOption(multiple, "Tests", true))).toEqual(["Docs"])
+  expect(questionAnswer({ ...selectQuestionCustom(multiple, true), custom: "  Benchmarks  " })).toEqual([
+    "Tests",
+    "Docs",
+    "Benchmarks",
+  ])
+  expect(selectQuestionCustom(single, false).selected).toEqual([])
+})

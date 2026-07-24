@@ -3,7 +3,7 @@ import { createEffect, createMemo, createSignal, For, Match, on, Show, Switch, t
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
 import { openLightbox } from "./lightbox"
-import { showReasoning } from "../state/prefs"
+import { showReasoning, toolErrorsExpanded } from "../state/prefs"
 import { selectSession } from "../state/selection"
 import { IconArrowUpRight, IconBranch, IconCheck, IconCopy } from "./icons"
 import { codeTokens, Markdown, ProgressiveCodeView, type SyntaxToken } from "./markdown"
@@ -187,10 +187,8 @@ function toolInfo(part: ToolPart): ToolInfo {
       return { title: "Edit", subtitle: filename(text("filePath")) }
     case "write":
       return { title: "Write", subtitle: filename(text("filePath")) }
-    case "apply_patch": {
-      const files = patchFiles(part).length || (Array.isArray(input?.files) ? input.files.length : 0)
-      return { title: "Patch", subtitle: files ? `${files} file${files > 1 ? "s" : ""}` : undefined }
-    }
+    case "apply_patch":
+      return { title: "Patch", subtitle: patchSubtitle(part) }
     case "read": {
       const lines = output() ? output().split("\n").length : undefined
       return { title: "Read", subtitle: `${filename(text("filePath")) ?? ""}${count(lines, "line")}` }
@@ -273,6 +271,18 @@ export function patchFiles(part: ToolPart) {
   )
 }
 
+export function patchSubtitle(part: ToolPart) {
+  const files = patchFiles(part)
+  if (files.length === 1) return filename(files[0].relativePath ?? files[0].filePath)
+  const input = part.state.input as { files?: unknown[] } | undefined
+  const count = files.length || input?.files?.length || 0
+  return count ? `${count} files` : undefined
+}
+
+export function nextToolOpen(current: boolean, hadError: boolean, hasError: boolean, errorsExpanded: boolean) {
+  return hasError && !hadError ? errorsExpanded : current
+}
+
 function diffStats(diff: string) {
   let add = 0
   let del = 0
@@ -304,7 +314,8 @@ export function ToolView(props: { part: ToolPart }) {
   }
   const error = () => (state().status === "error" ? (state() as { error: string }).error : null)
   const [open, setOpen] = createSignal(props.part.tool === "bash")
-  const expanded = () => open() || !!error()
+  createEffect(on(error, (value, previous) => setOpen(nextToolOpen(open(), !!previous, !!value, toolErrorsExpanded()))))
+  const expanded = () => open()
   const stats = () => {
     const patch = diff()
     return patch ? diffStats(patch) : null

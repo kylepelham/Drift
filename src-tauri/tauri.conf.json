@@ -5,7 +5,7 @@
   "identifier": "dev.drift.app",
   "build": {
     "devUrl": "http://localhost:5180",
-    "beforeBuildCommand": "bun run build",
+    "beforeBuildCommand": "bun run build:tauri",
     "frontendDist": "../dist"
   },
   "app": {
@@ -37,9 +37,7 @@
     "windows": { "nsis": { "compression": "zlib" } },
     "externalBin": ["binaries/drift-engine"],
     "resources": {
-      "../engine/opencode/opencode.json": "drift-extensions/opencode.json",
-      "../engine/opencode/package.json": "drift-extensions/package.json",
-      "../engine/opencode/plugin/": "drift-extensions/plugin/",
+      "generated/drift-extensions/": "drift-extensions/",
       "../LICENSE": "licenses/drift-LICENSE.txt",
       "../engine/upstream/LICENSE": "licenses/opencode-LICENSE.txt"
     }

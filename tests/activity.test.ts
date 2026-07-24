@@ -376,6 +376,24 @@ test("toast and sessionless error events become visible notices", () => {
   expect(state.notices[1]).toMatchObject({ title: "Drift error", message: "An error occurred", variant: "error" })
 })
 
+test("identical runtime errors collapse into one visible notice", () => {
+  const [state, set] = createEngineState()
+  const toast = (id: string) =>
+    reduce(
+      set,
+      {
+        id,
+        type: "tui.toast.show",
+        properties: { title: "Drift error", message: "Failed to load plugin", variant: "error" },
+      } as never,
+    )
+  toast("error-1")
+  toast("error-2")
+  toast("error-3")
+  expect(state.notices).toHaveLength(1)
+  expect(state.notices[0].id).toBe("error-3")
+})
+
 test("a new active status clears stale fallback errors", () => {
   const [state, set] = createEngineState()
   set("errors", "s1", "old failure")

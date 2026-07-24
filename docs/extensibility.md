@@ -80,7 +80,9 @@ launches the GUI executable directly, without command-shell probing or wrapper s
 
 Asks: `api.ask({ header, question, options: [{ label, description }], multiple?, custom? })`
 (or an array of them) takes over the composer with the same card the engine's question
-tool uses and resolves with the selected labels (`string[][]`, one array per question)
+tool uses. The card renders option descriptions, single/multiple selection controls,
+custom answers, question progress, and Back/Next/Submit navigation, then resolves with
+the selected labels (`string[][]`, one array per question)
 or `null` if dismissed. This is the intended plumbing for MCP-elicitation-style flows:
 anything that needs a structured user answer shares one queue with engine questions and
 permissions. The `question.requested` hook fires when the engine asks.

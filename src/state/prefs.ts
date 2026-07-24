@@ -8,6 +8,7 @@ export const [hiddenModelIds, setHiddenModelIds] = persisted<string[]>("drift.mo
 export const [shownModelIds, setShownModelIds] = persisted<string[]>("drift.models.shown", [])
 export const [modelProviderOrder, setModelProviderOrder] = persisted<string[]>("drift.models.providerOrder", [])
 export const [showReasoning, setShowReasoning] = persisted<boolean>("drift.reasoning", false)
+export const [toolErrorsExpanded, setToolErrorsExpanded] = persisted<boolean>("drift.toolErrors.expanded", false)
 export const [notifyAttention, setNotifyAttention] = persisted<boolean>("drift.notifications", false)
 export const [collapseCompaction, setCollapseCompaction] = persisted<boolean>("drift.compaction.collapsible", true)
 export const [compactionCollapsed, setCompactionCollapsed] = persisted<boolean>("drift.compaction.collapsed", true)

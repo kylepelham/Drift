@@ -290,7 +290,14 @@ function noticeVariant(value: unknown): Notice["variant"] {
 export function pushNotice(set: Set, notice: Notice) {
   set(
     produce((state) => {
-      state.notices = [...state.notices.filter((item) => item.id !== notice.id), notice].slice(-6)
+      state.notices = [
+        ...state.notices.filter(
+          (item) =>
+            item.id !== notice.id &&
+            (item.title !== notice.title || item.message !== notice.message || item.variant !== notice.variant),
+        ),
+        notice,
+      ].slice(-6)
     }),
   )
 }
