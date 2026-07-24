@@ -1,13 +1,14 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { modelVisible, moveModelProvider, setModelsVisible, setModelVisible } from "../state/prefs"
 import { IconX } from "./icons"
 import { dragReorder } from "./drag-reorder"
-import { closeOnBackdropPointerDown } from "./modal"
+import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import { Chevron } from "./parts"
 import type { PickerItem } from "./picker"
 import { t } from "../state/i18n"
 
 export function ModelManager(props: { items: PickerItem[]; onClose: () => void }) {
+  let dialog!: HTMLDivElement
   const [query, setQuery] = createSignal("")
   const [expanded, setExpanded] = createSignal<string[]>([])
   const defaults = createMemo(() => defaultVisibleModelIds(props.items))
@@ -34,21 +35,21 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
     setExpanded((current) =>
       current.includes(providerID) ? current.filter((id) => id !== providerID) : [...current, providerID],
     )
-  createEffect(() => {
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") props.onClose()
-    }
-    document.addEventListener("keydown", escape)
-    onCleanup(() => document.removeEventListener("keydown", escape))
-  })
+  onMount(() => onCleanup(activateModal(dialog, props.onClose)))
 
   return (
     <div
       data-wheel-lock
+      data-modal-layer
       class="fixed inset-0 z-30 flex items-center justify-center bg-black/50"
-      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose)}
+      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
     >
       <div
+        ref={dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("dialog.model.manage")}
+        tabIndex={-1}
         class="fade-up flex max-h-[80vh] w-[35rem] flex-col overflow-hidden rounded-2xl border border-edge bg-overlay shadow-2xl shadow-black/40"
         onClick={(event) => event.stopPropagation()}
       >
@@ -75,6 +76,8 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
           <For each={groups()}>
             {(provider) => {
               let root!: HTMLElement
+              let cancelDrag = () => {}
+              onCleanup(() => cancelDrag())
               const all = () => providerItems(provider.id, props.items)
               const visibleItems = () => providerItems(provider.id)
               const enabledCount = () => all().filter(enabled).length
@@ -88,15 +91,16 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
                   <div
                     class="flex min-h-12 cursor-pointer items-center gap-2 px-3 transition-colors select-none hover:bg-raised/50"
                     aria-expanded={providerOpen(provider.id)}
-                    onPointerDown={(event) =>
-                      dragReorder(event, root, {
+                    onPointerDown={(event) => {
+                      cancelDrag()
+                      cancelDrag = dragReorder(event, root, {
                         selector: ":scope > [data-provider]",
                         id: provider.id,
                         itemID: (element) => element.dataset.provider ?? "",
                         move: (id, beforeID) => moveModelProvider(id, beforeID, providerIDs()),
                         dragged: markProviderDragged,
                       })
-                    }
+                    }}
                     onClick={() => {
                       if (!providerDragged) toggleProvider(provider.id)
                     }}

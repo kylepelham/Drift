@@ -17,10 +17,16 @@ import { onKeybind } from "../state/keybinds"
 import { agentLabel, reasoningLevelLabel, t } from "../state/i18n"
 import type { Permission } from "@opencode-ai/sdk/client"
 import {
+  canNavigateComposerHistory,
   clearComposerDraft,
   composerDraft,
+  composerHistory,
   composerScope,
+  navigateComposerHistory,
   patchComposerDraft,
+  recordComposerHistory,
+  setComposerDraft,
+  type ComposerDraft,
   type StagedFile,
 } from "../state/composer"
 import { selectedSession, selectSession } from "../state/selection"
@@ -61,6 +67,12 @@ export function Composer() {
   const [manageModels, setManageModels] = createSignal(false)
   const [fileError, setFileError] = createSignal("")
   const [focusedQuestionID, setFocusedQuestionID] = createSignal<string>()
+  const [historyNavigation, setHistoryNavigation] = createSignal<{
+    scope: string
+    index: number
+    saved: ComposerDraft | null
+    displayed: ComposerDraft
+  } | null>(null)
   let area!: HTMLTextAreaElement
   let filePicker!: HTMLInputElement
 
@@ -68,8 +80,12 @@ export function Composer() {
   const draft = () => composerDraft(scope()).text
   const staged = () => composerDraft(scope()).staged
   const mentions = () => composerDraft(scope()).mentions
-  const setDraft = (text: string) => patchComposerDraft(scope(), { text })
+  const setDraft = (text: string) => {
+    setHistoryNavigation(null)
+    patchComposerDraft(scope(), { text })
+  }
   const setStaged = (value: StagedFile[] | ((current: StagedFile[]) => StagedFile[])) => {
+    setHistoryNavigation(null)
     const key = scope()
     const current = composerDraft(key).staged
     patchComposerDraft(key, { staged: typeof value === "function" ? value(current) : value })
@@ -78,6 +94,7 @@ export function Composer() {
 
   async function addFiles(files: Iterable<File>) {
     const key = scope()
+    setHistoryNavigation(null)
     setFileError("")
     for (const file of files) {
       if (file.size > maxFileBytes) {
@@ -104,8 +121,17 @@ export function Composer() {
     }
   }
 
+  let previousScope = scope()
   createEffect(() => {
-    scope()
+    const nextScope = scope()
+    if (nextScope !== previousScope) {
+      const navigation = untrack(historyNavigation)
+      if (navigation?.saved && composerDraft(navigation.scope) === navigation.displayed) {
+        setComposerDraft(navigation.scope, navigation.saved)
+      }
+      setHistoryNavigation(null)
+      previousScope = nextScope
+    }
     setDismissed(false)
     setMentionQuery(null)
     setFileError("")
@@ -285,6 +311,8 @@ export function Composer() {
       seedPrefs(id)
       emitThreadCreated(id)
     }
+    recordComposerHistory({ ...snapshot, text: initial })
+    setHistoryNavigation(null)
     selectSession(id)
     const files = [
       ...mentionFiles(text ?? "", snapshot.mentions, workspace.path),
@@ -305,6 +333,7 @@ export function Composer() {
   function onKey(event: KeyboardEvent) {
     if (mentionQuery() !== null && fileHits().length > 0 && handleMentionKey(event)) return
     if (matches().length > 0 && handleSlashKey(event)) return
+    if ((event.key === "ArrowUp" || event.key === "ArrowDown") && browseHistory(event)) return
     if (event.key === "Tab") {
       event.preventDefault()
       cycleAgent(event.shiftKey ? -1 : 1)
@@ -313,6 +342,38 @@ export function Composer() {
     if (event.key !== "Enter" || event.shiftKey) return
     event.preventDefault()
     void submit()
+  }
+
+  function browseHistory(event: KeyboardEvent) {
+    if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false
+    if (area.selectionStart !== area.selectionEnd) return false
+    const direction = event.key === "ArrowUp" ? "up" : "down"
+    const active = historyNavigation()
+    if (!canNavigateComposerHistory(direction, draft(), area.selectionStart, !!active)) return false
+    const result = navigateComposerHistory(
+      composerHistory(),
+      { index: active?.index ?? -1, saved: active?.saved ?? null },
+      composerDraft(scope()),
+      direction,
+    )
+    if (!result) return false
+    const key = scope()
+    setComposerDraft(key, result.draft)
+    setHistoryNavigation(
+      result.navigation.index < 0
+        ? null
+        : { scope: key, index: result.navigation.index, saved: result.navigation.saved, displayed: result.draft },
+    )
+    setDismissed(true)
+    setMentionQuery(null)
+    event.preventDefault()
+    queueMicrotask(() => {
+      resize()
+      area.focus()
+      const position = result.cursor === "start" ? 0 : result.draft.text.length
+      area.setSelectionRange(position, position)
+    })
+    return true
   }
 
   function cycleAgent(step: number) {

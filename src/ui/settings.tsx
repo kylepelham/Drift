@@ -1,6 +1,29 @@
 import type { ProviderAuthMethod } from "@opencode-ai/sdk/client"
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch, type JSX } from "solid-js"
+import { Portal } from "solid-js/web"
 import { useEngine } from "../engine"
+import {
+  codeFontSize,
+  codeFontSizes,
+  codeTabWidth,
+  codeTabWidths,
+  codeWordWrap,
+  diffIndicator,
+  diffIndicators,
+  diffLineNumbers,
+  diffWordWrap,
+  setCodeFontSize,
+  setCodeTabWidth,
+  setCodeWordWrap,
+  setDiffIndicator,
+  setDiffLineNumbers,
+  setDiffWordWrap,
+  setSyntaxThemePreset,
+  syntaxThemePreset,
+  syntaxThemePresets,
+  type DiffIndicator,
+  type SyntaxThemePreset,
+} from "../state/code"
 import { t } from "../state/i18n"
 import { comboFor, eventCombo, formatCombo, keybindDefs, setCombo, type KeybindAction } from "../state/keybinds"
 import { language, languages, setLanguage, type LanguageId } from "../state/language"
@@ -47,14 +70,17 @@ import {
   IconBell,
   IconCheck,
   IconChip,
+  IconCode,
   IconInfo,
   IconKeyboard,
   IconPalette,
   IconPlus,
+  IconShieldCheck,
   IconSliders,
   IconX,
 } from "./icons"
-import { closeOnBackdropPointerDown } from "./modal"
+import { activateModal, closeOnBackdropPointerDown } from "./modal"
+import { McpManagement } from "./mcp"
 import { Toggle } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
 import { Picker } from "./picker"
@@ -74,19 +100,21 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Notifications", "Shortcuts", "Providers", "About"] as const
+const sections = ["General", "Appearance", "Code", "Notifications", "Shortcuts", "Providers", "MCP", "About"] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
   Appearance: "settings.general.section.appearance",
+  Code: "drift.settings.code",
   Notifications: "drift.settings.notifications",
   Shortcuts: "settings.tab.shortcuts",
   Providers: "settings.providers.title",
+  MCP: "dialog.mcp.title",
   About: "drift.settings.about",
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
-  { label: "settings.section.desktop", items: ["General", "Appearance", "Notifications", "Shortcuts"] },
-  { label: "settings.section.server", items: ["Providers"] },
+  { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Shortcuts"] },
+  { label: "settings.section.server", items: ["Providers", "MCP"] },
   { label: "drift.settings.section", items: ["About"] },
 ]
 
@@ -100,35 +128,40 @@ const keybindLabels: Record<KeybindAction, string> = {
 }
 
 const [settingsOpen, setSettingsOpen] = createSignal(false)
+const [settingsSection, setSettingsSection] = createSignal<Section>("General")
 
-export function openSettings() {
+export function openSettings(section?: Section) {
+  setSettingsSection(section && sections.includes(section) ? section : "General")
   setSettingsOpen(true)
 }
 
 export function SettingsHost() {
   return (
     <Show when={settingsOpen()}>
-      <SettingsModal onClose={() => setSettingsOpen(false)} />
+      <Portal>
+        <SettingsModal onClose={() => setSettingsOpen(false)} />
+      </Portal>
     </Show>
   )
 }
 
 function SettingsModal(props: { onClose: () => void }) {
-  const [section, setSection] = createSignal<Section>("General")
-  createEffect(() => {
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") props.onClose()
-    }
-    document.addEventListener("keydown", escape)
-    onCleanup(() => document.removeEventListener("keydown", escape))
-  })
+  let dialog!: HTMLDivElement
+  const section = settingsSection
+  onMount(() => onCleanup(activateModal(dialog, props.onClose)))
 
   return (
     <div
+      data-modal-layer
       class="fixed inset-0 z-30 flex items-center justify-center bg-black/50"
-      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose)}
+      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
     >
       <div
+        ref={dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("sidebar.settings")}
+        tabIndex={-1}
         class="fade-up flex h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40 sm:h-[min(42rem,calc(100vh-3rem))] sm:w-[min(54rem,calc(100vw-3rem))]"
         onClick={(event) => event.stopPropagation()}
       >
@@ -147,7 +180,7 @@ function SettingsModal(props: { onClose: () => void }) {
                           "bg-raised text-ink": section() === name,
                           "text-ink-muted hover:bg-raised/60 hover:text-ink": section() !== name,
                         }}
-                        onClick={() => setSection(name)}
+                        onClick={() => setSettingsSection(name)}
                       >
                         <SectionIcon section={name} />
                         <span class="hidden min-w-0 truncate sm:inline" title={t(sectionLabels[name])}>
@@ -180,11 +213,17 @@ function SettingsModal(props: { onClose: () => void }) {
               <Match when={section() === "Appearance"}>
                 <AppearanceSection />
               </Match>
+              <Match when={section() === "Code"}>
+                <CodeSection />
+              </Match>
               <Match when={section() === "Notifications"}>
                 <NotificationsSection />
               </Match>
               <Match when={section() === "Providers"}>
                 <ProvidersSection />
+              </Match>
+              <Match when={section() === "MCP"}>
+                <McpManagement embedded />
               </Match>
               <Match when={section() === "Shortcuts"}>
                 <KeybindsSection />
@@ -837,12 +876,6 @@ function AppearanceSection() {
         >
           <FontField label={t("settings.general.row.uiFont.title")} value={uiFont()} onInput={setUiFont} />
         </SettingsRow>
-        <SettingsRow
-          title={t("settings.general.row.font.title")}
-          description={t("settings.general.row.font.description")}
-        >
-          <FontField label={t("settings.general.row.font.title")} value={codeFont()} onInput={setCodeFont} mono />
-        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup title={t("drift.settings.customCss")}>
@@ -857,6 +890,90 @@ function AppearanceSection() {
             onInput={(event) => setCustomCss(event.currentTarget.value)}
           />
         </div>
+      </SettingsGroup>
+    </div>
+  )
+}
+
+const syntaxThemeLabels: Record<SyntaxThemePreset, string> = {
+  automatic: "drift.code.theme.automatic",
+  github: "drift.code.theme.github",
+  vitesse: "drift.code.theme.vitesse",
+  one: "drift.code.theme.one",
+  dracula: "drift.code.theme.dracula",
+  nord: "drift.code.theme.nord",
+}
+const diffIndicatorLabels: Record<DiffIndicator, string> = {
+  symbols: "drift.code.diffIndicators.symbols",
+  bars: "drift.code.diffIndicators.bars",
+  background: "drift.code.diffIndicators.background",
+}
+
+export function codeSettingOptions() {
+  return {
+    themes: [...syntaxThemePresets],
+    fontSizes: [...codeFontSizes],
+    tabWidths: [...codeTabWidths],
+    indicators: [...diffIndicators],
+  }
+}
+
+function CodeSection() {
+  return (
+    <div class="space-y-6">
+      <SettingsGroup title={t("drift.code.syntax")}>
+        <SettingsRow title={t("drift.code.syntaxTheme.title")} description={t("drift.code.syntaxTheme.description")}>
+          <Picker
+            label={t("drift.code.syntaxTheme.title")}
+            items={syntaxThemePresets.map((name) => ({ id: name, label: t(syntaxThemeLabels[name]) }))}
+            selected={syntaxThemePreset()}
+            floating bordered chevronAtEnd placement="below" width="12rem"
+            onPick={(value) => setSyntaxThemePreset(value as SyntaxThemePreset)}
+          />
+        </SettingsRow>
+        <SettingsRow title={t("settings.general.row.font.title")} description={t("settings.general.row.font.description")}>
+          <FontField label={t("settings.general.row.font.title")} value={codeFont()} onInput={setCodeFont} mono />
+        </SettingsRow>
+      </SettingsGroup>
+      <SettingsGroup title={t("drift.code.layout")}>
+        <SettingsRow title={t("drift.code.fontSize.title")} description={t("drift.code.fontSize.description")}>
+          <Picker
+            label={t("drift.code.fontSize.title")}
+            items={codeFontSizes.map((size) => ({ id: String(size), label: `${size} px` }))}
+            selected={String(codeFontSize())}
+            floating bordered chevronAtEnd placement="below" width="8rem"
+            onPick={(value) => setCodeFontSize(Number(value))}
+          />
+        </SettingsRow>
+        <SettingsRow title={t("drift.code.tabWidth.title")} description={t("drift.code.tabWidth.description")}>
+          <Picker
+            label={t("drift.code.tabWidth.title")}
+            items={codeTabWidths.map((width) => ({ id: String(width), label: t("drift.code.spaces", { count: width }) }))}
+            selected={String(codeTabWidth())}
+            floating bordered chevronAtEnd placement="below" width="9rem"
+            onPick={(value) => setCodeTabWidth(Number(value))}
+          />
+        </SettingsRow>
+        <SettingsRow title={t("drift.code.wordWrap.title")} description={t("drift.code.wordWrap.description")} onClick={() => setCodeWordWrap(!codeWordWrap())}>
+          <Toggle label={t("drift.code.wordWrap.title")} checked={codeWordWrap()} onChange={() => setCodeWordWrap(!codeWordWrap())} />
+        </SettingsRow>
+      </SettingsGroup>
+      <SettingsGroup title={t("drift.code.diffs")}>
+        <SettingsRow title={t("drift.code.diffWordWrap.title")} description={t("drift.code.diffWordWrap.description")} onClick={() => setDiffWordWrap(!diffWordWrap())}>
+          <Toggle label={t("drift.code.diffWordWrap.title")} checked={diffWordWrap()} onChange={() => setDiffWordWrap(!diffWordWrap())} />
+        </SettingsRow>
+        <SettingsRow title={t("drift.code.lineNumbers.title")} description={t("drift.code.lineNumbers.description")} onClick={() => setDiffLineNumbers(!diffLineNumbers())}>
+          <Toggle label={t("drift.code.lineNumbers.title")} checked={diffLineNumbers()} onChange={() => setDiffLineNumbers(!diffLineNumbers())} />
+        </SettingsRow>
+        <SettingsRow title={t("drift.code.diffIndicator.title")} description={t("drift.code.diffIndicator.description")}>
+          <Picker
+            label={t("drift.code.diffIndicator.title")}
+            items={diffIndicators.map((name) => ({ id: name, label: t(diffIndicatorLabels[name]) }))}
+            selected={diffIndicator()}
+            floating bordered chevronAtEnd placement="below" width="10rem"
+            onPick={(value) => setDiffIndicator(value as DiffIndicator)}
+          />
+        </SettingsRow>
       </SettingsGroup>
     </div>
   )
@@ -879,9 +996,11 @@ function SectionIcon(props: { section: Section }) {
   const icon = () => {
     if (props.section === "General") return <IconSliders />
     if (props.section === "Appearance") return <IconPalette />
+    if (props.section === "Code") return <IconCode />
     if (props.section === "Notifications") return <IconBell />
     if (props.section === "Shortcuts") return <IconKeyboard />
     if (props.section === "Providers") return <IconChip />
+    if (props.section === "MCP") return <IconShieldCheck />
     return <IconInfo />
   }
   return <span class="flex size-5 shrink-0 items-center justify-center text-ink-faint">{icon()}</span>

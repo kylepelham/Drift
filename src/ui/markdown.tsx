@@ -1,9 +1,9 @@
 import DOMPurify from "dompurify"
 import { marked } from "marked"
-import type { BundledLanguage, SpecialLanguage } from "shiki"
+import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki"
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { t } from "../state/i18n"
-import { lightTheme } from "../state/theme"
+import { syntaxTheme } from "../state/code"
 
 marked.use({ gfm: true, breaks: true })
 
@@ -15,31 +15,128 @@ const copiedIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9
 
 export type SyntaxToken = { content: string; color?: string; fontStyle?: number }
 
+type AsyncCacheEntry<T> = { value: Promise<T>; size: number }
+
+export class AsyncSizeCache<T> {
+  private entries = new Map<string, AsyncCacheEntry<T>>()
+  private total = 0
+
+  constructor(
+    private limit: number,
+    private outputSize: (value: T) => number,
+  ) {}
+
+  get size() {
+    return this.total
+  }
+
+  get count() {
+    return this.entries.size
+  }
+
+  get(key: string) {
+    const entry = this.entries.get(key)
+    if (!entry) return undefined
+    this.entries.delete(key)
+    this.entries.set(key, entry)
+    return entry.value
+  }
+
+  set(key: string, sourceSize: number, value: Promise<T>) {
+    const existing = this.entries.get(key)
+    if (existing) this.remove(key, existing)
+    if (sourceSize > this.limit) return value
+
+    const entry: AsyncCacheEntry<T> = { value, size: sourceSize }
+    const tracked = value.then(
+      (result) => {
+        if (this.entries.get(key) !== entry) return result
+        this.total -= entry.size
+        entry.size = sourceSize + this.outputSize(result)
+        this.total += entry.size
+        this.trim()
+        return result
+      },
+      (error) => {
+        if (this.entries.get(key) === entry) this.remove(key, entry)
+        throw error
+      },
+    )
+    entry.value = tracked
+    this.entries.set(key, entry)
+    this.total += entry.size
+    this.trim()
+    return tracked
+  }
+
+  private trim() {
+    while (this.total > this.limit && this.entries.size) {
+      const key = this.entries.keys().next().value
+      if (key === undefined) break
+      this.remove(key, this.entries.get(key)!)
+    }
+  }
+
+  private remove(key: string, entry: AsyncCacheEntry<T>) {
+    if (!this.entries.delete(key)) return
+    this.total -= entry.size
+  }
+}
+
+function tokenOutputSize(lines: SyntaxToken[][]) {
+  let size = lines.length * 16
+  for (const line of lines) for (const token of line) size += token.content.length + 32
+  return size
+}
+
+function shikiSourceSize(key: string, code: string) {
+  return key.length + code.length + 128
+}
+
+const shikiCacheBudget = 2 * 1024 * 1024
+const highlightCache = new AsyncSizeCache<string>(shikiCacheBudget, (html) => html.length + 64)
+const tokenCache = new AsyncSizeCache<SyntaxToken[][]>(shikiCacheBudget, tokenOutputSize)
+
 export async function codeTokens(code: string, lang: string): Promise<SyntaxToken[][]> {
-  const shikiTheme = lightTheme() ? "github-light" : "github-dark-default"
-  const shiki = await (shikiModule ??= import("shiki"))
-  return shiki
-    .codeToTokens(code, { lang: lang as BundledLanguage | SpecialLanguage, theme: shikiTheme })
-    .then((result) =>
-      result.tokens.map((line) =>
+  const theme = syntaxTheme() as BundledTheme
+  const key = `${theme}\0${lang}\0${code}`
+  const cached = tokenCache.get(key)
+  if (cached) return cached.catch(() => [])
+  const result = (shikiModule ??= import("shiki"))
+    .then((shiki) =>
+      shiki.codeToTokens(code, {
+        lang: lang as BundledLanguage | SpecialLanguage,
+        theme,
+      }),
+    )
+    .then((value) =>
+      value.tokens.map((line) =>
         line.map((token) => ({ content: token.content, color: token.color, fontStyle: token.fontStyle })),
       ),
     )
-    .catch(() => [])
+  return tokenCache.set(key, shikiSourceSize(key, code), result).catch(() => [])
 }
 
-async function highlightBlocks(root: HTMLElement) {
-  const shiki = await (shikiModule ??= import("shiki"))
-  const shikiTheme = lightTheme() ? "github-light" : "github-dark-default"
-  for (const code of root.querySelectorAll<HTMLElement>("pre > code[class*='language-']")) {
-    const lang = code.className.match(/language-([\w-]+)/)?.[1] ?? "text"
-    const pre = code.parentElement
-    if (!pre) continue
-    await shiki
-      .codeToHtml(code.textContent ?? "", { lang, theme: shikiTheme })
-      .then((html) => (pre.outerHTML = html))
-      .catch(() => {})
-  }
+function highlightedCode(code: string, lang: string, theme: BundledTheme) {
+  const key = `${theme}\0${lang}\0${code}`
+  const cached = highlightCache.get(key)
+  if (cached) return cached
+  const result = (shikiModule ??= import("shiki"))
+    .then((shiki) => shiki.codeToHtml(code, { lang, theme }))
+    .then((html) => DOMPurify.sanitize(html))
+  return highlightCache.set(key, shikiSourceSize(key, code), result)
+}
+
+async function highlightBlocks(root: HTMLElement, theme: BundledTheme, current: () => boolean) {
+  await Promise.all(
+    [...root.querySelectorAll<HTMLElement>("pre > code[class*='language-']")].map(async (code) => {
+      const lang = code.className.match(/language-([\w-]+)/)?.[1] ?? "text"
+      const pre = code.parentElement
+      if (!pre) return
+      const html = await highlightedCode(code.textContent ?? "", lang, theme).catch(() => "")
+      if (html && current() && pre.isConnected) pre.outerHTML = html
+    }),
+  )
 }
 
 // Model output like **C:\** never closes its emphasis because \ escapes the delimiter.
@@ -213,12 +310,11 @@ export function CodeView(props: { code: string; lang: string }) {
   let request = 0
   createEffect(() => {
     const { code, lang } = props
-    const shikiTheme = lightTheme() ? "github-light" : "github-dark-default"
+    const shikiTheme = syntaxTheme() as BundledTheme
     const current = ++request
     setHtml("")
-    void (shikiModule ??= import("shiki"))
-      .then((shiki) => shiki.codeToHtml(code, { lang, theme: shikiTheme }))
-      .then((output) => current === request && setHtml(DOMPurify.sanitize(output)))
+    void highlightedCode(code, lang, shikiTheme)
+      .then((output) => current === request && setHtml(output))
       .catch(() => current === request && setHtml(""))
   })
   return (
@@ -279,13 +375,20 @@ export function ProgressiveCodeView(props: { code: string; lang: string }) {
 
 export function Markdown(props: { text: string; done?: boolean; literalBackslashes?: boolean }) {
   let root!: HTMLDivElement
+  let request = 0
   const html = createMemo(() =>
     DOMPurify.sanitize(marked.parse(prepareMarkdown(props.text, props.literalBackslashes), { async: false })),
   )
   createEffect(() => {
-    if (!html()) return
-    queueMicrotask(() => decorateCodeBlocks(root))
-    if (props.done) void highlightBlocks(root).then(() => decorateCodeBlocks(root))
+    const source = html()
+    const theme = syntaxTheme() as BundledTheme
+    const current = ++request
+    root.innerHTML = source
+    decorateCodeBlocks(root)
+    if (props.done)
+      void highlightBlocks(root, theme, () => current === request).then(() => {
+        if (current === request) decorateCodeBlocks(root)
+      })
   })
-  return <div ref={root} class="md" innerHTML={html()} onClick={markdownClick} />
+  return <div ref={root} class="md" onClick={markdownClick} />
 }

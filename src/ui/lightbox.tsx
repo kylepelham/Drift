@@ -1,7 +1,8 @@
-import { createEffect, createSignal, onCleanup, Show } from "solid-js"
+import { createSignal, onCleanup, onMount, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import { t } from "../state/i18n"
 import { IconX } from "./icons"
+import { activateModal, closeOnBackdropPointerDown } from "./modal"
 
 type LightboxImage = { url: string; filename?: string; mime?: string }
 
@@ -22,21 +23,24 @@ function dataSize(url: string) {
 }
 
 export function Lightbox() {
+  return (
+    <Show when={image()} keyed>
+      {(item) => (
+        <Portal>
+          <LightboxDialog image={item} onClose={() => setImage(null)} />
+        </Portal>
+      )}
+    </Show>
+  )
+}
+
+function LightboxDialog(props: { image: LightboxImage; onClose: () => void }) {
   const [zoom, setZoom] = createSignal(1)
   const [natural, setNatural] = createSignal<{ w: number; h: number } | null>(null)
   const [fitScale, setFitScale] = createSignal(1)
+  let dialog!: HTMLDivElement
   let viewport!: HTMLDivElement
-
-  createEffect(() => {
-    if (!image()) return
-    setZoom(1)
-    setNatural(null)
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setImage(null)
-    }
-    document.addEventListener("keydown", escape)
-    onCleanup(() => document.removeEventListener("keydown", escape))
-  })
+  onMount(() => onCleanup(activateModal(dialog, props.onClose)))
 
   const clampZoom = (next: number) => Math.min(maxZoom, Math.max(minZoom, next))
   const step = (direction: number) => setZoom(clampZoom(zoom() * (direction > 0 ? 1.25 : 0.8)))
@@ -54,79 +58,80 @@ export function Lightbox() {
   }
 
   return (
-    <Show when={image()}>
-      {(img) => (
-        <Portal>
-          <div
-            class="fixed inset-0 z-50 flex flex-col bg-black/85"
-            onPointerDown={(event) => {
-              if (!(event.target as HTMLElement).closest("img, button")) setImage(null)
-            }}
-          >
-            <div class="flex items-center gap-3 px-4 py-2.5 text-xs text-white/70 select-none">
-              <span class="truncate text-white/90">{img().filename ?? t("drift.lightbox.image")}</span>
-              <Show when={img().mime}>
-                <span>{img().mime}</span>
-              </Show>
-              <Show when={natural()}>{(size) => <span>{size().w} × {size().h}</span>}</Show>
-              <Show when={dataSize(img().url)}>{(size) => <span>{size()}</span>}</Show>
-              <div class="flex-1" />
-              <button class="rounded px-2 py-0.5 hover:bg-white/10 hover:text-white" onClick={() => step(-1)}>
-                -
-              </button>
-              <button
-                class="w-14 rounded px-2 py-0.5 text-center hover:bg-white/10 hover:text-white"
-                title={t("drift.lightbox.resetZoom")}
-                onClick={() => setZoom(1)}
-              >
-                {percent()}%
-              </button>
-              <button class="rounded px-2 py-0.5 hover:bg-white/10 hover:text-white" onClick={() => step(1)}>
-                +
-              </button>
-              <button
-                class="rounded px-2 py-0.5 hover:bg-white/10 hover:text-white"
-                title={t("drift.lightbox.actualSize")}
-                onClick={() => setZoom(clampZoom(1 / fitScale()))}
-              >
-                1:1
-              </button>
-              <button
-                title={t("common.close")}
-                class="flex size-7 items-center justify-center rounded text-white/70 hover:bg-white/10 hover:text-white"
-                onClick={() => setImage(null)}
-              >
-                <IconX class="size-4" />
-              </button>
-            </div>
-            <div
-              ref={(el) => {
-                viewport = el
-                el.addEventListener(
-                  "wheel",
-                  (event) => {
-                    event.preventDefault()
-                    step(event.deltaY < 0 ? 1 : -1)
-                  },
-                  { passive: false },
-                )
-              }}
-              class="min-h-0 flex-1 overflow-auto"
-            >
-              <div class="flex min-h-full min-w-fit items-center justify-center p-8">
-                <img
-                  src={img().url}
-                  alt={img().filename ?? t("drift.lightbox.image")}
-                  class="select-none"
-                  style={{ width: width(), "max-width": natural() ? undefined : "90vw" }}
-                  onLoad={(event) => measure(event.currentTarget)}
-                  onDblClick={() => setZoom(zoom() === 1 ? clampZoom(1 / fitScale()) : 1)}
-                />
-              </div>
-            </div>
-          </div>
-        </Portal>
-      )}
-    </Show>
+    <div
+      ref={dialog}
+      role="dialog"
+      aria-modal="true"
+      aria-label={props.image.filename ?? t("drift.lightbox.image")}
+      tabIndex={-1}
+      data-modal-layer
+      class="fixed inset-0 z-50 flex flex-col bg-black/85"
+      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
+    >
+      <div class="flex items-center gap-3 px-4 py-2.5 text-xs text-white/70 select-none">
+        <span class="truncate text-white/90">{props.image.filename ?? t("drift.lightbox.image")}</span>
+        <Show when={props.image.mime}>
+          <span>{props.image.mime}</span>
+        </Show>
+        <Show when={natural()}>{(size) => <span>{size().w} × {size().h}</span>}</Show>
+        <Show when={dataSize(props.image.url)}>{(size) => <span>{size()}</span>}</Show>
+        <div class="flex-1" />
+        <button class="rounded px-2 py-0.5 hover:bg-white/10 hover:text-white" onClick={() => step(-1)}>
+          -
+        </button>
+        <button
+          class="w-14 rounded px-2 py-0.5 text-center hover:bg-white/10 hover:text-white"
+          title={t("drift.lightbox.resetZoom")}
+          onClick={() => setZoom(1)}
+        >
+          {percent()}%
+        </button>
+        <button class="rounded px-2 py-0.5 hover:bg-white/10 hover:text-white" onClick={() => step(1)}>
+          +
+        </button>
+        <button
+          class="rounded px-2 py-0.5 hover:bg-white/10 hover:text-white"
+          title={t("drift.lightbox.actualSize")}
+          onClick={() => setZoom(clampZoom(1 / fitScale()))}
+        >
+          1:1
+        </button>
+        <button
+          title={t("common.close")}
+          class="flex size-7 items-center justify-center rounded text-white/70 hover:bg-white/10 hover:text-white"
+          onClick={props.onClose}
+        >
+          <IconX class="size-4" />
+        </button>
+      </div>
+      <div
+        ref={(element) => {
+          viewport = element
+          element.addEventListener(
+            "wheel",
+            (event) => {
+              event.preventDefault()
+              step(event.deltaY < 0 ? 1 : -1)
+            },
+            { passive: false },
+          )
+        }}
+        class="min-h-0 flex-1 overflow-auto"
+      >
+        <div
+          class="flex min-h-full min-w-fit items-center justify-center p-8"
+          onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
+        >
+          <img
+            src={props.image.url}
+            alt={props.image.filename ?? t("drift.lightbox.image")}
+            class="select-none"
+            style={{ width: width(), "max-width": natural() ? undefined : "90vw" }}
+            onLoad={(event) => measure(event.currentTarget)}
+            onDblClick={() => setZoom(zoom() === 1 ? clampZoom(1 / fitScale()) : 1)}
+          />
+        </div>
+      </div>
+    </div>
   )
 }

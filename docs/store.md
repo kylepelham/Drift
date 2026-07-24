@@ -17,6 +17,9 @@ holds what Drift adds on top.
 | --- | --- | --- |
 | `workspace` | id, path (unique), name, icon, last_used, removed_at | workspaces = directories with display identity; `icon` is empty (initials rendered from name) or a small data-URL image thumbnail |
 | `session_meta` | session_id, workspace_id, archived_at | Drift metadata about engine sessions; today that is archive state |
+| `mcp_server` | name, config_json, updated_at | global Drift-owned definitions; full JSON preserves unknown fields |
+| `mcp_decision` | fingerprint, name, decision, decided_at | immutable global approval/rejection history by exact fingerprint |
+| `mcp_state` | id, generation, materialized_generation | CAS and generated-policy publication state |
 
 Workspace icons are images only, downscaled client-side to a 64px webp data URL
 (a few KB) before storage, so no blob handling or asset protocol is needed.
@@ -45,6 +48,7 @@ deletes all engine sessions in those directories.
 
 - Frontend talks to typed commands only (`store_*` in `src-tauri/src/main.rs`); no SQL
   outside `src-tauri/src/store.rs`. Folder picking is a native dialog via `pick_folder`.
-- `src/state/store.ts` is the single frontend facade. In browser dev (no shell) the
-  same interface is backed by localStorage; dev-only, no performance claims.
+- `src/state/store.ts` is the single frontend facade. Workspace/archive methods use
+  localStorage in browser dev; MCP methods fail explicitly because browser storage cannot
+  provide the native execution boundary.
 - `cargo test` covers the store roundtrip (upsert, rename, archive, purge, delete).

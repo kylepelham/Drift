@@ -19,12 +19,12 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   them in `finally`, including recovery after an interrupted prior command. A patch that
   no longer applies fails with an explicit refresh message instead of creating a subtree
   merge conflict.
-- Dev: `bun run dev` spawns `drift-engine.exe serve --port 4096` (cwd = repo root) and
-  vite, forwarding `OPENCODE_SERVER_PASSWORD` to the frontend as `VITE_ENGINE_PASSWORD`
-  (the engine enforces basic auth whenever that env var is set).
+- Dev: `bun run dev` creates an ephemeral fail-closed MCP policy, spawns
+  `drift-engine.exe serve --hostname 127.0.0.1 --port 4096` (cwd = repo root), and
+  gives the engine and Vite a random shared password.
 - Shell: `src-tauri/src/main.rs` locates the sidecar (next to the app exe, or
-  `src-tauri/binaries` in dev), spawns `serve --port 0` with the password env removed
-  (localhost only), parses the printed URL, and serves it via `engine_status`. The child
+  `src-tauri/binaries` in dev), spawns `serve --hostname 127.0.0.1 --port 0` with a random
+  Basic-auth password, parses the printed URL, and serves both via `engine_status`. The child
   is killed on exit. The frontend polls status until the sidecar is up, surfaces an
   early process failure with its last stderr line, and times out after 45 seconds.
 - Packaging: `tauri build` produces an NSIS installer bundling the sidecar
@@ -33,7 +33,8 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   cannot survive incremental builds. Before every
   frontend/native build, Bun bundles local extension imports and schemas into standalone
   ESM, then writes a dependency-free package manifest. Release startup never resolves
-  packages from a developer checkout or installs local plugin dependencies.
+   packages from a developer checkout or installs local plugin dependencies.
+  The generated config and MCP policy live in app data, separate from bundled extensions.
 - Iteration: `bun run build:native` compiles without bundling; `bun run package` creates
   the installer. Release builds use incremental parallel codegen and NSIS zlib so a
   warm native build takes about 9 seconds and a packaged build about 20 seconds.

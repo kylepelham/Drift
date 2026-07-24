@@ -16,7 +16,13 @@ export function TextShimmer(props: { text: string; active?: boolean; class?: str
   onCleanup(() => timer && clearTimeout(timer))
 
   return (
-    <span class={props.class} data-component="text-shimmer" data-active={active() ? "true" : "false"} aria-label={props.text}>
+    <span
+      class={props.class}
+      data-component="text-shimmer"
+      data-active={active() ? "true" : "false"}
+      data-compact={Array.from(props.text.trim()).length <= 4 ? "true" : "false"}
+      aria-label={props.text}
+    >
       <span data-slot="text-shimmer-char">
         <span data-slot="text-shimmer-base" aria-hidden="true">
           {props.text}

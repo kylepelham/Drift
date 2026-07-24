@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -23,6 +24,30 @@ pub struct ArchivedSession {
     pub session_id: String,
     pub workspace_id: String,
     pub archived_at: i64,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServer {
+    pub name: String,
+    pub config: Value,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpDecision {
+    pub name: String,
+    pub fingerprint: String,
+    pub decision: String,
+    pub decided_at: i64,
+}
+
+#[derive(Clone)]
+pub struct McpState {
+    pub generation: i64,
+    pub servers: Vec<McpServer>,
+    pub decisions: Vec<McpDecision>,
 }
 
 pub fn open(dir: &Path) -> rusqlite::Result<Store> {
@@ -49,7 +74,24 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
             workspace_id TEXT NOT NULL,
             archived_at INTEGER
         ) STRICT;
-        CREATE INDEX IF NOT EXISTS idx_session_meta_workspace ON session_meta(workspace_id);",
+        CREATE INDEX IF NOT EXISTS idx_session_meta_workspace ON session_meta(workspace_id);
+        CREATE TABLE IF NOT EXISTS mcp_server(
+            name TEXT PRIMARY KEY,
+            config_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS mcp_decision(
+            fingerprint TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            decision TEXT NOT NULL CHECK(decision IN ('approved', 'rejected')),
+            decided_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS mcp_state(
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            generation INTEGER NOT NULL,
+            materialized_generation INTEGER NOT NULL
+        ) STRICT;
+        INSERT OR IGNORE INTO mcp_state(id, generation, materialized_generation) VALUES(1, 0, -1);",
     )?;
     let _ = conn.execute("ALTER TABLE workspace ADD COLUMN removed_at INTEGER", []);
     Ok(Store(Mutex::new(conn)))
@@ -278,6 +320,193 @@ impl Store {
         .execute([before])?;
         Ok(ids)
     }
+
+    pub fn mcp_state(&self) -> rusqlite::Result<McpState> {
+        let conn = self.0.lock().unwrap();
+        let generation =
+            conn.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
+                row.get(0)
+            })?;
+        let servers = conn
+            .prepare_cached(
+                "SELECT name, config_json, updated_at FROM mcp_server ORDER BY name COLLATE NOCASE",
+            )?
+            .query_map([], |row| {
+                let raw: String = row.get(1)?;
+                let config = serde_json::from_str(&raw).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        raw.len(),
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?;
+                Ok(McpServer {
+                    name: row.get(0)?,
+                    config,
+                    updated_at: row.get(2)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        let decisions = conn
+            .prepare_cached(
+                "SELECT name, fingerprint, decision, decided_at FROM mcp_decision ORDER BY decided_at",
+            )?
+            .query_map([], |row| {
+                Ok(McpDecision {
+                    name: row.get(0)?,
+                    fingerprint: row.get(1)?,
+                    decision: row.get(2)?,
+                    decided_at: row.get(3)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        Ok(McpState {
+            generation,
+            servers,
+            decisions,
+        })
+    }
+
+    pub fn save_mcp_server(
+        &self,
+        name: &str,
+        previous: Option<&str>,
+        config: &Value,
+    ) -> rusqlite::Result<i64> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        if let Some(previous) = previous.filter(|previous| *previous != name) {
+            tx.execute("DELETE FROM mcp_server WHERE name = ?1", [previous])?;
+        }
+        tx.execute(
+            "INSERT INTO mcp_server(name, config_json, updated_at) VALUES(?1, ?2, ?3)
+             ON CONFLICT(name) DO UPDATE SET config_json = ?2, updated_at = ?3",
+            params![name, serde_json::to_string(config).unwrap(), now()],
+        )?;
+        next_mcp_generation(&tx)?;
+        let generation =
+            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
+                row.get(0)
+            })?;
+        tx.commit()?;
+        Ok(generation)
+    }
+
+    pub fn remove_mcp_server(&self, name: &str) -> rusqlite::Result<i64> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM mcp_server WHERE name = ?1", [name])?;
+        next_mcp_generation(&tx)?;
+        let generation =
+            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
+                row.get(0)
+            })?;
+        tx.commit()?;
+        Ok(generation)
+    }
+
+    pub fn decide_mcp(
+        &self,
+        name: &str,
+        fingerprint: &str,
+        decision: &str,
+    ) -> rusqlite::Result<i64> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO mcp_decision(name, fingerprint, decision, decided_at) VALUES(?1, ?2, ?3, ?4)
+             ON CONFLICT(fingerprint) DO UPDATE SET name = ?1, decision = ?3, decided_at = ?4",
+            params![name, fingerprint, decision, now()],
+        )?;
+        next_mcp_generation(&tx)?;
+        let generation =
+            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
+                row.get(0)
+            })?;
+        tx.commit()?;
+        Ok(generation)
+    }
+
+    pub fn revoke_mcp(&self, fingerprint: &str) -> rusqlite::Result<i64> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        if tx.execute(
+            "DELETE FROM mcp_decision WHERE fingerprint = ?1",
+            [fingerprint],
+        )? != 1
+        {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        next_mcp_generation(&tx)?;
+        let generation =
+            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
+                row.get(0)
+            })?;
+        tx.commit()?;
+        Ok(generation)
+    }
+
+    pub fn advance_mcp_generation(&self) -> rusqlite::Result<i64> {
+        let conn = self.0.lock().unwrap();
+        next_mcp_generation(&conn)?;
+        conn.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+    }
+
+    pub fn restore_mcp_state(&self, state: &McpState) -> rusqlite::Result<i64> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM mcp_server", [])?;
+        tx.execute("DELETE FROM mcp_decision", [])?;
+        for server in &state.servers {
+            tx.execute(
+                "INSERT INTO mcp_server(name, config_json, updated_at) VALUES(?1, ?2, ?3)",
+                params![
+                    server.name,
+                    serde_json::to_string(&server.config).unwrap(),
+                    server.updated_at
+                ],
+            )?;
+        }
+        for decision in &state.decisions {
+            tx.execute(
+                "INSERT INTO mcp_decision(name, fingerprint, decision, decided_at) VALUES(?1, ?2, ?3, ?4)",
+                params![
+                    decision.name,
+                    decision.fingerprint,
+                    decision.decision,
+                    decision.decided_at
+                ],
+            )?;
+        }
+        next_mcp_generation(&tx)?;
+        let generation =
+            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
+                row.get(0)
+            })?;
+        tx.commit()?;
+        Ok(generation)
+    }
+
+    pub fn mark_mcp_materialized(&self, generation: i64) -> rusqlite::Result<()> {
+        let changed = self.0.lock().unwrap().execute(
+            "UPDATE mcp_state SET materialized_generation = ?1 WHERE id = 1 AND generation = ?1",
+            [generation],
+        )?;
+        if changed == 1 {
+            return Ok(());
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows)
+    }
+}
+
+fn next_mcp_generation(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE mcp_state SET generation = generation + 1 WHERE id = 1",
+        [],
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -312,7 +541,9 @@ mod tests {
         assert!(store.workspaces().unwrap().is_empty());
         assert_eq!(store.removed_workspaces().unwrap().len(), 1);
 
-        let restored = store.add_workspace("w2", "S:/moved", "Ignored", "").unwrap();
+        let restored = store
+            .add_workspace("w2", "S:/moved", "Ignored", "")
+            .unwrap();
         assert_eq!(restored.id, "w1");
         assert_eq!(restored.name, "Renamed");
         assert_eq!(store.workspaces().unwrap().len(), 1);
@@ -360,8 +591,12 @@ mod tests {
         assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 1);
         let workspaces = store.workspaces().unwrap();
         assert_eq!(workspaces.len(), 2);
-        assert!(workspaces.iter().any(|workspace| workspace.path == "S:/one"));
-        assert!(workspaces.iter().any(|workspace| workspace.path == "/tmp/manual"));
+        assert!(workspaces
+            .iter()
+            .any(|workspace| workspace.path == "S:/one"));
+        assert!(workspaces
+            .iter()
+            .any(|workspace| workspace.path == "/tmp/manual"));
         assert!(!workspaces
             .iter()
             .any(|workspace| workspace.path == "/tmp/project-directories"));
@@ -378,5 +613,46 @@ mod tests {
             "Custom"
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn mcp_decisions_are_global_and_survive_definition_changes() {
+        let dir = std::env::temp_dir().join(format!("drift-mcp-store-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = open_at(&dir.join("drift.db")).unwrap();
+        let first = serde_json::json!({ "type": "local", "command": ["one"] });
+        let second = serde_json::json!({ "type": "local", "command": ["two"] });
+
+        assert_eq!(store.save_mcp_server("server", None, &first).unwrap(), 1);
+        assert_eq!(
+            store
+                .decide_mcp(
+                    "server",
+                    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "approved"
+                )
+                .unwrap(),
+            2
+        );
+        store.save_mcp_server("server", None, &second).unwrap();
+        store.save_mcp_server("server", None, &first).unwrap();
+        let state = store.mcp_state().unwrap();
+        assert_eq!(state.decisions.len(), 1);
+        assert_eq!(state.decisions[0].decision, "approved");
+
+        store
+            .decide_mcp(
+                "server",
+                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "rejected",
+            )
+            .unwrap();
+        assert_eq!(store.mcp_state().unwrap().decisions.len(), 2);
+        store
+            .revoke_mcp("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            .unwrap();
+        assert_eq!(store.mcp_state().unwrap().decisions[0].decision, "rejected");
+        std::fs::remove_dir_all(dir).ok();
     }
 }

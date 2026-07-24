@@ -875,16 +875,20 @@ dependencies = [
 name = "drift"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.3.4",
  "rfd",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

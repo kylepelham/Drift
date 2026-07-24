@@ -1,4 +1,6 @@
-import { existsSync } from "node:fs"
+import { randomBytes } from "node:crypto"
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import os from "node:os"
 import path from "node:path"
 
 const root = path.resolve(import.meta.dirname, "..")
@@ -14,11 +16,34 @@ if (!existsSync(path.join(extensions, "node_modules"))) {
 }
 
 const port = process.env.DRIFT_ENGINE_PORT ?? "4096"
-const engine = Bun.spawn([binary, "serve", "--port", port], {
+const password = process.env.OPENCODE_SERVER_PASSWORD ?? randomBytes(32).toString("hex")
+const runtime = mkdtempSync(path.join(os.tmpdir(), "drift-engine-config-"))
+const pendingDirectory = path.join(runtime, "pending")
+const sentinelPath = path.join(runtime, "mcp-fail-closed.json")
+const baseConfig = await Bun.file(path.join(extensions, "opencode.json")).json()
+await Bun.write(path.join(runtime, "mcp-approvals.json"), JSON.stringify({ version: 3, generation: 0, decisions: [] }))
+await Bun.write(
+  path.join(runtime, "opencode.json"),
+  JSON.stringify({
+    ...baseConfig,
+    plugin: [
+      ...baseConfig.plugin,
+      path.join(extensions, "plugin", "spawn-thread.ts"),
+      [path.join(extensions, "plugin", "mcp-approval.ts"), { policyPath: path.join(runtime, "mcp-approvals.json"), pendingDirectory, sentinelPath, generation: 0 }],
+    ],
+  }),
+)
+const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", port], {
   cwd: root,
   stdout: "inherit",
   stderr: "inherit",
-  env: { ...process.env, OPENCODE_CONFIG_DIR: extensions },
+  env: {
+    ...process.env,
+    OPENCODE_CONFIG_DIR: runtime,
+    OPENCODE_SERVER_PASSWORD: password,
+    OPENCODE_SERVER_USERNAME: "opencode",
+    DRIFT_MCP_APPROVAL_REQUIRED: "1",
+  },
 })
 const vite = Bun.spawn([process.execPath, "x", "vite"], {
   cwd: root,
@@ -28,13 +53,14 @@ const vite = Bun.spawn([process.execPath, "x", "vite"], {
     ...process.env,
     VITE_ENGINE_URL: `http://127.0.0.1:${port}`,
     VITE_ENGINE_USERNAME: process.env.OPENCODE_SERVER_USERNAME ?? "opencode",
-    VITE_ENGINE_PASSWORD: process.env.OPENCODE_SERVER_PASSWORD ?? "",
+    VITE_ENGINE_PASSWORD: password,
   },
 })
 
 function shutdown() {
   engine.kill()
   vite.kill()
+  rmSync(runtime, { recursive: true, force: true })
   process.exit(0)
 }
 process.on("SIGINT", shutdown)

@@ -1,5 +1,20 @@
 export type Workspace = { id: string; path: string; name: string; icon: string; lastUsed: number; removedAt?: number }
 export type ArchivedSession = { sessionId: string; workspaceId: string; archivedAt: number }
+export type McpConfig = Record<string, unknown> & { type: "local" | "remote" }
+export type StoredMcpServer = { name: string; config: McpConfig; updatedAt: number }
+export type McpDecision = "pending" | "approved" | "rejected" | "invalid"
+export type ObservedMcpServer = {
+  name: string
+  type: "local" | "remote"
+  fingerprint: string
+  decision: McpDecision
+}
+export type McpSnapshot = {
+  generation: number
+  directory: string
+  servers: StoredMcpServer[]
+  observed: ObservedMcpServer[]
+}
 
 export interface DriftStore {
   workspaces(): Promise<Workspace[]>
@@ -13,6 +28,12 @@ export interface DriftStore {
   archiveSession(sessionId: string, workspaceId: string): Promise<void>
   unarchiveSession(sessionId: string): Promise<void>
   purgeArchived(before: number): Promise<string[]>
+  mcpSnapshot(directory: string): Promise<McpSnapshot>
+  saveMcp(name: string, config: McpConfig, generation: number, previousName?: string): Promise<void>
+  removeMcp(name: string, generation: number): Promise<void>
+  approveMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
+  rejectMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
+  revokeMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
 }
 
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>
@@ -34,6 +55,16 @@ function shellStore(invoke: Invoke): DriftStore {
     archiveSession: (sessionId, workspaceId) => invoke("store_archive_session", { sessionId, workspaceId }),
     unarchiveSession: (sessionId) => invoke("store_unarchive_session", { sessionId }),
     purgeArchived: (before) => invoke("store_purge_archived", { before }),
+    mcpSnapshot: (directory) => invoke("mcp_snapshot", { directory }),
+    saveMcp: (name, config, generation, previousName) =>
+      invoke("mcp_save", { name, config, generation, previousName }),
+    removeMcp: (name, generation) => invoke("mcp_remove", { name, generation }),
+    approveMcp: (directory, name, fingerprint, generation) =>
+      invoke("mcp_approve", { directory, name, fingerprint, generation }),
+    rejectMcp: (directory, name, fingerprint, generation) =>
+      invoke("mcp_reject", { directory, name, fingerprint, generation }),
+    revokeMcp: (directory, name, fingerprint, generation) =>
+      invoke("mcp_revoke", { directory, name, fingerprint, generation }),
   }
 }
 
@@ -52,6 +83,9 @@ function browserStore(): DriftStore {
   const wsKey = "drift.store.workspaces"
   const arKey = "drift.store.archived"
   const all = () => read<StoredWorkspace[]>(wsKey, [])
+  const desktopMcpOnly = async (): Promise<never> => {
+    throw new Error("MCP policy requires the Drift desktop backend")
+  }
   return {
     workspaces: async () => all().filter((w) => !w.removedAt).sort((a, b) => b.lastUsed - a.lastUsed),
     removedWorkspaces: async () => all().filter((w) => w.removedAt).sort((a, b) => (b.removedAt ?? 0) - (a.removedAt ?? 0)),
@@ -94,6 +128,12 @@ function browserStore(): DriftStore {
       write(arKey, list.filter((a) => a.archivedAt >= before))
       return list.filter((a) => a.archivedAt < before).map((a) => a.sessionId)
     },
+    mcpSnapshot: desktopMcpOnly,
+    saveMcp: desktopMcpOnly,
+    removeMcp: desktopMcpOnly,
+    approveMcp: desktopMcpOnly,
+    rejectMcp: desktopMcpOnly,
+    revokeMcp: desktopMcpOnly,
   }
 }
 

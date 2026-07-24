@@ -1,28 +1,47 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod engine_db;
+mod mcp;
 mod store;
 
 use serde::Serialize;
-use std::io::{BufRead, BufReader};
+use serde_json::Value;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use store::{ArchivedSession, Store, Workspace};
-use tauri::{Manager, RunEvent, State};
+use tauri::{Emitter, Manager, RunEvent, State};
 use tauri_plugin_opener::OpenerExt;
 
-#[derive(Default)]
 struct Engine {
     url: Mutex<Option<String>>,
     child: Mutex<Option<Child>>,
     diagnostic: Mutex<String>,
+    password: String,
+}
+
+impl Default for Engine {
+    fn default() -> Self {
+        let mut bytes = [0u8; 32];
+        getrandom::fill(&mut bytes).expect("failed to generate engine password");
+        Self {
+            url: Mutex::new(None),
+            child: Mutex::new(None),
+            diagnostic: Mutex::new(String::new()),
+            password: bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+        }
+    }
 }
 
 #[derive(Serialize)]
 struct EngineStatus {
     url: Option<String>,
     error: Option<String>,
+    password: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -105,11 +124,20 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 fn engine_status(engine: State<Engine>) -> EngineStatus {
     let url = engine.url.lock().unwrap().clone();
     if url.is_some() {
-        return EngineStatus { url, error: None };
+        return EngineStatus {
+            url,
+            error: None,
+            password: Some(engine.password.clone()),
+        };
     }
     let (has_child, status) = {
         let mut child = engine.child.lock().unwrap();
-        (child.is_some(), child.as_mut().and_then(|child| child.try_wait().ok().flatten()))
+        (
+            child.is_some(),
+            child
+                .as_mut()
+                .and_then(|child| child.try_wait().ok().flatten()),
+        )
     };
     let diagnostic = engine.diagnostic.lock().unwrap();
     let error = status
@@ -121,7 +149,11 @@ fn engine_status(engine: State<Engine>) -> EngineStatus {
             }
         })
         .or_else(|| (!has_child && !diagnostic.is_empty()).then(|| diagnostic.clone()));
-    EngineStatus { url: None, error }
+    EngineStatus {
+        url: None,
+        error,
+        password: None,
+    }
 }
 
 #[tauri::command]
@@ -189,16 +221,28 @@ fn detect_editor() -> Option<Editor> {
     let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
     let program = std::env::var_os("ProgramFiles").map(PathBuf::from);
     let candidates = [
-        local.as_ref().map(|root| root.join("Programs/Microsoft VS Code/Code.exe")),
+        local
+            .as_ref()
+            .map(|root| root.join("Programs/Microsoft VS Code/Code.exe")),
         local
             .as_ref()
             .map(|root| root.join("Programs/Microsoft VS Code Insiders/Code - Insiders.exe")),
-        local.as_ref().map(|root| root.join("Programs/Cursor/Cursor.exe")),
-        local.as_ref().map(|root| root.join("Programs/Windsurf/Windsurf.exe")),
+        local
+            .as_ref()
+            .map(|root| root.join("Programs/Cursor/Cursor.exe")),
+        local
+            .as_ref()
+            .map(|root| root.join("Programs/Windsurf/Windsurf.exe")),
         local.as_ref().map(|root| root.join("Programs/Zed/Zed.exe")),
-        program.as_ref().map(|root| root.join("Microsoft VS Code/Code.exe")),
-        program.as_ref().map(|root| root.join("Sublime Text/sublime_text.exe")),
-        program.as_ref().map(|root| root.join("Notepad++/notepad++.exe")),
+        program
+            .as_ref()
+            .map(|root| root.join("Microsoft VS Code/Code.exe")),
+        program
+            .as_ref()
+            .map(|root| root.join("Sublime Text/sublime_text.exe")),
+        program
+            .as_ref()
+            .map(|root| root.join("Notepad++/notepad++.exe")),
     ];
     candidates
         .into_iter()
@@ -271,7 +315,9 @@ fn store_add_workspace(
     name: String,
     icon: String,
 ) -> Result<Workspace, String> {
-    store.add_workspace(&id, &path, &name, &icon).map_err(|e| e.to_string())
+    store
+        .add_workspace(&id, &path, &name, &icon)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -282,7 +328,9 @@ fn store_save_workspace(
     name: String,
     icon: String,
 ) -> Result<(), String> {
-    store.save_workspace(&id, &path, &name, &icon).map_err(|e| e.to_string())
+    store
+        .save_workspace(&id, &path, &name, &icon)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -297,7 +345,9 @@ fn store_remove_workspace(store: State<Store>, id: String) -> Result<(), String>
 
 #[tauri::command]
 fn store_purge_removed_workspaces(store: State<Store>, before: i64) -> Result<Vec<String>, String> {
-    store.purge_removed_workspaces(before).map_err(|e| e.to_string())
+    store
+        .purge_removed_workspaces(before)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -306,7 +356,11 @@ fn store_archived(store: State<Store>) -> Result<Vec<ArchivedSession>, String> {
 }
 
 #[tauri::command]
-fn store_archive_session(store: State<Store>, session_id: String, workspace_id: String) -> Result<(), String> {
+fn store_archive_session(
+    store: State<Store>,
+    session_id: String,
+    workspace_id: String,
+) -> Result<(), String> {
     store
         .archive_session(&session_id, &workspace_id)
         .map_err(|e| e.to_string())
@@ -314,12 +368,111 @@ fn store_archive_session(store: State<Store>, session_id: String, workspace_id: 
 
 #[tauri::command]
 fn store_unarchive_session(store: State<Store>, session_id: String) -> Result<(), String> {
-    store.unarchive_session(&session_id).map_err(|e| e.to_string())
+    store
+        .unarchive_session(&session_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn store_purge_archived(store: State<Store>, before: i64) -> Result<Vec<String>, String> {
     store.purge_archived(before).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn mcp_snapshot(
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    directory: String,
+) -> Result<mcp::McpSnapshot, String> {
+    runtime.snapshot(&store, &directory)
+}
+
+#[tauri::command]
+fn mcp_save(
+    app: tauri::AppHandle,
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    name: String,
+    previous_name: Option<String>,
+    config: Value,
+    generation: i64,
+) -> Result<(), String> {
+    runtime.save(
+        &store,
+        &name,
+        previous_name.as_deref(),
+        config,
+        generation,
+        || stop_engine_instances(&app),
+    )
+}
+
+#[tauri::command]
+fn mcp_remove(
+    app: tauri::AppHandle,
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    name: String,
+    generation: i64,
+) -> Result<(), String> {
+    runtime.remove(&store, &name, generation, || stop_engine_instances(&app))
+}
+
+#[tauri::command]
+fn mcp_approve(
+    app: tauri::AppHandle,
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    directory: String,
+    name: String,
+    fingerprint: String,
+    generation: i64,
+) -> Result<(), String> {
+    runtime.decide(
+        &store,
+        &directory,
+        &name,
+        &fingerprint,
+        generation,
+        mcp::McpDecision::Approved,
+        || stop_engine_instances(&app),
+    )
+}
+
+#[tauri::command]
+fn mcp_reject(
+    app: tauri::AppHandle,
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    directory: String,
+    name: String,
+    fingerprint: String,
+    generation: i64,
+) -> Result<(), String> {
+    runtime.decide(
+        &store,
+        &directory,
+        &name,
+        &fingerprint,
+        generation,
+        mcp::McpDecision::Rejected,
+        || stop_engine_instances(&app),
+    )
+}
+
+#[tauri::command]
+fn mcp_revoke(
+    app: tauri::AppHandle,
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    directory: String,
+    name: String,
+    fingerprint: String,
+    generation: i64,
+) -> Result<(), String> {
+    runtime.revoke(&store, &directory, &name, &fingerprint, generation, || {
+        stop_engine_instances(&app)
+    })
 }
 
 fn engine_binary() -> Option<std::path::PathBuf> {
@@ -335,7 +488,10 @@ fn engine_binary() -> Option<std::path::PathBuf> {
 }
 
 fn engine_extensions() -> Option<std::path::PathBuf> {
-    let bundled = std::env::current_exe().ok()?.parent()?.join("drift-extensions");
+    let bundled = std::env::current_exe()
+        .ok()?
+        .parent()?
+        .join("drift-extensions");
     if bundled.exists() {
         return Some(bundled);
     }
@@ -346,24 +502,28 @@ fn engine_extensions() -> Option<std::path::PathBuf> {
     dev.exists().then_some(dev)
 }
 
-fn spawn_engine(app: tauri::AppHandle, shared_database: bool) {
+fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_dir: PathBuf) {
     std::thread::spawn(move || {
         let Some(binary) = engine_binary() else {
-            *app.state::<Engine>().diagnostic.lock().unwrap() = "embedded engine binary not found".into();
+            *app.state::<Engine>().diagnostic.lock().unwrap() =
+                "embedded engine binary not found".into();
             return;
         };
         let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME"));
+        let password = app.state::<Engine>().password.clone();
         let mut command = Command::new(binary);
         command
-            .args(["serve", "--port", "0"])
-            .env_remove("OPENCODE_SERVER_PASSWORD")
+            .args(["serve", "--hostname", "127.0.0.1", "--port", "0"])
+            .env("OPENCODE_SERVER_PASSWORD", password)
+            .env("OPENCODE_SERVER_USERNAME", "opencode")
+            .env_remove("OPENCODE_CONFIG")
+            .env_remove("OPENCODE_CONFIG_CONTENT")
+            .env("OPENCODE_CONFIG_DIR", config_dir)
+            .env("DRIFT_MCP_APPROVAL_REQUIRED", "1")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         if shared_database {
             engine_db::configure_shared(&mut command);
-        }
-        if let Some(extensions) = engine_extensions() {
-            command.env("OPENCODE_CONFIG_DIR", extensions);
         }
         if let Ok(home) = home {
             command.current_dir(home);
@@ -376,7 +536,8 @@ fn spawn_engine(app: tauri::AppHandle, shared_database: bool) {
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(error) => {
-                *app.state::<Engine>().diagnostic.lock().unwrap() = format!("failed to start embedded engine: {error}");
+                *app.state::<Engine>().diagnostic.lock().unwrap() =
+                    format!("failed to start embedded engine: {error}");
                 return;
             }
         };
@@ -401,7 +562,280 @@ fn spawn_engine(app: tauri::AppHandle, shared_database: bool) {
                 *engine.url.lock().unwrap() = Some(line[index..].trim().to_string());
             }
         }
+        *app.state::<Engine>().url.lock().unwrap() = None;
     });
+}
+
+fn stop_engine_instances(app: &tauri::AppHandle) -> Result<(), String> {
+    let engine = app.state::<Engine>();
+    let Some(url) = engine.url.lock().unwrap().clone() else {
+        return Ok(());
+    };
+    let parsed = url::Url::parse(&url).map_err(|error| error.to_string())?;
+    let host = parsed.host_str().ok_or("embedded engine URL has no host")?;
+    let port = parsed
+        .port_or_known_default()
+        .ok_or("embedded engine URL has no port")?;
+    let mut stream = TcpStream::connect((host, port)).map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+        .map_err(|error| error.to_string())?;
+    let authorization = basic_authorization("opencode", &engine.password);
+    let request = format!(
+        "POST /global/dispose HTTP/1.1\r\nHost: {host}:{port}\r\nAuthorization: Basic {authorization}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| error.to_string())?;
+    let mut response = String::new();
+    BufReader::new(stream)
+        .read_line(&mut response)
+        .map_err(|error| error.to_string())?;
+    if !response.starts_with("HTTP/1.1 200") {
+        return Err("embedded engine refused global disposal".into());
+    }
+    Ok(())
+}
+
+fn basic_authorization(username: &str, password: &str) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let input = format!("{username}:{password}");
+    let mut encoded = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.as_bytes().chunks(3) {
+        let value = ((chunk[0] as u32) << 16)
+            | (chunk.get(1).copied().unwrap_or(0) as u32) << 8
+            | chunk.get(2).copied().unwrap_or(0) as u32;
+        encoded.push(ALPHABET[((value >> 18) & 63) as usize] as char);
+        encoded.push(ALPHABET[((value >> 12) & 63) as usize] as char);
+        encoded.push(if chunk.len() > 1 {
+            ALPHABET[((value >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        encoded.push(if chunk.len() > 2 {
+            ALPHABET[(value & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    encoded
+}
+
+fn watch_mcp_configs(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let mut previous = external_mcp_signature(&app.state::<Store>());
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let current = external_mcp_signature(&app.state::<Store>());
+            if current == previous {
+                continue;
+            }
+            let reloaded = app
+                .state::<mcp::McpRuntime>()
+                .reload(&app.state::<Store>(), || stop_engine_instances(&app));
+            match reloaded {
+                Ok(()) => {
+                    previous = current;
+                    let _ = app.emit("mcp-config-changed", ());
+                }
+                Err(error) => eprintln!("failed to reload changed MCP configuration: {error}"),
+            }
+        }
+    });
+}
+
+const MAX_WATCHED_MCP_FILES: usize = 4096;
+const MAX_WATCHED_FILE_BYTES: u64 = 1_048_576;
+
+fn external_mcp_signature(store: &Store) -> Vec<(PathBuf, u64, u128, u64)> {
+    let mut roots = Vec::new();
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        let home = PathBuf::from(home);
+        roots.push(home.join(".config/opencode"));
+        roots.push(home.join(".opencode"));
+    }
+    if let Some(root) = std::env::var_os("XDG_CONFIG_HOME") {
+        roots.push(PathBuf::from(root).join("opencode"));
+    }
+    if let Some(root) = std::env::var_os("APPDATA") {
+        roots.push(PathBuf::from(root).join("opencode"));
+    }
+    roots.push(managed_config_root());
+    if let Ok(workspaces) = store.workspaces() {
+        for workspace in workspaces {
+            for ancestor in Path::new(&workspace.path).ancestors() {
+                roots.push(ancestor.to_path_buf());
+                roots.push(ancestor.join(".opencode"));
+            }
+        }
+    }
+    roots.sort();
+    roots.dedup();
+    roots.truncate(MAX_WATCHED_MCP_FILES);
+    let configs = roots
+        .iter()
+        .flat_map(|root| {
+            [
+                root.join("opencode.json"),
+                root.join("opencode.jsonc"),
+                root.join("config.json"),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let plugins = roots
+        .into_iter()
+        .flat_map(|root| [root.join("plugin"), root.join("plugins")])
+        .collect::<Vec<_>>();
+    let mut paths = watched_mcp_paths(configs, plugins);
+    if cfg!(target_os = "macos") {
+        let managed = PathBuf::from("/Library/Managed Preferences");
+        paths.push(managed.join("ai.opencode.managed.plist"));
+        if let Some(user) = std::env::var_os("USER") {
+            paths.push(managed.join(user).join("ai.opencode.managed.plist"));
+        }
+    }
+    file_signatures(paths)
+}
+
+fn watched_mcp_paths(mut configs: Vec<PathBuf>, mut plugin_roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    configs.sort();
+    configs.dedup();
+    configs.truncate(MAX_WATCHED_MCP_FILES);
+    plugin_roots.sort();
+    plugin_roots.dedup();
+    plugin_roots.truncate(MAX_WATCHED_MCP_FILES);
+    let mut paths = configs.clone();
+    for config in configs {
+        let Ok(metadata) = std::fs::metadata(&config) else {
+            continue;
+        };
+        if metadata.len() > MAX_WATCHED_FILE_BYTES {
+            continue;
+        }
+        let Ok(contents) = std::fs::read_to_string(&config) else {
+            continue;
+        };
+        paths.extend(config_file_references(
+            &contents,
+            config.parent().unwrap_or(Path::new(".")),
+        ));
+    }
+    for root in plugin_roots {
+        collect_plugin_files(&root, &mut paths);
+        if paths.len() >= MAX_WATCHED_MCP_FILES {
+            break;
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    paths.truncate(MAX_WATCHED_MCP_FILES);
+    paths
+}
+
+fn config_file_references(contents: &str, parent: &Path) -> Vec<PathBuf> {
+    let mut references = Vec::new();
+    let mut cursor = 0;
+    while references.len() < 256 {
+        let Some(start) = contents[cursor..]
+            .find("{file:")
+            .map(|index| cursor + index + 6)
+        else {
+            break;
+        };
+        let Some(end) = contents[start..].find('}').map(|index| start + index) else {
+            break;
+        };
+        let value = contents[start..end].trim();
+        if !value.is_empty() && value.len() <= 4096 {
+            let path = if let Some(relative) = value.strip_prefix("~/") {
+                std::env::var_os("USERPROFILE")
+                    .or_else(|| std::env::var_os("HOME"))
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| parent.to_path_buf())
+                    .join(relative)
+            } else {
+                let path = PathBuf::from(value);
+                if path.is_absolute() {
+                    path
+                } else {
+                    parent.join(path)
+                }
+            };
+            references.push(path);
+        }
+        cursor = end + 1;
+    }
+    references
+}
+
+fn collect_plugin_files(root: &Path, paths: &mut Vec<PathBuf>) {
+    let mut pending = vec![(root.to_path_buf(), 0usize)];
+    while let Some((directory, depth)) = pending.pop() {
+        if paths.len() >= MAX_WATCHED_MCP_FILES {
+            break;
+        }
+        if depth > 16 {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            continue;
+        };
+        let mut entries = entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .collect::<Vec<_>>();
+        entries.sort_by(|left, right| right.cmp(left));
+        for path in entries {
+            if path.is_dir() {
+                pending.push((path, depth + 1));
+            } else if path.is_file() {
+                paths.push(path);
+            }
+        }
+    }
+}
+
+fn file_signatures(mut paths: Vec<PathBuf>) -> Vec<(PathBuf, u64, u128, u64)> {
+    paths.sort();
+    paths.dedup();
+    paths.truncate(MAX_WATCHED_MCP_FILES);
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let metadata = std::fs::metadata(&path).ok()?;
+            if !metadata.is_file() {
+                return None;
+            }
+            let modified = metadata
+                .modified()
+                .ok()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_nanos();
+            let mut bytes = Vec::new();
+            std::fs::File::open(&path)
+                .ok()?
+                .take(MAX_WATCHED_FILE_BYTES)
+                .read_to_end(&mut bytes)
+                .ok()?;
+            let mut hasher = DefaultHasher::new();
+            bytes.hash(&mut hasher);
+            Some((path, metadata.len(), modified, hasher.finish()))
+        })
+        .collect()
+}
+
+fn managed_config_root() -> PathBuf {
+    if cfg!(target_os = "windows") {
+        return std::env::var_os("ProgramData")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
+            .join("opencode");
+    }
+    if cfg!(target_os = "macos") {
+        return PathBuf::from("/Library/Application Support/opencode");
+    }
+    PathBuf::from("/etc/opencode")
 }
 
 fn main() {
@@ -433,7 +867,13 @@ fn main() {
             store_archived,
             store_archive_session,
             store_unarchive_session,
-            store_purge_archived
+            store_purge_archived,
+            mcp_snapshot,
+            mcp_save,
+            mcp_remove,
+            mcp_approve,
+            mcp_reject,
+            mcp_revoke
         ])
         .setup(|app| {
             let data_dir = app.path().app_data_dir().expect("no app data dir");
@@ -464,8 +904,16 @@ fn main() {
                     eprintln!("failed to import OpenCode workspaces: {error}");
                 }
             }
+            let extensions = engine_extensions().expect("embedded engine extensions not found");
+            let mcp_runtime = mcp::McpRuntime::new(&data_dir, extensions);
+            mcp_runtime
+                .materialize(&store)
+                .expect("failed to prepare Drift MCP policy");
+            let engine_config = mcp_runtime.config_dir().to_path_buf();
             app.manage(store);
-            spawn_engine(app.handle().clone(), shared_database);
+            app.manage(mcp_runtime);
+            spawn_engine(app.handle().clone(), shared_database, engine_config);
+            watch_mcp_configs(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -483,7 +931,10 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{config_path, editor_arguments, editor_kind, EditorKind};
+    use super::{
+        basic_authorization, config_path, editor_arguments, editor_kind, file_signatures,
+        watched_mcp_paths, EditorKind, Engine,
+    };
     use std::path::Path;
 
     #[test]
@@ -516,5 +967,63 @@ mod tests {
             editor_arguments(EditorKind::NotepadPlus, "S:\\repo\\app.ts", 24, 3),
             ["-n24", "-c3", "S:\\repo\\app.ts"]
         );
+    }
+
+    #[test]
+    fn engine_credentials_are_random_and_basic_auth_encoded() {
+        let first = Engine::default().password;
+        let second = Engine::default().password;
+        assert_eq!(first.len(), 64);
+        assert_ne!(first, second);
+        assert_eq!(basic_authorization("user", "pass"), "dXNlcjpwYXNz");
+    }
+
+    #[test]
+    fn mcp_watch_paths_include_plugins_and_external_file_references() {
+        let root =
+            std::env::temp_dir().join(format!("drift-mcp-watch-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        let config_root = root.join("workspace/.opencode");
+        let plugin = config_root.join("plugin/nested/server.ts");
+        let external = root.join("outside/secret.txt");
+        std::fs::create_dir_all(plugin.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(external.parent().unwrap()).unwrap();
+        std::fs::write(&plugin, "export default {}\n").unwrap();
+        std::fs::write(&external, "one").unwrap();
+        let config = config_root.join("opencode.json");
+        let reference = external.to_string_lossy().replace('\\', "/");
+        std::fs::write(
+            &config,
+            format!(r#"{{"mcp":{{"x":{{"token":"{{file:{reference}}}"}}}}}}"#),
+        )
+        .unwrap();
+
+        let paths = watched_mcp_paths(
+            vec![config.clone()],
+            vec![config_root.join("plugin"), config_root.join("plugins")],
+        );
+        assert!(paths.contains(&config));
+        assert!(paths.contains(&plugin));
+        assert!(paths.contains(&external));
+        assert!(paths.len() <= 4096);
+        assert_eq!(
+            paths,
+            watched_mcp_paths(
+                vec![config.clone()],
+                vec![config_root.join("plugin"), config_root.join("plugins")],
+            )
+        );
+        let before = file_signatures(paths.clone());
+        std::fs::write(&external, "two").unwrap();
+        let after = file_signatures(paths);
+        assert_ne!(before, after);
+        let before_plugin = after;
+        std::fs::write(&plugin, "export default { changed: true }\n").unwrap();
+        let after_plugin = file_signatures(watched_mcp_paths(
+            vec![config],
+            vec![config_root.join("plugin"), config_root.join("plugins")],
+        ));
+        assert_ne!(before_plugin, after_plugin);
+        std::fs::remove_dir_all(root).ok();
     }
 }

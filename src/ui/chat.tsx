@@ -119,7 +119,7 @@ export function Chat() {
   // never scrolls, so easing into the stick zone by hand cannot yank the view.
   createEffect(() => {
     const last = entries().at(-1)
-    if (last) JSON.stringify(last.parts)
+    transcriptRevision(last)
     offsets()
     sessionError()
     thinking()
@@ -276,6 +276,33 @@ export function resizeCompensation(previous: number, next: number, rowBottom: nu
 export function scrollGestureSticks(previousTop: number, nextTop: number, distanceFromBottom: number) {
   if (nextTop < previousTop) return false
   return distanceFromBottom < 80
+}
+
+type RevisionPart = {
+  type: string
+  text?: string
+  state?: { status?: string; output?: unknown; error?: unknown; metadata?: Record<string, unknown> }
+  metadata?: Record<string, unknown>
+}
+
+export function transcriptRevision(entry?: { parts: RevisionPart[] }) {
+  if (!entry) return "0"
+  let revision = `${entry.parts.length}`
+  for (const part of entry.parts) {
+    if (part.type === "text" || part.type === "reasoning") {
+      revision += `|${part.type}:${part.text?.length ?? 0}`
+      continue
+    }
+    if (part.type !== "tool") continue
+    const state = part.state
+    revision += `|tool:${state?.status ?? ""}`
+    if (typeof state?.output === "string") revision += `:o${state.output.length}`
+    if (typeof state?.error === "string") revision += `:e${state.error.length}`
+    const metadata = state?.metadata ?? part.metadata
+    if (typeof metadata?.output === "string") revision += `:m${metadata.output.length}`
+    if (typeof metadata?.diff === "string") revision += `:d${metadata.diff.length}`
+  }
+  return revision
 }
 
 export function mergeCompactionEntries(entries: MessageEntry[]) {

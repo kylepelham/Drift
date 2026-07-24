@@ -19,6 +19,68 @@ test("composer drafts are isolated by session and new-workspace scope", async ()
   clearComposerDraft(fresh)
 })
 
+test("composer history is normalized, deduplicated, and bounded", async () => {
+  const { maxComposerHistory, normalizeComposerHistory, prependComposerHistory } = await import("../src/state/composer")
+  const draft = { text: "  carry on  ", staged: [], mentions: ["src/app.tsx", "src/app.tsx"] }
+  const first = prependComposerHistory([], draft)
+  expect(first).toEqual([{ text: "carry on", mentions: ["src/app.tsx"] }])
+  expect(prependComposerHistory(first, draft)).toBe(first)
+  const entries = Array.from({ length: maxComposerHistory }, (_, index) => ({ text: `prompt ${index}`, mentions: [] }))
+  const bounded = prependComposerHistory(entries, { text: "newest", staged: [], mentions: [] })
+  expect(bounded).toHaveLength(maxComposerHistory)
+  expect(bounded[0].text).toBe("newest")
+  expect(bounded.at(-1)?.text).toBe("prompt 98")
+  expect(
+    normalizeComposerHistory([
+      null,
+      { text: "  valid  ", mentions: ["a", 1, "a"] },
+      { text: "" },
+      { nope: true },
+    ]),
+  ).toEqual([{ text: "valid", mentions: ["a"] }])
+})
+
+test("composer history navigation restores the draft and attachments", async () => {
+  const { canNavigateComposerHistory, navigateComposerHistory } = await import("../src/state/composer")
+  const entries = [
+    { text: "newest", mentions: ["new.ts"] },
+    { text: "oldest", mentions: [] },
+  ]
+  const current = {
+    text: "",
+    staged: [{ id: "f1", filename: "screen.png", mime: "image/png", dataUrl: "data:image/png;base64,x", size: 1 }],
+    mentions: ["draft.ts"],
+  }
+  const newest = navigateComposerHistory(entries, { index: -1, saved: null }, current, "up")
+  expect(newest?.draft).toEqual({ text: "newest", staged: [], mentions: ["new.ts"] })
+  expect(newest?.cursor).toBe("start")
+  if (!newest) throw new Error("expected history navigation")
+  const oldest = navigateComposerHistory(entries, newest.navigation, newest.draft, "up")
+  expect(oldest?.draft.text).toBe("oldest")
+  if (!oldest) throw new Error("expected older history entry")
+  expect(navigateComposerHistory(entries, oldest.navigation, oldest.draft, "up")).toBeUndefined()
+  const forward = navigateComposerHistory(entries, oldest.navigation, oldest.draft, "down")
+  expect(forward?.draft.text).toBe("newest")
+  if (!forward) throw new Error("expected newer history entry")
+  const restored = navigateComposerHistory(entries, forward.navigation, forward.draft, "down")
+  expect(restored?.draft).toEqual(current)
+  expect(restored?.navigation).toEqual({ index: -1, saved: null })
+  expect(canNavigateComposerHistory("up", "", 0, false)).toBeTrue()
+  expect(canNavigateComposerHistory("up", "draft", 0, false)).toBeFalse()
+  expect(canNavigateComposerHistory("down", "draft", 5, true)).toBeTrue()
+  expect(canNavigateComposerHistory("down", "draft", 2, true)).toBeFalse()
+})
+
+test("drag reorder ignores released pointers and converts zoomed geometry", async () => {
+  const { dragLayoutScale, dragPointerPressed } = await import("../src/ui/drag-reorder")
+  expect(dragPointerPressed(4, { pointerId: 4, buttons: 1 })).toBeTrue()
+  expect(dragPointerPressed(4, { pointerId: 4, buttons: 0 })).toBeFalse()
+  expect(dragPointerPressed(4, { pointerId: 5, buttons: 1 })).toBeFalse()
+  expect(dragLayoutScale(52, 40)).toBe(1.3)
+  expect(dragLayoutScale(32, 40)).toBe(0.8)
+  expect(dragLayoutScale(0, 0)).toBe(1)
+})
+
 test("reverted messages restore uploads and file mentions", async () => {
   const { draftFromMessage } = await import("../src/state/composer")
   const restored = draftFromMessage({
@@ -118,12 +180,75 @@ test("model manager orders enabled models first and preserves provider rearrange
 })
 
 test("shell transcript preserves a visible command-output gap and normalizes output", async () => {
-  const { shellAtBottom, shellScrollTarget, shellTranscript } = await import("../src/ui/parts")
+  const {
+    createFrameCoalescer,
+    createShellTranscriptStream,
+    initialToolOpen,
+    shellAtBottom,
+    shellScrollTarget,
+    shellTranscript,
+  } = await import("../src/ui/parts")
   expect(shellTranscript("bun run build", "\u001b[32mok\u001b[0m\r\ndone")).toBe("$ bun run build\n\nok\ndone")
+  const output = Array.from({ length: 10_000 }, (_, index) => `line ${index}`).join("\r\n")
+  const transcript = shellTranscript("generate", output)
+  expect(transcript.startsWith("$ generate\n\nline 0\nline 1")).toBeTrue()
+  expect(transcript.endsWith("line 9999")).toBeTrue()
+  expect(initialToolOpen("bash", "completed", false)).toBeTrue()
+  expect(initialToolOpen("bash", "running", false)).toBeTrue()
+  expect(initialToolOpen("read", "completed", true)).toBeFalse()
+  expect(initialToolOpen("bash", "error", true)).toBeTrue()
+  expect(initialToolOpen("bash", "error", false)).toBeFalse()
   expect(shellAtBottom(300, 200, 501)).toBe(true)
   expect(shellAtBottom(250, 200, 501)).toBe(false)
   expect(shellScrollTarget(250, false, 700)).toBe(250)
   expect(shellScrollTarget(300, true, 700)).toBe(700)
+
+  const stream = createShellTranscriptStream()
+  expect(stream.update("generate", "\u001b[3", false)).toEqual({ replace: true, text: "$ generate" })
+  expect(stream.update("generate", "\u001b[32mok\r", false)).toEqual({ replace: true, text: "$ generate\n\nok" })
+  expect(stream.update("generate", "\u001b[32mok\r\ndone", false)).toEqual({ replace: false, text: "\ndone" })
+  expect(stream.update("generate", "\u001b[32mok\r\ndone", true)).toEqual({
+    replace: true,
+    text: "$ generate\n\nok\ndone",
+  })
+  const sliding = createShellTranscriptStream()
+  expect(sliding.update("tail", "line one", false)).toEqual({ replace: true, text: "$ tail\n\nline one" })
+  expect(sliding.update("tail", "line two", false)).toEqual({ replace: true, text: "$ tail\n\nline two" })
+  expect(sliding.update("tail", "...\n\nnew sliding preview", false)).toEqual({
+    replace: true,
+    text: "$ tail\n\n...\n\nnew sliding preview",
+  })
+  const boundary = createShellTranscriptStream()
+  const beforePreview = "x".repeat(30_000)
+  boundary.update("tail", beforePreview, false)
+  const previewUpdate = boundary.update("tail", `...\n\n${"x".repeat(29_995)}abcde`, false)
+  expect(previewUpdate.replace).toBeTrue()
+  expect(previewUpdate.text.startsWith("$ tail\n\n...\n\n")).toBeTrue()
+
+  const frames = new Map<number, () => void>()
+  const values: string[] = []
+  let handle = 0
+  const coalescer = createFrameCoalescer<string>(
+    (callback) => {
+      frames.set(++handle, callback)
+      return handle
+    },
+    (id) => frames.delete(id),
+    (value) => values.push(value),
+  )
+  coalescer.push("first", true)
+  coalescer.push("latest", true)
+  expect(frames.size).toBe(1)
+  expect(values).toEqual([])
+  const callback = frames.get(handle)
+  frames.delete(handle)
+  callback?.()
+  expect(values).toEqual(["latest"])
+  coalescer.push("pending", true)
+  coalescer.push("completed", false)
+  expect(values).toEqual(["latest", "completed"])
+  expect(frames.size).toBe(0)
+  coalescer.dispose()
 })
 
 test("question drafts preserve single, multiple, and custom answers", async () => {

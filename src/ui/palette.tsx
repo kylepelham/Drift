@@ -1,4 +1,5 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { Portal } from "solid-js/web"
 import { useEngine } from "../engine"
 import { sessionsFor } from "../engine/store"
 import { onKeybind } from "../state/keybinds"
@@ -6,7 +7,7 @@ import { selectSession } from "../state/selection"
 import { setTheme, theme, themes } from "../state/theme"
 import { archivedIds, selectWorkspace, workspaces } from "../state/workspaces"
 import { openMcpServers } from "./mcp"
-import { closeOnBackdropPointerDown } from "./modal"
+import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import { openSettings } from "./settings"
 import { t } from "../state/i18n"
 
@@ -25,23 +26,19 @@ export function PaletteHost() {
   })
   return (
     <Show when={open()}>
-      <Palette onClose={() => setOpen(false)} />
+      <Portal>
+        <Palette onClose={() => setOpen(false)} />
+      </Portal>
     </Show>
   )
 }
 
 function Palette(props: { onClose: () => void }) {
   const engine = useEngine()
+  let dialog!: HTMLDivElement
   const [query, setQuery] = createSignal("")
   const [cursor, setCursor] = createSignal(0)
-
-  createEffect(() => {
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") props.onClose()
-    }
-    document.addEventListener("keydown", escape)
-    onCleanup(() => document.removeEventListener("keydown", escape))
-  })
+  onMount(() => onCleanup(activateModal(dialog, props.onClose)))
 
   const items = createMemo<PaletteItem[]>(() => {
     const actions: PaletteItem[] = [
@@ -97,10 +94,16 @@ function Palette(props: { onClose: () => void }) {
 
   return (
     <div
+      data-modal-layer
       class="fixed inset-0 z-40 flex justify-center bg-black/50 pt-[18vh]"
-      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose)}
+      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
     >
       <div
+        ref={dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("command.palette")}
+        tabIndex={-1}
         class="fade-up flex h-fit max-h-[50vh] w-[34rem] flex-col overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40"
         onClick={(event) => event.stopPropagation()}
       >

@@ -1,9 +1,24 @@
 import path from "node:path"
 import { engineUpstream, withEngineOverlays } from "./engine-overlays"
 
-async function run(directory: string, args: string[]) {
+function engineEnvironment(extra: Record<string, string> = {}) {
+  const env = { ...process.env }
+  for (const key of [
+    "DRIFT_MCP_APPROVAL_REQUIRED",
+    "OPENCODE_CONFIG",
+    "OPENCODE_CONFIG_CONTENT",
+    "OPENCODE_CONFIG_DIR",
+    "OPENCODE_SERVER_PASSWORD",
+    "OPENCODE_SERVER_USERNAME",
+  ])
+    delete env[key]
+  return { ...env, ...extra }
+}
+
+async function run(directory: string, args: string[], env?: Record<string, string>) {
   const child = Bun.spawn(["bun", "test", "--timeout", "20000", ...args], {
     cwd: path.join(engineUpstream, directory),
+    env: engineEnvironment(env),
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
@@ -12,8 +27,34 @@ async function run(directory: string, args: string[]) {
   if (exitCode !== 0) throw new Error(`Engine tests failed in ${directory}`)
 }
 
+async function verifyAuthCapture() {
+  const script = [
+    'import { Effect } from "effect"',
+    'import { ServerAuth } from "./src/server/auth"',
+    "const config = await Effect.runPromise(ServerAuth.Config.pipe(Effect.provide(ServerAuth.layer)))",
+    'if (!ServerAuth.required(config)) throw new Error("Drift auth password was not captured")',
+    'if (process.env.OPENCODE_SERVER_PASSWORD !== undefined) throw new Error("Drift auth password remained in process.env")',
+  ].join(";")
+  const child = Bun.spawn(["bun", "-e", script], {
+    cwd: path.join(engineUpstream, "packages", "opencode"),
+    env: engineEnvironment({ DRIFT_MCP_APPROVAL_REQUIRED: "1", OPENCODE_SERVER_PASSWORD: "secret" }),
+    stdout: "inherit",
+    stderr: "inherit",
+  })
+  if ((await child.exited) !== 0) throw new Error("Engine auth capture verification failed")
+}
+
 await withEngineOverlays(async () => {
   await run("packages/core", ["test/move-session.test.ts"])
+  await verifyAuthCapture()
+  await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "InstanceStore|CLI bootstrap"])
+  await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "Drift requires"])
+  await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "mutable synthetic"])
+  await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "changed after sealing"])
+  await run("packages/opencode", ["test/server/httpapi-instance-route-auth.test.ts"])
+  await run("packages/opencode", ["test/mcp/lifecycle.test.ts", "-t", "required Drift mode"], {
+    DRIFT_MCP_APPROVAL_REQUIRED: "1",
+  })
   await run("packages/opencode", [
     "test/session/compaction.test.ts",
     "-t",

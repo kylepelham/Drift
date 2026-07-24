@@ -217,6 +217,17 @@ export function IconChip(props: IconProps) {
   )
 }
 
+export function IconCode(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="m8 9-3 3 3 3" />
+      <path d="m16 9 3 3-3 3" />
+      <path d="m14 5-4 14" />
+    </>,
+  )
+}
+
 export function IconInfo(props: IconProps) {
   return frame(
     props,

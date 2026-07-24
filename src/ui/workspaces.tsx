@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, Match, onCleanup, Show, Switch, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, Match, onCleanup, onMount, Show, Switch, For, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { emitThreadArchived } from "../plugins"
 import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
@@ -9,7 +9,7 @@ import { fixedMenuPosition } from "../state/zoom"
 import { t } from "../state/i18n"
 import { Chevron } from "./parts"
 import { dragReorder } from "./drag-reorder"
-import { closeOnBackdropPointerDown } from "./modal"
+import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import {
   activeWorkspaceId,
   archivedIds,
@@ -38,6 +38,8 @@ export function WorkspaceGroup(props: {
 }) {
   const engine = useEngine()
   let root!: HTMLDivElement
+  let cancelDrag = () => {}
+  onCleanup(() => cancelDrag())
   const collapsed = () => workspaceCollapsed(props.workspace.id)
   const [visibleCount, setVisibleCount] = createSignal(sessionPageSize)
   const active = () => activeWorkspaceId() === props.workspace.id
@@ -58,15 +60,16 @@ export function WorkspaceGroup(props: {
       <div
         class="group flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
         classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
-        onPointerDown={(event) =>
-          dragReorder(event, root, {
+        onPointerDown={(event) => {
+          cancelDrag()
+          cancelDrag = dragReorder(event, root, {
             selector: ":scope > [data-workspace]",
             id: props.workspace.id,
             itemID: (element) => element.dataset.workspace ?? "",
             move: moveWorkspace,
             dragged: markWorkspaceDragged,
           })
-        }
+        }}
         onClick={() => {
           if (dragged) return
           toggleWorkspaceCollapsed(props.workspace.id)
@@ -167,6 +170,7 @@ function RowButton(props: { title: string; onClick: (event: MouseEvent) => void;
     <button
       title={props.title}
       class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+      onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation()
         props.onClick(event)
@@ -442,16 +446,10 @@ export function SessionMenu(props: {
 }
 
 export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () => void }) {
+  let dialog!: HTMLDivElement
   const [name, setName] = createSignal(props.workspace.name)
   const [icon, setIcon] = createSignal(props.workspace.icon)
-
-  createEffect(() => {
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") props.onClose()
-    }
-    document.addEventListener("keydown", escape)
-    onCleanup(() => document.removeEventListener("keydown", escape))
-  })
+  onMount(() => onCleanup(activateModal(dialog, props.onClose)))
 
   async function save() {
     const next = name().trim()
@@ -461,10 +459,16 @@ export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () =>
 
   return (
     <div
+      data-modal-layer
       class="fixed inset-0 z-30 flex items-center justify-center bg-black/50"
-      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose)}
+      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
     >
       <div
+        ref={dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("dialog.project.edit.title")}
+        tabIndex={-1}
         class="fade-up w-96 rounded-xl border border-edge bg-overlay p-4 shadow-2xl shadow-black/40"
         onClick={(event) => event.stopPropagation()}
       >

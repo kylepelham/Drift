@@ -14,7 +14,7 @@ export async function buildExtensions(output = defaultOutput, staleReleaseOutput
   rmSync(path.join(output, "package.json"), { force: true })
   mkdirSync(plugins, { recursive: true })
   const result = await Bun.build({
-    entrypoints: [path.join(source, "plugin", "spawn-thread.ts")],
+    entrypoints: [path.join(source, "plugin", "spawn-thread.ts"), path.join(source, "plugin", "mcp-approval.ts")],
     outdir: plugins,
     target: "bun",
     format: "esm",

@@ -10,12 +10,18 @@ test("release extensions load without workspace node_modules", async () => {
   try {
     await buildExtensions(output)
     const pluginPath = path.join(output, "plugin", "spawn-thread.js")
+    const approvalPath = path.join(output, "plugin", "mcp-approval.js")
     const source = await Bun.file(pluginPath).text()
+    const approvalSource = await Bun.file(approvalPath).text()
     const manifest = await Bun.file(path.join(output, "package.json")).json()
     expect(source).not.toContain('from"@opencode-ai/plugin"')
     expect(source).not.toContain('from"zod"')
+    expect(approvalSource).not.toContain('from"@opencode-ai/plugin"')
     expect(manifest.dependencies).toBeUndefined()
     expect(typeof (await import(pathToFileURL(pluginPath).href)).SpawnThread).toBe("function")
+    const approval = await import(pathToFileURL(approvalPath).href)
+    expect(typeof approval.McpApproval).toBe("function")
+    expect(Object.values(approval).filter((value) => typeof value === "function")).toHaveLength(1)
   } finally {
     rmSync(output, { recursive: true, force: true })
   }

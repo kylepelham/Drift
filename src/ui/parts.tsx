@@ -1,5 +1,5 @@
 import type { FilePart, Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
-import { createEffect, createMemo, createSignal, For, Match, on, Show, Switch, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
 import { openLightbox } from "./lightbox"
@@ -8,6 +8,7 @@ import { agentLabel, t } from "../state/i18n"
 import { selectSession } from "../state/selection"
 import { IconArrowUpRight, IconBranch, IconCheck, IconCopy } from "./icons"
 import { codeTokens, Markdown, ProgressiveCodeView, type SyntaxToken } from "./markdown"
+import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../state/code"
 import { TextShimmer } from "./text-shimmer"
 import { openToolContextMenu } from "./tool-context-menu"
 
@@ -310,12 +311,17 @@ export function nextToolOpen(current: boolean, hadError: boolean, hasError: bool
   return hasError && !hadError ? errorsExpanded : current
 }
 
+export function initialToolOpen(tool: string, status: ToolPart["state"]["status"], errorsExpanded: boolean) {
+  if (status === "error") return errorsExpanded
+  return tool === "bash"
+}
+
 function diffStats(diff: string) {
   let add = 0
   let del = 0
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) add++
-    if (line.startsWith("-") && !line.startsWith("---")) del++
+  for (const row of parseDiff(diff)) {
+    if (row.kind === "add") add++
+    if (row.kind === "del") del++
   }
   return { add, del }
 }
@@ -341,7 +347,7 @@ export function ToolView(props: { part: ToolPart }) {
     return typeof value === "string" && value.trim() ? value : null
   }
   const error = () => (state().status === "error" ? (state() as { error: string }).error : null)
-  const [open, setOpen] = createSignal(props.part.tool === "bash")
+  const [open, setOpen] = createSignal(initialToolOpen(props.part.tool, state().status, toolErrorsExpanded()))
   createEffect(on(error, (value, previous) => setOpen(nextToolOpen(open(), !!previous, !!value, toolErrorsExpanded()))))
   const expanded = () => open()
   const stats = () => {
@@ -478,7 +484,11 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
           )}
         </Match>
         <Match when={props.part.tool === "bash"}>
-          <ShellOutput command={shellCommand()} output={shellOutput()} />
+          <ShellOutput
+            command={shellCommand()}
+            output={shellOutput()}
+            running={state().status === "pending" || state().status === "running"}
+          />
         </Match>
         <Match when={written()}>
           {(file) => (
@@ -504,34 +514,163 @@ export function shellTranscript(command: string, output: string) {
   return `$ ${command}${normalized.trim() ? `\n\n${normalized}` : ""}`
 }
 
-function ShellLine(props: { line: string; last: boolean }) {
-  const command = () => (props.line.startsWith("$ ") ? props.line.slice(2) : null)
-  return (
-    <>
-      <Show when={command() !== null} fallback={<span class="text-ink-muted">{props.line}</span>}>
-        <span class="text-accent select-none">$ </span>
-        <span class="font-medium text-ink">{command()}</span>
-      </Show>
-      {props.last ? "" : "\n"}
-    </>
-  )
+export function createShellTranscriptStream() {
+  let command = ""
+  let outputLength = 0
+  let previousOutput = ""
+  let initialized = false
+  let visible = false
+  let finished = false
+  let escape: "none" | "start" | "csi" = "none"
+  let carriageReturn = false
+  let pending: string[] = []
+
+  const consume = (value: string, flush: boolean) => {
+    let normalized = ""
+    for (const character of value) {
+      if (escape === "start") {
+        escape = character === "[" ? "csi" : "none"
+        continue
+      }
+      if (escape === "csi") {
+        const code = character.charCodeAt(0)
+        if (code >= 0x40 && code <= 0x7e) escape = "none"
+        continue
+      }
+      if (character === "\u001b") {
+        escape = "start"
+        continue
+      }
+      if (carriageReturn) {
+        normalized += "\n"
+        carriageReturn = false
+        if (character === "\n") continue
+      }
+      if (character === "\r") carriageReturn = true
+      else normalized += character
+    }
+    if (flush && carriageReturn) {
+      normalized += "\n"
+      carriageReturn = false
+    }
+    return normalized
+  }
+
+  const reset = (nextCommand: string, output: string, done: boolean) => {
+    command = nextCommand
+    outputLength = output.length
+    previousOutput = output
+    initialized = true
+    finished = done
+    visible = false
+    escape = "none"
+    carriageReturn = false
+    pending = []
+    const normalized = consume(output, done)
+    visible = !!normalized.trim()
+    return { replace: true, text: `$ ${command}${visible ? `\n\n${normalized}` : ""}` }
+  }
+
+  return {
+    update(nextCommand: string, output: string, done: boolean) {
+      if (!initialized || command !== nextCommand || output.length < outputLength || finished || done) {
+        return reset(nextCommand, output, done)
+      }
+      if (output.length === outputLength) {
+        if (output === previousOutput) return { replace: false, text: "" }
+        return reset(nextCommand, output, done)
+      }
+      if (output.startsWith("...\n\n") && !previousOutput.startsWith("...\n\n")) return reset(nextCommand, output, done)
+      const overlap = previousOutput.slice(-64)
+      if (output.slice(outputLength - overlap.length, outputLength) !== overlap) return reset(nextCommand, output, done)
+      const normalized = consume(output.slice(outputLength), false)
+      outputLength = output.length
+      previousOutput = output
+      if (visible) return { replace: false, text: normalized }
+      pending.push(normalized)
+      const combined = pending.join("")
+      if (!combined.trim()) return { replace: false, text: "" }
+      visible = true
+      pending = []
+      return { replace: true, text: `$ ${command}\n\n${combined}` }
+    },
+  }
 }
 
-function ShellOutput(props: { command: string; output: string }) {
+export function createFrameCoalescer<T>(
+  schedule: (callback: () => void) => number,
+  cancel: (handle: number) => void,
+  apply: (value: T) => void,
+) {
+  let frame: number | undefined
+  let latest: T
+  return {
+    push(value: T, defer: boolean) {
+      latest = value
+      if (!defer) {
+        if (frame !== undefined) cancel(frame)
+        frame = undefined
+        apply(latest)
+        return
+      }
+      if (frame !== undefined) return
+      frame = schedule(() => {
+        frame = undefined
+        apply(latest)
+      })
+    },
+    dispose() {
+      if (frame !== undefined) cancel(frame)
+      frame = undefined
+    },
+  }
+}
+
+function ShellOutput(props: { command: string; output: string; running: boolean }) {
   const [copied, setCopied] = createSignal(false)
+  const [renderRevision, setRenderRevision] = createSignal(0)
   let viewport!: HTMLPreElement
+  let mounted = false
   let savedTop = 0
   let following = true
-  const transcript = () => shellTranscript(props.command, props.output)
-  const lines = () => transcript().split("\n")
+  const stream = createShellTranscriptStream()
+  const normalizer = createFrameCoalescer(
+    requestAnimationFrame,
+    cancelAnimationFrame,
+    ({ command, output, running }: { command: string; output: string; running: boolean }) => {
+      const update = stream.update(command, output, !running)
+      if (!mounted) return
+      if (update.replace) viewport.textContent = update.text
+      else if (update.text) {
+        const node = viewport.firstChild
+        if (node?.nodeType === Node.TEXT_NODE) (node as Text).appendData(update.text)
+        else viewport.append(update.text)
+      }
+      if (update.replace || update.text) setRenderRevision((value) => value + 1)
+    },
+  )
+  onMount(() => {
+    mounted = true
+    normalizer.push({ command: props.command, output: props.output, running: props.running }, false)
+  })
+  createEffect(
+    on(
+      () => [props.command, props.output, props.running] as const,
+      ([command, output, running]) => {
+        normalizer.push({ command, output, running }, running)
+      },
+      { defer: true },
+    ),
+  )
+  onCleanup(() => normalizer.dispose())
   const copy = async () => {
-    await navigator.clipboard.writeText(transcript())
+    await navigator.clipboard.writeText(shellTranscript(props.command, props.output))
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
   createEffect(
     on(
-      () => props.output,
+      renderRevision,
       () => {
         const top = savedTop
         const follow = following
@@ -554,7 +693,7 @@ function ShellOutput(props: { command: string; output: string }) {
       </button>
       <pre
         ref={viewport}
-        class="shell-output max-h-60 overflow-x-hidden overflow-y-auto p-3 pr-10 font-mono text-[13px] leading-[1.5] whitespace-pre-wrap text-ink"
+        class="shell-output code-display max-h-60 overflow-x-hidden overflow-y-auto p-3 pr-10 font-mono leading-[1.5] text-ink"
         role="region"
         aria-label={t("drift.shell.output")}
         tabIndex={0}
@@ -563,9 +702,6 @@ function ShellOutput(props: { command: string; output: string }) {
           following = shellAtBottom(savedTop, event.currentTarget.clientHeight, event.currentTarget.scrollHeight)
         }}
       >
-        <code class="break-words">
-          <For each={lines()}>{(line, index) => <ShellLine line={line} last={index() === lines().length - 1} />}</For>
-        </code>
       </pre>
     </div>
   )
@@ -609,67 +745,119 @@ function GenericBody(props: { part: ToolPart }) {
 
 type DiffRow = { kind: "add" | "del" | "ctx" | "gap"; line?: number; text: string }
 
-function parseDiff(diff: string): DiffRow[] {
+export function parseDiff(diff: string): DiffRow[] {
   const rows: DiffRow[] = []
   let oldLine = 0
   let newLine = 0
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("---") || line.startsWith("+++") || line.startsWith("\\") || line.startsWith("Index:")) continue
-    if (line.startsWith("===")) continue
-    const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+  let oldRemaining = 0
+  let newRemaining = 0
+  let inHunk = false
+  const lines = diff.split("\n")
+  if (lines.at(-1) === "") lines.pop()
+  for (const line of lines) {
+    const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/)
     if (hunk) {
       oldLine = Number(hunk[1])
-      newLine = Number(hunk[2])
+      oldRemaining = hunk[2] === undefined ? 1 : Number(hunk[2])
+      newLine = Number(hunk[3])
+      newRemaining = hunk[4] === undefined ? 1 : Number(hunk[4])
+      inHunk = true
       if (rows.length) rows.push({ kind: "gap", text: "" })
       continue
     }
-    if (line.startsWith("+")) rows.push({ kind: "add", line: newLine++, text: line.slice(1) })
-    else if (line.startsWith("-")) rows.push({ kind: "del", line: oldLine++, text: line.slice(1) })
-    else {
+    if (!inHunk) continue
+    if (line.startsWith("\\")) continue
+    if (line.startsWith("+")) {
+      rows.push({ kind: "add", line: newLine++, text: line.slice(1) })
+      newRemaining--
+    } else if (line.startsWith("-")) {
+      rows.push({ kind: "del", line: oldLine++, text: line.slice(1) })
+      oldRemaining--
+    } else if (line.startsWith(" ")) {
       rows.push({ kind: "ctx", line: newLine, text: line.slice(1) })
       oldLine++
       newLine++
+      oldRemaining--
+      newRemaining--
     }
+    if (oldRemaining <= 0 && newRemaining <= 0) inHunk = false
   }
   return rows
 }
 
 function DiffPanel(props: { diff: string; lang: string; bare?: boolean }) {
   const rows = createMemo(() => parseDiff(props.diff))
+  const source = createMemo(() => ({
+    code: rows().map((row) => row.text).join("\n"),
+    lang: props.lang,
+    theme: syntaxTheme(),
+  }))
   const [tokens, setTokens] = createSignal<SyntaxToken[][]>([])
+  let highlighted: ReturnType<typeof source> | undefined
   let request = 0
   createEffect(() => {
+    const next = source()
     const current = ++request
-    const code = rows().map((row) => row.text).join("\n")
-    void codeTokens(code, props.lang).then((result) => current === request && setTokens(result))
+    highlighted = undefined
+    setTokens([])
+    void codeTokens(next.code, next.lang).then((result) => {
+      if (current !== request) return
+      highlighted = next
+      setTokens(result)
+    })
   })
+  const visibleTokens = () => (highlighted === source() ? tokens() : [])
   return (
-    <div class="overflow-hidden" classList={{ "rounded-lg border border-edge": !props.bare }}>
-      <div class="max-h-80 overflow-auto py-1 font-mono text-xs leading-relaxed">
-        <For each={rows()}>
-          {(row, index) => (
-            <Show when={row.kind !== "gap"} fallback={<div class="my-1 border-t border-dashed border-edge" />}>
-              <div
-                class="flex"
-                classList={{ "bg-ok/10": row.kind === "add", "bg-danger/10": row.kind === "del" }}
-              >
-                <span class="w-10 shrink-0 pr-2 text-right text-ink-faint select-none">{row.line}</span>
-                <span class="min-w-0 flex-1 pr-3 whitespace-pre-wrap text-ink-muted">
-                  <Show
-                    when={tokens()[index()]?.length ? tokens()[index()] : undefined}
-                    fallback={
-                      <span classList={{ "text-ok": row.kind === "add", "text-danger": row.kind === "del" }}>
-                        {row.text}
-                      </span>
-                    }
-                  >
-                    {(line) => <For each={line()}>{(token) => <SyntaxTokenView token={token} />}</For>}
+    <div class="diff-view overflow-hidden" classList={{ "rounded-lg border border-edge": !props.bare }}>
+      <div class="max-h-80 overflow-auto py-1 font-mono leading-relaxed">
+        <div classList={{ "w-full": diffWordWrap(), "w-max min-w-full": !diffWordWrap() }}>
+          <For each={rows()}>
+            {(row, index) => (
+              <Show when={row.kind !== "gap"} fallback={<div class="my-1 border-t border-dashed border-edge" />}>
+                <div
+                  class="flex border-l-2"
+                  classList={{
+                    "bg-ok/10": diffIndicator() === "background" && row.kind === "add",
+                    "bg-danger/10": diffIndicator() === "background" && row.kind === "del",
+                    "border-l-ok": diffIndicator() === "bars" && row.kind === "add",
+                    "border-l-danger": diffIndicator() === "bars" && row.kind === "del",
+                    "border-l-transparent": diffIndicator() !== "bars" || row.kind === "ctx",
+                  }}
+                >
+                  <Show when={diffLineNumbers()}>
+                    <span class="w-10 shrink-0 pr-2 text-right text-ink-faint select-none">{row.line}</span>
                   </Show>
-                </span>
-              </div>
-            </Show>
-          )}
-        </For>
+                  <Show when={diffIndicator() === "symbols"}>
+                    <span
+                      class="w-4 shrink-0 text-center text-ink-faint select-none"
+                      classList={{ "text-ok": row.kind === "add", "text-danger": row.kind === "del" }}
+                    >
+                      {row.kind === "add" ? "+" : row.kind === "del" ? "-" : " "}
+                    </span>
+                  </Show>
+                  <span
+                    class="min-w-0 flex-1 pr-3 text-ink-muted"
+                    classList={{
+                      "whitespace-pre-wrap [overflow-wrap:anywhere]": diffWordWrap(),
+                      "whitespace-pre": !diffWordWrap(),
+                    }}
+                  >
+                    <Show
+                      when={visibleTokens()[index()]?.length ? visibleTokens()[index()] : undefined}
+                      fallback={
+                        <span classList={{ "text-ok": row.kind === "add", "text-danger": row.kind === "del" }}>
+                          {row.text}
+                        </span>
+                      }
+                    >
+                      {(line) => <For each={line()}>{(token) => <SyntaxTokenView token={token} />}</For>}
+                    </Show>
+                  </span>
+                </div>
+              </Show>
+            )}
+          </For>
+        </div>
       </div>
     </div>
   )

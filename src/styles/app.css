@@ -24,6 +24,8 @@
   color-scheme: dark;
   --ui-font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --code-font: "Cascadia Code", Consolas, ui-monospace, monospace;
+  --code-size: 13px;
+  --code-tab-size: 4;
   --bg: #141517;
   --surface: #1a1c1f;
   --raised: #212429;
@@ -350,6 +352,10 @@ textarea {
   line-height: inherit;
 }
 
+[data-component="text-shimmer"][data-compact="true"] {
+  --text-shimmer-sweep: linear-gradient(90deg, transparent calc(50% - 2.2ch), var(--ink) 50%, transparent calc(50% + 2.2ch));
+}
+
 [data-component="text-shimmer"] [data-slot="text-shimmer-char"] {
   display: inline-grid;
   white-space: pre;
@@ -369,6 +375,10 @@ textarea {
   background-size: 360% 100%, 100% 100%;
   background-repeat: no-repeat;
   background-clip: text;
+}
+
+[data-component="text-shimmer"][data-compact="true"] [data-slot="text-shimmer-sweep"] {
+  background-size: 500% 100%, 100% 100%;
 }
 
 [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-base"] {
@@ -471,6 +481,8 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   border-radius: 8px;
   padding: 0.75rem 0.9rem;
   overflow-x: auto;
+  white-space: pre;
+  tab-size: var(--code-tab-size);
 }
 
 .md .code-block {
@@ -520,7 +532,7 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   background: none;
   border: none;
   padding: 0;
-  font-size: 0.8125rem;
+  font-size: var(--code-size);
 }
 
 .md :where(pre.shiki) {
@@ -531,11 +543,61 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   background: var(--raised) !important;
   padding: 0.5rem 0.75rem;
   font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-size: var(--code-size);
   line-height: 1.625;
+  white-space: pre;
+  tab-size: var(--code-tab-size);
+  color: var(--ink-muted);
+}
+
+:root[data-code-wrap="wrap"] .md :where(pre),
+:root[data-code-wrap="wrap"] .code-view :where(pre),
+:root[data-code-wrap="wrap"] .code-display :where(pre),
+:root[data-code-wrap="wrap"] pre.code-display {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--ink-muted);
+}
+
+.diff-view,
+.code-display {
+  font-size: var(--code-size);
+  tab-size: var(--code-tab-size);
+}
+
+.code-display :where(pre),
+pre.code-display {
+  white-space: pre;
+}
+
+.shell-output.code-display {
+  white-space: pre-wrap;
+}
+
+:root[data-syntax-theme="dracula"] {
+  --syntax-bg: #282a36;
+  --syntax-fg: #f8f8f2;
+  --syntax-muted: #b7b7b2;
+}
+
+:root[data-syntax-theme="nord"] {
+  --syntax-bg: #2e3440;
+  --syntax-fg: #d8dee9;
+  --syntax-muted: #9aa5b8;
+}
+
+:root[data-syntax-theme="dracula"] :where(.md pre.shiki, .code-view pre.shiki, .diff-view, .syntax-display),
+:root[data-syntax-theme="nord"] :where(.md pre.shiki, .code-view pre.shiki, .diff-view, .syntax-display) {
+  background: var(--syntax-bg) !important;
+}
+
+:root[data-syntax-theme="dracula"] :where(.syntax-display.text-ink-muted, .diff-view .text-ink-muted),
+:root[data-syntax-theme="nord"] :where(.syntax-display.text-ink-muted, .diff-view .text-ink-muted) {
+  color: var(--syntax-fg) !important;
+}
+
+:root[data-syntax-theme="dracula"] .diff-view .text-ink-faint,
+:root[data-syntax-theme="nord"] .diff-view .text-ink-faint {
+  color: var(--syntax-muted) !important;
 }
 
 .code-stream-chunk:not(:first-child) :where(pre) {

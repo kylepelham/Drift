@@ -72,6 +72,58 @@ test("progressive code chunks retain the complete file", async () => {
   expect(codeChunks(code).join("\n")).toBe(code)
 })
 
+test("diff parsing does not invent a context row for the trailing newline", async () => {
+  const { parseDiff } = await import("../src/ui/parts")
+  expect(parseDiff("@@ -4,1 +4,1 @@\n-old\n+new\n")).toEqual([
+    { kind: "del", line: 4, text: "old" },
+    { kind: "add", line: 4, text: "new" },
+  ])
+})
+
+test("diff parsing distinguishes file headers from source lines and separates hunks", async () => {
+  const { parseDiff } = await import("../src/ui/parts")
+  const diff = [
+    "diff --git a/file b/file",
+    "--- a/file",
+    "+++ b/file",
+    "@@ -1,2 +1,2 @@",
+    "---flag",
+    "+++flag",
+    " keep",
+    "--- a/other",
+    "+++ b/other",
+    "@@ -10 +10 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\n")
+  expect(parseDiff(diff)).toEqual([
+    { kind: "del", line: 1, text: "--flag" },
+    { kind: "add", line: 1, text: "++flag" },
+    { kind: "ctx", line: 2, text: "keep" },
+    { kind: "gap", text: "" },
+    { kind: "del", line: 10, text: "old" },
+    { kind: "add", line: 10, text: "new" },
+  ])
+})
+
+test("Shiki promise caches evict by approximate size and retry failures", async () => {
+  const { AsyncSizeCache } = await import("../src/ui/markdown")
+  const cache = new AsyncSizeCache<string>(10, (value) => value.length)
+  await cache.set("first", 3, Promise.resolve("1234"))
+  await cache.set("second", 3, Promise.resolve("5678"))
+  expect(cache.size).toBeLessThanOrEqual(10)
+  expect(cache.count).toBe(1)
+  expect(cache.get("first")).toBeUndefined()
+  expect(await cache.get("second")).toBe("5678")
+
+  const failure = cache.set("failure", 1, Promise.reject(new Error("highlight failed")))
+  await failure.catch(() => undefined)
+  expect(cache.get("failure")).toBeUndefined()
+  cache.set("oversized", 11, Promise.resolve("x"))
+  expect(cache.get("oversized")).toBeUndefined()
+})
+
 test("taskBody extracts prompt and task_result for task cards", async () => {
   const { taskBody } = await import("../src/ui/parts")
   const part = (tool: string, input: Record<string, string>, output: string) =>
@@ -183,6 +235,42 @@ test("provider credentials dispose cached instances and refresh connection state
   }
 })
 
+test("embedded engine connections use the shell password with the opencode user", async () => {
+  const previous = (globalThis as { __TAURI__?: unknown }).__TAURI__
+  ;(globalThis as { __TAURI__?: unknown }).__TAURI__ = {
+    core: { invoke: async () => ({ url: "http://127.0.0.1:4321", error: null, password: "sidecar-secret" }) },
+  }
+  try {
+    const { resolveEngine } = await import("../src/engine/connection")
+    expect(await resolveEngine()).toEqual({
+      url: "http://127.0.0.1:4321",
+      headers: { Authorization: `Basic ${btoa("opencode:sidecar-secret")}` },
+    })
+  } finally {
+    ;(globalThis as { __TAURI__?: unknown }).__TAURI__ = previous
+  }
+})
+
+test("MCP engine actions propagate transport and SDK failures", async () => {
+  const { createActions } = await import("../src/engine/actions")
+  const [state, set] = createEngineState()
+  const client = {
+    mcp: {
+      status: async (): Promise<unknown> => ({ error: { message: "status rejected" } }),
+      connect: async () => ({ error: { message: "connect rejected" } }),
+      disconnect: async () => ({ data: false }),
+      auth: { authenticate: async () => ({ error: { data: { message: "auth rejected" } } }) },
+    },
+  }
+  const actions = createActions(() => client as never, state, set, () => ({ url: "http://engine.test" }))
+  await expect(actions.mcpStatus()).rejects.toThrow("status rejected")
+  await expect(actions.mcpConnect("docs")).rejects.toThrow("connect rejected")
+  await expect(actions.mcpDisconnect("docs")).rejects.toThrow("Could not disconnect docs")
+  await expect(actions.mcpAuthenticate("docs")).rejects.toThrow("auth rejected")
+  client.mcp.status = async () => { throw new Error("network down") }
+  await expect(actions.mcpStatus()).rejects.toThrow("network down")
+})
+
 test("upward transcript gestures unstick immediately near the bottom", async () => {
   const { accumulatedWheelTarget, normalizedWheelDelta, scrollGestureSticks } = await import("../src/ui/chat")
   expect(scrollGestureSticks(1000, 980, 20)).toBeFalse()
@@ -194,6 +282,20 @@ test("upward transcript gestures unstick immediately near the bottom", async () 
   expect(accumulatedWheelTarget(100, null, 40, 500)).toBe(140)
   expect(accumulatedWheelTarget(105, 140, 40, 500)).toBe(180)
   expect(accumulatedWheelTarget(490, null, 40, 500)).toBe(500)
+})
+
+test("transcript follow revision tracks lengths and status without embedding large output", async () => {
+  const { transcriptRevision } = await import("../src/ui/chat")
+  const part = (output: string, status = "running") => ({
+    parts: [{ type: "tool", state: { status, metadata: { output } } }],
+  })
+  const first = transcriptRevision(part("a".repeat(1_550_000)))
+  const sameLength = transcriptRevision(part("b".repeat(1_550_000)))
+  const completed = transcriptRevision(part("b".repeat(1_550_000), "completed"))
+  expect(first).toBe(sameLength)
+  expect(first).not.toContain("aaaa")
+  expect(first.length).toBeLessThan(64)
+  expect(completed).not.toBe(first)
 })
 
 test("tall row measurement only compensates rows actually above the viewport", async () => {

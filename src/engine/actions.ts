@@ -2,6 +2,7 @@ import type { OpencodeClient, Permission, Session } from "@opencode-ai/sdk/clien
 import { createOpencodeClient as createControlClient } from "@opencode-ai/sdk/v2/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { sleep, type EngineTarget } from "./connection"
+import { pushNotice } from "./events"
 import type { MessageEntry } from "./store"
 import {
   normalizeDir,
@@ -11,6 +12,7 @@ import {
   spawnLink,
   type EngineState,
   type ModelRef,
+  type Notice,
   type ProviderInfo,
   type QuestionRequest,
 } from "./store"
@@ -242,13 +244,24 @@ export function createActions(
     return createControlClient({ baseUrl: endpoint.url, headers: endpoint.headers, directory: state.directory })
   }
 
+  let reloadQueue = Promise.resolve(true)
+
+  function reloadInstances() {
+    const reload = async () => {
+      const control = controlClient()
+      if (!control) return false
+      const result = await control.global.dispose().catch(() => null)
+      if (result?.data !== true) return false
+      await sleep(50)
+      return true
+    }
+    reloadQueue = reloadQueue.then(reload, reload)
+    return reloadQueue
+  }
+
   async function syncProvider(id: string, changed: boolean): Promise<ProviderAuthResult> {
     if (!changed) return { ok: false, connected: state.connected.includes(id) }
-    const control = controlClient()
-    if (!control) return { ok: false, connected: state.connected.includes(id) }
-    const disposed = await control.global.dispose().catch(() => null)
-    if (disposed?.data !== true) return { ok: false, connected: state.connected.includes(id) }
-    await sleep(50)
+    if (!(await reloadInstances())) return { ok: false, connected: state.connected.includes(id) }
     const connected = await refreshProviders()
     return { ok: connected !== null, connected: connected?.includes(id) ?? false }
   }
@@ -284,21 +297,29 @@ export function createActions(
     return syncProvider(id, result?.data === true)
   }
 
-  async function mcpStatus() {
-    const result = await requireClient().mcp.status().catch(() => null)
-    return result?.data ?? {}
+  async function mcpStatus(directory = state.directory) {
+    const result = await mcpClient(directory).mcp.status()
+    return requireSdkData(result, "Could not load MCP status")
   }
 
-  async function mcpConnect(name: string) {
-    await requireClient().mcp.connect({ path: { name } }).catch(() => {})
+  function mcpClient(directory: string) {
+    if (normalizeDir(state.directory) !== normalizeDir(directory)) throw new Error("The active MCP workspace changed")
+    return requireClient()
   }
 
-  async function mcpDisconnect(name: string) {
-    await requireClient().mcp.disconnect({ path: { name } }).catch(() => {})
+  async function mcpConnect(name: string, directory = state.directory) {
+    const result = await mcpClient(directory).mcp.connect({ path: { name } })
+    if (requireSdkData(result, `Could not connect ${name}`) !== true) throw new Error(`Could not connect ${name}`)
   }
 
-  async function mcpAuthenticate(name: string) {
-    await requireClient().mcp.auth.authenticate({ path: { name } }).catch(() => {})
+  async function mcpDisconnect(name: string, directory = state.directory) {
+    const result = await mcpClient(directory).mcp.disconnect({ path: { name } })
+    if (requireSdkData(result, `Could not disconnect ${name}`) !== true) throw new Error(`Could not disconnect ${name}`)
+  }
+
+  async function mcpAuthenticate(name: string, directory = state.directory) {
+    const result = await mcpClient(directory).mcp.auth.authenticate({ path: { name } })
+    requireSdkData(result, `Could not authenticate ${name}`)
   }
 
   async function findFiles(query: string) {
@@ -455,6 +476,14 @@ export function createActions(
     return true
   }
 
+  function notice(input: Omit<Notice, "created" | "duration"> & { created?: number; duration?: number }) {
+    pushNotice(set, {
+      duration: 8000,
+      ...input,
+      created: input.created ?? Date.now(),
+    })
+  }
+
   return {
     openSession,
     loadOlder,
@@ -476,10 +505,12 @@ export function createActions(
     providerCallback,
     setProviderKey,
     disconnectProvider,
+    reloadInstances,
     mcpStatus,
     mcpConnect,
     mcpDisconnect,
     mcpAuthenticate,
+    notice,
     runCommand,
     rename,
     remove,
@@ -492,6 +523,29 @@ export function createActions(
 }
 
 export type EngineActions = ReturnType<typeof createActions>
+
+export function requireSdkData<T>(result: { data?: T; error?: unknown }, fallback: string): T {
+  if (result.error !== undefined) throw new Error(sdkErrorMessage(result.error, fallback))
+  if (result.data === undefined) throw new Error(fallback)
+  return result.data
+}
+
+function sdkErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === "string" && error.trim()) return error
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>
+    for (const key of ["message", "error", "data"]) {
+      const value = record[key]
+      if (typeof value === "string" && value.trim()) return value
+      if (value && typeof value === "object") {
+        const nested = sdkErrorMessage(value, "")
+        if (nested) return nested
+      }
+    }
+  }
+  return fallback
+}
 
 export function sessionTree(sessions: Session[], rootId: string) {
   const ids = new Set([rootId])

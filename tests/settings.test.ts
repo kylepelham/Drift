@@ -65,6 +65,42 @@ test("appearance exposes static presets plus custom theming", async () => {
   setTheme("drift-dark")
 })
 
+test("code display defaults preserve source and diff structure", async () => {
+  const {
+    codeFontSize,
+    codeTabWidth,
+    codeWordWrap,
+    diffIndicator,
+    diffLineNumbers,
+    diffWordWrap,
+    syntaxThemePreset,
+    syntaxThemePresets,
+  } = await import("../src/state/code")
+  expect(syntaxThemePresets).toEqual(["automatic", "github", "vitesse", "one", "dracula", "nord"])
+  expect(syntaxThemePreset()).toBe("automatic")
+  expect(codeFontSize()).toBe(13)
+  expect(codeTabWidth()).toBe(4)
+  expect(codeWordWrap()).toBeFalse()
+  expect(diffWordWrap()).toBeFalse()
+  expect(diffLineNumbers()).toBeTrue()
+  expect(diffIndicator()).toBe("symbols")
+  const { codeSettingOptions } = await import("../src/ui/settings")
+  expect(codeSettingOptions()).toEqual({
+    themes: ["automatic", "github", "vitesse", "one", "dracula", "nord"],
+    fontSizes: [11, 12, 13, 14, 15, 16],
+    tabWidths: [2, 4, 8],
+    indicators: ["symbols", "bars", "background"],
+  })
+  const { codePreferenceBinding } = await import("../src/state/code")
+  expect(codePreferenceBinding(13, 4, false, "automatic")).toEqual({
+    size: "13px",
+    tabSize: "4",
+    wrap: "scroll",
+    theme: "automatic",
+  })
+  expect(codePreferenceBinding(16, 8, true, "dracula").wrap).toBe("wrap")
+})
+
 test("notification migration and global auto-accept stay explicit", async () => {
   const { autoAcceptAllowed, notificationDefaults, soundDefaults } = await import("../src/state/prefs")
   expect(notificationDefaults(true)).toEqual({ agent: true, permission: true, error: true })
