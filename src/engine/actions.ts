@@ -1,4 +1,4 @@
-import type { OpencodeClient, Permission, Session } from "@opencode-ai/sdk/client"
+import { createOpencodeClient, type OpencodeClient, type Permission, type Session } from "@opencode-ai/sdk/client"
 import { createOpencodeClient as createControlClient } from "@opencode-ai/sdk/v2/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { sleep, type EngineTarget } from "./connection"
@@ -126,10 +126,76 @@ export function createActions(
     return result.data
   }
 
-  async function fork(id: string): Promise<Session | undefined> {
-    const result = await requireClient().session.fork({ path: { id }, body: {} })
-    if (result.data) set("sessions", result.data.id, result.data)
-    return result.data
+  async function fork(id: string, mode: "active" | "full" = "active", messageID?: string): Promise<Session | undefined> {
+    const base = target()
+    if (!base) return
+    return forkAt(id, mode, messageID, base, state.directory)
+  }
+
+  async function forkAt(
+    id: string,
+    mode: "active" | "full",
+    messageID: string | undefined,
+    base: EngineTarget,
+    directory: string,
+  ) {
+    const response = await fetch(`${base.url}/session/${id}/fork?directory=${encodeURIComponent(directory)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...base.headers },
+      body: JSON.stringify({ mode, ...(messageID ? { messageID } : {}) }),
+    }).catch(() => null)
+    if (!response?.ok) {
+      notice({ message: "The session could not be forked.", variant: "error" })
+      return
+    }
+    const session = (await response.json().catch(() => undefined)) as Session | undefined
+    if (session && normalizeDir(state.directory) === normalizeDir(directory)) putSession(set, session)
+    return session
+  }
+
+  async function spawn(id: string, task: string, options: PromptOptions): Promise<Session | undefined> {
+    const base = target()
+    if (!base) return
+    const directory = state.directory
+    const client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
+    const session = await forkAt(id, "active", undefined, base, directory)
+    if (!session) return
+    const title = task.trim().split(/\s+/).slice(0, 6).join(" ").slice(0, 64) || "Spawned thread"
+    const renamed = await client.session.update({ path: { id: session.id }, body: { title } }).catch(() => null)
+    if (!renamed || renamed.error) {
+      await client.session.delete({ path: { id: session.id } }).catch(() => null)
+      forgetSession(session.id)
+      notice({ message: "The spawned thread could not be named.", variant: "error" })
+      return
+    }
+    const body = {
+      parts: [
+        {
+          type: "text" as const,
+          text: [
+            "This thread was spawned from another Drift conversation. Use the carried active context above.",
+            "Start by forming a concise plan for the task, then carry it out.",
+            `Task: ${task.trim()}`,
+          ].join("\n\n"),
+        },
+      ],
+      model: options.model ?? undefined,
+      agent: options.agent,
+      ...(options.variant ? { variant: options.variant } : {}),
+    }
+    const prompted = await client.session.promptAsync({ path: { id: session.id }, body }).catch(() => null)
+    if (!prompted || prompted.error) {
+      await client.session.delete({ path: { id: session.id } }).catch(() => null)
+      forgetSession(session.id)
+      notice({ message: "The spawned thread could not be started.", variant: "error" })
+      return
+    }
+    const spawned = { ...session, title }
+    if (normalizeDir(state.directory) === normalizeDir(directory)) putSession(set, spawned)
+    const link = { child: session.id, parent: id }
+    recordLink(link)
+    set("links", link.child, link.parent)
+    return spawned
   }
 
   async function sessionsAt(directory: string): Promise<Session[] | null> {
@@ -238,6 +304,13 @@ export function createActions(
     return result.data.connected ?? []
   }
 
+  async function refreshAgents() {
+    const result = await requireClient().app.agents().catch(() => null)
+    if (!result?.data) return false
+    set("agents", result.data)
+    return true
+  }
+
   function controlClient() {
     const endpoint = target()
     if (!endpoint) return null
@@ -337,6 +410,10 @@ export function createActions(
 
   async function remove(id: string) {
     await requireClient().session.delete({ path: { id } })
+    forgetSession(id)
+  }
+
+  function forgetSession(id: string) {
     set(
       produce((s) => {
         delete s.sessions[id]
@@ -476,8 +553,11 @@ export function createActions(
     return true
   }
 
-  function notice(input: Omit<Notice, "created" | "duration"> & { created?: number; duration?: number }) {
+  function notice(
+    input: Omit<Notice, "id" | "created" | "duration"> & { id?: string; created?: number; duration?: number },
+  ) {
     pushNotice(set, {
+      id: input.id ?? crypto.randomUUID(),
       duration: 8000,
       ...input,
       created: input.created ?? Date.now(),
@@ -491,6 +571,7 @@ export function createActions(
     removeAllSessions,
     newSession,
     fork,
+    spawn,
     moveSession,
     moveWorkspaceSessions,
     send,
@@ -500,6 +581,7 @@ export function createActions(
     unshare,
     findFiles,
     refreshProviders,
+    refreshAgents,
     providerAuthMethods,
     providerAuthorize,
     providerCallback,

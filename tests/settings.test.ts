@@ -37,10 +37,38 @@ test("selected language dictionaries translate settings without loading every lo
   await loadDictionary("es")
   expect(t("settings.tab.general")).toBe("General")
   expect(t("settings.general.row.language.title")).toBe("Idioma")
+  expect(t("common.reset")).toBe("Restablecer")
   expect(reasoningLevelLabel("xhigh")).toBe("Muy alto")
   expect(reasoningLevelLabel("custom")).toBe("Custom")
   await loadDictionary("en")
   expect(t("settings.general.row.language.title")).toBe("Language")
+  expect(t("common.reset")).toBe("Reset")
+})
+
+test("prompt and agent editors are separate Server settings with inherited-value styling", async () => {
+  const source = await Bun.file("src/ui/settings.tsx").text()
+  expect(source).toContain('items: ["Providers", "MCP", "Prompts", "Agents"]')
+  expect(source).toContain('<PromptEditorSection view="prompts" />')
+  expect(source).toContain('<PromptEditorSection view="agents" />')
+  expect(source).toContain('"text-ink-faint": !familyModified()')
+  expect(source).toContain('"text-ink-faint": !agentPromptModified()')
+  expect(source).toContain('"text-ink-faint": !agentBehaviorModified()')
+  expect(source).toContain("disabled={props.disabled || !props.dirty}")
+})
+
+test("agent overrides retain only values changed from upstream", async () => {
+  const { agentOverrideValue } = await import("../src/state/prompts")
+  const inherited = { prompt: "Upstream", mode: "primary", tools: { bash: true, read: true } }
+  expect(agentOverrideValue({ ...inherited, tools: { read: true, bash: true } }, inherited)).toEqual({})
+  expect(agentOverrideValue({ ...inherited, mode: "subagent" }, inherited)).toEqual({ mode: "subagent" })
+  expect(agentOverrideValue({ ...inherited, prompt: "Custom" }, inherited)).toEqual({ prompt: "Custom" })
+  expect(
+    agentOverrideValue(
+      { prompt: "Custom", mode: "subagent" },
+      { prompt: "Custom", mode: "primary" },
+      { prompt: "Custom" },
+    ),
+  ).toEqual({ prompt: "Custom", mode: "subagent" })
 })
 
 test("Drift owns complete app-specific translations for every locale", async () => {

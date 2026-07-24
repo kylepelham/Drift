@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto"
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { promptCatalog } from "./build-extensions"
 
 const root = path.resolve(import.meta.dirname, "..")
 const binary = path.join(root, "src-tauri", "binaries", "drift-engine.exe")
@@ -22,6 +23,8 @@ const pendingDirectory = path.join(runtime, "pending")
 const sentinelPath = path.join(runtime, "mcp-fail-closed.json")
 const baseConfig = await Bun.file(path.join(extensions, "opencode.json")).json()
 await Bun.write(path.join(runtime, "mcp-approvals.json"), JSON.stringify({ version: 3, generation: 0, decisions: [] }))
+await Bun.write(path.join(runtime, "prompt-catalog.json"), JSON.stringify(promptCatalog()))
+await Bun.write(path.join(runtime, "prompt-overrides.json"), JSON.stringify({ version: 1, families: {} }))
 await Bun.write(
   path.join(runtime, "opencode.json"),
   JSON.stringify({
@@ -29,6 +32,7 @@ await Bun.write(
     plugin: [
       ...baseConfig.plugin,
       path.join(extensions, "plugin", "spawn-thread.ts"),
+      [path.join(extensions, "plugin", "prompt-overrides.ts"), { catalogPath: path.join(runtime, "prompt-catalog.json"), settingsPath: path.join(runtime, "prompt-overrides.json") }],
       [path.join(extensions, "plugin", "mcp-approval.ts"), { policyPath: path.join(runtime, "mcp-approvals.json"), pendingDirectory, sentinelPath, generation: 0 }],
     ],
   }),

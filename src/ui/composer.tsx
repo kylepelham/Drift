@@ -39,7 +39,7 @@ import { openLightbox } from "./lightbox"
 import { Picker, type PickerItem } from "./picker"
 import { defaultVisibleModelIds, ModelManager } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
-import { parseSlash, runSlash, slashItems, type SlashItem } from "./slash"
+import { parseSlash, runSlash, slashItem, slashItems, slashPresets, type SlashItem, type SlashPreset } from "./slash"
 
 const maxFileBytes = 10 * 1024 * 1024
 
@@ -151,6 +151,15 @@ export function Composer() {
     const parsed = slash()
     return parsed ? slashItems(engine, parsed.query) : []
   })
+  const argumentItem = createMemo(() => {
+    const parsed = slash()
+    return parsed?.separated ? slashItem(engine, parsed.query) : undefined
+  })
+  const argumentPresets = createMemo(() => {
+    const parsed = slash()
+    const item = argumentItem()
+    return parsed && item ? slashPresets(item, parsed.args) : []
+  })
 
   const [mentionQuery, setMentionQuery] = createSignal<string | null>(null)
   const [fileHits, setFileHits] = createSignal<string[]>([])
@@ -224,9 +233,30 @@ export function Composer() {
 
   async function pickSlash(item: SlashItem) {
     const args = slash()?.args ?? ""
+    if ((item.requiredArgs || item.presets?.length) && !args) {
+      setDraft(`/${item.name} `)
+      setCursor(0)
+      queueMicrotask(() => area.focus())
+      return
+    }
     setDraft("")
     resize()
     await runSlash(engine, item, args)
+  }
+
+  async function pickSlashPreset(item: SlashItem, preset: SlashPreset) {
+    if (!preset.execute) {
+      setDraft(`/${item.name} ${preset.value}`)
+      setCursor(0)
+      queueMicrotask(() => {
+        resize()
+        area.focus()
+      })
+      return
+    }
+    setDraft("")
+    resize()
+    await runSlash(engine, item, preset.value.trim())
   }
 
   const busy = () => {
@@ -384,11 +414,19 @@ export function Composer() {
   }
 
   function handleSlashKey(event: KeyboardEvent) {
-    if (event.key === "ArrowDown") setCursor(Math.min(cursor() + 1, matches().length - 1))
+    if (event.key === "Enter" && event.shiftKey) return false
+    const item = argumentItem()
+    const presets = argumentPresets()
+    const count = item ? Math.max(1, presets.length) : matches().length
+    if (event.key === "ArrowDown") setCursor(Math.min(cursor() + 1, count - 1))
     else if (event.key === "ArrowUp") setCursor(Math.max(cursor() - 1, 0))
     else if (event.key === "Escape") setDismissed(true)
-    else if (event.key === "Enter" && !event.shiftKey) void pickSlash(matches()[Math.min(cursor(), matches().length - 1)])
-    else if (event.key === "Tab") void pickSlash(matches()[Math.min(cursor(), matches().length - 1)])
+    else if (item && (event.key === "Enter" || event.key === "Tab") && presets.length)
+      void pickSlashPreset(item, presets[Math.min(cursor(), presets.length - 1)])
+    else if (item && (event.key === "Enter" || event.key === "Tab") && slash()?.args) void pickSlash(item)
+    else if (item && (event.key === "Enter" || event.key === "Tab") && !item.requiredArgs) void pickSlash(item)
+    else if (!item && (event.key === "Enter" || event.key === "Tab"))
+      void pickSlash(matches()[Math.min(cursor(), matches().length - 1)])
     else return false
     event.preventDefault()
     return true
@@ -542,21 +580,48 @@ export function Composer() {
         </Show>
         <Show when={matches().length > 0}>
           <div class="pop-in absolute bottom-full left-3 z-20 mb-2 w-80 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
-            <For each={matches()}>
-              {(item, index) => (
-                <button
-                  class="flex w-full items-baseline gap-2.5 px-3 py-1.5 text-left text-sm transition-colors"
-                  classList={{
-                    "bg-raised": index() === Math.min(cursor(), matches().length - 1),
-                  }}
-                  onMouseEnter={() => setCursor(index())}
-                  onClick={() => void pickSlash(item)}
+            <Show
+              when={argumentItem()}
+              fallback={
+                <For each={matches()}>
+                  {(item, index) => (
+                    <button
+                      class="flex w-full items-baseline gap-2.5 px-3 py-1.5 text-left text-sm transition-colors"
+                      classList={{ "bg-raised": index() === Math.min(cursor(), matches().length - 1) }}
+                      onMouseEnter={() => setCursor(index())}
+                      onClick={() => void pickSlash(item)}
+                    >
+                      <span class="shrink-0 font-mono text-xs text-accent">/{item.name}</span>
+                      <span class="min-w-0 truncate text-xs text-ink-faint">{item.description}</span>
+                      <Show when={item.usage}>
+                        <span class="ml-auto shrink-0 font-mono text-[0.65rem] text-ink-faint">{item.usage}</span>
+                      </Show>
+                    </button>
+                  )}
+                </For>
+              }
+            >
+              {(item) => (
+                <Show
+                  when={argumentPresets().length > 0}
+                  fallback={<div class="px-3 py-2 text-xs text-ink-faint">{item().usage}</div>}
                 >
-                  <span class="shrink-0 font-mono text-xs text-accent">/{item.name}</span>
-                  <span class="min-w-0 truncate text-xs text-ink-faint">{item.description}</span>
-                </button>
+                  <For each={argumentPresets()}>
+                    {(preset, index) => (
+                      <button
+                        class="flex w-full items-start gap-2.5 px-3 py-1.5 text-left transition-colors"
+                        classList={{ "bg-raised": index() === Math.min(cursor(), argumentPresets().length - 1) }}
+                        onMouseEnter={() => setCursor(index())}
+                        onClick={() => void pickSlashPreset(item(), preset)}
+                      >
+                        <span class="shrink-0 font-mono text-xs text-accent">{preset.label}</span>
+                        <span class="min-w-0 text-xs text-ink-faint">{preset.description}</span>
+                      </button>
+                    )}
+                  </For>
+                </Show>
               )}
-            </For>
+            </Show>
           </div>
         </Show>
         <Show when={staged().length > 0 || fileError()}>

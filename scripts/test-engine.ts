@@ -16,7 +16,7 @@ function engineEnvironment(extra: Record<string, string> = {}) {
 }
 
 async function run(directory: string, args: string[], env?: Record<string, string>) {
-  const child = Bun.spawn(["bun", "test", "--timeout", "20000", ...args], {
+  const child = Bun.spawn([process.execPath, "test", "--timeout", "20000", ...args], {
     cwd: path.join(engineUpstream, directory),
     env: engineEnvironment(env),
     stdin: "inherit",
@@ -35,7 +35,7 @@ async function verifyAuthCapture() {
     'if (!ServerAuth.required(config)) throw new Error("Drift auth password was not captured")',
     'if (process.env.OPENCODE_SERVER_PASSWORD !== undefined) throw new Error("Drift auth password remained in process.env")',
   ].join(";")
-  const child = Bun.spawn(["bun", "-e", script], {
+  const child = Bun.spawn([process.execPath, "-e", script], {
     cwd: path.join(engineUpstream, "packages", "opencode"),
     env: engineEnvironment({ DRIFT_MCP_APPROVAL_REQUIRED: "1", OPENCODE_SERVER_PASSWORD: "secret" }),
     stdout: "inherit",
@@ -55,6 +55,12 @@ await withEngineOverlays(async () => {
   await run("packages/opencode", ["test/mcp/lifecycle.test.ts", "-t", "required Drift mode"], {
     DRIFT_MCP_APPROVAL_REQUIRED: "1",
   })
+  await run("packages/opencode", ["test/session/messages-pagination.test.ts", "-t", "active fork"])
+  await run("packages/opencode", [
+    "test/mcp/lifecycle.test.ts",
+    "-t",
+    "reconnects after transport closure|ordinary MCP request failures",
+  ])
   await run("packages/opencode", [
     "test/session/compaction.test.ts",
     "-t",

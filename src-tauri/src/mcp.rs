@@ -1,4 +1,4 @@
-use crate::store::{McpServer, McpState, Store};
+use crate::store::{McpServer, McpState, PromptOverride, Store};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -26,6 +26,13 @@ pub struct McpSnapshot {
     directory: String,
     servers: Vec<McpServer>,
     observed: Vec<ObservedServer>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptSnapshot {
+    catalog: Value,
+    overrides: Vec<PromptOverride>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -70,10 +77,20 @@ impl McpRuntime {
     }
 
     pub fn materialize(&self, store: &Store) -> Result<(), String> {
+        self.materialize_inner(store, true)
+    }
+
+    fn materialize_prompts(&self, store: &Store) -> Result<(), String> {
+        self.materialize_inner(store, false)
+    }
+
+    fn materialize_inner(&self, store: &Store, reset_approvals: bool) -> Result<(), String> {
         std::fs::create_dir_all(self.root.join("pending")).map_err(|error| error.to_string())?;
         let state = store.mcp_state().map_err(|error| error.to_string())?;
-        self.write_policy(state.generation, &[])?;
-        self.clear_reports()?;
+        if reset_approvals {
+            self.write_policy(state.generation, &[])?;
+            self.clear_reports()?;
+        }
 
         let mut config = self.base_config()?;
         let root = config
@@ -84,6 +101,13 @@ impl McpRuntime {
             .as_array_mut()
             .ok_or("Drift extension plugin config must be an array")?;
         plugins.push(Value::String(self.plugin_path("spawn-thread")?));
+        plugins.push(json!([
+            self.plugin_path("prompt-overrides")?,
+            {
+                "catalogPath": self.extensions.join("prompt-catalog.json").to_string_lossy(),
+                "settingsPath": self.root.join("prompt-overrides.json").to_string_lossy()
+            }
+        ]));
         plugins.push(json!([
             self.plugin_path("mcp-approval")?,
             {
@@ -103,12 +127,117 @@ impl McpRuntime {
                     .collect(),
             ),
         );
-        write_json(&self.root.join("opencode.json"), &config)?;
-        self.write_policy(state.generation, &state.decisions)?;
-        store
-            .mark_mcp_materialized(state.generation)
+        let overrides = store
+            .prompt_overrides()
             .map_err(|error| error.to_string())?;
-        self.clear_sentinel()
+        let families = overrides
+            .iter()
+            .filter_map(|item| {
+                item.key
+                    .strip_prefix("family:")
+                    .map(|key| (key.to_string(), item.value.clone()))
+            })
+            .collect::<Map<String, Value>>();
+        write_json(
+            &self.root.join("prompt-overrides.json"),
+            &json!({ "version": 1, "families": families }),
+        )?;
+        let agents = root.entry("agent").or_insert_with(|| json!({}));
+        let agents = agents
+            .as_object_mut()
+            .ok_or("Drift extension agent config must be an object")?;
+        for item in &overrides {
+            if let Some(name) = item.key.strip_prefix("agent:") {
+                agents.insert(name.to_string(), item.value.clone());
+            }
+        }
+        write_json(&self.root.join("opencode.json"), &config)?;
+        if reset_approvals {
+            self.write_policy(state.generation, &state.decisions)?;
+            store
+                .mark_mcp_materialized(state.generation)
+                .map_err(|error| error.to_string())?;
+            self.clear_sentinel()?;
+        }
+        Ok(())
+    }
+
+    pub fn prompt_snapshot(&self, store: &Store) -> Result<PromptSnapshot, String> {
+        let catalog = std::fs::read(self.extensions.join("prompt-catalog.json"))
+            .map_err(|error| error.to_string())?;
+        Ok(PromptSnapshot {
+            catalog: serde_json::from_slice(&catalog).map_err(|error| error.to_string())?,
+            overrides: store
+                .prompt_overrides()
+                .map_err(|error| error.to_string())?,
+        })
+    }
+
+    pub fn save_prompt(
+        &self,
+        store: &Store,
+        key: &str,
+        value: Value,
+        original: Option<Value>,
+    ) -> Result<(), String> {
+        let _guard = self
+            .mutation
+            .lock()
+            .map_err(|_| "Prompt mutation lock is poisoned")?;
+        validate_prompt_override(key, &value)?;
+        if let Some(original) = original.as_ref() {
+            validate_prompt_override(key, original)?;
+        }
+        let overrides = store
+            .prompt_overrides()
+            .map_err(|error| error.to_string())?;
+        let previous = overrides.iter().find(|item| item.key == key).cloned();
+        if previous.is_none() && overrides.len() >= 128 {
+            return Err("Drift supports at most 128 prompt overrides".into());
+        }
+        store
+            .save_prompt_override(key, &value, original.as_ref())
+            .map_err(|error| error.to_string())?;
+        if let Err(error) = self.materialize_prompts(store) {
+            self.restore_prompt(store, key, previous.as_ref())?;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub fn reset_prompt(&self, store: &Store, key: &str) -> Result<(), String> {
+        let _guard = self
+            .mutation
+            .lock()
+            .map_err(|_| "Prompt mutation lock is poisoned")?;
+        validate_prompt_key(key)?;
+        let previous = store
+            .prompt_overrides()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .find(|item| item.key == key);
+        store
+            .reset_prompt_override(key)
+            .map_err(|error| error.to_string())?;
+        if let Err(error) = self.materialize_prompts(store) {
+            self.restore_prompt(store, key, previous.as_ref())?;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    fn restore_prompt(
+        &self,
+        store: &Store,
+        key: &str,
+        previous: Option<&PromptOverride>,
+    ) -> Result<(), String> {
+        match previous {
+            Some(item) => store.save_prompt_override(key, &item.value, item.original.as_ref()),
+            None => store.reset_prompt_override(key),
+        }
+        .map_err(|error| error.to_string())?;
+        self.materialize_prompts(store)
     }
 
     pub fn snapshot(&self, store: &Store, directory: &str) -> Result<McpSnapshot, String> {
@@ -498,6 +627,153 @@ fn validate_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_prompt_key(key: &str) -> Result<(), String> {
+    if let Some(family) = key.strip_prefix("family:") {
+        if [
+            "meta",
+            "beast",
+            "codex",
+            "gpt",
+            "gemini",
+            "anthropic",
+            "trinity",
+            "kimi",
+            "default",
+        ]
+        .contains(&family)
+        {
+            return Ok(());
+        }
+        return Err("Unknown model prompt family".into());
+    }
+    if let Some(agent) = key.strip_prefix("agent:") {
+        if !agent.is_empty()
+            && agent.len() <= 128
+            && !agent.chars().any(char::is_control)
+            && !["__proto__", "constructor", "prototype"].contains(&agent)
+        {
+            return Ok(());
+        }
+    }
+    Err("Prompt override key is invalid".into())
+}
+
+fn validate_prompt_override(key: &str, value: &Value) -> Result<(), String> {
+    validate_prompt_key(key)?;
+    let size = serde_json::to_vec(value)
+        .map_err(|error| error.to_string())?
+        .len();
+    if size > 262_144 {
+        return Err("Prompt override exceeds 256 KiB".into());
+    }
+    reject_unsafe_keys(value)?;
+    if key.starts_with("family:") && !value.is_string() {
+        return Err("Model-family prompts must be text".into());
+    }
+    if key.starts_with("agent:") && !value.is_object() {
+        return Err("Agent overrides must be JSON objects".into());
+    }
+    if let Some(agent) = value.as_object().filter(|_| key.starts_with("agent:")) {
+        validate_agent_override(agent)?;
+    }
+    Ok(())
+}
+
+fn validate_agent_override(agent: &Map<String, Value>) -> Result<(), String> {
+    if agent.contains_key("name") {
+        return Err("Agent names are controlled by the configuration key".into());
+    }
+    for field in ["prompt", "description", "model", "variant", "color"] {
+        if agent.get(field).is_some_and(|value| !value.is_string()) {
+            return Err(format!("Agent {field} must be text"));
+        }
+    }
+    for field in ["hidden", "disable"] {
+        if agent.get(field).is_some_and(|value| !value.is_boolean()) {
+            return Err(format!("Agent {field} must be true or false"));
+        }
+    }
+    if agent
+        .get("mode")
+        .is_some_and(|value| !matches!(value.as_str(), Some("primary" | "subagent" | "all")))
+    {
+        return Err("Agent mode must be primary, subagent, or all".into());
+    }
+    for field in ["temperature", "top_p"] {
+        if agent.get(field).is_some_and(|value| !value.is_number()) {
+            return Err(format!("Agent {field} must be a number"));
+        }
+    }
+    for field in ["steps", "maxSteps"] {
+        if agent
+            .get(field)
+            .is_some_and(|value| !matches!(value.as_u64(), Some(steps) if steps > 0))
+        {
+            return Err(format!("Agent {field} must be a positive integer"));
+        }
+    }
+    if agent.get("options").is_some_and(|value| !value.is_object()) {
+        return Err("Agent options must be a JSON object".into());
+    }
+    if let Some(tools) = agent.get("tools") {
+        let Some(tools) = tools.as_object() else {
+            return Err("Agent tools must be a JSON object".into());
+        };
+        if tools.values().any(|value| !value.is_boolean()) {
+            return Err("Agent tool values must be true or false".into());
+        }
+    }
+    if let Some(color) = agent.get("color").and_then(Value::as_str) {
+        let named = [
+            "primary",
+            "secondary",
+            "accent",
+            "success",
+            "warning",
+            "error",
+            "info",
+        ];
+        let hex = color.len() == 7
+            && color.starts_with('#')
+            && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
+        if !hex && !named.contains(&color) {
+            return Err("Agent color must be a six-digit hex or theme color".into());
+        }
+    }
+    if let Some(permission) = agent.get("permission") {
+        validate_permission(permission)?;
+    }
+    Ok(())
+}
+
+fn validate_permission(value: &Value) -> Result<(), String> {
+    if value.as_str().is_some_and(permission_action) {
+        return Ok(());
+    }
+    let Some(rules) = value.as_object() else {
+        return Err("Agent permission must be ask, allow, deny, or a JSON object".into());
+    };
+    for rule in rules.values() {
+        if rule.as_str().is_some_and(permission_action) {
+            continue;
+        }
+        let Some(patterns) = rule.as_object() else {
+            return Err("Agent permission rules must contain ask, allow, or deny".into());
+        };
+        if patterns
+            .values()
+            .any(|action| !action.as_str().is_some_and(permission_action))
+        {
+            return Err("Agent permission rules must contain ask, allow, or deny".into());
+        }
+    }
+    Ok(())
+}
+
+fn permission_action(value: &str) -> bool {
+    matches!(value, "ask" | "allow" | "deny")
+}
+
 fn validate_config(config: &Value) -> Result<(), String> {
     if serde_json::to_vec(config)
         .map_err(|error| error.to_string())?
@@ -733,6 +1009,12 @@ mod tests {
         std::fs::write(extensions.join("opencode.json"), r#"{"plugin":["auth@1"]}"#).unwrap();
         std::fs::write(extensions.join("plugin/spawn-thread.ts"), "export {}\n").unwrap();
         std::fs::write(extensions.join("plugin/mcp-approval.ts"), "export {}\n").unwrap();
+        std::fs::write(extensions.join("plugin/prompt-overrides.ts"), "export {}\n").unwrap();
+        std::fs::write(
+            extensions.join("prompt-catalog.json"),
+            r#"{"version":1,"families":[],"agents":[]}"#,
+        )
+        .unwrap();
         let store = crate::store::open(&root.join("data")).unwrap();
         let runtime = McpRuntime::new(&root.join("data"), extensions);
         (root, store, runtime)
@@ -935,6 +1217,64 @@ mod tests {
         std::fs::remove_dir(&config_path).unwrap();
         runtime.materialize(&store).unwrap();
         assert!(!runtime.config_dir().join(SENTINEL_FILE).exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn prompt_changes_preserve_pending_approval_reports() {
+        let (root, store, runtime) = fixture();
+        runtime.materialize(&store).unwrap();
+        let directory = "S:/repo";
+        let report = report_path(&runtime.root.join("pending"), directory);
+        write_json(
+            &report,
+            &json!({ "version": 3, "generation": 0, "directory": directory, "servers": [] }),
+        )
+        .unwrap();
+
+        runtime
+            .save_prompt(
+                &store,
+                "family:gpt",
+                json!("Custom prompt"),
+                Some(json!("Original prompt")),
+            )
+            .unwrap();
+        assert!(report.is_file());
+        let generated: Value = serde_json::from_str(
+            &std::fs::read_to_string(runtime.config_dir().join("prompt-overrides.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(generated["families"]["gpt"], "Custom prompt");
+
+        runtime.reset_prompt(&store, "family:gpt").unwrap();
+        assert!(report.is_file());
+        assert!(store.prompt_overrides().unwrap().is_empty());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn prompt_validation_matches_agent_configuration_shapes() {
+        let (root, store, runtime) = fixture();
+        runtime
+            .save_prompt(
+                &store,
+                "agent:build",
+                json!({ "permission": "deny", "color": "#a1B2c3", "tools": { "bash": false } }),
+                None,
+            )
+            .unwrap();
+        assert!(runtime
+            .save_prompt(
+                &store,
+                "agent:build",
+                json!({ "permission": { "bash": "sometimes" } }),
+                None,
+            )
+            .is_err());
+        assert!(runtime
+            .save_prompt(&store, "agent:build", json!({ "color": "purple" }), None)
+            .is_err());
         std::fs::remove_dir_all(root).ok();
     }
 

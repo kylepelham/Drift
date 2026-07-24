@@ -6,6 +6,7 @@ src-tauri/binaries/
 src-tauri/generated/drift-extensions/plugin/
 src-tauri/generated/drift-extensions/opencode.json
 src-tauri/generated/drift-extensions/package.json
+src-tauri/generated/drift-extensions/prompt-catalog.json
 examples/
 *.local
 .engine.log

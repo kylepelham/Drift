@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, types::Type, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
@@ -50,6 +50,16 @@ pub struct McpState {
     pub decisions: Vec<McpDecision>,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptOverride {
+    pub key: String,
+    pub value: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original: Option<Value>,
+    pub updated_at: i64,
+}
+
 pub fn open(dir: &Path) -> rusqlite::Result<Store> {
     std::fs::create_dir_all(dir).ok();
     open_at(&dir.join("drift.db"))
@@ -91,7 +101,13 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
             generation INTEGER NOT NULL,
             materialized_generation INTEGER NOT NULL
         ) STRICT;
-        INSERT OR IGNORE INTO mcp_state(id, generation, materialized_generation) VALUES(1, 0, -1);",
+        INSERT OR IGNORE INTO mcp_state(id, generation, materialized_generation) VALUES(1, 0, -1);
+        CREATE TABLE IF NOT EXISTS prompt_override(
+            key TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL,
+            original_json TEXT,
+            updated_at INTEGER NOT NULL
+        ) STRICT;",
     )?;
     let _ = conn.execute("ALTER TABLE workspace ADD COLUMN removed_at INTEGER", []);
     Ok(Store(Mutex::new(conn)))
@@ -105,6 +121,66 @@ fn now() -> i64 {
 }
 
 impl Store {
+    pub fn prompt_overrides(&self) -> rusqlite::Result<Vec<PromptOverride>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT key, value_json, original_json, updated_at FROM prompt_override ORDER BY key",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let value: String = row.get(1)?;
+            let original: Option<String> = row.get(2)?;
+            Ok(PromptOverride {
+                key: row.get(0)?,
+                value: serde_json::from_str(&value).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(error))
+                })?,
+                original: original
+                    .map(|item| {
+                        serde_json::from_str(&item).map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                2,
+                                Type::Text,
+                                Box::new(error),
+                            )
+                        })
+                    })
+                    .transpose()?,
+                updated_at: row.get(3)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn save_prompt_override(
+        &self,
+        key: &str,
+        value: &Value,
+        original: Option<&Value>,
+    ) -> rusqlite::Result<()> {
+        let conn = self.0.lock().unwrap();
+        conn.prepare_cached(
+            "INSERT INTO prompt_override(key, value_json, original_json, updated_at) VALUES(?1, ?2, ?3, ?4)
+             ON CONFLICT(key) DO UPDATE SET value_json = ?2,
+               original_json = COALESCE(prompt_override.original_json, ?3), updated_at = ?4",
+        )?
+        .execute(params![
+            key,
+            serde_json::to_string(value).unwrap_or_else(|_| "null".into()),
+            original.map(|item| serde_json::to_string(item).unwrap_or_else(|_| "null".into())),
+            now()
+        ])?;
+        Ok(())
+    }
+
+    pub fn reset_prompt_override(&self, key: &str) -> rusqlite::Result<()> {
+        self.0
+            .lock()
+            .unwrap()
+            .prepare_cached("DELETE FROM prompt_override WHERE key = ?1")?
+            .execute([key])?;
+        Ok(())
+    }
+
     pub fn import_opencode_workspaces(&self, database: &Path) -> rusqlite::Result<usize> {
         if !database.is_file() {
             return Ok(0);
@@ -559,6 +635,17 @@ mod tests {
                 .id
                 == "w3"
         );
+        let value = serde_json::json!({ "prompt": "Drift prompt" });
+        let original = serde_json::json!({ "prompt": "Original prompt" });
+        store
+            .save_prompt_override("agent:build", &value, Some(&original))
+            .unwrap();
+        let prompts = store.prompt_overrides().unwrap();
+        assert_eq!(prompts.len(), 1);
+        assert_eq!(prompts[0].value, value);
+        assert_eq!(prompts[0].original, Some(original));
+        store.reset_prompt_override("agent:build").unwrap();
+        assert!(store.prompt_overrides().unwrap().is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 

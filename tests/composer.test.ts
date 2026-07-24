@@ -19,6 +19,28 @@ test("composer drafts are isolated by session and new-workspace scope", async ()
   clearComposerDraft(fresh)
 })
 
+test("slash parsing preserves command argument mode", async () => {
+  const { parseSlash, slashPresets } = await import("../src/ui/slash")
+  expect(parseSlash("/fork")).toEqual({ query: "fork", args: "", separated: false })
+  expect(parseSlash("/fork all")).toEqual({ query: "fork", args: "all", separated: true })
+  expect(parseSlash("/spawn Investigate auth failures")).toEqual({
+    query: "spawn",
+    args: "Investigate auth failures",
+    separated: true,
+  })
+  expect(parseSlash("//fork")).toBeNull()
+  expect(
+    slashPresets(
+      {
+        name: "fork",
+        description: "fork",
+        presets: [{ value: "all", label: "all", description: "all", execute: true }],
+      },
+      "a",
+    ).map((item) => item.value),
+  ).toEqual(["all"])
+})
+
 test("composer history is normalized, deduplicated, and bounded", async () => {
   const { maxComposerHistory, normalizeComposerHistory, prependComposerHistory } = await import("../src/state/composer")
   const draft = { text: "  carry on  ", staged: [], mentions: ["src/app.tsx", "src/app.tsx"] }

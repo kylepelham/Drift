@@ -84,6 +84,23 @@ After a successful write or the `mcp-config-changed` event, initialize/reload th
 engine instance and fetch a new snapshot. Browser-only development deliberately throws for
 all MCP registry operations because it cannot enforce the native policy boundary.
 
+## Runtime recovery
+
+An approved, enabled MCP connection that emits `client.onclose` is re-established with
+exponential backoff from 500 ms to a 30 second cap. Retries continue until the transport
+recovers, authentication becomes necessary, the user disconnects it, or the engine instance
+is disposed. Explicit disconnect increments the connection generation before closing the
+client, so that close event cannot revive a deliberately disabled server.
+
+Ordinary MCP tool, prompt, and resource errors do not enter this recovery path. They remain
+request failures while the client stays connected. OpenCode's existing one-shot expired HTTP
+session recovery also remains active beneath this transport-close recovery.
+
+While MCP management is visible, Drift refreshes runtime statuses every two seconds without
+invalidating the exact-definition snapshot. The standalone `/mcp` dialog initially focuses
+the Servers tab. Up/Down and Home/End move through servers, Left disconnects, Right connects
+or authenticates, and Enter runs the selected server's primary runtime action.
+
 ## Validation
 
 Drift preserves unknown fields while validating the complete current local and remote

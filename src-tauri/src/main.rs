@@ -388,6 +388,34 @@ fn mcp_snapshot(
 }
 
 #[tauri::command]
+fn prompt_snapshot(
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+) -> Result<mcp::PromptSnapshot, String> {
+    runtime.prompt_snapshot(&store)
+}
+
+#[tauri::command]
+fn prompt_save(
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    key: String,
+    value: Value,
+    original: Option<Value>,
+) -> Result<(), String> {
+    runtime.save_prompt(&store, &key, value, original)
+}
+
+#[tauri::command]
+fn prompt_reset(
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    key: String,
+) -> Result<(), String> {
+    runtime.reset_prompt(&store, &key)
+}
+
+#[tauri::command]
 fn mcp_save(
     app: tauri::AppHandle,
     runtime: State<mcp::McpRuntime>,
@@ -495,11 +523,19 @@ fn engine_extensions() -> Option<std::path::PathBuf> {
     if bundled.exists() {
         return Some(bundled);
     }
-    let dev = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()?
-        .join("engine")
-        .join("opencode");
-    dev.exists().then_some(dev)
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let generated = root.join("generated").join("drift-extensions");
+    if generated.join("opencode.json").is_file()
+        && generated.join("prompt-catalog.json").is_file()
+        && generated
+            .join("plugin")
+            .join("prompt-overrides.js")
+            .is_file()
+    {
+        return Some(generated);
+    }
+    let source = root.parent()?.join("engine").join("opencode");
+    source.exists().then_some(source)
 }
 
 fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_dir: PathBuf) {
@@ -869,6 +905,9 @@ fn main() {
             store_unarchive_session,
             store_purge_archived,
             mcp_snapshot,
+            prompt_snapshot,
+            prompt_save,
+            prompt_reset,
             mcp_save,
             mcp_remove,
             mcp_approve,

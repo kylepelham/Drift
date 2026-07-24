@@ -1,4 +1,4 @@
-import type { ProviderAuthMethod } from "@opencode-ai/sdk/client"
+import type { Agent, ProviderAuthMethod } from "@opencode-ai/sdk/client"
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useEngine } from "../engine"
@@ -50,6 +50,14 @@ import {
   type AttentionKind,
 } from "../state/prefs"
 import { shellInvoke } from "../state/store"
+import {
+  agentOverrideValue,
+  loadPromptSnapshot,
+  resetPromptOverride,
+  savePromptOverride,
+  type PromptOverride,
+  type PromptSnapshot,
+} from "../state/prompts"
 import { requestNotificationPermission } from "./notifications"
 import {
   codeFont,
@@ -100,7 +108,7 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Shortcuts", "Providers", "MCP", "About"] as const
+const sections = ["General", "Appearance", "Code", "Notifications", "Shortcuts", "Providers", "MCP", "Prompts", "Agents", "About"] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
@@ -110,11 +118,13 @@ const sectionLabels: Record<Section, string> = {
   Shortcuts: "settings.tab.shortcuts",
   Providers: "settings.providers.title",
   MCP: "dialog.mcp.title",
+  Prompts: "drift.settings.prompts",
+  Agents: "settings.agents.title",
   About: "drift.settings.about",
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
   { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Shortcuts"] },
-  { label: "settings.section.server", items: ["Providers", "MCP"] },
+  { label: "settings.section.server", items: ["Providers", "MCP", "Prompts", "Agents"] },
   { label: "drift.settings.section", items: ["About"] },
 ]
 
@@ -227,6 +237,12 @@ function SettingsModal(props: { onClose: () => void }) {
               </Match>
               <Match when={section() === "Shortcuts"}>
                 <KeybindsSection />
+              </Match>
+              <Match when={section() === "Prompts"}>
+                <PromptEditorSection view="prompts" />
+              </Match>
+              <Match when={section() === "Agents"}>
+                <PromptEditorSection view="agents" />
               </Match>
               <Match when={section() === "About"}>
                 <AboutSection />
@@ -808,6 +824,340 @@ function KeybindsSection() {
   )
 }
 
+function PromptEditorSection(props: { view: "prompts" | "agents" }) {
+  const engine = useEngine()
+  const [snapshot, setSnapshot] = createSignal<PromptSnapshot | null>(null)
+  const [familyID, setFamilyID] = createSignal("gpt")
+  const [familyPrompt, setFamilyPrompt] = createSignal("")
+  const [agentName, setAgentName] = createSignal("build")
+  const [agentPrompt, setAgentPrompt] = createSignal("")
+  const [agentBehavior, setAgentBehavior] = createSignal("{}")
+  const [familyBaseline, setFamilyBaseline] = createSignal("")
+  const [agentPromptBaseline, setAgentPromptBaseline] = createSignal("")
+  const [agentBehaviorBaseline, setAgentBehaviorBaseline] = createSignal("{}")
+  const [familyDirty, setFamilyDirty] = createSignal(false)
+  const [saved, setSaved] = createSignal(false)
+  const [error, setError] = createSignal("")
+  const [saving, setSaving] = createSignal(false)
+  const override = (key: string) => snapshot()?.overrides.find((item) => item.key === key)
+  const familyOverridden = () => !!override(`family:${familyID()}`)
+  const agentOverridden = () => !!override(`agent:${agentName()}`)
+  const agentDirty = () => agentPrompt() !== agentPromptBaseline() || agentBehavior() !== agentBehaviorBaseline()
+  const agentOverrideFields = () => {
+    const saved = override(`agent:${agentName()}`)?.value
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {}
+    return saved as Record<string, unknown>
+  }
+  const familyModified = () => familyDirty() || familyOverridden()
+  const agentPromptModified = () => agentPrompt() !== agentPromptBaseline() || "prompt" in agentOverrideFields()
+  const agentBehaviorModified = () =>
+    agentBehavior() !== agentBehaviorBaseline() || Object.keys(agentOverrideFields()).some((key) => key !== "prompt")
+
+  async function load() {
+    const next = await loadPromptSnapshot().catch((cause) => {
+      setError(cause instanceof Error ? cause.message : String(cause))
+      return null
+    })
+    setSnapshot(next)
+  }
+
+  onMount(() => void load())
+
+  createEffect(() => {
+    if (familyDirty()) return
+    const family = snapshot()?.catalog.families.find((item) => item.id === familyID())
+    const value = override(`family:${familyID()}`)?.value
+    const prompt = typeof value === "string" ? value : (family?.default ?? "")
+    setFamilyPrompt(prompt)
+    setFamilyBaseline(prompt)
+  })
+
+  createEffect(() => {
+    if (agentDirty()) return
+    const agent = engine.state.agents.find((item) => item.name === agentName())
+    const saved = override(`agent:${agentName()}`)
+    const config = agentConfig(agent, snapshot(), saved)
+    const prompt = typeof config.prompt === "string" ? config.prompt : ""
+    const { prompt: _prompt, ...behavior } = config
+    const serialized = JSON.stringify(behavior, null, 2)
+    setAgentPrompt(prompt)
+    setAgentPromptBaseline(prompt)
+    setAgentBehavior(serialized)
+    setAgentBehaviorBaseline(serialized)
+  })
+
+  async function mutate(action: () => Promise<void>, clean: () => void) {
+    setSaving(true)
+    setError("")
+    setSaved(false)
+    try {
+      await action()
+      clean()
+      await load()
+      setSaved(true)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function saveAgent() {
+    let behavior: unknown
+    try {
+      behavior = JSON.parse(agentBehavior())
+    } catch {
+      setError(t("drift.settings.prompts.invalidJson"))
+      return
+    }
+    if (!behavior || typeof behavior !== "object" || Array.isArray(behavior)) {
+      setError(t("drift.settings.prompts.invalidJson"))
+      return
+    }
+    const key = `agent:${agentName()}`
+    const agent = engine.state.agents.find((item) => item.name === agentName())
+    const saved = override(key)
+    const existing = saved?.value && typeof saved.value === "object" ? (saved.value as Record<string, unknown>) : {}
+    const baseline = JSON.parse(agentBehaviorBaseline()) as Record<string, unknown>
+    const value = agentOverrideValue(
+      { ...(behavior as object), prompt: agentPrompt() },
+      { ...baseline, prompt: agentPromptBaseline() },
+      existing,
+    )
+    const original = saved?.original ?? agentConfig(agent, snapshot())
+    const action = Object.keys(value).length
+      ? () => savePromptOverride(key, value, original)
+      : () => resetPromptOverride(key)
+    void mutate(action, () => {
+      setAgentPromptBaseline(agentPrompt())
+      setAgentBehaviorBaseline(agentBehavior())
+    })
+  }
+
+  function resetFamily() {
+    const key = `family:${familyID()}`
+    if (override(key)) return void mutate(() => resetPromptOverride(key), () => setFamilyDirty(false))
+    const family = snapshot()?.catalog.families.find((item) => item.id === familyID())
+    const prompt = family?.default ?? ""
+    setFamilyPrompt(prompt)
+    setFamilyBaseline(prompt)
+    setFamilyDirty(false)
+  }
+
+  function resetAgent() {
+    const key = `agent:${agentName()}`
+    if (override(key)) {
+      return void mutate(() => resetPromptOverride(key), () => {
+        setAgentPromptBaseline(agentPrompt())
+        setAgentBehaviorBaseline(agentBehavior())
+      })
+    }
+    const agent = engine.state.agents.find((item) => item.name === agentName())
+    const config = agentConfig(agent, snapshot())
+    const prompt = typeof config.prompt === "string" ? config.prompt : ""
+    const { prompt: _prompt, ...behavior } = config
+    const serialized = JSON.stringify(behavior, null, 2)
+    setAgentPrompt(prompt)
+    setAgentPromptBaseline(prompt)
+    setAgentBehavior(serialized)
+    setAgentBehaviorBaseline(serialized)
+  }
+
+  return (
+    <div class="space-y-6">
+      <Show when={snapshot()} fallback={<div class="px-2 text-sm text-ink-faint">{error() || t("common.loading")}</div>}>
+        {(data) => (
+          <>
+            <Show when={props.view === "prompts"}>
+              <SettingsGroup title={t("drift.settings.prompts.modelFamilies")}>
+              <div class="space-y-3 py-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-xs text-ink-faint">{t("drift.settings.prompts.familyDescription")}</div>
+                  <Picker
+                    label={t("drift.settings.prompts.modelFamilies")}
+                    items={data().catalog.families.map((family) => ({ id: family.id, label: familyLabel(family.id) }))}
+                    selected={familyID()}
+                    floating bordered chevronAtEnd placement="below" width="11rem"
+                    onPick={(value) => {
+                      if (familyDirty()) {
+                        setError(t("drift.settings.prompts.saveBeforeSwitch"))
+                        return
+                      }
+                      setFamilyDirty(false)
+                      setFamilyID(value)
+                    }}
+                  />
+                </div>
+                <textarea
+                  aria-label={t("drift.settings.prompts.systemPrompt")}
+                  class="h-64 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
+                  classList={{ "text-ink": familyModified(), "text-ink-faint": !familyModified() }}
+                  spellcheck={false}
+                  value={familyPrompt()}
+                  onInput={(event) => {
+                    const value = event.currentTarget.value
+                    setFamilyPrompt(value)
+                    setFamilyDirty(value !== familyBaseline())
+                  }}
+                />
+                <details class="text-xs text-ink-faint">
+                  <summary class="cursor-pointer select-none">{t("drift.settings.prompts.upstreamOriginal")}</summary>
+                  <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-bg/40 p-3 font-mono text-[0.68rem] leading-relaxed">
+                    {data().catalog.families.find((item) => item.id === familyID())?.original}
+                  </pre>
+                </details>
+                <PromptActions
+                  disabled={saving()}
+                  dirty={familyDirty()}
+                  overridden={familyOverridden()}
+                  onSave={() =>
+                    void mutate(() => savePromptOverride(`family:${familyID()}`, familyPrompt()), () =>
+                      setFamilyDirty(false),
+                    )
+                  }
+                  onReset={resetFamily}
+                />
+              </div>
+              </SettingsGroup>
+            </Show>
+
+            <Show when={props.view === "agents"}>
+              <SettingsGroup title={t("drift.settings.prompts.agents")}>
+              <div class="space-y-3 py-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-xs text-ink-faint">{t("drift.settings.prompts.agentDescription")}</div>
+                  <Picker
+                    label={t("drift.settings.prompts.agents")}
+                    items={engine.state.agents.map((agent) => ({ id: agent.name, label: agent.name, hint: agent.description }))}
+                    selected={agentName()}
+                    floating bordered chevronAtEnd placement="below" width="11rem"
+                    onPick={(value) => {
+                      if (agentDirty()) {
+                        setError(t("drift.settings.prompts.saveBeforeSwitch"))
+                        return
+                      }
+                      setAgentName(value)
+                    }}
+                  />
+                </div>
+                <label class="block text-xs text-ink-faint">
+                  <span class="mb-1 block">{t("drift.settings.prompts.agentPrompt")}</span>
+                  <textarea
+                    class="h-48 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
+                    classList={{ "text-ink": agentPromptModified(), "text-ink-faint": !agentPromptModified() }}
+                    spellcheck={false}
+                    placeholder={t("drift.settings.prompts.inheritsFamily")}
+                    value={agentPrompt()}
+                    onInput={(event) => {
+                      const value = event.currentTarget.value
+                      setAgentPrompt(value)
+                    }}
+                  />
+                </label>
+                <label class="block text-xs text-ink-faint">
+                  <span class="mb-1 block">{t("drift.settings.prompts.behavior")}</span>
+                  <textarea
+                    class="h-40 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
+                    classList={{ "text-ink": agentBehaviorModified(), "text-ink-faint": !agentBehaviorModified() }}
+                    spellcheck={false}
+                    value={agentBehavior()}
+                    onInput={(event) => {
+                      const value = event.currentTarget.value
+                      setAgentBehavior(value)
+                    }}
+                  />
+                </label>
+                <PromptActions
+                  disabled={saving()}
+                  dirty={agentDirty()}
+                  overridden={agentOverridden()}
+                  onSave={saveAgent}
+                  onReset={resetAgent}
+                />
+              </div>
+              </SettingsGroup>
+            </Show>
+          </>
+        )}
+      </Show>
+      <Show when={saved()}>
+        <div class="text-xs text-accent">{t("drift.settings.prompts.restart")}</div>
+      </Show>
+      <Show when={error()}>
+        <div class="text-xs text-danger">{error()}</div>
+      </Show>
+    </div>
+  )
+}
+
+function PromptActions(props: {
+  disabled: boolean
+  dirty: boolean
+  overridden: boolean
+  onSave: () => void
+  onReset: () => void
+}) {
+  return (
+    <div class="flex justify-end gap-2">
+      <button
+        class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
+        disabled={props.disabled || (!props.dirty && !props.overridden)}
+        onClick={props.onReset}
+      >
+        {t("common.reset")}
+      </button>
+      <button
+        class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+        disabled={props.disabled || !props.dirty}
+        onClick={props.onSave}
+      >
+        {t("common.save")}
+      </button>
+    </div>
+  )
+}
+
+function familyLabel(id: string) {
+  const labels: Record<string, string> = {
+    meta: "Meta Muse",
+    beast: "GPT-4 / o1 / o3",
+    codex: "GPT Codex",
+    gpt: "GPT",
+    gemini: "Gemini",
+    anthropic: "Claude",
+    trinity: "Trinity",
+    kimi: "Kimi",
+    default: "Default",
+  }
+  return labels[id] ?? id
+}
+
+function agentConfig(agent: Agent | undefined, snapshot: PromptSnapshot | null, saved?: PromptOverride) {
+  const restored = saved?.value && typeof saved.value === "object" ? (saved.value as Record<string, unknown>) : undefined
+  if (!agent) return restored ? { ...restored } : {}
+  const source = agent as Agent & {
+    prompt?: string
+    hidden?: boolean
+    model?: { providerID: string; modelID: string }
+    variant?: string
+    temperature?: number
+    topP?: number
+    steps?: number
+  }
+  return {
+    prompt: source.prompt ?? snapshot?.catalog.agents.find((item) => item.name === source.name)?.prompt,
+    description: source.description,
+    mode: source.mode,
+    hidden: source.hidden,
+    model: source.model ? `${source.model.providerID}/${source.model.modelID}` : undefined,
+    variant: source.variant,
+    temperature: source.temperature,
+    top_p: source.topP,
+    steps: source.steps,
+    ...restored,
+  }
+}
+
 function AboutSection() {
   const engine = useEngine()
   return (
@@ -1001,6 +1351,8 @@ function SectionIcon(props: { section: Section }) {
     if (props.section === "Shortcuts") return <IconKeyboard />
     if (props.section === "Providers") return <IconChip />
     if (props.section === "MCP") return <IconShieldCheck />
+    if (props.section === "Prompts") return <IconCode />
+    if (props.section === "Agents") return <IconSliders />
     return <IconInfo />
   }
   return <span class="flex size-5 shrink-0 items-center justify-center text-ink-faint">{icon()}</span>

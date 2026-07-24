@@ -512,6 +512,35 @@ describe("MCP frontend coordinator", () => {
     expect(directories).toEqual(["S:/current"])
   })
 
+  test("status-only refresh keeps the actionable snapshot while updating runtime state", async () => {
+    const { createMcpCoordinator } = await import("../src/state/mcp")
+    let snapshots = 0
+    let statuses = 0
+    const coordinator = createMcpCoordinator(
+      dependencies(
+        {
+          mcpSnapshot: async (directory: string) => {
+            snapshots++
+            return { generation: 6, directory, servers: [], observed: [] }
+          },
+        },
+        {
+          status: async () => {
+            statuses++
+            return { docs: { status: statuses === 1 ? "failed" : "connected", error: "closed" } }
+          },
+        },
+      ),
+    )
+    await coordinator.setActive("S:/repo", true)
+    await coordinator.refreshStatus()
+    expect(snapshots).toBe(1)
+    expect(statuses).toBe(2)
+    expect(coordinator.state.statuses.docs.status).toBe("connected")
+    expect(coordinator.state.ready).toBeTrue()
+    expect(coordinator.state.loading).toBeFalse()
+  })
+
   test("external refresh bursts coalesce and cancellation prevents delayed work", async () => {
     const { createMcpRefreshDebouncer } = await import("../src/state/mcp")
     const queued = new Map<number, () => void>()
@@ -735,8 +764,32 @@ test("notification stack stays below the titlebar and scrolls when crowded", asy
 
 test("only the MCP row owning a runtime mutation shows loading", async () => {
   const source = await Bun.file("src/ui/mcp/manager.tsx").text()
-  expect(source).toContain("busy={coordinator.state.mutation === row.name}")
+  expect(source).toContain("busy={coordinator.state.mutation === name}")
   expect(source).not.toContain("busy={!!coordinator.state.mutation}")
+})
+
+test("MCP status refreshes keep focused rows mounted by stable server name", async () => {
+  const source = await Bun.file("src/ui/mcp/manager.tsx").text()
+  expect(source).toContain("<For each={rowNames()}>")
+  expect(source).not.toContain("<For each={rows()}>")
+})
+
+test("MCP keyboard navigation selects rows and maps transport controls", async () => {
+  const { mcpRuntimeAction, mcpRuntimeKeyAction, nextMcpRowName } = await import("../src/ui/mcp/manager")
+  const names = ["alpha", "bravo", "charlie"]
+  expect(nextMcpRowName(names, "bravo", "ArrowDown")).toBe("charlie")
+  expect(nextMcpRowName(names, "charlie", "ArrowDown")).toBe("alpha")
+  expect(nextMcpRowName(names, "alpha", "ArrowUp")).toBe("charlie")
+  expect(nextMcpRowName(names, "bravo", "Home")).toBe("alpha")
+  expect(nextMcpRowName(names, "bravo", "End")).toBe("charlie")
+
+  expect(mcpRuntimeAction({ status: "connected" })).toBe("disconnect")
+  expect(mcpRuntimeAction({ status: "failed", error: "closed" })).toBe("connect")
+  expect(mcpRuntimeAction({ status: "needs_auth" })).toBe("authenticate")
+  expect(mcpRuntimeKeyAction({ status: "connected" }, "ArrowLeft")).toBe("disconnect")
+  expect(mcpRuntimeKeyAction({ status: "connected" }, "ArrowRight")).toBeUndefined()
+  expect(mcpRuntimeKeyAction({ status: "failed", error: "closed" }, "ArrowRight")).toBe("connect")
+  expect(mcpRuntimeKeyAction({ status: "failed", error: "tool failed" }, "ArrowLeft")).toBeUndefined()
 })
 
 test("repeated notice occurrences remain visible and dismissed ids are pruned", async () => {

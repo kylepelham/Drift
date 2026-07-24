@@ -31,8 +31,9 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   (`externalBin`) plus generated `drift-extensions/` beside the exe. Tauri builds
   clear the raw release resource directory before copying it so removed plugins
   cannot survive incremental builds. Before every
-  frontend/native build, Bun bundles local extension imports and schemas into standalone
-  ESM, then writes a dependency-free package manifest. Release startup never resolves
+   frontend/native build, Bun bundles local extension imports and schemas into standalone
+   ESM, generates the model-family and built-in-agent prompt catalog from the vendored
+   source, then writes a dependency-free package manifest. Release startup never resolves
    packages from a developer checkout or installs local plugin dependencies.
   The generated config and MCP policy live in app data, separate from bundled extensions.
 - Iteration: `bun run build:native` compiles without bundling; `bun run package` creates
@@ -67,6 +68,7 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
 | Concern | Endpoint |
 | --- | --- |
 | Sessions | `GET/POST /session`, `PATCH/DELETE /session/{id}` |
+| Fork | `POST /session/{id}/fork` (`mode: active` for stable compacted context, `mode: full` for completed history) |
 | Transcript | `GET /session/{id}/message` |
 | Prompt | `POST /session/{id}/prompt_async` (body: parts, model, agent; attachments are `file` parts with data URLs, persisted by the engine) |
 | Revert | `POST /session/{id}/revert` and `/unrevert` (message and file rollback) |

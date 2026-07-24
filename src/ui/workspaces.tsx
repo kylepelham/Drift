@@ -210,9 +210,19 @@ function ThreadItem(props: {
       <span class="shrink-0 text-[0.65rem] text-ink-faint group-hover:hidden">{ago(props.updated)}</span>
       <span class="hidden shrink-0 items-center group-hover:flex">
         <RowButton
-          title={t("command.session.fork.description")}
+          title={t("drift.slash.fork.all.description")}
           onClick={() => {
-            void engine.actions.fork(props.sessionId).then((session) => session && selectSession(session.id))
+            selectWorkspace(props.workspace.id)
+            const selection = selectedSession()
+            void engine.actions
+              .fork(props.sessionId, "full")
+              .then(
+                (session) =>
+                  session &&
+                  activeWorkspaceId() === props.workspace.id &&
+                  selectedSession() === selection &&
+                  selectSession(session.id),
+              )
           }}
         >
           <IconBranch />

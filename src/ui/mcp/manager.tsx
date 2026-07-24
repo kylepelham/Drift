@@ -1,5 +1,5 @@
 import type { McpStatus } from "@opencode-ai/sdk/client"
-import { createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { registryConfig, type RegistryServer } from "../../mcp-registry"
 import { createRegistrySearch } from "../../state/mcp-registry-search"
 import {
@@ -17,6 +17,29 @@ import { McpEditor } from "./editor"
 
 type Row = { name: string; stored?: StoredMcpServer; observed?: ObservedMcpServer; status?: McpStatus }
 type EditorEntry = { server?: StoredMcpServer; expected: McpStoredExpectation }
+type RuntimeAction = "connect" | "disconnect" | "authenticate"
+type RowKey = "ArrowUp" | "ArrowDown" | "Home" | "End"
+
+export function mcpRuntimeAction(status: McpStatus): RuntimeAction {
+  if (status.status === "connected") return "disconnect"
+  if (status.status === "needs_auth" || status.status === "needs_client_registration") return "authenticate"
+  return "connect"
+}
+
+export function mcpRuntimeKeyAction(status: McpStatus, key: string): RuntimeAction | undefined {
+  if (key === "ArrowLeft") return status.status === "connected" ? "disconnect" : undefined
+  if (key === "ArrowRight") return status.status === "connected" ? undefined : mcpRuntimeAction(status)
+  if (key === "Enter") return mcpRuntimeAction(status)
+}
+
+export function nextMcpRowName(names: string[], current: string, key: RowKey) {
+  if (!names.length) return ""
+  if (key === "Home") return names[0]
+  if (key === "End") return names.at(-1)!
+  const index = Math.max(0, names.indexOf(current))
+  if (key === "ArrowUp") return names[(index - 1 + names.length) % names.length]
+  return names[(index + 1) % names.length]
+}
 
 export function McpManagement(props: { embedded?: boolean }) {
   const coordinator = mcpCoordinator
@@ -24,6 +47,8 @@ export function McpManagement(props: { embedded?: boolean }) {
   const [view, setView] = createSignal<"servers" | "registry">("servers")
   const [confirmRemove, setConfirmRemove] = createSignal("")
   const [message, setMessage] = createSignal("")
+  const [selected, setSelected] = createSignal("")
+  const rowElements = new Map<string, HTMLDivElement>()
   const native = !!shellInvoke()
   const locked = () => !native || !!coordinator.state.mutation || !mcpSnapshotActionable(coordinator.state)
   const rows = createMemo<Row[]>(() => {
@@ -41,7 +66,28 @@ export function McpManagement(props: { embedded?: boolean }) {
     }
     return [...result.values()].sort((a, b) => a.name.localeCompare(b.name))
   })
+  const rowNames = createMemo(() => rows().map((row) => row.name))
   const exact = (observed: ObservedMcpServer) => exactMcpTarget(coordinator.state.snapshot, observed)
+  const moveRow = (key: RowKey, current = selected()) => {
+    const next = nextMcpRowName(
+      rows().map((row) => row.name),
+      current,
+      key,
+    )
+    if (!next) return
+    setSelected(next)
+    rowElements.get(next)?.focus()
+  }
+  createEffect(() => {
+    const names = new Set(rows().map((row) => row.name))
+    for (const name of rowElements.keys()) if (!names.has(name)) rowElements.delete(name)
+    if (!names.has(selected())) setSelected(rows()[0]?.name ?? "")
+  })
+  onMount(() => {
+    void coordinator.refreshStatus().catch(() => undefined)
+    const timer = window.setInterval(() => void coordinator.refreshStatus().catch(() => undefined), 2_000)
+    onCleanup(() => window.clearInterval(timer))
+  })
   const run = async (action: () => Promise<void>, success?: string) => {
     setMessage("")
     try {
@@ -81,7 +127,17 @@ export function McpManagement(props: { embedded?: boolean }) {
     <div class="space-y-3">
       <div class="flex items-center justify-between gap-3">
         <div class="flex rounded-lg border border-edge bg-surface p-0.5">
-          <Tab active={view() === "servers"} onClick={() => setView("servers")}>
+          <Tab
+            active={view() === "servers"}
+            autofocus={!props.embedded}
+            onClick={() => setView("servers")}
+            onKeyDown={(event) => {
+              if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+                event.preventDefault()
+                moveRow(event.key as RowKey)
+              }
+            }}
+          >
             {t("drift.mcp.servers")}
           </Tab>
           <Tab active={view() === "registry"} onClick={() => setView("registry")}>
@@ -116,34 +172,45 @@ export function McpManagement(props: { embedded?: boolean }) {
       </Show>
       <Show when={view() === "servers"}>
         <div classList={{ "space-y-1": !props.embedded, "border-y border-edge/80": props.embedded }}>
-          <For each={rows()}>
-            {(row) => (
-              <ServerRow
-                row={row}
-                target={row.observed ? exact(row.observed) : undefined}
-                embedded={props.embedded}
-                disabled={locked()}
-                busy={coordinator.state.mutation === row.name}
-                confirming={confirmRemove() === row.name}
-                onEdit={() =>
-                  row.stored &&
-                  setEditor({
-                    server: row.stored,
-                    expected: {
-                      generation: coordinator.state.snapshot.generation,
-                      previousName: row.stored.name,
-                      updatedAt: row.stored.updatedAt,
-                    },
-                  })
-                }
-                onRemove={() => row.stored && void remove(row.stored)}
-                onDecision={decide}
-                onRuntime={(action) => {
-                  const target = row.observed ? exact(row.observed) : undefined
-                  if (target) void run(() => coordinator.runtime(target, action))
-                }}
-              />
-            )}
+          <For each={rowNames()}>
+            {(name) => {
+              const row = () => rows().find((item) => item.name === name)!
+              return (
+                <ServerRow
+                  row={row()}
+                  selected={selected() === name}
+                  target={row().observed ? exact(row().observed!) : undefined}
+                  embedded={props.embedded}
+                  disabled={locked()}
+                  busy={coordinator.state.mutation === name}
+                  confirming={confirmRemove() === name}
+                  rowRef={(element) => rowElements.set(name, element)}
+                  onFocus={() => setSelected(name)}
+                  onNavigate={(key) => moveRow(key, name)}
+                  onEdit={() => {
+                    const stored = row().stored
+                    if (!stored) return
+                    setEditor({
+                      server: stored,
+                      expected: {
+                        generation: coordinator.state.snapshot.generation,
+                        previousName: stored.name,
+                        updatedAt: stored.updatedAt,
+                      },
+                    })
+                  }}
+                  onRemove={() => {
+                    const stored = row().stored
+                    if (stored) void remove(stored)
+                  }}
+                  onDecision={decide}
+                  onRuntime={(action) => {
+                    const observed = row().observed
+                    if (observed) void run(() => coordinator.runtime(exact(observed), action))
+                  }}
+                />
+              )
+            }}
           </For>
           <Show when={!coordinator.state.loading && !rows().length}>
             <div class="px-3 py-5 text-sm text-ink-faint">{t("dialog.mcp.empty")}</div>
@@ -182,23 +249,51 @@ export function McpManagement(props: { embedded?: boolean }) {
 
 function ServerRow(props: {
   row: Row
+  selected: boolean
   target?: McpExactTarget
   embedded?: boolean
   disabled: boolean
   busy: boolean
   confirming: boolean
+  rowRef: (element: HTMLDivElement) => void
+  onFocus: () => void
+  onNavigate: (key: RowKey) => void
   onEdit: () => void
   onRemove: () => void
   onDecision: (action: "approve" | "reject" | "revoke", target: McpExactTarget) => void
-  onRuntime: (action: "connect" | "disconnect" | "authenticate") => void
+  onRuntime: (action: RuntimeAction) => void
 }) {
   const status = () => statusLabel(props.row, props.busy)
+  const keyboardAction = (key: string) => {
+    if (props.disabled || props.target?.decision !== "approved" || !props.row.status) return
+    const action = mcpRuntimeKeyAction(props.row.status, key)
+    if (action) props.onRuntime(action)
+    return action
+  }
   return (
     <div
-      class="px-3 py-2.5 hover:bg-raised/40"
+      ref={props.rowRef}
+      data-mcp-row={props.row.name}
+      tabIndex={props.selected ? 0 : -1}
+      aria-label={props.row.name}
+      class="px-3 py-2.5 outline-none hover:bg-raised/40 focus-visible:bg-raised/50"
       classList={{
         "rounded-lg border border-transparent hover:border-edge": !props.embedded,
         "border-b border-edge/70 last:border-b-0": props.embedded,
+        "border-edge-strong bg-raised/30": props.selected && !props.embedded,
+      }}
+      onFocus={(event) => {
+        if (event.target === event.currentTarget) props.onFocus()
+      }}
+      onClick={(event) => event.currentTarget.focus()}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return
+        if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+          event.preventDefault()
+          props.onNavigate(event.key as RowKey)
+          return
+        }
+        if (keyboardAction(event.key)) event.preventDefault()
       }}
     >
       <div class="flex items-start gap-3">
@@ -255,14 +350,9 @@ function ServerRow(props: {
 function Runtime(props: {
   status: McpStatus
   disabled: boolean
-  onRun: (action: "connect" | "disconnect" | "authenticate") => void
+  onRun: (action: RuntimeAction) => void
 }) {
-  const action = () =>
-    props.status.status === "connected"
-      ? "disconnect"
-      : props.status.status === "needs_auth" || props.status.status === "needs_client_registration"
-        ? "authenticate"
-        : "connect"
+  const action = () => mcpRuntimeAction(props.status)
   return (
     <Action disabled={props.disabled} onClick={() => props.onRun(action())}>
       {t(action() === "authenticate" ? "drift.mcp.authenticate" : `common.${action()}`)}
@@ -375,14 +465,22 @@ function McpRegistry(props: {
   )
 }
 
-function Tab(props: { active: boolean; onClick: () => void; children: JSX.Element }) {
+function Tab(props: {
+  active: boolean
+  autofocus?: boolean
+  onClick: () => void
+  onKeyDown?: JSX.EventHandler<HTMLButtonElement, KeyboardEvent>
+  children: JSX.Element
+}) {
   return (
     <button
       type="button"
+      autofocus={props.autofocus}
       aria-pressed={props.active}
       class="min-w-0 flex-1 rounded-md px-2.5 py-1.5 text-xs"
       classList={{ "bg-raised text-ink": props.active, "text-ink-faint hover:text-ink": !props.active }}
       onClick={props.onClick}
+      onKeyDown={props.onKeyDown}
     >
       {props.children}
     </button>

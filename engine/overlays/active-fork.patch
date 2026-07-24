@@ -1,0 +1,225 @@
+diff --git a/packages/opencode/src/session/session.ts b/packages/opencode/src/session/session.ts
+--- a/packages/opencode/src/session/session.ts
++++ b/packages/opencode/src/session/session.ts
+@@ -29,6 +29,7 @@ import type { SQL } from "drizzle-orm"
+ import { PartTable, SessionTable } from "@opencode-ai/core/session/sql"
+ import { ProjectTable } from "@opencode-ai/core/project/sql"
+ import { MessageV2 } from "./message-v2"
++import { SessionStatus } from "./status"
+ import type { InstanceContext } from "../project/instance-context"
+ import { InstanceState } from "@/effect/instance-state"
+ import { Snapshot } from "@/snapshot"
+@@ -273,5 +273,6 @@ export const ForkInput = Schema.Struct({
+   sessionID: SessionID,
+   messageID: Schema.optional(MessageID),
++  mode: Schema.optional(Schema.Literals(["active", "full"])),
+ })
+ export const GetInput = SessionID
+ export const ChildrenInput = SessionID
+@@ -424,7 +425,7 @@ export interface Interface {
+     permission?: PermissionV1.Ruleset
+     workspaceID?: WorkspaceV2.ID
+   }) => Effect.Effect<Info>
+-  readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
++  readonly fork: (input: typeof ForkInput.Type) => Effect.Effect<Info, NotFound>
+   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
+   readonly get: (id: SessionID) => Effect.Effect<Info, NotFound>
+   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
+@@ -488,12 +489,13 @@ const layer: Layer.Layer<
+   Service,
+   never,
+-  BackgroundJob.Service | RuntimeFlags.Service | Database.Service | EventV2Bridge.Service
++  BackgroundJob.Service | RuntimeFlags.Service | Database.Service | EventV2Bridge.Service | SessionStatus.Service
+ > = Layer.effect(
+   Service,
+   Effect.gen(function* () {
+     const { db } = yield* Database.Service
+     const database = yield* Database.Service
+     const background = yield* BackgroundJob.Service
+     const events = yield* EventV2Bridge.Service
+     const flags = yield* RuntimeFlags.Service
++    const status = yield* SessionStatus.Service
+ 
+@@ -690,7 +691,7 @@ const layer = Layer.effect(
+       })
+     })
+ 
+-    const fork = Effect.fn("Session.fork")(function* (input: { sessionID: SessionID; messageID?: MessageID }) {
++    const fork = Effect.fn("Session.fork")(function* (input: typeof ForkInput.Type) {
+       const ctx = yield* InstanceState.context
+       const original = yield* get(input.sessionID)
+       const title = getForkedTitle(original.title)
+@@ -701,11 +703,61 @@ const layer = Layer.effect(
+         title,
+         metadata: structuredClone(original.metadata),
+       })
+-      const msgs = yield* messages({ sessionID: input.sessionID })
++      const currentStatus = input.mode ? yield* status.get(input.sessionID) : { type: "idle" as const }
++      const history =
++        input.mode === "active"
++          ? yield* Effect.gen(function* () {
++              const found = [] as SessionV1.WithParts[]
++              let before: string | undefined
++              let cutoff = input.messageID
++              while (true) {
++                const next = yield* MessageV2.page({ sessionID: input.sessionID, limit: 50, before }).pipe(
++                  Effect.provideService(Database.Service, database),
++                )
++                if (!cutoff && currentStatus.type !== "idle")
++                  cutoff = next.items.findLast((msg) => msg.info.role === "user")?.info.id
++                const pageCutoff = cutoff
++                const bounded = pageCutoff ? next.items.filter((msg) => msg.info.id < pageCutoff) : next.items
++                found.unshift(...bounded)
++                const completed = found.findLast(
++                  (msg) =>
++                    msg.info.role === "assistant" &&
++                    msg.info.finish !== undefined &&
++                    msg.info.finish !== "tool-calls" &&
++                    msg.info.error === undefined,
++                )
++                const stable = completed ? found.filter((msg) => msg.info.id <= completed.info.id) : []
++                const projected = MessageV2.filterCompacted(stable.toReversed())
++                const boundary = projected.find((msg) =>
++                  msg.info.role === "user" && msg.parts.some((part) => part.type === "compaction"),
++                )
++                const tail = boundary?.parts.find((part) => part.type === "compaction")?.tail_start_id
++                if (boundary && (!tail || projected.some((msg) => msg.info.id === tail))) {
++                  const active = new Set(projected.map((msg) => msg.info.id))
++                  return stable.filter((msg) => active.has(msg.info.id))
++                }
++                if (!next.more || !next.cursor) return stable
++                before = next.cursor
++              }
++            })
++          : yield* messages({ sessionID: input.sessionID })
++      const cutoff =
++        input.mode === "active"
++          ? undefined
++          : input.messageID ??
++            (currentStatus.type !== "idle" ? history.findLast((msg) => msg.info.role === "user")?.info.id : undefined)
++      const bounded = cutoff ? history.filter((msg) => msg.info.id < cutoff) : history
++      const completed = input.mode === "full"
++        ? bounded.findLast(
++            (msg) =>
++              msg.info.role === "assistant" &&
++              (msg.info.time.completed !== undefined || msg.info.finish !== undefined || msg.info.error !== undefined),
++          )
++        : undefined
++      const msgs = completed ? bounded.filter((msg) => msg.info.id <= completed.info.id) : bounded
+       const idMap = new Map<string, MessageID>()
+ 
+       for (const msg of msgs) {
+-        if (input.messageID && msg.info.id >= input.messageID) break
+         const newID = MessageID.ascending()
+         idMap.set(msg.info.id, newID)
+ 
+@@ -718,11 +771,19 @@ const layer = Layer.effect(
+         })
+ 
+         for (const part of msg.parts) {
+-          const p: SessionV1.Part = {
+-            ...part,
+-            id: PartID.ascending(),
+-            messageID: cloned.id,
+-            sessionID: session.id,
++          const p = structuredClone(part) as SessionV1.Part
++          p.id = PartID.ascending()
++          p.messageID = cloned.id
++          p.sessionID = session.id
++          if (input.mode && p.type === "tool" && (p.tool === "task" || p.tool === "spawn_thread")) {
++            if (p.metadata && typeof p.metadata === "object") delete p.metadata.sessionId
++            if (
++              "metadata" in p.state &&
++              p.state.metadata &&
++              typeof p.state.metadata === "object"
++            ) {
++              delete p.state.metadata.sessionId
++            }
+           }
+           if (p.type === "compaction" && p.tail_start_id) {
+             p.tail_start_id = idMap.get(p.tail_start_id)
+@@ -1012,4 +1073,4 @@ export const node = LayerNode.make({
+   service: Service,
+   layer: layer,
+-  deps: [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node],
++  deps: [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node, SessionStatus.node],
+ })
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts
+@@ -211,6 +211,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (
+         session.fork({
+           sessionID: ctx.params.sessionID,
+           messageID: ctx.payload?.messageID,
++          mode: ctx.payload?.mode,
+         }),
+       )
+     })
+diff --git a/packages/opencode/test/session/messages-pagination.test.ts b/packages/opencode/test/session/messages-pagination.test.ts
+--- a/packages/opencode/test/session/messages-pagination.test.ts
++++ b/packages/opencode/test/session/messages-pagination.test.ts
+@@ -6,4 +6,5 @@ import { Effect, Option } from "effect"
+ import { Session as SessionNs } from "@/session/session"
++import { SessionStatus } from "@/session/status"
+ import { MessageV2 } from "../../src/session/message-v2"
+ import { MessageID, PartID, type SessionID } from "../../src/session/schema"
+ 
+@@ -15,2 +16,2 @@ import { ModelV2 } from "@opencode-ai/core/model"
+-const it = testEffect(LayerNode.compile(LayerNode.group([SessionNs.node, MessageV2.node, SessionProjector.node])))
++const it = testEffect(LayerNode.compile(LayerNode.group([SessionNs.node, MessageV2.node, SessionProjector.node, SessionStatus.node])))
+ 
+@@ -815,6 +816,54 @@ describe("session message pagination", () => {
+     }),
+   )
+ 
++  it.instance("active fork keeps compacted context and excludes a busy turn", () =>
++    Effect.gen(function* () {
++      const session = yield* SessionNs.Service
++      const status = yield* SessionStatus.Service
++      const created = yield* session.create({})
++      const oldUser = yield* addUser(created.id, "old")
++      yield* addAssistant(created.id, oldUser, { finish: "end_turn" })
++      const retainedUser = yield* addUser(created.id, "retained")
++      const retainedAssistant = yield* addAssistant(created.id, retainedUser, { finish: "end_turn" })
++      const boundary = yield* addUser(created.id)
++      yield* addCompactionPart(created.id, boundary, retainedUser)
++      yield* addAssistant(created.id, boundary, { summary: true, finish: "end_turn" })
++      const stableUser = yield* addUser(created.id, "stable")
++      yield* addAssistant(created.id, stableUser, { finish: "end_turn" })
++      const activeUser = yield* addUser(created.id, "active")
++      yield* addAssistant(created.id, activeUser, { finish: "tool-calls" })
++      yield* addAssistant(created.id, activeUser)
++      yield* status.set(created.id, { type: "busy" })
++
++      const forked = yield* session.fork({ sessionID: created.id, mode: "active" })
++      const copied = yield* session.messages({ sessionID: forked.id })
++      const text = copied.flatMap((message) => message.parts).flatMap((part) =>
++        part.type === "text" ? [part.text] : [],
++      )
++
++      expect(text).not.toContain("old")
++      expect(text).toContain("retained")
++      expect(text).toContain("stable")
++      expect(text).not.toContain("active")
++      expect(copied.some((message) => message.info.id === retainedAssistant)).toBe(false)
++      const compaction = copied.flatMap((message) => message.parts).find((part) => part.type === "compaction")
++      expect(compaction?.type).toBe("compaction")
++      if (!compaction || compaction.type !== "compaction") throw new Error("Expected compaction part")
++      expect(copied.some((message) => message.info.id === compaction.tail_start_id)).toBe(true)
++
++      yield* status.set(created.id, { type: "idle" })
++      const idleFork = yield* session.fork({ sessionID: created.id, mode: "active" })
++      const idleText = (yield* session.messages({ sessionID: idleFork.id })).flatMap((message) =>
++        message.parts.flatMap((part) => part.type === "text" ? [part.text] : []),
++      )
++      expect(idleText).toContain("stable")
++      expect(idleText).not.toContain("active")
++      yield* session.remove(idleFork.id)
++      yield* session.remove(forked.id)
++      yield* session.remove(created.id)
++    }),
++  )
++
+   it.instance("retains an assistant tail when compaction starts inside a turn", () =>
+     withSession(({ session, sessionID }) =>
+       Effect.gen(function* () {

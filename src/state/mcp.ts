@@ -180,9 +180,21 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     }
   }
 
+  async function refreshStatusUnlocked(request = context()) {
+    if (!current(request) || !request.directory || !request.online) return {}
+    const statuses = await requireDependencies().status(request.directory)
+    if (current(request)) setState("statuses", statuses)
+    return statuses
+  }
+
   function refresh() {
     const request = context()
     return serialize(() => refreshUnlocked(request))
+  }
+
+  function refreshStatus() {
+    const request = context()
+    return serialize(() => refreshStatusUnlocked(request))
   }
 
   function setActive(directory: string, online: boolean) {
@@ -341,7 +353,7 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     }
   }
 
-  return { state, start, setActive, refresh, save, remove, decide, runtime, settled: () => tail }
+  return { state, start, setActive, refresh, refreshStatus, save, remove, decide, runtime, settled: () => tail }
 }
 
 function conciseMcpError(error: unknown) {

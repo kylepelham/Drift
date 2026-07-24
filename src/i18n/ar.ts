@@ -1,3 +1,5 @@
+import { promptAndSpawn } from "./prompt-and-spawn"
+
 export const dict = {
   "command.category.suggested": "مقترح",
   "command.category.view": "عرض",
@@ -1008,6 +1010,7 @@ export const dict = {
 }
 
 export const drift = {
+  ...promptAndSpawn,
   "drift.agent.build": "بناء",
   "drift.agent.plan": "تخطيط",
   "drift.agent.general": "عام",

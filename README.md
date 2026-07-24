@@ -29,7 +29,10 @@ works here, including OAuth sign-in where the provider offers it.
 - Virtualized transcript that stays smooth at thousands of messages.
 - Command palette (Ctrl+K), rebindable keys, per-session model/agent/thinking
   preferences, localized settings, expanded themes, custom palette, CSS, and fonts.
-- Fork threads, spawn subagent threads, revert to any point in a conversation.
+- Fork stable active context, explicitly fork full history, or `/spawn` independent
+  sibling work without interrupting the current thread.
+- Inspect, edit, and reset model-family system prompts plus primary-agent and subagent
+  prompts and behavior in Settings. Agents identify their host as Drift by default.
 
 ## Development
 

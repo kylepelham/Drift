@@ -102,9 +102,30 @@ tool the model calls with a title, task, its own context summary, and optional v
 excerpts (reasoning/CoT never crosses conversations; the model carries context as
 plain text by design). The tool creates a sibling session in the same workspace, seeds
 it with that carried context, and starts it on the parent's model. The new thread
-appears in the sidebar like any other chat; the tool card links to it. Manual
-counterpart: the fork button on a thread row duplicates a conversation with full
-history.
+appears in the sidebar like any other chat; the tool card links to it. `/spawn <task>`
+creates the same kind of sibling directly from the last stable active context without
+interrupting or steering the source thread.
+
+Manual forks use the same stable active-context projection by default: completed
+compaction summary, retained tail, and completed turns after it. The in-flight turn and
+task/spawn session links are excluded. `/fork all` is the explicit slower operation that
+copies all completed history. The behavior is implemented by the isolated
+`engine/overlays/active-fork.patch`; the upstream subtree remains untouched.
+
+## Prompt and agent editing
+
+`prompt-overrides.ts` uses OpenCode's public `experimental.chat.system.transform` hook.
+Builds generate `prompt-catalog.json` from the exact vendored model-family and built-in
+agent prompt sources. Drift changes only the host identity by default, preserves the
+upstream prompt for inspection, and replaces only the known base-prompt prefix so
+workspace instructions, skills, MCP instructions, and user system text remain intact.
+
+Settings stores only user edits in Drift SQLite. Model-family edits are materialized to
+the plugin settings file; agent and subagent prompt/behavior edits are materialized as
+the highest-precedence Drift agent config. Reset removes that layer and reveals the
+generated Drift default or the user's underlying OpenCode agent config. Applying changes
+is disabled while any session is active because reloading engine instances mid-turn
+would interrupt work.
 
 ## Workflows (design open)
 

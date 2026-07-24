@@ -9,11 +9,41 @@ import { activeWorkspace, archiveSession } from "../state/workspaces"
 import { t } from "../state/i18n"
 import { openMcpServers } from "./mcp"
 
-export type SlashItem = { name: string; description: string; needsSession?: boolean; engine?: boolean }
+export type SlashPreset = { value: string; label: string; description: string; execute?: boolean }
+export type SlashItem = {
+  name: string
+  description: string
+  needsSession?: boolean
+  engine?: boolean
+  requiredArgs?: boolean
+  usage?: string
+  presets?: SlashPreset[]
+}
 
 const builtins: SlashItem[] = [
   { name: "new", description: "command.session.new" },
-  { name: "fork", description: "command.session.fork.description", needsSession: true },
+  {
+    name: "fork",
+    description: "drift.slash.fork",
+    needsSession: true,
+    usage: "[active|all]",
+    presets: [
+      { value: "active", label: "drift.slash.fork.active", description: "drift.slash.fork.active.description", execute: true },
+      { value: "all", label: "drift.slash.fork.all", description: "drift.slash.fork.all.description", execute: true },
+    ],
+  },
+  {
+    name: "spawn",
+    description: "drift.slash.spawn",
+    needsSession: true,
+    requiredArgs: true,
+    usage: "<task>",
+    presets: [
+      { value: "Investigate ", label: "drift.slash.spawn.investigate", description: "drift.slash.spawn.investigate.description" },
+      { value: "Implement ", label: "drift.slash.spawn.implement", description: "drift.slash.spawn.implement.description" },
+      { value: "Review ", label: "drift.slash.spawn.review", description: "drift.slash.spawn.review.description" },
+    ],
+  },
   { name: "archive", description: "command.session.archive", needsSession: true },
   { name: "undo", description: "command.session.undo.description", needsSession: true },
   { name: "redo", description: "command.session.redo.description", needsSession: true },
@@ -28,8 +58,8 @@ export function parseSlash(draft: string) {
   if (!draft.startsWith("/") || draft.startsWith("//")) return null
   const body = draft.slice(1)
   const space = body.search(/\s/)
-  if (space < 0) return { query: body, args: "" }
-  return { query: body.slice(0, space), args: body.slice(space + 1).trim() }
+  if (space < 0) return { query: body, args: "", separated: false }
+  return { query: body.slice(0, space), args: body.slice(space + 1).trim(), separated: true }
 }
 
 export function slashItems(engine: Engine, query: string): SlashItem[] {
@@ -45,6 +75,17 @@ export function slashItems(engine: Engine, query: string): SlashItem[] {
     .slice(0, 8)
 }
 
+export function slashItem(engine: Engine, name: string) {
+  return slashItems(engine, name).find((item) => item.name.toLowerCase() === name.toLowerCase())
+}
+
+export function slashPresets(item: SlashItem, query: string) {
+  const value = query.toLowerCase()
+  return (item.presets ?? [])
+    .map((preset) => ({ ...preset, label: t(preset.label), description: t(preset.description) }))
+    .filter((preset) => !value || preset.value.trim().toLowerCase().startsWith(value))
+}
+
 export async function runSlash(engine: Engine, item: SlashItem, args: string) {
   const current = selectedSession()
   if (item.engine) {
@@ -55,8 +96,26 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
   }
   if (item.name === "new") return selectSession(null)
   if (item.name === "fork" && current) {
-    const session = await engine.actions.fork(current)
-    if (session) selectSession(session.id)
+    const mode = args.toLowerCase() || "active"
+    if (mode !== "active" && mode !== "all") {
+      engine.actions.notice({ message: t("drift.slash.fork.invalid"), variant: "warning" })
+      return
+    }
+    const session = await engine.actions.fork(current, mode === "all" ? "full" : "active")
+    if (session && selectedSession() === current) selectSession(session.id)
+    return
+  }
+  if (item.name === "spawn" && current) {
+    if (!args.trim()) {
+      engine.actions.notice({ message: t("drift.slash.spawn.required"), variant: "warning" })
+      return
+    }
+    const prefs = prefsFor(current)
+    await engine.actions.spawn(current, args, {
+      model: resolveModel(engine.state, prefs.model),
+      agent: prefs.agent,
+      variant: prefs.variant ?? undefined,
+    })
     return
   }
   if (item.name === "archive" && current) {
