@@ -328,6 +328,14 @@ textarea {
   margin-right: -0.24em;
 }
 
+.drift-logo {
+  display: inline-block;
+  flex: none;
+  background: currentColor;
+  mask: var(--drift-logo-image) center / contain no-repeat;
+  -webkit-mask: var(--drift-logo-image) center / contain no-repeat;
+}
+
 .timeline-thinking {
   display: flex;
   align-items: baseline;

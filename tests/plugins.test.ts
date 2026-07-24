@@ -19,7 +19,7 @@ test("pluginPaths keeps local JavaScript modules only", async () => {
 })
 
 test("patchFiles reads per-file apply_patch metadata", async () => {
-  const { nextToolOpen, patchFiles, patchSubtitle } = await import("../src/ui/parts")
+  const { nextToolOpen, patchFiles, patchInputPaths, patchSubtitle } = await import("../src/ui/parts")
   const files = [
     {
       filePath: "S:/Personal/Drift/src/app.tsx",
@@ -44,6 +44,24 @@ test("patchFiles reads per-file apply_patch metadata", async () => {
   expect(
     patchSubtitle({ state: { status: "completed", metadata: { files: [files[0]] } } } as unknown as ToolPart),
   ).toBe("app.tsx")
+  const running = {
+    state: {
+      status: "running",
+      input: {
+        patchText: "*** Begin Patch\n*** Update File: src/app.tsx\n@@\n-old\n+new\n*** End Patch",
+      },
+    },
+  } as unknown as ToolPart
+  expect(patchInputPaths(running)).toEqual(["src/app.tsx"])
+  expect(patchSubtitle(running)).toBe("app.tsx")
+  expect(
+    patchSubtitle({
+      state: {
+        status: "running",
+        input: { patchText: "*** Add File: src/one.ts\n*** Delete File: src/two.ts" },
+      },
+    } as unknown as ToolPart),
+  ).toBe("2 files")
   expect(nextToolOpen(true, false, true, false)).toBeFalse()
   expect(nextToolOpen(false, false, true, true)).toBeTrue()
   expect(nextToolOpen(false, true, true, true)).toBeFalse()

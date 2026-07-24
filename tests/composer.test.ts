@@ -273,6 +273,12 @@ test("shell transcript preserves a visible command-output gap and normalizes out
   coalescer.dispose()
 })
 
+test("active tool rows keep their target subtitle visible", async () => {
+  const source = await Bun.file("src/ui/parts.tsx").text()
+  expect(source).toContain('info().subtitle && !(props.part.tool === "bash" && expanded())')
+  expect(source).not.toContain("info().subtitle && !active()")
+})
+
 test("question drafts preserve single, multiple, and custom answers", async () => {
   const { questionAnswer, selectQuestionCustom, selectQuestionOption } = await import("../src/ui/attention")
   const empty = { selected: [], custom: "", customSelected: false }

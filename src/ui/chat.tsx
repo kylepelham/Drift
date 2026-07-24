@@ -7,6 +7,7 @@ import { selectedSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
 import { MessageView } from "./message"
 import { TextShimmer } from "./text-shimmer"
+import { DriftLogo } from "./logo"
 
 const estimatedRow = 96
 const overscan = 800
@@ -440,7 +441,7 @@ export function retryPresentation(status: Extract<SessionStatus, { type: "retry"
 function EmptyState() {
   return (
     <div class="flex h-full flex-col items-center justify-center gap-3 select-none">
-      <div class="fade-up text-4xl font-semibold tracking-tight text-ink">drift</div>
+      <DriftLogo class="fade-up size-16 text-ink" label="Drift" />
       <Show
         when={activeWorkspace()}
         fallback={

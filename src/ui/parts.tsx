@@ -303,8 +303,16 @@ export function patchSubtitle(part: ToolPart) {
   const files = patchFiles(part)
   if (files.length === 1) return filename(files[0].relativePath ?? files[0].filePath)
   const input = part.state.input as { files?: unknown[] } | undefined
-  const count = files.length || input?.files?.length || 0
+  const paths = patchInputPaths(part)
+  if (!files.length && paths.length === 1) return filename(paths[0])
+  const count = files.length || paths.length || input?.files?.length || 0
   return count ? t(count === 1 ? "drift.count.file.one" : "drift.count.file.other", { count }) : undefined
+}
+
+export function patchInputPaths(part: ToolPart) {
+  const patchText = (part.state.input as { patchText?: unknown } | undefined)?.patchText
+  if (typeof patchText !== "string") return []
+  return [...patchText.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)].map((match) => match[1].trim())
 }
 
 export function nextToolOpen(current: boolean, hadError: boolean, hasError: boolean, errorsExpanded: boolean) {
@@ -396,7 +404,7 @@ export function ToolView(props: { part: ToolPart }) {
         >
           <TextShimmer text={title()} class="shrink-0 font-semibold" />
         </Show>
-        <Show when={info().subtitle && !active() && !(props.part.tool === "bash" && expanded())}>
+        <Show when={info().subtitle && !(props.part.tool === "bash" && expanded())}>
           <span
             class="min-w-0 truncate text-ink-faint"
             classList={{ "font-mono text-xs": info().mono, "text-[0.85rem]": !info().mono }}

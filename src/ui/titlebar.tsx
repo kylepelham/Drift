@@ -1,7 +1,7 @@
 import { createSignal, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { t } from "../state/i18n"
 import { autoUpdate } from "../state/prefs"
-import appIcon from "../../src-tauri/icons/32x32.png"
+import { DriftLogo } from "./logo"
 
 type ShellWindow = {
   minimize(): void
@@ -59,7 +59,7 @@ export function Titlebar() {
       class="flex h-9 shrink-0 items-center justify-between border-b border-edge bg-surface select-none"
     >
       <div class="pointer-events-none flex items-center gap-2 px-3.5">
-        <img src={appIcon} alt="" class="size-[18px]" />
+        <DriftLogo class="size-[18px] text-ink-muted" />
         <span class="drift-wordmark">drift</span>
       </div>
       <div class="flex h-full items-center">
