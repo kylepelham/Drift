@@ -24,7 +24,7 @@ export function ArchiveModal(props: { onClose: () => void }) {
   onMount(() => onCleanup(activateModal(dialog, props.onClose)))
   createEffect(() => {
     if (engine.state.connection !== "online") return
-    for (const workspace of removedWorkspaces()) void engine.actions.loadSessions(workspace.path)
+    void engine.actions.loadAllSessions()
   })
 
   async function restoreThread(sessionId: string, workspaceId: string) {

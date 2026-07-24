@@ -92,37 +92,51 @@ export function EngineProvider(props: ParentProps) {
     }
   }
 
-  // Session-keyed state (status, asks, todos) survives directory switches; the global
-  // event stream keeps it fresh for every workspace, not just the active one.
-  function reset(dir: string | null) {
-    set(
-      produce((s) => {
-        s.transcripts = {}
-        s.loaded = {}
-        s.cursors = {}
-        s.directory = dir ?? ""
-        s.connection = dir ? "connecting" : "idle"
-      }),
-    )
-  }
-
-  function apply() {
-    if (!base || disposed) return
+  // Session-keyed state and the global event stream survive directory switches. Only the
+  // SDK client is re-pointed so workspace changes don't reconnect or wipe transcripts.
+  function stopPump() {
     pumpAbort?.abort()
     pumpAbort = undefined
     client = undefined
-    reset(directory)
-    if (import.meta.env.DEV && directory) seedBench(set, directory)
-    if (!directory) return
-    client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
+  }
+
+  function startPump(path: string) {
+    if (!base || disposed) return
+    client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory: path })
+    set(
+      produce((s) => {
+        s.directory = path
+        s.connection = "connecting"
+      }),
+    )
+    if (import.meta.env.DEV) seedBench(set, path)
     pumpAbort = new AbortController()
     void pump(base, pumpAbort.signal)
   }
 
   function setDirectory(path: string | null) {
-    if (path === directory && client) return
+    if (path === directory && (client || !path)) return
+    const prev = directory
     directory = path
-    apply()
+    if (!base || disposed) return
+    if (!path) {
+      stopPump()
+      set(
+        produce((s) => {
+          s.directory = ""
+          s.connection = "idle"
+        }),
+      )
+      return
+    }
+    if (!pumpAbort || !prev) {
+      stopPump()
+      startPump(path)
+      return
+    }
+    client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory: path })
+    set("directory", path)
+    if (state.connection === "online") void hydrate()
   }
 
   void resolveEngine()
@@ -132,7 +146,7 @@ export function EngineProvider(props: ParentProps) {
         .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
         .catch(() => null)
       if (health?.version) set("version", health.version)
-      apply()
+      if (directory) startPump(directory)
     })
     .catch((error: unknown) => {
       set("startupError", error instanceof Error ? error.message : String(error))

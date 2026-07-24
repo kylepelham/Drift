@@ -113,6 +113,21 @@ export function createActions(
     for (const session of result.data ?? []) putSession(set, session)
   }
 
+  // One DB query for every workspace. Avoids booting an OpenCode instance per project.
+  async function loadAllSessions() {
+    const base = target()
+    if (!base) return
+    const query = new URLSearchParams({ archived: "true", limit: "10000" })
+    const headers = {
+      ...base.headers,
+      ...(state.directory ? { "x-opencode-directory": encodeURIComponent(state.directory) } : {}),
+    }
+    const response = await fetch(`${base.url}/experimental/session?${query}`, { headers }).catch(() => null)
+    if (!response?.ok) return
+    const sessions = (await response.json().catch(() => null)) as Session[] | null
+    for (const session of sessions ?? []) putSession(set, session)
+  }
+
   async function removeAllSessions(directory: string) {
     const result = await requireClient().session.list({ query: { directory } })
     for (const session of result.data ?? []) {
@@ -438,27 +453,55 @@ export function createActions(
   }
 
   // The generated SDK lags the engine here; GET /permission and /question recover asks
-  // raised while we weren't listening, across every workspace directory.
+  // raised while we weren't listening. Walk directories one at a time so idle workspaces
+  // don't stampede instance boots on a timer.
   async function refreshPermissions(directories: string[]) {
-    if (!target()) return
-    const results = await Promise.all(
-      directories.map(async (dir) => {
-        const [permissions, questions] = await Promise.all([
-          fetchJson<PermissionRequest[]>("/permission", dir),
-          fetchJson<QuestionRequest[]>("/question", dir),
-        ])
-        return {
-          permissions: (permissions ?? []).map((request) => toPermission(request, dir)),
-          questions: (questions ?? []).map((request) => ({ ...request, directory: dir })),
-        }
-      }),
-    )
+    if (!target() || directories.length === 0) return
+    const results: {
+      permissions: Permission[]
+      questions: QuestionRequest[]
+    }[] = []
+    for (const dir of directories) {
+      const [permissions, questions] = await Promise.all([
+        fetchJson<PermissionRequest[]>("/permission", dir),
+        fetchJson<QuestionRequest[]>("/question", dir),
+      ])
+      results.push({
+        permissions: (permissions ?? []).map((request) => toPermission(request, dir)),
+        questions: (questions ?? []).map((request) => ({ ...request, directory: dir })),
+      })
+    }
+    const keep = new Set(directories.map(normalizeDir))
     const reported = new Set(results.flatMap((r) => [...r.permissions, ...r.questions].map((item) => item.id)))
-    for (const id of answered) if (!reported.has(id)) answered.delete(id)
+    const previous = new Set<string>()
+    for (const list of Object.values(state.permissions)) {
+      for (const item of list) {
+        const dir = item.metadata?.directory
+        if (typeof dir === "string" && keep.has(normalizeDir(dir))) previous.add(item.id)
+      }
+    }
+    for (const list of Object.values(state.questions)) {
+      for (const item of list) {
+        if (item.directory && keep.has(normalizeDir(item.directory))) previous.add(item.id)
+      }
+    }
+    for (const id of previous) if (!reported.has(id)) answered.delete(id)
     set(
       produce((s) => {
-        s.permissions = {}
-        s.questions = {}
+        for (const [sessionID, list] of Object.entries(s.permissions)) {
+          s.permissions[sessionID] = list.filter((item) => {
+            const dir = item.metadata?.directory
+            return typeof dir === "string" && !keep.has(normalizeDir(dir))
+          })
+          if (!s.permissions[sessionID]?.length) delete s.permissions[sessionID]
+        }
+        for (const [sessionID, list] of Object.entries(s.questions)) {
+          s.questions[sessionID] = list.filter((item) => {
+            const dir = item.directory
+            return typeof dir === "string" && !keep.has(normalizeDir(dir))
+          })
+          if (!s.questions[sessionID]?.length) delete s.questions[sessionID]
+        }
         for (const result of results) {
           for (const permission of result.permissions)
             if (!answered.has(permission.id)) (s.permissions[permission.sessionID] ??= []).push(permission)
@@ -568,6 +611,7 @@ export function createActions(
     openSession,
     loadOlder,
     loadSessions,
+    loadAllSessions,
     removeAllSessions,
     newSession,
     fork,

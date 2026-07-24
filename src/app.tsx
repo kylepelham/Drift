@@ -109,16 +109,19 @@ const dayMs = 24 * 60 * 60 * 1000
 function WorkspaceBinding() {
   const engine = useEngine()
   let lastPurge = 0
+  let permissionTick = 0
   onMount(() => void initWorkspaces())
   createEffect(() => engine.setDirectory(activeWorkspace()?.path ?? null))
   createEffect(() => {
     if (engine.state.connection !== "online") return
-    for (const workspace of workspaces()) void engine.actions.loadSessions(workspace.path)
-    refreshPermissions()
+    void engine.actions.loadAllSessions()
+    // Full sweep once on connect; the timer keeps the active workspace hot afterward.
+    void engine.actions.refreshPermissions(workspaces().map((workspace) => workspace.path))
     purge()
   })
   const timer = setInterval(() => purge(), 60 * 60 * 1000)
-  // ponytail: 10s poll; other workspaces have no event stream, this is how their asks surface
+  // Global /global/event covers live asks; this recovers asks raised while offline.
+  // Active workspace every 10s; other workspaces every 60s so instance boots stay rare.
   const permissionTimer = setInterval(() => refreshPermissions(), 10000)
   onCleanup(() => {
     clearInterval(timer)
@@ -128,7 +131,14 @@ function WorkspaceBinding() {
 
   function refreshPermissions() {
     if (engine.state.connection !== "online") return
-    void engine.actions.refreshPermissions(workspaces().map((workspace) => workspace.path))
+    const active = activeWorkspace()?.path
+    const paths = workspaces().map((workspace) => workspace.path)
+    permissionTick += 1
+    if (permissionTick % 6 === 0) {
+      void engine.actions.refreshPermissions(paths)
+      return
+    }
+    if (active) void engine.actions.refreshPermissions([active])
   }
 
   function purge() {
