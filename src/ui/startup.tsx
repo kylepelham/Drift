@@ -3,11 +3,17 @@ import type { Connection } from "../engine/connection"
 import { useEngine } from "../engine"
 import { pluginsSettled } from "../plugins"
 import { t } from "../state/i18n"
+import {
+  splashDuration,
+  splashEnabled,
+  splashExitAnimation,
+  splashMascotAnimation,
+  type SplashExitAnimation,
+} from "../state/startup"
 import { activeWorkspace, workspacesReady } from "../state/workspaces"
 import { DriftLogo } from "./logo"
 
-export const maxSplashDuration = 3200
-const splashExitDuration = 650
+const splashExitDurations: Record<SplashExitAnimation, number> = { wave: 650, fade: 340, lift: 560 }
 
 export function startupReady(input: {
   workspacesReady: boolean
@@ -40,7 +46,7 @@ export function StartupSplash() {
     if (washing()) return
     clearTimeout(ceilingTimer)
     setWashing(true)
-    exitTimer = setTimeout(finish, splashExitDuration)
+    exitTimer = setTimeout(finish, splashExitDurations[splashExitAnimation()] ?? 650)
   }
 
   createEffect(() => {
@@ -70,7 +76,7 @@ export function StartupSplash() {
   }
 
   onMount(() => {
-    ceilingTimer = setTimeout(wash, maxSplashDuration)
+    ceilingTimer = setTimeout(wash, splashDuration())
   })
   onCleanup(() => {
     clearTimeout(ceilingTimer)
@@ -78,10 +84,12 @@ export function StartupSplash() {
   })
 
   return (
-    <Show when={visible()}>
+    <Show when={splashEnabled() && visible()}>
       <div
         class="startup-splash"
         classList={{ "startup-splash-native": nativeTitlebar }}
+        data-mascot={splashMascotAnimation()}
+        data-exit={splashExitAnimation()}
         data-phase={washing() ? "washing" : "swimming"}
         role="status"
         aria-live="polite"

@@ -297,17 +297,13 @@ textarea {
   background: var(--overlay);
 }
 
-.settings-header-scrolled {
-  box-shadow: 0 10px 24px color-mix(in srgb, black 10%, transparent);
-}
-
 .settings-header-scrolled::after {
   content: "";
   position: absolute;
   inset: 100% 0 auto;
-  height: 1.5rem;
+  height: 0.9rem;
   pointer-events: none;
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--overlay) 92%, transparent), transparent);
+  background: linear-gradient(to bottom, color-mix(in srgb, black 11%, transparent), transparent 72%);
 }
 
 .dock-card {
@@ -349,6 +345,7 @@ textarea {
   isolation: isolate;
   color: var(--accent);
   background: transparent;
+  font-family: var(--startup-font, var(--ui-font));
 }
 
 .startup-splash-native {
@@ -379,7 +376,18 @@ textarea {
   color: var(--accent);
   filter: drop-shadow(0 11px 18px color-mix(in srgb, var(--accent) 24%, transparent));
   transform-origin: 50% 42%;
-  animation: startup-jelly-pulse 900ms ease-in-out infinite alternate;
+}
+
+.startup-splash[data-mascot="bounce"] .startup-jelly {
+  animation: startup-jelly-bounce 900ms ease-in-out infinite alternate;
+}
+
+.startup-splash[data-mascot="float"] .startup-jelly {
+  animation: startup-jelly-float 1.7s ease-in-out infinite alternate;
+}
+
+.startup-splash[data-mascot="pulse"] .startup-jelly {
+  animation: startup-jelly-pulse 1.2s ease-in-out infinite alternate;
 }
 
 .startup-copy {
@@ -445,11 +453,11 @@ textarea {
   background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 28%, transparent), color-mix(in srgb, var(--bg) 68%, transparent) 46%, transparent 94%);
 }
 
-.startup-splash[data-phase="washing"] {
+.startup-splash[data-phase="washing"][data-exit="wave"] {
   animation: startup-splash-exit 560ms linear forwards;
 }
 
-.startup-splash[data-phase="washing"] .startup-backdrop {
+.startup-splash[data-phase="washing"][data-exit="wave"] .startup-backdrop {
   animation: startup-backdrop-exit 560ms cubic-bezier(0.52, 0.08, 0.25, 1) forwards;
 }
 
@@ -457,29 +465,70 @@ textarea {
   animation: startup-scene-exit 260ms ease-in forwards;
 }
 
-.startup-splash[data-phase="washing"] .startup-wash {
+.startup-splash[data-phase="washing"][data-exit="wave"] .startup-wash {
   animation: startup-wash 560ms cubic-bezier(0.52, 0.08, 0.25, 1) forwards;
 }
 
-.startup-splash[data-phase="washing"] .startup-wave-back {
+.startup-splash[data-phase="washing"][data-exit="wave"] .startup-wave-back {
   animation: startup-wave-back 560ms ease-in-out forwards;
 }
 
-.startup-splash[data-phase="washing"] .startup-wave-middle {
+.startup-splash[data-phase="washing"][data-exit="wave"] .startup-wave-middle {
   animation: startup-wave-middle 560ms ease-in-out forwards;
 }
 
-.startup-splash[data-phase="washing"] .startup-wave-front {
+.startup-splash[data-phase="washing"][data-exit="wave"] .startup-wave-front {
   animation: startup-wave-front 560ms ease-in-out forwards;
 }
 
-@keyframes startup-jelly-pulse {
+@keyframes startup-jelly-bounce {
   from {
     transform: translateY(2px) rotate(-1deg) scale(0.975, 1.025);
   }
   to {
     transform: translateY(-5px) rotate(1deg) scale(1.025, 0.975);
   }
+}
+
+@keyframes startup-jelly-float {
+  from {
+    transform: translateY(3px) rotate(-2deg);
+  }
+  to {
+    transform: translateY(-7px) rotate(2deg);
+  }
+}
+
+@keyframes startup-jelly-pulse {
+  from {
+    opacity: 0.72;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+.startup-splash[data-phase="washing"][data-exit="fade"] {
+  animation: startup-splash-exit 260ms linear forwards;
+}
+
+.startup-splash[data-phase="washing"][data-exit="fade"] .startup-backdrop {
+  animation: startup-backdrop-fade 260ms ease-out forwards;
+}
+
+.startup-splash[data-phase="washing"][data-exit="fade"] .startup-wash,
+.startup-splash[data-phase="washing"][data-exit="lift"] .startup-wash {
+  display: none;
+}
+
+.startup-splash[data-phase="washing"][data-exit="lift"] {
+  animation: startup-splash-exit 480ms linear forwards;
+}
+
+.startup-splash[data-phase="washing"][data-exit="lift"] .startup-backdrop {
+  animation: startup-backdrop-lift 480ms cubic-bezier(0.52, 0.08, 0.25, 1) forwards;
 }
 
 @keyframes startup-scene-exit {
@@ -546,6 +595,12 @@ textarea {
 @keyframes startup-backdrop-fade {
   to {
     opacity: 0;
+  }
+}
+
+@keyframes startup-backdrop-lift {
+  to {
+    transform: translateY(-100%);
   }
 }
 
@@ -625,15 +680,15 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .startup-jelly {
+  .startup-splash[data-mascot] .startup-jelly {
     animation: none;
   }
 
-  .startup-splash[data-phase="washing"] {
+  .startup-splash[data-phase="washing"][data-exit] {
     animation-duration: 140ms;
   }
 
-  .startup-splash[data-phase="washing"] .startup-backdrop {
+  .startup-splash[data-phase="washing"][data-exit] .startup-backdrop {
     animation-name: startup-backdrop-fade;
     animation-duration: 140ms;
   }
