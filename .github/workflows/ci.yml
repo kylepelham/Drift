@@ -43,5 +43,8 @@ jobs:
       - name: Test
         run: bun run test
 
+      - name: Build engine
+        run: bun run build:engine
+
       - name: Native unit tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
