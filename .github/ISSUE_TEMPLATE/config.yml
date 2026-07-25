@@ -1,2 +1,8 @@
 blank_issues_enabled: true
-contact_links: []
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/kylepelham/Drift/security/advisories/new
+    about: Report security issues privately instead of opening a public issue.
+  - name: Support guide
+    url: https://github.com/kylepelham/Drift/blob/master/SUPPORT.md
+    about: Find troubleshooting guidance and choose the right support channel.

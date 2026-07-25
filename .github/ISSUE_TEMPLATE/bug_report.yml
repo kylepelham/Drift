@@ -3,6 +3,15 @@ description: Something is broken or unexpected
 title: "bug: "
 labels: ["bug"]
 body:
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before filing
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: This report does not contain a security vulnerability or unredacted secrets.
+          required: true
   - type: textarea
     id: summary
     attributes:
@@ -18,8 +27,8 @@ body:
       description: How can someone else hit this?
       placeholder: |
         1. Open Drift
-        2. …
-        3. …
+        2. ...
+        3. ...
     validations:
       required: true
   - type: textarea
@@ -38,7 +47,7 @@ body:
     id: version
     attributes:
       label: Drift version
-      description: From Settings → About, or the installer name
+      description: From Settings > About, or the installer name
       placeholder: 1.1.0
     validations:
       required: true
@@ -53,4 +62,4 @@ body:
     id: logs
     attributes:
       label: Logs / screenshots
-      description: Optional, but helpful for engine or update issues
+      description: Optional, but helpful for engine or update issues. Remove API keys, tokens, private prompts, source code, and personal data first.
