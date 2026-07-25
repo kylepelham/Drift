@@ -213,6 +213,8 @@ test("shell transcript preserves a visible command-output gap and normalizes out
     createFrameCoalescer,
     createShellTranscriptStream,
     initialToolOpen,
+    initialToolOpenForPart,
+    rememberToolOpen,
     shellAtBottom,
     shellScrollTarget,
     shellTranscript,
@@ -227,6 +229,12 @@ test("shell transcript preserves a visible command-output gap and normalizes out
   expect(initialToolOpen("read", "completed", true)).toBeFalse()
   expect(initialToolOpen("bash", "error", true)).toBeTrue()
   expect(initialToolOpen("bash", "error", false)).toBeFalse()
+  const expansionPartId = `expansion-${Date.now()}`
+  expect(initialToolOpenForPart(expansionPartId, "edit", "completed", false)).toBeFalse()
+  rememberToolOpen(expansionPartId, true)
+  expect(initialToolOpenForPart(expansionPartId, "edit", "completed", false)).toBeTrue()
+  rememberToolOpen(expansionPartId, false)
+  expect(initialToolOpenForPart(expansionPartId, "bash", "running", false)).toBeFalse()
   expect(shellAtBottom(300, 200, 501)).toBe(true)
   expect(shellAtBottom(250, 200, 501)).toBe(false)
   expect(shellScrollTarget(250, false, 700)).toBe(250)

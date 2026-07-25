@@ -324,6 +324,25 @@ export function initialToolOpen(tool: string, status: ToolPart["state"]["status"
   return tool === "bash"
 }
 
+const explicitToolOpen = new Map<string, boolean>()
+const maxExplicitToolOpen = 1000
+
+export function initialToolOpenForPart(
+  partId: string,
+  tool: string,
+  status: ToolPart["state"]["status"],
+  errorsExpanded: boolean,
+) {
+  return explicitToolOpen.get(partId) ?? initialToolOpen(tool, status, errorsExpanded)
+}
+
+export function rememberToolOpen(partId: string, open: boolean) {
+  if (explicitToolOpen.get(partId) === open) return
+  explicitToolOpen.delete(partId)
+  explicitToolOpen.set(partId, open)
+  if (explicitToolOpen.size > maxExplicitToolOpen) explicitToolOpen.delete(explicitToolOpen.keys().next().value!)
+}
+
 function diffStats(diff: string) {
   let add = 0
   let del = 0
@@ -355,9 +374,16 @@ export function ToolView(props: { part: ToolPart }) {
     return typeof value === "string" && value.trim() ? value : null
   }
   const error = () => (state().status === "error" ? (state() as { error: string }).error : null)
-  const [open, setOpen] = createSignal(initialToolOpen(props.part.tool, state().status, toolErrorsExpanded()))
+  const [open, setOpen] = createSignal(
+    initialToolOpenForPart(props.part.id, props.part.tool, state().status, toolErrorsExpanded()),
+  )
   createEffect(on(error, (value, previous) => setOpen(nextToolOpen(open(), !!previous, !!value, toolErrorsExpanded()))))
   const expanded = () => open()
+  const toggleOpen = () => {
+    const next = !open()
+    rememberToolOpen(props.part.id, next)
+    setOpen(next)
+  }
   const stats = () => {
     const patch = diff()
     return patch ? diffStats(patch) : null
@@ -374,7 +400,7 @@ export function ToolView(props: { part: ToolPart }) {
         onClick={() => {
           const childId = spawnedId()
           if (childId && state().status !== "completed" && state().status !== "error") return selectSession(childId)
-          setOpen(!open())
+          toggleOpen()
         }}
       >
         <Show when={error()}>
