@@ -92,6 +92,7 @@ import { McpManagement } from "./mcp"
 import { Toggle } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
 import { Picker } from "./picker"
+import { Chevron } from "./parts"
 import { playAlertSound, soundOptions } from "./sounds"
 
 type ProviderNotice = { tone: "success" | "warning" | "error"; text: string }
@@ -497,33 +498,53 @@ function ProvidersSection() {
     }
   })
 
-  const row = (provider: (typeof engine.state.providers)[number]) => (
-    <div class="rounded-lg" classList={{ "bg-raised/40": expanded() === provider.id }}>
+  const row = (provider: (typeof engine.state.providers)[number]) => {
+    const connected = () => engine.state.connected.includes(provider.id)
+    const open = () => expanded() === provider.id
+    return (
       <div
-        class="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-raised/60"
-        onClick={() => setExpanded(expanded() === provider.id ? null : provider.id)}
+        class="overflow-hidden rounded-xl border transition-colors"
+        classList={{
+          "border-edge bg-raised/25": open(),
+          "border-transparent": !open(),
+        }}
       >
-        <ProviderIcon id={provider.id} class="size-4 shrink-0" />
-        <span class="min-w-0 flex-1 truncate text-sm text-ink">{provider.name}</span>
-        <span
-          class="size-1.5 shrink-0 rounded-full"
-          classList={{
-            "bg-ok": engine.state.connected.includes(provider.id),
-            "bg-ink-faint": !engine.state.connected.includes(provider.id),
-          }}
-        />
+        <button
+          type="button"
+          class="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-raised/60"
+          aria-expanded={open()}
+          onClick={() => setExpanded(open() ? null : provider.id)}
+        >
+          <span class="flex size-8 shrink-0 items-center justify-center rounded-lg border border-edge bg-surface text-ink-muted shadow-sm shadow-black/10">
+            <ProviderIcon id={provider.id} class="size-4.5" />
+          </span>
+          <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{provider.name}</span>
+          <span
+            class="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[0.68rem]"
+            classList={{
+              "border-ok/25 bg-ok/10 text-ok": connected(),
+              "border-edge bg-surface/60 text-ink-faint": !connected(),
+            }}
+          >
+            <span class="size-1.5 rounded-full" classList={{ "bg-ok": connected(), "bg-ink-faint": !connected() }} />
+            {connected() ? t("mcp.status.connected") : t("drift.settings.providers.notConnected")}
+          </span>
+          <span class="text-ink-faint transition-colors group-hover:text-ink-muted">
+            <Chevron open={open()} />
+          </span>
+        </button>
+        <Show when={open()}>
+          <ProviderConnect
+            providerId={provider.id}
+            providerName={provider.name}
+            connected={connected()}
+            methods={methods()[provider.id] ?? [{ type: "api", label: t("provider.connect.method.apiKey") }]}
+            onNotice={setNotice}
+          />
+        </Show>
       </div>
-      <Show when={expanded() === provider.id}>
-        <ProviderConnect
-          providerId={provider.id}
-          providerName={provider.name}
-          connected={engine.state.connected.includes(provider.id)}
-          methods={methods()[provider.id] ?? [{ type: "api", label: t("provider.connect.method.apiKey") }]}
-          onNotice={setNotice}
-        />
-      </Show>
-    </div>
-  )
+    )
+  }
 
   return (
     <div class="space-y-1">
@@ -657,16 +678,16 @@ function ProviderConnect(props: {
   }
 
   return (
-    <div class="space-y-2 px-3 pt-1 pb-3">
+    <div class="mx-3 mb-3 space-y-3 rounded-lg border border-edge bg-surface/55 p-3 shadow-sm shadow-black/5">
       <Show when={props.methods.length > 1}>
-        <div class="flex gap-1.5">
+        <div class="flex flex-wrap gap-1 rounded-lg border border-edge bg-overlay/50 p-1">
           <For each={props.methods}>
             {(item, index) => (
               <button
-                class="rounded-md border px-2 py-0.5 text-xs transition-colors"
+                class="rounded-md px-2.5 py-1 text-xs transition-colors"
                 classList={{
-                  "border-accent text-ink": index() === methodIndex(),
-                  "border-edge text-ink-muted hover:text-ink": index() !== methodIndex(),
+                  "bg-raised text-ink shadow-sm shadow-black/10": index() === methodIndex(),
+                  "text-ink-faint hover:bg-raised/60 hover:text-ink-muted": index() !== methodIndex(),
                 }}
                 onClick={() => {
                   setMethodIndex(index())
@@ -684,14 +705,14 @@ function ProviderConnect(props: {
         <div class="flex gap-2">
           <input
             type="password"
-            class="min-w-0 flex-1 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-edge-strong"
+            class="h-9 min-w-0 flex-1 rounded-md border border-edge bg-overlay/50 px-2.5 text-sm outline-none transition-colors focus:border-edge-strong"
             placeholder={t("provider.connect.apiKey.placeholder")}
             value={key()}
             onInput={(event) => setKey(event.currentTarget.value)}
             onKeyDown={(event) => event.key === "Enter" && void connectApi()}
           />
           <button
-            class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink disabled:opacity-40"
+            class="h-9 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink transition-colors hover:brightness-105 disabled:opacity-40"
             disabled={pending() !== null || !key().trim()}
             onClick={() => void connectApi()}
           >
@@ -702,9 +723,9 @@ function ProviderConnect(props: {
       <Show when={method()?.type === "oauth"}>
         <Show
           when={authorization()}
-          fallback={
-            <button
-              class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink disabled:opacity-40"
+            fallback={
+              <button
+                class="h-9 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink transition-colors hover:brightness-105 disabled:opacity-40"
               disabled={pending() !== null}
               onClick={() => void startOauth()}
             >
@@ -721,14 +742,14 @@ function ProviderConnect(props: {
               <Show when={auth().method === "code"}>
                 <div class="flex gap-2">
                   <input
-                    class="min-w-0 flex-1 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-edge-strong"
+                    class="h-9 min-w-0 flex-1 rounded-md border border-edge bg-overlay/50 px-2.5 text-sm outline-none transition-colors focus:border-edge-strong"
                     placeholder={t("provider.connect.oauth.code.placeholder")}
                     value={code()}
                     onInput={(event) => setCode(event.currentTarget.value)}
                     onKeyDown={(event) => event.key === "Enter" && void submitCode()}
                   />
                   <button
-                    class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink disabled:opacity-40"
+                    class="h-9 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink transition-colors hover:brightness-105 disabled:opacity-40"
                     disabled={pending() !== null || !code().trim()}
                     onClick={() => void submitCode()}
                   >
@@ -747,10 +768,10 @@ function ProviderConnect(props: {
         <div class="text-xs text-danger">{error()}</div>
       </Show>
       <Show when={props.connected}>
-        <div class="flex items-center justify-between gap-3 border-t border-edge pt-2">
-          <span class="text-xs text-ink-faint">{t("drift.provider.disconnectDescription")}</span>
+        <div class="flex items-center justify-between gap-4 border-t border-edge pt-3">
+          <span class="min-w-0 text-xs leading-relaxed text-ink-faint">{t("drift.provider.disconnectDescription")}</span>
           <button
-            class="rounded-md border border-danger/40 px-2.5 py-1 text-xs text-danger transition-colors hover:bg-danger/10 disabled:opacity-40"
+            class="h-8 shrink-0 rounded-md border border-danger/40 px-3 text-xs font-medium text-danger transition-colors hover:border-danger/60 hover:bg-danger/10 disabled:opacity-40"
             disabled={pending() !== null}
             onClick={() => void disconnect()}
           >
