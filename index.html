@@ -15,15 +15,24 @@
       }
 
       .drift-preload {
-        display: grid;
+        display: flex;
         height: 100%;
-        place-items: center;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
       }
 
       .drift-preload img {
         width: 64px;
         animation: drift-preload-pulse 720ms ease-in-out infinite alternate;
         filter: drop-shadow(0 10px 22px rgb(78 184 228 / 24%));
+      }
+
+      .drift-preload span {
+        color: rgb(189 224 239 / 58%);
+        font: 400 12px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+        letter-spacing: 0.02em;
       }
 
       @keyframes drift-preload-pulse {
@@ -43,6 +52,7 @@
     <div id="root">
       <div class="drift-preload" role="status" aria-label="Starting Drift">
         <img src="/src/assets/logo.svg" alt="" />
+        <span>Opening Drift...</span>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>

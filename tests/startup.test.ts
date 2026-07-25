@@ -86,3 +86,10 @@ test("startup splash waits for workspace bootstrap without trapping empty or fai
     }),
   ).toBeTrue()
 })
+
+test("frontend mount removes the static first-paint placeholder", async () => {
+  const [entry, document] = await Promise.all([Bun.file("src/main.tsx").text(), Bun.file("index.html").text()])
+  expect(document).toContain('class="drift-preload"')
+  expect(entry).toContain("root.replaceChildren()")
+  expect(entry.indexOf("root.replaceChildren()")).toBeLessThan(entry.indexOf("render(() => <App />, root)"))
+})
