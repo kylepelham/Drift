@@ -105,7 +105,7 @@ export function EngineProvider(props: ParentProps) {
   }
 
   function startPump(path: string) {
-    if (!base || disposed) return
+    if (!base || disposed || pumpAbort) return
     client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory: path })
     set(
       produce((s) => {

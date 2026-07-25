@@ -63,6 +63,11 @@ test("concurrent global session loads share one request", async () => {
   }
 })
 
+test("engine startup does not replace an active global event pump", async () => {
+  const source = await Bun.file("src/engine/index.tsx").text()
+  expect(source).toContain("if (!base || disposed || pumpAbort) return")
+})
+
 test("startup splash waits for workspace bootstrap without trapping empty or failed startup", async () => {
   const { startupReady } = await import("../src/ui/startup")
   const input = {
