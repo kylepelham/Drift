@@ -1,7 +1,7 @@
 diff --git a/packages/opencode/src/mcp/index.ts b/packages/opencode/src/mcp/index.ts
 --- a/packages/opencode/src/mcp/index.ts
 +++ b/packages/opencode/src/mcp/index.ts
-@@ -145,6 +145,9 @@ interface State {
+@@ -146,6 +146,9 @@ interface State {
    clients: Record<string, MCPClient>
    defs: Record<string, MCPToolDef[]>
    instructions: Record<string, string>
@@ -11,7 +11,7 @@ diff --git a/packages/opencode/src/mcp/index.ts b/packages/opencode/src/mcp/inde
  }
 
  export interface ServerInstructions {
-@@ -439,6 +442,27 @@ const layer = Layer.effect(
+@@ -440,6 +443,27 @@ const layer = Layer.effect(
        Effect.catch(() => Effect.succeed([] as number[])),
      )
 
@@ -22,7 +22,7 @@ diff --git a/packages/opencode/src/mcp/index.ts b/packages/opencode/src/mcp/inde
 +
 +        const config = yield* requireMcpConfig(name).pipe(Effect.either)
 +        if (config._tag === "Left") return
-+        yield* createAndStore(name, { ...config.right, enabled: true })
++        yield* createAndStore(name, { ...config.right, enabled: true }, token)
 +        if (s.disposed || !s.desired[name] || s.reconnect[name] !== token) return
 +
 +        yield* events.publish(ToolsChanged, { server: name }).pipe(Effect.ignore)
@@ -39,7 +39,7 @@ diff --git a/packages/opencode/src/mcp/index.ts b/packages/opencode/src/mcp/inde
      function watch(s: State, name: string, client: MCPClient, bridge: EffectBridge.Shape, timeout?: number) {
        client.onclose = () => {
          if (s.clients[name] !== client) return
-@@ -446,9 +471,12 @@ const layer = Layer.effect(
+@@ -447,9 +471,12 @@ const layer = Layer.effect(
          delete s.defs[name]
          delete s.instructions[name]
          s.status[name] = { status: "failed", error: "Connection closed" }
@@ -52,7 +52,7 @@ diff --git a/packages/opencode/src/mcp/index.ts b/packages/opencode/src/mcp/inde
              Effect.ignore,
            ),
          )
-@@ -500,6 +529,9 @@ const layer = Layer.effect(
+@@ -501,6 +528,9 @@ const layer = Layer.effect(
            clients: {},
            defs: {},
            instructions: {},
@@ -62,7 +62,7 @@ diff --git a/packages/opencode/src/mcp/index.ts b/packages/opencode/src/mcp/inde
          }
 
          yield* Effect.forEach(
-@@ -511,6 +543,7 @@ const layer = Layer.effect(
+@@ -512,6 +542,7 @@ const layer = Layer.effect(
                  return
                }
 
@@ -70,7 +70,7 @@ diff --git a/packages/opencode/src/mcp/index.ts b/packages/opencode/src/mcp/inde
                if (mcp.enabled === false) {
                  s.status[key] = { status: "disabled" }
                  return
-@@ -530,6 +563,9 @@ const layer = Layer.effect(
+@@ -531,6 +562,9 @@ const layer = Layer.effect(
 
          yield* Effect.addFinalizer(() =>
            Effect.gen(function* () {
@@ -80,25 +80,71 @@ diff --git a/packages/opencode/src/mcp/index.ts b/packages/opencode/src/mcp/inde
              const clients = Object.values(s.clients)
              s.clients = {}
              s.defs = {}
-@@ -642,9 +678,11 @@ const layer = Layer.effect(
+@@ -576,8 +610,13 @@ const layer = Layer.effect(
+       listed: MCPToolDef[],
+       instructions: string | undefined,
+       timeout?: number,
++      token?: number,
+     ) {
+       const bridge = yield* EffectBridge.make()
++      if (token !== undefined && (s.disposed || s.reconnect[name] !== token)) {
++        yield* Effect.tryPromise(() => client.close()).pipe(Effect.ignore)
++        return s.status[name] ?? { status: "disabled" }
++      }
+       const previous = s.clients[name]
+       s.status[name] = { status: "connected" }
+       s.clients[name] = client
+@@ -625,10 +664,20 @@ const layer = Layer.effect(
+         }))
+     })
+
+-    const createAndStore = Effect.fn("MCP.createAndStore")(function* (name: string, mcp: ConfigMCPV1.Info) {
++    const createAndStore = Effect.fn("MCP.createAndStore")(function* (
++      name: string,
++      mcp: ConfigMCPV1.Info,
++      token?: number,
++    ) {
+       const s = yield* InstanceState.get(state)
+       const result = yield* create(name, mcp)
+
++      if (token !== undefined && (s.disposed || s.reconnect[name] !== token)) {
++        const client = result.mcpClient
++        if (client) yield* Effect.tryPromise(() => client.close()).pipe(Effect.ignore)
++        return s.status[name] ?? { status: "disabled" }
++      }
++
+       s.status[name] = result.status
+       if (!result.mcpClient) {
+         yield* closeClient(s, name)
+@@ -636,7 +685,7 @@ const layer = Layer.effect(
+         return result.status
+       }
+
+-      return yield* storeClient(s, name, result.mcpClient, result.defs!, result.instructions, mcp.timeout)
++      return yield* storeClient(s, name, result.mcpClient, result.defs!, result.instructions, mcp.timeout, token)
+     })
+
      const add = Effect.fn("MCP.add")(function* (name: string, mcp: ConfigMCPV1.Info) {
-       if (driftApprovalRequired) {
-         return { status: { status: "disabled" } as Status }
+@@ -645,18 +694,27 @@ const layer = Layer.effect(
        }
        const s = yield* InstanceState.get(state)
        s.config[name] = mcp
+-      yield* createAndStore(name, mcp)
 +      s.desired[name] = mcp.enabled !== false
-+      s.reconnect[name] = (s.reconnect[name] ?? 0) + 1
-       yield* createAndStore(name, mcp)
++      const token = (s.reconnect[name] ?? 0) + 1
++      s.reconnect[name] = token
++      yield* createAndStore(name, mcp, token)
        return { status: s.status }
      })
-@@ -648,11 +687,16 @@ const layer = Layer.effect(
+
      const connect = Effect.fn("MCP.connect")(function* (name: string) {
        const mcp = yield* requireMcpConfig(name)
+-      yield* createAndStore(name, { ...mcp, enabled: true })
 +      const s = yield* InstanceState.get(state)
 +      s.desired[name] = true
-+      s.reconnect[name] = (s.reconnect[name] ?? 0) + 1
-       yield* createAndStore(name, { ...mcp, enabled: true })
++      const token = (s.reconnect[name] ?? 0) + 1
++      s.reconnect[name] = token
++      yield* createAndStore(name, { ...mcp, enabled: true }, token)
      })
 
      const disconnect = Effect.fn("MCP.disconnect")(function* (name: string) {
@@ -112,40 +158,74 @@ diff --git a/packages/opencode/src/mcp/index.ts b/packages/opencode/src/mcp/inde
 diff --git a/packages/opencode/test/mcp/lifecycle.test.ts b/packages/opencode/test/mcp/lifecycle.test.ts
 --- a/packages/opencode/test/mcp/lifecycle.test.ts
 +++ b/packages/opencode/test/mcp/lifecycle.test.ts
-@@ -129,6 +129,7 @@ function lifecycleServer(input?: { capabilities?: ServerCapabilities; instructi
-         url: http.url.toString(),
-         sendToolListChanged: () => current.protocol.sendToolListChanged(),
-         restart: async () => {
-+          await current.protocol.close().catch(() => {})
-           current = await makeProtocol()
-         },
-         close: async () => {
-@@ -327,6 +328,47 @@ it.instance("disconnect removes protocol data and reconnect establishes a new s
+@@ -14,7 +14,7 @@ import {
+   type Tool,
+ } from "@modelcontextprotocol/sdk/types.js"
+ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+-import { Cause, Effect, Exit } from "effect"
++import { Cause, Effect, Exit, Fiber } from "effect"
+ import type { MCP as MCPNS } from "../../src/mcp/index"
+ import { MCP } from "../../src/mcp/index"
+ import { McpOAuthCallback } from "../../src/mcp/oauth-callback"
+@@ -36,6 +36,9 @@ interface LifecycleServerState {
+   resourcePages?: Record<string, Page<{ name: string; uri: string; description?: string }>>
+   resourceTemplatePages?: Record<string, Page<{ name: string; uriTemplate: string; description?: string }>>
+   listToolsError?: string
++  toolResponses?: Array<{ delay?: number; tools: Tool[] }>
++  toolRequests: number
++  toolResponsesCompleted: number
+   requestDelay?: number
+   roots?: Array<{ uri: string; name?: string }>
+   requests: string[]
+@@ -51,6 +54,8 @@ function lifecycleServer(input?: { capabilities?: ServerCapabilities; instructio
+         prompts: [],
+         resources: [],
+         resourceTemplates: [],
++        toolRequests: 0,
++        toolResponsesCompleted: 0,
+         requests: [],
+         aborted: 0,
+       }
+@@ -66,10 +71,14 @@ function lifecycleServer(input?: { capabilities?: ServerCapabilities; instructio
+         })
+
+         if (capabilities.tools) {
+-          protocol.setRequestHandler(ListToolsRequestSchema, (request) => {
++          protocol.setRequestHandler(ListToolsRequestSchema, async (request) => {
+             if (state.listToolsError) throw new Error(state.listToolsError)
++            state.toolRequests++
++            const response = state.toolResponses?.shift()
++            if (response?.delay) await Bun.sleep(response.delay)
+             const page = state.toolPages?.[request.params?.cursor ?? "initial"]
+-            return Promise.resolve({ tools: page?.items ?? state.tools, nextCursor: page?.nextCursor })
++            state.toolResponsesCompleted++
++            return { tools: response?.tools ?? page?.items ?? state.tools, nextCursor: page?.nextCursor }
+           })
+         }
+         if (capabilities.prompts) {
+@@ -327,6 +336,44 @@ it.instance("disconnect removes protocol data and reconnect establishes a new se
    }),
  )
 
-+it.instance("reconnects after transport closure until manually disconnected", () =>
++it.instance("newer reconnect wins when an older attempt finishes last", () =>
 +  Effect.gen(function* () {
-+    const server = yield* lifecycleServer()
++    const stale = yield* lifecycleServer()
++    const fresh = yield* lifecycleServer()
 +    const mcp = yield* MCP.Service
-+    yield* mcp.add("resilient-server", remote(server.url))
-+    const initialRequests = server.state.requests.length
++    stale.state.toolResponses = [{ delay: 500, tools: [{ name: "stale_tool", inputSchema: { type: "object" } }] }]
++    fresh.state.tools = [{ name: "fresh_tool", inputSchema: { type: "object" } }]
 +
-+    yield* Effect.promise(server.restart)
++    const older = yield* mcp.add("race-server", remote(stale.url)).pipe(Effect.forkChild)
 +    yield* pollWithTimeout(
-+      Effect.gen(function* () {
-+        const status = (yield* mcp.status())["resilient-server"]
-+        return status?.status === "connected" && server.state.requests.length > initialRequests ? true : undefined
-+      }),
-+      "MCP server did not reconnect after its transport closed",
++      Effect.sync(() => (stale.state.toolRequests > 0 ? true : undefined)),
++      "older MCP reconnect did not start tool discovery",
 +    )
-+    expect(Object.keys(yield* mcp.tools())).toEqual(["resilient-server_test_tool"])
++    yield* mcp.add("race-server", remote(fresh.url))
++    yield* Fiber.join(older)
 +
-+    yield* mcp.disconnect("resilient-server")
-+    const disconnectedRequests = server.state.requests.length
-+    yield* Effect.sleep(750)
-+    expect((yield* mcp.status())["resilient-server"]?.status).toBe("disabled")
-+    expect(server.state.requests.length).toBe(disconnectedRequests)
++    expect(stale.state.toolResponsesCompleted).toBe(1)
++    expect((yield* mcp.status())["race-server"]?.status).toBe("connected")
++    expect(Object.keys(yield* mcp.tools())).toEqual(["race-server_fresh_tool"])
 +  }),
 +)
 +
