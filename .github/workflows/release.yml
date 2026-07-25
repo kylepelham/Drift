@@ -30,17 +30,11 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'engine/upstream/bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
-
       - name: Install dependencies
         run: |
-          bun install
-          bun install --ignore-scripts --cwd engine/upstream
-          bun install --cwd engine/opencode
+          bun install --frozen-lockfile
+          bun install --frozen-lockfile --ignore-scripts --cwd engine/upstream
+          bun install --frozen-lockfile --cwd engine/opencode
 
       - name: Build engine
         run: bun run build:engine
