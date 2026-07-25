@@ -156,6 +156,95 @@ fn engine_status(engine: State<Engine>) -> EngineStatus {
     }
 }
 
+#[cfg(windows)]
+#[tauri::command]
+fn clipboard_write_text(window: tauri::WebviewWindow, text: String) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::GlobalFree;
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
+    };
+    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+
+    if text.is_empty() {
+        return Ok(());
+    }
+    let value = clipboard_utf16(&text);
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?.0;
+    unsafe {
+        let memory = GlobalAlloc(GMEM_MOVEABLE, value.len() * std::mem::size_of::<u16>());
+        if memory.is_null() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let target = GlobalLock(memory).cast::<u16>();
+        if target.is_null() {
+            GlobalFree(memory);
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        std::ptr::copy_nonoverlapping(value.as_ptr(), target, value.len());
+        GlobalUnlock(memory);
+
+        let history_memory = GlobalAlloc(GMEM_MOVEABLE, std::mem::size_of::<u32>());
+        if history_memory.is_null() {
+            GlobalFree(memory);
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let history_target = GlobalLock(history_memory).cast::<u32>();
+        if history_target.is_null() {
+            GlobalFree(history_memory);
+            GlobalFree(memory);
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        history_target.write(1);
+        GlobalUnlock(history_memory);
+        let history_name = clipboard_utf16("CanIncludeInClipboardHistory");
+        let history_format = RegisterClipboardFormatW(history_name.as_ptr());
+        if history_format == 0 {
+            GlobalFree(history_memory);
+            GlobalFree(memory);
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+
+        if OpenClipboard(hwnd) == 0 {
+            GlobalFree(history_memory);
+            GlobalFree(memory);
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        if EmptyClipboard() == 0 {
+            let error = std::io::Error::last_os_error().to_string();
+            CloseClipboard();
+            GlobalFree(history_memory);
+            GlobalFree(memory);
+            return Err(error);
+        }
+        const CF_UNICODETEXT: u32 = 13;
+        if SetClipboardData(CF_UNICODETEXT, memory).is_null() {
+            let error = std::io::Error::last_os_error().to_string();
+            CloseClipboard();
+            GlobalFree(history_memory);
+            GlobalFree(memory);
+            return Err(error);
+        }
+        if SetClipboardData(history_format, history_memory).is_null() {
+            let error = std::io::Error::last_os_error().to_string();
+            CloseClipboard();
+            GlobalFree(history_memory);
+            return Err(error);
+        }
+        CloseClipboard();
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn clipboard_write_text(_window: tauri::WebviewWindow, _text: String) -> Result<(), String> {
+    Ok(())
+}
+
+fn clipboard_utf16(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
 #[tauri::command]
 async fn pick_folder() -> Option<String> {
     rfd::FileDialog::new()
@@ -890,6 +979,7 @@ fn main() {
             engine_status,
             check_update,
             install_update,
+            clipboard_write_text,
             config_read,
             pick_folder,
             open_file,
@@ -971,8 +1061,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        basic_authorization, config_path, editor_arguments, editor_kind, file_signatures,
-        watched_mcp_paths, EditorKind, Engine,
+        basic_authorization, clipboard_utf16, config_path, editor_arguments, editor_kind,
+        file_signatures, watched_mcp_paths, EditorKind, Engine,
     };
     use std::path::Path;
 
@@ -1015,6 +1105,14 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert_ne!(first, second);
         assert_eq!(basic_authorization("user", "pass"), "dXNlcjpwYXNz");
+    }
+
+    #[test]
+    fn clipboard_text_is_utf16_and_null_terminated() {
+        assert_eq!(
+            clipboard_utf16("Drift \u{1fabc}"),
+            "Drift \u{1fabc}\0".encode_utf16().collect::<Vec<_>>()
+        );
     }
 
     #[test]
