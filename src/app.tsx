@@ -26,6 +26,7 @@ import { AttentionNotifier, NoticeHost } from "./ui/notifications"
 import { PaletteHost } from "./ui/palette"
 import { SettingsHost } from "./ui/settings"
 import { Sidebar } from "./ui/sidebar"
+import { StartupSplash } from "./ui/startup"
 import { Titlebar } from "./ui/titlebar"
 import { ToolContextMenuHost } from "./ui/tool-context-menu"
 
@@ -68,6 +69,7 @@ export function App() {
         <ToolContextMenuHost />
         <NoticeHost />
       </div>
+      <StartupSplash />
     </EngineProvider>
   )
 }

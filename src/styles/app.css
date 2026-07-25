@@ -336,6 +336,292 @@ textarea {
   -webkit-mask: var(--drift-logo-image) center / contain no-repeat;
 }
 
+.startup-splash {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  overflow: hidden;
+  place-items: center;
+  isolation: isolate;
+  color: #8fd9fb;
+  background: transparent;
+}
+
+.startup-backdrop {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 48%, rgb(79 176 217 / 16%), transparent 27%),
+    radial-gradient(ellipse at 50% 105%, rgb(70 134 165 / 12%), transparent 45%),
+    linear-gradient(160deg, #101a22, #0b1117 72%);
+}
+
+.startup-backdrop::before,
+.startup-backdrop::after {
+  position: absolute;
+  width: 46vmax;
+  aspect-ratio: 1.65;
+  border: 1px solid rgb(143 217 251 / 5%);
+  border-radius: 48% 52% 43% 57%;
+  content: "";
+  filter: blur(1px);
+}
+
+.startup-backdrop::before {
+  top: -28vmax;
+  left: -13vmax;
+  transform: rotate(18deg);
+}
+
+.startup-backdrop::after {
+  right: -17vmax;
+  bottom: -30vmax;
+  transform: rotate(-16deg);
+}
+
+.startup-scene {
+  position: relative;
+  z-index: 1;
+  width: 360px;
+  height: 226px;
+  max-width: calc(100vw - 32px);
+}
+
+.startup-orbit {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  width: 360px;
+  height: 180px;
+  transform-origin: top left;
+}
+
+.startup-loop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.startup-loop-base,
+.startup-loop-current,
+.startup-loop-glow {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.startup-loop-base {
+  stroke: #8fd9fb;
+  stroke-width: 1.3;
+  opacity: 0.1;
+}
+
+.startup-loop-current,
+.startup-loop-glow {
+  stroke: url("#startup-current");
+  stroke-dasharray: 76 560;
+  animation: startup-current 2.4s linear infinite;
+}
+
+.startup-loop-current {
+  stroke-width: 3;
+}
+
+.startup-loop-glow {
+  stroke-width: 13;
+  opacity: 0.22;
+  filter: blur(7px);
+}
+
+.startup-swimmer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 58px;
+  height: 58px;
+  offset-path: path("M 180 90 C 145 25 55 25 55 90 C 55 155 145 155 180 90 C 215 25 305 25 305 90 C 305 155 215 155 180 90");
+  offset-anchor: center;
+  offset-distance: 0%;
+  offset-rotate: 0deg;
+  animation: startup-swim 2.4s linear infinite;
+  will-change: offset-distance;
+}
+
+.startup-jelly {
+  width: 58px;
+  height: 58px;
+  color: #8fd9fb;
+  filter: drop-shadow(0 9px 14px rgb(65 174 219 / 28%));
+  transform-origin: 50% 42%;
+  animation: startup-jelly-pulse 720ms ease-in-out infinite alternate;
+}
+
+.startup-bubble {
+  position: absolute;
+  z-index: -1;
+  width: 5px;
+  height: 5px;
+  border: 1px solid rgb(169 231 255 / 52%);
+  border-radius: 999px;
+  opacity: 0;
+  animation: startup-bubble 1.45s ease-out infinite;
+}
+
+.startup-bubble-one {
+  top: 34px;
+  right: -1px;
+}
+
+.startup-bubble-two {
+  top: 45px;
+  right: 8px;
+  width: 3px;
+  height: 3px;
+  animation-delay: 720ms;
+}
+
+.startup-name {
+  position: absolute;
+  right: 0;
+  bottom: 3px;
+  left: 0;
+  color: rgb(189 224 239 / 58%);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.42em;
+  text-align: center;
+  text-indent: 0.42em;
+  text-transform: uppercase;
+  animation: startup-name-breathe 2.4s ease-in-out infinite;
+}
+
+.startup-wash {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: 50%;
+  width: max(132px, 12vmax);
+  aspect-ratio: 1;
+  border-radius: 43% 57% 52% 48% / 58% 46% 54% 42%;
+  opacity: 0;
+  background: radial-gradient(circle at 38% 34%, #d1f2ff, #78cceb 46%, #356f8b 76%, transparent 77%);
+  filter: blur(1px);
+  transform: translate(-50%, -50%) scale(0.1) rotate(-12deg);
+  pointer-events: none;
+}
+
+.startup-splash[data-phase="washing"] {
+  animation: startup-splash-exit 560ms linear forwards;
+}
+
+.startup-splash[data-phase="washing"] .startup-backdrop {
+  animation: startup-backdrop-exit 560ms ease-out forwards;
+}
+
+.startup-splash[data-phase="washing"] .startup-scene {
+  animation: startup-scene-exit 340ms ease-in forwards;
+}
+
+.startup-splash[data-phase="washing"] .startup-wash {
+  animation: startup-wash 560ms cubic-bezier(0.3, 0.05, 0.2, 1) forwards;
+}
+
+@keyframes startup-swim {
+  to {
+    offset-distance: 100%;
+  }
+}
+
+@keyframes startup-current {
+  to {
+    stroke-dashoffset: -636;
+  }
+}
+
+@keyframes startup-jelly-pulse {
+  from {
+    transform: rotate(-2deg) scale(0.96, 1.04) skewX(-1deg);
+  }
+  to {
+    transform: translateY(-2px) rotate(2deg) scale(1.04, 0.95) skewX(1deg);
+  }
+}
+
+@keyframes startup-bubble {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.7);
+  }
+  25% {
+    opacity: 0.65;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(11px, -17px) scale(1.15);
+  }
+}
+
+@keyframes startup-name-breathe {
+  50% {
+    color: rgb(214 240 251 / 76%);
+  }
+}
+
+@keyframes startup-scene-exit {
+  to {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes startup-backdrop-exit {
+  0%,
+  22% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes startup-wash {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.1) rotate(-12deg);
+  }
+  14% {
+    opacity: 0.92;
+  }
+  62% {
+    border-radius: 57% 43% 46% 54% / 44% 56% 42% 58%;
+    opacity: 0.72;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(17) rotate(24deg);
+  }
+}
+
+@keyframes startup-splash-exit {
+  0%,
+  99% {
+    visibility: visible;
+  }
+  100% {
+    visibility: hidden;
+  }
+}
+
+@supports not (offset-path: path("M 0 0 L 1 1")) {
+  .startup-swimmer {
+    top: 61px;
+    left: 151px;
+  }
+}
+
 .timeline-thinking {
   display: flex;
   align-items: baseline;
@@ -412,6 +698,28 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .startup-swimmer,
+  .startup-jelly,
+  .startup-bubble,
+  .startup-loop-current,
+  .startup-loop-glow,
+  .startup-name {
+    animation: none;
+  }
+
+  .startup-splash[data-phase="washing"] {
+    animation-duration: 140ms;
+  }
+
+  .startup-splash[data-phase="washing"] .startup-backdrop,
+  .startup-splash[data-phase="washing"] .startup-scene {
+    animation-duration: 140ms;
+  }
+
+  .startup-splash[data-phase="washing"] .startup-wash {
+    display: none;
+  }
+
   [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"] {
     animation: none;
   }

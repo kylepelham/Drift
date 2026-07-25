@@ -62,3 +62,27 @@ test("concurrent global session loads share one request", async () => {
     globalThis.fetch = originalFetch
   }
 })
+
+test("startup splash waits for workspace bootstrap without trapping empty or failed startup", async () => {
+  const { startupReady } = await import("../src/ui/startup")
+  const input = {
+    workspacesReady: false,
+    workspacePath: "C:/work",
+    connection: "connecting" as const,
+    bootstrappedDirectory: "",
+    startupError: "",
+  }
+
+  expect(startupReady(input)).toBeFalse()
+  expect(startupReady({ ...input, workspacesReady: true, workspacePath: null })).toBeTrue()
+  expect(startupReady({ ...input, startupError: "engine failed" })).toBeTrue()
+  expect(startupReady({ ...input, workspacesReady: true, connection: "online" })).toBeFalse()
+  expect(
+    startupReady({
+      ...input,
+      workspacesReady: true,
+      connection: "online",
+      bootstrappedDirectory: "C:/work",
+    }),
+  ).toBeTrue()
+})

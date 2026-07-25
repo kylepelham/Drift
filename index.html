@@ -5,9 +5,46 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/src/assets/logo.svg" />
     <title>Drift</title>
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+        background: #0d141b;
+      }
+
+      .drift-preload {
+        display: grid;
+        height: 100%;
+        place-items: center;
+      }
+
+      .drift-preload img {
+        width: 64px;
+        animation: drift-preload-pulse 720ms ease-in-out infinite alternate;
+        filter: drop-shadow(0 10px 22px rgb(78 184 228 / 24%));
+      }
+
+      @keyframes drift-preload-pulse {
+        to {
+          transform: translateY(-2px) scale(1.035, 0.965);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .drift-preload img {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="drift-preload" role="status" aria-label="Starting Drift">
+        <img src="/src/assets/logo.svg" alt="" />
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

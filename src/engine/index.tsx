@@ -33,32 +33,37 @@ export function EngineProvider(props: ParentProps) {
   const actions = createActions(requireClient, state, set, () => base)
 
   async function hydrate() {
+    const bootDirectory = directory ?? ""
     const api = requireClient()
-    const stale = Object.keys(state.loaded)
-    const [sessions, [statuses, providers, agents, commands]] = await Promise.all([
-      api.session.list().then((result) => {
-        putSessions(set, result.data ?? [])
-        return result
-      }),
-      Promise.all([api.session.status(), api.provider.list(), api.app.agents(), api.command.list()]),
-    ])
-    set(
-      produce((s) => {
-        const live = statuses.data ?? {}
-        for (const session of sessions.data ?? []) s.status[session.id] = live[session.id] ?? { type: "idle" }
-      }),
-    )
-    set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
-    set("connected", providers.data?.connected ?? [])
-    set("defaultModels", providers.data?.default ?? {})
-    set("agents", agents.data ?? [])
-    set("commands", commands.data ?? [])
-    await Promise.all(stale.map(reload))
-    if (!state.version && base) {
-      const health = await fetch(`${base.url}/global/health`, { headers: base.headers })
-        .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
-        .catch(() => null)
-      if (health?.version) set("version", health.version)
+    try {
+      const stale = Object.keys(state.loaded)
+      const [sessions, [statuses, providers, agents, commands]] = await Promise.all([
+        api.session.list().then((result) => {
+          putSessions(set, result.data ?? [])
+          return result
+        }),
+        Promise.all([api.session.status(), api.provider.list(), api.app.agents(), api.command.list()]),
+      ])
+      set(
+        produce((s) => {
+          const live = statuses.data ?? {}
+          for (const session of sessions.data ?? []) s.status[session.id] = live[session.id] ?? { type: "idle" }
+        }),
+      )
+      set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
+      set("connected", providers.data?.connected ?? [])
+      set("defaultModels", providers.data?.default ?? {})
+      set("agents", agents.data ?? [])
+      set("commands", commands.data ?? [])
+      await Promise.all(stale.map(reload))
+      if (!state.version && base) {
+        const health = await fetch(`${base.url}/global/health`, { headers: base.headers })
+          .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
+          .catch(() => null)
+        if (health?.version) set("version", health.version)
+      }
+    } finally {
+      if (client === api && directory === bootDirectory) set("bootstrappedDirectory", bootDirectory)
     }
   }
 
@@ -77,7 +82,7 @@ export function EngineProvider(props: ParentProps) {
         await streamEvents(target, signal, (event, eventDirectory) => {
           if (event.type === "server.connected") {
             set("connection", "online")
-            void hydrate()
+            void hydrate().catch(() => undefined)
             return
           }
           reduce(set, event, eventDirectory)
@@ -135,7 +140,7 @@ export function EngineProvider(props: ParentProps) {
     }
     client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory: path })
     set("directory", path)
-    if (state.connection === "online") void hydrate()
+    if (state.connection === "online") void hydrate().catch(() => undefined)
   }
 
   void resolveEngine()

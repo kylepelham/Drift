@@ -64,6 +64,7 @@ export type Notice = {
 export type EngineState = {
   connection: Connection
   directory: string
+  bootstrappedDirectory: string
   sessions: Record<string, Session>
   status: Record<string, SessionStatus>
   transcripts: Record<string, MessageEntry[]>
@@ -108,6 +109,7 @@ export function createEngineState() {
   return createStore<EngineState>({
     connection: "idle",
     directory: "",
+    bootstrappedDirectory: "",
     sessions: {},
     status: {},
     transcripts: {},
