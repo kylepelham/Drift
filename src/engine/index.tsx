@@ -6,7 +6,7 @@ import { resolveEngine, sleep, type EngineTarget } from "./connection"
 import { reduce } from "./events"
 import { streamEvents } from "./sse"
 import { seedBench } from "./bench"
-import { createEngineState, type EngineState, type ProviderInfo } from "./store"
+import { createEngineState, putSessions, type EngineState, type ProviderInfo } from "./store"
 
 export type Engine = { state: EngineState; actions: EngineActions; setDirectory: (path: string | null) => void }
 
@@ -35,14 +35,13 @@ export function EngineProvider(props: ParentProps) {
   async function hydrate() {
     const api = requireClient()
     const stale = Object.keys(state.loaded)
-    const [sessions, statuses, providers, agents, commands] = await Promise.all([
-      api.session.list(),
-      api.session.status(),
-      api.provider.list(),
-      api.app.agents(),
-      api.command.list(),
+    const [sessions, [statuses, providers, agents, commands]] = await Promise.all([
+      api.session.list().then((result) => {
+        putSessions(set, result.data ?? [])
+        return result
+      }),
+      Promise.all([api.session.status(), api.provider.list(), api.app.agents(), api.command.list()]),
     ])
-    for (const session of sessions.data ?? []) set("sessions", session.id, session)
     set(
       produce((s) => {
         const live = statuses.data ?? {}

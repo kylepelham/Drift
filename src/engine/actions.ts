@@ -7,6 +7,7 @@ import type { MessageEntry } from "./store"
 import {
   normalizeDir,
   putSession,
+  putSessions,
   recordLink,
   sessionBusy,
   spawnLink,
@@ -58,6 +59,7 @@ export function createActions(
   target: () => EngineTarget | undefined,
 ) {
   const pageSize = 100
+  let allSessionsRequest: Promise<void> | undefined
 
   function recordLinks(entries: { parts: { id: string }[] }[]) {
     for (const entry of entries) {
@@ -110,22 +112,30 @@ export function createActions(
 
   async function loadSessions(directory: string) {
     const result = await requireClient().session.list({ query: { directory } })
-    for (const session of result.data ?? []) putSession(set, session)
+    putSessions(set, result.data ?? [])
   }
 
   // One DB query for every workspace. Avoids booting an OpenCode instance per project.
   async function loadAllSessions() {
     const base = target()
     if (!base) return
-    const query = new URLSearchParams({ archived: "true", limit: "10000" })
-    const headers = {
-      ...base.headers,
-      ...(state.directory ? { "x-opencode-directory": encodeURIComponent(state.directory) } : {}),
+    if (allSessionsRequest) return allSessionsRequest
+    allSessionsRequest = (async () => {
+      const query = new URLSearchParams({ archived: "true", limit: "10000" })
+      const headers = {
+        ...base.headers,
+        ...(state.directory ? { "x-opencode-directory": encodeURIComponent(state.directory) } : {}),
+      }
+      const response = await fetch(`${base.url}/experimental/session?${query}`, { headers }).catch(() => null)
+      if (!response?.ok) return
+      const sessions = (await response.json().catch(() => null)) as Session[] | null
+      putSessions(set, sessions ?? [])
+    })()
+    try {
+      await allSessionsRequest
+    } finally {
+      allSessionsRequest = undefined
     }
-    const response = await fetch(`${base.url}/experimental/session?${query}`, { headers }).catch(() => null)
-    if (!response?.ok) return
-    const sessions = (await response.json().catch(() => null)) as Session[] | null
-    for (const session of sessions ?? []) putSession(set, session)
   }
 
   async function removeAllSessions(directory: string) {

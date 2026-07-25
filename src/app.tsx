@@ -1,4 +1,4 @@
-import { createEffect, onCleanup, onMount } from "solid-js"
+import { createEffect, onCleanup, onMount, untrack } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
 import { PluginHost } from "./plugins"
 import { bindCodePreferences } from "./state/code"
@@ -116,7 +116,8 @@ function WorkspaceBinding() {
     if (engine.state.connection !== "online") return
     void engine.actions.loadAllSessions()
     // Full sweep once on connect; the timer keeps the active workspace hot afterward.
-    void engine.actions.refreshPermissions(workspaces().map((workspace) => workspace.path))
+    const paths = untrack(() => workspaces().map((workspace) => workspace.path))
+    void engine.actions.refreshPermissions(paths)
     purge()
   })
   const timer = setInterval(() => purge(), 60 * 60 * 1000)

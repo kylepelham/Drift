@@ -9,7 +9,7 @@ import type {
   SessionStatus,
   Todo,
 } from "@opencode-ai/sdk/client"
-import { createStore, type SetStoreFunction } from "solid-js/store"
+import { createStore, produce, type SetStoreFunction } from "solid-js/store"
 import type { Connection } from "./connection"
 
 export type ModelInfo = Model & { family?: string; release_date?: string; variants?: Record<string, unknown> }
@@ -133,6 +133,15 @@ export function createEngineState() {
 // Store sets merge; optional keys the engine dropped (revert, share) must clear explicitly.
 export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
   set("sessions", info.id, { revert: undefined, share: undefined, ...info })
+}
+
+export function putSessions(set: SetStoreFunction<EngineState>, infos: Session[]) {
+  set(
+    "sessions",
+    produce((sessions) => {
+      for (const info of infos) sessions[info.id] = { revert: undefined, share: undefined, ...info }
+    }),
+  )
 }
 
 export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo | undefined {
