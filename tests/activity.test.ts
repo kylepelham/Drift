@@ -272,10 +272,14 @@ test("MCP engine actions propagate transport and SDK failures", async () => {
 })
 
 test("upward transcript gestures unstick immediately near the bottom", async () => {
-  const { accumulatedWheelTarget, normalizedWheelDelta, scrollGestureSticks } = await import("../src/ui/chat")
+  const { accumulatedWheelTarget, normalizedWheelDelta, scrollGestureSticks, shouldShowScrollToBottom } = await import(
+    "../src/ui/chat"
+  )
   expect(scrollGestureSticks(1000, 980, 20)).toBeFalse()
   expect(scrollGestureSticks(980, 1000, 20)).toBeTrue()
   expect(scrollGestureSticks(980, 1000, 120)).toBeFalse()
+  expect(shouldShowScrollToBottom(79)).toBeFalse()
+  expect(shouldShowScrollToBottom(80)).toBeTrue()
   expect(normalizedWheelDelta(3, 0, 800)).toBe(3)
   expect(normalizedWheelDelta(3, 1, 800)).toBe(48)
   expect(normalizedWheelDelta(2, 2, 800)).toBe(1600)

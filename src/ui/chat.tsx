@@ -5,6 +5,7 @@ import type { MessageEntry } from "../engine/store"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
+import { IconArrowDown } from "./icons"
 import { MessageView } from "./message"
 import { TextShimmer } from "./text-shimmer"
 import { DriftLogo } from "./logo"
@@ -43,6 +44,7 @@ export function Chat() {
 
   let scroller!: HTMLDivElement
   const [stick, setStick] = createSignal(true)
+  const [awayFromBottom, setAwayFromBottom] = createSignal(false)
   const [viewTop, setViewTop] = createSignal(0)
   const [viewHeight, setViewHeight] = createSignal(800)
   const heights = new Map<string, number>()
@@ -112,6 +114,7 @@ export function Chat() {
     batch(() => {
       setMeasured((value) => value + 1)
       setStick(true)
+      setAwayFromBottom(false)
       setViewTop(0)
     })
   }))
@@ -124,7 +127,14 @@ export function Chat() {
     offsets()
     sessionError()
     thinking()
-    if (untrack(stick)) queueMicrotask(() => scroller.scrollTo({ top: scroller.scrollHeight }))
+    if (untrack(stick)) {
+      queueMicrotask(() => scroller.scrollTo({ top: scroller.scrollHeight }))
+      return
+    }
+    queueMicrotask(() => {
+      const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
+      setAwayFromBottom(shouldShowScrollToBottom(distance))
+    })
   })
 
   // Only user gestures may change stickiness; programmatic snaps, browser clamps, and
@@ -165,7 +175,11 @@ export function Chat() {
     setViewHeight(scroller.clientHeight)
     if (dragging || Date.now() - gestureAt < 250) {
       const distance = scroller.scrollHeight - top - scroller.clientHeight
-      setStick(scrollGestureSticks(previous, top, distance))
+      const nextStick = scrollGestureSticks(previous, top, distance)
+      batch(() => {
+        setStick(nextStick)
+        setAwayFromBottom(!nextStick && shouldShowScrollToBottom(distance))
+      })
     }
     maybeLoadOlder(top)
   }
@@ -183,47 +197,70 @@ export function Chat() {
     })
   }
 
+  function scrollToBottom() {
+    batch(() => {
+      setStick(true)
+      setAwayFromBottom(false)
+    })
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" })
+  }
+
   return (
-    <div
-      ref={scroller}
-      class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
-      onScroll={onScroll}
-      onWheel={nativeWheel}
-      onPointerDown={(event) => {
-        gesture()
-        dragging = event.target === scroller
-      }}
-      onTouchStart={gesture}
-    >
-      <Show when={selectedSession()} keyed fallback={<EmptyState />}>
-        <div class="fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
-          <div style={{ height: `${offsets().at(-1)}px` }}>
-            <div style={{ transform: `translateY(${offsets()[range().start]}px)` }}>
-              <For each={slice()}>
-                {(entry, index) => (
-                  <Row
-                    entry={entry}
-                    next={slice()[index() + 1]}
-                    thinking={thinking()?.messageID === entry.info.id && !retry()}
-                    thinkingHeading={thinking()?.heading}
-                    retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
-                    measure={measureRow}
-                  />
-                )}
-              </For>
-            </div>
-          </div>
-          <Show when={sessionError()}>
-            {(error) => (
-              <div class="pb-6" role="alert">
-                <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger">
-                  {error()}
-                </div>
+    <div class="relative min-h-0 flex-1">
+      <div
+        ref={scroller}
+        class="h-full overflow-x-hidden overflow-y-auto"
+        onScroll={onScroll}
+        onWheel={nativeWheel}
+        onPointerDown={(event) => {
+          gesture()
+          dragging = event.target === scroller
+        }}
+        onTouchStart={gesture}
+      >
+        <Show when={selectedSession()} keyed fallback={<EmptyState />}>
+          <div class="fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
+            <div style={{ height: `${offsets().at(-1)}px` }}>
+              <div style={{ transform: `translateY(${offsets()[range().start]}px)` }}>
+                <For each={slice()}>
+                  {(entry, index) => (
+                    <Row
+                      entry={entry}
+                      next={slice()[index() + 1]}
+                      thinking={thinking()?.messageID === entry.info.id && !retry()}
+                      thinkingHeading={thinking()?.heading}
+                      retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
+                      measure={measureRow}
+                    />
+                  )}
+                </For>
               </div>
-            )}
-          </Show>
-        </div>
-      </Show>
+            </div>
+            <Show when={sessionError()}>
+              {(error) => (
+                <div class="pb-6" role="alert">
+                  <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger">
+                    {error()}
+                  </div>
+                </div>
+              )}
+            </Show>
+          </div>
+        </Show>
+      </div>
+      <button
+        type="button"
+        title="Scroll to latest message"
+        aria-label="Scroll to latest message"
+        class="group absolute bottom-4 left-1/2 z-10 flex size-9 -translate-x-1/2 items-center justify-center rounded-full border border-edge-strong bg-overlay/95 text-ink-muted shadow-lg shadow-black/25 backdrop-blur transition-[opacity,translate,background-color,border-color,color,scale] duration-200 ease-out hover:border-accent/50 hover:bg-raised hover:text-ink active:scale-95"
+        classList={{
+          "pointer-events-auto translate-y-0 opacity-100": awayFromBottom(),
+          "pointer-events-none translate-y-2 opacity-0": !awayFromBottom(),
+        }}
+        onClick={scrollToBottom}
+      >
+        <IconArrowDown class="size-4 transition-transform duration-200 group-hover:translate-y-0.5" />
+      </button>
     </div>
   )
 }
@@ -277,6 +314,10 @@ export function resizeCompensation(previous: number, next: number, rowBottom: nu
 export function scrollGestureSticks(previousTop: number, nextTop: number, distanceFromBottom: number) {
   if (nextTop < previousTop) return false
   return distanceFromBottom < 80
+}
+
+export function shouldShowScrollToBottom(distanceFromBottom: number) {
+  return distanceFromBottom >= 80
 }
 
 type RevisionPart = {
