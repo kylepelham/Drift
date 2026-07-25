@@ -93,6 +93,32 @@ test("appearance exposes static presets plus custom theming", async () => {
   setTheme("drift-dark")
 })
 
+test("settings elevation and toggle contrast follow their visual state", async () => {
+  const [settings, toggles, styles] = await Promise.all([
+    Bun.file("src/ui/settings.tsx").text(),
+    Bun.file("src/ui/model-manager.tsx").text(),
+    Bun.file("src/styles/app.css").text(),
+  ])
+  expect(settings).toContain('"settings-header-scrolled": contentScrolled()')
+  expect(settings).toContain("setContentScrolled(event.currentTarget.scrollTop > 1)")
+  expect(settings).toContain('class="flex min-w-0 flex-1 flex-col overflow-hidden"')
+  expect(styles).toContain(".settings-header-scrolled::after")
+  expect(styles).not.toContain(".settings-header::after")
+  expect(toggles).toContain('"bg-ink-muted": !props.checked')
+  expect(toggles).toContain('"translate-x-3 bg-accent-ink": props.checked')
+})
+
+test("appearance exposes persisted startup splash controls", async () => {
+  const { splashDurations, splashExitAnimations, splashMascotAnimations } = await import("../src/state/startup")
+  const settings = await Bun.file("src/ui/settings.tsx").text()
+  expect(splashMascotAnimations).toEqual(["bounce", "float", "pulse", "still"])
+  expect(splashExitAnimations).toEqual(["wave", "fade", "lift"])
+  expect(splashDurations).toEqual([1500, 3200, 5000])
+  expect(settings).toContain('title={t("startup.settings.title")}')
+  expect(settings).toContain("setSplashEnabled(!splashEnabled())")
+  expect(settings).toContain("value={splashFont()}")
+})
+
 test("code display defaults preserve source and diff structure", async () => {
   const {
     codeFontSize,

@@ -51,6 +51,23 @@ import {
 } from "../state/prefs"
 import { shellInvoke } from "../state/store"
 import {
+  setSplashDuration,
+  setSplashEnabled,
+  setSplashExitAnimation,
+  setSplashFont,
+  setSplashMascotAnimation,
+  splashDuration,
+  splashDurations,
+  splashEnabled,
+  splashExitAnimation,
+  splashExitAnimations,
+  splashFont,
+  splashMascotAnimation,
+  splashMascotAnimations,
+  type SplashExitAnimation,
+  type SplashMascotAnimation,
+} from "../state/startup"
+import {
   agentOverrideValue,
   loadPromptSnapshot,
   resetPromptOverride,
@@ -159,6 +176,7 @@ export function SettingsHost() {
 function SettingsModal(props: { onClose: () => void }) {
   let dialog!: HTMLDivElement
   const section = settingsSection
+  const [contentScrolled, setContentScrolled] = createSignal(false)
   onMount(() => onCleanup(activateModal(dialog, props.onClose)))
 
   return (
@@ -205,8 +223,11 @@ function SettingsModal(props: { onClose: () => void }) {
             )}
           </For>
         </nav>
-        <div class="flex min-w-0 flex-1 flex-col">
-          <div class="settings-header z-10 flex items-center justify-between px-5 py-3.5">
+        <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div
+            class="settings-header z-10 flex items-center justify-between px-5 py-3.5"
+            classList={{ "settings-header-scrolled": contentScrolled() }}
+          >
             <span class="min-w-0 truncate text-sm font-semibold text-ink">{t(sectionLabels[section()])}</span>
             <button
               title={t("common.close")}
@@ -216,7 +237,10 @@ function SettingsModal(props: { onClose: () => void }) {
               <IconX />
             </button>
           </div>
-          <div class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
+          <div
+            class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4"
+            onScroll={(event) => setContentScrolled(event.currentTarget.scrollTop > 1)}
+          >
             <Switch>
               <Match when={section() === "General"}>
                 <GeneralSection />
@@ -1205,6 +1229,22 @@ const customColorMeta: { id: keyof CustomTheme; label: string }[] = [
   { id: "text", label: "drift.color.text" },
   { id: "accent", label: "drift.color.accent" },
 ]
+const mascotAnimationLabels: Record<SplashMascotAnimation, string> = {
+  bounce: "startup.settings.mascot.bounce",
+  float: "startup.settings.mascot.float",
+  pulse: "startup.settings.mascot.pulse",
+  still: "startup.settings.mascot.still",
+}
+const exitAnimationLabels: Record<SplashExitAnimation, string> = {
+  wave: "startup.settings.exit.wave",
+  fade: "startup.settings.exit.fade",
+  lift: "startup.settings.exit.lift",
+}
+const durationLabels: Record<number, string> = {
+  1500: "startup.settings.duration.brief",
+  3200: "startup.settings.duration.balanced",
+  5000: "startup.settings.duration.extended",
+}
 
 function AppearanceSection() {
   return (
@@ -1251,6 +1291,64 @@ function AppearanceSection() {
         >
           <FontField label={t("settings.general.row.uiFont.title")} value={uiFont()} onInput={setUiFont} />
         </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={t("startup.settings.title")}>
+        <SettingsRow
+          title={t("startup.settings.show.title")}
+          description={t("startup.settings.show.description")}
+          onClick={() => setSplashEnabled(!splashEnabled())}
+        >
+          <Toggle
+            label={t("startup.settings.show.title")}
+            checked={splashEnabled()}
+            onChange={() => setSplashEnabled(!splashEnabled())}
+          />
+        </SettingsRow>
+        <Show when={splashEnabled()}>
+          <SettingsRow
+            title={t("startup.settings.mascot.title")}
+            description={t("startup.settings.mascot.description")}
+          >
+            <Picker
+              label={t("startup.settings.mascot.title")}
+              items={splashMascotAnimations.map((name) => ({ id: name, label: t(mascotAnimationLabels[name]) }))}
+              selected={splashMascotAnimation()}
+              floating bordered chevronAtEnd placement="below" width="10rem"
+              onPick={(value) => setSplashMascotAnimation(value as SplashMascotAnimation)}
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={t("startup.settings.exit.title")}
+            description={t("startup.settings.exit.description")}
+          >
+            <Picker
+              label={t("startup.settings.exit.title")}
+              items={splashExitAnimations.map((name) => ({ id: name, label: t(exitAnimationLabels[name]) }))}
+              selected={splashExitAnimation()}
+              floating bordered chevronAtEnd placement="below" width="10rem"
+              onPick={(value) => setSplashExitAnimation(value as SplashExitAnimation)}
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={t("startup.settings.duration.title")}
+            description={t("startup.settings.duration.description")}
+          >
+            <Picker
+              label={t("startup.settings.duration.title")}
+              items={splashDurations.map((duration) => ({ id: String(duration), label: t(durationLabels[duration]) }))}
+              selected={String(splashDuration())}
+              floating bordered chevronAtEnd placement="below" width="11rem"
+              onPick={(value) => setSplashDuration(Number(value))}
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={t("startup.settings.font.title")}
+            description={t("startup.settings.font.description")}
+          >
+            <FontField label={t("startup.settings.font.title")} value={splashFont()} onInput={setSplashFont} />
+          </SettingsRow>
+        </Show>
       </SettingsGroup>
 
       <SettingsGroup title={t("drift.settings.customCss")}>

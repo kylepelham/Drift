@@ -217,8 +217,11 @@ function ToggleTrack(props: { checked: boolean }) {
       }}
     >
       <span
-        class="absolute top-0.5 left-0.5 size-2.5 rounded-full bg-white transition-transform"
-        classList={{ "translate-x-3": props.checked }}
+        class="absolute top-0.5 left-0.5 size-2.5 rounded-full transition-[transform,background-color]"
+        classList={{
+          "translate-x-3 bg-accent-ink": props.checked,
+          "bg-ink-muted": !props.checked,
+        }}
       />
     </span>
   )

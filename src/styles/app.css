@@ -295,16 +295,15 @@ textarea {
 .settings-header {
   position: relative;
   background: var(--overlay);
-  box-shadow: 0 10px 24px color-mix(in srgb, black 10%, transparent);
 }
 
-.settings-header::after {
+.settings-header-scrolled::after {
   content: "";
   position: absolute;
   inset: 100% 0 auto;
-  height: 1.5rem;
+  height: 0.9rem;
   pointer-events: none;
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--overlay) 92%, transparent), transparent);
+  background: linear-gradient(to bottom, color-mix(in srgb, black 11%, transparent), transparent 72%);
 }
 
 .dock-card {
@@ -334,6 +333,275 @@ textarea {
   background: currentColor;
   mask: var(--drift-logo-image) center / contain no-repeat;
   -webkit-mask: var(--drift-logo-image) center / contain no-repeat;
+}
+
+.startup-splash {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  overflow: hidden;
+  place-items: center;
+  isolation: isolate;
+  color: var(--accent);
+  background: transparent;
+  font-family: var(--startup-font, var(--ui-font));
+}
+
+.startup-splash-native {
+  top: 2.25rem;
+}
+
+.startup-backdrop {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--bg) 84%, var(--surface)), var(--bg) 76%);
+  will-change: clip-path;
+}
+
+.startup-scene {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: min(320px, calc(100vw - 32px));
+}
+
+.startup-jelly {
+  width: 68px;
+  height: 68px;
+  color: var(--accent);
+  filter: drop-shadow(0 11px 18px color-mix(in srgb, var(--accent) 24%, transparent));
+  transform-origin: 50% 42%;
+}
+
+.startup-splash[data-mascot="bounce"] .startup-jelly {
+  animation: startup-jelly-bounce 900ms ease-in-out infinite alternate;
+}
+
+.startup-splash[data-mascot="float"] .startup-jelly {
+  animation: startup-jelly-float 1.7s ease-in-out infinite alternate;
+}
+
+.startup-splash[data-mascot="pulse"] .startup-jelly {
+  animation: startup-jelly-pulse 1.2s ease-in-out infinite alternate;
+}
+
+.startup-copy {
+  display: flex;
+  min-height: 42px;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+}
+
+.startup-name {
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  text-transform: uppercase;
+}
+
+.startup-status {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0.015em;
+  text-align: center;
+}
+
+.startup-wash {
+  position: absolute;
+  z-index: 2;
+  top: 100%;
+  left: -8%;
+  width: 116%;
+  height: 124px;
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.startup-wave {
+  position: absolute;
+  inset: 0;
+  display: block;
+  filter: blur(0.6px);
+  will-change: transform;
+}
+
+.startup-wave-back {
+  top: 0;
+  clip-path: polygon(0 29%, 8% 36%, 17% 21%, 27% 34%, 38% 19%, 49% 33%, 61% 22%, 73% 37%, 86% 20%, 100% 31%, 100% 100%, 0 100%);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--surface) 18%, transparent) 42%, transparent 88%);
+}
+
+.startup-wave-middle {
+  top: 13px;
+  clip-path: polygon(0 33%, 10% 22%, 20% 38%, 31% 25%, 43% 40%, 55% 23%, 67% 35%, 79% 21%, 90% 37%, 100% 27%, 100% 100%, 0 100%);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 30%, transparent), color-mix(in srgb, var(--overlay) 30%, transparent) 48%, transparent 92%);
+}
+
+.startup-wave-front {
+  top: 27px;
+  clip-path: polygon(0 26%, 9% 39%, 21% 24%, 33% 36%, 45% 20%, 57% 37%, 69% 25%, 81% 40%, 91% 23%, 100% 34%, 100% 100%, 0 100%);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 28%, transparent), color-mix(in srgb, var(--bg) 68%, transparent) 46%, transparent 94%);
+}
+
+.startup-splash[data-phase="washing"][data-exit="wave"] {
+  animation: startup-splash-exit 560ms linear forwards;
+}
+
+.startup-splash[data-phase="washing"][data-exit="wave"] .startup-backdrop {
+  animation: startup-backdrop-exit 560ms cubic-bezier(0.52, 0.08, 0.25, 1) forwards;
+}
+
+.startup-splash[data-phase="washing"] .startup-scene {
+  animation: startup-scene-exit 260ms ease-in forwards;
+}
+
+.startup-splash[data-phase="washing"][data-exit="wave"] .startup-wash {
+  animation: startup-wash 560ms cubic-bezier(0.52, 0.08, 0.25, 1) forwards;
+}
+
+.startup-splash[data-phase="washing"][data-exit="wave"] .startup-wave-back {
+  animation: startup-wave-back 560ms ease-in-out forwards;
+}
+
+.startup-splash[data-phase="washing"][data-exit="wave"] .startup-wave-middle {
+  animation: startup-wave-middle 560ms ease-in-out forwards;
+}
+
+.startup-splash[data-phase="washing"][data-exit="wave"] .startup-wave-front {
+  animation: startup-wave-front 560ms ease-in-out forwards;
+}
+
+@keyframes startup-jelly-bounce {
+  from {
+    transform: translateY(2px) rotate(-1deg) scale(0.975, 1.025);
+  }
+  to {
+    transform: translateY(-5px) rotate(1deg) scale(1.025, 0.975);
+  }
+}
+
+@keyframes startup-jelly-float {
+  from {
+    transform: translateY(3px) rotate(-2deg);
+  }
+  to {
+    transform: translateY(-7px) rotate(2deg);
+  }
+}
+
+@keyframes startup-jelly-pulse {
+  from {
+    opacity: 0.72;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+.startup-splash[data-phase="washing"][data-exit="fade"] {
+  animation: startup-splash-exit 260ms linear forwards;
+}
+
+.startup-splash[data-phase="washing"][data-exit="fade"] .startup-backdrop {
+  animation: startup-backdrop-fade 260ms ease-out forwards;
+}
+
+.startup-splash[data-phase="washing"][data-exit="fade"] .startup-wash,
+.startup-splash[data-phase="washing"][data-exit="lift"] .startup-wash {
+  display: none;
+}
+
+.startup-splash[data-phase="washing"][data-exit="lift"] {
+  animation: startup-splash-exit 480ms linear forwards;
+}
+
+.startup-splash[data-phase="washing"][data-exit="lift"] .startup-backdrop {
+  animation: startup-backdrop-lift 480ms cubic-bezier(0.52, 0.08, 0.25, 1) forwards;
+}
+
+@keyframes startup-scene-exit {
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+}
+
+@keyframes startup-backdrop-exit {
+  from {
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 88% 97%, 76% 100%, 63% 96%, 50% 100%, 37% 97%, 24% 100%, 12% 96%, 0 100%);
+  }
+  to {
+    clip-path: polygon(0 0, 100% 0, 100% 0, 88% 0, 76% 0, 63% 0, 50% 0, 37% 0, 24% 0, 12% 0, 0 0);
+  }
+}
+
+@keyframes startup-wash {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  12% {
+    opacity: 0.42;
+  }
+  70% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(calc(-100vh - 124px));
+  }
+}
+
+@keyframes startup-wave-back {
+  to {
+    transform: translateX(4%);
+  }
+}
+
+@keyframes startup-wave-middle {
+  to {
+    transform: translateX(-3%);
+  }
+}
+
+@keyframes startup-wave-front {
+  to {
+    transform: translateX(2%);
+  }
+}
+
+@keyframes startup-splash-exit {
+  0%,
+  99% {
+    visibility: visible;
+  }
+  100% {
+    visibility: hidden;
+  }
+}
+
+@keyframes startup-backdrop-fade {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes startup-backdrop-lift {
+  to {
+    transform: translateY(-100%);
+  }
 }
 
 .timeline-thinking {
@@ -412,6 +680,27 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .startup-splash[data-mascot] .startup-jelly {
+    animation: none;
+  }
+
+  .startup-splash[data-phase="washing"][data-exit] {
+    animation-duration: 140ms;
+  }
+
+  .startup-splash[data-phase="washing"][data-exit] .startup-backdrop {
+    animation-name: startup-backdrop-fade;
+    animation-duration: 140ms;
+  }
+
+  .startup-splash[data-phase="washing"] .startup-scene {
+    animation-duration: 140ms;
+  }
+
+  .startup-splash[data-phase="washing"] .startup-wash {
+    display: none;
+  }
+
   [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"] {
     animation: none;
   }

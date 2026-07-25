@@ -4,6 +4,7 @@ import { persisted } from "./persist"
 import { driftStore, type ArchivedSession, type Workspace } from "./store"
 
 const [rawWorkspaces, setWorkspaces] = createSignal<Workspace[]>([])
+const [workspacesReady, setWorkspacesReady] = createSignal(false)
 const [archivedIds, setArchivedIds] = createSignal<ReadonlySet<string>>(new Set())
 const [archivedSessions, setArchivedSessions] = createSignal<ArchivedSession[]>([])
 const [removedWorkspaces, setRemovedWorkspaces] = createSignal<Workspace[]>([])
@@ -11,7 +12,7 @@ const [activeWorkspaceId, setActiveWorkspaceId] = persisted<string | null>("drif
 const [workspaceOrder, setWorkspaceOrder] = persisted<string[]>("drift.workspace.order", [])
 const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = persisted<string[]>("drift.workspace.collapsed", [])
 
-export { archivedIds, archivedSessions, removedWorkspaces, activeWorkspaceId }
+export { archivedIds, archivedSessions, removedWorkspaces, activeWorkspaceId, workspacesReady }
 
 export function workspaces() {
   const order = workspaceOrder()
@@ -46,7 +47,11 @@ export function toggleWorkspaceCollapsed(id: string) {
 }
 
 export async function initWorkspaces() {
-  await refreshWorkspaces()
+  try {
+    await refreshWorkspaces()
+  } finally {
+    setWorkspacesReady(true)
+  }
   await refreshArchives()
 }
 

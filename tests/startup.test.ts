@@ -62,3 +62,49 @@ test("concurrent global session loads share one request", async () => {
     globalThis.fetch = originalFetch
   }
 })
+
+test("startup splash waits for workspace bootstrap without trapping empty or failed startup", async () => {
+  const { startupReady } = await import("../src/ui/startup")
+  const input = {
+    workspacesReady: false,
+    pluginsSettled: false,
+    workspacePath: "C:/work",
+    connection: "connecting" as const,
+    bootstrappedDirectory: "",
+    startupError: "",
+  }
+
+  expect(startupReady(input)).toBeFalse()
+  expect(startupReady({ ...input, workspacesReady: true, workspacePath: null })).toBeFalse()
+  expect(startupReady({ ...input, workspacesReady: true, pluginsSettled: true, workspacePath: null })).toBeTrue()
+  expect(startupReady({ ...input, startupError: "engine failed" })).toBeTrue()
+  expect(startupReady({ ...input, workspacesReady: true, pluginsSettled: true, connection: "online" })).toBeFalse()
+  expect(
+    startupReady({
+      ...input,
+      workspacesReady: true,
+      pluginsSettled: true,
+      connection: "online",
+      bootstrappedDirectory: "C:/work",
+    }),
+  ).toBeTrue()
+})
+
+test("frontend mount removes the static first-paint placeholder", async () => {
+  const [entry, document, styles] = await Promise.all([
+    Bun.file("src/main.tsx").text(),
+    Bun.file("index.html").text(),
+    Bun.file("src/styles/app.css").text(),
+  ])
+  expect(document).toContain('class="drift-preload"')
+  expect(document).toContain('localStorage.getItem("drift.theme")')
+  expect(document).toContain('localStorage.getItem("drift.splash.enabled")')
+  expect(document).toContain('localStorage.getItem("drift.splash.mascot")')
+  expect(document).toContain("var(--bg, #141517)")
+  expect(styles).toContain("color-mix(in srgb, var(--bg) 84%, var(--surface))")
+  expect(styles).toContain("color: var(--accent)")
+  expect(styles).toContain('[data-mascot="float"]')
+  expect(styles).toContain('[data-exit="lift"]')
+  expect(entry).toContain("root.replaceChildren()")
+  expect(entry.indexOf("root.replaceChildren()")).toBeLessThan(entry.indexOf("render(() => <App />, root)"))
+})
