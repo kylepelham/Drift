@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  models: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -16,6 +17,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -91,11 +94,17 @@ jobs:
             }
           } | ConvertTo-Json -Depth 8 | Set-Content "$bundle/latest.json" -Encoding utf8
 
+      - name: Generate release notes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_NOTES_MODEL: openai/gpt-4.1
+        run: bun scripts/release-notes.ts release-notes.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: Drift ${{ github.ref_name }}
-          generate_release_notes: true
+          body_path: release-notes.md
           files: |
             src-tauri/target/release/bundle/nsis/*-setup.exe
             src-tauri/target/release/bundle/nsis/*.sig
