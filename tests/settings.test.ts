@@ -93,6 +93,20 @@ test("appearance exposes static presets plus custom theming", async () => {
   setTheme("drift-dark")
 })
 
+test("settings elevation and toggle contrast follow their visual state", async () => {
+  const [settings, toggles, styles] = await Promise.all([
+    Bun.file("src/ui/settings.tsx").text(),
+    Bun.file("src/ui/model-manager.tsx").text(),
+    Bun.file("src/styles/app.css").text(),
+  ])
+  expect(settings).toContain('"settings-header-scrolled": contentScrolled()')
+  expect(settings).toContain("setContentScrolled(event.currentTarget.scrollTop > 1)")
+  expect(styles).toContain(".settings-header-scrolled::after")
+  expect(styles).not.toContain(".settings-header::after")
+  expect(toggles).toContain('"bg-ink-muted": !props.checked')
+  expect(toggles).toContain('"translate-x-3 bg-accent-ink": props.checked')
+})
+
 test("code display defaults preserve source and diff structure", async () => {
   const {
     codeFontSize,

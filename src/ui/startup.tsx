@@ -1,6 +1,7 @@
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
 import type { Connection } from "../engine/connection"
 import { useEngine } from "../engine"
+import { pluginsSettled } from "../plugins"
 import { t } from "../state/i18n"
 import { activeWorkspace, workspacesReady } from "../state/workspaces"
 import { DriftLogo } from "./logo"
@@ -10,6 +11,7 @@ const splashExitDuration = 650
 
 export function startupReady(input: {
   workspacesReady: boolean
+  pluginsSettled: boolean
   workspacePath: string | null
   connection: Connection
   bootstrappedDirectory: string
@@ -17,6 +19,7 @@ export function startupReady(input: {
 }) {
   if (input.startupError) return true
   if (!input.workspacesReady) return false
+  if (!input.pluginsSettled) return false
   if (!input.workspacePath) return true
   return input.connection === "online" && input.bootstrappedDirectory === input.workspacePath
 }
@@ -45,6 +48,7 @@ export function StartupSplash() {
     if (
       startupReady({
         workspacesReady: workspacesReady(),
+        pluginsSettled: pluginsSettled(),
         workspacePath,
         connection: engine.state.connection,
         bootstrappedDirectory: engine.state.bootstrappedDirectory,
@@ -57,10 +61,12 @@ export function StartupSplash() {
   const status = () => {
     if (washing()) return t("startup.ready")
     if (!workspacesReady()) return t("startup.workspaces")
+    if (!pluginsSettled()) return t("startup.plugins")
     const workspace = activeWorkspace()
     if (!workspace) return t("startup.ready")
     if (engine.state.connection !== "online") return t("startup.engine")
-    return t("startup.sessions")
+    if (engine.state.bootstrappedDirectory !== workspace.path) return t("startup.plugins")
+    return t("startup.ready")
   }
 
   onMount(() => {

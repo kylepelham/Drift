@@ -64,6 +64,8 @@ const renderers = new Map<string, ToolRenderer>()
 const partRenderers = new Map<string, PartRenderer>()
 const cleanups = new Set<() => void>()
 const [rendererVersion, setRendererVersion] = createSignal(0)
+const [pluginsSettled, setPluginsSettled] = createSignal(false)
+export { pluginsSettled }
 let generation = 0
 
 export function pluginPaths(source: string) {
@@ -280,10 +282,13 @@ async function loadPlugins(engine: Engine, current: number) {
 export function PluginHost(props: { engine: Engine }) {
   onMount(() => {
     const current = ++generation
+    setPluginsSettled(false)
     untrack(unloadPlugins)
-    void loadPlugins(props.engine, current).catch((error) =>
-      console.warn("[Drift] Could not load plugins", error),
-    )
+    void loadPlugins(props.engine, current)
+      .catch((error) => console.warn("[Drift] Could not load plugins", error))
+      .finally(() => {
+        if (current === generation) setPluginsSettled(true)
+      })
   })
   createEffect(() => {
     const workspace = activeWorkspace()

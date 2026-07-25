@@ -5,13 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/src/assets/logo.svg" />
     <title>Drift</title>
+    <script>
+      try {
+        const storedTheme = JSON.parse(localStorage.getItem("drift.theme") || "null")
+        if (typeof storedTheme === "string") document.documentElement.dataset.theme = storedTheme
+        const custom = JSON.parse(localStorage.getItem("drift.theme.custom") || "null")
+        const colors = {
+          background: "--custom-bg",
+          surface: "--custom-surface",
+          text: "--custom-ink",
+          accent: "--custom-accent",
+        }
+        if (custom && typeof custom === "object")
+          for (const [name, property] of Object.entries(colors))
+            if (typeof custom[name] === "string") document.documentElement.style.setProperty(property, custom[name])
+      } catch {}
+    </script>
     <style>
       html,
       body,
       #root {
         height: 100%;
         margin: 0;
-        background: #0d141b;
+        background: var(--bg, #141517);
       }
 
       .drift-preload {
@@ -23,14 +39,19 @@
         gap: 16px;
       }
 
-      .drift-preload img {
+      .drift-preload-logo {
+        display: block;
         width: 64px;
+        height: 64px;
         animation: drift-preload-pulse 720ms ease-in-out infinite alternate;
-        filter: drop-shadow(0 10px 22px rgb(78 184 228 / 24%));
+        background: var(--accent, #8fd9fb);
+        filter: drop-shadow(0 10px 22px color-mix(in srgb, var(--accent, #8fd9fb) 24%, transparent));
+        mask: url("/src/assets/logo.svg") center / contain no-repeat;
+        -webkit-mask: url("/src/assets/logo.svg") center / contain no-repeat;
       }
 
       .drift-preload span {
-        color: rgb(189 224 239 / 58%);
+        color: var(--ink-muted, rgb(189 224 239 / 58%));
         font: 400 12px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
         letter-spacing: 0.02em;
       }
@@ -42,7 +63,7 @@
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .drift-preload img {
+        .drift-preload-logo {
           animation: none;
         }
       }
@@ -51,7 +72,7 @@
   <body>
     <div id="root">
       <div class="drift-preload" role="status" aria-label="Starting Drift">
-        <img src="/src/assets/logo.svg" alt="" />
+        <span class="drift-preload-logo" aria-hidden="true"></span>
         <span>Opening Drift...</span>
       </div>
     </div>

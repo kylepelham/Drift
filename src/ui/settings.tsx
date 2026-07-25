@@ -159,6 +159,7 @@ export function SettingsHost() {
 function SettingsModal(props: { onClose: () => void }) {
   let dialog!: HTMLDivElement
   const section = settingsSection
+  const [contentScrolled, setContentScrolled] = createSignal(false)
   onMount(() => onCleanup(activateModal(dialog, props.onClose)))
 
   return (
@@ -206,7 +207,10 @@ function SettingsModal(props: { onClose: () => void }) {
           </For>
         </nav>
         <div class="flex min-w-0 flex-1 flex-col">
-          <div class="settings-header z-10 flex items-center justify-between px-5 py-3.5">
+          <div
+            class="settings-header z-10 flex items-center justify-between px-5 py-3.5"
+            classList={{ "settings-header-scrolled": contentScrolled() }}
+          >
             <span class="min-w-0 truncate text-sm font-semibold text-ink">{t(sectionLabels[section()])}</span>
             <button
               title={t("common.close")}
@@ -216,7 +220,10 @@ function SettingsModal(props: { onClose: () => void }) {
               <IconX />
             </button>
           </div>
-          <div class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
+          <div
+            class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4"
+            onScroll={(event) => setContentScrolled(event.currentTarget.scrollTop > 1)}
+          >
             <Switch>
               <Match when={section() === "General"}>
                 <GeneralSection />

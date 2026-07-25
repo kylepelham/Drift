@@ -29,6 +29,7 @@ export const dict = {
   "common.loading": "Loading",
   "startup.workspaces": "Opening your workspaces...",
   "startup.engine": "Starting the engine...",
+  "startup.plugins": "Loading plugins and threads...",
   "startup.sessions": "Gathering your threads...",
   "startup.ready": "Ready",
   "common.moreOptions": "More options",
