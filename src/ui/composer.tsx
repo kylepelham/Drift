@@ -30,6 +30,7 @@ import {
   type StagedFile,
 } from "../state/composer"
 import { selectedSession, selectSession } from "../state/selection"
+import { shellInvoke } from "../state/store"
 import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
 import { normalizeDir } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"
@@ -58,6 +59,10 @@ export function firstManualPermission(permissions: Permission[], autoAccepted: (
 
 export function focusedQuestion(questions: QuestionRequest[], requestID?: string) {
   return questions.find((question) => question.id === requestID) ?? questions[0]
+}
+
+export function composerSelection(value: string, start: number, end: number) {
+  return value.slice(Math.min(start, end), Math.max(start, end))
 }
 
 export function Composer() {
@@ -437,6 +442,14 @@ export function Composer() {
     area.style.height = `${Math.min(area.scrollHeight, 200)}px`
   }
 
+  function republishComposerSelection(event: ClipboardEvent & { currentTarget: HTMLTextAreaElement }) {
+    const target = event.currentTarget
+    const text = composerSelection(target.value, target.selectionStart, target.selectionEnd)
+    const invoke = shellInvoke()
+    if (!text || !invoke) return
+    setTimeout(() => void invoke("clipboard_write_text", { text }).catch(() => undefined), 100)
+  }
+
   const autoAcceptOn = () => {
     const id = selectedSession()
     return autoAcceptGlobal() || (!!id && autoAcceptSessions().includes(id))
@@ -688,6 +701,8 @@ export function Composer() {
             resize()
           }}
           onClick={() => updateMention()}
+          onCopy={republishComposerSelection}
+          onCut={republishComposerSelection}
           onPaste={(event) => {
             if (!event.clipboardData?.files.length) return
             event.preventDefault()

@@ -19,6 +19,13 @@ test("composer drafts are isolated by session and new-workspace scope", async ()
   clearComposerDraft(fresh)
 })
 
+test("composer clipboard publishing uses the exact selected text", async () => {
+  const { composerSelection } = await import("../src/ui/composer")
+  expect(composerSelection("first\nsecond\nthird", 6, 12)).toBe("second")
+  expect(composerSelection("abcdef", 5, 2)).toBe("cde")
+  expect(composerSelection("abcdef", 3, 3)).toBe("")
+})
+
 test("slash parsing preserves command argument mode", async () => {
   const { parseSlash, slashPresets } = await import("../src/ui/slash")
   expect(parseSlash("/fork")).toEqual({ query: "fork", args: "", separated: false })
