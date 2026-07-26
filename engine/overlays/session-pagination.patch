@@ -1,0 +1,111 @@
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/groups/experimental.ts b/packages/opencode/src/server/routes/instance/httpapi/groups/experimental.ts
+--- a/packages/opencode/src/server/routes/instance/httpapi/groups/experimental.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/groups/experimental.ts
+@@ -82,6 +82,7 @@ export const SessionListQuery = Schema.Struct({
+   roots: Schema.optional(QueryBoolean),
+   start: Schema.optional(Schema.NumberFromString),
+   cursor: Schema.optional(Schema.NumberFromString),
++  cursorID: Schema.optional(SessionID),
+   search: Schema.optional(Schema.String),
+   limit: Schema.optional(Schema.NumberFromString),
+   archived: Schema.optional(QueryBoolean),
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/experimental.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/experimental.ts
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/experimental.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/experimental.ts
+@@ -143,15 +143,19 @@ export const experimentalHandlers = HttpApiBuilder.group(RootHttpApi, "experime
+         roots: ctx.query.roots,
+         start: ctx.query.start,
+         cursor: ctx.query.cursor,
++        cursorID: ctx.query.cursorID,
+         search: ctx.query.search,
+         limit: limit + 1,
+         archived: ctx.query.archived,
+       })
+       const list = all.length > limit ? all.slice(0, limit) : all
++      const last = list[list.length - 1]
+       return HttpServerResponse.jsonUnsafe(list, {
+-        headers:
+-          all.length > limit && list.length > 0
+-            ? { "x-next-cursor": String(list[list.length - 1].time.updated) }
+-            : undefined,
++        headers: {
++          "access-control-expose-headers": "X-Next-Cursor, X-Next-Cursor-ID",
++          ...(all.length > limit && last
++            ? { "x-next-cursor": String(last.time.updated), "x-next-cursor-id": last.id }
++            : {}),
++        },
+       })
+     })
+diff --git a/packages/opencode/src/session/session.ts b/packages/opencode/src/session/session.ts
+--- a/packages/opencode/src/session/session.ts
++++ b/packages/opencode/src/session/session.ts
+@@ -315,6 +315,7 @@ export type GlobalListInput = {
+   roots?: boolean
+   start?: number
+   cursor?: number
++  cursorID?: SessionID
+   search?: string
+   limit?: number
+   archived?: boolean
+@@ -559,6 +560,14 @@ const layer: Layer.Layer<
+       if (input?.directory) conditions.push(eq(SessionTable.directory, input.directory))
+       if (input?.roots) conditions.push(isNull(SessionTable.parent_id))
+       if (input?.start) conditions.push(gte(SessionTable.time_updated, input.start))
+-      if (input?.cursor) conditions.push(lt(SessionTable.time_updated, input.cursor))
++      if (input?.cursor)
++        conditions.push(
++          input.cursorID
++            ? or(
++                lt(SessionTable.time_updated, input.cursor),
++                and(eq(SessionTable.time_updated, input.cursor), lt(SessionTable.id, input.cursorID)),
++              )!
++            : lt(SessionTable.time_updated, input.cursor),
++        )
+       if (input?.search) conditions.push(like(SessionTable.title, `%${input.search}%`))
+       if (!input?.archived) conditions.push(isNull(SessionTable.time_archived))
+diff --git a/packages/opencode/test/server/httpapi-experimental.test.ts b/packages/opencode/test/server/httpapi-experimental.test.ts
+--- a/packages/opencode/test/server/httpapi-experimental.test.ts
++++ b/packages/opencode/test/server/httpapi-experimental.test.ts
+@@ -266,5 +266,41 @@ describe("experimental HttpApi", () => {
+       }),
+     { git: true, config: { formatter: false, lsp: false } },
+   )
+-
++
++  it.instance(
++    "paginates more than 100 sessions with equal update timestamps",
++    () =>
++      Effect.gen(function* () {
++        const tmp = yield* TestInstance
++        const expected: string[] = []
++        for (let index = 0; index < 105; index++) {
++          const item = yield* createSession({ title: `same-time-${index}` })
++          expected.push(item.id)
++          yield* setSessionUpdated(item, 1000)
++        }
++
++        const found: string[] = []
++        let cursor: string | undefined
++        let cursorID: string | undefined
++        for (;;) {
++          const query = new URLSearchParams({ directory: tmp.directory, limit: "100" })
++          if (cursor) query.set("cursor", cursor)
++          if (cursorID) query.set("cursorID", cursorID)
++          const page = yield* request(`${ExperimentalPaths.session}?${query}`, tmp.directory)
++          expect(page.status).toBe(200)
++          found.push(...(yield* json<Session.GlobalInfo[]>(page)).map((item) => item.id))
++          cursor = page.headers["x-next-cursor"]
++          cursorID = page.headers["x-next-cursor-id"]
++          if (!cursor) break
++          expect(cursor).toBe("1000")
++          expect(cursorID).toBeTruthy()
++        }
++
++        expect(found).toHaveLength(expected.length)
++        expect(new Set(found).size).toBe(expected.length)
++        expect(new Set(found)).toEqual(new Set(expected))
++      }),
++    { config: { formatter: false, lsp: false } },
++  )
++
+   testWorktreeMutations(

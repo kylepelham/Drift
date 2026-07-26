@@ -1153,6 +1153,7 @@ export const drift = {
   "drift.archive.deletesSoon": "Yakında silinir",
   "drift.archive.empty": "Arşiv boş.",
   "drift.archive.retention": "Öğeler yedi gün sonra kalıcı olarak kaldırılır.",
+  "drift.archive.restoreFailed": "Öğe geri yüklenemedi",
   "drift.archive.threads": "Konular",
   "drift.archive.unknownWorkspace": "Bilinmeyen çalışma alanı",
   "drift.attachment.download": "İndir",

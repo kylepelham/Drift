@@ -1138,6 +1138,7 @@ export const drift = {
   "drift.archive.deletesSoon": "กำลังจะลบ",
   "drift.archive.empty": "ไม่มีรายการที่เก็บถาวร",
   "drift.archive.retention": "รายการจะถูกลบถาวรหลังจากเจ็ดวัน",
+  "drift.archive.restoreFailed": "ไม่สามารถกู้คืนรายการได้",
   "drift.archive.threads": "เธรด",
   "drift.archive.unknownWorkspace": "พื้นที่ทำงานที่ไม่รู้จัก",
   "drift.attachment.download": "ดาวน์โหลด",

@@ -11,7 +11,7 @@ import { initZoom } from "./state/zoom"
 import {
   activeWorkspace,
   initWorkspaces,
-  confirmDeletions,
+  finalizeDeletions,
   claimDeletions,
   releaseDeletions,
   prepareDeletions,
@@ -158,9 +158,14 @@ function WorkspaceBinding() {
       }
       const claimed = await claimDeletions(sweep.pending)
       const confirmed = await engine.actions.removePendingSessions(claimed)
-      const confirmedClaims = new Set(confirmed.map((entry) => entry.claim))
-      await releaseDeletions(claimed.filter((entry) => !confirmedClaims.has(entry.claim)))
-      await confirmDeletions(confirmed)
+      const confirmedClaims = new Set(confirmed.map((entry) => `${entry.sessionId}\0${entry.claim}`))
+      const retry = claimed.filter((entry) => !confirmedClaims.has(`${entry.sessionId}\0${entry.claim}`))
+      try {
+        await finalizeDeletions(confirmed, retry)
+      } catch (error) {
+        await releaseDeletions(claimed)
+        throw error
+      }
     })()
       .catch(() => undefined)
       .finally(() => (purging = false))

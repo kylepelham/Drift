@@ -5,6 +5,7 @@ import { t } from "../state/i18n"
 import { selectSession } from "../state/selection"
 import {
   archivedSessions,
+  refreshArchiveState,
   removedWorkspaces,
   restoreWorkspace,
   selectWorkspace,
@@ -34,6 +35,19 @@ export function ArchiveModal(props: { onClose: () => void }) {
     await unarchiveSession(sessionId)
     selectSession(sessionId)
     props.onClose()
+  }
+
+  async function restore(action: () => Promise<void>) {
+    try {
+      await action()
+    } catch (error) {
+      await refreshArchiveState().catch(() => undefined)
+      engine.actions.notice({
+        title: t("drift.archive.restoreFailed"),
+        message: error instanceof Error ? error.message : String(error),
+        variant: "error",
+      })
+    }
   }
 
   return (
@@ -74,7 +88,10 @@ export function ArchiveModal(props: { onClose: () => void }) {
                       title={workspace.name}
                       detail={`${workspace.path} · ${expiry(workspace.removedAt)}`}
                       icon={<WorkspaceIcon workspace={workspace} />}
-                      onRestore={() => void restoreWorkspace(workspace).then(props.onClose)}
+                      onRestore={() => void restore(async () => {
+                        await restoreWorkspace(workspace)
+                        props.onClose()
+                      })}
                     />
                   )}
                 </For>
@@ -90,7 +107,7 @@ export function ArchiveModal(props: { onClose: () => void }) {
                       <ArchiveRow
                         title={session()?.title || t("drift.thread.untitled")}
                         detail={`${workspace()?.name ?? t("drift.archive.unknownWorkspace")} · ${expiry(entry.archivedAt)}`}
-                        onRestore={() => void restoreThread(entry.sessionId, entry.workspaceId)}
+                        onRestore={() => void restore(() => restoreThread(entry.sessionId, entry.workspaceId))}
                       />
                     )
                   }}

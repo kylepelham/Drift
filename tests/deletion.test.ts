@@ -74,16 +74,21 @@ test("pending deletion keeps its claim when a successful delete did not remove t
 
 test("workspace purge session discovery follows every experimental session cursor", async () => {
   const [state, set] = createEngineState()
-  const cursors: (string | null)[] = []
+  const cursors: [string | null, string | null][] = []
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = new URL(String(input))
     const cursor = url.searchParams.get("cursor")
-    cursors.push(cursor)
+    const cursorID = url.searchParams.get("cursorID")
+    cursors.push([cursor, cursorID])
     if (!cursor)
-      return Response.json([{ id: "newer" }], { headers: { "x-next-cursor": "200" } })
+      return Response.json([{ id: "newer" }], {
+        headers: { "x-next-cursor": "200", "x-next-cursor-id": "newer" },
+      })
     if (cursor === "200")
-      return Response.json([{ id: "older" }], { headers: { "x-next-cursor": "100" } })
+      return Response.json([{ id: "older" }], {
+        headers: { "x-next-cursor": "100", "x-next-cursor-id": "older" },
+      })
     return Response.json([{ id: "oldest" }])
   }) as typeof fetch
   try {
@@ -94,7 +99,11 @@ test("workspace purge session discovery follows every experimental session curso
       () => ({ url: "http://engine.test" }),
     )
     expect(await actions.sessionIdsAt("C:/purge")).toEqual(["newer", "older", "oldest"])
-    expect(cursors).toEqual([null, "200", "100"])
+    expect(cursors).toEqual([
+      [null, null],
+      ["200", "newer"],
+      ["100", "older"],
+    ])
   } finally {
     globalThis.fetch = originalFetch
   }

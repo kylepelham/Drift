@@ -1156,6 +1156,7 @@ export const drift = {
   "drift.archive.deletesSoon": "Незабаром буде видалено",
   "drift.archive.empty": "В архіві порожньо.",
   "drift.archive.retention": "Елементи остаточно видаляються через сім днів.",
+  "drift.archive.restoreFailed": "Не вдалося відновити елемент",
   "drift.archive.threads": "Гілки",
   "drift.archive.unknownWorkspace": "Невідомий робочий простір",
   "drift.attachment.download": "Завантажити",

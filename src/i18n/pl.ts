@@ -1077,6 +1077,7 @@ export const drift = {
   "drift.archive.deletesSoon": "Wkrótce zostanie usunięte",
   "drift.archive.empty": "Brak zarchiwizowanych elementów.",
   "drift.archive.retention": "Elementy są trwale usuwane po siedmiu dniach.",
+  "drift.archive.restoreFailed": "Nie udało się przywrócić elementu",
   "drift.archive.threads": "Wątki",
   "drift.archive.unknownWorkspace": "Nieznany obszar roboczy",
   "drift.attachment.download": "Pobierz",

@@ -1066,6 +1066,7 @@ export const drift = {
   "drift.archive.deletesSoon": "곧 삭제됨",
   "drift.archive.empty": "보관된 항목이 없습니다.",
   "drift.archive.retention": "항목은 7일 후 영구 삭제됩니다.",
+  "drift.archive.restoreFailed": "항목을 복원할 수 없습니다",
   "drift.archive.threads": "스레드",
   "drift.archive.unknownWorkspace": "알 수 없는 작업 공간",
   "drift.attachment.download": "다운로드",

@@ -216,10 +216,12 @@ export function createActions(
     const sessions: Session[] = []
     const cursors = new Set<string>()
     let cursor: string | undefined
+    let cursorID: string | undefined
     for (;;) {
       const query = new URLSearchParams({ archived: "true", limit: "100" })
       if (directory) query.set("directory", directory)
       if (cursor) query.set("cursor", cursor)
+      if (cursorID) query.set("cursorID", cursorID)
       const response = await fetch(`${base.url}/experimental/session?${query}`, { headers: base.headers }).catch(
         () => null,
       )
@@ -228,10 +230,13 @@ export function createActions(
       if (!page) return null
       sessions.push(...page)
       const next = response.headers.get("x-next-cursor") ?? undefined
+      const nextID = response.headers.get("x-next-cursor-id") ?? undefined
       if (!next) return sessions
-      if (cursors.has(next)) return null
-      cursors.add(next)
+      const key = `${next}\0${nextID ?? ""}`
+      if (cursors.has(key)) return null
+      cursors.add(key)
       cursor = next
+      cursorID = nextID
     }
   }
 

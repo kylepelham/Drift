@@ -1125,6 +1125,7 @@ export const drift = {
   "drift.archive.deletesSoon": "即将删除",
   "drift.archive.empty": "没有归档内容。",
   "drift.archive.retention": "项目将在七天后永久删除。",
+  "drift.archive.restoreFailed": "无法还原项目",
   "drift.archive.threads": "会话",
   "drift.archive.unknownWorkspace": "未知工作区",
   "drift.attachment.download": "下载",

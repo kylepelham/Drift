@@ -71,6 +71,10 @@ async function refreshArchives() {
   setArchivedIds(new Set(sessions.map((entry) => entry.sessionId)))
 }
 
+export function refreshArchiveState() {
+  return Promise.all([refreshWorkspaces(), refreshArchives()])
+}
+
 export function selectWorkspace(id: string) {
   if (activeWorkspaceId() !== id) selectSession(null)
   setActiveWorkspaceId(id)
@@ -148,4 +152,12 @@ export async function confirmDeletions(entries: PendingSessionDeletion[]) {
   await driftStore.confirmDeletions(entries)
   await refreshArchives()
   await refreshWorkspaces()
+}
+
+export async function finalizeDeletions(
+  confirmed: PendingSessionDeletion[],
+  retry: PendingSessionDeletion[],
+) {
+  await driftStore.finalizeDeletions(confirmed, retry)
+  await refreshArchiveState()
 }

@@ -1068,6 +1068,7 @@ export const drift = {
   "drift.archive.deletesSoon": "まもなく削除",
   "drift.archive.empty": "アーカイブされた項目はありません。",
   "drift.archive.retention": "項目は7日後に完全に削除されます。",
+  "drift.archive.restoreFailed": "項目を復元できませんでした",
   "drift.archive.threads": "スレッド",
   "drift.archive.unknownWorkspace": "不明なワークスペース",
   "drift.attachment.download": "ダウンロード",

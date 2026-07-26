@@ -403,7 +403,7 @@ fn store_add_workspace(
 ) -> Result<Workspace, String> {
     store
         .add_workspace(&id, &path, &name, &icon)
-        .map_err(|e| e.to_string())
+        .map_err(restore_store_error)
 }
 
 #[tauri::command]
@@ -470,6 +470,17 @@ fn store_confirm_deletions(
 }
 
 #[tauri::command]
+fn store_finalize_deletions(
+    store: State<Store>,
+    confirmed: Vec<PendingSessionDeletion>,
+    retry: Vec<PendingSessionDeletion>,
+) -> Result<(), String> {
+    store
+        .finalize_deletions(&confirmed, &retry)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn store_archived(store: State<Store>) -> Result<Vec<ArchivedSession>, String> {
     store.archived().map_err(|e| e.to_string())
 }
@@ -489,7 +500,14 @@ fn store_archive_session(
 fn store_unarchive_session(store: State<Store>, session_id: String) -> Result<(), String> {
     store
         .unarchive_session(&session_id)
-        .map_err(|e| e.to_string())
+        .map_err(restore_store_error)
+}
+
+fn restore_store_error(error: rusqlite::Error) -> String {
+    if matches!(error, rusqlite::Error::InvalidQuery) {
+        return "Deletion is in progress. Wait for it to finish, then try restoring again.".into();
+    }
+    error.to_string()
 }
 
 #[tauri::command]
@@ -1134,6 +1152,7 @@ fn main() {
             store_claim_deletions,
             store_release_deletions,
             store_confirm_deletions,
+            store_finalize_deletions,
             store_archived,
             store_archive_session,
             store_unarchive_session,
@@ -1206,8 +1225,8 @@ fn main() {
 mod tests {
     use super::{
         basic_authorization, clipboard_utf16, config_path, editor_arguments, editor_kind,
-        engine_password, file_signatures, publish_engine_child, restart_delay, watched_mcp_paths,
-        EditorKind, Engine, MAX_ENGINE_RESTARTS,
+        engine_password, file_signatures, publish_engine_child, restart_delay, restore_store_error,
+        watched_mcp_paths, EditorKind, Engine, MAX_ENGINE_RESTARTS,
     };
     use std::path::Path;
     use std::process::{Command, Stdio};
@@ -1252,6 +1271,14 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert_ne!(first, second);
         assert_eq!(basic_authorization("user", "pass"), "dXNlcjpwYXNz");
+    }
+
+    #[test]
+    fn restore_claim_conflicts_have_actionable_errors() {
+        assert_eq!(
+            restore_store_error(rusqlite::Error::InvalidQuery),
+            "Deletion is in progress. Wait for it to finish, then try restoring again."
+        );
     }
 
     #[test]

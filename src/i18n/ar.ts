@@ -1059,6 +1059,7 @@ export const drift = {
   "drift.archive.deletesSoon": "سيُحذف قريبًا",
   "drift.archive.empty": "لا توجد عناصر مؤرشفة.",
   "drift.archive.retention": "تُزال العناصر نهائيًا بعد سبعة أيام.",
+  "drift.archive.restoreFailed": "تعذر استعادة العنصر",
   "drift.archive.threads": "المحادثات",
   "drift.archive.unknownWorkspace": "مساحة عمل غير معروفة",
   "drift.attachment.download": "تنزيل",

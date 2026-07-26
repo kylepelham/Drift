@@ -1160,6 +1160,7 @@ export const drift = {
   "drift.archive.deletesSoon": "Slettes snart",
   "drift.archive.empty": "Ingenting er arkivert.",
   "drift.archive.retention": "Elementer fjernes permanent etter syv dager.",
+  "drift.archive.restoreFailed": "Kunne ikke gjenopprette elementet",
   "drift.archive.threads": "Tråder",
   "drift.archive.unknownWorkspace": "Ukjent arbeidsområde",
   "drift.attachment.download": "Last ned",

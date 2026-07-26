@@ -1084,6 +1084,7 @@ export const drift = {
   "drift.archive.deletesSoon": "Wird bald gelöscht",
   "drift.archive.empty": "Nichts archiviert.",
   "drift.archive.retention": "Elemente werden nach sieben Tagen dauerhaft entfernt.",
+  "drift.archive.restoreFailed": "Element konnte nicht wiederhergestellt werden",
   "drift.archive.threads": "Threads",
   "drift.archive.unknownWorkspace": "Unbekannter Arbeitsbereich",
   "drift.attachment.download": "Herunterladen",

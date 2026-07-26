@@ -30,6 +30,7 @@ export interface DriftStore {
   claimDeletions(entries: PendingSessionDeletion[]): Promise<PendingSessionDeletion[]>
   releaseDeletions(entries: PendingSessionDeletion[]): Promise<void>
   confirmDeletions(entries: PendingSessionDeletion[]): Promise<void>
+  finalizeDeletions(confirmed: PendingSessionDeletion[], retry: PendingSessionDeletion[]): Promise<void>
   archived(): Promise<ArchivedSession[]>
   archiveSession(sessionId: string, workspaceId: string): Promise<void>
   unarchiveSession(sessionId: string): Promise<void>
@@ -61,6 +62,7 @@ function shellStore(invoke: Invoke): DriftStore {
     claimDeletions: (entries) => invoke("store_claim_deletions", { entries }),
     releaseDeletions: (entries) => invoke("store_release_deletions", { entries }),
     confirmDeletions: (entries) => invoke("store_confirm_deletions", { entries }),
+    finalizeDeletions: (confirmed, retry) => invoke("store_finalize_deletions", { confirmed, retry }),
     archived: () => invoke("store_archived"),
     archiveSession: (sessionId, workspaceId) => invoke("store_archive_session", { sessionId, workspaceId }),
     unarchiveSession: (sessionId) => invoke("store_unarchive_session", { sessionId }),
@@ -104,7 +106,7 @@ function browserStore(): DriftStore {
       const existing = all().find((x) => x.path === w.path)
       if (existing) {
         if (read<BrowserDeletion[]>(pendingKey, []).some((entry) => entry.workspaceId === existing.id && entry.claimed))
-          throw new Error("Workspace deletion is in progress")
+          throw new Error("Deletion is in progress. Wait for it to finish, then try restoring again.")
         const restored = { ...existing, removedAt: undefined, purgeStagedAt: undefined, lastUsed: Date.now() }
         write(wsKey, [...all().filter((x) => x.id !== existing.id), restored])
         write(
@@ -216,6 +218,33 @@ function browserStore(): DriftStore {
         ),
       )
     },
+    finalizeDeletions: async (confirmed, retry) => {
+      const released = new Map(retry.map((entry) => [entry.sessionId, entry.claim]))
+      const removed = new Map(confirmed.map((entry) => [entry.sessionId, entry.claim]))
+      const pending = read<BrowserDeletion[]>(pendingKey, [])
+      for (const entry of pending) {
+        if (!entry.claimed || released.get(entry.sessionId) !== entry.claim) continue
+        entry.claim = crypto.randomUUID()
+        entry.claimed = false
+      }
+      const remaining = pending.filter((entry) => !entry.claimed || removed.get(entry.sessionId) !== entry.claim)
+      write(pendingKey, remaining)
+      const confirmedIDs = new Set(
+        confirmed
+          .filter((entry) => !remaining.some((item) => item.sessionId === entry.sessionId))
+          .map((entry) => entry.sessionId),
+      )
+      write(arKey, read<ArchivedSession[]>(arKey, []).filter((entry) => !confirmedIDs.has(entry.sessionId)))
+      write(
+        wsKey,
+        all().filter(
+          (workspace) =>
+            !workspace.removedAt ||
+            !workspace.purgeStagedAt ||
+            remaining.some((entry) => entry.workspaceId === workspace.id),
+        ),
+      )
+    },
     archived: async () => read<ArchivedSession[]>(arKey, []),
     archiveSession: async (sessionId, workspaceId) => {
       const list = read<ArchivedSession[]>(arKey, []).filter((a) => a.sessionId !== sessionId)
@@ -223,7 +252,7 @@ function browserStore(): DriftStore {
     },
     unarchiveSession: async (sessionId) => {
       if (read<BrowserDeletion[]>(pendingKey, []).some((entry) => entry.sessionId === sessionId && entry.claimed))
-        throw new Error("Session deletion is in progress")
+        throw new Error("Deletion is in progress. Wait for it to finish, then try restoring again.")
       write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => a.sessionId !== sessionId))
       write(
         pendingKey,

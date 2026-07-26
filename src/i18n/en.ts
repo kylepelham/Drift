@@ -316,6 +316,7 @@ export const drift = {
   "drift.archive.deletesSoon": "Deletes soon",
   "drift.archive.empty": "Nothing archived.",
   "drift.archive.retention": "Items are permanently removed after seven days.",
+  "drift.archive.restoreFailed": "Could not restore item",
   "drift.archive.threads": "Threads",
   "drift.archive.unknownWorkspace": "Unknown workspace",
   "drift.attachment.download": "Download",

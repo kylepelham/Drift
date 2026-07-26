@@ -1090,6 +1090,7 @@ export const drift = {
   "drift.archive.deletesSoon": "Suppression imminente",
   "drift.archive.empty": "Aucun élément archivé.",
   "drift.archive.retention": "Les éléments sont supprimés définitivement après sept jours.",
+  "drift.archive.restoreFailed": "Impossible de restaurer l'élément",
   "drift.archive.threads": "Discussions",
   "drift.archive.unknownWorkspace": "Espace de travail inconnu",
   "drift.attachment.download": "Télécharger",

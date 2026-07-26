@@ -626,6 +626,44 @@ impl Store {
         tx.commit()
     }
 
+    pub fn finalize_deletions(
+        &self,
+        confirmed: &[PendingSessionDeletion],
+        retry: &[PendingSessionDeletion],
+    ) -> rusqlite::Result<()> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        for entry in retry {
+            tx.execute(
+                "UPDATE pending_session_delete SET claim = ?3, claimed_at = NULL
+                 WHERE session_id = ?1 AND claim = ?2 AND claimed_at IS NOT NULL",
+                params![entry.session_id, entry.claim, deletion_claim()],
+            )?;
+        }
+        for entry in confirmed {
+            let removed = tx.execute(
+                "DELETE FROM pending_session_delete
+                 WHERE session_id = ?1 AND claim = ?2 AND claimed_at IS NOT NULL",
+                params![entry.session_id, entry.claim],
+            )?;
+            if removed == 1 {
+                tx.execute(
+                    "DELETE FROM session_meta WHERE session_id = ?1",
+                    [&entry.session_id],
+                )?;
+            }
+        }
+        tx.execute(
+            "DELETE FROM workspace
+             WHERE removed_at IS NOT NULL AND purge_staged_at IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM pending_session_delete pending WHERE pending.workspace_id = workspace.id
+               )",
+            [],
+        )?;
+        tx.commit()
+    }
+
     pub fn mcp_state(&self) -> rusqlite::Result<McpState> {
         let conn = self.0.lock().unwrap();
         let generation =
@@ -1035,6 +1073,43 @@ mod tests {
             .is_empty());
         store.confirm_deletions(&[workspace_claim]).unwrap();
         assert_eq!(store.workspaces().unwrap().len(), 1);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn deletion_finalization_confirms_and_rotates_exact_claims_together() {
+        let dir = std::env::temp_dir().join(format!("drift-finalize-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = open_at(&dir.join("drift.db")).unwrap();
+        store
+            .add_workspace("w1", "S:/finalize", "Finalize", "")
+            .unwrap();
+        store.archive_session("confirmed", "w1").unwrap();
+        store.archive_session("retry", "w1").unwrap();
+        let pending = store.prepare_deletions(now() + 1000).unwrap().pending;
+        let claimed = store.claim_deletions(&pending).unwrap();
+        let confirmed = claimed
+            .iter()
+            .find(|entry| entry.session_id == "confirmed")
+            .unwrap()
+            .clone();
+        let retry = claimed
+            .iter()
+            .find(|entry| entry.session_id == "retry")
+            .unwrap()
+            .clone();
+
+        store
+            .finalize_deletions(&[confirmed], &[retry.clone()])
+            .unwrap();
+
+        assert_eq!(store.archived().unwrap()[0].session_id, "retry");
+        let pending = store.prepare_deletions(now() + 1000).unwrap().pending;
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].session_id, "retry");
+        assert_ne!(pending[0].claim, retry.claim);
+        assert!(store.claim_deletions(&[retry]).unwrap().is_empty());
         std::fs::remove_dir_all(dir).ok();
     }
 

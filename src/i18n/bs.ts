@@ -1151,6 +1151,7 @@ export const drift = {
   "drift.archive.deletesSoon": "Uskoro se briše",
   "drift.archive.empty": "Arhiva je prazna.",
   "drift.archive.retention": "Stavke se trajno uklanjaju nakon sedam dana.",
+  "drift.archive.restoreFailed": "Nije moguće vratiti stavku",
   "drift.archive.threads": "Razgovori",
   "drift.archive.unknownWorkspace": "Nepoznat radni prostor",
   "drift.attachment.download": "Preuzmi",
