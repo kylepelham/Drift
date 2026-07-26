@@ -1,8 +1,64 @@
 import { expect, test } from "bun:test"
+import { spawn } from "node:child_process"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import {
+  acquireEngineOverlayLock,
+  releaseEngineOverlayLock,
   runWithEngineOverlays,
   type EngineOverlayOperations,
 } from "../scripts/engine-overlays"
+
+const lockWorker = path.join(import.meta.dirname, "fixtures", "engine-overlay-lock-worker.ts")
+const workerErrors = new WeakMap<ReturnType<typeof spawn>, Buffer[]>()
+
+function exists(file: string) {
+  return existsSync(file)
+}
+
+async function waitFor(file: string, timeout = 5_000) {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    if (exists(file)) return
+    await Bun.sleep(20)
+  }
+  throw new Error(`Timed out waiting for ${file}`)
+}
+
+function worker(input: Record<string, unknown>) {
+  const child = spawn(process.execPath, [lockWorker, JSON.stringify(input)], { stdio: "pipe" })
+  const errors: Buffer[] = []
+  child.stderr?.on("data", (data) => errors.push(Buffer.from(data)))
+  workerErrors.set(child, errors)
+  return child
+}
+
+function assertRunning(child: ReturnType<typeof worker>) {
+  if (child.exitCode === null) return
+  throw new Error(Buffer.concat(workerErrors.get(child) ?? []).toString() || `Lock worker exited ${child.exitCode}`)
+}
+
+async function stop(child: ReturnType<typeof worker>) {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  const closed = new Promise<void>((resolve) => child.once("close", () => resolve()))
+  if (process.platform === "win32" && child.pid) {
+    await new Promise<void>((resolve) =>
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"]).once("close", () => resolve()),
+    )
+  }
+  child.kill()
+  await closed
+}
+
+function acquired(file: string) {
+  try {
+    return readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+    throw error
+  }
+}
 
 function messages(error: unknown): string[] {
   if (error instanceof AggregateError) return [error.message, ...error.errors.flatMap(messages)]
@@ -137,4 +193,91 @@ test("clean success restores overlays and releases the lock", async () => {
     "reverse:one.patch",
     "unlock",
   ])
+})
+
+test("a live lock excludes another process", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-lock-"))
+  const lock = path.join(directory, "lock")
+  const acquisitions = path.join(directory, "acquired")
+  const firstReady = path.join(directory, "first-ready")
+  const secondReady = path.join(directory, "second-ready")
+  const first = worker({ lock, acquired: acquisitions, ready: firstReady, holdMs: 20_000 })
+  let second: ReturnType<typeof worker> | undefined
+
+  try {
+    await waitFor(firstReady)
+    second = worker({ lock, acquired: acquisitions, ready: secondReady, holdMs: 20_000 })
+    await Bun.sleep(500)
+    expect(acquired(acquisitions)).toHaveLength(1)
+    expect(exists(secondReady)).toBe(false)
+    assertRunning(first)
+    assertRunning(second)
+  } finally {
+    await Promise.all([stop(first), second ? stop(second) : Promise.resolve()])
+    rmSync(directory, { recursive: true, force: true })
+  }
+}, 10_000)
+
+test("two processes racing stale takeover admit exactly one writer", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-stale-lock-"))
+  const lock = path.join(directory, "lock")
+  const synchronization = path.join(directory, "dead-checks")
+  const acquisitions = path.join(directory, "acquired")
+  mkdirSync(lock)
+  mkdirSync(synchronization)
+
+  const exited = spawn(process.execPath, ["-e", ""])
+  await new Promise<void>((resolve) => exited.once("close", () => resolve()))
+  writeFileSync(
+    path.join(lock, "owner.json"),
+    JSON.stringify({ pid: exited.pid, token: "00000000-0000-4000-8000-000000000001" }),
+  )
+
+  const first = worker({
+    lock,
+    acquired: acquisitions,
+    ready: path.join(directory, "first-ready"),
+    synchronizeDeadCheck: synchronization,
+    holdMs: 20_000,
+  })
+  const second = worker({
+    lock,
+    acquired: acquisitions,
+    ready: path.join(directory, "second-ready"),
+    synchronizeDeadCheck: synchronization,
+    holdMs: 20_000,
+  })
+
+  try {
+    await waitFor(acquisitions)
+    await Bun.sleep(500)
+    expect(acquired(acquisitions)).toHaveLength(1)
+    expect(exists(path.join(`${lock}-reclaimed`, "00000000-0000-4000-8000-000000000001"))).toBe(true)
+    assertRunning(first)
+    assertRunning(second)
+  } finally {
+    await Promise.all([stop(first), stop(second)])
+    rmSync(directory, { recursive: true, force: true })
+  }
+}, 10_000)
+
+test("a crash between stale quarantine and claim leaves the lock claimable", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-reclaim-crash-"))
+  const lock = path.join(directory, "lock")
+  const tombstone = path.join(`${lock}-reclaimed`, "00000000-0000-4000-8000-000000000001")
+  mkdirSync(tombstone, { recursive: true })
+  writeFileSync(
+    path.join(tombstone, "owner.json"),
+    JSON.stringify({ pid: process.pid + 1, token: "00000000-0000-4000-8000-000000000001" }),
+  )
+
+  try {
+    await acquireEngineOverlayLock(lock)
+    expect(exists(lock)).toBe(true)
+    releaseEngineOverlayLock(lock)
+    expect(exists(lock)).toBe(false)
+    expect(exists(tombstone)).toBe(true)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
 })

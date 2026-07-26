@@ -18,11 +18,13 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   the subtree. Build and engine-test commands apply them under a process lock and reverse
   every applied patch after the command, including recovery after an interrupted prior
   command. Restoration failures fail the command, preserve callback and cleanup errors,
-  and retain `engine/.overlay-lock` until a later run proves the subtree is pristine. On
-  startup, only a fully applied patch is recovered automatically; an indeterminate patch
-  state fails with a manual-recovery error instead of being silently skipped. A patch that
-  no longer applies fails with an explicit refresh message instead of creating a subtree
-  merge conflict.
+  and retain `engine/.overlay-lock` until a later run proves the subtree is pristine. Dead
+  lock generations are atomically moved to ignored UUID tombstones before a new owner can
+  claim the lock; retaining those tombstones prevents delayed stale contenders from moving
+  a newer live lock. On startup, only a fully applied patch is recovered automatically; an
+  indeterminate patch state fails with a manual-recovery error instead of being silently
+  skipped. A patch that no longer applies fails with an explicit refresh message instead of
+  creating a subtree merge conflict.
 - Dev: `bun run dev` creates an ephemeral fail-closed MCP policy, spawns
   `drift-engine.exe serve --hostname 127.0.0.1 --port 4096` (cwd = repo root), and
   gives the engine and Vite a random shared password.

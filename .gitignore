@@ -13,3 +13,4 @@ examples/
 .vite.log
 .tauri.log
 .tauri/
+engine/.overlay-lock-reclaimed/
