@@ -22,6 +22,7 @@ import {
   composerDraft,
   composerHistory,
   composerScope,
+  migrateComposerDraft,
   navigateComposerHistory,
   patchComposerDraft,
   recordComposerHistory,
@@ -40,6 +41,7 @@ import { openLightbox } from "./lightbox"
 import { Picker, type PickerItem } from "./picker"
 import { defaultVisibleModelIds, ModelManager } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
+import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit"
 import { parseSlash, runSlash, slashItem, slashItems, slashPresets, type SlashItem, type SlashPreset } from "./slash"
 
 const maxFileBytes = 10 * 1024 * 1024
@@ -65,6 +67,21 @@ export function composerSelection(value: string, start: number, end: number) {
   return value.slice(Math.min(start, end), Math.max(start, end))
 }
 
+export function selectOwningSession(
+  sessionID: string,
+  directory: string | undefined,
+  availableWorkspaces: { id: string; path: string }[],
+  activeWorkspaceID: string | undefined,
+  chooseWorkspace: (id: string) => void,
+  chooseSession: (id: string) => void,
+) {
+  const workspace = directory
+    ? availableWorkspaces.find((item) => normalizeDir(item.path) === normalizeDir(directory))
+    : undefined
+  if (workspace && workspace.id !== activeWorkspaceID) chooseWorkspace(workspace.id)
+  chooseSession(sessionID)
+}
+
 export function Composer() {
   const engine = useEngine()
   const [dismissed, setDismissed] = createSignal(false)
@@ -72,6 +89,7 @@ export function Composer() {
   const [manageModels, setManageModels] = createSignal(false)
   const [fileError, setFileError] = createSignal("")
   const [focusedQuestionID, setFocusedQuestionID] = createSignal<string>()
+  const [submissionVersion, setSubmissionVersion] = createSignal(0)
   const [historyNavigation, setHistoryNavigation] = createSignal<{
     scope: string
     index: number
@@ -80,6 +98,8 @@ export function Composer() {
   } | null>(null)
   let area!: HTMLTextAreaElement
   let filePicker!: HTMLInputElement
+
+  const submissionGuard = createComposerSubmissionGuard(() => setSubmissionVersion((value) => value + 1))
 
   const scope = () => composerScope(selectedSession(), activeWorkspace()?.id)
   const draft = () => composerDraft(scope()).text
@@ -325,47 +345,67 @@ export function Composer() {
     return pref && variants().includes(pref) ? pref : undefined
   }
 
-  async function submit() {
-    const key = scope()
-    const snapshot = composerDraft(key)
-    const existing = selectedSession()
-    const workspace = activeWorkspace()
-    const selectedPrefs = prefsFor(existing)
-    const selectedModel = resolveModel(engine.state, selectedPrefs.model)
-    const selectedVariants = Object.keys(modelInfo(engine.state, selectedModel)?.variants ?? {})
-    const selectedVariant =
-      selectedPrefs.variant && selectedVariants.includes(selectedPrefs.variant) ? selectedPrefs.variant : undefined
-    const initial = snapshot.text.trim()
-    const text = initial
-      ? await transformComposerSubmit({ text: initial, sessionId: existing, workspace })
-      : ""
-    if (text === null || (!text && snapshot.staged.length === 0) || !workspace || !online()) return
-    const id = existing ?? (await engine.actions.newSession())?.id
-    if (!id) return
-    if (!existing) {
-      seedPrefs(id)
-      emitThreadCreated(id)
-    }
-    recordComposerHistory({ ...snapshot, text: initial })
-    setHistoryNavigation(null)
-    selectSession(id)
-    const files = [
-      ...mentionFiles(text ?? "", snapshot.mentions, workspace.path),
-      ...snapshot.staged.map((file) => ({ filename: file.filename, mime: file.mime, url: file.dataUrl })),
-    ]
-    clearComposerDraft(key)
-    setFileError("")
-    resize()
-    queueMicrotask(() => area.focus())
-    await engine.actions.send(id, text ?? "", {
-      model: selectedModel,
-      agent: selectedPrefs.agent,
-      variant: selectedVariant,
-      files,
-    })
+  const submit = createComposerSubmit(
+    {
+      scope,
+      session: selectedSession,
+      workspace: activeWorkspace,
+      online,
+      draft: composerDraft,
+      prepare(existing) {
+        const selectedPrefs = prefsFor(existing)
+        const selectedModel = resolveModel(engine.state, selectedPrefs.model)
+        const selectedVariants = Object.keys(modelInfo(engine.state, selectedModel)?.variants ?? {})
+        const selectedVariant =
+          selectedPrefs.variant && selectedVariants.includes(selectedPrefs.variant) ? selectedPrefs.variant : undefined
+        return { selectedPrefs, selectedModel, selectedVariant }
+      },
+      transform: transformComposerSubmit,
+      newSession: engine.actions.newSession,
+      sessionScope: (id) => composerScope(id),
+      migrateDraft: migrateComposerDraft,
+      selectSession,
+      sessionCreated(id) {
+        seedPrefs(id)
+        emitThreadCreated(id)
+      },
+      send(id, text, snapshot, workspace, prepared) {
+        const files = [
+          ...mentionFiles(text, snapshot.mentions, workspace.path),
+          ...snapshot.staged.map((file) => ({ filename: file.filename, mime: file.mime, url: file.dataUrl })),
+        ]
+        return engine.actions.send(id, text, {
+          model: prepared.selectedModel,
+          agent: prepared.selectedPrefs.agent,
+          variant: prepared.selectedVariant,
+          files,
+        })
+      },
+      admitted(key, snapshot, historyDraft) {
+        recordComposerHistory(historyDraft)
+        setHistoryNavigation(null)
+        clearComposerDraft(key, snapshot)
+        setFileError("")
+        resize()
+        queueMicrotask(() => area.focus())
+      },
+      failed(error) {
+        engine.actions.notice({ message: error instanceof Error ? error.message : String(error), variant: "error" })
+      },
+    },
+    submissionGuard,
+  )
+
+  const submitting = () => {
+    submissionVersion()
+    return submissionGuard.has(scope())
   }
 
   function onKey(event: KeyboardEvent) {
+    if (event.key === "Enter" && !event.shiftKey && submitting()) {
+      event.preventDefault()
+      return
+    }
     if (mentionQuery() !== null && fileHits().length > 0 && handleMentionKey(event)) return
     if (matches().length > 0 && handleSlashKey(event)) return
     if ((event.key === "ArrowUp" || event.key === "ArrowDown") && browseHistory(event)) return
@@ -491,11 +531,15 @@ export function Composer() {
     if (next !== focusedQuestionID()) setFocusedQuestionID(next)
   })
 
-  function openPermissionSession(permission: Permission) {
-    const dir = (permission.metadata?.directory as string | undefined) ?? engine.state.sessions[permission.sessionID]?.directory
-    const workspace = dir && workspaces().find((w) => normalizeDir(w.path) === normalizeDir(dir))
-    if (workspace && workspace.id !== activeWorkspace()?.id) selectWorkspace(workspace.id)
-    selectSession(permission.sessionID)
+  function openAttentionSession(sessionID: string, directory?: string) {
+    selectOwningSession(
+      sessionID,
+      directory ?? engine.state.sessions[sessionID]?.directory,
+      workspaces(),
+      activeWorkspace()?.id,
+      selectWorkspace,
+      selectSession,
+    )
   }
 
   return (
@@ -507,7 +551,12 @@ export function Composer() {
               <button
                 class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
                 title={t("drift.composer.openThread")}
-                onClick={() => openPermissionSession(permission())}
+                onClick={() =>
+                  openAttentionSession(
+                    permission().sessionID,
+                    permission().metadata?.directory as string | undefined,
+                  )
+                }
               >
                 {t("drift.composer.pendingInThread", {
                   thread: engine.state.sessions[permission().sessionID]?.title || t("drift.composer.anotherThread"),
@@ -529,7 +578,7 @@ export function Composer() {
                     <button
                       class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
                       title={t("drift.composer.openThread")}
-                      onClick={() => selectSession(request().sessionID)}
+                      onClick={() => openAttentionSession(request().sessionID, request().directory)}
                     >
                       {t("drift.composer.pendingInThread", {
                         thread: engine.state.sessions[request().sessionID]?.title || t("drift.composer.anotherThread"),
@@ -780,7 +829,7 @@ export function Composer() {
           <button
             class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
             title={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
-            disabled={(!draft().trim() && staged().length === 0) || !ready()}
+            disabled={(!draft().trim() && staged().length === 0) || !ready() || submitting()}
             onClick={() => void submit()}
           >
             {busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
