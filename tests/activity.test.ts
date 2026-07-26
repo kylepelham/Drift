@@ -509,7 +509,7 @@ test("busy thinking is suppressed by an assistant error while retry remains visi
 })
 
 test("assistant errors unwrap provider JSON and preserve plain text", async () => {
-  const { errorText, unwrapErrorMessage } = await import("../src/ui/message")
+  const { errorText, unwrapErrorMessage } = await import("../src/engine/error")
   expect(unwrapErrorMessage('Error: {"error":{"type":"rate_limit","message":"slow down"}}')).toBe(
     "rate_limit: slow down",
   )

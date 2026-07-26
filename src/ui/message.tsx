@@ -251,8 +251,6 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
   )
 }
 
-export { errorText, unwrapErrorMessage } from "../engine/error"
-
 function formatDuration(ms: number) {
   const seconds = Math.max(1, Math.round(ms / 1000))
   if (seconds < 60) return t("drift.message.duration.seconds", { seconds })

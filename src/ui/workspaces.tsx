@@ -587,7 +587,7 @@ function pickFile(accept: string): Promise<File | null> {
   })
 }
 
-export function ago(timestamp: number) {
+function ago(timestamp: number) {
   const seconds = Math.max(0, (Date.now() - timestamp) / 1000)
   if (seconds < 60) return t("common.time.justNow")
   if (seconds < 3600) return t("common.time.minutesAgo.short", { count: Math.floor(seconds / 60) })

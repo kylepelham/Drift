@@ -4,7 +4,7 @@ import type { EngineTarget } from "./connection"
 // The engine heartbeats every 10s, so silence means the socket is half-open (proxy, VPN,
 // sleep/resume) and reader.read() would park forever, leaving Drift falsely online on stale
 // state. The margin absorbs scheduler jitter and proxy buffering without hiding a dead link.
-export const eventInactivityMs = 25_000
+const eventInactivityMs = 25_000
 
 export async function streamEvents(
   target: EngineTarget,

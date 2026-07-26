@@ -153,7 +153,7 @@ export function fixEscapedEmphasis(text: string) {
     .join("")
 }
 
-export function preserveLiteralBackslashes(text: string) {
+function preserveLiteralBackslashes(text: string) {
   return text
     .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
     .map((chunk, index) => (index % 2 ? chunk : chunk.replaceAll("\\", "&#92;")))
@@ -179,7 +179,7 @@ const voidHtml = new Set([
 
 // Marked accepts raw HTML. Escape only unmatched tags so model-written examples cannot
 // turn the rest of a streamed response into one giant heading or emphasis element.
-export function escapeUnbalancedHtml(text: string) {
+function escapeUnbalancedHtml(text: string) {
   return text
     .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
     .map((chunk, index) => (index % 2 ? chunk : escapeUnbalancedHtmlChunk(chunk)))
@@ -305,7 +305,7 @@ async function writeClipboard(text: string) {
   }
 }
 
-export function CodeView(props: { code: string; lang: string }) {
+function CodeView(props: { code: string; lang: string }) {
   const [html, setHtml] = createSignal("")
   let request = 0
   createEffect(() => {

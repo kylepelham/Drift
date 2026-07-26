@@ -881,7 +881,9 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   const [agentPromptBaseline, setAgentPromptBaseline] = createSignal("")
   const [agentBehaviorBaseline, setAgentBehaviorBaseline] = createSignal("{}")
   const [familyDirty, setFamilyDirty] = createSignal(false)
-  const [saved, setSaved] = createSignal(false)
+  // Prompt and agent overrides are read by the engine at startup, so a successful write only
+  // takes effect after a restart. This flag drives that notice, nothing else.
+  const [showRestartNotice, setShowRestartNotice] = createSignal(false)
   const [error, setError] = createSignal("")
   const [saving, setSaving] = createSignal(false)
   const override = (key: string) => snapshot()?.overrides.find((item) => item.key === key)
@@ -889,9 +891,9 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   const agentOverridden = () => !!override(`agent:${agentName()}`)
   const agentDirty = () => agentPrompt() !== agentPromptBaseline() || agentBehavior() !== agentBehaviorBaseline()
   const agentOverrideFields = () => {
-    const saved = override(`agent:${agentName()}`)?.value
-    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {}
-    return saved as Record<string, unknown>
+    const storedValue = override(`agent:${agentName()}`)?.value
+    if (!storedValue || typeof storedValue !== "object" || Array.isArray(storedValue)) return {}
+    return storedValue as Record<string, unknown>
   }
   const familyModified = () => familyDirty() || familyOverridden()
   const agentPromptModified = () => agentPrompt() !== agentPromptBaseline() || "prompt" in agentOverrideFields()
@@ -917,29 +919,37 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
     setFamilyBaseline(prompt)
   })
 
-  createEffect(() => {
-    if (agentDirty()) return
-    const agent = engine.state.agents.find((item) => item.name === agentName())
-    const saved = override(`agent:${agentName()}`)
-    const config = agentConfig(agent, snapshot(), saved)
-    const prompt = typeof config.prompt === "string" ? config.prompt : ""
-    const { prompt: _prompt, ...behavior } = config
+  // Splits a resolved agent config into the two editors: the prompt gets its own textarea, every
+  // other field is edited as raw JSON. Both editors reset their baseline so nothing reads as dirty.
+  function loadAgentEditors(config: ReturnType<typeof agentConfig>) {
+    const { prompt: promptField, ...behavior } = config
+    const prompt = typeof promptField === "string" ? promptField : ""
     const serialized = JSON.stringify(behavior, null, 2)
     setAgentPrompt(prompt)
     setAgentPromptBaseline(prompt)
     setAgentBehavior(serialized)
     setAgentBehaviorBaseline(serialized)
+  }
+
+  function currentAgent() {
+    return engine.state.agents.find((item) => item.name === agentName())
+  }
+
+  createEffect(() => {
+    if (agentDirty()) return
+    const storedOverride = override(`agent:${agentName()}`)
+    loadAgentEditors(agentConfig(currentAgent(), snapshot(), storedOverride))
   })
 
   async function mutate(action: () => Promise<void>, clean: () => void) {
     setSaving(true)
     setError("")
-    setSaved(false)
+    setShowRestartNotice(false)
     try {
       await action()
       clean()
       await load()
-      setSaved(true)
+      setShowRestartNotice(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -960,16 +970,18 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
       return
     }
     const key = `agent:${agentName()}`
-    const agent = engine.state.agents.find((item) => item.name === agentName())
-    const saved = override(key)
-    const existing = saved?.value && typeof saved.value === "object" ? (saved.value as Record<string, unknown>) : {}
+    const storedOverride = override(key)
+    const existing =
+      storedOverride?.value && typeof storedOverride.value === "object"
+        ? (storedOverride.value as Record<string, unknown>)
+        : {}
     const baseline = JSON.parse(agentBehaviorBaseline()) as Record<string, unknown>
     const value = agentOverrideValue(
       { ...(behavior as object), prompt: agentPrompt() },
       { ...baseline, prompt: agentPromptBaseline() },
       existing,
     )
-    const original = saved?.original ?? agentConfig(agent, snapshot())
+    const original = storedOverride?.original ?? agentConfig(currentAgent(), snapshot())
     const action = Object.keys(value).length
       ? () => savePromptOverride(key, value, original)
       : () => resetPromptOverride(key)
@@ -997,15 +1009,7 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
         setAgentBehaviorBaseline(agentBehavior())
       })
     }
-    const agent = engine.state.agents.find((item) => item.name === agentName())
-    const config = agentConfig(agent, snapshot())
-    const prompt = typeof config.prompt === "string" ? config.prompt : ""
-    const { prompt: _prompt, ...behavior } = config
-    const serialized = JSON.stringify(behavior, null, 2)
-    setAgentPrompt(prompt)
-    setAgentPromptBaseline(prompt)
-    setAgentBehavior(serialized)
-    setAgentBehaviorBaseline(serialized)
+    loadAgentEditors(agentConfig(currentAgent(), snapshot()))
   }
 
   return (
@@ -1125,7 +1129,7 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
           </>
         )}
       </Show>
-      <Show when={saved()}>
+      <Show when={showRestartNotice()}>
         <div class="text-xs text-accent">{t("drift.settings.prompts.restart")}</div>
       </Show>
       <Show when={error()}>
@@ -1177,8 +1181,11 @@ function familyLabel(id: string) {
   return labels[id] ?? id
 }
 
-function agentConfig(agent: Agent | undefined, snapshot: PromptSnapshot | null, saved?: PromptOverride) {
-  const restored = saved?.value && typeof saved.value === "object" ? (saved.value as Record<string, unknown>) : undefined
+function agentConfig(agent: Agent | undefined, snapshot: PromptSnapshot | null, storedOverride?: PromptOverride) {
+  const restored =
+    storedOverride?.value && typeof storedOverride.value === "object"
+      ? (storedOverride.value as Record<string, unknown>)
+      : undefined
   if (!agent) return restored ? { ...restored } : {}
   const source = agent as Agent & {
     prompt?: string

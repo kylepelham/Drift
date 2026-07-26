@@ -62,6 +62,12 @@ export function createActions(
   const pageSize = 100
   let allSessionsRequest: Promise<void> | undefined
 
+  // Writing `undefined` removes the key from the store. The non-null assertion is only there to
+  // satisfy the setter's value type, which does not model deletion - it is not a real value.
+  function clearSessionError(id: string) {
+    set("errors", id, undefined!)
+  }
+
   function recordLinks(entries: { parts: { id: string }[] }[]) {
     for (const entry of entries) {
       for (const part of entry.parts as Parameters<typeof spawnLink>[0][]) {
@@ -95,9 +101,10 @@ export function createActions(
     const older = ((await response.json().catch(() => [])) ?? []) as MessageEntry[]
     const sorted = [...older].sort((a, b) => a.info.id.localeCompare(b.info.id))
     set(
-      produce((s) => {
-        const existing = new Set((s.transcripts[id] ?? []).map((entry) => entry.info.id))
-        s.transcripts[id] = [...sorted.filter((entry) => !existing.has(entry.info.id)), ...(s.transcripts[id] ?? [])]
+      produce((draft) => {
+        const existing = new Set((draft.transcripts[id] ?? []).map((entry) => entry.info.id))
+        const added = sorted.filter((entry) => !existing.has(entry.info.id))
+        draft.transcripts[id] = [...added, ...(draft.transcripts[id] ?? [])]
       }),
     )
     set("cursors", id, response.headers.get("x-next-cursor"))
@@ -296,7 +303,7 @@ export function createActions(
   }
 
   async function send(id: string, text: string, options: PromptOptions): Promise<PromptSendResult> {
-    set("errors", id, undefined!)
+    clearSessionError(id)
     const body = {
       parts: [
         ...(text.trim() ? [{ type: "text" as const, text }] : []),
@@ -466,10 +473,10 @@ export function createActions(
 
   function forgetSession(id: string) {
     set(
-      produce((s) => {
-        delete s.sessions[id]
-        delete s.transcripts[id]
-        delete s.loaded[id]
+      produce((draft) => {
+        delete draft.sessions[id]
+        delete draft.transcripts[id]
+        delete draft.loaded[id]
       }),
     )
   }
@@ -523,26 +530,26 @@ export function createActions(
     }
     for (const id of previous) if (!reported.has(id)) answered.delete(id)
     set(
-      produce((s) => {
-        for (const [sessionID, list] of Object.entries(s.permissions)) {
-          s.permissions[sessionID] = list.filter((item) => {
+      produce((draft) => {
+        for (const [sessionID, list] of Object.entries(draft.permissions)) {
+          draft.permissions[sessionID] = list.filter((item) => {
             const dir = item.metadata?.directory
             return typeof dir === "string" && !keep.has(normalizeDir(dir))
           })
-          if (!s.permissions[sessionID]?.length) delete s.permissions[sessionID]
+          if (!draft.permissions[sessionID]?.length) delete draft.permissions[sessionID]
         }
-        for (const [sessionID, list] of Object.entries(s.questions)) {
-          s.questions[sessionID] = list.filter((item) => {
+        for (const [sessionID, list] of Object.entries(draft.questions)) {
+          draft.questions[sessionID] = list.filter((item) => {
             const dir = item.directory
             return typeof dir === "string" && !keep.has(normalizeDir(dir))
           })
-          if (!s.questions[sessionID]?.length) delete s.questions[sessionID]
+          if (!draft.questions[sessionID]?.length) delete draft.questions[sessionID]
         }
         for (const result of results) {
           for (const permission of result.permissions)
-            if (!answered.has(permission.id)) (s.permissions[permission.sessionID] ??= []).push(permission)
+            if (!answered.has(permission.id)) (draft.permissions[permission.sessionID] ??= []).push(permission)
           for (const question of result.questions)
-            if (!answered.has(question.id)) (s.questions[question.sessionID] ??= []).push(question)
+            if (!answered.has(question.id)) (draft.questions[question.sessionID] ??= []).push(question)
         }
       }),
     )
@@ -575,8 +582,8 @@ export function createActions(
     }
     answered.add(permissionID)
     set(
-      produce((s) => {
-        s.permissions[sessionID] = (s.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID)
+      produce((draft) => {
+        draft.permissions[sessionID] = (draft.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID)
       }),
     )
     return true
@@ -597,8 +604,8 @@ export function createActions(
     if (!response?.ok) return false
     answered.add(requestID)
     set(
-      produce((s) => {
-        s.questions[sessionID] = (s.questions[sessionID] ?? []).filter((item) => item.id !== requestID)
+      produce((draft) => {
+        draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter((item) => item.id !== requestID)
       }),
     )
     return true
@@ -632,7 +639,7 @@ export function createActions(
       set("errors", id, "Revert failed: the engine rejected the request")
       return false
     }
-    set("errors", id, undefined!)
+    clearSessionError(id)
     if (result.data) putSession(set, result.data)
     await reloadSession(id)
     return true

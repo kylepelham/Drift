@@ -45,9 +45,9 @@ export function EngineProvider(props: ParentProps) {
         Promise.all([api.session.status(), api.provider.list(), api.app.agents(), api.command.list()]),
       ])
       set(
-        produce((s) => {
+        produce((draft) => {
           const live = statuses.data ?? {}
-          for (const session of sessions.data ?? []) s.status[session.id] = live[session.id] ?? { type: "idle" }
+          for (const session of sessions.data ?? []) draft.status[session.id] = live[session.id] ?? { type: "idle" }
         }),
       )
       set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
@@ -108,9 +108,9 @@ export function EngineProvider(props: ParentProps) {
     if (!base || disposed || pumpAbort) return
     client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory: path })
     set(
-      produce((s) => {
-        s.directory = path
-        s.connection = "connecting"
+      produce((draft) => {
+        draft.directory = path
+        draft.connection = "connecting"
       }),
     )
     if (import.meta.env.DEV) seedBench(set, path)
@@ -126,9 +126,9 @@ export function EngineProvider(props: ParentProps) {
     if (!path) {
       stopPump()
       set(
-        produce((s) => {
-          s.directory = ""
-          s.connection = "idle"
+        produce((draft) => {
+          draft.directory = ""
+          draft.connection = "idle"
         }),
       )
       return

@@ -16,7 +16,7 @@ type FetchRegistry = (
   json(): Promise<unknown>
 }>
 
-export function registrySearchUrl(query: string) {
+function registrySearchUrl(query: string) {
   const params = new URLSearchParams({ limit: "30", version: "latest" })
   if (query.trim()) params.set("search", query.trim())
   return `https://registry.modelcontextprotocol.io/v0.1/servers?${params}`
@@ -34,7 +34,7 @@ export function parseRegistryPayload(value: unknown): RegistryServer[] {
   return [...unique.values()]
 }
 
-export function parseRegistryServer(value: unknown): RegistryServer | null {
+function parseRegistryServer(value: unknown): RegistryServer | null {
   const item = record(value)
   if (!item) return null
   if (!text(item.name, 200) || !/^[A-Za-z0-9.-]+\/[A-Za-z0-9._-]+$/.test(item.name as string)) return null
