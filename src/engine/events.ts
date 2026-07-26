@@ -85,6 +85,8 @@ function upsertSession(set: SetEngineState, info: Session) {
   putSession(set, info)
 }
 
+// Full purge of every per-session slice, in response to the engine reporting a deleted session.
+// NOTE: actions.ts forgetSession covers only sessions/transcripts/loaded. See the note there.
 function dropSession(set: SetEngineState, info: Session) {
   set(
     produce((draft) => {

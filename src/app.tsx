@@ -1,6 +1,7 @@
 import { createEffect, onCleanup, onMount, untrack } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
 import { PluginHost } from "./plugins"
+import { shellEvents } from "./shell"
 import { bindCodePreferences } from "./state/code"
 import { initKeybinds } from "./state/keybinds"
 import { bindLanguage } from "./state/language"
@@ -76,9 +77,7 @@ export function App() {
 
 function McpBinding() {
   const engine = useEngine()
-  const event = (globalThis as {
-    __TAURI__?: { event?: { listen: (name: string, handler: () => void) => Promise<() => void> } }
-  }).__TAURI__?.event
+  const event = shellEvents()
   const stop = mcpCoordinator.start({
     store: driftStore,
     status: engine.actions.mcpStatus,

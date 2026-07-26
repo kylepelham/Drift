@@ -1,3 +1,5 @@
+import { shellInvoke, type ShellInvoke } from "../shell"
+
 export type Workspace = { id: string; path: string; name: string; icon: string; lastUsed: number; removedAt?: number }
 export type ArchivedSession = { sessionId: string; workspaceId: string; archivedAt: number }
 export type McpConfig = Record<string, unknown> & { type: "local" | "remote" }
@@ -36,11 +38,7 @@ export interface DriftStore {
   revokeMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
 }
 
-type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>
-
-export function shellInvoke(): Invoke | undefined {
-  return (globalThis as { __TAURI__?: { core?: { invoke: Invoke } } }).__TAURI__?.core?.invoke
-}
+type Invoke = ShellInvoke
 
 function shellStore(invoke: Invoke): DriftStore {
   return {

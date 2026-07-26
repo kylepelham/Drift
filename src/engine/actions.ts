@@ -108,11 +108,11 @@ export function createActions(
     const base = target()
     if (!cursor || !base) return false
     const url =
-      `${base.url}/session/${id}/message?directory=${encodeURIComponent(state.directory)}` +
+      withDirectory(`${base.url}/session/${id}/message`, state.directory) +
       `&limit=${pageSize}&before=${encodeURIComponent(cursor)}`
-    const response = await fetch(url, { headers: base.headers }).catch(() => null)
-    if (!response?.ok) return false
-    const older = ((await response.json().catch(() => [])) ?? []) as MessageEntry[]
+    const response = await engineFetch(url, { headers: base.headers })
+    if (!response) return false
+    const older = await readJson<MessageEntry[]>(response, [])
     const sorted = [...older].sort((a, b) => a.info.id.localeCompare(b.info.id))
     set(
       produce((draft) => {
@@ -148,10 +148,9 @@ export function createActions(
         ...base.headers,
         ...(state.directory ? { "x-opencode-directory": encodeURIComponent(state.directory) } : {}),
       }
-      const response = await fetch(`${base.url}/experimental/session?${query}`, { headers }).catch(() => null)
-      if (!response?.ok) return
-      const sessions = (await response.json().catch(() => null)) as Session[] | null
-      putSessions(set, sessions ?? [])
+      const response = await engineFetch(`${base.url}/experimental/session?${query}`, { headers })
+      if (!response) return
+      putSessions(set, await readJson<Session[]>(response, []))
     })()
     try {
       await allSessionsRequest
@@ -196,16 +195,16 @@ export function createActions(
     base: EngineTarget,
     directory: string,
   ) {
-    const response = await fetch(`${base.url}/session/${id}/fork?directory=${encodeURIComponent(directory)}`, {
+    const response = await engineFetch(withDirectory(`${base.url}/session/${id}/fork`, directory), {
       method: "POST",
-      headers: { "content-type": "application/json", ...base.headers },
+      headers: jsonHeaders(base),
       body: JSON.stringify({ mode, ...(messageID ? { messageID } : {}) }),
-    }).catch(() => null)
-    if (!response?.ok) {
+    })
+    if (!response) {
       notice({ message: "The session could not be forked.", variant: "error" })
       return
     }
-    const session = (await response.json().catch(() => undefined)) as Session | undefined
+    const session = await readJson<Session | undefined>(response, undefined)
     if (session && normalizeDir(state.directory) === normalizeDir(directory)) putSession(set, session)
     return session
   }
@@ -259,17 +258,19 @@ export function createActions(
     const base = target()
     if (!base) return null
     const query = new URLSearchParams({ directory, archived: "true", limit: archiveListLimit })
-    const response = await fetch(`${base.url}/experimental/session?${query}`, { headers: base.headers }).catch(() => null)
-    if (!response?.ok) return null
-    return (await response.json().catch(() => null)) as Session[] | null
+    const response = await engineFetch(`${base.url}/experimental/session?${query}`, { headers: base.headers })
+    return response ? readJson<Session[] | null>(response, null) : null
   }
 
+  // Unlike the other raw routes this one reports why it failed, so it keeps the bare fetch: it has
+  // to tell "could not reach the engine" apart from "the engine rejected the move" and read the
+  // rejection body, which engineFetch deliberately collapses.
   async function rebindSession(id: string, destination: string): Promise<string | null> {
     const base = target()
     if (!base) return "Engine is offline"
     const response = await fetch(`${base.url}/experimental/control-plane/move-session`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...base.headers },
+      headers: jsonHeaders(base),
       body: JSON.stringify({ sessionID: id, destination: { directory: destination }, moveChanges: false }),
     }).catch(() => null)
     if (!response) return "Could not reach the engine"
@@ -485,6 +486,10 @@ export function createActions(
     forgetSession(id)
   }
 
+  // Drops only the transcript-shaped state for a session we deleted ourselves.
+  // NOTE: events.ts dropSession, which handles the engine's own session-deleted event, additionally
+  // clears permissions, questions, todos, status, activity and errors. The two have never agreed;
+  // whether this one is missing those deletes has not been established.
   function forgetSession(id: string) {
     set(
       produce((draft) => {
@@ -501,12 +506,8 @@ export function createActions(
   async function fetchJson<T>(path: string, dir: string): Promise<T | null> {
     const base = target()
     if (!base) return null
-    const joiner = path.includes("?") ? "&" : "?"
-    const response = await fetch(`${base.url}${path}${joiner}directory=${encodeURIComponent(dir)}`, {
-      headers: base.headers,
-    }).catch(() => null)
-    if (!response?.ok) return null
-    return (await response.json().catch(() => null)) as T | null
+    const response = await engineFetch(withDirectory(`${base.url}${path}`, dir), { headers: base.headers })
+    return response ? readJson<T | null>(response, null) : null
   }
 
   // The generated SDK lags the engine here; GET /permission and /question recover asks
@@ -609,13 +610,13 @@ export function createActions(
     const question = (state.questions[sessionID] ?? []).find((item) => item.id === requestID)
     const dir = question?.directory ?? state.directory
     const action = answers ? "reply" : "reject"
-    const url = `${base.url}/question/${requestID}/${action}?directory=${encodeURIComponent(dir)}`
-    const response = await fetch(url, {
+    const url = withDirectory(`${base.url}/question/${requestID}/${action}`, dir)
+    const response = await engineFetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json", ...base.headers },
+      headers: jsonHeaders(base),
       body: JSON.stringify(answers ? { answers } : {}),
-    }).catch(() => null)
-    if (!response?.ok) return false
+    })
+    if (!response) return false
     answered.add(requestID)
     set(
       produce((draft) => {
@@ -628,13 +629,13 @@ export function createActions(
   async function replyElsewhere(sessionID: string, permissionID: string, response: PermissionResponse, dir: string) {
     const base = target()
     if (!base) return false
-    const url = `${base.url}/session/${sessionID}/permissions/${permissionID}?directory=${encodeURIComponent(dir)}`
-    const result = await fetch(url, {
+    const url = withDirectory(`${base.url}/session/${sessionID}/permissions/${permissionID}`, dir)
+    const result = await engineFetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json", ...base.headers },
+      headers: jsonHeaders(base),
       body: JSON.stringify({ response }),
-    }).catch(() => null)
-    return result?.ok === true
+    })
+    return result !== null
   }
 
   async function interrupt(id: string) {
@@ -721,6 +722,34 @@ export function createActions(
 }
 
 export type EngineActions = ReturnType<typeof createActions>
+
+/**
+ * Engine routes are per-directory: the server uses this parameter to pick which instance handles
+ * the request. Every raw route below needs it, so it is applied in one place.
+ */
+function withDirectory(url: string, directory: string) {
+  const joiner = url.includes("?") ? "&" : "?"
+  return `${url}${joiner}directory=${encodeURIComponent(directory)}`
+}
+
+function jsonHeaders(base: EngineTarget) {
+  return { "content-type": "application/json", ...base.headers }
+}
+
+/**
+ * A request against a raw engine route. Resolves to the response only when the request completed
+ * and the engine accepted it; a transport failure and a non-2xx both collapse to null, because
+ * every caller treats them the same way.
+ */
+async function engineFetch(url: string, init?: RequestInit): Promise<Response | null> {
+  const response = await fetch(url, init).catch(() => null)
+  return response?.ok ? response : null
+}
+
+/** Reads a JSON body, falling back rather than throwing if the payload is absent or truncated. */
+async function readJson<T>(response: Response, fallback: T): Promise<T> {
+  return ((await response.json().catch(() => fallback)) ?? fallback) as T
+}
 
 export function requireSdkData<T>(result: { data?: T; error?: unknown }, fallback: string): T {
   if (result.error !== undefined) throw new Error(sdkErrorMessage(result.error, fallback))

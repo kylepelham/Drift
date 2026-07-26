@@ -1,27 +1,8 @@
 import { createSignal, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { shellInvoke, shellWindow } from "../shell"
 import { t } from "../state/i18n"
 import { autoUpdate } from "../state/prefs"
 import { DriftLogo } from "./logo"
-
-type ShellWindow = {
-  minimize(): void
-  toggleMaximize(): void
-  close(): void
-  isMaximized(): Promise<boolean>
-  onResized(handler: () => void): Promise<() => void>
-}
-type ShellGlobal = {
-  window?: { getCurrentWindow(): ShellWindow }
-  core?: { invoke(command: string): Promise<unknown> }
-}
-
-function shellWindow() {
-  return (globalThis as { __TAURI__?: ShellGlobal }).__TAURI__?.window?.getCurrentWindow()
-}
-
-function shellInvoke() {
-  return (globalThis as { __TAURI__?: ShellGlobal }).__TAURI__?.core?.invoke
-}
 
 export function Titlebar() {
   const shell = shellWindow()

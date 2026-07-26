@@ -1,4 +1,4 @@
-import { shellInvoke } from "./store"
+import { shellInvoke } from "../shell"
 
 export type PromptFamily = { id: string; original: string; default: string }
 export type PromptCatalogAgent = { name: string; prompt: string }

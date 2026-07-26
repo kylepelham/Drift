@@ -1,4 +1,4 @@
-import { shellInvoke } from "./store"
+import { shellInvoke } from "../shell"
 
 export async function pickFolder(): Promise<string | null> {
   const invoke = shellInvoke()

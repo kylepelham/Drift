@@ -18,7 +18,7 @@ import {
   type McpCoordinatorState,
   type McpExactTarget,
 } from "../state/mcp"
-import { shellInvoke } from "../state/store"
+import { shellInvoke } from "../shell"
 import { openMcpServers } from "./mcp"
 import { playAlertSound } from "./sounds"
 

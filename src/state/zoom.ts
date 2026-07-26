@@ -1,27 +1,33 @@
+import { shellWebview } from "../shell"
 import { onKeybind } from "./keybinds"
+import { createLatestOnly } from "./latest"
 import { persisted } from "./persist"
 
 const [zoom, setZoom] = persisted<number>("drift.zoom", 1)
-let applyRequest = 0
+const zoomApply = createLatestOnly()
 
-const clamp = (value: number) => Math.min(2, Math.max(0.5, Math.round(value * 10) / 10))
+const minZoom = 0.5
+const maxZoom = 2
+const zoomStep = 0.1
+// Zoom is kept to one decimal so repeated steps do not accumulate floating point drift.
+const zoomPrecision = 10
+
+const clamp = (value: number) =>
+  Math.min(maxZoom, Math.max(minZoom, Math.round(value * zoomPrecision) / zoomPrecision))
 
 function cssZoom(value: number) {
   ;(document.documentElement.style as CSSStyleDeclaration & { zoom: string }).zoom = value === 1 ? "" : String(value)
 }
 
 function apply(value: number) {
-  const current = ++applyRequest
-  const getCurrentWebview = (
-    globalThis as {
-      __TAURI__?: { webview?: { getCurrentWebview?: () => { setZoom: (factor: number) => Promise<void> } } }
-    }
-  ).__TAURI__?.webview?.getCurrentWebview
-  if (!getCurrentWebview) return cssZoom(value)
+  const token = zoomApply.begin()
+  const webview = shellWebview()
+  // In a browser there is no native zoom, so CSS is the only mechanism.
+  if (!webview) return cssZoom(value)
+  // Native zoom is preferred because it scales the whole webview, so the CSS zoom is reset first
+  // and only reinstated as a fallback if the native call fails and no newer zoom has started.
   cssZoom(1)
-  void getCurrentWebview()
-    .setZoom(value)
-    .catch(() => current === applyRequest && cssZoom(value))
+  void webview.setZoom(value).catch(() => zoomApply.isCurrent(token) && cssZoom(value))
 }
 
 function update(next: number) {
@@ -32,8 +38,8 @@ function update(next: number) {
 
 export function initZoom() {
   apply(zoom())
-  onKeybind("zoomIn", () => update(zoom() + 0.1))
-  onKeybind("zoomOut", () => update(zoom() - 0.1))
+  onKeybind("zoomIn", () => update(zoom() + zoomStep))
+  onKeybind("zoomOut", () => update(zoom() - zoomStep))
   onKeybind("zoomReset", () => update(1))
 }
 

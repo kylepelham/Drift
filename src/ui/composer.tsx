@@ -31,7 +31,7 @@ import {
   type StagedFile,
 } from "../state/composer"
 import { selectedSession, selectSession } from "../state/selection"
-import { shellInvoke } from "../state/store"
+import { shellInvoke } from "../shell"
 import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
 import { normalizeDir } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"

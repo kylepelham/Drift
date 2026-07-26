@@ -49,7 +49,7 @@ import {
   toolErrorsExpanded,
   type AttentionKind,
 } from "../state/prefs"
-import { shellInvoke } from "../state/store"
+import { shellInvoke } from "../shell"
 import {
   setSplashDuration,
   setSplashEnabled,

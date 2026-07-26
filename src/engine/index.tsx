@@ -12,6 +12,13 @@ export type Engine = { state: EngineState; actions: EngineActions; setDirectory:
 
 const EngineContext = createContext<Engine>()
 
+/** Reads the engine version, or null if the engine is unreachable or does not answer with it. */
+function fetchEngineVersion(target: EngineTarget) {
+  return fetch(`${target.url}/global/health`, { headers: target.headers })
+    .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
+    .catch(() => null)
+}
+
 export function useEngine() {
   const engine = useContext(EngineContext)
   if (!engine) throw new Error("useEngine outside EngineProvider")
@@ -57,9 +64,7 @@ export function EngineProvider(props: ParentProps) {
       set("commands", commands.data ?? [])
       await Promise.all(stale.map(reload))
       if (!state.version && base) {
-        const health = await fetch(`${base.url}/global/health`, { headers: base.headers })
-          .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
-          .catch(() => null)
+        const health = await fetchEngineVersion(base)
         if (health?.version) set("version", health.version)
       }
     } finally {
@@ -146,9 +151,7 @@ export function EngineProvider(props: ParentProps) {
   void resolveEngine()
     .then(async (target) => {
       base = target
-      const health = await fetch(`${target.url}/global/health`, { headers: target.headers })
-        .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
-        .catch(() => null)
+      const health = await fetchEngineVersion(target)
       if (health?.version) set("version", health.version)
       if (directory) startPump(directory)
     })

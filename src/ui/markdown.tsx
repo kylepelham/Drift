@@ -2,6 +2,7 @@ import DOMPurify from "dompurify"
 import { marked } from "marked"
 import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki"
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import { shellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import { syntaxTheme } from "../state/code"
 
@@ -253,8 +254,7 @@ function openExternalLink(event: MouseEvent) {
   if (!anchor) return
   const url = new URL(anchor.href)
   if (url.protocol !== "http:" && url.protocol !== "https:") return
-  const invoke = (globalThis as { __TAURI__?: { core?: { invoke: (command: string, args: unknown) => Promise<unknown> } } })
-    .__TAURI__?.core?.invoke
+  const invoke = shellInvoke()
   if (!invoke) return
   event.preventDefault()
   void invoke("plugin:opener|open_url", { url: url.href }).catch(() => {})

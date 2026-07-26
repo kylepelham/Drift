@@ -11,7 +11,8 @@ import {
   type McpStoredExpectation,
 } from "../../state/mcp"
 import { t } from "../../state/i18n"
-import { shellInvoke, type McpConfig, type ObservedMcpServer, type StoredMcpServer } from "../../state/store"
+import { shellInvoke } from "../../shell"
+import type { McpConfig, ObservedMcpServer, StoredMcpServer } from "../../state/store"
 import { IconCheck, IconPlus, IconShieldCheck, IconSquarePen } from "../icons"
 import { McpEditor } from "./editor"
 

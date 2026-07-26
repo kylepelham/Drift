@@ -2,6 +2,7 @@ import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
 import type { Connection } from "../engine/connection"
 import { useEngine } from "../engine"
 import { pluginsSettled } from "../plugins"
+import { hasNativeWindow } from "../shell"
 import { t } from "../state/i18n"
 import {
   splashDuration,
@@ -32,7 +33,7 @@ export function startupReady(input: {
 
 export function StartupSplash() {
   const engine = useEngine()
-  const nativeTitlebar = Boolean((globalThis as { __TAURI__?: { window?: unknown } }).__TAURI__?.window)
+  const nativeTitlebar = hasNativeWindow()
   const [visible, setVisible] = createSignal(true)
   const [washing, setWashing] = createSignal(false)
   let ceilingTimer: ReturnType<typeof setTimeout> | undefined
