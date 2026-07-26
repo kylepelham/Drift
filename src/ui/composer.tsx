@@ -37,6 +37,7 @@ import { normalizeDir } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"
 import { PermissionCard, QuestionCard } from "./attention"
 import { IconPaperclip, IconShieldCheck, IconX } from "./icons"
+import { createMentionAutocomplete, mentionFiles } from "./composer-mentions"
 import { readDataUrl } from "./files"
 import { openLightbox } from "./lightbox"
 import { Picker, type PickerItem } from "./picker"
@@ -51,10 +52,6 @@ const maxFileBytes = 10 * 1024 * 1024
 const maxComposerHeightPx = 200
 // The OS clipboard is written after the browser finishes its own copy, so ours lands last and wins.
 const clipboardRepublishDelayMs = 100
-const maxMentionResults = 8
-// Matches a trailing `@path` mention at the caret. Used by both the query reader and the replacer,
-// so they cannot drift apart.
-const mentionPattern = /(^|\s)@([\w./\\-]*)$/
 
 export function firstManualPermission(permissions: Permission[], autoAccepted: (permission: Permission) => boolean) {
   return permissions.find((permission) => !autoAccepted(permission))
@@ -159,7 +156,7 @@ export function Composer() {
       previousScope = nextScope
     }
     setDismissed(false)
-    setMentionQuery(null)
+    mention.setQuery(null)
     setFileError("")
   })
 
@@ -187,75 +184,16 @@ export function Composer() {
     return parsed && item ? slashPresets(item, parsed.args) : []
   })
 
-  const [mentionQuery, setMentionQuery] = createSignal<string | null>(null)
-  const [fileHits, setFileHits] = createSignal<string[]>([])
-  const [fileCursor, setFileCursor] = createSignal(0)
-  let mentionToken = 0
-
-  function updateMention() {
-    const caret = area.selectionEnd ?? draft().length
-    const match = draft().slice(0, caret).match(mentionPattern)
-    setMentionQuery(match ? match[2] : null)
-  }
-
-  createEffect(() => {
-    const query = mentionQuery()
-    if (query === null || !ready()) {
-      setFileHits([])
-      return
-    }
-    const token = ++mentionToken
-    void engine.actions.findFiles(query).then((hits) => {
-      if (token !== mentionToken) return
-      setFileHits(hits.map((hit) => hit.replaceAll("\\", "/")).slice(0, maxMentionResults))
-      setFileCursor(0)
-    })
+  const mention = createMentionAutocomplete({
+    area: () => area,
+    draft,
+    setDraft,
+    mentions,
+    setMentions,
+    ready: () => ready(),
+    findFiles: (query) => engine.actions.findFiles(query),
+    resize: () => resize(),
   })
-
-  function pickMention(path: string) {
-    const caret = area.selectionEnd ?? draft().length
-    const before = draft().slice(0, caret)
-    const match = before.match(mentionPattern)
-    if (!match) return
-    const start = caret - match[2].length - 1
-    setDraft(draft().slice(0, start) + "@" + path + " " + draft().slice(caret))
-    setMentions([...new Set([...mentions(), path])])
-    setMentionQuery(null)
-    queueMicrotask(() => {
-      resize()
-      area.focus()
-      const position = start + path.length + 2
-      area.setSelectionRange(position, position)
-    })
-  }
-
-  function handleMentionKey(event: KeyboardEvent) {
-    if (event.key === "ArrowDown") setFileCursor(Math.min(fileCursor() + 1, fileHits().length - 1))
-    else if (event.key === "ArrowUp") setFileCursor(Math.max(fileCursor() - 1, 0))
-    else if (event.key === "Escape") setMentionQuery(null)
-    else if (event.key === "Enter" || event.key === "Tab") pickMention(fileHits()[Math.min(fileCursor(), fileHits().length - 1)])
-    else return false
-    event.preventDefault()
-    return true
-  }
-
-  function mentionFiles(text: string, paths: string[], root: string) {
-    const directory = root.replaceAll("\\", "/").replace(/\/+$/, "")
-    return paths.flatMap((path) => {
-      const value = "@" + path
-      const start = text.indexOf(value)
-      if (start < 0 || !directory) return []
-      const absolute = `${directory}/${path}`
-      return [
-        {
-          mime: "text/plain",
-          filename: path.split("/").pop(),
-          url: "file:///" + encodeURI(absolute),
-          source: { type: "file" as const, path: absolute, text: { value, start, end: start + value.length } },
-        },
-      ]
-    })
-  }
 
   async function pickSlash(item: SlashItem) {
     const args = slash()?.args ?? ""
@@ -407,7 +345,7 @@ export function Composer() {
       event.preventDefault()
       return
     }
-    if (mentionQuery() !== null && fileHits().length > 0 && handleMentionKey(event)) return
+    if (mention.open() && mention.handleKey(event)) return
     if (matches().length > 0 && handleSlashKey(event)) return
     if ((event.key === "ArrowUp" || event.key === "ArrowDown") && browseHistory(event)) return
     if (event.key === "Tab") {
@@ -441,7 +379,7 @@ export function Composer() {
         : { scope: key, index: result.navigation.index, saved: result.navigation.saved, displayed: result.draft },
     )
     setDismissed(true)
-    setMentionQuery(null)
+    mention.setQuery(null)
     event.preventDefault()
     queueMicrotask(() => {
       resize()
@@ -622,18 +560,18 @@ export function Composer() {
           void addFiles(event.dataTransfer.files)
         }}
       >
-        <Show when={mentionQuery() !== null && fileHits().length > 0}>
+        <Show when={mention.open()}>
           <div class="pop-in absolute bottom-full left-3 z-20 mb-2 w-96 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
-            <For each={fileHits()}>
+            <For each={mention.hits()}>
               {(path, index) => (
                 <button
                   class="flex w-full items-center px-3 py-1.5 text-left font-mono text-xs transition-colors"
                   classList={{
-                    "bg-raised text-ink": index() === Math.min(fileCursor(), fileHits().length - 1),
-                    "text-ink-muted": index() !== Math.min(fileCursor(), fileHits().length - 1),
+                    "bg-raised text-ink": index() === mention.activeIndex(),
+                    "text-ink-muted": index() !== mention.activeIndex(),
                   }}
-                  onMouseEnter={() => setFileCursor(index())}
-                  onClick={() => pickMention(path)}
+                  onMouseEnter={() => mention.setCursor(index())}
+                  onClick={() => mention.pick(path)}
                 >
                   <span class="truncate">{path}</span>
                 </button>
@@ -747,10 +685,10 @@ export function Composer() {
             setDraft(event.currentTarget.value)
             setDismissed(false)
             setCursor(0)
-            updateMention()
+            mention.refresh()
             resize()
           }}
-          onClick={() => updateMention()}
+          onClick={() => mention.refresh()}
           onCopy={republishComposerSelection}
           onCut={republishComposerSelection}
           onPaste={(event) => {
