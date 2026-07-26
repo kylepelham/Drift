@@ -5,6 +5,9 @@ use std::path::Path;
 use std::sync::Mutex;
 
 const DATABASE_FILE: &str = "drift.db";
+/// The column list every workspace query selects, in the order `map_workspace` reads them.
+/// Keep the two in step: reordering one without the other silently mixes up the fields.
+const WORKSPACE_COLUMNS: &str = "id, path, name, icon, last_used, removed_at";
 /// Let SQLite memory-map up to 128 MiB of the database. Reads then avoid a syscall per page, which
 /// matters because the workspace and session lists are re-read on nearly every UI interaction.
 const MMAP_SIZE_BYTES: i64 = 134_217_728;
@@ -231,39 +234,21 @@ impl Store {
         result
     }
 
+    /// Workspaces still in use, most recently opened first.
     pub fn workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
-        let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            "SELECT id, path, name, icon, last_used, removed_at FROM workspace WHERE removed_at IS NULL ORDER BY last_used DESC",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(Workspace {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                name: row.get(2)?,
-                icon: row.get(3)?,
-                last_used: row.get(4)?,
-                removed_at: row.get(5)?,
-            })
-        })?;
-        rows.collect()
+        self.query_workspaces("WHERE removed_at IS NULL ORDER BY last_used DESC")
     }
 
+    /// Soft-deleted workspaces awaiting purge, most recently removed first.
     pub fn removed_workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
+        self.query_workspaces("WHERE removed_at IS NOT NULL ORDER BY removed_at DESC")
+    }
+
+    fn query_workspaces(&self, filter: &str) -> rusqlite::Result<Vec<Workspace>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            "SELECT id, path, name, icon, last_used, removed_at FROM workspace WHERE removed_at IS NOT NULL ORDER BY removed_at DESC",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(Workspace {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                name: row.get(2)?,
-                icon: row.get(3)?,
-                last_used: row.get(4)?,
-                removed_at: row.get(5)?,
-            })
-        })?;
+        let mut stmt =
+            conn.prepare_cached(&format!("SELECT {WORKSPACE_COLUMNS} FROM workspace {filter}"))?;
+        let rows = stmt.query_map([], map_workspace)?;
         rows.collect()
     }
 
@@ -294,19 +279,10 @@ impl Store {
             }
         };
         let workspace = conn
-            .prepare_cached(
-                "SELECT id, path, name, icon, last_used, removed_at FROM workspace WHERE id = ?1",
-            )?
-            .query_row([&target], |row| {
-                Ok(Workspace {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                    name: row.get(2)?,
-                    icon: row.get(3)?,
-                    last_used: row.get(4)?,
-                    removed_at: row.get(5)?,
-                })
-            })?;
+            .prepare_cached(&format!(
+                "SELECT {WORKSPACE_COLUMNS} FROM workspace WHERE id = ?1"
+            ))?
+            .query_row([&target], map_workspace)?;
         Ok(workspace)
     }
 
@@ -404,10 +380,7 @@ impl Store {
 
     pub fn mcp_state(&self) -> rusqlite::Result<McpState> {
         let conn = self.0.lock().unwrap();
-        let generation =
-            conn.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-                row.get(0)
-            })?;
+        let generation = current_mcp_generation(&conn)?;
         let servers = conn
             .prepare_cached(
                 "SELECT name, config_json, updated_at FROM mcp_server ORDER BY name COLLATE NOCASE",
@@ -465,10 +438,7 @@ impl Store {
             params![name, serde_json::to_string(config).unwrap(), now()],
         )?;
         next_mcp_generation(&tx)?;
-        let generation =
-            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-                row.get(0)
-            })?;
+        let generation = current_mcp_generation(&tx)?;
         tx.commit()?;
         Ok(generation)
     }
@@ -478,10 +448,7 @@ impl Store {
         let tx = conn.transaction()?;
         tx.execute("DELETE FROM mcp_server WHERE name = ?1", [name])?;
         next_mcp_generation(&tx)?;
-        let generation =
-            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-                row.get(0)
-            })?;
+        let generation = current_mcp_generation(&tx)?;
         tx.commit()?;
         Ok(generation)
     }
@@ -500,10 +467,7 @@ impl Store {
             params![name, fingerprint, decision, now()],
         )?;
         next_mcp_generation(&tx)?;
-        let generation =
-            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-                row.get(0)
-            })?;
+        let generation = current_mcp_generation(&tx)?;
         tx.commit()?;
         Ok(generation)
     }
@@ -519,10 +483,7 @@ impl Store {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
         next_mcp_generation(&tx)?;
-        let generation =
-            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-                row.get(0)
-            })?;
+        let generation = current_mcp_generation(&tx)?;
         tx.commit()?;
         Ok(generation)
     }
@@ -530,9 +491,7 @@ impl Store {
     pub fn advance_mcp_generation(&self) -> rusqlite::Result<i64> {
         let conn = self.0.lock().unwrap();
         next_mcp_generation(&conn)?;
-        conn.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-            row.get(0)
-        })
+        current_mcp_generation(&conn)
     }
 
     pub fn restore_mcp_state(&self, state: &McpState) -> rusqlite::Result<i64> {
@@ -562,10 +521,7 @@ impl Store {
             )?;
         }
         next_mcp_generation(&tx)?;
-        let generation =
-            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-                row.get(0)
-            })?;
+        let generation = current_mcp_generation(&tx)?;
         tx.commit()?;
         Ok(generation)
     }
@@ -588,6 +544,26 @@ fn next_mcp_generation(conn: &Connection) -> rusqlite::Result<()> {
         [],
     )?;
     Ok(())
+}
+
+/// Reads the current MCP generation counter. Callers pass it back on the next mutation so a stale
+/// frontend cannot overwrite a decision made since it last read.
+fn current_mcp_generation(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
+        row.get(0)
+    })
+}
+
+/// Reads a workspace row. Column order must match `WORKSPACE_COLUMNS`.
+fn map_workspace(row: &rusqlite::Row) -> rusqlite::Result<Workspace> {
+    Ok(Workspace {
+        id: row.get(0)?,
+        path: row.get(1)?,
+        name: row.get(2)?,
+        icon: row.get(3)?,
+        last_used: row.get(4)?,
+        removed_at: row.get(5)?,
+    })
 }
 
 #[cfg(test)]
