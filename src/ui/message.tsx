@@ -1,5 +1,6 @@
 import type { AssistantMessage, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/client"
-import { createMemo, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
+import { createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
 import { useEngine } from "../engine"
 import { errorText } from "../engine/error"
 import { messageText, modelInfo, type MessageEntry } from "../engine/store"
@@ -113,26 +114,88 @@ function UserBubble(props: { entry: MessageEntry }) {
   )
 }
 
-type PartGroup = { key: string; explored: ToolPart[] } | { key: string; part: Part }
+export type PartGroup = { id: string; key: string; explored: ToolPart[] } | { id: string; key: string; part: Part }
 
-function groupParts(parts: Part[]): PartGroup[] {
+export type PartGroupSlot = { id: string; value: PartGroup; update: (value: PartGroup) => void }
+
+export function groupParts(parts: Part[]): PartGroup[] {
   const groups: PartGroup[] = []
   for (const part of parts) {
     if (!partVisible(part)) continue
     if (part.type === "tool" && contextTools.has(part.tool)) {
       const last = groups.at(-1)
       if (last && "explored" in last) last.explored.push(part)
-      else groups.push({ key: `explored:${part.id}`, explored: [part] })
+      else groups.push({ id: `explored:${part.id}`, key: `explored:${part.id}`, explored: [part] })
       continue
     }
-    groups.push({ key: part.id, part })
+    groups.push({ id: part.id, key: part.id, part })
   }
   return groups
 }
 
+function createPartGroupSlot(group: PartGroup): PartGroupSlot {
+  const [value, setValue] = createStore(group)
+  return { id: group.id, value, update: (updated) => setValue(reconcile(updated)) }
+}
+
+export function updatePartGroupSlots(
+  groups: PartGroup[],
+  slots: Map<string, PartGroupSlot>,
+  createSlot = createPartGroupSlot,
+) {
+  const previous = [...slots.values()]
+  const exploredByPart = new Map<string, { index: number; slot: PartGroupSlot }>()
+  previous.forEach((slot, index) => {
+    if (!("explored" in slot.value)) return
+    slot.value.explored.forEach((part) => exploredByPart.set(part.id, { index, slot }))
+  })
+  // A split can overlap one prior group more than once; its anchor-containing fragment owns the old mount.
+  const reserved = new Map<string, number>()
+  previous.forEach((slot) => {
+    if (!("explored" in slot.value)) return
+    const owner = groups.findIndex(
+      (group) => "explored" in group && group.explored.some((part) => `explored:${part.id}` === slot.id),
+    )
+    if (owner !== -1) reserved.set(slot.id, owner)
+  })
+  const claimed = new Set<string>()
+  const active = new Set<string>()
+  const next = groups.map((input, index) => {
+    const existing = "explored" in input
+      ? input.explored.reduce<{ index: number; slot: PartGroupSlot } | undefined>((result, part) => {
+          const candidate = exploredByPart.get(part.id)
+          if (!candidate || claimed.has(candidate.slot.id)) return result
+          const owner = reserved.get(candidate.slot.id)
+          if (owner !== undefined && owner !== index) return result
+          return !result || candidate.index < result.index ? candidate : result
+        }, undefined)?.slot
+      : slots.get(input.id)
+    const group = existing && input.id !== existing.id
+      ? { ...input, id: existing.id, key: existing.id }
+      : input
+    if (existing && "explored" in input) claimed.add(existing.id)
+    active.add(group.id)
+    if (existing) {
+      existing.update(group)
+      return existing
+    }
+    const slot = createSlot(group)
+    slots.set(group.id, slot)
+    return slot
+  })
+  for (const id of slots.keys()) if (!active.has(id)) slots.delete(id)
+  for (const slot of next) {
+    slots.delete(slot.id)
+    slots.set(slot.id, slot)
+  }
+  return next
+}
+
 function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
   const info = () => props.entry.info as AssistantMessage
-  const groups = createMemo(() => groupParts(props.entry.parts))
+  const slots = new Map<string, PartGroupSlot>()
+  const [groups, setGroups] = createSignal<PartGroupSlot[]>([])
+  createRenderEffect(() => setGroups(updatePartGroupSlots(groupParts(props.entry.parts), slots)))
   const visible = () => props.entry.parts.some(partVisible) || !!info().error
   return (
     <Show when={visible()}>
@@ -140,8 +203,8 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
         <For each={groups()}>
           {(group) => (
             <Switch>
-              <Match when={"explored" in group && group}>{(g) => <ExploredGroup parts={g().explored} />}</Match>
-              <Match when={"part" in group && group}>{(g) => <PartView part={g().part} />}</Match>
+              <Match when={"explored" in group.value && group.value}>{(g) => <ExploredGroup parts={g().explored} />}</Match>
+              <Match when={"part" in group.value && group.value}>{(g) => <PartView part={g().part} />}</Match>
             </Switch>
           )}
         </For>
