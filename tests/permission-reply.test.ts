@@ -72,6 +72,25 @@ test("a 500 from a cross-workspace reply keeps the ask visible and retryable", a
   expect(state.permissions.s1?.map((item) => item.id)).toEqual(["p1"])
 })
 
+// UI callers fire-and-forget this action, so an offline client must surface a failure
+// rather than reject and silently leave the card in place with no explanation.
+test("a local reply that throws while offline keeps the ask visible and reports it", async () => {
+  const [state, set] = createEngineState()
+  set("directory", home)
+  set("permissions", "s1", [{ ...permission(), metadata: { directory: home } } as Permission])
+  const actions = createActions(
+    () => {
+      throw new Error("engine offline")
+    },
+    state,
+    set,
+    () => ({ url: "http://engine.test" }),
+  )
+  expect(await actions.replyPermission("s1", "p1", "once")).toBe(false)
+  expect(state.permissions.s1?.map((item) => item.id)).toEqual(["p1"])
+  expect(state.notices.at(-1)?.variant).toBe("error")
+})
+
 test("a confirmed cross-workspace reply clears the ask and survives a racing poll", async () => {
   const { state, actions, pending } = harness(async () => new Response(null, { status: 200 }))
   expect(await actions.replyPermission("s1", "p1", "once")).toBe(true)

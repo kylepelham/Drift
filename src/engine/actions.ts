@@ -551,20 +551,27 @@ export function createActions(
   async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
     const permission = (state.permissions[sessionID] ?? []).find((p) => p.id === permissionID)
     const dir = permission?.metadata?.directory as string | undefined
+    const failed = () => {
+      const message = "The request is still pending. Try again."
+      notice({ title: "Permission reply failed", message, variant: "error" })
+      return false
+    }
     if (dir && normalizeDir(dir) !== normalizeDir(state.directory)) {
       // A swallowed failure would hide the card while the engine stays blocked on the ask, and
       // because the card is gone poll reconciliation never clears it from `answered`.
-      if (!(await replyElsewhere(sessionID, permissionID, response, dir))) {
-        const message = "The request is still pending. Try again."
-        notice({ title: "Permission reply failed", message, variant: "error" })
-        return false
-      }
+      if (!(await replyElsewhere(sessionID, permissionID, response, dir))) return failed()
     } else {
-      const result = await requireClient().postSessionIdPermissionsPermissionId({
-        path: { id: sessionID, permissionID },
-        body: { response },
-      })
-      if (result.error) return false
+      // requireClient() throws while offline and the request itself can reject. UI callers
+      // fire-and-forget this action, so both must resolve to a visible failure.
+      try {
+        const result = await requireClient().postSessionIdPermissionsPermissionId({
+          path: { id: sessionID, permissionID },
+          body: { response },
+        })
+        if (result.error) return failed()
+      } catch {
+        return failed()
+      }
     }
     answered.add(permissionID)
     set(
