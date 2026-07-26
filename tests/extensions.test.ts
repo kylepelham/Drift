@@ -24,19 +24,24 @@ const context = {
 }
 
 async function spawnTool(options?: {
-  promptAsync?: () => Promise<unknown>
+  messages?: () => Promise<unknown>
+  promptAsync?: (input: unknown) => Promise<unknown>
+  message?: (input: unknown) => Promise<unknown>
   delete?: () => Promise<unknown>
 }) {
   const deleted: string[] = []
+  const prompted: unknown[] = []
   const client = {
     session: {
       async create() {
         return { data: { id: "child" } }
       },
-      async messages() {
-        return { data: [] }
+      messages: options?.messages ?? (async () => ({ data: [] })),
+      async promptAsync(input: unknown) {
+        prompted.push(input)
+        return options?.promptAsync ? options.promptAsync(input) : { data: undefined }
       },
-      promptAsync: options?.promptAsync ?? (async () => ({ data: undefined })),
+      message: options?.message ?? (async () => ({ error: { message: "message not found" } })),
       delete:
         options?.delete ??
         (async ({ path: input }: { path: { id: string } }) => {
@@ -48,7 +53,7 @@ async function spawnTool(options?: {
   const plugin = await SpawnThread({ client } as never)
   const execute = plugin.tool?.spawn_thread.execute
   if (!execute) throw new Error("spawn_thread tool was not registered")
-  return { deleted, execute: () => execute(args, context) }
+  return { deleted, prompted, execute: () => execute(args, context) }
 }
 
 test("spawn_thread reports only prompt admission after a successful 204", async () => {
@@ -70,34 +75,62 @@ test("spawn_thread rejects SDK admission errors and removes the child", async ()
   expect(spawn.deleted).toEqual(["child"])
 })
 
-test("spawn_thread rejects thrown prompt requests and removes the child", async () => {
+test("spawn_thread verifies admission after an ambiguous transport failure", async () => {
+  let promptedMessageID = ""
+  let verifiedMessageID = ""
+  const spawn = await spawnTool({
+    promptAsync: async (input) => {
+      promptedMessageID = (input as { body: { messageID: string } }).body.messageID
+      throw new Error("connection reset")
+    },
+    message: async (input) => {
+      verifiedMessageID = (input as { path: { messageID: string } }).path.messageID
+      return { data: { info: { id: verifiedMessageID, role: "user" }, parts: [] } }
+    },
+  })
+  const result = await spawn.execute()
+  expect(promptedMessageID).toStartWith("msg_")
+  expect(verifiedMessageID).toBe(promptedMessageID)
+  expect(result).toMatchObject({ metadata: { sessionId: "child", spawned: true } })
+  expect(spawn.deleted).toEqual([])
+})
+
+test("spawn_thread preserves the child when transport admission remains unknown", async () => {
   const spawn = await spawnTool({
     promptAsync: async () => {
       throw new Error("connection reset")
     },
   })
-  await expect(spawn.execute()).rejects.toThrow("prompt request failed: connection reset")
-  expect(spawn.deleted).toEqual(["child"])
+  const error = await spawn.execute().catch((failure) => failure)
+  expect(error).toBeInstanceOf(Error)
+  expect(error.message).toContain("Admission is unknown and retryable; child session child was preserved")
+  expect(error.message).toContain("Check for seed message msg_")
+  expect(spawn.deleted).toEqual([])
 })
 
-test("spawn_thread preserves transport and cleanup failures", async () => {
+test("spawn_thread cleans up when parent history retrieval throws before prompting", async () => {
   const spawn = await spawnTool({
-    promptAsync: async () => {
-      throw new Error("connection reset")
+    messages: async () => {
+      throw new Error("history unavailable")
     },
-    delete: async () => ({ error: { message: "delete denied" } }),
   })
   await expect(spawn.execute()).rejects.toThrow(
-    'prompt request failed: connection reset. Cleanup of child session child also failed: delete denied',
+    'Failed to prepare spawned thread "Child thread" before prompting: history unavailable.',
   )
+  expect(spawn.prompted).toEqual([])
+  expect(spawn.deleted).toEqual(["child"])
 })
 
-test("spawn_thread failures never return spawned success or leave a removable orphan", async () => {
-  const spawn = await spawnTool({ promptAsync: async () => ({ error: "bad request" }) })
-  const outcome = await spawn.execute().catch((error) => error)
-  expect(outcome).toBeInstanceOf(Error)
-  expect(outcome).not.toHaveProperty("metadata.spawned", true)
-  expect(spawn.deleted).toEqual(["child"])
+test("spawn_thread preserves preparation and cleanup error context", async () => {
+  const spawn = await spawnTool({
+    messages: async () => {
+      throw new Error("history unavailable")
+    },
+    delete: async () => ({ error: { data: { message: "delete denied" } } }),
+  })
+  await expect(spawn.execute()).rejects.toThrow(
+    'before prompting: history unavailable. Cleanup of child session child also failed: delete denied',
+  )
 })
 
 test("release extensions load without workspace node_modules", async () => {
