@@ -6,6 +6,7 @@ import {
   assertVersionIsNewer,
   compareStableTags,
   latestStableTag,
+  releaseRunMarker,
   stampReleaseVersion,
   validateReleasePolicy,
   versionFromTag,
@@ -55,26 +56,78 @@ test("latest stable candidate excludes prereleases, drafts, malformed tags, and 
 test("policy rejects a tag whose commit is outside origin/master", () => {
   expect(() => validateReleasePolicy({
     tag: "v1.2.0",
+    triggerCommit: "a".repeat(40),
+    resolvedCommit: "a".repeat(40),
+    runId: "100",
     containedInMaster: false,
     tags: ["v1.1.0"],
     releases: [],
   })).toThrow("not contained in origin/master")
 })
 
-test("policy allows no prior release and safe reruns of the newest tag", () => {
+test("policy binds the resolved tag to the triggering commit", () => {
+  expect(() => validateReleasePolicy({
+    tag: "v1.2.0",
+    triggerCommit: "a".repeat(40),
+    resolvedCommit: "b".repeat(40),
+    runId: "100",
+    containedInMaster: true,
+    tags: ["v1.2.0"],
+    releases: [],
+  })).toThrow("not triggering commit")
+})
+
+test("policy allows no prior release and same-event reruns of the newest tag", () => {
+  const commit = "a".repeat(40)
   expect(validateReleasePolicy({
     tag: "v1.0.0",
+    triggerCommit: commit,
+    resolvedCommit: commit,
+    runId: "100",
     containedInMaster: true,
     tags: ["v1.0.0"],
-    releases: [{ tag_name: "v1.0.0" }],
+    releases: [],
   })).toEqual({ version: "1.0.0", latest: undefined })
 
   expect(validateReleasePolicy({
     tag: "v1.2.0",
+    triggerCommit: commit,
+    resolvedCommit: commit,
+    runId: "100",
     containedInMaster: true,
     tags: ["v1.1.0", "v1.2.0"],
-    releases: [{ tag_name: "v1.2.0" }],
+    releases: [{
+      tag_name: "v1.2.0",
+      body: releaseRunMarker("100", commit),
+    }],
   })).toEqual({ version: "1.2.0", latest: "v1.1.0" })
+})
+
+test("policy rejects same-name releases from a moved tag or another event", () => {
+  const commit = "a".repeat(40)
+  const input = {
+    tag: "v1.2.0",
+    triggerCommit: commit,
+    resolvedCommit: commit,
+    runId: "100",
+    containedInMaster: true,
+    tags: ["v1.1.0", "v1.2.0"],
+  }
+
+  expect(() => validateReleasePolicy({
+    ...input,
+    releases: [{
+      tag_name: "v1.2.0",
+      body: releaseRunMarker("100", "b".repeat(40)),
+    }],
+  })).toThrow("another commit or workflow run")
+  expect(() => validateReleasePolicy({
+    ...input,
+    releases: [{
+      tag_name: "v1.2.0",
+      body: releaseRunMarker("101", commit),
+    }],
+  })).toThrow("another commit or workflow run")
 })
 
 test("release stamping updates every package version and is idempotent", () => {
@@ -98,11 +151,13 @@ test("release stamping updates every package version and is idempotent", () => {
 
 test("release workflow gates secrets and publication on policy and full validation", () => {
   const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
-  const validation = workflow.slice(workflow.indexOf("  validation:"), workflow.indexOf("  publish:"))
+  const validation = workflow.slice(workflow.indexOf("  validation:"), workflow.indexOf("  signed-artifacts:"))
+  const signing = workflow.slice(workflow.indexOf("  signed-artifacts:"), workflow.indexOf("  publish:"))
   const publish = workflow.slice(workflow.indexOf("  publish:"))
 
   expect(workflow).toContain("needs: tag-policy")
-  expect(publish).toContain("needs: [tag-policy, validation]")
+  expect(signing).toContain("needs: [tag-policy, validation]")
+  expect(publish).toContain("needs: [tag-policy, validation, signed-artifacts]")
   expect(validation).not.toContain("secrets.")
   for (const command of [
     "bun install --frozen-lockfile",
@@ -113,6 +168,25 @@ test("release workflow gates secrets and publication on policy and full validati
     "cargo test --locked --manifest-path src-tauri/Cargo.toml",
     "bun run build:native",
   ]) expect(validation).toContain(command)
-  expect(publish).toContain("TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}")
-  expect(publish).toContain("uses: softprops/action-gh-release@v2")
+  expect(signing).toContain("contents: read")
+  expect(signing).not.toContain("contents: write")
+  expect(signing).toContain("persist-credentials: false")
+  expect(signing).toContain("TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}")
+  expect(signing).toContain("uses: actions/upload-artifact@")
+  expect(publish).toContain("contents: write")
+  expect(publish).not.toContain("secrets.")
+  expect(publish).toContain("uses: actions/download-artifact@")
+  expect(publish).toContain("target_commitish: ${{ needs.tag-policy.outputs.commit }}")
+  expect(publish).toContain("another commit or workflow run")
+})
+
+test("release workflow uses immutable action pins and triggering SHA binding", () => {
+  const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
+  const actions = [...workflow.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)].map((match) => match[1])
+
+  expect(actions.length).toBeGreaterThan(0)
+  for (const action of actions) expect(action).toMatch(/^[^@]+@[0-9a-f]{40}$/)
+  expect(workflow).toContain('check "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GITHUB_RUN_ID"')
+  expect(workflow).toContain("$resolved -ne $commit")
+  expect(workflow).toContain("<!-- drift-release: run=${{ github.run_id }} commit=$commit -->")
 })

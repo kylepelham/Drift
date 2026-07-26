@@ -3,6 +3,7 @@ import path from "node:path"
 
 export type GitHubRelease = {
   tag_name?: string
+  body?: string | null
   draft?: boolean
   prerelease?: boolean
 }
@@ -48,14 +49,35 @@ export function assertVersionIsNewer(currentTag: string, latestTag: string | und
   }
 }
 
+export function releaseRunMarker(runId: string, commit: string) {
+  return `<!-- drift-release: run=${runId} commit=${commit.toLowerCase()} -->`
+}
+
 export function validateReleasePolicy(input: {
   tag: string
+  triggerCommit: string
+  resolvedCommit: string
+  runId: string
   containedInMaster: boolean
   tags: string[]
   releases: GitHubRelease[]
 }) {
   const version = versionFromTag(input.tag)
+  const triggerCommit = input.triggerCommit.toLowerCase()
+  const resolvedCommit = input.resolvedCommit.toLowerCase()
+  if (resolvedCommit !== triggerCommit) {
+    throw new Error(`${input.tag} resolves to ${resolvedCommit}, not triggering commit ${triggerCommit}`)
+  }
   if (!input.containedInMaster) throw new Error(`${input.tag} commit is not contained in origin/master`)
+
+  const existing = input.releases.find((release) => release.tag_name === input.tag)
+  if (existing) {
+    const sameRunAndCommit = existing.body?.includes(releaseRunMarker(input.runId, triggerCommit))
+    if (!sameRunAndCommit) {
+      throw new Error(`${input.tag} already has a release from another commit or workflow run`)
+    }
+  }
+
   const latest = latestStableTag(input.tags, input.releases, input.tag)
   assertVersionIsNewer(input.tag, latest)
   return { version, latest }
@@ -118,10 +140,10 @@ export function stampReleaseVersion(tag: string, root = path.resolve(import.meta
   return version
 }
 
-async function checkPolicy(tag: string) {
+async function checkPolicy(tag: string, triggerCommit: string, runId: string) {
   const repository = process.env.GITHUB_REPOSITORY
   const token = process.env.GITHUB_TOKEN
-  if (!repository || !token) throw new Error("Missing GitHub release environment")
+  if (!repository || !token || !triggerCommit || !runId) throw new Error("Missing GitHub release environment")
 
   versionFromTag(tag)
   const commit = git(["rev-parse", `${tag}^{commit}`]).output
@@ -129,6 +151,9 @@ async function checkPolicy(tag: string) {
   const tags = git(["tag", "--list"]).output.split("\n").filter(Boolean)
   const result = validateReleasePolicy({
     tag,
+    triggerCommit,
+    resolvedCommit: commit,
+    runId,
     containedInMaster,
     tags,
     releases: await githubReleases(repository, token),
@@ -140,9 +165,9 @@ async function checkPolicy(tag: string) {
 }
 
 if (import.meta.main) {
-  const [command, tag] = process.argv.slice(2)
+  const [command, tag, triggerCommit, runId] = process.argv.slice(2)
   if (!tag) throw new Error("Usage: bun scripts/release-policy.ts <check|stamp> <tag>")
-  if (command === "check") await checkPolicy(tag)
+  if (command === "check") await checkPolicy(tag, triggerCommit, runId)
   else if (command === "stamp") console.log(`Stamped release version ${stampReleaseVersion(tag)}`)
   else throw new Error(`Unknown release policy command: ${command}`)
 }
