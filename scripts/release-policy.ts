@@ -1,11 +1,20 @@
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { appendFileSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
+
+export type GitHubReleaseAsset = {
+  name?: string
+  state?: string
+  size?: number
+  digest?: string | null
+}
 
 export type GitHubRelease = {
   tag_name?: string
   body?: string | null
   draft?: boolean
   prerelease?: boolean
+  assets?: GitHubReleaseAsset[]
 }
 
 export const stableTagPattern = /^v\d+\.\d+\.\d+$/
@@ -53,6 +62,75 @@ export function releaseRunMarker(runId: string, commit: string) {
   return `<!-- drift-release: run=${runId} commit=${commit.toLowerCase()} -->`
 }
 
+type ReleaseAssetDigest = { name: string; digest: string }
+
+const sha256Pattern = /^sha256:[0-9a-f]{64}$/
+const releaseAssetsMarkerPattern = /<!-- drift-release-assets: ([A-Za-z0-9_-]+) -->/g
+
+export function releaseAssetsMarker(assets: ReleaseAssetDigest[]) {
+  const sorted = [...assets].sort((left, right) => left.name.localeCompare(right.name))
+  if (new Set(sorted.map((asset) => asset.name)).size !== sorted.length) {
+    throw new Error("Release asset manifest contains duplicate names")
+  }
+  for (const asset of sorted) {
+    if (!asset.name || !sha256Pattern.test(asset.digest)) {
+      throw new Error(`Invalid release asset manifest entry for ${asset.name || "unnamed asset"}`)
+    }
+  }
+  return `<!-- drift-release-assets: ${Buffer.from(JSON.stringify(sorted)).toString("base64url")} -->`
+}
+
+function expectedReleaseAssetNames(assets: { name: string }[]) {
+  const installers = assets.filter((asset) => asset.name.endsWith("-setup.exe"))
+  if (installers.length !== 1) throw new Error("Published release must contain exactly one setup executable")
+  return [installers[0].name, `${installers[0].name}.sig`, "latest.json"].sort()
+}
+
+export function validatePublishedRelease(release: GitHubRelease, runId: string, commit: string) {
+  if (release.draft || release.prerelease) throw new Error("Existing stable release is draft or prerelease")
+
+  const body = release.body ?? ""
+  const runMarker = releaseRunMarker(runId, commit)
+  if (body.split(runMarker).length !== 2) {
+    throw new Error(`${release.tag_name} already has a release from another commit or workflow run`)
+  }
+
+  const markerMatches = [...body.matchAll(releaseAssetsMarkerPattern)]
+  if (markerMatches.length !== 1) throw new Error("Published release must contain exactly one immutable asset manifest")
+
+  let manifest: ReleaseAssetDigest[]
+  try {
+    manifest = JSON.parse(Buffer.from(markerMatches[0][1], "base64url").toString("utf8"))
+  } catch {
+    throw new Error("Published release has an invalid immutable asset manifest")
+  }
+  if (!Array.isArray(manifest)) throw new Error("Published release has an invalid immutable asset manifest")
+  releaseAssetsMarker(manifest)
+
+  const assets = (release.assets ?? []).map((asset) => ({
+    name: asset.name ?? "",
+    state: asset.state,
+    size: asset.size,
+    digest: asset.digest?.toLowerCase() ?? "",
+  }))
+  const expectedNames = expectedReleaseAssetNames(assets)
+  const actualNames = assets.map((asset) => asset.name).sort()
+  if (actualNames.length !== expectedNames.length || actualNames.some((name, index) => name !== expectedNames[index])) {
+    throw new Error("Published release assets do not match the required installer, signature, and update manifest")
+  }
+
+  const digests = new Map(manifest.map((asset) => [asset.name, asset.digest]))
+  for (const asset of assets) {
+    if (asset.state !== "uploaded" || !asset.size || !sha256Pattern.test(asset.digest)) {
+      throw new Error(`Published release asset ${asset.name} is incomplete or missing its SHA-256 digest`)
+    }
+    if (digests.get(asset.name) !== asset.digest) {
+      throw new Error(`Published release asset ${asset.name} does not match its immutable digest`)
+    }
+  }
+  if (digests.size !== assets.length) throw new Error("Published release asset manifest does not match published assets")
+}
+
 export function validateReleasePolicy(input: {
   tag: string
   triggerCommit: string
@@ -72,15 +150,13 @@ export function validateReleasePolicy(input: {
 
   const existing = input.releases.find((release) => release.tag_name === input.tag)
   if (existing) {
-    const sameRunAndCommit = existing.body?.includes(releaseRunMarker(input.runId, triggerCommit))
-    if (!sameRunAndCommit) {
-      throw new Error(`${input.tag} already has a release from another commit or workflow run`)
-    }
+    validatePublishedRelease(existing, input.runId, triggerCommit)
+    return { version, latest: latestStableTag(input.tags, input.releases, input.tag), published: true }
   }
 
   const latest = latestStableTag(input.tags, input.releases, input.tag)
   assertVersionIsNewer(input.tag, latest)
-  return { version, latest }
+  return { version, latest, published: false }
 }
 
 function git(args: string[], allowFailure = false) {
@@ -140,6 +216,20 @@ export function stampReleaseVersion(tag: string, root = path.resolve(import.meta
   return version
 }
 
+export function sealReleaseNotes(notesFile: string, runId: string, commit: string, assetsDirectory: string) {
+  const assetFiles = readdirSync(assetsDirectory)
+    .filter((name) => name.endsWith("-setup.exe") || name.endsWith(".sig") || name === "latest.json")
+    .map((name) => path.join(assetsDirectory, name))
+  expectedReleaseAssetNames(assetFiles.map((file) => ({ name: path.basename(file) })))
+  if (assetFiles.length !== 3) throw new Error("Release notes must be sealed with exactly three release assets")
+
+  const assets = assetFiles.map((file) => ({
+    name: path.basename(file),
+    digest: `sha256:${createHash("sha256").update(readFileSync(file)).digest("hex")}`,
+  }))
+  appendFileSync(notesFile, `\n${releaseRunMarker(runId, commit)}\n${releaseAssetsMarker(assets)}\n`)
+}
+
 async function checkPolicy(tag: string, triggerCommit: string, runId: string) {
   const repository = process.env.GITHUB_REPOSITORY
   const token = process.env.GITHUB_TOKEN
@@ -160,14 +250,15 @@ async function checkPolicy(tag: string, triggerCommit: string, runId: string) {
   })
 
   const output = process.env.GITHUB_OUTPUT
-  if (output) appendFileSync(output, `version=${result.version}\ncommit=${commit}\n`)
-  console.log(`${tag} (${commit}) is eligible; previous stable tag is ${result.latest ?? "none"}`)
+  if (output) appendFileSync(output, `version=${result.version}\ncommit=${commit}\npublished=${result.published}\n`)
+  if (result.published) console.log(`${tag} (${commit}) is already published with verified immutable assets`)
+  else console.log(`${tag} (${commit}) is eligible; previous stable tag is ${result.latest ?? "none"}`)
 }
 
 if (import.meta.main) {
-  const [command, tag, triggerCommit, runId] = process.argv.slice(2)
-  if (!tag) throw new Error("Usage: bun scripts/release-policy.ts <check|stamp> <tag>")
-  if (command === "check") await checkPolicy(tag, triggerCommit, runId)
-  else if (command === "stamp") console.log(`Stamped release version ${stampReleaseVersion(tag)}`)
+  const [command, ...args] = process.argv.slice(2)
+  if (command === "check" && args.length === 3) await checkPolicy(args[0], args[1], args[2])
+  else if (command === "stamp" && args.length === 1) console.log(`Stamped release version ${stampReleaseVersion(args[0])}`)
+  else if (command === "seal" && args.length === 4) sealReleaseNotes(args[0], args[1], args[2], args[3])
   else throw new Error(`Unknown release policy command: ${command}`)
 }

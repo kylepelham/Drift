@@ -103,7 +103,13 @@ to a commit contained in `origin/master`, and be strictly newer than every other
 GitHub release or repository tag. Prerelease and build suffixes are not supported. Before
 signing, the workflow checks the tag policy and runs frozen installs, typechecking, root
 and engine tests, the engine build, Rust tests, and an unsigned production package build
-on the exact tag commit. Only the dependent publish job can access signing secrets.
+on the exact tag commit. The signing job has read-only repository access, and only the
+separate publication job has contents write access.
+
+Stable releases are serialized across all tags. Published notes and assets are immutable:
+a rerun verifies the original workflow marker and asset SHA-256 manifest, then exits
+without rebuilding or publishing. Any mismatch requires investigation rather than an
+overwrite.
 
 The repository must provide these GitHub Actions secrets:
 
