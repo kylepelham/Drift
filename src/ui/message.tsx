@@ -203,8 +203,10 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
         <For each={groups()}>
           {(group) => (
             <Switch>
-              <Match when={"explored" in group.value && group.value}>{(g) => <ExploredGroup parts={g().explored} />}</Match>
-              <Match when={"part" in group.value && group.value}>{(g) => <PartView part={g().part} />}</Match>
+              <Match when={"explored" in group.value && group.value}>
+                {(explored) => <ExploredGroup parts={explored().explored} />}
+              </Match>
+              <Match when={"part" in group.value && group.value}>{(single) => <PartView part={single().part} />}</Match>
             </Switch>
           )}
         </For>

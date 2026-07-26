@@ -344,13 +344,13 @@ export function rememberToolOpen(partId: string, open: boolean) {
 }
 
 function diffStats(diff: string) {
-  let add = 0
-  let del = 0
+  let additions = 0
+  let deletions = 0
   for (const row of parseDiff(diff)) {
-    if (row.kind === "add") add++
-    if (row.kind === "del") del++
+    if (row.kind === "add") additions++
+    if (row.kind === "del") deletions++
   }
-  return { add, del }
+  return { additions, deletions }
 }
 
 export function ToolView(props: { part: ToolPart }) {
@@ -439,9 +439,10 @@ export function ToolView(props: { part: ToolPart }) {
           </span>
         </Show>
         <Show when={stats()}>
-          {(s) => (
+          {(counts) => (
             <span class="shrink-0 font-mono text-xs">
-              <span class="text-ok">+{s().add}</span> <span class="text-danger">-{s().del}</span>
+              <span class="text-ok">+{counts().additions}</span>{" "}
+              <span class="text-danger">-{counts().deletions}</span>
             </span>
           )}
         </Show>

@@ -37,12 +37,12 @@ export function Picker(props: {
   const [position, setPosition] = createSignal({ left: 0, top: 0 })
 
   const filtered = createMemo(() => {
-    const q = query().toLowerCase()
+    const needle = query().toLowerCase()
     return props.items.filter(
       (item) =>
-        item.label.toLowerCase().includes(q) ||
-        item.id.toLowerCase().includes(q) ||
-        item.group?.toLowerCase().includes(q),
+        item.label.toLowerCase().includes(needle) ||
+        item.id.toLowerCase().includes(needle) ||
+        item.group?.toLowerCase().includes(needle),
     )
   })
 
