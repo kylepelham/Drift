@@ -53,15 +53,12 @@ fn merge_sessions(source: &Path, target: &Path) -> rusqlite::Result<usize> {
         [source.to_string_lossy().as_ref()],
     )?;
 
-    let pending = conn.query_row(
+    let pending_sessions = conn.query_row(
         "SELECT COUNT(*) FROM drift_channel.session source
          WHERE NOT EXISTS (SELECT 1 FROM main.session target WHERE target.id = source.id)",
         [],
         |row| row.get::<_, usize>(0),
     )?;
-    if pending == 0 {
-        return Ok(0);
-    }
 
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     tx.execute_batch(
@@ -107,7 +104,7 @@ fn merge_sessions(source: &Path, target: &Path) -> rusqlite::Result<usize> {
          FROM drift_channel.session_share;",
     )?;
     tx.commit()?;
-    Ok(pending)
+    Ok(pending_sessions)
 }
 
 pub fn configure_shared(command: &mut Command) {
@@ -117,6 +114,21 @@ pub fn configure_shared(command: &mut Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT_DATABASE_ID: AtomicUsize = AtomicUsize::new(0);
+
+    struct TestDatabases {
+        dir: PathBuf,
+        source: PathBuf,
+        target: PathBuf,
+    }
+
+    impl Drop for TestDatabases {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.dir).ok();
+        }
+    }
 
     fn schema(conn: &Connection) {
         conn.execute_batch(
@@ -157,63 +169,303 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
-    fn merge_is_lossless_and_idempotent() {
-        let dir = std::env::temp_dir().join(format!("drift-engine-db-test-{}", std::process::id()));
+    fn databases() -> TestDatabases {
+        let id = NEXT_DATABASE_ID.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("drift-engine-db-test-{}-{id}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         let source = dir.join("source.db");
         let target = dir.join("target.db");
-        let source_conn = Connection::open(&source).unwrap();
-        let target_conn = Connection::open(&target).unwrap();
-        schema(&source_conn);
-        schema(&target_conn);
+        schema(&Connection::open(&source).unwrap());
+        schema(&Connection::open(&target).unwrap());
+        TestDatabases {
+            dir,
+            source,
+            target,
+        }
+    }
 
-        source_conn.execute("INSERT INTO project VALUES('p', '/', NULL, NULL, NULL, NULL, 1, 1, NULL, '[]', NULL, NULL)", []).unwrap();
-        source_conn.execute("INSERT INTO session(id, project_id, slug, directory, title, version, time_created, time_updated) VALUES('s', 'p', 'slug', 'C:/work', 'Source', '1', 1, 2)", []).unwrap();
-        source_conn
-            .execute(
-                "INSERT INTO message VALUES('m', 's', 1, 2, '{\"role\":\"user\"}')",
-                [],
-            )
-            .unwrap();
-        source_conn.execute("INSERT INTO part VALUES('x', 'm', 's', 1, 2, '{\"type\":\"text\",\"text\":\"hello\"}')", []).unwrap();
-        source_conn
-            .execute(
-                "INSERT INTO todo VALUES('s', 'keep this', 'pending', 'high', 0, 1, 2)",
-                [],
-            )
-            .unwrap();
-        target_conn.execute("INSERT INTO project VALUES('existing', '/existing', NULL, NULL, NULL, NULL, 1, 1, NULL, '[]', NULL, NULL)", []).unwrap();
-        drop(source_conn);
-        drop(target_conn);
+    fn insert_project(conn: &Connection, worktree: &str) {
+        conn.execute(
+            "INSERT INTO project VALUES('p', ?1, NULL, NULL, NULL, NULL, 1, 1, NULL, '[]', NULL, NULL)",
+            [worktree],
+        )
+        .unwrap();
+    }
 
-        assert_eq!(merge_sessions(&source, &target).unwrap(), 1);
-        assert_eq!(merge_sessions(&source, &target).unwrap(), 0);
+    fn insert_session(conn: &Connection, id: &str, title: &str) {
+        conn.execute(
+            "INSERT INTO session(id, project_id, slug, directory, title, version, time_created, time_updated)
+             VALUES(?1, 'p', ?1, 'C:/work', ?2, '1', 1, 2)",
+            [id, title],
+        )
+        .unwrap();
+    }
 
-        let conn = Connection::open(&target).unwrap();
+    fn insert_message(conn: &Connection, id: &str, session_id: &str, data: &str) {
+        conn.execute(
+            "INSERT INTO message VALUES(?1, ?2, 1, 2, ?3)",
+            [id, session_id, data],
+        )
+        .unwrap();
+    }
+
+    fn insert_part(conn: &Connection, id: &str, message_id: &str, session_id: &str, data: &str) {
+        conn.execute(
+            "INSERT INTO part VALUES(?1, ?2, ?3, 1, 2, ?4)",
+            [id, message_id, session_id, data],
+        )
+        .unwrap();
+    }
+
+    fn overlapping_databases() -> TestDatabases {
+        let databases = databases();
+        let source = Connection::open(&databases.source).unwrap();
+        insert_project(&source, "/source");
+        insert_session(&source, "overlap", "Source session");
+        let target = Connection::open(&databases.target).unwrap();
+        insert_project(&target, "/target");
+        insert_session(&target, "overlap", "Target session");
+        databases
+    }
+
+    #[test]
+    fn merges_messages_and_parts_when_all_sessions_overlap() {
+        let databases = overlapping_databases();
+        let source = Connection::open(&databases.source).unwrap();
+        insert_message(&source, "message", "overlap", r#"{"role":"user"}"#);
+        insert_part(
+            &source,
+            "part",
+            "message",
+            "overlap",
+            r#"{"type":"text","text":"hello"}"#,
+        );
+        drop(source);
+
         assert_eq!(
-            conn.query_row("SELECT COUNT(*) FROM session", [], |row| row
-                .get::<_, i64>(0))
+            merge_sessions(&databases.source, &databases.target).unwrap(),
+            0
+        );
+
+        let target = Connection::open(&databases.target).unwrap();
+        assert_eq!(
+            target
+                .query_row("SELECT data FROM message WHERE id = 'message'", [], |row| {
+                    row.get::<_, String>(0)
+                })
                 .unwrap(),
-            1
+            r#"{"role":"user"}"#
         );
         assert_eq!(
-            conn.query_row("SELECT data FROM part WHERE id = 'x'", [], |row| row
-                .get::<_, String>(0))
+            target
+                .query_row("SELECT data FROM part WHERE id = 'part'", [], |row| {
+                    row.get::<_, String>(0)
+                })
                 .unwrap(),
             "{\"type\":\"text\",\"text\":\"hello\"}"
         );
-        assert_eq!(
-            conn.query_row(
-                "SELECT COUNT(*) FROM project WHERE id = 'existing'",
+    }
+
+    #[test]
+    fn merges_todos_and_shares_when_all_sessions_overlap() {
+        let databases = overlapping_databases();
+        let source = Connection::open(&databases.source).unwrap();
+        source
+            .execute(
+                "INSERT INTO todo VALUES('overlap', 'keep this', 'pending', 'high', 0, 1, 2)",
                 [],
-                |row| row.get::<_, i64>(0)
             )
-            .unwrap(),
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO session_share VALUES('overlap', 'share', 'secret', 'https://example.com/share', 1, 2)",
+                [],
+            )
+            .unwrap();
+        drop(source);
+
+        assert_eq!(
+            merge_sessions(&databases.source, &databases.target).unwrap(),
+            0
+        );
+
+        let target = Connection::open(&databases.target).unwrap();
+        assert_eq!(
+            target
+                .query_row(
+                    "SELECT content FROM todo WHERE session_id = 'overlap' AND position = 0",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "keep this"
+        );
+        assert_eq!(
+            target
+                .query_row(
+                    "SELECT secret FROM session_share WHERE session_id = 'overlap'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "secret"
+        );
+    }
+
+    #[test]
+    fn merges_children_for_overlapping_and_new_sessions() {
+        let databases = overlapping_databases();
+        let source = Connection::open(&databases.source).unwrap();
+        insert_session(&source, "new", "New session");
+        insert_message(&source, "overlap-message", "overlap", "overlap data");
+        insert_message(&source, "new-message", "new", "new data");
+        drop(source);
+
+        assert_eq!(
+            merge_sessions(&databases.source, &databases.target).unwrap(),
             1
         );
-        drop(conn);
-        std::fs::remove_dir_all(dir).ok();
+
+        let target = Connection::open(&databases.target).unwrap();
+        assert_eq!(
+            target
+                .query_row("SELECT COUNT(*) FROM session", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            target
+                .query_row("SELECT COUNT(*) FROM message", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            target
+                .query_row(
+                    "SELECT title FROM session WHERE id = 'overlap'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "Target session"
+        );
+    }
+
+    #[test]
+    fn repeated_merge_imports_children_added_later() {
+        let databases = overlapping_databases();
+        let source = Connection::open(&databases.source).unwrap();
+        insert_message(&source, "first", "overlap", "first data");
+        drop(source);
+
+        assert_eq!(
+            merge_sessions(&databases.source, &databases.target).unwrap(),
+            0
+        );
+
+        let source = Connection::open(&databases.source).unwrap();
+        insert_message(&source, "second", "overlap", "second data");
+        insert_part(&source, "second-part", "second", "overlap", "part data");
+        drop(source);
+
+        assert_eq!(
+            merge_sessions(&databases.source, &databases.target).unwrap(),
+            0
+        );
+
+        let target = Connection::open(&databases.target).unwrap();
+        assert_eq!(
+            target
+                .query_row("SELECT COUNT(*) FROM message", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            target
+                .query_row("SELECT COUNT(*) FROM part", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn merge_preserves_target_rows_on_collisions() {
+        let databases = overlapping_databases();
+        let source = Connection::open(&databases.source).unwrap();
+        insert_message(&source, "message", "overlap", "source message");
+        insert_part(&source, "part", "message", "overlap", "source part");
+        source
+            .execute(
+                "INSERT INTO todo VALUES('overlap', 'source todo', 'pending', 'high', 0, 1, 2)",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO session_share VALUES('overlap', 'source share', 'source secret', 'https://source', 1, 2)",
+                [],
+            )
+            .unwrap();
+        drop(source);
+
+        let target = Connection::open(&databases.target).unwrap();
+        insert_message(&target, "message", "overlap", "target message");
+        insert_part(&target, "part", "message", "overlap", "target part");
+        target
+            .execute(
+                "INSERT INTO todo VALUES('overlap', 'target todo', 'done', 'low', 0, 3, 4)",
+                [],
+            )
+            .unwrap();
+        target
+            .execute(
+                "INSERT INTO session_share VALUES('overlap', 'target share', 'target secret', 'https://target', 3, 4)",
+                [],
+            )
+            .unwrap();
+        drop(target);
+
+        assert_eq!(
+            merge_sessions(&databases.source, &databases.target).unwrap(),
+            0
+        );
+        assert_eq!(
+            merge_sessions(&databases.source, &databases.target).unwrap(),
+            0
+        );
+
+        let target = Connection::open(&databases.target).unwrap();
+        for (query, expected) in [
+            ("SELECT worktree FROM project WHERE id = 'p'", "/target"),
+            (
+                "SELECT title FROM session WHERE id = 'overlap'",
+                "Target session",
+            ),
+            (
+                "SELECT data FROM message WHERE id = 'message'",
+                "target message",
+            ),
+            ("SELECT data FROM part WHERE id = 'part'", "target part"),
+            (
+                "SELECT content FROM todo WHERE session_id = 'overlap' AND position = 0",
+                "target todo",
+            ),
+            (
+                "SELECT secret FROM session_share WHERE session_id = 'overlap'",
+                "target secret",
+            ),
+        ] {
+            assert_eq!(
+                target
+                    .query_row(query, [], |row| row.get::<_, String>(0))
+                    .unwrap(),
+                expected
+            );
+        }
     }
 }
