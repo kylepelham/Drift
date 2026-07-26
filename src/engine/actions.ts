@@ -72,12 +72,11 @@ export function createActions(
 ) {
   const pageSize = 100
   let allSessionsRequest: { token: ReturnType<RecoveryCoordinator["begin"]>; promise: Promise<void> } | undefined
-  const sessionRequests = new Map<
-    string,
-    { token: ReturnType<RecoveryCoordinator["begin"]>; promise: Promise<boolean> }
-  >()
+  const sessionRequests = new Map<string, { generation: number; promise: Promise<boolean> }>()
 
   const sessionEvents = (entry: BufferedEvent) => isSessionEvent(entry.event)
+  const sessionEventsIn = (directory: string) => (entry: BufferedEvent) =>
+    isSessionEvent(entry.event) && eventInDirectory(entry, directory)
   const transcriptEvents = (id: string) => (entry: BufferedEvent) =>
     isTranscriptEvent(entry.event) && sessionID(entry.event) === id
 
@@ -92,7 +91,11 @@ export function createActions(
     }
   }
 
-  async function requestTranscript(id: string, token: ReturnType<RecoveryCoordinator["begin"]>) {
+  async function requestTranscript(
+    id: string,
+    token: ReturnType<RecoveryCoordinator["begin"]>,
+    loadedAtStart: boolean,
+  ) {
     try {
       const result = await requireClient().session.messages({
         path: { id },
@@ -102,7 +105,7 @@ export function createActions(
       const entries = [...requireSdkData(result, "Could not load the session transcript")].sort((a, b) =>
         a.info.id.localeCompare(b.info.id),
       )
-      let applied = false
+      let applied: ReturnType<typeof applyTranscriptSnapshot> | undefined
       const committed = recovery.commit(token, (events) => {
         applied = applyTranscriptSnapshot(
           state,
@@ -111,24 +114,26 @@ export function createActions(
           entries,
           result.response?.headers?.get("x-next-cursor") ?? null,
           events,
-          recovery.replay,
+          loadedAtStart,
         )
       })
-      if (applied) recordLinks(entries)
-      return committed && applied
+      if (applied === "applied") recordLinks(entries)
+      return committed ? applied : undefined
     } finally {
       recovery.cancel(token)
     }
   }
 
   async function reloadSession(id: string) {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const loadedAtStart = state.loaded[id] === true
       const token = recovery.begin(transcriptEvents(id))
       try {
-        const loaded = await requestTranscript(id, token)
-        if (loaded || token.generation !== recovery.generation()) return loaded
+        const result = await requestTranscript(id, token, loadedAtStart)
+        if (result === "applied") return true
+        if (result !== "retry" || token.generation !== recovery.generation()) return false
       } catch (error) {
-        if (token.generation !== recovery.generation() || !token.invalid || attempt > 0) throw error
+        if (token.generation !== recovery.generation() || !token.invalid || attempt > 1) throw error
       }
     }
     return false
@@ -172,16 +177,16 @@ export function createActions(
   function openSession(id: string) {
     if (state.loaded[id]) return Promise.resolve(true)
     const current = sessionRequests.get(id)
-    if (current && recovery.current(current.token)) return current.promise
+    if (current && current.generation === recovery.generation()) return current.promise
     if (current) sessionRequests.delete(id)
-    const token = recovery.begin(transcriptEvents(id))
-    let entry: { token: typeof token; promise: Promise<boolean> } | undefined
+    const generation = recovery.generation()
+    let entry: { generation: number; promise: Promise<boolean> } | undefined
     const request = (async () => {
       set("loading", id, true)
       try {
-        return await requestTranscript(id, token)
+        return await reloadSession(id)
       } catch (error) {
-        if (!token.signal.aborted)
+        if (generation === recovery.generation())
           notice({
             title: "Transcript load failed",
             message: error instanceof Error ? error.message : "Could not load the session transcript",
@@ -197,7 +202,7 @@ export function createActions(
           )
       }
     })()
-    entry = { token, promise: request }
+    entry = { generation, promise: request }
     sessionRequests.set(id, entry)
     void request.finally(() => {
       if (entry && sessionRequests.get(id) === entry) sessionRequests.delete(id)
@@ -206,7 +211,7 @@ export function createActions(
   }
 
   async function loadSessions(directory: string) {
-    const token = recovery.begin(sessionEvents)
+    const token = recovery.begin(sessionEventsIn(directory))
     try {
       const result = await requireClient().session.list({ query: { directory }, signal: token.signal })
       const sessions = requireSdkData(result, "Could not load sessions")
@@ -606,14 +611,16 @@ export function createActions(
   // raised while we weren't listening. Walk directories one at a time so idle workspaces
   // don't stampede instance boots on a timer.
   const pendingDirectories = new Map<string, string>()
-  let activeDirectories = new Set<string>()
+  let activeDirectories = new Map<string, string>()
+  let permissionGeneration: number | undefined
   let permissionRequest: Promise<void> | undefined
 
   function refreshPermissions(directories: string[]) {
     if (!target()) return Promise.resolve()
     for (const directory of directories) {
       const key = normalizeDir(directory)
-      if (!key || activeDirectories.has(key)) continue
+      if (!key) continue
+      if (activeDirectories.has(key) && permissionGeneration === recovery.generation()) continue
       pendingDirectories.set(key, directory)
     }
     if (permissionRequest) return permissionRequest
@@ -628,11 +635,27 @@ export function createActions(
       while (pendingDirectories.size) {
         const directories = [...pendingDirectories.entries()]
         pendingDirectories.clear()
-        activeDirectories = new Set(directories.map(([key]) => key))
-        for (const [, directory] of directories) await refreshDirectoryAsks(directory)
+        const generation = recovery.generation()
+        permissionGeneration = generation
+        activeDirectories = new Map(directories)
+        for (let index = 0; index < directories.length; index += 1) {
+          const [key, directory] = directories[index]
+          if (generation !== recovery.generation()) {
+            for (const [pendingKey, pendingDirectory] of directories.slice(index))
+              pendingDirectories.set(pendingKey, pendingDirectory)
+            break
+          }
+          await refreshDirectoryAsks(directory)
+          activeDirectories.delete(key)
+          if (generation === recovery.generation()) continue
+          for (const [pendingKey, pendingDirectory] of directories.slice(index))
+            pendingDirectories.set(pendingKey, pendingDirectory)
+          break
+        }
       }
     } finally {
-      activeDirectories = new Set()
+      activeDirectories = new Map()
+      permissionGeneration = undefined
     }
   }
 

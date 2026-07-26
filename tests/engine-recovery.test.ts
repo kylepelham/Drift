@@ -7,6 +7,7 @@ import {
   applyStatusSnapshot,
   applyTranscriptSnapshot,
   createRecoveryCoordinator,
+  eventInDirectory,
 } from "../src/engine/recovery"
 import { eventInactivityMs, streamEvents } from "../src/engine/sse"
 import { createEngineState } from "../src/engine/store"
@@ -244,6 +245,48 @@ test("a stale ask poll cannot erase asks received over SSE", async () => {
   }
 })
 
+test("permission refreshes restart their full directory batch after a generation change", async () => {
+  const [state, set] = createEngineState()
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
+  const originalFetch = globalThis.fetch
+  const counts = new Map<string, number>()
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input))
+    const key = `${url.pathname}|${url.searchParams.get("directory")}`
+    const count = (counts.get(key) ?? 0) + 1
+    counts.set(key, count)
+    if (url.searchParams.get("directory") !== "C:/one" || count > 1) return Promise.resolve(Response.json([]))
+    return new Promise<Response>((resolve) => {
+      const abort = () => resolve(new Response(null, { status: 503 }))
+      if (init?.signal?.aborted) abort()
+      else init?.signal?.addEventListener("abort", abort, { once: true })
+    })
+  }) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => ({}) as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+      recovery,
+    )
+    const refresh = actions.refreshPermissions(["C:/one", "C:/two"])
+    while ((counts.get("/permission|C:/one") ?? 0) < 1 || (counts.get("/question|C:/one") ?? 0) < 1)
+      await Promise.resolve()
+    recovery.advance()
+    const reconnectRefresh = actions.refreshPermissions(["C:/one"])
+    await Promise.all([refresh, reconnectRefresh])
+
+    expect(counts.get("/permission|C:/one")).toBe(2)
+    expect(counts.get("/question|C:/one")).toBe(2)
+    expect(counts.get("/permission|C:/two")).toBe(1)
+    expect(counts.get("/question|C:/two")).toBe(1)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test("authoritative snapshots remove ghosts without overwriting newer SSE state", () => {
   const [state, set] = createEngineState()
   set("sessions", "live", session("live", { title: "before" }))
@@ -275,7 +318,7 @@ test("authoritative snapshots remove ghosts without overwriting newer SSE state"
     } as never,
     "C:/work",
   )
-  let transcriptApplied = true
+  let transcriptApplied: ReturnType<typeof applyTranscriptSnapshot> | undefined
   expect(
     recovery.commit(token, (events) => {
       applySessionSnapshot(set, [session("live", { title: "stale HTTP" })], () => true, events)
@@ -292,7 +335,6 @@ test("authoritative snapshots remove ghosts without overwriting newer SSE state"
         ] as never,
         null,
         events,
-        recovery.replay,
       )
     }),
   ).toBeTrue()
@@ -301,10 +343,10 @@ test("authoritative snapshots remove ghosts without overwriting newer SSE state"
   expect(state.sessions.live.title).toBe("from SSE")
   expect(state.status.live.type).toBe("busy")
   expect((state.transcripts.live[0].parts[0] as { text: string }).text).toBe("from SSE")
-  expect(transcriptApplied).toBeTrue()
+  expect(transcriptApplied).toBe("applied")
 })
 
-test("transcript snapshots fill gaps without double-applying later tail deltas", () => {
+test("overlapping transcript snapshots preserve live deltas and apply activity side effects once", () => {
   const [state, set] = createEngineState()
   set("loaded", "s1", true)
   set("transcripts", "s1", [
@@ -321,6 +363,25 @@ test("transcript snapshots fill gaps without double-applying later tail deltas",
       properties: { sessionID: "s1", messageID: "m3", partID: "p3", field: "text", delta: "!" },
     } as never,
   )
+  for (const [id, tool] of [
+    ["tool-1", "read"],
+    ["tool-2", "bash"],
+  ]) {
+    recovery.record({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id,
+          sessionID: "s1",
+          messageID: "m4",
+          type: "tool",
+          callID: id,
+          tool,
+          state: { status: "running", input: {}, time: { start: 1 } },
+        },
+      },
+    } as never)
+  }
 
   recovery.commit(token, (events) =>
     applyTranscriptSnapshot(
@@ -332,21 +393,53 @@ test("transcript snapshots fill gaps without double-applying later tail deltas",
           info: { id: "m2", sessionID: "s1", role: "user" },
           parts: [{ id: "p2", sessionID: "s1", messageID: "m2", type: "text", text: "missed" }],
         },
+        {
+          info: { id: "m3", sessionID: "s1", role: "assistant" },
+          parts: [{ id: "p3", sessionID: "s1", messageID: "m3", type: "text", text: "tail!" }],
+        },
+        { info: { id: "m4", sessionID: "s1", role: "assistant" }, parts: [] },
       ] as never,
       null,
       events,
-      recovery.replay,
     ),
   )
 
-  expect(state.transcripts.s1.map((entry) => entry.info.id)).toEqual(["m2", "m3"])
+  expect(state.transcripts.s1.map((entry) => entry.info.id)).toEqual(["m2", "m3", "m4"])
   expect((state.transcripts.s1[1].parts[0] as { text: string }).text).toBe("tail!")
+  expect(state.activity.s1.tools).toBe(2)
+  expect(state.transcripts.s1[2].parts.map((part) => part.id)).toEqual(["tool-1", "tool-2"])
 })
 
-test("an initially unloaded transcript replays stream events after its snapshot", () => {
+test("an initially unloaded transcript retries across non-idempotent stream deltas", async () => {
   const [state, set] = createEngineState()
   const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
-  const token = recovery.begin()
+  const first = deferred<unknown>()
+  let requests = 0
+  const actions = createActions(
+    () => ({
+      session: {
+        messages: () => {
+          requests += 1
+          if (requests === 1) return first.promise
+          return Promise.resolve({
+            data: [
+              {
+                info: { id: "m1", sessionID: "s1", role: "assistant" },
+                parts: [{ id: "p1", sessionID: "s1", messageID: "m1", type: "text", text: "live event" }],
+              },
+            ],
+            response: { headers: new Headers() },
+          })
+        },
+      },
+    }) as never,
+    state,
+    set,
+    () => ({ url: "http://engine.test" }),
+    recovery,
+  )
+  const loading = actions.openSession("s1")
+  while (requests < 1) await Promise.resolve()
   recovery.record(
     { type: "message.updated", properties: { info: { id: "m1", sessionID: "s1", role: "assistant" } } } as never,
   )
@@ -363,11 +456,18 @@ test("an initially unloaded transcript replays stream events after its snapshot"
     } as never,
   )
   expect(state.transcripts.s1).toBeUndefined()
+  first.resolve({
+    data: [
+      {
+        info: { id: "m1", sessionID: "s1", role: "assistant" },
+        parts: [{ id: "p1", sessionID: "s1", messageID: "m1", type: "text", text: "live event" }],
+      },
+    ],
+    response: { headers: new Headers() },
+  })
 
-  recovery.commit(token, (events) =>
-    applyTranscriptSnapshot(state, set, "s1", [], null, events, recovery.replay),
-  )
-
+  expect(await loading).toBeTrue()
+  expect(requests).toBe(2)
   expect(state.loaded.s1).toBeTrue()
   expect((state.transcripts.s1[0].parts[0] as { text: string }).text).toBe("live event")
 })
@@ -468,6 +568,40 @@ test("unrelated event overflow cannot invalidate a scoped recovery request", () 
   expect(committed).toBeTrue()
 })
 
+test("directory session loads ignore unrelated churn and include move source and destination", async () => {
+  const [state, set] = createEngineState()
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory), 1)
+  const result = deferred<unknown>()
+  const actions = createActions(
+    () => ({ session: { list: () => result.promise } }) as never,
+    state,
+    set,
+    () => ({ url: "http://engine.test" }),
+    recovery,
+  )
+  const loading = actions.loadSessions("C:/target")
+  for (let index = 0; index < 100; index += 1)
+    recovery.record(
+      { type: "session.updated", properties: { info: session(`other-${index}`, { directory: "C:/other" }) } } as never,
+      "C:/other",
+    )
+  result.resolve({ data: [session("target", { directory: "C:/target" })] })
+  await loading
+
+  const moved = {
+    revision: 1,
+    directory: "C:/source",
+    event: {
+      type: "session.next.moved",
+      properties: { sessionID: "target", location: { directory: "C:/target" }, timestamp: 2 },
+    } as Event,
+  }
+  expect(state.sessions.target.directory).toBe("C:/target")
+  expect(eventInDirectory(moved, "C:/source")).toBeTrue()
+  expect(eventInDirectory(moved, "C:/target")).toBeTrue()
+  expect(eventInDirectory(moved, "C:/other")).toBeFalse()
+})
+
 test("pending older-page loads cannot recreate a deleted session", async () => {
   const [state, set] = createEngineState()
   const info = session("s1")
@@ -529,6 +663,33 @@ test("a moved event for an unknown session replays after the complete snapshot",
 
   expect(state.sessions.s1.directory).toBe("C:/moved")
   expect(state.sessions.s1.projectID).toBe("moved-project")
+  expect(state.sessions.s1.time.updated).toBe(42)
+})
+
+test("a known session moved into a queried directory survives a stale snapshot omission", () => {
+  const [state, set] = createEngineState()
+  set("sessions", "s1", session("s1", { directory: "C:/source" }))
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
+  const token = recovery.begin()
+  recovery.record(
+    {
+      type: "session.next.moved",
+      properties: { sessionID: "s1", location: { directory: "C:/target" }, timestamp: 42 },
+    } as never,
+    "C:/source",
+  )
+
+  recovery.commit(token, (events) =>
+    applySessionSnapshot(
+      set,
+      [],
+      (directory) => directory === "C:/target",
+      events,
+      recovery.replay,
+    ),
+  )
+
+  expect(state.sessions.s1.directory).toBe("C:/target")
   expect(state.sessions.s1.time.updated).toBe(42)
 })
 

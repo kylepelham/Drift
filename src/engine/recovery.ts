@@ -141,6 +141,11 @@ export function applySessionSnapshot(
   events: BufferedEvent[],
   replay: (events: BufferedEvent[]) => void = () => undefined,
 ) {
+  const moved = new Set(
+    events
+      .filter((entry) => (entry.event as unknown as { type: string }).type === "session.next.moved")
+      .map((entry) => sessionID(entry.event)),
+  )
   const touched = new Set(
     events
       .filter(
@@ -153,7 +158,8 @@ export function applySessionSnapshot(
   set(
     produce((draft) => {
       for (const session of Object.values(draft.sessions)) {
-        if (!inScope(session.directory) || reported.has(session.id) || touched.has(session.id)) continue
+        if (!inScope(session.directory) || reported.has(session.id) || touched.has(session.id) || moved.has(session.id))
+          continue
         dropSessionState(draft, session.id)
       }
       for (const session of sessions) {
@@ -188,34 +194,78 @@ export function applyTranscriptSnapshot(
   entries: MessageEntry[],
   cursor: string | null,
   events: BufferedEvent[],
-  replay: (events: BufferedEvent[]) => void = () => undefined,
+  loadedAtStart = state.loaded[id] === true,
 ) {
-  if (
-    events.some(
-      (entry) => (entry.event as unknown as { type: string }).type === "session.deleted" && sessionID(entry.event) === id,
-    )
+  const relevant = events.filter((entry) => isTranscriptEvent(entry.event) && sessionID(entry.event) === id)
+  if (relevant.some((entry) => (entry.event as unknown as { type: string }).type === "session.deleted"))
+    return "deleted" as const
+  const existing = loadedAtStart ? (state.transcripts[id] ?? []) : []
+  const deltas = relevant.filter(
+    (entry) => (entry.event as unknown as { type: string }).type === "message.part.delta",
   )
-    return false
-  const existing = state.loaded[id] ? (state.transcripts[id] ?? []) : []
+  if (deltas.length && (!loadedAtStart || deltas.some((entry) => !deltaWasApplied(existing, entry.event))))
+    return "retry" as const
   const snapshotIDs = new Set(entries.map((entry) => entry.info.id))
-  const preservedIDs = new Set(existing.filter((entry) => !snapshotIDs.has(entry.info.id)).map((entry) => entry.info.id))
+  const touchedIDs = new Set(relevant.map((entry) => messageID(entry.event)).filter((value) => value !== undefined))
+  const preservedIDs = new Set(
+    existing
+      .filter((entry) => !snapshotIDs.has(entry.info.id) || touchedIDs.has(entry.info.id))
+      .map((entry) => entry.info.id),
+  )
   set(
     produce((draft) => {
-      draft.transcripts[id] = [...existing.filter((entry) => preservedIDs.has(entry.info.id)), ...entries].sort((a, b) =>
-        a.info.id.localeCompare(b.info.id),
-      )
+      draft.transcripts[id] = [
+        ...existing.filter((entry) => preservedIDs.has(entry.info.id)),
+        ...entries.filter((entry) => !preservedIDs.has(entry.info.id)),
+      ]
+      for (const entry of relevant) applyIdempotentTranscriptEvent(draft.transcripts[id], entry.event)
+      draft.transcripts[id].sort((a, b) => a.info.id.localeCompare(b.info.id))
       draft.loaded[id] = true
       draft.cursors[id] = cursor
     }),
   )
-  replay(
-    events.filter((entry) => {
-      if (!isTranscriptEvent(entry.event) || sessionID(entry.event) !== id) return false
-      const message = messageID(entry.event)
-      return !message || !preservedIDs.has(message)
-    }),
-  )
-  return true
+  return "applied" as const
+}
+
+function deltaWasApplied(entries: MessageEntry[], event: Event) {
+  const properties = (event as unknown as { properties: Record<string, unknown> }).properties
+  const messageID = properties.messageID
+  const partID = properties.partID
+  const field = properties.field
+  if (typeof messageID !== "string" || typeof partID !== "string" || typeof field !== "string") return false
+  const part = entries
+    .find((entry) => entry.info.id === messageID)
+    ?.parts.find((candidate) => candidate.id === partID) as unknown as Record<string, unknown> | undefined
+  return typeof part?.[field] === "string"
+}
+
+function applyIdempotentTranscriptEvent(entries: MessageEntry[], event: Event) {
+  const raw = event as unknown as { type: string; properties: Record<string, unknown> }
+  if (raw.type === "message.updated") {
+    const info = raw.properties.info as MessageEntry["info"]
+    const index = entries.findIndex((entry) => entry.info.id === info.id)
+    if (index >= 0) entries[index].info = info
+    else entries.push({ info, parts: [] })
+    return
+  }
+  if (raw.type === "message.removed") {
+    const index = entries.findIndex((entry) => entry.info.id === raw.properties.messageID)
+    if (index >= 0) entries.splice(index, 1)
+    return
+  }
+  if (raw.type === "message.part.updated") {
+    const part = raw.properties.part as MessageEntry["parts"][number]
+    const message = entries.find((entry) => entry.info.id === part.messageID)
+    if (!message) return
+    const index = message.parts.findIndex((candidate) => candidate.id === part.id)
+    if (index >= 0) message.parts[index] = part
+    else message.parts.push(part)
+    return
+  }
+  if (raw.type === "message.part.removed") {
+    const message = entries.find((entry) => entry.info.id === raw.properties.messageID)
+    if (message) message.parts = message.parts.filter((part) => part.id !== raw.properties.partID)
+  }
 }
 
 function messageID(event: Event): string | undefined {
@@ -228,5 +278,11 @@ function messageID(event: Event): string | undefined {
 }
 
 export function eventInDirectory(entry: BufferedEvent, directory: string) {
-  return typeof entry.directory === "string" && normalizeDir(entry.directory) === normalizeDir(directory)
+  const target = normalizeDir(directory)
+  if (typeof entry.directory === "string" && normalizeDir(entry.directory) === target) return true
+  const properties = (entry.event as unknown as { properties?: Record<string, unknown> }).properties ?? {}
+  const info = properties.info as { directory?: string } | undefined
+  if (typeof info?.directory === "string" && normalizeDir(info.directory) === target) return true
+  const location = properties.location as { directory?: string } | undefined
+  return typeof location?.directory === "string" && normalizeDir(location.directory) === target
 }

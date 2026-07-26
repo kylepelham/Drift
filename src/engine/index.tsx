@@ -8,6 +8,7 @@ import {
   applySessionSnapshot,
   applyStatusSnapshot,
   createRecoveryCoordinator,
+  eventInDirectory,
   isSessionEvent,
   isStatusEvent,
 } from "./recovery"
@@ -43,7 +44,9 @@ export function EngineProvider(props: ParentProps) {
   async function hydrate() {
     const bootDirectory = directory ?? ""
     const api = requireClient()
-    const token = recovery.begin((entry) => isSessionEvent(entry.event) || isStatusEvent(entry.event))
+    const token = recovery.begin(
+      (entry) => (isSessionEvent(entry.event) || isStatusEvent(entry.event)) && eventInDirectory(entry, bootDirectory),
+    )
     try {
       const stale = Object.keys(state.loaded).filter((id) => state.loaded[id])
       const [sessionsResult, statusesResult, providersResult, agentsResult, commandsResult, healthResult] =
