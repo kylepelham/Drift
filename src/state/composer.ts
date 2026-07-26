@@ -30,9 +30,20 @@ export function setComposerDraft(scope: string, draft: ComposerDraft) {
   setDrafts({ ...drafts(), [scope]: draft })
 }
 
-export function clearComposerDraft(scope: string) {
+export function clearComposerDraft(scope: string, expected?: ComposerDraft) {
+  if (expected && composerDraft(scope) !== expected) return false
   const next = { ...drafts() }
   delete next[scope]
+  setDrafts(next)
+  return true
+}
+
+export function migrateComposerDraft(from: string, to: string) {
+  if (from === to) return
+  const next = { ...drafts() }
+  const draft = next[from]
+  delete next[from]
+  if (draft) next[to] = draft
   setDrafts(next)
 }
 
