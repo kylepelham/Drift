@@ -17,7 +17,7 @@ export type GitHubRelease = {
   assets?: GitHubReleaseAsset[]
 }
 
-export const stableTagPattern = /^v\d+\.\d+\.\d+$/
+export const stableTagPattern = /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/
 
 export function versionFromTag(tag: string) {
   if (!stableTagPattern.test(tag)) throw new Error(`Tag must match vMAJOR.MINOR.PATCH exactly, got ${tag}`)

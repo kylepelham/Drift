@@ -18,10 +18,14 @@ import {
 const root = path.resolve(import.meta.dirname, "..")
 
 test("stable tags have exactly one v and three numeric components", () => {
+  expect(versionFromTag("v0.0.0")).toBe("0.0.0")
   expect(versionFromTag("v1.2.3")).toBe("1.2.3")
   for (const tag of [
     "1.2.3",
     "vv1.2.3",
+    "v01.2.3",
+    "v1.02.3",
+    "v1.2.03",
     "v1.2",
     "v1.2.3junk",
     "v1.2.3-beta.1",
@@ -33,6 +37,7 @@ test("stable tags have exactly one v and three numeric components", () => {
 test("stable versions compare numerically", () => {
   expect(compareStableTags("v2.0.0", "v1.999.999")).toBe(1)
   expect(compareStableTags("v1.10.0", "v1.9.99")).toBe(1)
+  expect(compareStableTags("v9007199254740993.0.0", "v9007199254740992.999.999")).toBe(1)
   expect(compareStableTags("v1.2.3", "v1.2.3")).toBe(0)
 })
 
