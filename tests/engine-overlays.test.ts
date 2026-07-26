@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { spawn } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import {
@@ -39,6 +39,11 @@ function assertRunning(child: ReturnType<typeof worker>) {
   throw new Error(Buffer.concat(workerErrors.get(child) ?? []).toString() || `Lock worker exited ${child.exitCode}`)
 }
 
+async function waitForExit(child: ReturnType<typeof worker>) {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  await new Promise<void>((resolve) => child.once("close", () => resolve()))
+}
+
 async function stop(child: ReturnType<typeof worker>) {
   if (child.exitCode !== null || child.signalCode !== null) return
   const closed = new Promise<void>((resolve) => child.once("close", () => resolve()))
@@ -58,6 +63,10 @@ function acquired(file: string) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
     throw error
   }
+}
+
+function candidates(directory: string) {
+  return readdirSync(directory).filter((entry) => entry.startsWith("lock-candidate-"))
 }
 
 function messages(error: unknown): string[] {
@@ -195,6 +204,91 @@ test("clean success restores overlays and releases the lock", async () => {
   ])
 })
 
+test("an owner write failure never publishes a visible lock", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-owner-write-"))
+  const lock = path.join(directory, "lock")
+  const failure = new Error("injected owner write failure")
+
+  try {
+    await expect(
+      acquireEngineOverlayLock(lock, {
+        beforeOwnerWrite: () => {
+          throw failure
+        },
+      }),
+    ).rejects.toBe(failure)
+    expect(exists(lock)).toBe(false)
+    expect(candidates(directory)).toEqual([])
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("a crash after owner persistence but before publication leaves no visible lock", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-publish-crash-"))
+  const lock = path.join(directory, "lock")
+  const crashed = path.join(directory, "crashed")
+  const child = worker({
+    lock,
+    acquired: path.join(directory, "acquired"),
+    ready: path.join(directory, "ready"),
+    crashBeforePublish: crashed,
+    holdMs: 0,
+  })
+
+  try {
+    await waitFor(crashed)
+    await waitForExit(child)
+    expect(child.exitCode).toBe(70)
+    expect(exists(lock)).toBe(false)
+    expect(candidates(directory)).toHaveLength(1)
+
+    await acquireEngineOverlayLock(lock)
+    releaseEngineOverlayLock(lock)
+    expect(exists(lock)).toBe(false)
+  } finally {
+    await stop(child)
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("two processes racing initial publication admit exactly one writer", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-publish-race-"))
+  const lock = path.join(directory, "lock")
+  const synchronization = path.join(directory, "publish-ready")
+  const acquisitions = path.join(directory, "acquired")
+  mkdirSync(synchronization)
+
+  const first = worker({
+    lock,
+    acquired: acquisitions,
+    ready: path.join(directory, "first-ready"),
+    synchronizePublish: synchronization,
+    holdMs: 20_000,
+  })
+  const second = worker({
+    lock,
+    acquired: acquisitions,
+    ready: path.join(directory, "second-ready"),
+    synchronizePublish: synchronization,
+    holdMs: 20_000,
+  })
+
+  try {
+    await waitFor(acquisitions)
+    await Bun.sleep(500)
+    expect(acquired(acquisitions)).toHaveLength(1)
+    expect(
+      [exists(path.join(directory, "first-ready")), exists(path.join(directory, "second-ready"))].filter(Boolean),
+    ).toHaveLength(1)
+    assertRunning(first)
+    assertRunning(second)
+  } finally {
+    await Promise.all([stop(first), stop(second)])
+    rmSync(directory, { recursive: true, force: true })
+  }
+}, 10_000)
+
 test("a live lock excludes another process", async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-lock-"))
   const lock = path.join(directory, "lock")
@@ -277,6 +371,39 @@ test("a crash between stale quarantine and claim leaves the lock claimable", asy
     releaseEngineOverlayLock(lock)
     expect(exists(lock)).toBe(false)
     expect(exists(tombstone)).toBe(true)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("an empty ownerless legacy lock is quarantined only when upstream is clean", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-ownerless-clean-"))
+  const lock = path.join(directory, "lock")
+  mkdirSync(lock)
+
+  try {
+    await acquireEngineOverlayLock(lock, { upstreamChanges: async () => [] })
+    expect(exists(path.join(`${lock}-reclaimed`, "ownerless-legacy"))).toBe(true)
+    expect(JSON.parse(readFileSync(lock, "utf8"))).toMatchObject({ pid: process.pid })
+    releaseEngineOverlayLock(lock)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("an ownerless legacy lock fails closed when upstream is dirty", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-ownerless-dirty-"))
+  const lock = path.join(directory, "lock")
+  mkdirSync(lock)
+
+  try {
+    await expect(
+      acquireEngineOverlayLock(lock, {
+        upstreamChanges: async () => [" M engine/upstream/dirty.ts"],
+      }),
+    ).rejects.toThrow("Ownerless engine overlay lock cannot be recovered while engine/upstream is dirty")
+    expect(exists(lock)).toBe(true)
+    expect(exists(path.join(`${lock}-reclaimed`, "ownerless-legacy"))).toBe(false)
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

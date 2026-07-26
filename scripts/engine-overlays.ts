@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs"
 import path from "node:path"
 
 const root = path.resolve(import.meta.dirname, "..")
@@ -11,6 +21,12 @@ const ownedLocks = new Map<string, string>()
 interface LockOwner {
   pid: number
   token: string
+}
+
+export interface EngineOverlayLockOptions {
+  beforeOwnerWrite?: (candidate: string) => void
+  beforePublish?: (candidate: string) => void
+  upstreamChanges?: () => Promise<string[]>
 }
 
 const overlays = () =>
@@ -29,7 +45,8 @@ async function gitApply(args: string[], quiet = false) {
 }
 
 function readLockOwner(directory: string): LockOwner {
-  const raw = readFileSync(path.join(directory, "owner.json"), "utf8")
+  const ownerFile = statSync(directory).isDirectory() ? path.join(directory, "owner.json") : directory
+  const raw = readFileSync(ownerFile, "utf8")
   let value: unknown
   try {
     value = JSON.parse(raw)
@@ -51,62 +68,124 @@ function readLockOwner(directory: string): LockOwner {
   return value as LockOwner
 }
 
-export async function acquireEngineOverlayLock(directory = lockDirectory) {
-  let missingOwnerAttempts = 0
-  for (let attempt = 0; attempt < 240; attempt++) {
-    let acquired = false
-    try {
-      mkdirSync(directory)
-      acquired = true
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-    }
-    if (acquired) {
-      const token = randomUUID()
-      writeFileSync(path.join(directory, "owner.json"), JSON.stringify({ pid: process.pid, token }), { flag: "wx" })
-      ownedLocks.set(directory, token)
-      return
-    }
+function contention(error: unknown, destination: string) {
+  const code = (error as NodeJS.ErrnoException).code
+  if (code === "EEXIST" || code === "ENOTEMPTY") return true
+  return (code === "EPERM" || code === "EACCES" || code === "EISDIR" || code === "ENOTDIR") && existsSync(destination)
+}
 
-    let owner: LockOwner
-    try {
-      owner = readLockOwner(directory)
-    } catch (ownerError) {
-      if ((ownerError as NodeJS.ErrnoException).code === "ENOENT" && missingOwnerAttempts++ < 3) {
-        await Bun.sleep(250)
-        continue
-      }
-      throw ownerError
-    }
-    missingOwnerAttempts = 0
-    try {
-      process.kill(owner.pid, 0)
-    } catch (ownerError) {
-      const code = (ownerError as NodeJS.ErrnoException).code
-      if (code === "EPERM") {
-        await Bun.sleep(250)
-        continue
-      }
-      if (code !== "ESRCH") throw ownerError
-
-      const reclaimedDirectory = `${directory}-reclaimed`
-      mkdirSync(reclaimedDirectory, { recursive: true })
-      const reclaimedLock = path.join(reclaimedDirectory, owner.token)
-      try {
-        // Keeping this generation's destination prevents delayed contenders from moving a newer lock (ABA).
-        renameSync(directory, reclaimedLock)
-      } catch (reclaimError) {
-        const reclaimCode = (reclaimError as NodeJS.ErrnoException).code
-        if (reclaimCode === "ENOENT" || reclaimCode === "EEXIST" || reclaimCode === "ENOTEMPTY") continue
-        if ((reclaimCode === "EPERM" || reclaimCode === "EACCES") && existsSync(reclaimedLock)) continue
-        throw reclaimError
-      }
-      console.warn(`Recovering engine overlays left by process ${owner.pid}`)
-      continue
-    }
-    await Bun.sleep(250)
+function quarantine(directory: string, destination: string) {
+  try {
+    renameSync(directory, destination)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" || contention(error, destination)) return false
+    throw error
   }
-  throw new Error("Timed out waiting for the engine overlay lock")
+}
+
+async function quarantineOwnerlessLock(directory: string, options: EngineOverlayLockOptions) {
+  let entries: string[]
+  try {
+    entries = readdirSync(directory)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOTDIR") return false
+    throw error
+  }
+  if (entries.length > 0) {
+    throw new Error(`Ownerless engine overlay lock contains unexpected files; inspect ${directory} before retrying`)
+  }
+
+  let changes: string[]
+  try {
+    changes = await (options.upstreamChanges ?? upstreamChanges)()
+  } catch (cause) {
+    throw new Error(`Could not verify whether ownerless engine overlay lock ${directory} is safe to recover`, { cause })
+  }
+  if (changes.length > 0) {
+    throw new Error(
+      `Ownerless engine overlay lock cannot be recovered while engine/upstream is dirty; inspect ${directory} before retrying:\n${changes.join("\n")}`,
+    )
+  }
+
+  const reclaimedDirectory = `${directory}-reclaimed`
+  mkdirSync(reclaimedDirectory, { recursive: true })
+  // One retained destination makes delayed legacy contenders fail instead of moving a newer lock (ABA).
+  if (!quarantine(directory, path.join(reclaimedDirectory, "ownerless-legacy"))) return false
+  console.warn("Recovering ownerless engine overlay lock after verifying engine/upstream is clean")
+  return true
+}
+
+export async function acquireEngineOverlayLock(
+  directory = lockDirectory,
+  options: EngineOverlayLockOptions = {},
+) {
+  const token = randomUUID()
+  const candidate = `${directory}-candidate-${token}`
+  const candidateOwner = path.join(candidate, "owner.json")
+  mkdirSync(candidate)
+
+  let published = false
+  let missingOwnerAttempts = 0
+  try {
+    options.beforeOwnerWrite?.(candidate)
+    writeFileSync(candidateOwner, JSON.stringify({ pid: process.pid, token }), { flag: "wx" })
+    options.beforePublish?.(candidate)
+
+    for (let attempt = 0; attempt < 240; attempt++) {
+      try {
+        // A same-volume hard link atomically publishes complete metadata and never replaces an existing lock.
+        linkSync(candidateOwner, directory)
+        published = true
+        ownedLocks.set(directory, token)
+        return
+      } catch (error) {
+        if (!contention(error, directory)) throw error
+      }
+
+      let owner: LockOwner
+      try {
+        owner = readLockOwner(directory)
+      } catch (ownerError) {
+        if ((ownerError as NodeJS.ErrnoException).code !== "ENOENT") throw ownerError
+        if (!existsSync(directory)) continue
+        if (missingOwnerAttempts++ < 3) {
+          await Bun.sleep(250)
+          continue
+        }
+        if (await quarantineOwnerlessLock(directory, options)) missingOwnerAttempts = 0
+        continue
+      }
+      missingOwnerAttempts = 0
+      try {
+        process.kill(owner.pid, 0)
+      } catch (ownerError) {
+        const code = (ownerError as NodeJS.ErrnoException).code
+        if (code === "EPERM") {
+          await Bun.sleep(250)
+          continue
+        }
+        if (code !== "ESRCH") throw ownerError
+
+        const reclaimedDirectory = `${directory}-reclaimed`
+        mkdirSync(reclaimedDirectory, { recursive: true })
+        const reclaimedLock = path.join(reclaimedDirectory, owner.token)
+        // Keeping this generation's destination prevents delayed contenders from moving a newer lock (ABA).
+        if (!quarantine(directory, reclaimedLock)) continue
+        console.warn(`Recovering engine overlays left by process ${owner.pid}`)
+        continue
+      }
+      await Bun.sleep(250)
+    }
+    throw new Error("Timed out waiting for the engine overlay lock")
+  } finally {
+    try {
+      rmSync(candidate, { recursive: true, force: true })
+    } catch (error) {
+      if (!published) throw error
+      console.warn(`Could not remove published engine overlay lock candidate ${candidate}`)
+    }
+  }
 }
 
 export function releaseEngineOverlayLock(directory = lockDirectory) {

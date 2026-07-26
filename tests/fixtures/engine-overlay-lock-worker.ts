@@ -7,6 +7,9 @@ interface Input {
   acquired: string
   ready: string
   synchronizeDeadCheck?: string
+  synchronizePublish?: string
+  publishContenders?: number
+  crashBeforePublish?: string
   holdMs: number
 }
 
@@ -30,7 +33,19 @@ if (input.synchronizeDeadCheck) {
   })
 }
 
-await acquireEngineOverlayLock(input.lock)
+await acquireEngineOverlayLock(input.lock, {
+  beforePublish: () => {
+    if (input.crashBeforePublish) {
+      writeFileSync(input.crashBeforePublish, "")
+      process.exit(70)
+    }
+    if (!input.synchronizePublish) return
+    writeFileSync(path.join(input.synchronizePublish, String(process.pid)), "")
+    while (readdirSync(input.synchronizePublish).length < (input.publishContenders ?? 2)) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+    }
+  },
+})
 appendFileSync(input.acquired, `${process.pid}\n`)
 writeFileSync(input.ready, "")
 await Bun.sleep(input.holdMs)

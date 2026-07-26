@@ -14,3 +14,4 @@ examples/
 .tauri.log
 .tauri/
 engine/.overlay-lock-reclaimed/
+engine/.overlay-lock-candidate-*/
