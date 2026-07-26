@@ -55,21 +55,76 @@ fn merge_sessions(source: &Path, target: &Path) -> rusqlite::Result<usize> {
     )?;
 
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let current_events =
+        table_schemas_match(&tx, "event_sequence")? && table_schemas_match(&tx, "event")?;
+    tx.execute_batch(
+        "CREATE TEMP TABLE source_session_aggregate(
+            session_id TEXT PRIMARY KEY
+         ) WITHOUT ROWID;",
+    )?;
+    if current_events {
+        tx.execute_batch(
+            "INSERT INTO temp.source_session_aggregate(session_id)
+             SELECT source.id
+             FROM drift_channel.session source
+             JOIN drift_channel.event_sequence sequence ON sequence.aggregate_id = source.id
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM main.session target WHERE target.id = source.id
+             )
+             AND sequence.seq >= 0
+             AND (
+                 SELECT COUNT(*) FROM drift_channel.event event
+                 WHERE event.aggregate_id = source.id
+             ) = sequence.seq + 1
+             AND (
+                 SELECT COUNT(DISTINCT event.seq) FROM drift_channel.event event
+                 WHERE event.aggregate_id = source.id
+                   AND event.seq BETWEEN 0 AND sequence.seq
+             ) = sequence.seq + 1
+             AND NOT EXISTS (
+                 SELECT 1
+                 FROM drift_channel.event event
+                 JOIN main.event target ON target.id = event.id
+                 WHERE event.aggregate_id = source.id
+             );",
+        )?;
+    }
+
     let mut imported = 0;
     imported += copy_table(
         &tx,
         "project",
         true,
-        &[],
         Some("source.id IN (SELECT project_id FROM drift_channel.session)"),
     )?;
-    imported += copy_table(&tx, "session", true, &[], None)?;
-    imported += copy_table(&tx, "message", false, &[], None)?;
+    imported += copy_table(&tx, "session", true, None)?;
+    if current_events {
+        imported += copy_table(
+            &tx,
+            "event_sequence",
+            false,
+            Some(
+                "source.aggregate_id IN (
+                    SELECT session_id FROM temp.source_session_aggregate
+                )",
+            ),
+        )?;
+        imported += copy_table(
+            &tx,
+            "event",
+            false,
+            Some(
+                "source.aggregate_id IN (
+                    SELECT session_id FROM temp.source_session_aggregate
+                )",
+            ),
+        )?;
+    }
+    imported += copy_table(&tx, "message", false, None)?;
     imported += copy_table(
         &tx,
         "part",
         false,
-        &[],
         Some(
             "EXISTS (
                 SELECT 1 FROM main.message parent
@@ -77,17 +132,57 @@ fn merge_sessions(source: &Path, target: &Path) -> rusqlite::Result<usize> {
             )",
         ),
     )?;
-    imported += copy_table(&tx, "session_message", false, &[], None)?;
-    imported += copy_table(
-        &tx,
-        "session_input",
-        false,
-        &[("admitted_seq", "seq")],
-        None,
-    )?;
-    imported += copy_table(&tx, "session_context_epoch", false, &[], None)?;
-    imported += copy_table(&tx, "todo", false, &[], None)?;
-    imported += copy_table(&tx, "session_share", false, &[], None)?;
+    if current_events && table_schemas_match(&tx, "session_message")? {
+        imported += copy_table(
+            &tx,
+            "session_message",
+            false,
+            Some(
+                "source.session_id IN (
+                    SELECT session_id FROM temp.source_session_aggregate
+                 ) AND EXISTS (
+                    SELECT 1 FROM drift_channel.event event
+                    WHERE event.aggregate_id = source.session_id AND event.seq = source.seq
+                 )",
+            ),
+        )?;
+    }
+    if current_events && table_schemas_match(&tx, "session_input")? {
+        imported += copy_table(
+            &tx,
+            "session_input",
+            false,
+            Some(
+                "source.session_id IN (
+                    SELECT session_id FROM temp.source_session_aggregate
+                 ) AND EXISTS (
+                    SELECT 1 FROM drift_channel.event event
+                    WHERE event.aggregate_id = source.session_id
+                      AND event.seq = source.admitted_seq
+                 ) AND (
+                    source.promoted_seq IS NULL OR EXISTS (
+                        SELECT 1 FROM drift_channel.event event
+                        WHERE event.aggregate_id = source.session_id
+                          AND event.seq = source.promoted_seq
+                    )
+                 )",
+            ),
+        )?;
+    }
+    if current_events && table_schemas_match(&tx, "session_context_epoch")? {
+        imported += copy_table(
+            &tx,
+            "session_context_epoch",
+            false,
+            Some(
+                "source.session_id IN (
+                    SELECT session_id FROM temp.source_session_aggregate
+                )",
+            ),
+        )?;
+    }
+    imported += copy_table(&tx, "todo", false, None)?;
+    imported += copy_table(&tx, "session_share", false, None)?;
     verify_foreign_keys(&tx)?;
     tx.commit()?;
     Ok(imported)
@@ -121,11 +216,21 @@ fn quote_identifier(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
 }
 
+fn table_schemas_match(tx: &Transaction<'_>, table: &str) -> rusqlite::Result<bool> {
+    let target = table_columns(tx, "main", table)?;
+    let source = table_columns(tx, "drift_channel", table)?;
+    Ok(!target.is_empty()
+        && target.len() == source.len()
+        && target
+            .iter()
+            .zip(source)
+            .all(|(target, source)| target.name == source.name))
+}
+
 fn copy_table(
     tx: &Transaction<'_>,
     table: &str,
     required: bool,
-    aliases: &[(&str, &str)],
     filter: Option<&str>,
 ) -> rusqlite::Result<usize> {
     let target_columns = table_columns(tx, "main", table)?;
@@ -147,14 +252,9 @@ fn copy_table(
     let mut insert_columns = Vec::new();
     let mut select_columns = Vec::new();
     for column in &target_columns {
-        let source_name = if source_names.contains(column.name.as_str()) {
-            Some(column.name.as_str())
-        } else {
-            aliases
-                .iter()
-                .find(|(target, source)| *target == column.name && source_names.contains(*source))
-                .map(|(_, source)| *source)
-        };
+        let source_name = source_names
+            .contains(column.name.as_str())
+            .then_some(column.name.as_str());
         if let Some(source_name) = source_name {
             insert_columns.push(quote_identifier(&column.name));
             select_columns.push(format!("source.{}", quote_identifier(source_name)));
@@ -235,6 +335,18 @@ mod tests {
             time_initialized INTEGER,
             sandboxes TEXT NOT NULL,
             commands TEXT
+        );
+        CREATE TABLE event_sequence(
+            aggregate_id TEXT PRIMARY KEY,
+            seq INTEGER NOT NULL,
+            owner_id TEXT
+        );
+        CREATE TABLE event(
+            id TEXT PRIMARY KEY,
+            aggregate_id TEXT NOT NULL REFERENCES event_sequence(aggregate_id) ON DELETE CASCADE,
+            seq INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            data TEXT NOT NULL
         );
         CREATE TABLE session(
             id TEXT PRIMARY KEY,
@@ -326,6 +438,10 @@ mod tests {
         );
         CREATE UNIQUE INDEX session_message_session_seq_idx
             ON session_message(session_id, seq);
+        CREATE UNIQUE INDEX event_aggregate_seq_idx
+            ON event(aggregate_id, seq);
+        CREATE INDEX event_aggregate_type_seq_idx
+            ON event(aggregate_id, type, seq);
         CREATE UNIQUE INDEX session_input_session_admitted_seq_idx
             ON session_input(session_id, admitted_seq);
         CREATE UNIQUE INDEX session_input_session_promoted_seq_idx
@@ -456,40 +572,39 @@ mod tests {
         .unwrap();
     }
 
-    fn insert_descendants(conn: &Connection, value: &str) {
+    fn insert_aggregate(conn: &Connection, session_id: &str, value: &str) {
         conn.execute(
-            "INSERT INTO message VALUES('message', 'overlap', 1, 2, ?1)",
-            [value],
+            "INSERT INTO event_sequence VALUES(?1, 2, ?2)",
+            (session_id, format!("{value}-owner")),
+        )
+        .unwrap();
+        for seq in 0..=2 {
+            conn.execute(
+                "INSERT INTO event(id, aggregate_id, seq, type, data)
+                 VALUES(?1, ?2, ?3, ?4, ?5)",
+                (
+                    format!("{value}-event-{seq}"),
+                    session_id,
+                    seq,
+                    format!("session.test-{seq}.1"),
+                    value,
+                ),
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO session_message VALUES(?1, ?2, 'user', 2, 1, 2, ?3)",
+            (format!("{value}-session-message"), session_id, value),
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO part VALUES('part', 'message', 'overlap', 1, 2, ?1)",
-            [value],
+            "INSERT INTO session_input VALUES(?1, ?2, ?3, 'steer', 1, 2, 1)",
+            (format!("{value}-session-input"), session_id, value),
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO session_message VALUES('session-message', 'overlap', 'user', 7, 1, 2, ?1)",
-            [value],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO session_input VALUES('session-input', 'overlap', ?1, 'steer', 8, NULL, 1)",
-            [value],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO session_context_epoch VALUES('overlap', 'baseline', ?1, 7)",
-            [value],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO todo VALUES('overlap', ?1, 'pending', 'high', 0, 1, 2)",
-            [value],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO session_share VALUES('overlap', 'share', ?1, 'https://example.com', 1, 2)",
-            [value],
+            "INSERT INTO session_context_epoch VALUES(?1, 'baseline', ?2, 2)",
+            (session_id, value),
         )
         .unwrap();
     }
@@ -505,54 +620,107 @@ mod tests {
     }
 
     #[test]
-    fn imports_all_descendants_for_an_overlapping_session_and_reports_rows() {
+    fn imports_a_complete_current_aggregate_and_continues_its_sequence() {
         let databases = databases(CURRENT_SCHEMA);
         let source = Connection::open(&databases.source).unwrap();
         insert_project(&source, "/source");
-        insert_session(&source, "overlap", "Source session");
-        insert_descendants(&source, "source");
+        insert_session(&source, "imported", "Imported session");
+        insert_aggregate(&source, "imported", "source");
+        source
+            .execute(
+                "INSERT INTO session_input VALUES(
+                    'orphan-input', 'imported', 'orphan', 'queue', 99, NULL, 1
+                 )",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO message VALUES('message', 'imported', 1, 2, 'message')",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO part VALUES('part', 'message', 'imported', 1, 2, 'part')",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO todo VALUES('imported', 'todo', 'pending', 'high', 0, 1, 2)",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO session_share VALUES(
+                    'imported', 'share', 'secret', 'https://example.com', 1, 2
+                 )",
+                [],
+            )
+            .unwrap();
         drop(source);
-
-        let target = Connection::open(&databases.target).unwrap();
-        insert_project(&target, "/target");
-        insert_session(&target, "overlap", "Target session");
-        drop(target);
 
         assert_eq!(
             merge_sessions(&databases.source, &databases.target).unwrap(),
-            7
+            13
+        );
+        assert_eq!(
+            merge_sessions(&databases.source, &databases.target).unwrap(),
+            0
         );
 
         let target = Connection::open(&databases.target).unwrap();
-        for table in [
-            "message",
-            "part",
-            "session_message",
-            "session_input",
-            "session_context_epoch",
-            "todo",
-            "session_share",
-        ] {
-            assert_eq!(
-                target
-                    .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
-                        row.get::<_, i64>(0)
-                    })
-                    .unwrap(),
-                1,
-                "missing row in {table}"
-            );
-        }
         assert_eq!(
             target
                 .query_row(
-                    "SELECT title FROM session WHERE id = 'overlap'",
+                    "SELECT title FROM session WHERE id = 'imported'",
                     [],
                     |row| row.get::<_, String>(0),
                 )
                 .unwrap(),
-            "Target session"
+            "Imported session"
         );
+        assert_eq!(
+            target
+                .prepare("SELECT seq FROM event WHERE aggregate_id = 'imported' ORDER BY seq")
+                .unwrap()
+                .query_map([], |row| row.get::<_, i64>(0))
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap(),
+            vec![0, 1, 2]
+        );
+        assert_eq!(
+            target
+                .query_row(
+                    "SELECT COUNT(*) FROM session_input WHERE session_id = 'imported'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            target
+                .query_row(
+                    "UPDATE event_sequence SET seq = seq + 1
+                     WHERE aggregate_id = 'imported' RETURNING seq",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            3
+        );
+        target
+            .execute(
+                "INSERT INTO event VALUES(
+                    'next-event', 'imported', 3, 'session.test-next.1', 'next'
+                 )",
+                [],
+            )
+            .unwrap();
         assert_foreign_keys(&target);
     }
 
@@ -591,7 +759,7 @@ mod tests {
 
         assert_eq!(
             merge_sessions(&databases.source, &databases.target).unwrap(),
-            6
+            5
         );
         assert_eq!(
             merge_sessions(&databases.source, &databases.target).unwrap(),
@@ -609,35 +777,81 @@ mod tests {
         );
         assert_eq!(
             target
-                .query_row(
-                    "SELECT admitted_seq FROM session_input WHERE id = 'legacy-input'",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )
+                .query_row("SELECT COUNT(*) FROM session_input", [], |row| {
+                    row.get::<_, i64>(0)
+                })
                 .unwrap(),
-            42
+            0
         );
         assert_foreign_keys(&target);
     }
 
     #[test]
-    fn preserves_all_target_descendants_on_collisions_and_is_idempotent() {
+    fn preserves_the_target_aggregate_but_merges_independent_legacy_rows() {
         let databases = databases(CURRENT_SCHEMA);
         let source = Connection::open(&databases.source).unwrap();
         insert_project(&source, "/source");
         insert_session(&source, "overlap", "Source session");
-        insert_descendants(&source, "source");
+        insert_aggregate(&source, "overlap", "source");
+        source
+            .execute(
+                "INSERT INTO message VALUES('source-message', 'overlap', 1, 2, 'source')",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO part VALUES(
+                    'source-part', 'source-message', 'overlap', 1, 2, 'source'
+                 )",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO todo VALUES('overlap', 'source', 'pending', 'high', 1, 1, 2)",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO session_share VALUES(
+                    'overlap', 'source-share', 'source', 'https://source.example.com', 1, 2
+                 )",
+                [],
+            )
+            .unwrap();
         drop(source);
 
         let target = Connection::open(&databases.target).unwrap();
         insert_project(&target, "/target");
         insert_session(&target, "overlap", "Target session");
-        insert_descendants(&target, "target");
+        insert_aggregate(&target, "overlap", "target");
+        target
+            .execute(
+                "INSERT INTO message VALUES('target-message', 'overlap', 1, 2, 'target')",
+                [],
+            )
+            .unwrap();
+        target
+            .execute(
+                "INSERT INTO part VALUES(
+                    'target-part', 'target-message', 'overlap', 1, 2, 'target'
+                 )",
+                [],
+            )
+            .unwrap();
+        target
+            .execute(
+                "INSERT INTO todo VALUES('overlap', 'target', 'pending', 'high', 0, 1, 2)",
+                [],
+            )
+            .unwrap();
         drop(target);
 
         assert_eq!(
             merge_sessions(&databases.source, &databases.target).unwrap(),
-            0
+            4
         );
         assert_eq!(
             merge_sessions(&databases.source, &databases.target).unwrap(),
@@ -646,21 +860,67 @@ mod tests {
 
         let target = Connection::open(&databases.target).unwrap();
         for query in [
-            "SELECT data FROM message WHERE id = 'message'",
-            "SELECT data FROM part WHERE id = 'part'",
-            "SELECT data FROM session_message WHERE id = 'session-message'",
-            "SELECT prompt FROM session_input WHERE id = 'session-input'",
+            "SELECT title FROM session WHERE id = 'overlap'",
+            "SELECT data FROM event WHERE id = 'target-event-2'",
+            "SELECT data FROM session_message WHERE id = 'target-session-message'",
+            "SELECT prompt FROM session_input WHERE id = 'target-session-input'",
             "SELECT snapshot FROM session_context_epoch WHERE session_id = 'overlap'",
-            "SELECT content FROM todo WHERE session_id = 'overlap' AND position = 0",
-            "SELECT secret FROM session_share WHERE session_id = 'overlap'",
         ] {
             assert_eq!(
                 target
                     .query_row(query, [], |row| row.get::<_, String>(0))
                     .unwrap(),
-                "target"
+                if query.contains("title") {
+                    "Target session"
+                } else {
+                    "target"
+                }
             );
         }
+        assert_eq!(
+            target
+                .query_row(
+                    "SELECT COUNT(*) FROM event WHERE id LIKE 'source-event-%'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            target
+                .query_row("SELECT COUNT(*) FROM message", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            target
+                .query_row("SELECT COUNT(*) FROM part", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            target
+                .query_row("SELECT COUNT(*) FROM todo", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            target
+                .query_row(
+                    "SELECT secret FROM session_share WHERE session_id = 'overlap'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "source"
+        );
         assert_foreign_keys(&target);
     }
 }
