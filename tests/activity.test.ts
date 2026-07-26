@@ -55,6 +55,23 @@ test("markdown preserves balanced, void, and code-fenced HTML", async () => {
   expect(prepareMarkdown("orphan </strong> text")).toBe("orphan &lt;/strong&gt; text")
 })
 
+test("streaming tables bound incomplete links and preserve completed anchors", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  const { marked } = await import("marked")
+  const url = `https://example.com/${"long-segment".repeat(20)}`
+  const prefix = "| Resource | State |\n| --- | --- |\n"
+  const incomplete = marked.parse(prepareMarkdown(`${prefix}| [documentation](${url} | loading |`), { async: false })
+  const complete = marked.parse(prepareMarkdown(`${prefix}| [documentation](${url}) | ready |`), { async: false })
+  expect(incomplete).toContain("<table>")
+  expect(incomplete).toContain(url)
+  expect(incomplete).toContain(`>${url}</a>`)
+  expect(complete).toContain(`<a href="${url}">documentation</a>`)
+
+  const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text()
+  expect(css).toMatch(/\.md :where\(table\) \{[^}]*width: 100%;[^}]*table-layout: fixed;/s)
+  expect(css).toMatch(/\.md :where\(th, td\) \{[^}]*overflow-wrap: anywhere;/s)
+})
+
 test("user markdown preserves literal Windows path backslashes", async () => {
   const { prepareMarkdown } = await import("../src/ui/markdown")
   expect(prepareMarkdown("Open \\\\server\\share\\folder", true)).toBe(
@@ -152,6 +169,71 @@ test("compaction-only user messages retain their delimiter part", async () => {
     parts: [{ id: "p1", messageID: "m1", sessionID: "s1", type: "compaction", auto: true }],
   } as never
   expect(compactionParts(entry).map((part) => part.id)).toEqual(["p1"])
+})
+
+test("streamed tool replacements retain mounted group and plugin identities", async () => {
+  const { groupParts } = await import("../src/ui/message")
+  // Bun selects Solid's server condition for tests, so load the browser primitives
+  // used by Vite to verify the keyed mount behavior without requiring a DOM.
+  // @ts-expect-error Solid's browser build shares the package's public types.
+  const { createRoot, mapArray, onCleanup } = await import("solid-js/dist/solid.js") as typeof import("solid-js")
+  // @ts-expect-error Solid's browser store build shares the package's public types.
+  const { createStore, reconcile } = await import("solid-js/store/dist/store.js") as typeof import("solid-js/store")
+  const tool = (id: string, name: string, status: string, output = "") => ({
+    id,
+    sessionID: "s1",
+    messageID: "m1",
+    type: "tool",
+    tool: name,
+    state: status === "completed"
+      ? { status, input: {}, output }
+      : { status, input: {}, metadata: { output } },
+  })
+
+  createRoot((dispose) => {
+    const [groups, setGroups] = createStore(groupParts([
+      tool("shell", "bash", "running", "first"),
+      tool("plugin", "custom-stream", "running", "one"),
+      tool("read-1", "read", "running"),
+      tool("grep-1", "grep", "running"),
+    ] as never))
+    let mounts = 0
+    let cleanups = 0
+    const mounted = mapArray(
+      () => groups,
+      (group) => {
+        mounts++
+        const state = { scrollTop: 37, following: false, pluginRevision: 4 }
+        onCleanup(() => cleanups++)
+        return { group, state }
+      },
+    )
+    const first = mounted()
+    const firstExplored = "explored" in first[2].group ? [...first[2].group.explored] : []
+    expect(mounts).toBe(3)
+
+    setGroups(reconcile(groupParts([
+      tool("shell", "bash", "running", "first\nsecond"),
+      tool("plugin", "custom-stream", "completed", "two"),
+      tool("read-1", "read", "completed"),
+      tool("grep-1", "grep", "completed"),
+    ] as never)))
+    const updated = mounted()
+    expect(updated.map((item) => item.group.key)).toEqual(["shell", "plugin", "explored:read-1"])
+    expect(updated.every((item, index) => item === first[index])).toBeTrue()
+    expect(updated[0].state).toEqual({ scrollTop: 37, following: false, pluginRevision: 4 })
+    expect(updated[1].state.pluginRevision).toBe(4)
+    expect("explored" in updated[2].group && updated[2].group.explored.map((part) => part.id)).toEqual([
+      "read-1",
+      "grep-1",
+    ])
+    expect("explored" in updated[2].group && updated[2].group.explored[0]).toBe(firstExplored[0])
+    expect("explored" in updated[2].group && updated[2].group.explored[1]).toBe(firstExplored[1])
+    expect(mounts).toBe(3)
+    expect(cleanups).toBe(0)
+    dispose()
+    expect(cleanups).toBe(3)
+  })
 })
 
 test("compaction boundary merges into its adjacent summary", async () => {

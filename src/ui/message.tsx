@@ -1,5 +1,6 @@
 import type { AssistantMessage, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/client"
-import { createMemo, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
+import { createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
 import { useEngine } from "../engine"
 import { errorText } from "../engine/error"
 import { messageText, modelInfo, type MessageEntry } from "../engine/store"
@@ -113,31 +114,32 @@ function UserBubble(props: { entry: MessageEntry }) {
   )
 }
 
-type PartGroup = { key: string; explored: ToolPart[] } | { key: string; part: Part }
+export type PartGroup = { id: string; key: string; explored: ToolPart[] } | { id: string; key: string; part: Part }
 
-function groupParts(parts: Part[]): PartGroup[] {
+export function groupParts(parts: Part[]): PartGroup[] {
   const groups: PartGroup[] = []
   for (const part of parts) {
     if (!partVisible(part)) continue
     if (part.type === "tool" && contextTools.has(part.tool)) {
       const last = groups.at(-1)
       if (last && "explored" in last) last.explored.push(part)
-      else groups.push({ key: `explored:${part.id}`, explored: [part] })
+      else groups.push({ id: `explored:${part.id}`, key: `explored:${part.id}`, explored: [part] })
       continue
     }
-    groups.push({ key: part.id, part })
+    groups.push({ id: part.id, key: part.id, part })
   }
   return groups
 }
 
 function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
   const info = () => props.entry.info as AssistantMessage
-  const groups = createMemo(() => groupParts(props.entry.parts))
+  const [groups, setGroups] = createStore(groupParts(props.entry.parts))
+  createRenderEffect(() => setGroups(reconcile(groupParts(props.entry.parts))))
   const visible = () => props.entry.parts.some(partVisible) || !!info().error
   return (
     <Show when={visible()}>
       <div class="group flex min-w-0 max-w-full flex-col gap-3">
-        <For each={groups()}>
+        <For each={groups}>
           {(group) => (
             <Switch>
               <Match when={"explored" in group && group}>{(g) => <ExploredGroup parts={g().explored} />}</Match>
