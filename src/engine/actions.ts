@@ -50,6 +50,19 @@ type PermissionRequest = {
   tool?: { messageID: string; callID: string }
 }
 
+// The engine caps an unspecified session-list limit at 100 rows, and the generated SDK's
+// query type has no limit field, so the ceiling has to be forced past the typed shape.
+export const sessionListLimit = 10000
+
+export function sessionListQuery(directory?: string) {
+  return { ...(directory === undefined ? {} : { directory }), limit: sessionListLimit } as { directory?: string }
+}
+
+// Proof of completeness, not a guess: a full page or a next cursor both mean rows were left behind.
+export function sessionListComplete(sessions: readonly unknown[], cursor?: string | null) {
+  return sessions.length < sessionListLimit && !cursor
+}
+
 function toPermission(request: PermissionRequest, directory: string): Permission {
   return {
     id: request.id,
@@ -96,6 +109,7 @@ export function createActions(
     id: string,
     token: ReturnType<RecoveryCoordinator["begin"]>,
     loadedAtStart: boolean,
+    lastAttempt: boolean,
   ) {
     try {
       const result = await requireClient().session.messages({
@@ -116,6 +130,7 @@ export function createActions(
           result.response?.headers?.get("x-next-cursor") ?? null,
           events,
           loadedAtStart,
+          lastAttempt,
         )
       })
       if (applied === "applied") recordLinks(entries)
@@ -126,11 +141,12 @@ export function createActions(
   }
 
   async function reloadSession(id: string) {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    const attempts = 3
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       const loadedAtStart = state.loaded[id] === true
       const token = recovery.begin(transcriptEvents(id))
       try {
-        const result = await requestTranscript(id, token, loadedAtStart)
+        const result = await requestTranscript(id, token, loadedAtStart, attempt === attempts - 1)
         if (result === "applied") return true
         if (result !== "retry" || token.generation !== recovery.generation()) return false
       } catch (error) {
@@ -214,12 +230,13 @@ export function createActions(
   async function loadSessions(directory: string) {
     const token = recovery.begin(sessionEventsIn(directory))
     try {
-      const result = await requireClient().session.list({ query: { directory }, signal: token.signal })
+      const result = await requireClient().session.list({ query: sessionListQuery(directory), signal: token.signal })
       const sessions = requireSdkData(result, "Could not load sessions")
       recovery.commit(token, (events) =>
         applySessionSnapshot(
           set,
           sessions,
+          sessionListComplete(sessions),
           (candidate) => normalizeDir(candidate) === normalizeDir(directory),
           events,
           recovery.replay,
@@ -240,7 +257,7 @@ export function createActions(
     let entry: { token: typeof token; promise: Promise<void> }
     const request = (async () => {
       try {
-        const query = new URLSearchParams({ archived: "true", limit: "10000" })
+        const query = new URLSearchParams({ archived: "true", limit: String(sessionListLimit) })
         const headers = {
           ...base.headers,
           ...(state.directory ? { "x-opencode-directory": encodeURIComponent(state.directory) } : {}),
@@ -252,7 +269,10 @@ export function createActions(
         if (!response?.ok) return
         const sessions = (await response.json().catch(() => null)) as Session[] | null
         if (!Array.isArray(sessions)) return
-        recovery.commit(token, (events) => applySessionSnapshot(set, sessions, () => true, events, recovery.replay))
+        const complete = sessionListComplete(sessions, response.headers.get("x-next-cursor"))
+        recovery.commit(token, (events) =>
+          applySessionSnapshot(set, sessions, complete, () => true, events, recovery.replay),
+        )
       } finally {
         recovery.cancel(token)
       }

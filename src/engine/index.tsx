@@ -1,7 +1,7 @@
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client"
 import { createContext, onCleanup, useContext, type ParentProps } from "solid-js"
 import { produce } from "solid-js/store"
-import { createActions, type EngineActions } from "./actions"
+import { createActions, sessionListComplete, sessionListQuery, type EngineActions } from "./actions"
 import { resolveEngine, sleep, type EngineTarget } from "./connection"
 import { reduce } from "./events"
 import {
@@ -51,7 +51,7 @@ export function EngineProvider(props: ParentProps) {
       const stale = Object.keys(state.loaded).filter((id) => state.loaded[id])
       const [sessionsResult, statusesResult, providersResult, agentsResult, commandsResult, healthResult] =
         await Promise.allSettled([
-          api.session.list({ signal: token.signal }),
+          api.session.list({ query: sessionListQuery(), signal: token.signal }),
           api.session.status({ signal: token.signal }),
           api.provider.list({ signal: token.signal }),
           api.app.agents({ signal: token.signal }),
@@ -69,6 +69,7 @@ export function EngineProvider(props: ParentProps) {
           applySessionSnapshot(
             set,
             sessions,
+            sessionListComplete(sessions),
             (candidate) => normalizeDir(candidate) === normalizeDir(bootDirectory),
             events,
             recovery.replay,

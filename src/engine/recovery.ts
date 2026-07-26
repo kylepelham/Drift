@@ -137,6 +137,9 @@ export function isTranscriptEvent(event: Event) {
 export function applySessionSnapshot(
   set: SetStoreFunction<EngineState>,
   sessions: EngineState["sessions"][string][],
+  // Absence only means "deleted" when the list is provably whole. A page the engine
+  // truncated would otherwise read as a mass deletion of everything past the cap.
+  complete: boolean,
   inScope: (directory: string) => boolean,
   events: BufferedEvent[],
   replay: (events: BufferedEvent[]) => void = () => undefined,
@@ -157,11 +160,12 @@ export function applySessionSnapshot(
   const reported = new Set(sessions.map((session) => session.id))
   set(
     produce((draft) => {
-      for (const session of Object.values(draft.sessions)) {
-        if (!inScope(session.directory) || reported.has(session.id) || touched.has(session.id) || moved.has(session.id))
-          continue
-        dropSessionState(draft, session.id)
-      }
+      if (complete)
+        for (const session of Object.values(draft.sessions)) {
+          if (!inScope(session.directory) || reported.has(session.id) || touched.has(session.id) || moved.has(session.id))
+            continue
+          dropSessionState(draft, session.id)
+        }
       for (const session of sessions) {
         if (touched.has(session.id)) continue
         draft.sessions[session.id] = { revert: undefined, share: undefined, ...session }
@@ -195,29 +199,32 @@ export function applyTranscriptSnapshot(
   cursor: string | null,
   events: BufferedEvent[],
   loadedAtStart = state.loaded[id] === true,
+  // Set on the caller's last attempt so an endlessly streaming session still lands.
+  lastAttempt = false,
 ) {
   const relevant = events.filter((entry) => isTranscriptEvent(entry.event) && sessionID(entry.event) === id)
   if (relevant.some((entry) => (entry.event as unknown as { type: string }).type === "session.deleted"))
     return "deleted" as const
   const existing = loadedAtStart ? (state.transcripts[id] ?? []) : []
-  const deltas = relevant.filter(
-    (entry) => (entry.event as unknown as { type: string }).type === "message.part.delta",
-  )
-  if (deltas.length && (!loadedAtStart || deltas.some((entry) => !deltaWasApplied(existing, entry.event))))
-    return "retry" as const
-  const snapshotIDs = new Set(entries.map((entry) => entry.info.id))
-  const touchedIDs = new Set(relevant.map((entry) => messageID(entry.event)).filter((value) => value !== undefined))
-  const preservedIDs = new Set(
-    existing
-      .filter((entry) => !snapshotIDs.has(entry.info.id) || touchedIDs.has(entry.info.id))
-      .map((entry) => entry.info.id),
-  )
+  // A delta is an append the snapshot may or may not already carry. Where live state
+  // holds one, that part stays live; where it does not, only a fresh read can resolve it.
+  const livePartKeys = new Set<string>()
+  let unresolvedDelta = false
+  for (const entry of relevant) {
+    if ((entry.event as unknown as { type: string }).type !== "message.part.delta") continue
+    const ref = deltaRef(entry.event)
+    if (ref && deltaWasApplied(existing, ref)) livePartKeys.add(partKey(ref.messageID, ref.partID))
+    else unresolvedDelta = true
+  }
+  // Once attempts run out, applying beats giving up: a tail that lags one delta heals on
+  // the next part update, while an unloaded transcript stays blank forever.
+  if (unresolvedDelta && !lastAttempt) return "retry" as const
+  const snapshot = new Map(entries.map((entry) => [entry.info.id, entry]))
+  const live = new Map(existing.map((entry) => [entry.info.id, entry]))
+  const order = [...snapshot.keys(), ...[...live.keys()].filter((key) => !snapshot.has(key))]
   set(
     produce((draft) => {
-      draft.transcripts[id] = [
-        ...existing.filter((entry) => preservedIDs.has(entry.info.id)),
-        ...entries.filter((entry) => !preservedIDs.has(entry.info.id)),
-      ]
+      draft.transcripts[id] = order.map((key) => mergeMessage(snapshot.get(key), live.get(key), livePartKeys))
       for (const entry of relevant) applyIdempotentTranscriptEvent(draft.transcripts[id], entry.event)
       draft.transcripts[id].sort((a, b) => a.info.id.localeCompare(b.info.id))
       draft.loaded[id] = true
@@ -227,16 +234,48 @@ export function applyTranscriptSnapshot(
   return "applied" as const
 }
 
-function deltaWasApplied(entries: MessageEntry[], event: Event) {
+// The snapshot and live state each hold parts the other missed, so reconcile per message
+// info and per part id. Letting either whole message win discards the other's parts.
+function mergeMessage(
+  snapshot: MessageEntry | undefined,
+  live: MessageEntry | undefined,
+  livePartKeys: Set<string>,
+): MessageEntry {
+  if (!snapshot) return live!
+  if (!live) return snapshot
+  const livePartsByID = new Map(live.parts.map((part) => [part.id, part]))
+  const snapshotPartIDs = new Set(snapshot.parts.map((part) => part.id))
+  return {
+    info: snapshot.info,
+    parts: [
+      ...snapshot.parts.map((part) =>
+        livePartKeys.has(partKey(snapshot.info.id, part.id)) ? (livePartsByID.get(part.id) ?? part) : part,
+      ),
+      ...live.parts.filter((part) => !snapshotPartIDs.has(part.id)),
+    ],
+  }
+}
+
+function partKey(messageID: string, partID: string) {
+  return `${messageID}\u0000${partID}`
+}
+
+type DeltaRef = { messageID: string; partID: string; field: string }
+
+function deltaRef(event: Event): DeltaRef | undefined {
   const properties = (event as unknown as { properties: Record<string, unknown> }).properties
   const messageID = properties.messageID
   const partID = properties.partID
   const field = properties.field
-  if (typeof messageID !== "string" || typeof partID !== "string" || typeof field !== "string") return false
+  if (typeof messageID !== "string" || typeof partID !== "string" || typeof field !== "string") return undefined
+  return { messageID, partID, field }
+}
+
+function deltaWasApplied(entries: MessageEntry[], ref: DeltaRef) {
   const part = entries
-    .find((entry) => entry.info.id === messageID)
-    ?.parts.find((candidate) => candidate.id === partID) as unknown as Record<string, unknown> | undefined
-  return typeof part?.[field] === "string"
+    .find((entry) => entry.info.id === ref.messageID)
+    ?.parts.find((candidate) => candidate.id === ref.partID) as unknown as Record<string, unknown> | undefined
+  return typeof part?.[ref.field] === "string"
 }
 
 function applyIdempotentTranscriptEvent(entries: MessageEntry[], event: Event) {
@@ -266,15 +305,6 @@ function applyIdempotentTranscriptEvent(entries: MessageEntry[], event: Event) {
     const message = entries.find((entry) => entry.info.id === raw.properties.messageID)
     if (message) message.parts = message.parts.filter((part) => part.id !== raw.properties.partID)
   }
-}
-
-function messageID(event: Event): string | undefined {
-  const properties = (event as unknown as { properties?: Record<string, unknown> }).properties ?? {}
-  if (typeof properties.messageID === "string") return properties.messageID
-  const info = properties.info as { id?: string } | undefined
-  if (typeof info?.id === "string") return info.id
-  const part = properties.part as { messageID?: string } | undefined
-  return part?.messageID
 }
 
 export function eventInDirectory(entry: BufferedEvent, directory: string) {

@@ -321,7 +321,7 @@ test("authoritative snapshots remove ghosts without overwriting newer SSE state"
   let transcriptApplied: ReturnType<typeof applyTranscriptSnapshot> | undefined
   expect(
     recovery.commit(token, (events) => {
-      applySessionSnapshot(set, [session("live", { title: "stale HTTP" })], () => true, events)
+      applySessionSnapshot(set, [session("live", { title: "stale HTTP" })], true, () => true, events)
       applyStatusSnapshot(set, [session("live")], { live: { type: "idle" } }, events)
       transcriptApplied = applyTranscriptSnapshot(
         state,
@@ -408,6 +408,138 @@ test("overlapping transcript snapshots preserve live deltas and apply activity s
   expect((state.transcripts.s1[1].parts[0] as { text: string }).text).toBe("tail!")
   expect(state.activity.s1.tools).toBe(2)
   expect(state.transcripts.s1[2].parts.map((part) => part.id)).toEqual(["tool-1", "tool-2"])
+})
+
+test("a workspace past the engine page default keeps every session it already had", async () => {
+  const [state, set] = createEngineState()
+  const all = Array.from({ length: 150 }, (_, index) => session(`s${String(index).padStart(3, "0")}`))
+  for (const info of all) set("sessions", info.id, info)
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
+  let requested: number | undefined
+  const actions = createActions(
+    () => ({
+      session: {
+        list: (options: { query?: { limit?: number } }) => {
+          requested = options.query?.limit
+          // The engine truncates to 100 rows when no limit is asked for.
+          return Promise.resolve({ data: all.slice(0, requested ?? 100) })
+        },
+      },
+    }) as never,
+    state,
+    set,
+    () => ({ url: "http://engine.test" }),
+    recovery,
+  )
+
+  await actions.loadSessions("C:/work")
+
+  expect(requested).toBeGreaterThan(all.length)
+  expect(Object.keys(state.sessions)).toHaveLength(all.length)
+})
+
+test("a truncated session page upserts without pruning the rows it left behind", async () => {
+  const [state, set] = createEngineState()
+  set("sessions", "older", session("older"))
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () =>
+    Response.json([session("newer")], { headers: { "x-next-cursor": "42" } })) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => ({}) as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+      recovery,
+    )
+    await actions.loadAllSessions()
+
+    expect(state.sessions.newer.id).toBe("newer")
+    expect(state.sessions.older.id).toBe("older")
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("a live part update keeps the snapshot parts a disconnect missed on the same message", () => {
+  const [state, set] = createEngineState()
+  set("loaded", "s1", true)
+  set("transcripts", "s1", [
+    {
+      info: { id: "m1", sessionID: "s1", role: "assistant" },
+      parts: [{ id: "p1", sessionID: "s1", messageID: "m1", type: "text", text: "live" }],
+    },
+  ] as never)
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
+  const token = recovery.begin()
+  recovery.record({
+    type: "message.part.updated",
+    properties: { part: { id: "p1", sessionID: "s1", messageID: "m1", type: "text", text: "live update" } },
+  } as never)
+
+  recovery.commit(token, (events) =>
+    applyTranscriptSnapshot(
+      state,
+      set,
+      "s1",
+      [
+        {
+          info: { id: "m1", sessionID: "s1", role: "assistant" },
+          parts: [
+            { id: "p1", sessionID: "s1", messageID: "m1", type: "text", text: "stale" },
+            { id: "p2", sessionID: "s1", messageID: "m1", type: "text", text: "missed" },
+          ],
+        },
+      ] as never,
+      null,
+      events,
+    ),
+  )
+
+  const parts = state.transcripts.s1[0].parts as unknown as { id: string; text: string }[]
+  expect(parts.map((part) => part.id)).toEqual(["p1", "p2"])
+  expect(parts[0].text).toBe("live update")
+  expect(parts[1].text).toBe("missed")
+})
+
+test("a transcript that streams a delta on every attempt still ends up with content", async () => {
+  const [state, set] = createEngineState()
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
+  let requests = 0
+  const actions = createActions(
+    () => ({
+      session: {
+        messages: () => {
+          requests += 1
+          recovery.record({
+            type: "message.part.delta",
+            properties: { sessionID: "s1", messageID: "m1", partID: "p1", field: "text", delta: "." },
+          } as never)
+          return Promise.resolve({
+            data: [
+              {
+                info: { id: "m1", sessionID: "s1", role: "assistant" },
+                parts: [{ id: "p1", sessionID: "s1", messageID: "m1", type: "text", text: "streaming" }],
+              },
+            ],
+            response: { headers: new Headers() },
+          })
+        },
+      },
+    }) as never,
+    state,
+    set,
+    () => ({ url: "http://engine.test" }),
+    recovery,
+  )
+
+  expect(await actions.openSession("s1")).toBeTrue()
+  expect(requests).toBe(3)
+  expect(state.loaded.s1).toBeTrue()
+  expect(state.loading.s1).toBeUndefined()
+  expect((state.transcripts.s1[0].parts[0] as { text: string }).text).toBe("streaming")
 })
 
 test("an initially unloaded transcript retries across non-idempotent stream deltas", async () => {
@@ -658,7 +790,7 @@ test("a moved event for an unknown session replays after the complete snapshot",
   expect(state.sessions.s1).toBeUndefined()
 
   recovery.commit(token, (events) =>
-    applySessionSnapshot(set, [session("s1")], () => true, events, recovery.replay),
+    applySessionSnapshot(set, [session("s1")], true, () => true, events, recovery.replay),
   )
 
   expect(state.sessions.s1.directory).toBe("C:/moved")
@@ -683,6 +815,7 @@ test("a known session moved into a queried directory survives a stale snapshot o
     applySessionSnapshot(
       set,
       [],
+      true,
       (directory) => directory === "C:/target",
       events,
       recovery.replay,
@@ -736,7 +869,7 @@ test("deleted-session events and workspace generations invalidate stale HTTP", (
   const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
   const deletion = recovery.begin()
   recovery.record({ type: "session.deleted", properties: { info: old } } as never, "C:/work")
-  recovery.commit(deletion, (events) => applySessionSnapshot(set, [old], () => true, events))
+  recovery.commit(deletion, (events) => applySessionSnapshot(set, [old], true, () => true, events))
   expect(state.sessions.old).toBeUndefined()
 
   const previousWorkspace = recovery.begin()
