@@ -1,4 +1,5 @@
-use rusqlite::{Connection, OpenFlags, TransactionBehavior};
+use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
+use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -53,58 +54,159 @@ fn merge_sessions(source: &Path, target: &Path) -> rusqlite::Result<usize> {
         [source.to_string_lossy().as_ref()],
     )?;
 
-    let pending_sessions = conn.query_row(
-        "SELECT COUNT(*) FROM drift_channel.session source
-         WHERE NOT EXISTS (SELECT 1 FROM main.session target WHERE target.id = source.id)",
-        [],
-        |row| row.get::<_, usize>(0),
-    )?;
-
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    tx.execute_batch(
-        "INSERT OR IGNORE INTO main.project(
-            id, worktree, vcs, name, icon_url, icon_color, time_created, time_updated,
-            time_initialized, sandboxes, commands, icon_url_override
-         )
-         SELECT id, worktree, vcs, name, icon_url, icon_color, time_created, time_updated,
-                time_initialized, sandboxes, commands, icon_url_override
-         FROM drift_channel.project
-         WHERE id IN (SELECT project_id FROM drift_channel.session);
-
-         INSERT OR IGNORE INTO main.session(
-            id, project_id, workspace_id, parent_id, slug, directory, path, title, version,
-            share_url, summary_additions, summary_deletions, summary_files, summary_diffs,
-            metadata, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read,
-            tokens_cache_write, revert, permission, agent, model, time_created, time_updated,
-            time_compacting, time_archived
-         )
-         SELECT id, project_id, workspace_id, parent_id, slug, directory, path, title, version,
-                share_url, summary_additions, summary_deletions, summary_files, summary_diffs,
-                metadata, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read,
-                tokens_cache_write, revert, permission, agent, model, time_created, time_updated,
-                time_compacting, time_archived
-         FROM drift_channel.session;
-
-         INSERT OR IGNORE INTO main.message(id, session_id, time_created, time_updated, data)
-         SELECT id, session_id, time_created, time_updated, data FROM drift_channel.message;
-
-         INSERT OR IGNORE INTO main.part(id, message_id, session_id, time_created, time_updated, data)
-         SELECT id, message_id, session_id, time_created, time_updated, data FROM drift_channel.part;
-
-         INSERT OR IGNORE INTO main.todo(
-            session_id, content, status, priority, position, time_created, time_updated
-         )
-         SELECT session_id, content, status, priority, position, time_created, time_updated
-         FROM drift_channel.todo;
-
-         INSERT OR IGNORE INTO main.session_share(
-            session_id, id, secret, url, time_created, time_updated
-         )
-         SELECT session_id, id, secret, url, time_created, time_updated
-         FROM drift_channel.session_share;",
+    let mut imported = 0;
+    imported += copy_table(
+        &tx,
+        "project",
+        true,
+        &[],
+        Some("source.id IN (SELECT project_id FROM drift_channel.session)"),
     )?;
+    imported += copy_table(&tx, "session", true, &[], None)?;
+    imported += copy_table(&tx, "message", false, &[], None)?;
+    imported += copy_table(
+        &tx,
+        "part",
+        false,
+        &[],
+        Some(
+            "EXISTS (
+                SELECT 1 FROM main.message parent
+                WHERE parent.id = source.message_id AND parent.session_id = source.session_id
+            )",
+        ),
+    )?;
+    imported += copy_table(&tx, "session_message", false, &[], None)?;
+    imported += copy_table(
+        &tx,
+        "session_input",
+        false,
+        &[("admitted_seq", "seq")],
+        None,
+    )?;
+    imported += copy_table(&tx, "session_context_epoch", false, &[], None)?;
+    imported += copy_table(&tx, "todo", false, &[], None)?;
+    imported += copy_table(&tx, "session_share", false, &[], None)?;
+    verify_foreign_keys(&tx)?;
     tx.commit()?;
-    Ok(pending_sessions)
+    Ok(imported)
+}
+
+struct Column {
+    name: String,
+    required: bool,
+}
+
+fn table_columns(tx: &Transaction<'_>, schema: &str, table: &str) -> rusqlite::Result<Vec<Column>> {
+    let mut statement = tx.prepare(&format!(
+        "PRAGMA {schema}.table_info({})",
+        quote_identifier(table)
+    ))?;
+    let columns = statement
+        .query_map([], |row| {
+            let not_null = row.get::<_, bool>(3)?;
+            let default = row.get::<_, Option<String>>(4)?;
+            let primary_key = row.get::<_, i64>(5)? != 0;
+            Ok(Column {
+                name: row.get(1)?,
+                required: primary_key || (not_null && default.is_none()),
+            })
+        })?
+        .collect();
+    columns
+}
+
+fn quote_identifier(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\"\""))
+}
+
+fn copy_table(
+    tx: &Transaction<'_>,
+    table: &str,
+    required: bool,
+    aliases: &[(&str, &str)],
+    filter: Option<&str>,
+) -> rusqlite::Result<usize> {
+    let target_columns = table_columns(tx, "main", table)?;
+    let source_columns = table_columns(tx, "drift_channel", table)?;
+    if target_columns.is_empty() || source_columns.is_empty() {
+        return if required {
+            Err(rusqlite::Error::InvalidParameterName(format!(
+                "required migration table is missing: {table}"
+            )))
+        } else {
+            Ok(0)
+        };
+    }
+
+    let source_names = source_columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<HashSet<_>>();
+    let mut insert_columns = Vec::new();
+    let mut select_columns = Vec::new();
+    for column in &target_columns {
+        let source_name = if source_names.contains(column.name.as_str()) {
+            Some(column.name.as_str())
+        } else {
+            aliases
+                .iter()
+                .find(|(target, source)| *target == column.name && source_names.contains(*source))
+                .map(|(_, source)| *source)
+        };
+        if let Some(source_name) = source_name {
+            insert_columns.push(quote_identifier(&column.name));
+            select_columns.push(format!("source.{}", quote_identifier(source_name)));
+        } else if column.required {
+            return if required {
+                Err(rusqlite::Error::InvalidParameterName(format!(
+                    "source table {table} is missing required column {}",
+                    column.name
+                )))
+            } else {
+                Ok(0)
+            };
+        }
+    }
+
+    let table = quote_identifier(table);
+    let filter = filter
+        .map(|value| format!(" WHERE {value}"))
+        .unwrap_or_default();
+    tx.execute(
+        &format!(
+            "INSERT OR IGNORE INTO main.{table} ({}) SELECT {} FROM drift_channel.{table} source{filter}",
+            insert_columns.join(", "),
+            select_columns.join(", ")
+        ),
+        [],
+    )
+}
+
+fn verify_foreign_keys(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let violation = {
+        let mut statement = tx.prepare("PRAGMA foreign_key_check")?;
+        let mut rows = statement.query([])?;
+        if let Some(row) = rows.next()? {
+            Some((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        } else {
+            None
+        }
+    };
+    if let Some((table, rowid, parent)) = violation {
+        return Err(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY),
+            Some(format!(
+                "foreign key violation after legacy migration: {table} row {rowid:?} references {parent}"
+            )),
+        ));
+    }
+    Ok(())
 }
 
 pub fn configure_shared(command: &mut Command) {
@@ -118,6 +220,189 @@ mod tests {
 
     static NEXT_DATABASE_ID: AtomicUsize = AtomicUsize::new(0);
 
+    const CURRENT_SCHEMA: &str = "
+        PRAGMA foreign_keys = ON;
+        CREATE TABLE project(
+            id TEXT PRIMARY KEY,
+            worktree TEXT NOT NULL,
+            vcs TEXT,
+            name TEXT,
+            icon_url TEXT,
+            icon_url_override TEXT,
+            icon_color TEXT,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            time_initialized INTEGER,
+            sandboxes TEXT NOT NULL,
+            commands TEXT
+        );
+        CREATE TABLE session(
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+            workspace_id TEXT,
+            parent_id TEXT,
+            slug TEXT NOT NULL,
+            directory TEXT NOT NULL,
+            path TEXT,
+            title TEXT NOT NULL,
+            version TEXT NOT NULL,
+            share_url TEXT,
+            summary_additions INTEGER,
+            summary_deletions INTEGER,
+            summary_files INTEGER,
+            summary_diffs TEXT,
+            metadata TEXT,
+            cost REAL NOT NULL DEFAULT 0,
+            tokens_input INTEGER NOT NULL DEFAULT 0,
+            tokens_output INTEGER NOT NULL DEFAULT 0,
+            tokens_reasoning INTEGER NOT NULL DEFAULT 0,
+            tokens_cache_read INTEGER NOT NULL DEFAULT 0,
+            tokens_cache_write INTEGER NOT NULL DEFAULT 0,
+            revert TEXT,
+            permission TEXT,
+            agent TEXT,
+            model TEXT,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            time_compacting INTEGER,
+            time_archived INTEGER
+        );
+        CREATE TABLE message(
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            data TEXT NOT NULL
+        );
+        CREATE TABLE part(
+            id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+            session_id TEXT NOT NULL,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            data TEXT NOT NULL
+        );
+        CREATE TABLE session_message(
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+            type TEXT NOT NULL,
+            seq INTEGER NOT NULL,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            data TEXT NOT NULL
+        );
+        CREATE TABLE session_input(
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+            prompt TEXT NOT NULL,
+            delivery TEXT NOT NULL,
+            admitted_seq INTEGER NOT NULL,
+            promoted_seq INTEGER,
+            time_created INTEGER NOT NULL
+        );
+        CREATE TABLE session_context_epoch(
+            session_id TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE,
+            baseline TEXT NOT NULL,
+            snapshot TEXT NOT NULL,
+            baseline_seq INTEGER NOT NULL
+        );
+        CREATE TABLE todo(
+            session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+            content TEXT NOT NULL,
+            status TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            PRIMARY KEY(session_id, position)
+        );
+        CREATE TABLE session_share(
+            session_id TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE,
+            id TEXT NOT NULL,
+            secret TEXT NOT NULL,
+            url TEXT NOT NULL,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL
+        );
+        CREATE UNIQUE INDEX session_message_session_seq_idx
+            ON session_message(session_id, seq);
+        CREATE UNIQUE INDEX session_input_session_admitted_seq_idx
+            ON session_input(session_id, admitted_seq);
+        CREATE UNIQUE INDEX session_input_session_promoted_seq_idx
+            ON session_input(session_id, promoted_seq);
+    ";
+
+    const LEGACY_SCHEMA_WITHOUT_OPTIONAL_TABLES: &str = "
+        PRAGMA foreign_keys = ON;
+        CREATE TABLE project(
+            id TEXT PRIMARY KEY,
+            worktree TEXT NOT NULL,
+            vcs TEXT,
+            name TEXT,
+            icon_url TEXT,
+            icon_color TEXT,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            time_initialized INTEGER,
+            sandboxes TEXT NOT NULL,
+            commands TEXT
+        );
+        CREATE TABLE session(
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES project(id),
+            parent_id TEXT,
+            slug TEXT NOT NULL,
+            directory TEXT NOT NULL,
+            title TEXT NOT NULL,
+            version TEXT NOT NULL,
+            share_url TEXT,
+            summary_additions INTEGER,
+            summary_deletions INTEGER,
+            summary_files INTEGER,
+            summary_diffs TEXT,
+            revert TEXT,
+            permission TEXT,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            time_compacting INTEGER,
+            time_archived INTEGER
+        );
+        CREATE TABLE message(
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES session(id),
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            data TEXT NOT NULL
+        );
+        CREATE TABLE part(
+            id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL REFERENCES message(id),
+            session_id TEXT NOT NULL,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            data TEXT NOT NULL
+        );
+        CREATE TABLE todo(
+            session_id TEXT NOT NULL REFERENCES session(id),
+            content TEXT NOT NULL,
+            status TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            PRIMARY KEY(session_id, position)
+        );
+        CREATE TABLE session_input(
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            id TEXT NOT NULL UNIQUE,
+            session_id TEXT NOT NULL REFERENCES session(id),
+            prompt TEXT NOT NULL,
+            delivery TEXT NOT NULL,
+            promoted_seq INTEGER,
+            time_created INTEGER NOT NULL
+        );
+    ";
+
     struct TestDatabases {
         dir: PathBuf,
         source: PathBuf,
@@ -130,46 +415,7 @@ mod tests {
         }
     }
 
-    fn schema(conn: &Connection) {
-        conn.execute_batch(
-            "CREATE TABLE project(
-                id TEXT PRIMARY KEY, worktree TEXT NOT NULL, vcs TEXT, name TEXT, icon_url TEXT,
-                icon_color TEXT, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL,
-                time_initialized INTEGER, sandboxes TEXT NOT NULL, commands TEXT, icon_url_override TEXT
-             );
-             CREATE TABLE session(
-                id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES project(id), workspace_id TEXT,
-                parent_id TEXT, slug TEXT NOT NULL, directory TEXT NOT NULL, path TEXT, title TEXT NOT NULL,
-                version TEXT NOT NULL, share_url TEXT, summary_additions INTEGER, summary_deletions INTEGER,
-                summary_files INTEGER, summary_diffs TEXT, metadata TEXT, cost REAL NOT NULL DEFAULT 0,
-                tokens_input INTEGER NOT NULL DEFAULT 0, tokens_output INTEGER NOT NULL DEFAULT 0,
-                tokens_reasoning INTEGER NOT NULL DEFAULT 0, tokens_cache_read INTEGER NOT NULL DEFAULT 0,
-                tokens_cache_write INTEGER NOT NULL DEFAULT 0, revert TEXT, permission TEXT, agent TEXT,
-                model TEXT, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL,
-                time_compacting INTEGER, time_archived INTEGER
-             );
-             CREATE TABLE message(
-                id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES session(id),
-                time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL
-             );
-             CREATE TABLE part(
-                id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES message(id), session_id TEXT NOT NULL,
-                time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL
-             );
-             CREATE TABLE todo(
-                session_id TEXT NOT NULL REFERENCES session(id), content TEXT NOT NULL, status TEXT NOT NULL,
-                priority TEXT NOT NULL, position INTEGER NOT NULL, time_created INTEGER NOT NULL,
-                time_updated INTEGER NOT NULL, PRIMARY KEY(session_id, position)
-             );
-             CREATE TABLE session_share(
-                session_id TEXT PRIMARY KEY REFERENCES session(id), id TEXT NOT NULL, secret TEXT NOT NULL,
-                url TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL
-             );",
-        )
-        .unwrap();
-    }
-
-    fn databases() -> TestDatabases {
+    fn databases(source_schema: &str) -> TestDatabases {
         let id = NEXT_DATABASE_ID.fetch_add(1, Ordering::Relaxed);
         let dir =
             std::env::temp_dir().join(format!("drift-engine-db-test-{}-{id}", std::process::id()));
@@ -177,8 +423,14 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let source = dir.join("source.db");
         let target = dir.join("target.db");
-        schema(&Connection::open(&source).unwrap());
-        schema(&Connection::open(&target).unwrap());
+        Connection::open(&source)
+            .unwrap()
+            .execute_batch(source_schema)
+            .unwrap();
+        Connection::open(&target)
+            .unwrap()
+            .execute_batch(CURRENT_SCHEMA)
+            .unwrap();
         TestDatabases {
             dir,
             source,
@@ -188,7 +440,8 @@ mod tests {
 
     fn insert_project(conn: &Connection, worktree: &str) {
         conn.execute(
-            "INSERT INTO project VALUES('p', ?1, NULL, NULL, NULL, NULL, 1, 1, NULL, '[]', NULL, NULL)",
+            "INSERT INTO project(id, worktree, time_created, time_updated, sandboxes)
+             VALUES('project', ?1, 1, 1, '[]')",
             [worktree],
         )
         .unwrap();
@@ -197,152 +450,99 @@ mod tests {
     fn insert_session(conn: &Connection, id: &str, title: &str) {
         conn.execute(
             "INSERT INTO session(id, project_id, slug, directory, title, version, time_created, time_updated)
-             VALUES(?1, 'p', ?1, 'C:/work', ?2, '1', 1, 2)",
+             VALUES(?1, 'project', ?1, 'C:/work', ?2, '1', 1, 2)",
             [id, title],
         )
         .unwrap();
     }
 
-    fn insert_message(conn: &Connection, id: &str, session_id: &str, data: &str) {
+    fn insert_descendants(conn: &Connection, value: &str) {
         conn.execute(
-            "INSERT INTO message VALUES(?1, ?2, 1, 2, ?3)",
-            [id, session_id, data],
+            "INSERT INTO message VALUES('message', 'overlap', 1, 2, ?1)",
+            [value],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO part VALUES('part', 'message', 'overlap', 1, 2, ?1)",
+            [value],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_message VALUES('session-message', 'overlap', 'user', 7, 1, 2, ?1)",
+            [value],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_input VALUES('session-input', 'overlap', ?1, 'steer', 8, NULL, 1)",
+            [value],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_context_epoch VALUES('overlap', 'baseline', ?1, 7)",
+            [value],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO todo VALUES('overlap', ?1, 'pending', 'high', 0, 1, 2)",
+            [value],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_share VALUES('overlap', 'share', ?1, 'https://example.com', 1, 2)",
+            [value],
         )
         .unwrap();
     }
 
-    fn insert_part(conn: &Connection, id: &str, message_id: &str, session_id: &str, data: &str) {
-        conn.execute(
-            "INSERT INTO part VALUES(?1, ?2, ?3, 1, 2, ?4)",
-            [id, message_id, session_id, data],
-        )
-        .unwrap();
+    fn assert_foreign_keys(conn: &Connection) {
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
     }
 
-    fn overlapping_databases() -> TestDatabases {
-        let databases = databases();
+    #[test]
+    fn imports_all_descendants_for_an_overlapping_session_and_reports_rows() {
+        let databases = databases(CURRENT_SCHEMA);
         let source = Connection::open(&databases.source).unwrap();
         insert_project(&source, "/source");
         insert_session(&source, "overlap", "Source session");
+        insert_descendants(&source, "source");
+        drop(source);
+
         let target = Connection::open(&databases.target).unwrap();
         insert_project(&target, "/target");
         insert_session(&target, "overlap", "Target session");
-        databases
-    }
+        drop(target);
 
-    #[test]
-    fn merges_messages_and_parts_when_all_sessions_overlap() {
-        let databases = overlapping_databases();
-        let source = Connection::open(&databases.source).unwrap();
-        insert_message(&source, "message", "overlap", r#"{"role":"user"}"#);
-        insert_part(
-            &source,
-            "part",
+        assert_eq!(
+            merge_sessions(&databases.source, &databases.target).unwrap(),
+            7
+        );
+
+        let target = Connection::open(&databases.target).unwrap();
+        for table in [
             "message",
-            "overlap",
-            r#"{"type":"text","text":"hello"}"#,
-        );
-        drop(source);
-
-        assert_eq!(
-            merge_sessions(&databases.source, &databases.target).unwrap(),
-            0
-        );
-
-        let target = Connection::open(&databases.target).unwrap();
-        assert_eq!(
-            target
-                .query_row("SELECT data FROM message WHERE id = 'message'", [], |row| {
-                    row.get::<_, String>(0)
-                })
-                .unwrap(),
-            r#"{"role":"user"}"#
-        );
-        assert_eq!(
-            target
-                .query_row("SELECT data FROM part WHERE id = 'part'", [], |row| {
-                    row.get::<_, String>(0)
-                })
-                .unwrap(),
-            "{\"type\":\"text\",\"text\":\"hello\"}"
-        );
-    }
-
-    #[test]
-    fn merges_todos_and_shares_when_all_sessions_overlap() {
-        let databases = overlapping_databases();
-        let source = Connection::open(&databases.source).unwrap();
-        source
-            .execute(
-                "INSERT INTO todo VALUES('overlap', 'keep this', 'pending', 'high', 0, 1, 2)",
-                [],
-            )
-            .unwrap();
-        source
-            .execute(
-                "INSERT INTO session_share VALUES('overlap', 'share', 'secret', 'https://example.com/share', 1, 2)",
-                [],
-            )
-            .unwrap();
-        drop(source);
-
-        assert_eq!(
-            merge_sessions(&databases.source, &databases.target).unwrap(),
-            0
-        );
-
-        let target = Connection::open(&databases.target).unwrap();
-        assert_eq!(
-            target
-                .query_row(
-                    "SELECT content FROM todo WHERE session_id = 'overlap' AND position = 0",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap(),
-            "keep this"
-        );
-        assert_eq!(
-            target
-                .query_row(
-                    "SELECT secret FROM session_share WHERE session_id = 'overlap'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap(),
-            "secret"
-        );
-    }
-
-    #[test]
-    fn merges_children_for_overlapping_and_new_sessions() {
-        let databases = overlapping_databases();
-        let source = Connection::open(&databases.source).unwrap();
-        insert_session(&source, "new", "New session");
-        insert_message(&source, "overlap-message", "overlap", "overlap data");
-        insert_message(&source, "new-message", "new", "new data");
-        drop(source);
-
-        assert_eq!(
-            merge_sessions(&databases.source, &databases.target).unwrap(),
-            1
-        );
-
-        let target = Connection::open(&databases.target).unwrap();
-        assert_eq!(
-            target
-                .query_row("SELECT COUNT(*) FROM session", [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            2
-        );
-        assert_eq!(
-            target
-                .query_row("SELECT COUNT(*) FROM message", [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            2
-        );
+            "part",
+            "session_message",
+            "session_input",
+            "session_context_epoch",
+            "todo",
+            "session_share",
+        ] {
+            assert_eq!(
+                target
+                    .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .unwrap(),
+                1,
+                "missing row in {table}"
+            );
+        }
         assert_eq!(
             target
                 .query_row(
@@ -353,25 +553,46 @@ mod tests {
                 .unwrap(),
             "Target session"
         );
+        assert_foreign_keys(&target);
     }
 
     #[test]
-    fn repeated_merge_imports_children_added_later() {
-        let databases = overlapping_databases();
+    fn accepts_an_older_schema_with_missing_optional_tables_and_columns() {
+        let databases = databases(LEGACY_SCHEMA_WITHOUT_OPTIONAL_TABLES);
         let source = Connection::open(&databases.source).unwrap();
-        insert_message(&source, "first", "overlap", "first data");
+        insert_project(&source, "/source");
+        insert_session(&source, "overlap", "Legacy session");
+        source
+            .execute(
+                "INSERT INTO message VALUES('message', 'overlap', 1, 2, 'message')",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO part VALUES('part', 'message', 'overlap', 1, 2, 'part')",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO todo VALUES('overlap', 'todo', 'pending', 'high', 0, 1, 2)",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO session_input(seq, id, session_id, prompt, delivery, time_created)
+                 VALUES(42, 'legacy-input', 'overlap', 'prompt', 'steer', 1)",
+                [],
+            )
+            .unwrap();
         drop(source);
 
         assert_eq!(
             merge_sessions(&databases.source, &databases.target).unwrap(),
-            0
+            6
         );
-
-        let source = Connection::open(&databases.source).unwrap();
-        insert_message(&source, "second", "overlap", "second data");
-        insert_part(&source, "second-part", "second", "overlap", "part data");
-        drop(source);
-
         assert_eq!(
             merge_sessions(&databases.source, &databases.target).unwrap(),
             0
@@ -380,54 +601,38 @@ mod tests {
         let target = Connection::open(&databases.target).unwrap();
         assert_eq!(
             target
-                .query_row("SELECT COUNT(*) FROM message", [], |row| row
-                    .get::<_, i64>(0))
+                .query_row("SELECT cost FROM session WHERE id = 'overlap'", [], |row| {
+                    row.get::<_, f64>(0)
+                },)
                 .unwrap(),
-            2
+            0.0
         );
         assert_eq!(
             target
-                .query_row("SELECT COUNT(*) FROM part", [], |row| row.get::<_, i64>(0))
+                .query_row(
+                    "SELECT admitted_seq FROM session_input WHERE id = 'legacy-input'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
                 .unwrap(),
-            1
+            42
         );
+        assert_foreign_keys(&target);
     }
 
     #[test]
-    fn merge_preserves_target_rows_on_collisions() {
-        let databases = overlapping_databases();
+    fn preserves_all_target_descendants_on_collisions_and_is_idempotent() {
+        let databases = databases(CURRENT_SCHEMA);
         let source = Connection::open(&databases.source).unwrap();
-        insert_message(&source, "message", "overlap", "source message");
-        insert_part(&source, "part", "message", "overlap", "source part");
-        source
-            .execute(
-                "INSERT INTO todo VALUES('overlap', 'source todo', 'pending', 'high', 0, 1, 2)",
-                [],
-            )
-            .unwrap();
-        source
-            .execute(
-                "INSERT INTO session_share VALUES('overlap', 'source share', 'source secret', 'https://source', 1, 2)",
-                [],
-            )
-            .unwrap();
+        insert_project(&source, "/source");
+        insert_session(&source, "overlap", "Source session");
+        insert_descendants(&source, "source");
         drop(source);
 
         let target = Connection::open(&databases.target).unwrap();
-        insert_message(&target, "message", "overlap", "target message");
-        insert_part(&target, "part", "message", "overlap", "target part");
-        target
-            .execute(
-                "INSERT INTO todo VALUES('overlap', 'target todo', 'done', 'low', 0, 3, 4)",
-                [],
-            )
-            .unwrap();
-        target
-            .execute(
-                "INSERT INTO session_share VALUES('overlap', 'target share', 'target secret', 'https://target', 3, 4)",
-                [],
-            )
-            .unwrap();
+        insert_project(&target, "/target");
+        insert_session(&target, "overlap", "Target session");
+        insert_descendants(&target, "target");
         drop(target);
 
         assert_eq!(
@@ -440,32 +645,22 @@ mod tests {
         );
 
         let target = Connection::open(&databases.target).unwrap();
-        for (query, expected) in [
-            ("SELECT worktree FROM project WHERE id = 'p'", "/target"),
-            (
-                "SELECT title FROM session WHERE id = 'overlap'",
-                "Target session",
-            ),
-            (
-                "SELECT data FROM message WHERE id = 'message'",
-                "target message",
-            ),
-            ("SELECT data FROM part WHERE id = 'part'", "target part"),
-            (
-                "SELECT content FROM todo WHERE session_id = 'overlap' AND position = 0",
-                "target todo",
-            ),
-            (
-                "SELECT secret FROM session_share WHERE session_id = 'overlap'",
-                "target secret",
-            ),
+        for query in [
+            "SELECT data FROM message WHERE id = 'message'",
+            "SELECT data FROM part WHERE id = 'part'",
+            "SELECT data FROM session_message WHERE id = 'session-message'",
+            "SELECT prompt FROM session_input WHERE id = 'session-input'",
+            "SELECT snapshot FROM session_context_epoch WHERE session_id = 'overlap'",
+            "SELECT content FROM todo WHERE session_id = 'overlap' AND position = 0",
+            "SELECT secret FROM session_share WHERE session_id = 'overlap'",
         ] {
             assert_eq!(
                 target
                     .query_row(query, [], |row| row.get::<_, String>(0))
                     .unwrap(),
-                expected
+                "target"
             );
         }
+        assert_foreign_keys(&target);
     }
 }
