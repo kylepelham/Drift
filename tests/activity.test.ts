@@ -55,6 +55,23 @@ test("markdown preserves balanced, void, and code-fenced HTML", async () => {
   expect(prepareMarkdown("orphan </strong> text")).toBe("orphan &lt;/strong&gt; text")
 })
 
+test("streaming tables bound incomplete links and preserve completed anchors", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  const { marked } = await import("marked")
+  const url = `https://example.com/${"long-segment".repeat(20)}`
+  const prefix = "| Resource | State |\n| --- | --- |\n"
+  const incomplete = marked.parse(prepareMarkdown(`${prefix}| [documentation](${url} | loading |`), { async: false })
+  const complete = marked.parse(prepareMarkdown(`${prefix}| [documentation](${url}) | ready |`), { async: false })
+  expect(incomplete).toContain("<table>")
+  expect(incomplete).toContain(url)
+  expect(incomplete).toContain(`>${url}</a>`)
+  expect(complete).toContain(`<a href="${url}">documentation</a>`)
+
+  const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text()
+  expect(css).toMatch(/\.md :where\(table\) \{[^}]*width: 100%;[^}]*table-layout: fixed;/s)
+  expect(css).toMatch(/\.md :where\(th, td\) \{[^}]*overflow-wrap: anywhere;/s)
+})
+
 test("user markdown preserves literal Windows path backslashes", async () => {
   const { prepareMarkdown } = await import("../src/ui/markdown")
   expect(prepareMarkdown("Open \\\\server\\share\\folder", true)).toBe(
@@ -152,6 +169,108 @@ test("compaction-only user messages retain their delimiter part", async () => {
     parts: [{ id: "p1", messageID: "m1", sessionID: "s1", type: "compaction", auto: true }],
   } as never
   expect(compactionParts(entry).map((part) => part.id)).toEqual(["p1"])
+})
+
+test("streamed tool replacements retain mounted group and plugin identities", async () => {
+  const { groupParts, updatePartGroupSlots } = await import("../src/ui/message")
+  // Bun selects Solid's server condition for tests, so load the browser primitives
+  // used by Vite to verify the keyed mount behavior without requiring a DOM.
+  // @ts-expect-error Solid's browser build shares the package's public types.
+  const { createRoot, createSignal, mapArray, onCleanup } = await import("solid-js/dist/solid.js") as typeof import("solid-js")
+  // @ts-expect-error Solid's browser store build shares the package's public types.
+  const { createStore, reconcile } = await import("solid-js/store/dist/store.js") as typeof import("solid-js/store")
+  const createSlot = (group: ReturnType<typeof groupParts>[number]) => {
+    const [value, setValue] = createStore(group)
+    return { id: group.id, value, update: (updated: typeof group) => setValue(reconcile(updated)) }
+  }
+  const tool = (id: string, name: string, status: string, output = "") => ({
+    id,
+    sessionID: "s1",
+    messageID: "m1",
+    type: "tool",
+    tool: name,
+    state: status === "completed"
+      ? { status, input: {}, output }
+      : { status, input: {}, metadata: { output } },
+  })
+
+  createRoot((dispose) => {
+    const slots = new Map()
+    const initial = updatePartGroupSlots(groupParts([
+      tool("shell", "bash", "running", "first"),
+      tool("plugin", "custom-stream", "running", "one"),
+      tool("read-1", "read", "running"),
+      tool("read-2", "read", "running"),
+    ] as never), slots, createSlot)
+    const [groups, setGroups] = createSignal(initial)
+    let mounts = 0
+    let cleanups = 0
+    const mounted = mapArray(
+      groups,
+      (slot) => {
+        mounts++
+        const state = { scrollTop: 37, following: false, pluginRevision: 4 }
+        onCleanup(() => cleanups++)
+        return { slot, state }
+      },
+    )
+    const first = mounted()
+    const firstById = new Map(first.map((item) => [item.slot.id, item]))
+    const explored = firstById.get("explored:read-1")!.slot.value
+    const firstExplored = "explored" in explored ? [...explored.explored] : []
+    expect(mounts).toBe(3)
+
+    setGroups(updatePartGroupSlots(groupParts([
+      { id: "text", sessionID: "s1", messageID: "m1", type: "text", text: "Now visible" },
+      tool("plugin", "custom-stream", "completed", "two"),
+      tool("shell", "bash", "running", "first\nsecond"),
+      tool("read-0", "read", "completed"),
+      tool("read-1", "read", "completed"),
+      tool("read-2", "read", "completed"),
+    ] as never), slots, createSlot))
+    const updated = mounted()
+    const updatedById = new Map(updated.map((item) => [item.slot.id, item]))
+    expect(updated.map((item) => item.slot.id)).toEqual(["text", "plugin", "shell", "explored:read-1"])
+    expect(updatedById.get("shell")).toBe(firstById.get("shell"))
+    expect(updatedById.get("plugin")).toBe(firstById.get("plugin"))
+    expect(updatedById.get("explored:read-1")).toBe(firstById.get("explored:read-1"))
+    expect(updatedById.get("shell")!.state).toEqual({ scrollTop: 37, following: false, pluginRevision: 4 })
+    expect(updatedById.get("plugin")!.state.pluginRevision).toBe(4)
+    const updatedExplored = updatedById.get("explored:read-1")!.slot.value
+    expect("explored" in updatedExplored && updatedExplored.explored.map((part) => part.id)).toEqual([
+      "read-0",
+      "read-1",
+      "read-2",
+    ])
+    expect("explored" in updatedExplored && updatedExplored.explored[1]).toBe(firstExplored[0])
+    expect("explored" in updatedExplored && updatedExplored.explored[2]).toBe(firstExplored[1])
+    expect(mounts).toBe(4)
+    expect(cleanups).toBe(0)
+
+    setGroups(updatePartGroupSlots(groupParts([
+      tool("read-2", "read", "completed"),
+      { id: "divider", sessionID: "s1", messageID: "m1", type: "text", text: "Split" },
+      tool("read-0", "read", "completed"),
+      tool("read-1", "read", "completed"),
+    ] as never), slots, createSlot))
+    const split = mounted()
+    const splitExplored = split.filter((item) => "explored" in item.slot.value)
+    expect(splitExplored.map((item) => item.slot.id)).toEqual(["explored:read-2", "explored:read-1"])
+    expect(splitExplored[0]).not.toBe(firstById.get("explored:read-1"))
+    expect(splitExplored[1]).toBe(firstById.get("explored:read-1"))
+
+    setGroups(updatePartGroupSlots(groupParts([
+      tool("read-2", "read", "completed"),
+      tool("read-0", "read", "completed"),
+      tool("read-1", "read", "completed"),
+    ] as never), slots, createSlot))
+    const merged = mounted()
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toBe(splitExplored[0])
+    expect(merged[0].slot.id).toBe("explored:read-2")
+    dispose()
+    expect(cleanups).toBe(mounts)
+  })
 })
 
 test("compaction boundary merges into its adjacent summary", async () => {
