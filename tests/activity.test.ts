@@ -302,6 +302,23 @@ test("transcript follow revision tracks lengths and status without embedding lar
   expect(completed).not.toBe(first)
 })
 
+test("timeline omits hidden-only messages without dropping the active thinking row", async () => {
+  const { timelineEntries } = await import("../src/ui/chat")
+  const entry = (id: string, parts: unknown[]) => ({
+    info: { id, role: "assistant", time: { created: 1 }, tokens: { input: 0, output: 0, reasoning: 0 } },
+    parts,
+  })
+  const hidden = entry("hidden", [{ id: "r1", type: "reasoning", text: "private", time: { start: 1, end: 2 } }])
+  const todo = entry("todo", [{ id: "t1", type: "tool", tool: "todowrite", state: { status: "completed" } }])
+  const visible = entry("visible", [{ id: "t2", type: "tool", tool: "edit", state: { status: "completed" } }])
+
+  expect(timelineEntries([hidden, todo, visible] as never).map((item) => item.info.id)).toEqual(["visible"])
+  expect(timelineEntries([hidden, todo, visible] as never, "hidden").map((item) => item.info.id)).toEqual([
+    "hidden",
+    "visible",
+  ])
+})
+
 test("tall row measurement only compensates rows actually above the viewport", async () => {
   const { resizeCompensation } = await import("../src/ui/chat")
   expect(resizeCompensation(96, 2000, 2100, 1000)).toBe(0)

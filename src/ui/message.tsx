@@ -29,6 +29,14 @@ export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
   )
 }
 
+export function messageVisible(entry: MessageEntry) {
+  if (entry.info.role === "user")
+    return !!messageText(entry) || entry.parts.some((part) => part.type === "file" || part.type === "compaction")
+  const info = entry.info as AssistantMessage
+  if (info.summary && collapseCompaction()) return true
+  return entry.parts.some(partVisible) || !!info.error
+}
+
 function CompactionSummary(props: { entry: MessageEntry; footer?: boolean }) {
   const [open, setOpen] = createSignal(!compactionCollapsed())
   return (

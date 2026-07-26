@@ -6,7 +6,7 @@ import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
 import { IconArrowDown } from "./icons"
-import { MessageView } from "./message"
+import { MessageView, messageVisible } from "./message"
 import { TextShimmer } from "./text-shimmer"
 import { DriftLogo } from "./logo"
 
@@ -35,6 +35,16 @@ export function Chat() {
     const messageError = (latest.info as { error?: { name: string; data?: unknown } }).error
     return messageError && messageError.name !== "MessageAbortedError" ? null : error
   })
+  const thinking = createMemo(() => {
+    const id = selectedSession()
+    return id ? thinkingState(entries(), engine.state.status[id]?.type) : null
+  })
+  const retry = createMemo(() => {
+    const id = selectedSession()
+    const status = id ? engine.state.status[id] : undefined
+    return status?.type === "retry" ? status : undefined
+  })
+  const timeline = createMemo(() => timelineEntries(entries(), thinking()?.messageID))
 
   createEffect(() => {
     const id = selectedSession()
@@ -53,7 +63,7 @@ export function Chat() {
 
   const offsets = createMemo(() => {
     measured()
-    const list = entries()
+    const list = timeline()
     const result = new Array<number>(list.length + 1)
     result[0] = 0
     for (let index = 0; index < list.length; index++)
@@ -72,16 +82,7 @@ export function Chat() {
     return { start, end }
   })
 
-  const slice = createMemo(() => entries().slice(range().start, range().end))
-  const thinking = createMemo(() => {
-    const id = selectedSession()
-    return id ? thinkingState(entries(), engine.state.status[id]?.type) : null
-  })
-  const retry = createMemo(() => {
-    const id = selectedSession()
-    const status = id ? engine.state.status[id] : undefined
-    return status?.type === "retry" ? status : undefined
-  })
+  const slice = createMemo(() => timeline().slice(range().start, range().end))
 
   const observer = new ResizeObserver((observations) => {
     let deltaAbove = 0
@@ -361,6 +362,10 @@ export function mergeCompactionEntries(entries: MessageEntry[]) {
       next.info.parentID === entry.info.id
     return !boundary || !summary
   })
+}
+
+export function timelineEntries(entries: MessageEntry[], activeMessageID?: string | null) {
+  return entries.filter((entry) => entry.info.id === activeMessageID || messageVisible(entry))
 }
 
 export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {
