@@ -16,9 +16,18 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   of their code; their build script is the contract.
 - Drift-specific engine adaptations live as named patches in `engine/overlays`, outside
   the subtree. Build and engine-test commands apply them under a process lock and reverse
-  them in `finally`, including recovery after an interrupted prior command. A patch that
-  no longer applies fails with an explicit refresh message instead of creating a subtree
-  merge conflict.
+  every applied patch after the command, including recovery after an interrupted prior
+  command. Restoration failures fail the command, preserve callback and cleanup errors,
+  and retain `engine/.overlay-lock` until a later run proves the subtree is pristine. Lock
+  ownership is initialized in an ignored same-volume candidate and atomically published
+  without replacement. Dead generations are atomically moved to UUID tombstones before a new
+  owner can claim the lock; retaining those tombstones prevents delayed stale contenders from
+  moving a newer live lock. An empty legacy ownerless lock is quarantined only after the
+  upstream subtree is proven clean; dirty or malformed ownerless locks fail closed. On startup,
+  only a fully applied patch is recovered automatically; an
+  indeterminate patch state fails with a manual-recovery error instead of being silently
+  skipped. A patch that no longer applies fails with an explicit refresh message instead of
+  creating a subtree merge conflict.
 - Dev: `bun run dev` creates an ephemeral fail-closed MCP policy, spawns
   `drift-engine.exe serve --hostname 127.0.0.1 --port 4096` (cwd = repo root), and
   gives the engine and Vite a random shared password.

@@ -1016,7 +1016,7 @@ fn main() {
                     .map(|_| match engine_db::prepare_shared() {
                         Ok(imported) => {
                             if imported > 0 {
-                                eprintln!("imported {imported} Drift sessions into the shared OpenCode database");
+                                eprintln!("imported {imported} Drift database rows into the shared OpenCode database");
                             }
                             true
                         }
