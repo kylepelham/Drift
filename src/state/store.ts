@@ -28,6 +28,7 @@ export interface DriftStore {
   prepareDeletions(before: number): Promise<DeletionSweep>
   stageWorkspaceDeletion(workspaceId: string, sessionIds: string[]): Promise<PendingSessionDeletion[]>
   claimDeletions(entries: PendingSessionDeletion[]): Promise<PendingSessionDeletion[]>
+  releaseDeletions(entries: PendingSessionDeletion[]): Promise<void>
   confirmDeletions(entries: PendingSessionDeletion[]): Promise<void>
   archived(): Promise<ArchivedSession[]>
   archiveSession(sessionId: string, workspaceId: string): Promise<void>
@@ -58,6 +59,7 @@ function shellStore(invoke: Invoke): DriftStore {
     stageWorkspaceDeletion: (workspaceId, sessionIds) =>
       invoke("store_stage_workspace_deletion", { workspaceId, sessionIds }),
     claimDeletions: (entries) => invoke("store_claim_deletions", { entries }),
+    releaseDeletions: (entries) => invoke("store_release_deletions", { entries }),
     confirmDeletions: (entries) => invoke("store_confirm_deletions", { entries }),
     archived: () => invoke("store_archived"),
     archiveSession: (sessionId, workspaceId) => invoke("store_archive_session", { sessionId, workspaceId }),
@@ -85,6 +87,7 @@ function write(key: string, value: unknown) {
 }
 
 type StoredWorkspace = Workspace & { removedAt?: number; purgeStagedAt?: number }
+type BrowserDeletion = PendingSessionDeletion & { workspaceId?: string; claimed?: boolean }
 
 function browserStore(): DriftStore {
   const wsKey = "drift.store.workspaces"
@@ -100,11 +103,13 @@ function browserStore(): DriftStore {
     addWorkspace: async (w) => {
       const existing = all().find((x) => x.path === w.path)
       if (existing) {
+        if (read<BrowserDeletion[]>(pendingKey, []).some((entry) => entry.workspaceId === existing.id && entry.claimed))
+          throw new Error("Workspace deletion is in progress")
         const restored = { ...existing, removedAt: undefined, purgeStagedAt: undefined, lastUsed: Date.now() }
         write(wsKey, [...all().filter((x) => x.id !== existing.id), restored])
         write(
           pendingKey,
-          read<(PendingSessionDeletion & { workspaceId?: string })[]>(pendingKey, []).filter(
+          read<BrowserDeletion[]>(pendingKey, []).filter(
             (entry) => entry.workspaceId !== existing.id,
           ),
         )
@@ -124,8 +129,12 @@ function browserStore(): DriftStore {
       write(wsKey, all().map((w) => (w.id === id ? { ...w, removedAt: Date.now() } : w)))
     },
     prepareDeletions: async (before) => {
-      const pending = read<(PendingSessionDeletion & { workspaceId?: string })[]>(pendingKey, [])
-      for (const entry of pending) entry.claim ||= crypto.randomUUID()
+      const pending = read<BrowserDeletion[]>(pendingKey, [])
+      for (const entry of pending) {
+        if (entry.claimed) entry.claim = crypto.randomUUID()
+        entry.claimed = false
+        entry.claim ||= crypto.randomUUID()
+      }
       const archives = read<ArchivedSession[]>(arKey, []).filter((entry) => entry.archivedAt < before)
       for (const archive of archives) {
         if (pending.some((entry) => entry.sessionId === archive.sessionId)) continue
@@ -147,7 +156,7 @@ function browserStore(): DriftStore {
     stageWorkspaceDeletion: async (workspaceId, sessionIds) => {
       const workspace = all().find((entry) => entry.id === workspaceId && entry.removedAt)
       if (!workspace) return read<PendingSessionDeletion[]>(pendingKey, [])
-      const pending = read<(PendingSessionDeletion & { workspaceId?: string })[]>(pendingKey, [])
+      const pending = read<BrowserDeletion[]>(pendingKey, [])
       const archived = read<ArchivedSession[]>(arKey, [])
         .filter((entry) => entry.workspaceId === workspaceId)
         .map((entry) => entry.sessionId)
@@ -165,15 +174,34 @@ function browserStore(): DriftStore {
       return pending.map(({ sessionId, directory, claim }) => ({ sessionId, directory, claim }))
     },
     claimDeletions: async (entries) => {
-      const pending = read<PendingSessionDeletion[]>(pendingKey, [])
-      return entries.filter((entry) =>
-        pending.some((item) => item.sessionId === entry.sessionId && item.claim === entry.claim),
-      )
+      const pending = read<BrowserDeletion[]>(pendingKey, [])
+      const claimed: PendingSessionDeletion[] = []
+      for (const entry of entries) {
+        const current = pending.find(
+          (item) => item.sessionId === entry.sessionId && item.claim === entry.claim && !item.claimed,
+        )
+        if (!current) continue
+        current.claim = crypto.randomUUID()
+        current.claimed = true
+        claimed.push({ sessionId: current.sessionId, directory: current.directory, claim: current.claim })
+      }
+      write(pendingKey, pending)
+      return claimed
+    },
+    releaseDeletions: async (entries) => {
+      const claims = new Map(entries.map((entry) => [entry.sessionId, entry.claim]))
+      const pending = read<BrowserDeletion[]>(pendingKey, [])
+      for (const entry of pending) {
+        if (!entry.claimed || claims.get(entry.sessionId) !== entry.claim) continue
+        entry.claim = crypto.randomUUID()
+        entry.claimed = false
+      }
+      write(pendingKey, pending)
     },
     confirmDeletions: async (entries) => {
       const confirmed = new Map(entries.map((entry) => [entry.sessionId, entry.claim]))
-      const pending = read<(PendingSessionDeletion & { workspaceId?: string })[]>(pendingKey, []).filter(
-        (entry) => confirmed.get(entry.sessionId) !== entry.claim,
+      const pending = read<BrowserDeletion[]>(pendingKey, []).filter(
+        (entry) => !entry.claimed || confirmed.get(entry.sessionId) !== entry.claim,
       )
       write(pendingKey, pending)
       const removed = new Set(entries.filter((entry) => !pending.some((item) => item.sessionId === entry.sessionId)).map((entry) => entry.sessionId))
@@ -194,10 +222,12 @@ function browserStore(): DriftStore {
       write(arKey, [...list, { sessionId, workspaceId, archivedAt: Date.now() }])
     },
     unarchiveSession: async (sessionId) => {
+      if (read<BrowserDeletion[]>(pendingKey, []).some((entry) => entry.sessionId === sessionId && entry.claimed))
+        throw new Error("Session deletion is in progress")
       write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => a.sessionId !== sessionId))
       write(
         pendingKey,
-        read<PendingSessionDeletion[]>(pendingKey, []).filter((entry) => entry.sessionId !== sessionId),
+        read<BrowserDeletion[]>(pendingKey, []).filter((entry) => entry.sessionId !== sessionId),
       )
     },
     mcpSnapshot: desktopMcpOnly,

@@ -106,7 +106,8 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
             directory TEXT NOT NULL,
             workspace_id TEXT,
             queued_at INTEGER NOT NULL,
-            claim TEXT NOT NULL
+            claim TEXT NOT NULL,
+            claimed_at INTEGER
         ) STRICT;
         CREATE INDEX IF NOT EXISTS idx_pending_session_delete_workspace
             ON pending_session_delete(workspace_id);
@@ -143,6 +144,15 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
         "ALTER TABLE pending_session_delete ADD COLUMN claim TEXT NOT NULL DEFAULT ''",
         [],
     );
+    let _ = conn.execute(
+        "ALTER TABLE pending_session_delete ADD COLUMN claimed_at INTEGER",
+        [],
+    );
+    conn.execute(
+        "UPDATE pending_session_delete SET claim = ?1, claimed_at = NULL
+         WHERE claimed_at IS NOT NULL",
+        [deletion_claim()],
+    )?;
     Ok(Store(Mutex::new(conn)))
 }
 
@@ -172,7 +182,8 @@ fn workspace_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Workspace> {
 
 fn pending_deletions(conn: &Connection) -> rusqlite::Result<Vec<PendingSessionDeletion>> {
     conn.prepare_cached(
-        "SELECT session_id, directory, claim FROM pending_session_delete ORDER BY queued_at, session_id",
+        "SELECT session_id, directory, claim FROM pending_session_delete
+         WHERE claimed_at IS NULL ORDER BY queued_at, session_id",
     )?
     .query_map([], |row| {
         Ok(PendingSessionDeletion {
@@ -341,6 +352,17 @@ impl Store {
             .optional()?;
         let target = match existing {
             Some(found) => {
+                let claimed: bool = tx.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM pending_session_delete
+                        WHERE workspace_id = ?1 AND claimed_at IS NOT NULL
+                    )",
+                    [&found],
+                    |row| row.get(0),
+                )?;
+                if claimed {
+                    return Err(rusqlite::Error::InvalidQuery);
+                }
                 tx.prepare_cached(
                     "UPDATE workspace SET removed_at = NULL, purge_staged_at = NULL, last_used = ?2 WHERE id = ?1",
                 )?
@@ -421,6 +443,17 @@ impl Store {
     pub fn unarchive_session(&self, session_id: &str) -> rusqlite::Result<()> {
         let mut conn = self.0.lock().unwrap();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let claimed: bool = tx.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM pending_session_delete
+                WHERE session_id = ?1 AND claimed_at IS NOT NULL
+            )",
+            [session_id],
+            |row| row.get(0),
+        )?;
+        if claimed {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         tx.prepare_cached("DELETE FROM session_meta WHERE session_id = ?1")?
             .execute([session_id])?;
         tx.prepare_cached("DELETE FROM pending_session_delete WHERE session_id = ?1")?
@@ -519,15 +552,25 @@ impl Store {
         &self,
         entries: &[PendingSessionDeletion],
     ) -> rusqlite::Result<Vec<PendingSessionDeletion>> {
-        let conn = self.0.lock().unwrap();
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let mut claimed = Vec::new();
         for entry in entries {
-            let current = conn
+            let claim = deletion_claim();
+            let changed = tx.execute(
+                "UPDATE pending_session_delete SET claim = ?3, claimed_at = ?4
+                 WHERE session_id = ?1 AND claim = ?2 AND claimed_at IS NULL",
+                params![entry.session_id, entry.claim, claim, now()],
+            )?;
+            if changed != 1 {
+                continue;
+            }
+            let current = tx
                 .prepare_cached(
                     "SELECT session_id, directory, claim FROM pending_session_delete
-                     WHERE session_id = ?1 AND claim = ?2",
+                     WHERE session_id = ?1 AND claim = ?2 AND claimed_at IS NOT NULL",
                 )?
-                .query_row(params![entry.session_id, entry.claim], |row| {
+                .query_row(params![entry.session_id, claim], |row| {
                     Ok(PendingSessionDeletion {
                         session_id: row.get(0)?,
                         directory: row.get(1)?,
@@ -539,7 +582,21 @@ impl Store {
                 claimed.push(current);
             }
         }
+        tx.commit()?;
         Ok(claimed)
+    }
+
+    pub fn release_deletions(&self, entries: &[PendingSessionDeletion]) -> rusqlite::Result<()> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        for entry in entries {
+            tx.execute(
+                "UPDATE pending_session_delete SET claim = ?3, claimed_at = NULL
+                 WHERE session_id = ?1 AND claim = ?2 AND claimed_at IS NOT NULL",
+                params![entry.session_id, entry.claim, deletion_claim()],
+            )?;
+        }
+        tx.commit()
     }
 
     pub fn confirm_deletions(&self, entries: &[PendingSessionDeletion]) -> rusqlite::Result<()> {
@@ -547,7 +604,8 @@ impl Store {
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         for entry in entries {
             let removed = tx.execute(
-                "DELETE FROM pending_session_delete WHERE session_id = ?1 AND claim = ?2",
+                "DELETE FROM pending_session_delete
+                 WHERE session_id = ?1 AND claim = ?2 AND claimed_at IS NOT NULL",
                 params![entry.session_id, entry.claim],
             )?;
             if removed == 1 {
@@ -784,9 +842,8 @@ mod tests {
         assert_eq!(sweep.pending.len(), 1);
         assert_eq!(sweep.pending[0].session_id, "s2");
         assert_eq!(store.archived().unwrap().len(), 1);
-        store
-            .confirm_deletions(&[sweep.pending[0].clone()])
-            .unwrap();
+        let claimed = store.claim_deletions(&sweep.pending).unwrap();
+        store.confirm_deletions(&[claimed[0].clone()]).unwrap();
         assert!(store.archived().unwrap().is_empty());
 
         store.remove_workspace("w1").unwrap();
@@ -811,7 +868,8 @@ mod tests {
             .into_iter()
             .find(|entry| entry.session_id == "old-session")
             .unwrap();
-        store.confirm_deletions(&[old_session]).unwrap();
+        let claimed = store.claim_deletions(&[old_session]).unwrap();
+        store.confirm_deletions(&claimed).unwrap();
         assert!(store.workspaces().unwrap().is_empty());
         assert!(
             store
@@ -910,7 +968,8 @@ mod tests {
                 .into_iter()
                 .find(|entry| entry.session_id == "archived")
                 .unwrap();
-            store.confirm_deletions(&[archived]).unwrap();
+            let claimed = store.claim_deletions(&[archived]).unwrap();
+            store.confirm_deletions(&claimed).unwrap();
             assert_eq!(store.removed_workspaces().unwrap().len(), 1);
         }
         {
@@ -949,10 +1008,10 @@ mod tests {
         assert_ne!(stale.claim, replacement.claim);
         store.confirm_deletions(&[stale]).unwrap();
         assert_eq!(store.archived().unwrap().len(), 1);
-        assert_eq!(
-            store.claim_deletions(&[replacement.clone()]).unwrap()[0].claim,
-            replacement.claim
-        );
+        let active = store.claim_deletions(&[replacement]).unwrap()[0].clone();
+        assert!(store.unarchive_session("session").is_err());
+        store.release_deletions(&[active]).unwrap();
+        store.unarchive_session("session").unwrap();
 
         store.remove_workspace("w1").unwrap();
         let workspace_claim = store
@@ -961,6 +1020,12 @@ mod tests {
             .into_iter()
             .find(|entry| entry.session_id == "workspace-session")
             .unwrap();
+        let active_workspace =
+            store.claim_deletions(&[workspace_claim.clone()]).unwrap()[0].clone();
+        assert!(store
+            .add_workspace("new", "S:/claim", "Ignored", "")
+            .is_err());
+        store.release_deletions(&[active_workspace]).unwrap();
         store
             .add_workspace("new", "S:/claim", "Ignored", "")
             .unwrap();

@@ -13,6 +13,7 @@ import {
   initWorkspaces,
   confirmDeletions,
   claimDeletions,
+  releaseDeletions,
   prepareDeletions,
   purgeAge,
   stageWorkspaceDeletion,
@@ -157,6 +158,8 @@ function WorkspaceBinding() {
       }
       const claimed = await claimDeletions(sweep.pending)
       const confirmed = await engine.actions.removePendingSessions(claimed)
+      const confirmedClaims = new Set(confirmed.map((entry) => entry.claim))
+      await releaseDeletions(claimed.filter((entry) => !confirmedClaims.has(entry.claim)))
       await confirmDeletions(confirmed)
     })()
       .catch(() => undefined)

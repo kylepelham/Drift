@@ -140,6 +140,10 @@ export function claimDeletions(entries: PendingSessionDeletion[]) {
   return driftStore.claimDeletions(entries)
 }
 
+export function releaseDeletions(entries: PendingSessionDeletion[]) {
+  return driftStore.releaseDeletions(entries)
+}
+
 export async function confirmDeletions(entries: PendingSessionDeletion[]) {
   await driftStore.confirmDeletions(entries)
   await refreshArchives()

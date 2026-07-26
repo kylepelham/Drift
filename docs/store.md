@@ -17,7 +17,7 @@ holds what Drift adds on top.
 | --- | --- | --- |
 | `workspace` | id, path (unique), name, icon, last_used, removed_at, purge_staged_at | workspaces = directories with display identity; purge staging keeps a removed path reserved until its exact session set is settled |
 | `session_meta` | session_id, workspace_id, archived_at | Drift metadata about engine sessions; today that is archive state |
-| `pending_session_delete` | session_id, directory, workspace_id, queued_at, claim | durable exact-ID engine deletion tombstones with opaque claims retained across startup, reconnect, and partial failure |
+| `pending_session_delete` | session_id, directory, workspace_id, queued_at, claim, claimed_at | durable exact-ID engine deletion tombstones with opaque claims retained across startup, reconnect, and partial failure |
 | `mcp_server` | name, config_json, updated_at | global Drift-owned definitions; full JSON preserves unknown fields |
 | `mcp_decision` | fingerprint, name, decision, decided_at | immutable global approval/rejection history by exact fingerprint |
 | `mcp_state` | id, generation, materialized_generation | CAS and generated-policy publication state |
@@ -34,10 +34,13 @@ preserving workspaces explicitly added through Drift, including empty ones.
 Archiving never deletes: `archived_at` is set and the thread disappears from the
 sidebar. On startup (once the engine is online) Drift purges archive rows older than
 7 days by first recording exact-ID deletion tombstones. A worker must revalidate the
-opaque claim, delete the exact ID, and observe that exact session as `404` before it can
-conditionally confirm the same claim. Transport, engine, and absence-check failures retry
-on the next online transition. Restoring metadata cancels its claim in the same transaction,
-and a stale snapshot cannot confirm a replacement claim. One archive drawer in the workspace
+opaque claim, rotate it into an exclusive in-flight claim, delete the exact ID, and observe
+that exact session as `404` before it can conditionally confirm the same claim. Failed attempts
+release with a new claim; abandoned claims reset on process startup. Restore and claim are
+serialized transactions, so restore either cancels pending work or is rejected while an in-flight
+deletion owns the session instead of racing it. A stale snapshot can neither delete restored data
+nor confirm a replacement
+claim. One archive drawer in the workspace
 header lists archived threads and
 soft-removed workspaces together; restoring a thread also restores its workspace when
 necessary.

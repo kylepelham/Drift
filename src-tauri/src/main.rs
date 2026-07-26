@@ -454,6 +454,14 @@ fn store_claim_deletions(
 }
 
 #[tauri::command]
+fn store_release_deletions(
+    store: State<Store>,
+    entries: Vec<PendingSessionDeletion>,
+) -> Result<(), String> {
+    store.release_deletions(&entries).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn store_confirm_deletions(
     store: State<Store>,
     entries: Vec<PendingSessionDeletion>,
@@ -1124,6 +1132,7 @@ fn main() {
             store_prepare_deletions,
             store_stage_workspace_deletion,
             store_claim_deletions,
+            store_release_deletions,
             store_confirm_deletions,
             store_archived,
             store_archive_session,
