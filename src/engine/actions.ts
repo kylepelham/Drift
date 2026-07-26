@@ -8,6 +8,9 @@ import {
   applyTranscriptSnapshot,
   createRecoveryCoordinator,
   eventInDirectory,
+  isSessionEvent,
+  isTranscriptEvent,
+  sessionID,
   type BufferedEvent,
   type RecoveryCoordinator,
 } from "./recovery"
@@ -68,8 +71,15 @@ export function createActions(
   recovery: RecoveryCoordinator = createRecoveryCoordinator(() => undefined),
 ) {
   const pageSize = 100
-  let allSessionsRequest: Promise<void> | undefined
-  const sessionRequests = new Map<string, Promise<boolean>>()
+  let allSessionsRequest: { token: ReturnType<RecoveryCoordinator["begin"]>; promise: Promise<void> } | undefined
+  const sessionRequests = new Map<
+    string,
+    { token: ReturnType<RecoveryCoordinator["begin"]>; promise: Promise<boolean> }
+  >()
+
+  const sessionEvents = (entry: BufferedEvent) => isSessionEvent(entry.event)
+  const transcriptEvents = (id: string) => (entry: BufferedEvent) =>
+    isTranscriptEvent(entry.event) && sessionID(entry.event) === id
 
   function recordLinks(entries: { parts: { id: string }[] }[]) {
     for (const entry of entries) {
@@ -82,109 +92,171 @@ export function createActions(
     }
   }
 
-  async function reloadSession(id: string) {
-    const token = recovery.begin()
-    const result = await requireClient().session.messages({ path: { id }, query: { limit: pageSize } })
-    const entries = [...requireSdkData(result, "Could not load the session transcript")].sort((a, b) =>
-      a.info.id.localeCompare(b.info.id),
-    )
-    let applied = false
-    const committed = recovery.commit(token, (events) => {
-      applied = applyTranscriptSnapshot(
-        state,
-        set,
-        id,
-        entries,
-        result.response?.headers?.get("x-next-cursor") ?? null,
-        events,
+  async function requestTranscript(id: string, token: ReturnType<RecoveryCoordinator["begin"]>) {
+    try {
+      const result = await requireClient().session.messages({
+        path: { id },
+        query: { limit: pageSize },
+        signal: token.signal,
+      })
+      const entries = [...requireSdkData(result, "Could not load the session transcript")].sort((a, b) =>
+        a.info.id.localeCompare(b.info.id),
       )
-    })
-    if (applied) recordLinks(entries)
-    return committed && applied
+      let applied = false
+      const committed = recovery.commit(token, (events) => {
+        applied = applyTranscriptSnapshot(
+          state,
+          set,
+          id,
+          entries,
+          result.response?.headers?.get("x-next-cursor") ?? null,
+          events,
+          recovery.replay,
+        )
+      })
+      if (applied) recordLinks(entries)
+      return committed && applied
+    } finally {
+      recovery.cancel(token)
+    }
+  }
+
+  async function reloadSession(id: string) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const token = recovery.begin(transcriptEvents(id))
+      try {
+        const loaded = await requestTranscript(id, token)
+        if (loaded || token.generation !== recovery.generation()) return loaded
+      } catch (error) {
+        if (token.generation !== recovery.generation() || !token.invalid || attempt > 0) throw error
+      }
+    }
+    return false
   }
 
   // Older pages come via the raw route because the generated SDK lacks the cursor param.
   async function loadOlder(id: string) {
     const cursor = state.cursors[id]
     const base = target()
-    if (!cursor || !base) return false
+    if (!cursor || !base || !state.sessions[id]) return false
+    const token = recovery.begin(transcriptEvents(id))
+    const directory = state.directory
     const url =
-      `${base.url}/session/${id}/message?directory=${encodeURIComponent(state.directory)}` +
+      `${base.url}/session/${id}/message?directory=${encodeURIComponent(directory)}` +
       `&limit=${pageSize}&before=${encodeURIComponent(cursor)}`
-    const response = await fetch(url, { headers: base.headers }).catch(() => null)
-    if (!response?.ok) return false
-    const older = ((await response.json().catch(() => [])) ?? []) as MessageEntry[]
-    const sorted = [...older].sort((a, b) => a.info.id.localeCompare(b.info.id))
-    set(
-      produce((s) => {
-        const existing = new Set((s.transcripts[id] ?? []).map((entry) => entry.info.id))
-        s.transcripts[id] = [...sorted.filter((entry) => !existing.has(entry.info.id)), ...(s.transcripts[id] ?? [])]
-      }),
-    )
-    set("cursors", id, response.headers.get("x-next-cursor"))
-    recordLinks(sorted)
-    return sorted.length > 0
+    try {
+      const response = await fetch(url, { headers: base.headers, signal: token.signal }).catch(() => null)
+      if (!response?.ok) return false
+      const older = ((await response.json().catch(() => [])) ?? []) as MessageEntry[]
+      const sorted = [...older].sort((a, b) => a.info.id.localeCompare(b.info.id))
+      let applied = false
+      const committed = recovery.commit(token, () => {
+        if (!state.sessions[id] || state.cursors[id] !== cursor || normalizeDir(state.directory) !== normalizeDir(directory))
+          return
+        set(
+          produce((s) => {
+            const existing = new Set((s.transcripts[id] ?? []).map((entry) => entry.info.id))
+            s.transcripts[id] = [...sorted.filter((entry) => !existing.has(entry.info.id)), ...(s.transcripts[id] ?? [])]
+            s.cursors[id] = response.headers.get("x-next-cursor")
+          }),
+        )
+        applied = true
+      })
+      if (applied) recordLinks(sorted)
+      return committed && applied && sorted.length > 0
+    } finally {
+      recovery.cancel(token)
+    }
   }
 
   function openSession(id: string) {
     if (state.loaded[id]) return Promise.resolve(true)
     const current = sessionRequests.get(id)
-    if (current) return current
+    if (current && recovery.current(current.token)) return current.promise
+    if (current) sessionRequests.delete(id)
+    const token = recovery.begin(transcriptEvents(id))
+    let entry: { token: typeof token; promise: Promise<boolean> } | undefined
     const request = (async () => {
       set("loading", id, true)
       try {
-        return await reloadSession(id)
+        return await requestTranscript(id, token)
       } catch (error) {
-        notice({
-          title: "Transcript load failed",
-          message: error instanceof Error ? error.message : "Could not load the session transcript",
-          variant: "error",
-        })
+        if (!token.signal.aborted)
+          notice({
+            title: "Transcript load failed",
+            message: error instanceof Error ? error.message : "Could not load the session transcript",
+            variant: "error",
+          })
         return false
       } finally {
-        set(
-          produce((s) => {
-            delete s.loading[id]
-          }),
-        )
+        if (entry && sessionRequests.get(id) === entry)
+          set(
+            produce((s) => {
+              delete s.loading[id]
+            }),
+          )
       }
     })()
-    sessionRequests.set(id, request)
-    void request.finally(() => sessionRequests.delete(id))
+    entry = { token, promise: request }
+    sessionRequests.set(id, entry)
+    void request.finally(() => {
+      if (entry && sessionRequests.get(id) === entry) sessionRequests.delete(id)
+    })
     return request
   }
 
   async function loadSessions(directory: string) {
-    const token = recovery.begin()
-    const result = await requireClient().session.list({ query: { directory } })
-    const sessions = requireSdkData(result, "Could not load sessions")
-    recovery.commit(token, (events) =>
-      applySessionSnapshot(set, sessions, (candidate) => normalizeDir(candidate) === normalizeDir(directory), events),
-    )
+    const token = recovery.begin(sessionEvents)
+    try {
+      const result = await requireClient().session.list({ query: { directory }, signal: token.signal })
+      const sessions = requireSdkData(result, "Could not load sessions")
+      recovery.commit(token, (events) =>
+        applySessionSnapshot(
+          set,
+          sessions,
+          (candidate) => normalizeDir(candidate) === normalizeDir(directory),
+          events,
+          recovery.replay,
+        ),
+      )
+    } finally {
+      recovery.cancel(token)
+    }
   }
 
   // One DB query for every workspace. Avoids booting an OpenCode instance per project.
   async function loadAllSessions() {
     const base = target()
     if (!base) return
-    if (allSessionsRequest) return allSessionsRequest
-    allSessionsRequest = (async () => {
-      const token = recovery.begin()
-      const query = new URLSearchParams({ archived: "true", limit: "10000" })
-      const headers = {
-        ...base.headers,
-        ...(state.directory ? { "x-opencode-directory": encodeURIComponent(state.directory) } : {}),
+    if (allSessionsRequest && recovery.current(allSessionsRequest.token)) return allSessionsRequest.promise
+    if (allSessionsRequest) allSessionsRequest = undefined
+    const token = recovery.begin(sessionEvents)
+    let entry: { token: typeof token; promise: Promise<void> }
+    const request = (async () => {
+      try {
+        const query = new URLSearchParams({ archived: "true", limit: "10000" })
+        const headers = {
+          ...base.headers,
+          ...(state.directory ? { "x-opencode-directory": encodeURIComponent(state.directory) } : {}),
+        }
+        const response = await fetch(`${base.url}/experimental/session?${query}`, {
+          headers,
+          signal: token.signal,
+        }).catch(() => null)
+        if (!response?.ok) return
+        const sessions = (await response.json().catch(() => null)) as Session[] | null
+        if (!Array.isArray(sessions)) return
+        recovery.commit(token, (events) => applySessionSnapshot(set, sessions, () => true, events, recovery.replay))
+      } finally {
+        recovery.cancel(token)
       }
-      const response = await fetch(`${base.url}/experimental/session?${query}`, { headers }).catch(() => null)
-      if (!response?.ok) return
-      const sessions = (await response.json().catch(() => null)) as Session[] | null
-      if (!Array.isArray(sessions)) return
-      recovery.commit(token, (events) => applySessionSnapshot(set, sessions, () => true, events))
     })()
+    entry = { token, promise: request }
+    allSessionsRequest = entry
     try {
-      await allSessionsRequest
+      await request
     } finally {
-      allSessionsRequest = undefined
+      if (allSessionsRequest === entry) allSessionsRequest = undefined
     }
   }
 
@@ -371,19 +443,31 @@ export function createActions(
   }
 
   async function refreshProviders() {
-    const result = await requireClient().provider.list().catch(() => null)
-    if (!result?.data) return null
-    set("providers", (result.data.all ?? []) as unknown as ProviderInfo[])
-    set("connected", result.data.connected ?? [])
-    set("defaultModels", result.data.default ?? {})
-    return result.data.connected ?? []
+    const token = recovery.begin(() => false)
+    try {
+      const result = await requireClient().provider.list({ signal: token.signal }).catch(() => null)
+      if (!result?.data) return null
+      const connected = result.data.connected ?? []
+      const committed = recovery.commit(token, () => {
+        set("providers", (result.data!.all ?? []) as unknown as ProviderInfo[])
+        set("connected", connected)
+        set("defaultModels", result.data!.default ?? {})
+      })
+      return committed ? connected : null
+    } finally {
+      recovery.cancel(token)
+    }
   }
 
   async function refreshAgents() {
-    const result = await requireClient().app.agents().catch(() => null)
-    if (!result?.data) return false
-    set("agents", result.data)
-    return true
+    const token = recovery.begin(() => false)
+    try {
+      const result = await requireClient().app.agents({ signal: token.signal }).catch(() => null)
+      if (!result?.data) return false
+      return recovery.commit(token, () => set("agents", result.data!))
+    } finally {
+      recovery.cancel(token)
+    }
   }
 
   function controlClient() {
@@ -505,23 +589,17 @@ export function createActions(
 
   type FetchResult<T> = { ok: true; data: T } | { ok: false }
 
-  async function fetchJson<T>(path: string, dir: string): Promise<FetchResult<T>> {
+  async function fetchJson<T>(path: string, dir: string, signal: AbortSignal): Promise<FetchResult<T>> {
     const base = target()
     if (!base) return { ok: false }
     const joiner = path.includes("?") ? "&" : "?"
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 8000)
-    try {
-      const response = await fetch(`${base.url}${path}${joiner}directory=${encodeURIComponent(dir)}`, {
-        headers: base.headers,
-        signal: controller.signal,
-      }).catch(() => null)
-      if (!response?.ok) return { ok: false }
-      const data = (await response.json().catch(() => undefined)) as T | undefined
-      return data === undefined ? { ok: false } : { ok: true, data }
-    } finally {
-      clearTimeout(timer)
-    }
+    const response = await fetch(`${base.url}${path}${joiner}directory=${encodeURIComponent(dir)}`, {
+      headers: base.headers,
+      signal,
+    }).catch(() => null)
+    if (!response?.ok) return { ok: false }
+    const data = (await response.json().catch(() => undefined)) as T | undefined
+    return data === undefined ? { ok: false } : { ok: true, data }
   }
 
   // The generated SDK lags the engine here; GET /permission and /question recover asks
@@ -559,19 +637,26 @@ export function createActions(
   }
 
   async function refreshDirectoryAsks(directory: string) {
-    const token = recovery.begin()
-    const [permissionResult, questionResult] = await Promise.all([
-      fetchJson<PermissionRequest[]>("/permission", directory),
-      fetchJson<QuestionRequest[]>("/question", directory),
-    ])
-    const permissions = permissionResult.ok && Array.isArray(permissionResult.data)
-      ? permissionResult.data.map((request) => toPermission(request, directory))
-      : undefined
-    const questions = questionResult.ok && Array.isArray(questionResult.data)
-      ? questionResult.data.map((request) => ({ ...request, directory }))
-      : undefined
-    if (!permissions && !questions) return
-    recovery.commit(token, (events) => reconcileAsks(directory, permissions, questions, events))
+    const token = recovery.begin((entry) => {
+      const type = (entry.event as { type: string }).type
+      return (type.startsWith("permission.") || type.startsWith("question.")) && eventInDirectory(entry, directory)
+    })
+    try {
+      const [permissionResult, questionResult] = await Promise.all([
+        fetchJson<PermissionRequest[]>("/permission", directory, token.signal),
+        fetchJson<QuestionRequest[]>("/question", directory, token.signal),
+      ])
+      const permissions = permissionResult.ok && Array.isArray(permissionResult.data)
+        ? permissionResult.data.map((request) => toPermission(request, directory))
+        : undefined
+      const questions = questionResult.ok && Array.isArray(questionResult.data)
+        ? questionResult.data.map((request) => ({ ...request, directory }))
+        : undefined
+      if (!permissions && !questions) return
+      recovery.commit(token, (events) => reconcileAsks(directory, permissions, questions, events))
+    } finally {
+      recovery.cancel(token)
+    }
   }
 
   function reconcileAsks(

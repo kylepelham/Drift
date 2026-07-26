@@ -4,7 +4,13 @@ import { produce } from "solid-js/store"
 import { createActions, type EngineActions } from "./actions"
 import { resolveEngine, sleep, type EngineTarget } from "./connection"
 import { reduce } from "./events"
-import { applySessionSnapshot, applyStatusSnapshot, createRecoveryCoordinator } from "./recovery"
+import {
+  applySessionSnapshot,
+  applyStatusSnapshot,
+  createRecoveryCoordinator,
+  isSessionEvent,
+  isStatusEvent,
+} from "./recovery"
 import { streamEvents } from "./sse"
 import { seedBench } from "./bench"
 import { createEngineState, normalizeDir, type EngineState, type ProviderInfo } from "./store"
@@ -37,21 +43,24 @@ export function EngineProvider(props: ParentProps) {
   async function hydrate() {
     const bootDirectory = directory ?? ""
     const api = requireClient()
-    const token = recovery.begin()
+    const token = recovery.begin((entry) => isSessionEvent(entry.event) || isStatusEvent(entry.event))
     try {
       const stale = Object.keys(state.loaded).filter((id) => state.loaded[id])
-      const [sessionsResult, statusesResult, providersResult, agentsResult, commandsResult] = await Promise.allSettled([
-        api.session.list(),
-        api.session.status(),
-        api.provider.list(),
-        api.app.agents(),
-        api.command.list(),
-      ])
+      const [sessionsResult, statusesResult, providersResult, agentsResult, commandsResult, healthResult] =
+        await Promise.allSettled([
+          api.session.list({ signal: token.signal }),
+          api.session.status({ signal: token.signal }),
+          api.provider.list({ signal: token.signal }),
+          api.app.agents({ signal: token.signal }),
+          api.command.list({ signal: token.signal }),
+          base ? loadHealth(base, token.signal) : Promise.resolve(null),
+        ])
       const sessions = settledData(sessionsResult)
       const statuses = settledData(statusesResult)
       const providers = settledData(providersResult)
       const agents = settledData(agentsResult)
       const commands = settledData(commandsResult)
+      const health = healthResult.status === "fulfilled" ? healthResult.value : null
       const committed = recovery.commit(token, (events) => {
         if (sessions)
           applySessionSnapshot(
@@ -59,6 +68,7 @@ export function EngineProvider(props: ParentProps) {
             sessions,
             (candidate) => normalizeDir(candidate) === normalizeDir(bootDirectory),
             events,
+            recovery.replay,
           )
         if (sessions && statuses) applyStatusSnapshot(set, sessions, statuses, events)
         if (providers) {
@@ -68,32 +78,34 @@ export function EngineProvider(props: ParentProps) {
         }
         if (agents) set("agents", agents)
         if (commands) set("commands", commands)
+        if (health?.version) set("version", health.version)
       })
       if (committed) await Promise.allSettled(stale.filter((id) => state.sessions[id]).map(actions.reloadSession))
-      if (!state.version && base) {
-        const health = await fetch(`${base.url}/global/health`, { headers: base.headers })
-          .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
-          .catch(() => null)
-        if (health?.version) set("version", health.version)
-      }
     } finally {
       if (client === api && directory === bootDirectory && recovery.current(token))
         set("bootstrappedDirectory", bootDirectory)
+      recovery.cancel(token)
     }
   }
 
   async function pump(target: EngineTarget, signal: AbortSignal) {
     while (!signal.aborted) {
       try {
-        await streamEvents(target, signal, (event, eventDirectory) => {
-          if (event.type === "server.connected") {
-            recovery.advance()
-            set("connection", "online")
-            void hydrate().catch(() => undefined)
-            return
-          }
-          recovery.record(event, eventDirectory)
-        })
+        await streamEvents(
+          target,
+          signal,
+          (event, eventDirectory) => {
+            if (event.type === "server.connected") {
+              recovery.advance()
+              set("connection", "online")
+              void hydrate().catch(() => undefined)
+              return
+            }
+            recovery.record(event, eventDirectory)
+          },
+          undefined,
+          recovery.advance,
+        )
       } catch {}
       if (signal.aborted) return
       set("connection", "offline")
@@ -155,10 +167,15 @@ export function EngineProvider(props: ParentProps) {
   void resolveEngine()
     .then(async (target) => {
       base = target
-      const health = await fetch(`${target.url}/global/health`, { headers: target.headers })
-        .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
-        .catch(() => null)
-      if (health?.version) set("version", health.version)
+      const token = recovery.begin(() => false)
+      try {
+        const health = await loadHealth(target, token.signal)
+        recovery.commit(token, () => {
+          if (health?.version) set("version", health.version)
+        })
+      } finally {
+        recovery.cancel(token)
+      }
       if (directory) startPump(directory)
     })
     .catch((error: unknown) => {
@@ -167,6 +184,7 @@ export function EngineProvider(props: ParentProps) {
     })
   onCleanup(() => {
     disposed = true
+    recovery.advance()
     pumpAbort?.abort()
   })
 
@@ -176,4 +194,10 @@ export function EngineProvider(props: ParentProps) {
 function settledData<T>(result: PromiseSettledResult<{ data?: T; error?: unknown }>): T | undefined {
   if (result.status === "rejected" || result.value.error !== undefined) return
   return result.value.data
+}
+
+async function loadHealth(target: EngineTarget, signal: AbortSignal) {
+  return fetch(`${target.url}/global/health`, { headers: target.headers, signal })
+    .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
+    .catch(() => null)
 }

@@ -4,47 +4,101 @@ import { produce } from "solid-js/store"
 import { dropSessionState, normalizeDir, type EngineState, type MessageEntry } from "./store"
 
 export type BufferedEvent = { revision: number; event: Event; directory?: string }
-export type RecoveryToken = { generation: number; revision: number }
+export type RecoveryToken = {
+  generation: number
+  revision: number
+  signal: AbortSignal
+  readonly events: BufferedEvent[]
+  readonly filter: (entry: BufferedEvent) => boolean
+  controller: AbortController
+  timer?: ReturnType<typeof setTimeout>
+  active: boolean
+  invalid: boolean
+}
 
 export type RecoveryCoordinator = ReturnType<typeof createRecoveryCoordinator>
 
 export function createRecoveryCoordinator(
   reducer: (event: Event, directory?: string) => void,
-  maxBufferedEvents = 4096,
+  maxBufferedEvents = 512,
 ) {
   let generation = 0
   let revision = 0
-  let floor = 0
-  let events: BufferedEvent[] = []
+  const active = new Set<RecoveryToken>()
+
+  function finish(token: RecoveryToken) {
+    token.active = false
+    active.delete(token)
+    if (token.timer) clearTimeout(token.timer)
+  }
+
+  function current(token: RecoveryToken) {
+    return token.generation === generation && !token.invalid && !token.signal.aborted
+  }
 
   return {
     advance() {
       generation += 1
-      floor = revision
-      events = []
+      for (const token of active) {
+        token.invalid = true
+        token.controller.abort("recovery generation changed")
+        finish(token)
+      }
       return generation
     },
-    begin(): RecoveryToken {
-      return { generation, revision }
+    begin(filter: (entry: BufferedEvent) => boolean = () => true, timeoutMs = 10_000): RecoveryToken {
+      const controller = new AbortController()
+      const token: RecoveryToken = {
+        generation,
+        revision,
+        signal: controller.signal,
+        events: [],
+        filter,
+        controller,
+        active: true,
+        invalid: false,
+      }
+      token.timer = setTimeout(() => {
+        token.invalid = true
+        controller.abort("recovery request timed out")
+        finish(token)
+      }, timeoutMs)
+      active.add(token)
+      return token
     },
     revision() {
       return revision
     },
+    generation() {
+      return generation
+    },
     current(token: RecoveryToken) {
-      return token.generation === generation && token.revision >= floor
+      return current(token)
     },
     record(event: Event, directory?: string) {
       revision += 1
       reducer(event, directory)
-      events.push({ revision, event, directory })
-      if (events.length <= maxBufferedEvents) return
-      const removed = events.splice(0, events.length - maxBufferedEvents)
-      floor = removed.at(-1)?.revision ?? floor
+      const entry = { revision, event, directory }
+      for (const token of active) {
+        if (!token.filter(entry)) continue
+        token.events.push(entry)
+        if (token.events.length <= maxBufferedEvents) continue
+        token.invalid = true
+        token.controller.abort("recovery event buffer exceeded")
+        finish(token)
+      }
     },
     commit(token: RecoveryToken, apply: (events: BufferedEvent[]) => void) {
-      if (token.generation !== generation || token.revision < floor) return false
-      apply(events.filter((entry) => entry.revision > token.revision))
+      finish(token)
+      if (!current(token)) return false
+      apply(token.events)
       return true
+    },
+    cancel(token: RecoveryToken) {
+      finish(token)
+    },
+    replay(entries: BufferedEvent[]) {
+      for (const entry of entries) reducer(entry.event, entry.directory)
     },
   }
 }
@@ -85,8 +139,16 @@ export function applySessionSnapshot(
   sessions: EngineState["sessions"][string][],
   inScope: (directory: string) => boolean,
   events: BufferedEvent[],
+  replay: (events: BufferedEvent[]) => void = () => undefined,
 ) {
-  const touched = new Set(events.filter((entry) => isSessionEvent(entry.event)).map((entry) => sessionID(entry.event)))
+  const touched = new Set(
+    events
+      .filter(
+        (entry) =>
+          isSessionEvent(entry.event) && (entry.event as unknown as { type: string }).type !== "session.next.moved",
+      )
+      .map((entry) => sessionID(entry.event)),
+  )
   const reported = new Set(sessions.map((session) => session.id))
   set(
     produce((draft) => {
@@ -100,6 +162,7 @@ export function applySessionSnapshot(
       }
     }),
   )
+  replay(events.filter((entry) => (entry.event as unknown as { type: string }).type === "session.next.moved"))
 }
 
 export function applyStatusSnapshot(
@@ -125,17 +188,43 @@ export function applyTranscriptSnapshot(
   entries: MessageEntry[],
   cursor: string | null,
   events: BufferedEvent[],
+  replay: (events: BufferedEvent[]) => void = () => undefined,
 ) {
-  const changed = events.some((entry) => isTranscriptEvent(entry.event) && sessionID(entry.event) === id)
-  if (changed && state.loaded[id]) return false
+  if (
+    events.some(
+      (entry) => (entry.event as unknown as { type: string }).type === "session.deleted" && sessionID(entry.event) === id,
+    )
+  )
+    return false
+  const existing = state.loaded[id] ? (state.transcripts[id] ?? []) : []
+  const snapshotIDs = new Set(entries.map((entry) => entry.info.id))
+  const preservedIDs = new Set(existing.filter((entry) => !snapshotIDs.has(entry.info.id)).map((entry) => entry.info.id))
   set(
     produce((draft) => {
-      draft.transcripts[id] = entries
+      draft.transcripts[id] = [...existing.filter((entry) => preservedIDs.has(entry.info.id)), ...entries].sort((a, b) =>
+        a.info.id.localeCompare(b.info.id),
+      )
       draft.loaded[id] = true
       draft.cursors[id] = cursor
     }),
   )
+  replay(
+    events.filter((entry) => {
+      if (!isTranscriptEvent(entry.event) || sessionID(entry.event) !== id) return false
+      const message = messageID(entry.event)
+      return !message || !preservedIDs.has(message)
+    }),
+  )
   return true
+}
+
+function messageID(event: Event): string | undefined {
+  const properties = (event as unknown as { properties?: Record<string, unknown> }).properties ?? {}
+  if (typeof properties.messageID === "string") return properties.messageID
+  const info = properties.info as { id?: string } | undefined
+  if (typeof info?.id === "string") return info.id
+  const part = properties.part as { messageID?: string } | undefined
+  return part?.messageID
 }
 
 export function eventInDirectory(entry: BufferedEvent, directory: string) {

@@ -292,6 +292,7 @@ test("authoritative snapshots remove ghosts without overwriting newer SSE state"
         ] as never,
         null,
         events,
+        recovery.replay,
       )
     }),
   ).toBeTrue()
@@ -300,7 +301,271 @@ test("authoritative snapshots remove ghosts without overwriting newer SSE state"
   expect(state.sessions.live.title).toBe("from SSE")
   expect(state.status.live.type).toBe("busy")
   expect((state.transcripts.live[0].parts[0] as { text: string }).text).toBe("from SSE")
-  expect(transcriptApplied).toBeFalse()
+  expect(transcriptApplied).toBeTrue()
+})
+
+test("transcript snapshots fill gaps without double-applying later tail deltas", () => {
+  const [state, set] = createEngineState()
+  set("loaded", "s1", true)
+  set("transcripts", "s1", [
+    {
+      info: { id: "m3", sessionID: "s1", role: "assistant" },
+      parts: [{ id: "p3", sessionID: "s1", messageID: "m3", type: "text", text: "tail" }],
+    },
+  ] as never)
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
+  const token = recovery.begin()
+  recovery.record(
+    {
+      type: "message.part.delta",
+      properties: { sessionID: "s1", messageID: "m3", partID: "p3", field: "text", delta: "!" },
+    } as never,
+  )
+
+  recovery.commit(token, (events) =>
+    applyTranscriptSnapshot(
+      state,
+      set,
+      "s1",
+      [
+        {
+          info: { id: "m2", sessionID: "s1", role: "user" },
+          parts: [{ id: "p2", sessionID: "s1", messageID: "m2", type: "text", text: "missed" }],
+        },
+      ] as never,
+      null,
+      events,
+      recovery.replay,
+    ),
+  )
+
+  expect(state.transcripts.s1.map((entry) => entry.info.id)).toEqual(["m2", "m3"])
+  expect((state.transcripts.s1[1].parts[0] as { text: string }).text).toBe("tail!")
+})
+
+test("an initially unloaded transcript replays stream events after its snapshot", () => {
+  const [state, set] = createEngineState()
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
+  const token = recovery.begin()
+  recovery.record(
+    { type: "message.updated", properties: { info: { id: "m1", sessionID: "s1", role: "assistant" } } } as never,
+  )
+  recovery.record(
+    {
+      type: "message.part.updated",
+      properties: { part: { id: "p1", sessionID: "s1", messageID: "m1", type: "text", text: "live" } },
+    } as never,
+  )
+  recovery.record(
+    {
+      type: "message.part.delta",
+      properties: { sessionID: "s1", messageID: "m1", partID: "p1", field: "text", delta: " event" },
+    } as never,
+  )
+  expect(state.transcripts.s1).toBeUndefined()
+
+  recovery.commit(token, (events) =>
+    applyTranscriptSnapshot(state, set, "s1", [], null, events, recovery.replay),
+  )
+
+  expect(state.loaded.s1).toBeTrue()
+  expect((state.transcripts.s1[0].parts[0] as { text: string }).text).toBe("live event")
+})
+
+test("a reconnect does not coalesce transcript loads onto the aborted generation", async () => {
+  const [state, set] = createEngineState()
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
+  let calls = 0
+  let firstSignal: AbortSignal | undefined
+  const actions = createActions(
+    () => ({
+      session: {
+        messages: (options: { signal: AbortSignal }) => {
+          calls += 1
+          if (calls === 1) {
+            firstSignal = options.signal
+            return new Promise((_, reject) =>
+              options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), {
+                once: true,
+              }),
+            )
+          }
+          return Promise.resolve({
+            data: [{ info: { id: "fresh", sessionID: "s1", role: "user" }, parts: [] }],
+            response: { headers: new Headers() },
+          })
+        },
+      },
+    }) as never,
+    state,
+    set,
+    () => ({ url: "http://engine.test" }),
+    recovery,
+  )
+
+  const stale = actions.openSession("s1")
+  while (calls < 1) await Promise.resolve()
+  recovery.advance()
+  const fresh = actions.openSession("s1")
+
+  expect(fresh).not.toBe(stale)
+  expect(await stale).toBeFalse()
+  expect(await fresh).toBeTrue()
+  expect(firstSignal?.aborted).toBeTrue()
+  expect(calls).toBe(2)
+  expect(state.transcripts.s1[0].info.id).toBe("fresh")
+})
+
+test("a reconnect starts a new all-sessions request while the old request unwinds", async () => {
+  const [state, set] = createEngineState()
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
+  const originalFetch = globalThis.fetch
+  let calls = 0
+  let firstSignal: AbortSignal | undefined
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    calls += 1
+    if (calls === 1) {
+      firstSignal = init?.signal ?? undefined
+      return new Promise<Response>((resolve) =>
+        init?.signal?.addEventListener("abort", () => resolve(new Response(null, { status: 503 })), { once: true }),
+      )
+    }
+    return Response.json([session("fresh")])
+  }) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => ({}) as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+      recovery,
+    )
+    const stale = actions.loadAllSessions()
+    while (calls < 1) await Promise.resolve()
+    recovery.advance()
+    const fresh = actions.loadAllSessions()
+    await Promise.all([stale, fresh])
+
+    expect(firstSignal?.aborted).toBeTrue()
+    expect(calls).toBe(2)
+    expect(state.sessions.fresh.id).toBe("fresh")
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("unrelated event overflow cannot invalidate a scoped recovery request", () => {
+  const recovery = createRecoveryCoordinator(() => undefined, 1)
+  const token = recovery.begin(
+    (entry) => entry.event.type === "message.updated" && entry.event.properties.info.sessionID === "s1",
+  )
+  for (let index = 0; index < 100; index += 1)
+    recovery.record({ type: "session.status", properties: { sessionID: `other-${index}`, status: { type: "idle" } } } as never)
+
+  let committed = false
+  expect(recovery.commit(token, () => (committed = true))).toBeTrue()
+  expect(committed).toBeTrue()
+})
+
+test("pending older-page loads cannot recreate a deleted session", async () => {
+  const [state, set] = createEngineState()
+  const info = session("s1")
+  set("sessions", "s1", info)
+  set("loaded", "s1", true)
+  set("transcripts", "s1", [{ info: { id: "new", sessionID: "s1", role: "user" }, parts: [] }] as never)
+  set("cursors", "s1", "cursor")
+  set("directory", "C:/work")
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
+  const response = deferred<Response>()
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (() => response.promise) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => ({}) as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+      recovery,
+    )
+    const loading = actions.loadOlder("s1")
+    recovery.record({ type: "session.deleted", properties: { info } } as never, "C:/work")
+    response.resolve(
+      Response.json([{ info: { id: "old", sessionID: "s1", role: "user" }, parts: [] }], {
+        headers: { "x-next-cursor": "older" },
+      }),
+    )
+
+    expect(await loading).toBeFalse()
+    expect(state.sessions.s1).toBeUndefined()
+    expect(state.transcripts.s1).toBeUndefined()
+    expect(state.cursors.s1).toBeUndefined()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("a moved event for an unknown session replays after the complete snapshot", () => {
+  const [state, set] = createEngineState()
+  const recovery = createRecoveryCoordinator((event, directory) => reduce(set, event, directory))
+  const token = recovery.begin()
+  recovery.record(
+    {
+      type: "session.next.moved",
+      properties: {
+        sessionID: "s1",
+        projectID: "moved-project",
+        location: { directory: "C:/moved" },
+        timestamp: 42,
+      },
+    } as never,
+  )
+  expect(state.sessions.s1).toBeUndefined()
+
+  recovery.commit(token, (events) =>
+    applySessionSnapshot(set, [session("s1")], () => true, events, recovery.replay),
+  )
+
+  expect(state.sessions.s1.directory).toBe("C:/moved")
+  expect(state.sessions.s1.projectID).toBe("moved-project")
+  expect(state.sessions.s1.time.updated).toBe(42)
+})
+
+test("stream exit invalidates generation requests before returning", async () => {
+  const recovery = createRecoveryCoordinator(() => undefined)
+  const request = recovery.begin(() => false)
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close()
+        },
+      }),
+    )) as typeof fetch
+
+  try {
+    await streamEvents(
+      { url: "http://engine.test" },
+      new AbortController().signal,
+      () => undefined,
+      100,
+      recovery.advance,
+    )
+    expect(request.signal.aborted).toBeTrue()
+    expect(recovery.current(request)).toBeFalse()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("generation request timeouts abort their REST signal", async () => {
+  const recovery = createRecoveryCoordinator(() => undefined)
+  const request = recovery.begin(() => false, 5)
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  expect(request.signal.aborted).toBeTrue()
+  expect(recovery.current(request)).toBeFalse()
 })
 
 test("deleted-session events and workspace generations invalidate stale HTTP", () => {
@@ -315,6 +580,7 @@ test("deleted-session events and workspace generations invalidate stale HTTP", (
 
   const previousWorkspace = recovery.begin()
   recovery.advance()
+  expect(previousWorkspace.signal.aborted).toBeTrue()
   expect(
     recovery.commit(previousWorkspace, () => {
       set("sessions", "stale", session("stale"))

@@ -8,6 +8,7 @@ export async function streamEvents(
   signal: AbortSignal,
   onEvent: (event: Event, directory?: string) => void,
   inactivityMs = eventInactivityMs,
+  onExit: () => void = () => undefined,
 ) {
   const controller = new AbortController()
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
@@ -54,6 +55,7 @@ export async function streamEvents(
     controller.abort()
     await reader?.cancel().catch(() => undefined)
     reader?.releaseLock()
+    onExit()
   }
 }
 
