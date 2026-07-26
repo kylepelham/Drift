@@ -4,6 +4,101 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { buildExtensions } from "../scripts/build-extensions"
+import { SpawnThread } from "../engine/opencode/plugin/spawn-thread"
+
+const args = {
+  title: "Child thread",
+  task: "Investigate the failure",
+  summary: "The parent encountered a failure.",
+}
+
+const context = {
+  sessionID: "parent",
+  messageID: "message",
+  agent: "build",
+  directory: "C:/workspace",
+  worktree: "C:/workspace",
+  abort: new AbortController().signal,
+  metadata() {},
+  async ask() {},
+}
+
+async function spawnTool(options?: {
+  promptAsync?: () => Promise<unknown>
+  delete?: () => Promise<unknown>
+}) {
+  const deleted: string[] = []
+  const client = {
+    session: {
+      async create() {
+        return { data: { id: "child" } }
+      },
+      async messages() {
+        return { data: [] }
+      },
+      promptAsync: options?.promptAsync ?? (async () => ({ data: undefined })),
+      delete:
+        options?.delete ??
+        (async ({ path: input }: { path: { id: string } }) => {
+          deleted.push(input.id)
+          return { data: true }
+        }),
+    },
+  }
+  const plugin = await SpawnThread({ client } as never)
+  const execute = plugin.tool?.spawn_thread.execute
+  if (!execute) throw new Error("spawn_thread tool was not registered")
+  return { deleted, execute: () => execute(args, context) }
+}
+
+test("spawn_thread reports only prompt admission after a successful 204", async () => {
+  const spawn = await spawnTool()
+  const result = await spawn.execute()
+  expect(result).toMatchObject({
+    metadata: { sessionId: "child", spawned: true },
+  })
+  expect(result).toHaveProperty("output", expect.stringContaining("seed prompt was accepted for processing"))
+  expect(JSON.stringify(result)).not.toContain("working on the task")
+  expect(spawn.deleted).toEqual([])
+})
+
+test("spawn_thread rejects SDK admission errors and removes the child", async () => {
+  const spawn = await spawnTool({
+    promptAsync: async () => ({ error: { data: { message: "model is unavailable" } } }),
+  })
+  await expect(spawn.execute()).rejects.toThrow("seed prompt was rejected: model is unavailable")
+  expect(spawn.deleted).toEqual(["child"])
+})
+
+test("spawn_thread rejects thrown prompt requests and removes the child", async () => {
+  const spawn = await spawnTool({
+    promptAsync: async () => {
+      throw new Error("connection reset")
+    },
+  })
+  await expect(spawn.execute()).rejects.toThrow("prompt request failed: connection reset")
+  expect(spawn.deleted).toEqual(["child"])
+})
+
+test("spawn_thread preserves transport and cleanup failures", async () => {
+  const spawn = await spawnTool({
+    promptAsync: async () => {
+      throw new Error("connection reset")
+    },
+    delete: async () => ({ error: { message: "delete denied" } }),
+  })
+  await expect(spawn.execute()).rejects.toThrow(
+    'prompt request failed: connection reset. Cleanup of child session child also failed: delete denied',
+  )
+})
+
+test("spawn_thread failures never return spawned success or leave a removable orphan", async () => {
+  const spawn = await spawnTool({ promptAsync: async () => ({ error: "bad request" }) })
+  const outcome = await spawn.execute().catch((error) => error)
+  expect(outcome).toBeInstanceOf(Error)
+  expect(outcome).not.toHaveProperty("metadata.spawned", true)
+  expect(spawn.deleted).toEqual(["child"])
+})
 
 test("release extensions load without workspace node_modules", async () => {
   const output = mkdtempSync(path.join(tmpdir(), "drift-extensions-"))

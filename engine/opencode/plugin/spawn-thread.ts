@@ -1,5 +1,18 @@
 import { tool, type Plugin } from "@opencode-ai/plugin"
 
+function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === "string" && error.trim()) return error
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>
+    for (const key of ["message", "error", "data"]) {
+      const detail = errorMessage(record[key], "")
+      if (detail) return detail
+    }
+  }
+  return fallback
+}
+
 export const SpawnThread: Plugin = async ({ client }) => ({
   tool: {
     spawn_thread: tool({
@@ -24,6 +37,18 @@ export const SpawnThread: Plugin = async ({ client }) => ({
         const session = created.data
         if (!session) return "Failed to spawn thread: session could not be created"
 
+        const failSpawn = async (failure: string): Promise<never> => {
+          try {
+            const deleted = await client.session.delete({ path: { id: session.id }, query: { directory } })
+            if (deleted.error !== undefined) throw deleted.error
+          } catch (cleanupError) {
+            throw new Error(
+              `${failure} Cleanup of child session ${session.id} also failed: ${errorMessage(cleanupError, "unknown cleanup error")}`,
+            )
+          }
+          throw new Error(failure)
+        }
+
         const history = await client.session.messages({ path: { id: ctx.sessionID }, query: { directory } })
         const lastAssistant = history.data?.findLast((entry) => entry.info.role === "assistant")?.info
         const model =
@@ -40,16 +65,28 @@ export const SpawnThread: Plugin = async ({ client }) => ({
           .filter(Boolean)
           .join("\n\n")
 
-        await client.session.promptAsync({
-          path: { id: session.id },
-          body: { parts: [{ type: "text", text: seed }], model, agent: ctx.agent },
-          query: { directory },
-        })
+        let prompted
+        try {
+          prompted = await client.session.promptAsync({
+            path: { id: session.id },
+            body: { parts: [{ type: "text", text: seed }], model, agent: ctx.agent },
+            query: { directory },
+          })
+        } catch (error) {
+          return failSpawn(
+            `Failed to start spawned thread "${args.title}": prompt request failed: ${errorMessage(error, "unknown transport error")}.`,
+          )
+        }
+        if (prompted.error !== undefined) {
+          return failSpawn(
+            `Failed to start spawned thread "${args.title}": seed prompt was rejected: ${errorMessage(prompted.error, "unknown admission error")}.`,
+          )
+        }
 
         return {
           title: `Spawned: ${args.title}`,
           output: [
-            `Spawned thread "${args.title}" (id ${session.id}) and it is now working on the task.`,
+            `Spawned thread "${args.title}" (id ${session.id}); its seed prompt was accepted for processing.`,
             "The user can open it from the sidebar and continue that conversation directly.",
             "Do not repeat the spawned task here; report back to the user that the thread was spawned.",
           ].join(" "),
