@@ -7,6 +7,12 @@ use std::time::Duration;
 
 const SHARED_DATABASE_ENV: &str = "OPENCODE_DISABLE_CHANNEL_DB";
 const LEGACY_DATABASE: &str = "opencode-master.db";
+/// Independent legacy child rows only merge into a session the target actually keeps, so
+/// children of a session deleted in the target are dropped instead of breaking its
+/// foreign keys.
+const SESSION_PARENT_EXISTS: &str = "EXISTS (
+    SELECT 1 FROM main.session parent WHERE parent.id = source.session_id
+)";
 
 pub fn prepare_shared() -> Result<usize, String> {
     let source = database_path(false)?;
@@ -58,19 +64,43 @@ fn merge_sessions(source: &Path, target: &Path) -> rusqlite::Result<usize> {
     let current_events =
         table_schemas_match(&tx, "event_sequence")? && table_schemas_match(&tx, "event")?;
     tx.execute_batch(
-        "CREATE TEMP TABLE source_session_aggregate(
+        "CREATE TEMP TABLE target_owned_session(
+            session_id TEXT PRIMARY KEY
+         ) WITHOUT ROWID;
+         CREATE TEMP TABLE source_session_aggregate(
             session_id TEXT PRIMARY KEY
          ) WITHOUT ROWID;",
     )?;
+    // The target owns a session id when it still holds either the session row or the
+    // durable event aggregate. A session deleted in the target keeps its aggregate, so
+    // the missing session row alone never makes the source copy importable.
+    tx.execute_batch(
+        "INSERT INTO temp.target_owned_session(session_id)
+         SELECT source.id
+         FROM drift_channel.session source
+         WHERE EXISTS (
+             SELECT 1 FROM main.session target WHERE target.id = source.id
+         );",
+    )?;
     if current_events {
+        tx.execute_batch(
+            "INSERT OR IGNORE INTO temp.target_owned_session(session_id)
+             SELECT source.id
+             FROM drift_channel.session source
+             WHERE EXISTS (
+                 SELECT 1 FROM main.event_sequence sequence
+                 WHERE sequence.aggregate_id = source.id
+             )
+             OR EXISTS (
+                 SELECT 1 FROM main.event event WHERE event.aggregate_id = source.id
+             );",
+        )?;
         tx.execute_batch(
             "INSERT INTO temp.source_session_aggregate(session_id)
              SELECT source.id
              FROM drift_channel.session source
              JOIN drift_channel.event_sequence sequence ON sequence.aggregate_id = source.id
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM main.session target WHERE target.id = source.id
-             )
+             WHERE source.id NOT IN (SELECT session_id FROM temp.target_owned_session)
              AND sequence.seq >= 0
              AND (
                  SELECT COUNT(*) FROM drift_channel.event event
@@ -97,7 +127,12 @@ fn merge_sessions(source: &Path, target: &Path) -> rusqlite::Result<usize> {
         true,
         Some("source.id IN (SELECT project_id FROM drift_channel.session)"),
     )?;
-    imported += copy_table(&tx, "session", true, None)?;
+    imported += copy_table(
+        &tx,
+        "session",
+        true,
+        Some("source.id NOT IN (SELECT session_id FROM temp.target_owned_session)"),
+    )?;
     if current_events {
         imported += copy_table(
             &tx,
@@ -120,7 +155,7 @@ fn merge_sessions(source: &Path, target: &Path) -> rusqlite::Result<usize> {
             ),
         )?;
     }
-    imported += copy_table(&tx, "message", false, None)?;
+    imported += copy_table(&tx, "message", false, Some(SESSION_PARENT_EXISTS))?;
     imported += copy_table(
         &tx,
         "part",
@@ -181,8 +216,8 @@ fn merge_sessions(source: &Path, target: &Path) -> rusqlite::Result<usize> {
             ),
         )?;
     }
-    imported += copy_table(&tx, "todo", false, None)?;
-    imported += copy_table(&tx, "session_share", false, None)?;
+    imported += copy_table(&tx, "todo", false, Some(SESSION_PARENT_EXISTS))?;
+    imported += copy_table(&tx, "session_share", false, Some(SESSION_PARENT_EXISTS))?;
     verify_foreign_keys(&tx)?;
     tx.commit()?;
     Ok(imported)
@@ -921,6 +956,139 @@ mod tests {
                 .unwrap(),
             "source"
         );
+        assert_foreign_keys(&target);
+    }
+
+    #[test]
+    fn never_resurrects_a_deleted_session_that_still_owns_its_target_aggregate() {
+        let databases = databases(CURRENT_SCHEMA);
+        let source = Connection::open(&databases.source).unwrap();
+        insert_project(&source, "/source");
+        insert_session(&source, "deleted", "Source session");
+        insert_aggregate(&source, "deleted", "source");
+        // A complete source stream that runs past the sequence the target retained, so its
+        // tail would graft onto the target aggregate instead of colliding with it.
+        source
+            .execute(
+                "UPDATE event_sequence SET seq = 4 WHERE aggregate_id = 'deleted'",
+                [],
+            )
+            .unwrap();
+        for seq in 3..=4 {
+            source
+                .execute(
+                    "INSERT INTO event(id, aggregate_id, seq, type, data)
+                     VALUES(?1, 'deleted', ?2, 'session.test-tail.1', 'source')",
+                    (format!("source-event-{seq}"), seq),
+                )
+                .unwrap();
+        }
+        source
+            .execute(
+                "INSERT INTO session_input VALUES(
+                    'source-tail-input', 'deleted', 'source', 'steer', 3, 4, 1
+                 )",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO message VALUES('source-message', 'deleted', 1, 2, 'source')",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO part VALUES(
+                    'source-part', 'source-message', 'deleted', 1, 2, 'source'
+                 )",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO todo VALUES('deleted', 'source', 'pending', 'high', 0, 1, 2)",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO session_share VALUES(
+                    'deleted', 'source-share', 'source', 'https://source.example.com', 1, 2
+                 )",
+                [],
+            )
+            .unwrap();
+        drop(source);
+
+        let target = Connection::open(&databases.target).unwrap();
+        target.pragma_update(None, "foreign_keys", "ON").unwrap();
+        insert_project(&target, "/target");
+        insert_session(&target, "deleted", "Target session");
+        insert_aggregate(&target, "deleted", "target");
+        // Deleting the session cascades its projections but keeps the durable aggregate.
+        target
+            .execute("DELETE FROM session WHERE id = 'deleted'", [])
+            .unwrap();
+        drop(target);
+
+        assert_eq!(
+            merge_sessions(&databases.source, &databases.target).unwrap(),
+            0
+        );
+        assert_eq!(
+            merge_sessions(&databases.source, &databases.target).unwrap(),
+            0
+        );
+
+        let target = Connection::open(&databases.target).unwrap();
+        assert_eq!(
+            target
+                .query_row("SELECT COUNT(*) FROM session", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            target
+                .query_row(
+                    "SELECT seq || ':' || owner_id FROM event_sequence
+                     WHERE aggregate_id = 'deleted'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "2:target-owner"
+        );
+        assert_eq!(
+            target
+                .prepare("SELECT id FROM event WHERE aggregate_id = 'deleted' ORDER BY seq")
+                .unwrap()
+                .query_map([], |row| row.get::<_, String>(0))
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap(),
+            vec!["target-event-0", "target-event-1", "target-event-2"]
+        );
+        for table in [
+            "event_sequence",
+            "message",
+            "part",
+            "todo",
+            "session_share",
+            "session_message",
+            "session_input",
+            "session_context_epoch",
+        ] {
+            assert_eq!(
+                target
+                    .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                if table == "event_sequence" { 1 } else { 0 },
+                "unexpected {table} rows after migration"
+            );
+        }
         assert_foreign_keys(&target);
     }
 }
