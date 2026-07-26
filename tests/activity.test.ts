@@ -172,13 +172,17 @@ test("compaction-only user messages retain their delimiter part", async () => {
 })
 
 test("streamed tool replacements retain mounted group and plugin identities", async () => {
-  const { groupParts } = await import("../src/ui/message")
+  const { groupParts, updatePartGroupSlots } = await import("../src/ui/message")
   // Bun selects Solid's server condition for tests, so load the browser primitives
   // used by Vite to verify the keyed mount behavior without requiring a DOM.
   // @ts-expect-error Solid's browser build shares the package's public types.
-  const { createRoot, mapArray, onCleanup } = await import("solid-js/dist/solid.js") as typeof import("solid-js")
+  const { createRoot, createSignal, mapArray, onCleanup } = await import("solid-js/dist/solid.js") as typeof import("solid-js")
   // @ts-expect-error Solid's browser store build shares the package's public types.
   const { createStore, reconcile } = await import("solid-js/store/dist/store.js") as typeof import("solid-js/store")
+  const createSlot = (group: ReturnType<typeof groupParts>[number]) => {
+    const [value, setValue] = createStore(group)
+    return { id: group.id, value, update: (updated: typeof group) => setValue(reconcile(updated)) }
+  }
   const tool = (id: string, name: string, status: string, output = "") => ({
     id,
     sessionID: "s1",
@@ -191,48 +195,57 @@ test("streamed tool replacements retain mounted group and plugin identities", as
   })
 
   createRoot((dispose) => {
-    const [groups, setGroups] = createStore(groupParts([
+    const slots = new Map()
+    const initial = updatePartGroupSlots(groupParts([
       tool("shell", "bash", "running", "first"),
       tool("plugin", "custom-stream", "running", "one"),
       tool("read-1", "read", "running"),
       tool("grep-1", "grep", "running"),
-    ] as never))
+    ] as never), slots, createSlot)
+    const [groups, setGroups] = createSignal(initial)
     let mounts = 0
     let cleanups = 0
     const mounted = mapArray(
-      () => groups,
-      (group) => {
+      groups,
+      (slot) => {
         mounts++
         const state = { scrollTop: 37, following: false, pluginRevision: 4 }
         onCleanup(() => cleanups++)
-        return { group, state }
+        return { slot, state }
       },
     )
     const first = mounted()
-    const firstExplored = "explored" in first[2].group ? [...first[2].group.explored] : []
+    const firstById = new Map(first.map((item) => [item.slot.id, item]))
+    const explored = firstById.get("explored:read-1")!.slot.value
+    const firstExplored = "explored" in explored ? [...explored.explored] : []
     expect(mounts).toBe(3)
 
-    setGroups(reconcile(groupParts([
-      tool("shell", "bash", "running", "first\nsecond"),
+    setGroups(updatePartGroupSlots(groupParts([
+      { id: "text", sessionID: "s1", messageID: "m1", type: "text", text: "Now visible" },
       tool("plugin", "custom-stream", "completed", "two"),
+      tool("shell", "bash", "running", "first\nsecond"),
       tool("read-1", "read", "completed"),
       tool("grep-1", "grep", "completed"),
-    ] as never)))
+    ] as never), slots, createSlot))
     const updated = mounted()
-    expect(updated.map((item) => item.group.key)).toEqual(["shell", "plugin", "explored:read-1"])
-    expect(updated.every((item, index) => item === first[index])).toBeTrue()
-    expect(updated[0].state).toEqual({ scrollTop: 37, following: false, pluginRevision: 4 })
-    expect(updated[1].state.pluginRevision).toBe(4)
-    expect("explored" in updated[2].group && updated[2].group.explored.map((part) => part.id)).toEqual([
+    const updatedById = new Map(updated.map((item) => [item.slot.id, item]))
+    expect(updated.map((item) => item.slot.id)).toEqual(["text", "plugin", "shell", "explored:read-1"])
+    expect(updatedById.get("shell")).toBe(firstById.get("shell"))
+    expect(updatedById.get("plugin")).toBe(firstById.get("plugin"))
+    expect(updatedById.get("explored:read-1")).toBe(firstById.get("explored:read-1"))
+    expect(updatedById.get("shell")!.state).toEqual({ scrollTop: 37, following: false, pluginRevision: 4 })
+    expect(updatedById.get("plugin")!.state.pluginRevision).toBe(4)
+    const updatedExplored = updatedById.get("explored:read-1")!.slot.value
+    expect("explored" in updatedExplored && updatedExplored.explored.map((part) => part.id)).toEqual([
       "read-1",
       "grep-1",
     ])
-    expect("explored" in updated[2].group && updated[2].group.explored[0]).toBe(firstExplored[0])
-    expect("explored" in updated[2].group && updated[2].group.explored[1]).toBe(firstExplored[1])
-    expect(mounts).toBe(3)
+    expect("explored" in updatedExplored && updatedExplored.explored[0]).toBe(firstExplored[0])
+    expect("explored" in updatedExplored && updatedExplored.explored[1]).toBe(firstExplored[1])
+    expect(mounts).toBe(4)
     expect(cleanups).toBe(0)
     dispose()
-    expect(cleanups).toBe(3)
+    expect(cleanups).toBe(4)
   })
 })
 

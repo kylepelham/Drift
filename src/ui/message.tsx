@@ -116,6 +116,8 @@ function UserBubble(props: { entry: MessageEntry }) {
 
 export type PartGroup = { id: string; key: string; explored: ToolPart[] } | { id: string; key: string; part: Part }
 
+export type PartGroupSlot = { id: string; value: PartGroup; update: (value: PartGroup) => void }
+
 export function groupParts(parts: Part[]): PartGroup[] {
   const groups: PartGroup[] = []
   for (const part of parts) {
@@ -131,19 +133,46 @@ export function groupParts(parts: Part[]): PartGroup[] {
   return groups
 }
 
+function createPartGroupSlot(group: PartGroup): PartGroupSlot {
+  const [value, setValue] = createStore(group)
+  return { id: group.id, value, update: (updated) => setValue(reconcile(updated)) }
+}
+
+export function updatePartGroupSlots(
+  groups: PartGroup[],
+  slots: Map<string, PartGroupSlot>,
+  createSlot = createPartGroupSlot,
+) {
+  const active = new Set<string>()
+  const next = groups.map((group) => {
+    active.add(group.id)
+    const existing = slots.get(group.id)
+    if (existing) {
+      existing.update(group)
+      return existing
+    }
+    const slot = createSlot(group)
+    slots.set(group.id, slot)
+    return slot
+  })
+  for (const id of slots.keys()) if (!active.has(id)) slots.delete(id)
+  return next
+}
+
 function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
   const info = () => props.entry.info as AssistantMessage
-  const [groups, setGroups] = createStore(groupParts(props.entry.parts))
-  createRenderEffect(() => setGroups(reconcile(groupParts(props.entry.parts))))
+  const slots = new Map<string, PartGroupSlot>()
+  const [groups, setGroups] = createSignal<PartGroupSlot[]>([])
+  createRenderEffect(() => setGroups(updatePartGroupSlots(groupParts(props.entry.parts), slots)))
   const visible = () => props.entry.parts.some(partVisible) || !!info().error
   return (
     <Show when={visible()}>
       <div class="group flex min-w-0 max-w-full flex-col gap-3">
-        <For each={groups}>
+        <For each={groups()}>
           {(group) => (
             <Switch>
-              <Match when={"explored" in group && group}>{(g) => <ExploredGroup parts={g().explored} />}</Match>
-              <Match when={"part" in group && group}>{(g) => <PartView part={g().part} />}</Match>
+              <Match when={"explored" in group.value && group.value}>{(g) => <ExploredGroup parts={g().explored} />}</Match>
+              <Match when={"part" in group.value && group.value}>{(g) => <PartView part={g().part} />}</Match>
             </Switch>
           )}
         </For>
