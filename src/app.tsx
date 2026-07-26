@@ -157,13 +157,13 @@ function WorkspaceBinding() {
         sweep = { ...sweep, pending: await stageWorkspaceDeletion(workspace.id, ids) }
       }
       const claimed = await claimDeletions(sweep.pending)
-      const confirmed = await engine.actions.removePendingSessions(claimed)
-      const confirmedClaims = new Set(confirmed.map((entry) => `${entry.sessionId}\0${entry.claim}`))
-      const retry = claimed.filter((entry) => !confirmedClaims.has(`${entry.sessionId}\0${entry.claim}`))
+      // Timed-out entries are in neither list: they keep their claim so a delete that is still running
+      // server-side cannot be undone by a restore, and the store's claim deadline re-sweeps them.
+      const { confirmed, retry } = await engine.actions.removePendingSessions(claimed)
       try {
         await finalizeDeletions(confirmed, retry)
       } catch (error) {
-        await releaseDeletions(claimed)
+        await releaseDeletions(retry)
         throw error
       }
     })()

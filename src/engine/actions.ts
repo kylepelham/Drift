@@ -30,6 +30,34 @@ export type PermissionResponse = "once" | "always" | "reject"
 export type ProviderAuthResult = { ok: boolean; connected: boolean }
 export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
 export type PendingSessionDeletion = { sessionId: string; directory: string; claim: string }
+/**
+ * `confirmed` is safe to erase, `retry` is safe to unclaim. Entries in neither list timed out: the
+ * engine may still be deleting them, so their claim must stay held until a later sweep re-verifies.
+ */
+export type PendingDeletionResult = { confirmed: PendingSessionDeletion[]; retry: PendingSessionDeletion[] }
+
+/** Bounds one request and a whole sweep, so a hung engine cannot pin claims past the store's claim
+ * deadline. Both must stay well under that deadline or a live sweep would lose its own claims. */
+export type DeletionDeadlines = { request: number; sweep: number }
+const deletionDeadlines: DeletionDeadlines = { request: 15000, sweep: 60000 }
+
+type DeadlineResponse = { ok: true; response: Response } | { ok: false; timedOut: boolean }
+
+async function requestWithDeadline(url: string, init: RequestInit, timeout: number): Promise<DeadlineResponse> {
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeout)
+  try {
+    return { ok: true, response: await fetch(url, { ...init, signal: controller.signal }) }
+  } catch {
+    return { ok: false, timedOut }
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 type PermissionRequest = {
   id: string
@@ -267,23 +295,45 @@ export function createActions(
     return sessions?.map((session) => session.id) ?? null
   }
 
-  async function removePendingSessions(entries: PendingSessionDeletion[]): Promise<PendingSessionDeletion[]> {
+  async function removePendingSessions(
+    entries: PendingSessionDeletion[],
+    deadlines: DeletionDeadlines = deletionDeadlines,
+  ): Promise<PendingDeletionResult> {
     const base = target()
-    if (!base) return []
+    if (!base) return { confirmed: [], retry: entries }
     const confirmed: PendingSessionDeletion[] = []
+    const retry: PendingSessionDeletion[] = []
+    const sweepDeadline = Date.now() + deadlines.sweep
     for (const entry of entries) {
+      // Never touched the engine, so unclaiming cannot race a server-side delete.
+      if (Date.now() >= sweepDeadline) {
+        retry.push(entry)
+        continue
+      }
       const url = `${base.url}/session/${encodeURIComponent(entry.sessionId)}?directory=${encodeURIComponent(entry.directory)}`
-      const removed = await fetch(url, { method: "DELETE", headers: base.headers }).catch(() => null)
-      if (!removed) continue
-      if (removed.status !== 404) {
-        if (!removed.ok) continue
-        const exact = await fetch(url, { headers: base.headers }).catch(() => null)
-        if (exact?.status !== 404) continue
+      const removed = await requestWithDeadline(url, { method: "DELETE", headers: base.headers }, deadlines.request)
+      if (!removed.ok) {
+        // A timed-out delete may still land, so hold the claim and re-verify this exact ID later.
+        if (!removed.timedOut) retry.push(entry)
+        continue
+      }
+      if (removed.response.status !== 404) {
+        if (!removed.response.ok) {
+          retry.push(entry)
+          continue
+        }
+        const exact = await requestWithDeadline(url, { headers: base.headers }, deadlines.request)
+        if (!exact.ok) {
+          if (!exact.timedOut) retry.push(entry)
+          continue
+        }
+        // Accepted but still present: the engine may be finishing the delete, so hold the claim too.
+        if (exact.response.status !== 404) continue
       }
       confirmed.push(entry)
       forgetSession(entry.sessionId)
     }
-    return confirmed
+    return { confirmed, retry }
   }
 
   async function rebindSession(id: string, source: string, destination: string): Promise<string | null> {

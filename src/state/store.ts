@@ -2,6 +2,11 @@ export type Workspace = { id: string; path: string; name: string; icon: string; 
 export type ArchivedSession = { sessionId: string; workspaceId: string; archivedAt: number }
 export type PendingSessionDeletion = { sessionId: string; directory: string; claim: string }
 export type DeletionSweep = { pending: PendingSessionDeletion[]; workspaces: Workspace[] }
+/**
+ * A claim held longer than this is treated as abandoned: the sweep holding it died or was pinned by a
+ * hung engine request. Must stay above the engine sweep budget so a live sweep keeps its own claims.
+ */
+export const claimDeadline = 5 * 60 * 1000
 export type McpConfig = Record<string, unknown> & { type: "local" | "remote" }
 export type StoredMcpServer = { name: string; config: McpConfig; updatedAt: number }
 export type McpDecision = "pending" | "approved" | "rejected" | "invalid"
@@ -89,7 +94,9 @@ function write(key: string, value: unknown) {
 }
 
 type StoredWorkspace = Workspace & { removedAt?: number; purgeStagedAt?: number }
-type BrowserDeletion = PendingSessionDeletion & { workspaceId?: string; claimed?: boolean }
+type BrowserDeletion = PendingSessionDeletion & { workspaceId?: string; claimed?: boolean; claimedAt?: number }
+
+const claimActive = (entry: BrowserDeletion) => !!entry.claimed && Date.now() - (entry.claimedAt ?? 0) < claimDeadline
 
 function browserStore(): DriftStore {
   const wsKey = "drift.store.workspaces"
@@ -105,7 +112,7 @@ function browserStore(): DriftStore {
     addWorkspace: async (w) => {
       const existing = all().find((x) => x.path === w.path)
       if (existing) {
-        if (read<BrowserDeletion[]>(pendingKey, []).some((entry) => entry.workspaceId === existing.id && entry.claimed))
+        if (read<BrowserDeletion[]>(pendingKey, []).some((entry) => entry.workspaceId === existing.id && claimActive(entry)))
           throw new Error("Deletion is in progress. Wait for it to finish, then try restoring again.")
         const restored = { ...existing, removedAt: undefined, purgeStagedAt: undefined, lastUsed: Date.now() }
         write(wsKey, [...all().filter((x) => x.id !== existing.id), restored])
@@ -133,8 +140,11 @@ function browserStore(): DriftStore {
     prepareDeletions: async (before) => {
       const pending = read<BrowserDeletion[]>(pendingKey, [])
       for (const entry of pending) {
+        // Leave live claims alone; reclaim abandoned ones so a hung sweep cannot pin them forever.
+        if (claimActive(entry)) continue
         if (entry.claimed) entry.claim = crypto.randomUUID()
         entry.claimed = false
+        entry.claimedAt = undefined
         entry.claim ||= crypto.randomUUID()
       }
       const archives = read<ArchivedSession[]>(arKey, []).filter((entry) => entry.archivedAt < before)
@@ -180,11 +190,12 @@ function browserStore(): DriftStore {
       const claimed: PendingSessionDeletion[] = []
       for (const entry of entries) {
         const current = pending.find(
-          (item) => item.sessionId === entry.sessionId && item.claim === entry.claim && !item.claimed,
+          (item) => item.sessionId === entry.sessionId && item.claim === entry.claim && !claimActive(item),
         )
         if (!current) continue
         current.claim = crypto.randomUUID()
         current.claimed = true
+        current.claimedAt = Date.now()
         claimed.push({ sessionId: current.sessionId, directory: current.directory, claim: current.claim })
       }
       write(pendingKey, pending)
@@ -197,6 +208,7 @@ function browserStore(): DriftStore {
         if (!entry.claimed || claims.get(entry.sessionId) !== entry.claim) continue
         entry.claim = crypto.randomUUID()
         entry.claimed = false
+        entry.claimedAt = undefined
       }
       write(pendingKey, pending)
     },
@@ -226,6 +238,7 @@ function browserStore(): DriftStore {
         if (!entry.claimed || released.get(entry.sessionId) !== entry.claim) continue
         entry.claim = crypto.randomUUID()
         entry.claimed = false
+        entry.claimedAt = undefined
       }
       const remaining = pending.filter((entry) => !entry.claimed || removed.get(entry.sessionId) !== entry.claim)
       write(pendingKey, remaining)
@@ -251,7 +264,7 @@ function browserStore(): DriftStore {
       write(arKey, [...list, { sessionId, workspaceId, archivedAt: Date.now() }])
     },
     unarchiveSession: async (sessionId) => {
-      if (read<BrowserDeletion[]>(pendingKey, []).some((entry) => entry.sessionId === sessionId && entry.claimed))
+      if (read<BrowserDeletion[]>(pendingKey, []).some((entry) => entry.sessionId === sessionId && claimActive(entry)))
         throw new Error("Deletion is in progress. Wait for it to finish, then try restoring again.")
       write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => a.sessionId !== sessionId))
       write(

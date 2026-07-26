@@ -156,6 +156,10 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
     Ok(Store(Mutex::new(conn)))
 }
 
+/// A claim held longer than this is treated as abandoned: the sweep holding it died or was pinned by a
+/// hung engine request. Must stay above the engine sweep budget so a live sweep keeps its own claims.
+const CLAIM_DEADLINE: i64 = 5 * 60 * 1000;
+
 fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -355,9 +359,9 @@ impl Store {
                 let claimed: bool = tx.query_row(
                     "SELECT EXISTS(
                         SELECT 1 FROM pending_session_delete
-                        WHERE workspace_id = ?1 AND claimed_at IS NOT NULL
+                        WHERE workspace_id = ?1 AND claimed_at IS NOT NULL AND claimed_at > ?2
                     )",
-                    [&found],
+                    params![&found, now() - CLAIM_DEADLINE],
                     |row| row.get(0),
                 )?;
                 if claimed {
@@ -446,9 +450,9 @@ impl Store {
         let claimed: bool = tx.query_row(
             "SELECT EXISTS(
                 SELECT 1 FROM pending_session_delete
-                WHERE session_id = ?1 AND claimed_at IS NOT NULL
+                WHERE session_id = ?1 AND claimed_at IS NOT NULL AND claimed_at > ?2
             )",
-            [session_id],
+            params![session_id, now() - CLAIM_DEADLINE],
             |row| row.get(0),
         )?;
         if claimed {
@@ -484,6 +488,13 @@ impl Store {
         tx.execute(
             "UPDATE pending_session_delete SET claim = ?1 WHERE claim = ''",
             [deletion_claim()],
+        )?;
+        // Rotate abandoned claims back into the queue so a hung delete cannot block restores or later
+        // sweeps until the next app start. The rotation invalidates the old holder's claim.
+        tx.execute(
+            "UPDATE pending_session_delete SET claim = ?1, claimed_at = NULL
+             WHERE claimed_at IS NOT NULL AND claimed_at <= ?2",
+            params![deletion_claim(), now() - CLAIM_DEADLINE],
         )?;
         let pending = pending_deletions(&tx)?;
         let workspaces = tx
@@ -1110,6 +1121,55 @@ mod tests {
         assert_eq!(pending[0].session_id, "retry");
         assert_ne!(pending[0].claim, retry.claim);
         assert!(store.claim_deletions(&[retry]).unwrap().is_empty());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn abandoned_deletion_claims_expire_without_an_app_restart() {
+        let dir = std::env::temp_dir().join(format!("drift-deadline-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = open_at(&dir.join("drift.db")).unwrap();
+        store
+            .add_workspace("w1", "S:/deadline", "Deadline", "")
+            .unwrap();
+        store.archive_session("hung", "w1").unwrap();
+
+        let pending = store.prepare_deletions(now() + 1000).unwrap().pending;
+        let hung = store.claim_deletions(&pending).unwrap()[0].clone();
+        // A live claim still blocks restores and is not handed to another sweep.
+        assert!(store.unarchive_session("hung").is_err());
+        assert!(store
+            .prepare_deletions(now() + 1000)
+            .unwrap()
+            .pending
+            .is_empty());
+
+        // Simulate the holder hanging past the deadline instead of restarting the app.
+        store
+            .0
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE pending_session_delete SET claimed_at = ?1",
+                [now() - CLAIM_DEADLINE - 1],
+            )
+            .unwrap();
+
+        let requeued = store.prepare_deletions(now() + 1000).unwrap().pending;
+        assert_eq!(requeued.len(), 1);
+        assert_eq!(requeued[0].session_id, "hung");
+        // The abandoned claim is rotated, so the hung holder can no longer confirm the deletion.
+        assert_ne!(requeued[0].claim, hung.claim);
+        assert!(store.claim_deletions(&[hung.clone()]).unwrap().is_empty());
+        store.confirm_deletions(&[hung]).unwrap();
+        assert_eq!(store.archived().unwrap().len(), 1);
+
+        // A later sweep re-verifies the exact ID, and restores work again once nothing holds a claim.
+        let active = store.claim_deletions(&[requeued[0].clone()]).unwrap()[0].clone();
+        assert!(store.unarchive_session("hung").is_err());
+        store.release_deletions(&[active]).unwrap();
+        store.unarchive_session("hung").unwrap();
         std::fs::remove_dir_all(dir).ok();
     }
 

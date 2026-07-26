@@ -34,9 +34,12 @@ test("pending deletion confirms successes and retries only failed exact IDs", as
       set,
       () => ({ url: "http://engine.test" }),
     )
-    expect(await actions.removePendingSessions(entries)).toEqual([entries[0], entries[2]])
+    expect(await actions.removePendingSessions(entries)).toEqual({
+      confirmed: [entries[0], entries[2]],
+      retry: [entries[1]],
+    })
     retryFails = false
-    expect(await actions.removePendingSessions([entries[1]])).toEqual([entries[1]])
+    expect(await actions.removePendingSessions([entries[1]])).toEqual({ confirmed: [entries[1]], retry: [] })
     expect(attempts).toEqual([
       "DELETE:old-success",
       "GET:old-success",
@@ -66,7 +69,78 @@ test("pending deletion keeps its claim when a successful delete did not remove t
       set,
       () => ({ url: "http://engine.test" }),
     )
-    expect(await actions.removePendingSessions([entry])).toEqual([])
+    expect(await actions.removePendingSessions([entry])).toEqual({ confirmed: [], retry: [] })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("a hung deletion request resolves the sweep without releasing the claim, then confirms on a later sweep", async () => {
+  const [state, set] = createEngineState()
+  const entry = { sessionId: "hung", directory: "C:/reused", claim: "opaque" }
+  const originalFetch = globalThis.fetch
+  let hang = true
+  const aborted: string[] = []
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    if (!hang) return Promise.resolve(new Response(null, { status: 404 }))
+    // Never settles on its own; only the caller's deadline can abort it.
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        aborted.push(request.method)
+        reject(new DOMException("Aborted", "AbortError"))
+      })
+    })
+  }) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => ({}) as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+    )
+    const hungSweep = actions.removePendingSessions([entry], { request: 25, sweep: 5000 })
+    // The sweep must settle on its own deadline rather than hanging until the app restarts.
+    expect(await hungSweep).toEqual({ confirmed: [], retry: [] })
+    expect(aborted).toEqual(["DELETE"])
+
+    hang = false
+    expect(await actions.removePendingSessions([entry])).toEqual({ confirmed: [entry], retry: [] })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("an exhausted sweep budget releases entries it never sent to the engine", async () => {
+  const [state, set] = createEngineState()
+  const entries: PendingSessionDeletion[] = [
+    { sessionId: "attempted", directory: "C:/reused", claim: "claim-attempted" },
+    { sessionId: "untouched", directory: "C:/reused", claim: "claim-untouched" },
+  ]
+  const attempted: string[] = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    attempted.push(new URL(request.url).pathname.split("/").at(-1) ?? "")
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+    })
+  }) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => ({}) as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+    )
+    // The first entry burns the whole budget, so the second is never sent and is safe to unclaim.
+    expect(await actions.removePendingSessions(entries, { request: 30, sweep: 20 })).toEqual({
+      confirmed: [],
+      retry: [entries[1]],
+    })
+    expect(attempted).toEqual(["attempted"])
   } finally {
     globalThis.fetch = originalFetch
   }
