@@ -200,7 +200,7 @@ test("streamed tool replacements retain mounted group and plugin identities", as
       tool("shell", "bash", "running", "first"),
       tool("plugin", "custom-stream", "running", "one"),
       tool("read-1", "read", "running"),
-      tool("grep-1", "grep", "running"),
+      tool("read-2", "read", "running"),
     ] as never), slots, createSlot)
     const [groups, setGroups] = createSignal(initial)
     let mounts = 0
@@ -224,8 +224,9 @@ test("streamed tool replacements retain mounted group and plugin identities", as
       { id: "text", sessionID: "s1", messageID: "m1", type: "text", text: "Now visible" },
       tool("plugin", "custom-stream", "completed", "two"),
       tool("shell", "bash", "running", "first\nsecond"),
+      tool("read-0", "read", "completed"),
       tool("read-1", "read", "completed"),
-      tool("grep-1", "grep", "completed"),
+      tool("read-2", "read", "completed"),
     ] as never), slots, createSlot))
     const updated = mounted()
     const updatedById = new Map(updated.map((item) => [item.slot.id, item]))
@@ -237,15 +238,38 @@ test("streamed tool replacements retain mounted group and plugin identities", as
     expect(updatedById.get("plugin")!.state.pluginRevision).toBe(4)
     const updatedExplored = updatedById.get("explored:read-1")!.slot.value
     expect("explored" in updatedExplored && updatedExplored.explored.map((part) => part.id)).toEqual([
+      "read-0",
       "read-1",
-      "grep-1",
+      "read-2",
     ])
-    expect("explored" in updatedExplored && updatedExplored.explored[0]).toBe(firstExplored[0])
-    expect("explored" in updatedExplored && updatedExplored.explored[1]).toBe(firstExplored[1])
+    expect("explored" in updatedExplored && updatedExplored.explored[1]).toBe(firstExplored[0])
+    expect("explored" in updatedExplored && updatedExplored.explored[2]).toBe(firstExplored[1])
     expect(mounts).toBe(4)
     expect(cleanups).toBe(0)
+
+    setGroups(updatePartGroupSlots(groupParts([
+      tool("read-2", "read", "completed"),
+      { id: "divider", sessionID: "s1", messageID: "m1", type: "text", text: "Split" },
+      tool("read-0", "read", "completed"),
+      tool("read-1", "read", "completed"),
+    ] as never), slots, createSlot))
+    const split = mounted()
+    const splitExplored = split.filter((item) => "explored" in item.slot.value)
+    expect(splitExplored.map((item) => item.slot.id)).toEqual(["explored:read-2", "explored:read-1"])
+    expect(splitExplored[0]).not.toBe(firstById.get("explored:read-1"))
+    expect(splitExplored[1]).toBe(firstById.get("explored:read-1"))
+
+    setGroups(updatePartGroupSlots(groupParts([
+      tool("read-2", "read", "completed"),
+      tool("read-0", "read", "completed"),
+      tool("read-1", "read", "completed"),
+    ] as never), slots, createSlot))
+    const merged = mounted()
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toBe(splitExplored[0])
+    expect(merged[0].slot.id).toBe("explored:read-2")
     dispose()
-    expect(cleanups).toBe(4)
+    expect(cleanups).toBe(mounts)
   })
 })
 

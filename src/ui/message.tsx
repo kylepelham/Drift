@@ -143,10 +143,38 @@ export function updatePartGroupSlots(
   slots: Map<string, PartGroupSlot>,
   createSlot = createPartGroupSlot,
 ) {
+  const previous = [...slots.values()]
+  const exploredByPart = new Map<string, { index: number; slot: PartGroupSlot }>()
+  previous.forEach((slot, index) => {
+    if (!("explored" in slot.value)) return
+    slot.value.explored.forEach((part) => exploredByPart.set(part.id, { index, slot }))
+  })
+  // A split can overlap one prior group more than once; its anchor-containing fragment owns the old mount.
+  const reserved = new Map<string, number>()
+  previous.forEach((slot) => {
+    if (!("explored" in slot.value)) return
+    const owner = groups.findIndex(
+      (group) => "explored" in group && group.explored.some((part) => `explored:${part.id}` === slot.id),
+    )
+    if (owner !== -1) reserved.set(slot.id, owner)
+  })
+  const claimed = new Set<string>()
   const active = new Set<string>()
-  const next = groups.map((group) => {
+  const next = groups.map((input, index) => {
+    const existing = "explored" in input
+      ? input.explored.reduce<{ index: number; slot: PartGroupSlot } | undefined>((result, part) => {
+          const candidate = exploredByPart.get(part.id)
+          if (!candidate || claimed.has(candidate.slot.id)) return result
+          const owner = reserved.get(candidate.slot.id)
+          if (owner !== undefined && owner !== index) return result
+          return !result || candidate.index < result.index ? candidate : result
+        }, undefined)?.slot
+      : slots.get(input.id)
+    const group = existing && input.id !== existing.id
+      ? { ...input, id: existing.id, key: existing.id }
+      : input
+    if (existing && "explored" in input) claimed.add(existing.id)
     active.add(group.id)
-    const existing = slots.get(group.id)
     if (existing) {
       existing.update(group)
       return existing
@@ -156,6 +184,10 @@ export function updatePartGroupSlots(
     return slot
   })
   for (const id of slots.keys()) if (!active.has(id)) slots.delete(id)
+  for (const slot of next) {
+    slots.delete(slot.id)
+    slots.set(slot.id, slot)
+  }
   return next
 }
 
