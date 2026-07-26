@@ -98,10 +98,18 @@ inside `engine/upstream/`. The full runbook is in [docs/engine.md](docs/engine.m
 
 ## Releases
 
-Releases are maintainer-only and run from tags matching `v*`. The workflow stamps the
-version from a tag such as `v1.2.3`, builds the engine and NSIS installer on Windows,
-signs the updater artifact, and publishes the installer, signature, and `latest.json`
-manifest to GitHub Releases.
+Releases are maintainer-only. A release tag must match `vMAJOR.MINOR.PATCH` exactly, point
+to a commit contained in `origin/master`, and be strictly newer than every other stable
+GitHub release or repository tag. Prerelease and build suffixes are not supported. Before
+signing, the workflow checks the tag policy and runs frozen installs, typechecking, root
+and engine tests, the engine build, Rust tests, and an unsigned production package build
+on the exact tag commit. The signing job has read-only repository access, and only the
+separate publication job has contents write access.
+
+Stable releases are serialized across all tags. Published notes and assets are immutable:
+a rerun verifies the original workflow marker and asset SHA-256 manifest, then exits
+without rebuilding or publishing. Any mismatch requires investigation rather than an
+overwrite.
 
 The repository must provide these GitHub Actions secrets:
 
@@ -112,7 +120,8 @@ The private key must match the public key in `src-tauri/tauri.conf.json`. It is 
 for every future update and must never be committed or included in workflow logs. Do not
 rotate the updater key without a migration plan for already-installed copies.
 
-After the standard checks pass, push the release tag:
+After the tagged commit is merged to `master` and the standard checks pass, choose a
+version newer than the latest stable release/tag and push the release tag:
 
 ```bash
 git tag v1.2.3
