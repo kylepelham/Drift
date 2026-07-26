@@ -28,7 +28,7 @@ export type PromptOptions = { model: ModelRef | null; agent: string; variant?: s
 export type PermissionResponse = "once" | "always" | "reject"
 export type ProviderAuthResult = { ok: boolean; connected: boolean }
 export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
-export type PendingSessionDeletion = { sessionId: string; directory: string }
+export type PendingSessionDeletion = { sessionId: string; directory: string; claim: string }
 
 type PermissionRequest = {
   id: string
@@ -122,15 +122,8 @@ export function createActions(
     if (!base) return
     if (allSessionsRequest) return allSessionsRequest
     allSessionsRequest = (async () => {
-      const query = new URLSearchParams({ archived: "true", limit: "10000" })
-      const headers = {
-        ...base.headers,
-        ...(state.directory ? { "x-opencode-directory": encodeURIComponent(state.directory) } : {}),
-      }
-      const response = await fetch(`${base.url}/experimental/session?${query}`, { headers }).catch(() => null)
-      if (!response?.ok) return
-      const sessions = (await response.json().catch(() => null)) as Session[] | null
-      putSessions(set, sessions ?? [])
+      const sessions = await experimentalSessions()
+      if (sessions) putSessions(set, sessions)
     })()
     try {
       await allSessionsRequest
@@ -217,13 +210,33 @@ export function createActions(
     return spawned
   }
 
-  async function sessionsAt(directory: string): Promise<Session[] | null> {
+  async function experimentalSessions(directory?: string): Promise<Session[] | null> {
     const base = target()
     if (!base) return null
-    const query = new URLSearchParams({ directory, archived: "true", limit: "10000" })
-    const response = await fetch(`${base.url}/experimental/session?${query}`, { headers: base.headers }).catch(() => null)
-    if (!response?.ok) return null
-    return (await response.json().catch(() => null)) as Session[] | null
+    const sessions: Session[] = []
+    const cursors = new Set<string>()
+    let cursor: string | undefined
+    for (;;) {
+      const query = new URLSearchParams({ archived: "true", limit: "100" })
+      if (directory) query.set("directory", directory)
+      if (cursor) query.set("cursor", cursor)
+      const response = await fetch(`${base.url}/experimental/session?${query}`, { headers: base.headers }).catch(
+        () => null,
+      )
+      if (!response?.ok) return null
+      const page = (await response.json().catch(() => null)) as Session[] | null
+      if (!page) return null
+      sessions.push(...page)
+      const next = response.headers.get("x-next-cursor") ?? undefined
+      if (!next) return sessions
+      if (cursors.has(next)) return null
+      cursors.add(next)
+      cursor = next
+    }
+  }
+
+  async function sessionsAt(directory: string): Promise<Session[] | null> {
+    return experimentalSessions(directory)
   }
 
   async function sessionIdsAt(directory: string): Promise<string[] | null> {
@@ -235,15 +248,15 @@ export function createActions(
     const base = target()
     if (!base) return []
     const confirmed: PendingSessionDeletion[] = []
-    const clients = new Map<string, OpencodeClient>()
     for (const entry of entries) {
-      let client = clients.get(entry.directory)
-      if (!client) {
-        client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory: entry.directory })
-        clients.set(entry.directory, client)
+      const url = `${base.url}/session/${encodeURIComponent(entry.sessionId)}?directory=${encodeURIComponent(entry.directory)}`
+      const removed = await fetch(url, { method: "DELETE", headers: base.headers }).catch(() => null)
+      if (!removed) continue
+      if (removed.status !== 404) {
+        if (!removed.ok) continue
+        const exact = await fetch(url, { headers: base.headers }).catch(() => null)
+        if (exact?.status !== 404) continue
       }
-      const result = await client.session.delete({ path: { id: entry.sessionId } }).catch(() => null)
-      if (!result || (result.error && result.response?.status !== 404)) continue
       confirmed.push(entry)
       forgetSession(entry.sessionId)
     }
@@ -293,10 +306,27 @@ export function createActions(
     for (const session of moving) {
       const error = await rebindSession(session.id, session.directory, destination)
       if (error) {
-        for (const rollback of completed.reverse()) await rebindSession(rollback.id, destination, rollback.directory)
-        const restored = await sessionsAt(moving[0].directory)
-        for (const info of restored ?? []) putSession(set, info)
-        return { ok: false, moved: [], error }
+        const rollbackFailures = new Map<string, string>()
+        for (const rollback of completed.reverse()) {
+          const rollbackError = await rebindSession(rollback.id, destination, rollback.directory)
+          if (rollbackError) rollbackFailures.set(rollback.id, rollbackError)
+          else putSession(set, { ...rollback, directory: rollback.directory })
+        }
+
+        const movedIds = new Set(moving.map((entry) => entry.id))
+        for (const directory of new Set([...moving.map((entry) => entry.directory), destination])) {
+          const refreshed = await sessionsAt(directory)
+          for (const info of refreshed ?? []) if (movedIds.has(info.id)) putSession(set, info)
+        }
+        const stillMoved = completed
+          .filter((entry) => normalizeDir(state.sessions[entry.id]?.directory ?? destination) === normalizeDir(destination))
+          .map((entry) => entry.id)
+        const details = [
+          error,
+          rollbackFailures.size ? `Rollback failed for ${[...rollbackFailures.keys()].join(", ")}` : "",
+          stillMoved.length ? `Still moved: ${stillMoved.join(", ")}` : "",
+        ].filter(Boolean)
+        return { ok: false, moved: stillMoved, error: details.join(". ") }
       }
       completed.push(session)
       putSession(set, { ...session, directory: destination })

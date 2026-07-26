@@ -26,7 +26,9 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   `src-tauri/binaries` in dev), spawns `serve --hostname 127.0.0.1 --port 0` with a random
   Basic-auth password, parses the printed URL, and serves both via `engine_status`. A bounded
   supervisor restarts crashes with fresh credentials and backoff; crash-loop exhaustion is
-  surfaced with the last stderr line. Shutdown kills the child without restarting it, and the
+  surfaced with the last stderr line. Child publication rechecks shutdown under the process
+  mutex, late children are killed immediately, and waits happen after releasing that mutex.
+  Shutdown kills the child without restarting it, and the
   frontend re-resolves the target after a live connection drops.
 - Packaging: `tauri build` produces an NSIS installer bundling the sidecar
   (`externalBin`) plus generated `drift-extensions/` beside the exe. Tauri builds
@@ -81,6 +83,7 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
 | File search | `GET /find/file` (fuzzy paths for composer @-mentions; mention parts use `file://` URLs + `source.text`, content read engine-side) |
 | Events | `GET /global/event` (SSE, all instances; frames are `{ directory, payload }`) |
 | Statuses | `GET /session/status` (per-instance map of non-idle sessions) |
+| Session relocation | `POST /experimental/control-plane/move-session`; a process-global session-ID gate serializes persisted-location validation and run admission with the move |
 
 ## Events reduced into the store
 
@@ -107,6 +110,9 @@ everything else is ignored on purpose.
   the error at the transcript bottom until the next prompt.
 - A session's active drain keeps its original model; steering a new prompt into a busy
   session does not switch models mid-drain.
+- Multi-session relocation is currently a validated sequential operation because upstream
+  exposes only a single-session move. On failure Drift checks every rollback response,
+  reloads all source and destination locations, and reports IDs that remain moved.
 - Model defaults from models.dev include non-chat models (video/image). Always filter on
   `capabilities.toolcall` before offering or auto-picking a model.
 - Pending permissions only arrive as `permission.updated` events, and only for the

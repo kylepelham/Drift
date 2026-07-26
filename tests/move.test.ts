@@ -156,6 +156,51 @@ test("a partially failed tree move rolls completed sessions back to their source
   }
 })
 
+test("a failed rollback refreshes routing and reports sessions that remain moved", async () => {
+  const source = "C:/one"
+  const destination = "C:/two"
+  const sessions = [session("root", source), session("child", source, "root")]
+  const [state, set] = createEngineState()
+  for (const entry of sessions) set("sessions", entry.id, entry)
+  const originalFetch = globalThis.fetch
+  let sourceLists = 0
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    const url = new URL(request.url)
+    if (url.pathname === "/experimental/session") {
+      const directory = url.searchParams.get("directory")
+      if (directory === source && sourceLists++ === 0) return Response.json(sessions)
+      if (directory === source) return Response.json([session("child", source, "root")])
+      return Response.json([session("root", destination)])
+    }
+    if (url.pathname === "/session/status") return Response.json({})
+    const body = (await request.json()) as { sessionID: string; destination: { directory: string } }
+    if (body.sessionID === "child")
+      return Response.json({ data: { message: "move rejected" } }, { status: 400 })
+    if (body.destination.directory === source)
+      return Response.json({ data: { message: "rollback rejected" } }, { status: 409 })
+    return new Response(null, { status: 204 })
+  }) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => ({}) as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+    )
+    expect(await actions.moveSession("root", destination)).toEqual({
+      ok: false,
+      moved: ["root"],
+      error: "move rejected. Rollback failed for root. Still moved: root",
+    })
+    expect(state.sessions.root.directory).toBe(destination)
+    expect(state.sessions.child.directory).toBe(source)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test("session move events update routing metadata and preserve transcript state", () => {
   const [state, set] = createEngineState()
   set("sessions", "root", session("root", "C:/one"))

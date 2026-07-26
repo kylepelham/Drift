@@ -136,8 +136,12 @@ export function stageWorkspaceDeletion(workspaceId: string, sessionIds: string[]
   return driftStore.stageWorkspaceDeletion(workspaceId, sessionIds)
 }
 
+export function claimDeletions(entries: PendingSessionDeletion[]) {
+  return driftStore.claimDeletions(entries)
+}
+
 export async function confirmDeletions(entries: PendingSessionDeletion[]) {
-  await driftStore.confirmDeletions(entries.map((entry) => entry.sessionId))
+  await driftStore.confirmDeletions(entries)
   await refreshArchives()
   await refreshWorkspaces()
 }

@@ -12,6 +12,7 @@ import {
   activeWorkspace,
   initWorkspaces,
   confirmDeletions,
+  claimDeletions,
   prepareDeletions,
   purgeAge,
   stageWorkspaceDeletion,
@@ -154,7 +155,8 @@ function WorkspaceBinding() {
         if (!ids) continue
         sweep = { ...sweep, pending: await stageWorkspaceDeletion(workspace.id, ids) }
       }
-      const confirmed = await engine.actions.removePendingSessions(sweep.pending)
+      const claimed = await claimDeletions(sweep.pending)
+      const confirmed = await engine.actions.removePendingSessions(claimed)
       await confirmDeletions(confirmed)
     })()
       .catch(() => undefined)

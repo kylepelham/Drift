@@ -1,6 +1,6 @@
 export type Workspace = { id: string; path: string; name: string; icon: string; lastUsed: number; removedAt?: number }
 export type ArchivedSession = { sessionId: string; workspaceId: string; archivedAt: number }
-export type PendingSessionDeletion = { sessionId: string; directory: string }
+export type PendingSessionDeletion = { sessionId: string; directory: string; claim: string }
 export type DeletionSweep = { pending: PendingSessionDeletion[]; workspaces: Workspace[] }
 export type McpConfig = Record<string, unknown> & { type: "local" | "remote" }
 export type StoredMcpServer = { name: string; config: McpConfig; updatedAt: number }
@@ -27,7 +27,8 @@ export interface DriftStore {
   removeWorkspace(id: string): Promise<void>
   prepareDeletions(before: number): Promise<DeletionSweep>
   stageWorkspaceDeletion(workspaceId: string, sessionIds: string[]): Promise<PendingSessionDeletion[]>
-  confirmDeletions(sessionIds: string[]): Promise<void>
+  claimDeletions(entries: PendingSessionDeletion[]): Promise<PendingSessionDeletion[]>
+  confirmDeletions(entries: PendingSessionDeletion[]): Promise<void>
   archived(): Promise<ArchivedSession[]>
   archiveSession(sessionId: string, workspaceId: string): Promise<void>
   unarchiveSession(sessionId: string): Promise<void>
@@ -56,7 +57,8 @@ function shellStore(invoke: Invoke): DriftStore {
     prepareDeletions: (before) => invoke("store_prepare_deletions", { before }),
     stageWorkspaceDeletion: (workspaceId, sessionIds) =>
       invoke("store_stage_workspace_deletion", { workspaceId, sessionIds }),
-    confirmDeletions: (sessionIds) => invoke("store_confirm_deletions", { sessionIds }),
+    claimDeletions: (entries) => invoke("store_claim_deletions", { entries }),
+    confirmDeletions: (entries) => invoke("store_confirm_deletions", { entries }),
     archived: () => invoke("store_archived"),
     archiveSession: (sessionId, workspaceId) => invoke("store_archive_session", { sessionId, workspaceId }),
     unarchiveSession: (sessionId) => invoke("store_unarchive_session", { sessionId }),
@@ -123,16 +125,22 @@ function browserStore(): DriftStore {
     },
     prepareDeletions: async (before) => {
       const pending = read<(PendingSessionDeletion & { workspaceId?: string })[]>(pendingKey, [])
+      for (const entry of pending) entry.claim ||= crypto.randomUUID()
       const archives = read<ArchivedSession[]>(arKey, []).filter((entry) => entry.archivedAt < before)
       for (const archive of archives) {
         if (pending.some((entry) => entry.sessionId === archive.sessionId)) continue
         const workspace = all().find((entry) => entry.id === archive.workspaceId)
         if (workspace)
-          pending.push({ sessionId: archive.sessionId, directory: workspace.path, workspaceId: archive.workspaceId })
+          pending.push({
+            sessionId: archive.sessionId,
+            directory: workspace.path,
+            workspaceId: archive.workspaceId,
+            claim: crypto.randomUUID(),
+          })
       }
       write(pendingKey, pending)
       return {
-        pending: pending.map(({ sessionId, directory }) => ({ sessionId, directory })),
+        pending: pending.map(({ sessionId, directory, claim }) => ({ sessionId, directory, claim })),
         workspaces: all().filter((workspace) => workspace.removedAt && workspace.removedAt < before && !workspace.purgeStagedAt),
       }
     },
@@ -149,20 +157,27 @@ function browserStore(): DriftStore {
           existing.directory = workspace.path
           existing.workspaceId = workspaceId
         } else {
-          pending.push({ sessionId, directory: workspace.path, workspaceId })
+          pending.push({ sessionId, directory: workspace.path, workspaceId, claim: crypto.randomUUID() })
         }
       }
       write(pendingKey, pending)
       write(wsKey, all().map((entry) => (entry.id === workspaceId ? { ...entry, purgeStagedAt: Date.now() } : entry)))
-      return pending.map(({ sessionId, directory }) => ({ sessionId, directory }))
+      return pending.map(({ sessionId, directory, claim }) => ({ sessionId, directory, claim }))
     },
-    confirmDeletions: async (sessionIds) => {
-      const confirmed = new Set(sessionIds)
+    claimDeletions: async (entries) => {
+      const pending = read<PendingSessionDeletion[]>(pendingKey, [])
+      return entries.filter((entry) =>
+        pending.some((item) => item.sessionId === entry.sessionId && item.claim === entry.claim),
+      )
+    },
+    confirmDeletions: async (entries) => {
+      const confirmed = new Map(entries.map((entry) => [entry.sessionId, entry.claim]))
       const pending = read<(PendingSessionDeletion & { workspaceId?: string })[]>(pendingKey, []).filter(
-        (entry) => !confirmed.has(entry.sessionId),
+        (entry) => confirmed.get(entry.sessionId) !== entry.claim,
       )
       write(pendingKey, pending)
-      write(arKey, read<ArchivedSession[]>(arKey, []).filter((entry) => !confirmed.has(entry.sessionId)))
+      const removed = new Set(entries.filter((entry) => !pending.some((item) => item.sessionId === entry.sessionId)).map((entry) => entry.sessionId))
+      write(arKey, read<ArchivedSession[]>(arKey, []).filter((entry) => !removed.has(entry.sessionId)))
       write(
         wsKey,
         all().filter(

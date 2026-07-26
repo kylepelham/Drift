@@ -446,10 +446,19 @@ fn store_stage_workspace_deletion(
 }
 
 #[tauri::command]
-fn store_confirm_deletions(store: State<Store>, session_ids: Vec<String>) -> Result<(), String> {
-    store
-        .confirm_deletions(&session_ids)
-        .map_err(|e| e.to_string())
+fn store_claim_deletions(
+    store: State<Store>,
+    entries: Vec<PendingSessionDeletion>,
+) -> Result<Vec<PendingSessionDeletion>, String> {
+    store.claim_deletions(&entries).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn store_confirm_deletions(
+    store: State<Store>,
+    entries: Vec<PendingSessionDeletion>,
+) -> Result<(), String> {
+    store.confirm_deletions(&entries).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -654,6 +663,15 @@ fn wait_for_restart(engine: &Engine, delay: Duration) -> bool {
     true
 }
 
+fn publish_engine_child(engine: &Engine, generation: u64, child: Child) -> Option<Child> {
+    let mut process = engine.process.lock().unwrap();
+    if engine.shutting_down.load(Ordering::SeqCst) || process.generation != generation {
+        return Some(child);
+    }
+    process.child = Some(child);
+    None
+}
+
 fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_dir: PathBuf) {
     std::thread::spawn(move || {
         let Some(binary) = engine_binary() else {
@@ -711,7 +729,11 @@ fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_dir: PathBu
                 Ok(mut child) => {
                     let stdout = child.stdout.take();
                     let stderr = child.stderr.take();
-                    engine.process.lock().unwrap().child = Some(child);
+                    if let Some(mut late) = publish_engine_child(&engine, generation, child) {
+                        let _ = late.kill();
+                        let _ = late.wait();
+                        return;
+                    }
                     if let Some(stderr) = stderr {
                         let diagnostics_app = app.clone();
                         std::thread::spawn(move || {
@@ -737,10 +759,13 @@ fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_dir: PathBu
                             }
                         }
                     }
-                    let mut process = engine.process.lock().unwrap();
-                    if process.generation == generation {
-                        exit = process.child.take().and_then(|mut child| child.wait().ok());
-                    }
+                    let child = {
+                        let mut process = engine.process.lock().unwrap();
+                        (process.generation == generation)
+                            .then(|| process.child.take())
+                            .flatten()
+                    };
+                    exit = child.and_then(|mut child| child.wait().ok());
                 }
                 Err(error) => {
                     engine.process.lock().unwrap().diagnostic =
@@ -1098,6 +1123,7 @@ fn main() {
             store_remove_workspace,
             store_prepare_deletions,
             store_stage_workspace_deletion,
+            store_claim_deletions,
             store_confirm_deletions,
             store_archived,
             store_archive_session,
@@ -1171,10 +1197,12 @@ fn main() {
 mod tests {
     use super::{
         basic_authorization, clipboard_utf16, config_path, editor_arguments, editor_kind,
-        engine_password, file_signatures, restart_delay, watched_mcp_paths, EditorKind,
-        MAX_ENGINE_RESTARTS,
+        engine_password, file_signatures, publish_engine_child, restart_delay, watched_mcp_paths,
+        EditorKind, Engine, MAX_ENGINE_RESTARTS,
     };
     use std::path::Path;
+    use std::process::{Command, Stdio};
+    use std::sync::atomic::Ordering;
 
     #[test]
     fn config_paths_stay_under_the_config_directory() {
@@ -1223,6 +1251,31 @@ mod tests {
             assert!(restart_delay(crash).is_some());
         }
         assert!(restart_delay(MAX_ENGINE_RESTARTS + 1).is_none());
+    }
+
+    #[test]
+    fn engine_child_is_not_published_after_shutdown_starts() {
+        let engine = Engine::default();
+        engine.process.lock().unwrap().generation = 1;
+        engine.shutting_down.store(true, Ordering::SeqCst);
+        #[cfg(windows)]
+        let child = Command::new("cmd")
+            .args(["/C", "ping", "127.0.0.1", "-n", "30"])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        #[cfg(not(windows))]
+        let child = Command::new("sleep")
+            .arg("30")
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+
+        let mut rejected =
+            publish_engine_child(&engine, 1, child).expect("late child was published");
+        assert!(engine.process.lock().unwrap().child.is_none());
+        rejected.kill().unwrap();
+        rejected.wait().unwrap();
     }
 
     #[test]

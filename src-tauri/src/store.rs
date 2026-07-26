@@ -26,11 +26,12 @@ pub struct ArchivedSession {
     pub archived_at: i64,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingSessionDeletion {
     pub session_id: String,
     pub directory: String,
+    pub claim: String,
 }
 
 #[derive(Serialize)]
@@ -104,7 +105,8 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
             session_id TEXT PRIMARY KEY,
             directory TEXT NOT NULL,
             workspace_id TEXT,
-            queued_at INTEGER NOT NULL
+            queued_at INTEGER NOT NULL,
+            claim TEXT NOT NULL
         ) STRICT;
         CREATE INDEX IF NOT EXISTS idx_pending_session_delete_workspace
             ON pending_session_delete(workspace_id);
@@ -137,6 +139,10 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
         "ALTER TABLE workspace ADD COLUMN purge_staged_at INTEGER",
         [],
     );
+    let _ = conn.execute(
+        "ALTER TABLE pending_session_delete ADD COLUMN claim TEXT NOT NULL DEFAULT ''",
+        [],
+    );
     Ok(Store(Mutex::new(conn)))
 }
 
@@ -145,6 +151,12 @@ fn now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+fn deletion_claim() -> String {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).expect("failed to generate deletion claim");
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn workspace_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Workspace> {
@@ -160,12 +172,13 @@ fn workspace_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Workspace> {
 
 fn pending_deletions(conn: &Connection) -> rusqlite::Result<Vec<PendingSessionDeletion>> {
     conn.prepare_cached(
-        "SELECT session_id, directory FROM pending_session_delete ORDER BY queued_at, session_id",
+        "SELECT session_id, directory, claim FROM pending_session_delete ORDER BY queued_at, session_id",
     )?
     .query_map([], |row| {
         Ok(PendingSessionDeletion {
             session_id: row.get(0)?,
             directory: row.get(1)?,
+            claim: row.get(2)?,
         })
     })?
     .collect()
@@ -320,28 +333,29 @@ impl Store {
         name: &str,
         icon: &str,
     ) -> rusqlite::Result<Workspace> {
-        let conn = self.0.lock().unwrap();
-        let existing: Option<String> = conn
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let existing: Option<String> = tx
             .prepare_cached("SELECT id FROM workspace WHERE path = ?1")?
             .query_row([path], |row| row.get(0))
             .optional()?;
         let target = match existing {
             Some(found) => {
-                conn.prepare_cached(
+                tx.prepare_cached(
                     "UPDATE workspace SET removed_at = NULL, purge_staged_at = NULL, last_used = ?2 WHERE id = ?1",
                 )?
                 .execute((&found, now()))?;
-                conn.prepare_cached("DELETE FROM pending_session_delete WHERE workspace_id = ?1")?
+                tx.prepare_cached("DELETE FROM pending_session_delete WHERE workspace_id = ?1")?
                     .execute([&found])?;
                 found
             }
             None => {
-                conn.prepare_cached("INSERT INTO workspace(id, path, name, icon, last_used) VALUES(?1, ?2, ?3, ?4, ?5)")?
+                tx.prepare_cached("INSERT INTO workspace(id, path, name, icon, last_used) VALUES(?1, ?2, ?3, ?4, ?5)")?
                     .execute((id, path, name, icon, now()))?;
                 id.to_string()
             }
         };
-        let workspace = conn
+        let workspace = tx
             .prepare_cached(
                 "SELECT id, path, name, icon, last_used, removed_at FROM workspace WHERE id = ?1",
             )?
@@ -355,6 +369,7 @@ impl Store {
                     removed_at: row.get(5)?,
                 })
             })?;
+        tx.commit()?;
         Ok(workspace)
     }
 
@@ -404,12 +419,13 @@ impl Store {
     }
 
     pub fn unarchive_session(&self, session_id: &str) -> rusqlite::Result<()> {
-        let conn = self.0.lock().unwrap();
-        conn.prepare_cached("DELETE FROM session_meta WHERE session_id = ?1")?
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.prepare_cached("DELETE FROM session_meta WHERE session_id = ?1")?
             .execute([session_id])?;
-        conn.prepare_cached("DELETE FROM pending_session_delete WHERE session_id = ?1")?
+        tx.prepare_cached("DELETE FROM pending_session_delete WHERE session_id = ?1")?
             .execute([session_id])?;
-        Ok(())
+        tx.commit()
     }
 
     pub fn archive_session(&self, session_id: &str, workspace_id: &str) -> rusqlite::Result<()> {
@@ -426,11 +442,15 @@ impl Store {
         let mut conn = self.0.lock().unwrap();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute(
-            "INSERT OR IGNORE INTO pending_session_delete(session_id, directory, workspace_id, queued_at)
-             SELECT meta.session_id, workspace.path, meta.workspace_id, ?2
+            "INSERT OR IGNORE INTO pending_session_delete(session_id, directory, workspace_id, queued_at, claim)
+             SELECT meta.session_id, workspace.path, meta.workspace_id, ?2, ?3
              FROM session_meta meta JOIN workspace ON workspace.id = meta.workspace_id
              WHERE meta.archived_at IS NOT NULL AND meta.archived_at < ?1",
-            params![before, now()],
+            params![before, now(), deletion_claim()],
+        )?;
+        tx.execute(
+            "UPDATE pending_session_delete SET claim = ?1 WHERE claim = ''",
+            [deletion_claim()],
         )?;
         let pending = pending_deletions(&tx)?;
         let workspaces = tx
@@ -464,11 +484,12 @@ impl Store {
             return pending_deletions(&conn);
         };
         let queued_at = now();
+        let claim = deletion_claim();
         for session_id in session_ids {
             tx.execute(
-                "INSERT OR IGNORE INTO pending_session_delete(session_id, directory, workspace_id, queued_at)
-                 VALUES(?1, ?2, ?3, ?4)",
-                params![session_id, directory, workspace_id, queued_at],
+                "INSERT OR IGNORE INTO pending_session_delete(session_id, directory, workspace_id, queued_at, claim)
+                 VALUES(?1, ?2, ?3, ?4, ?5)",
+                params![session_id, directory, workspace_id, queued_at, claim],
             )?;
             tx.execute(
                 "UPDATE pending_session_delete SET directory = ?2, workspace_id = ?3 WHERE session_id = ?1",
@@ -476,9 +497,9 @@ impl Store {
             )?;
         }
         tx.execute(
-            "INSERT OR IGNORE INTO pending_session_delete(session_id, directory, workspace_id, queued_at)
-             SELECT session_id, ?2, ?1, ?3 FROM session_meta WHERE workspace_id = ?1",
-            params![workspace_id, directory, queued_at],
+            "INSERT OR IGNORE INTO pending_session_delete(session_id, directory, workspace_id, queued_at, claim)
+             SELECT session_id, ?2, ?1, ?3, ?4 FROM session_meta WHERE workspace_id = ?1",
+            params![workspace_id, directory, queued_at, claim],
         )?;
         tx.execute(
             "UPDATE pending_session_delete SET directory = ?2, workspace_id = ?1
@@ -494,18 +515,47 @@ impl Store {
         Ok(pending)
     }
 
-    pub fn confirm_deletions(&self, session_ids: &[String]) -> rusqlite::Result<()> {
+    pub fn claim_deletions(
+        &self,
+        entries: &[PendingSessionDeletion],
+    ) -> rusqlite::Result<Vec<PendingSessionDeletion>> {
+        let conn = self.0.lock().unwrap();
+        let mut claimed = Vec::new();
+        for entry in entries {
+            let current = conn
+                .prepare_cached(
+                    "SELECT session_id, directory, claim FROM pending_session_delete
+                     WHERE session_id = ?1 AND claim = ?2",
+                )?
+                .query_row(params![entry.session_id, entry.claim], |row| {
+                    Ok(PendingSessionDeletion {
+                        session_id: row.get(0)?,
+                        directory: row.get(1)?,
+                        claim: row.get(2)?,
+                    })
+                })
+                .optional()?;
+            if let Some(current) = current {
+                claimed.push(current);
+            }
+        }
+        Ok(claimed)
+    }
+
+    pub fn confirm_deletions(&self, entries: &[PendingSessionDeletion]) -> rusqlite::Result<()> {
         let mut conn = self.0.lock().unwrap();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        for session_id in session_ids {
-            tx.execute(
-                "DELETE FROM pending_session_delete WHERE session_id = ?1",
-                [session_id],
+        for entry in entries {
+            let removed = tx.execute(
+                "DELETE FROM pending_session_delete WHERE session_id = ?1 AND claim = ?2",
+                params![entry.session_id, entry.claim],
             )?;
-            tx.execute(
-                "DELETE FROM session_meta WHERE session_id = ?1",
-                [session_id],
-            )?;
+            if removed == 1 {
+                tx.execute(
+                    "DELETE FROM session_meta WHERE session_id = ?1",
+                    [&entry.session_id],
+                )?;
+            }
         }
         tx.execute(
             "DELETE FROM workspace
@@ -735,7 +785,7 @@ mod tests {
         assert_eq!(sweep.pending[0].session_id, "s2");
         assert_eq!(store.archived().unwrap().len(), 1);
         store
-            .confirm_deletions(&[sweep.pending[0].session_id.clone()])
+            .confirm_deletions(&[sweep.pending[0].clone()])
             .unwrap();
         assert!(store.archived().unwrap().is_empty());
 
@@ -757,7 +807,11 @@ mod tests {
             .stage_workspace_deletion("w1", &["old-session".into()])
             .unwrap();
         assert_eq!(pending[0].session_id, "old-session");
-        store.confirm_deletions(&["old-session".into()]).unwrap();
+        let old_session = pending
+            .into_iter()
+            .find(|entry| entry.session_id == "old-session")
+            .unwrap();
+        store.confirm_deletions(&[old_session]).unwrap();
         assert!(store.workspaces().unwrap().is_empty());
         assert!(
             store
@@ -852,7 +906,11 @@ mod tests {
                 .stage_workspace_deletion("w1", &["live".into()])
                 .unwrap();
             assert_eq!(pending.len(), 2);
-            store.confirm_deletions(&["archived".into()]).unwrap();
+            let archived = pending
+                .into_iter()
+                .find(|entry| entry.session_id == "archived")
+                .unwrap();
+            store.confirm_deletions(&[archived]).unwrap();
             assert_eq!(store.removed_workspaces().unwrap().len(), 1);
         }
         {
@@ -870,6 +928,48 @@ mod tests {
                 .pending
                 .is_empty());
         }
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn stale_deletion_claims_cannot_delete_restored_or_replaced_metadata() {
+        let dir = std::env::temp_dir().join(format!("drift-claim-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = open_at(&dir.join("drift.db")).unwrap();
+        store.add_workspace("w1", "S:/claim", "Claim", "").unwrap();
+        store.archive_session("session", "w1").unwrap();
+
+        let stale = store.prepare_deletions(now() + 1000).unwrap().pending[0].clone();
+        store.unarchive_session("session").unwrap();
+        assert!(store.claim_deletions(&[stale.clone()]).unwrap().is_empty());
+
+        store.archive_session("session", "w1").unwrap();
+        let replacement = store.prepare_deletions(now() + 1000).unwrap().pending[0].clone();
+        assert_ne!(stale.claim, replacement.claim);
+        store.confirm_deletions(&[stale]).unwrap();
+        assert_eq!(store.archived().unwrap().len(), 1);
+        assert_eq!(
+            store.claim_deletions(&[replacement.clone()]).unwrap()[0].claim,
+            replacement.claim
+        );
+
+        store.remove_workspace("w1").unwrap();
+        let workspace_claim = store
+            .stage_workspace_deletion("w1", &["workspace-session".into()])
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.session_id == "workspace-session")
+            .unwrap();
+        store
+            .add_workspace("new", "S:/claim", "Ignored", "")
+            .unwrap();
+        assert!(store
+            .claim_deletions(&[workspace_claim.clone()])
+            .unwrap()
+            .is_empty());
+        store.confirm_deletions(&[workspace_claim]).unwrap();
+        assert_eq!(store.workspaces().unwrap().len(), 1);
         std::fs::remove_dir_all(dir).ok();
     }
 

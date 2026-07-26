@@ -17,7 +17,7 @@ holds what Drift adds on top.
 | --- | --- | --- |
 | `workspace` | id, path (unique), name, icon, last_used, removed_at, purge_staged_at | workspaces = directories with display identity; purge staging keeps a removed path reserved until its exact session set is settled |
 | `session_meta` | session_id, workspace_id, archived_at | Drift metadata about engine sessions; today that is archive state |
-| `pending_session_delete` | session_id, directory, workspace_id, queued_at | durable exact-ID engine deletion tombstones retained across startup, reconnect, and partial failure |
+| `pending_session_delete` | session_id, directory, workspace_id, queued_at, claim | durable exact-ID engine deletion tombstones with opaque claims retained across startup, reconnect, and partial failure |
 | `mcp_server` | name, config_json, updated_at | global Drift-owned definitions; full JSON preserves unknown fields |
 | `mcp_decision` | fingerprint, name, decision, decided_at | immutable global approval/rejection history by exact fingerprint |
 | `mcp_state` | id, generation, materialized_generation | CAS and generated-policy publication state |
@@ -33,9 +33,12 @@ preserving workspaces explicitly added through Drift, including empty ones.
 
 Archiving never deletes: `archived_at` is set and the thread disappears from the
 sidebar. On startup (once the engine is online) Drift purges archive rows older than
-7 days by first recording exact-ID deletion tombstones. Successful deletions and `404`
-responses clear their tombstones; transport and engine failures retry on the next online
-transition. One archive drawer in the workspace header lists archived threads and
+7 days by first recording exact-ID deletion tombstones. A worker must revalidate the
+opaque claim, delete the exact ID, and observe that exact session as `404` before it can
+conditionally confirm the same claim. Transport, engine, and absence-check failures retry
+on the next online transition. Restoring metadata cancels its claim in the same transaction,
+and a stale snapshot cannot confirm a replacement claim. One archive drawer in the workspace
+header lists archived threads and
 soft-removed workspaces together; restoring a thread also restores its workspace when
 necessary.
 
@@ -43,10 +46,12 @@ necessary.
 
 Removing a workspace is a soft delete (`removed_at`); its sessions are left completely
 untouched (not archived, not deleted). Re-adding the same folder within 7 days restores
-the workspace row, custom name and icon included, and all its threads are simply there
+the workspace row, custom name and icon included, cancels its outstanding claims
+transactionally, and all its threads are simply there
 again. For workspaces removed more than 7 days ago, Drift snapshots the directory's exact
 session IDs and reserves the removed row while deleting them. New sessions created after
-path reuse are never selected by a path-wide delete, and restoring the reserved path
+path reuse are never selected by a path-wide delete. Session discovery paginates the
+global endpoint to exhaustion before staging, and restoring the reserved path
 cancels its workspace tombstones. The workspace row is hard-deleted only after every
 staged ID is confirmed absent.
 
