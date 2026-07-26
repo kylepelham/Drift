@@ -55,7 +55,7 @@ type ComposerSubmitEnvironment<Prepared> = {
     sessionId: string | null
     workspace: ComposerWorkspace | null
   }) => Promise<string | null>
-  newSession: () => Promise<{ id: string } | undefined>
+  newSession: () => Promise<{ id: string; discard: () => Promise<void> } | undefined>
   sessionScope: (sessionId: string, workspaceId: string) => string
   migrateDraft: (from: string, to: string) => void
   selectSession: (sessionId: string) => void
@@ -97,9 +97,15 @@ export function createComposerSubmit<Prepared>(
       )
         return "ignored"
 
-      const session = existing ? { id: existing } : await environment.newSession()
-      if (!session) return "failed"
-      if (!existing) {
+      let sessionId = existing
+      if (!sessionId) {
+        const session = await environment.newSession()
+        if (!session) return "failed"
+        if (environment.scope() !== sourceScope || environment.workspace()?.id !== workspace.id) {
+          await session.discard()
+          return "ignored"
+        }
+        sessionId = session.id
         draftScope = environment.sessionScope(session.id, workspace.id)
         if (!lease.hold(draftScope)) return "failed"
         environment.migrateDraft(sourceScope, draftScope)
@@ -107,7 +113,7 @@ export function createComposerSubmit<Prepared>(
         environment.selectSession(session.id)
       }
 
-      const admission = await environment.send(session.id, text, snapshot, workspace, prepared)
+      const admission = await environment.send(sessionId, text, snapshot, workspace, prepared)
       if (!admission.ok) return "failed"
       environment.admitted(draftScope, snapshot, { ...snapshot, text: initial })
       return "submitted"

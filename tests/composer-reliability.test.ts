@@ -210,7 +210,7 @@ test("new-session submits are single-flight during transform and session creatio
         newSession: async () => {
           sessions++
           if (delayed === "session") await gate.promise
-          return { id: `created-${delayed}` }
+          return { id: `created-${delayed}`, discard: async () => undefined }
         },
         sessionScope: (id) => composerScope(id),
         migrateDraft: migrateComposerDraft,
@@ -238,6 +238,71 @@ test("new-session submits are single-flight during transform and session creatio
     expect(composerDraft(source).text).toBe("")
     expect(composerDraft(target).text).toBe("")
   }
+})
+
+test("new-session submit preserves navigation and drafts when creation resolves in another workspace", async () => {
+  const { createComposerSubmissionGuard, createComposerSubmit } = await import("../src/ui/composer-submit")
+  const { composerDraft, composerScope, migrateComposerDraft, setComposerDraft } = await import(
+    "../src/state/composer"
+  )
+  const workspaceA = { id: "workspace-a", name: "A", path: "C:\\a" }
+  const workspaceB = { id: "workspace-b", name: "B", path: "C:\\b" }
+  const sourceA = composerScope(null, workspaceA.id)
+  const sourceB = composerScope(null, workspaceB.id)
+  const draftA = { text: "send from A", mentions: ["src/a.ts"], staged: [attachment] }
+  const draftB = { text: "keep B", mentions: ["src/b.ts"], staged: [] }
+  setComposerDraft(sourceA, draftA)
+  setComposerDraft(sourceB, draftB)
+  let currentScope = sourceA
+  let currentWorkspace = workspaceA
+  let selections = 0
+  let createdEvents = 0
+  let sends = 0
+  let discards = 0
+  const started = deferred<void>()
+  const created = deferred<{ id: string; discard: () => Promise<void> }>()
+  const guard = createComposerSubmissionGuard()
+  const submit = createComposerSubmit(
+    {
+      scope: () => currentScope,
+      session: () => null,
+      workspace: () => currentWorkspace,
+      online: () => true,
+      draft: composerDraft,
+      prepare: () => ({}),
+      transform: async ({ text }) => text,
+      newSession: async () => {
+        started.resolve()
+        return created.promise
+      },
+      sessionScope: (id) => composerScope(id),
+      migrateDraft: migrateComposerDraft,
+      selectSession: () => selections++,
+      sessionCreated: () => createdEvents++,
+      send: async () => {
+        sends++
+        return { ok: true }
+      },
+      admitted: () => undefined,
+    },
+    guard,
+  )
+
+  const pending = submit()
+  await started.promise
+  currentScope = sourceB
+  currentWorkspace = workspaceB
+  created.resolve({ id: "created-in-a", discard: async () => void discards++ })
+
+  expect(await pending).toBe("ignored")
+  expect(selections).toBe(0)
+  expect(createdEvents).toBe(0)
+  expect(sends).toBe(0)
+  expect(discards).toBe(1)
+  expect(composerDraft(sourceA)).toBe(draftA)
+  expect(composerDraft(sourceB)).toBe(draftB)
+  expect(composerDraft(composerScope("created-in-a")).text).toBe("")
+  expect(guard.has(sourceA)).toBeFalse()
 })
 
 test("existing-session submits are single-flight while prompt admission is pending", async () => {
@@ -308,7 +373,7 @@ test("failed new-session admission keeps the migrated draft in the created sessi
       draft: composerDraft,
       prepare: () => ({}),
       transform: async ({ text }) => text,
-      newSession: async () => ({ id: "migrated-session" }),
+      newSession: async () => ({ id: "migrated-session", discard: async () => undefined }),
       sessionScope: (id) => composerScope(id),
       migrateDraft: migrateComposerDraft,
       selectSession: () => (currentScope = target),

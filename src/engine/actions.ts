@@ -146,10 +146,20 @@ export function createActions(
     }
   }
 
-  async function newSession(): Promise<Session | undefined> {
-    const result = await requireClient().session.create({ body: {} })
-    if (result.data) set("sessions", result.data.id, result.data)
-    return result.data
+  async function newSession(): Promise<(Session & { discard: () => Promise<void> }) | undefined> {
+    const client = requireClient()
+    const result = await client.session.create({ body: {} })
+    const session = result.data
+    if (!session) return
+    set("sessions", session.id, session)
+    return {
+      ...session,
+      async discard() {
+        const result = await client.session.delete({ path: { id: session.id } }).catch(() => null)
+        if (!result || result.error !== undefined) return
+        forgetSession(session.id)
+      },
+    }
   }
 
   async function fork(id: string, mode: "active" | "full" = "active", messageID?: string): Promise<Session | undefined> {
