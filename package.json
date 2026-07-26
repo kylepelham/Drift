@@ -13,6 +13,7 @@
     "build:native": "tauri build --no-bundle",
     "package": "tauri build",
     "test": "bun test tests",
+    "test:release-policy": "bun test tests/release-policy.test.ts",
     "test:engine": "bun scripts/test-engine.ts",
     "typecheck": "tsc --noEmit"
   },

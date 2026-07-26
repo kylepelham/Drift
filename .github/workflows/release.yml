@@ -5,20 +5,44 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
-  models: read
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  tag-policy:
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.policy.outputs.commit }}
+      version: ${{ steps.policy.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Fetch release policy refs
+        run: git fetch --force origin master:refs/remotes/origin/master "+refs/tags/*:refs/tags/*"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Validate stable release tag
+        id: policy
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun scripts/release-policy.ts check "$GITHUB_REF_NAME"
+
+  validation:
+    needs: tag-policy
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag-policy.outputs.commit }}
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -36,28 +60,60 @@ jobs:
           bun install --frozen-lockfile --ignore-scripts --cwd engine/upstream
           bun install --frozen-lockfile --cwd engine/opencode
 
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Root tests
+        run: bun run test
+
+      - name: Engine integration tests
+        run: bun run test:engine
+
       - name: Build engine
         run: bun run build:engine
 
-      - name: Stamp version from tag
-        shell: pwsh
+      - name: Native unit tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Stamp release version
+        run: bun scripts/release-policy.ts stamp "$env:GITHUB_REF_NAME"
+
+      - name: Production UI and package assembly
+        run: bun run build:native
+
+  publish:
+    needs: [tag-policy, validation]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      models: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.tag-policy.outputs.commit }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
         run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
-          if ($version -notmatch '^\d+\.\d+\.\d+') {
-            throw "Tag must look like v1.2.3, got ${{ github.ref_name }}"
-          }
+          bun install --frozen-lockfile
+          bun install --frozen-lockfile --ignore-scripts --cwd engine/upstream
+          bun install --frozen-lockfile --cwd engine/opencode
 
-          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          $pkg.version = $version
-          $pkg | ConvertTo-Json -Depth 32 | Set-Content package.json -Encoding utf8
+      - name: Stamp release version
+        run: bun scripts/release-policy.ts stamp "$env:GITHUB_REF_NAME"
 
-          $cargo = Get-Content src-tauri/Cargo.toml -Raw
-          $cargo = $cargo -replace '(?m)^version = ".*"$', "version = `"$version`""
-          Set-Content src-tauri/Cargo.toml $cargo -Encoding utf8NoBOM
-
-          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          $conf.version = $version
-          $conf | ConvertTo-Json -Depth 32 | Set-Content src-tauri/tauri.conf.json -Encoding utf8
+      - name: Build engine
+        run: bun run build:engine
 
       - name: Build signed installer
         env:
@@ -68,7 +124,7 @@ jobs:
       - name: Write update manifest
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
+          $version = "${{ needs.tag-policy.outputs.version }}"
           $bundle = "src-tauri/target/release/bundle/nsis"
           $sigFile = Get-ChildItem "$bundle/*.sig" | Select-Object -First 1
           $exeFile = Get-ChildItem "$bundle/*-setup.exe" | Select-Object -First 1
@@ -94,11 +150,15 @@ jobs:
           RELEASE_NOTES_MODEL: openai/gpt-4.1
         run: bun scripts/release-notes.ts release-notes.md
 
-      - name: Publish GitHub Release
+      - name: Publish stable GitHub release
         uses: softprops/action-gh-release@v2
         with:
           name: Drift ${{ github.ref_name }}
           body_path: release-notes.md
+          draft: false
+          prerelease: false
+          make_latest: true
+          overwrite_files: true
           files: |
             src-tauri/target/release/bundle/nsis/*-setup.exe
             src-tauri/target/release/bundle/nsis/*.sig
