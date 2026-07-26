@@ -390,6 +390,7 @@ export function createActions(
     return createControlClient({ baseUrl: endpoint.url, headers: endpoint.headers, directory: state.directory })
   }
 
+  // Reloads are serialized: two overlapping disposes would race to restart the same instance.
   let reloadQueue = Promise.resolve(true)
 
   function reloadInstances() {
@@ -401,6 +402,8 @@ export function createActions(
       await sleep(disposeSettleMs)
       return true
     }
+    // `reload` is passed as both handlers so it runs whether the previous reload resolved or
+    // rejected - a failed reload must not block every reload after it.
     reloadQueue = reloadQueue.then(reload, reload)
     return reloadQueue
   }

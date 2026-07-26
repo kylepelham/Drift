@@ -462,6 +462,20 @@ impl McpRuntime {
         Ok(state)
     }
 
+    /// Applies an MCP mutation under a fail-closed protocol.
+    ///
+    /// The invariant is that no MCP server may ever run without a matching approval on disk. That
+    /// forces a specific order:
+    ///
+    /// 1. Write an empty policy at the next generation. Until the mutation completes, any engine
+    ///    that reads the policy sees "nothing is approved" rather than the stale previous set.
+    /// 2. Invalidate the cached reports, then stop the running clients, so nothing keeps using
+    ///    approvals granted under the old policy.
+    /// 3. Apply the caller's mutation and re-materialize the real policy.
+    ///
+    /// Every failure path either restores a consistent state or, if even the restore fails, calls
+    /// `force_closed` to leave a sentinel that blocks MCP entirely until a human intervenes.
+    /// Failing loudly and closed is preferred over silently running with an unknown policy.
     fn change<F, M>(
         &self,
         store: &Store,
@@ -491,6 +505,8 @@ impl McpRuntime {
         if let Err(error) = mutate(store) {
             return self.restore_files(store, error, &stop);
         }
+        // The mutation is committed to the database but the policy files do not reflect it. Roll
+        // the database back to `previous` and rewrite the policy from that, so the two agree again.
         if let Err(error) = self.materialize(store) {
             let rollback = match store.restore_mcp_state(&previous) {
                 Ok(generation) => generation,
@@ -514,6 +530,9 @@ impl McpRuntime {
         Ok(())
     }
 
+    /// Rewrites the policy files from whatever is currently in the database, then reports the
+    /// original failure. Used when the database was never changed, so the database is already the
+    /// source of truth and only the files need to catch up.
     fn restore_files<F>(&self, store: &Store, error: String, stop: &F) -> Result<(), String>
     where
         F: Fn() -> Result<(), String>,
@@ -527,6 +546,12 @@ impl McpRuntime {
         }
     }
 
+    /// Last resort when recovery itself failed and the on-disk state can no longer be trusted.
+    ///
+    /// Writes a sentinel that blocks MCP on the next start, blanks the policy to generation -1 so
+    /// nothing matches it, drops the cached reports and stops the running clients. Every step is
+    /// attempted even if an earlier one fails, and the collected failures are reported so the user
+    /// can see exactly how much of the shutdown succeeded. Always returns Err.
     fn force_closed<F>(&self, stop: &F, error: String) -> Result<(), String>
     where
         F: Fn() -> Result<(), String>,
@@ -948,6 +973,12 @@ fn valid_fingerprint(value: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
+/// Canonical key for a workspace directory, used to name its pending-report file.
+///
+/// Windows paths are case-insensitive, so they are lowercased to keep one report per directory.
+/// The fold is deliberately ASCII-only: `to_lowercase` would apply Unicode rules that Windows does
+/// not use for path comparison, so two distinct directories could collapse onto one key. See the
+/// Unicode case in mcp_tests.rs before changing this.
 fn normalize_directory(value: &str) -> String {
     let normalized = value.replace('\\', "/").trim_end_matches('/').to_string();
     if cfg!(windows) {

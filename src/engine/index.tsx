@@ -124,6 +124,9 @@ export function EngineProvider(props: ParentProps) {
   }
 
   function setDirectory(path: string | null) {
+    // Already on this directory with nothing left to do: either a client exists, or the target is
+    // null and there is nothing to connect to. Without the client check a repeated call before the
+    // first connection completed would be dropped and never start the pump.
     if (path === directory && (client || !path)) return
     const prev = directory
     directory = path
@@ -138,11 +141,14 @@ export function EngineProvider(props: ParentProps) {
       )
       return
     }
+    // With no stream running, or no previous directory, there is nothing to reuse - start fresh.
     if (!pumpAbort || !prev) {
       stopPump()
       startPump(path)
       return
     }
+    // Otherwise the event stream is global and already running, so switching workspaces only means
+    // pointing the client at the new directory. Restarting the stream here would drop events.
     client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory: path })
     set("directory", path)
     if (state.connection === "online") void hydrate().catch(() => undefined)

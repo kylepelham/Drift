@@ -567,17 +567,34 @@ export function shellTranscript(command: string, output: string) {
   return `$ ${command}${normalized.trim() ? `\n\n${normalized}` : ""}`
 }
 
+/**
+ * Renders streaming shell output incrementally.
+ *
+ * The engine re-sends the whole output on every update. Re-rendering all of it each time is too
+ * slow for a long-running command, so this tracks how much has already been shown and emits only
+ * the new tail when it can prove the new output is an append of the old one. When it cannot, it
+ * emits a full replacement.
+ *
+ * Callers get `{ replace, text }`: `replace: true` means "this is the whole transcript",
+ * `replace: false` means "append this".
+ */
 export function createShellTranscriptStream() {
   let command = ""
+  /** How many characters of the raw output have already been turned into visible text. */
   let outputLength = 0
   let previousOutput = ""
   let initialized = false
+  /** Set once non-whitespace output has been shown; until then output is buffered in `pending`. */
   let visible = false
   let finished = false
+  /** ANSI escape parser state. CSI sequences run until a byte in the 0x40-0x7e final range. */
   let escape: "none" | "start" | "csi" = "none"
+  /** A trailing CR is held over: it only becomes a newline once we know what follows it. */
   let carriageReturn = false
+  /** Whitespace-only chunks seen before the first visible output, kept so none are lost. */
   let pending: string[] = []
 
+  /** Strips ANSI escapes and folds CR / CRLF into newlines. `flush` resolves a trailing CR. */
   const consume = (value: string, flush: boolean) => {
     let normalized = ""
     for (const character of value) {
@@ -609,6 +626,7 @@ export function createShellTranscriptStream() {
     return normalized
   }
 
+  /** Re-renders the whole transcript from scratch and re-primes the incremental state. */
   const reset = (nextCommand: string, output: string, done: boolean) => {
     command = nextCommand
     outputLength = output.length
@@ -626,20 +644,29 @@ export function createShellTranscriptStream() {
 
   return {
     update(nextCommand: string, output: string, done: boolean) {
+      // Nothing to append against: first update, a different command, output that shrank, or a
+      // final frame whose trailing CR still has to be flushed.
       if (!initialized || command !== nextCommand || output.length < outputLength || finished || done) {
         return reset(nextCommand, output, done)
       }
+      // Same length: either a genuine no-op, or the content changed underneath us.
       if (output.length === outputLength) {
         if (output === previousOutput) return { replace: false, text: "" }
         return reset(nextCommand, output, done)
       }
+      // The engine truncated the head and prefixed an ellipsis, so earlier offsets no longer line up.
       if (output.startsWith("...\n\n") && !previousOutput.startsWith("...\n\n")) return reset(nextCommand, output, done)
+      // Confirm this really is an append: the tail of what we last saw must still sit at the same
+      // offset. If it does not, the output was rewritten rather than extended.
       const overlap = previousOutput.slice(-overlapProbeChars)
       if (output.slice(outputLength - overlap.length, outputLength) !== overlap) return reset(nextCommand, output, done)
+
       const normalized = consume(output.slice(outputLength), false)
       outputLength = output.length
       previousOutput = output
       if (visible) return { replace: false, text: normalized }
+      // Still nothing but whitespace so far. Hold it back rather than opening the transcript with
+      // blank lines, and emit the whole block at once as soon as real output arrives.
       pending.push(normalized)
       const combined = pending.join("")
       if (!combined.trim()) return { replace: false, text: "" }

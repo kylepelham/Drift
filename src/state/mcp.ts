@@ -118,6 +118,13 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
   let revision = 0
   let mutationToken: symbol | undefined
 
+  /**
+   * Queues work so MCP operations never overlap: each waits for the previous one to settle.
+   *
+   * `work` is passed as both handlers so it runs whether the previous task resolved or rejected -
+   * one failed operation must not wedge the queue. The tail then swallows the outcome so a
+   * rejection is not treated as unhandled; the caller still receives the real promise.
+   */
   function serialize<T>(work: () => Promise<T>) {
     const task = tail.then(work, work)
     tail = task.then(

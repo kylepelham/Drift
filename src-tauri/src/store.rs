@@ -117,6 +117,9 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
             updated_at INTEGER NOT NULL
         ) STRICT;",
     )?;
+    // Migration for databases created before `removed_at` existed. On any database created by the
+    // CREATE TABLE above the column is already there and this fails with "duplicate column name",
+    // which is why the error is deliberately discarded rather than propagated.
     let _ = conn.execute("ALTER TABLE workspace ADD COLUMN removed_at INTEGER", []);
     Ok(Store(Mutex::new(conn)))
 }

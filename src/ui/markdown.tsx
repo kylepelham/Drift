@@ -51,6 +51,14 @@ export class AsyncSizeCache<T> {
     return entry.value
   }
 
+  /**
+   * Stores an in-flight promise under a provisional size, then corrects that size once it resolves.
+   *
+   * The real cost is not known until the value exists, but the entry has to be cached immediately
+   * so concurrent callers share one computation. It is therefore charged its source size up front
+   * and re-measured on resolution. A value larger than the whole budget is returned uncached rather
+   * than admitted and immediately evicted. A rejected promise is evicted so the failure is retried.
+   */
   set(key: string, sourceSize: number, value: Promise<T>) {
     const existing = this.entries.get(key)
     if (existing) this.remove(key, existing)
@@ -59,6 +67,8 @@ export class AsyncSizeCache<T> {
     const entry: AsyncCacheEntry<T> = { value, size: sourceSize }
     const tracked = value.then(
       (result) => {
+        // The identity check matters: this entry may have been evicted or replaced while the
+        // promise was pending, in which case its size is no longer part of the running total.
         if (this.entries.get(key) !== entry) return result
         this.total -= entry.size
         entry.size = sourceSize + this.outputSize(result)
@@ -156,25 +166,30 @@ async function highlightBlocks(root: HTMLElement, theme: BundledTheme, current: 
   )
 }
 
-// Model output like **C:\** never closes its emphasis because \ escapes the delimiter.
-// Only path-shaped backslashes (after a drive colon or another segment) get self-escaped.
-export function fixEscapedEmphasis(text: string) {
+/**
+ * Applies `transform` to the prose in `text`, leaving fenced blocks and inline code untouched.
+ *
+ * The pattern has one capture group, so `split` interleaves the results: even indices are the prose
+ * between the matches and odd indices are the code spans themselves. That is what the parity check
+ * below selects on.
+ */
+function mapProseChunks(text: string, transform: (chunk: string) => string) {
   return text
     .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
-    .map((chunk, index) => {
-      if (index % 2) return chunk
-      return chunk
-        .replace(/(:)\\(?=\*\*?|__?)/g, "$1\\\\")
-        .replace(/(\\[\w .()-]+)\\(?=\*\*?|__?)/g, "$1\\\\")
-    })
+    .map((chunk, index) => (index % 2 === 1 ? chunk : transform(chunk)))
     .join("")
 }
 
+// Model output like **C:\** never closes its emphasis because \ escapes the delimiter.
+// Only path-shaped backslashes (after a drive colon or another segment) get self-escaped.
+export function fixEscapedEmphasis(text: string) {
+  return mapProseChunks(text, (chunk) =>
+    chunk.replace(/(:)\\(?=\*\*?|__?)/g, "$1\\\\").replace(/(\\[\w .()-]+)\\(?=\*\*?|__?)/g, "$1\\\\"),
+  )
+}
+
 function preserveLiteralBackslashes(text: string) {
-  return text
-    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
-    .map((chunk, index) => (index % 2 ? chunk : chunk.replaceAll("\\", "&#92;")))
-    .join("")
+  return mapProseChunks(text, (chunk) => chunk.replaceAll("\\", "&#92;"))
 }
 
 const voidHtml = new Set([
@@ -197,12 +212,21 @@ const voidHtml = new Set([
 // Marked accepts raw HTML. Escape only unmatched tags so model-written examples cannot
 // turn the rest of a streamed response into one giant heading or emphasis element.
 function escapeUnbalancedHtml(text: string) {
-  return text
-    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
-    .map((chunk, index) => (index % 2 ? chunk : escapeUnbalancedHtmlChunk(chunk)))
-    .join("")
+  return mapProseChunks(text, escapeUnbalancedHtmlChunk)
 }
 
+/**
+ * Escapes HTML tags in one prose chunk that do not form a matched open/close pair.
+ *
+ * Streamed model output regularly contains a stray `<div>` or a half-written tag. Marked would
+ * treat it as real HTML and swallow the rest of the response into that element, so unmatched tags
+ * are rendered as literal text instead. Tags that do pair up are left alone so intentional inline
+ * HTML keeps working.
+ *
+ * Pairing is a standard bracket match: openers are pushed on a stack, and a closer scans back for
+ * the nearest opener of the same name. Scanning back rather than only checking the top tolerates
+ * improperly nested but individually paired tags such as `<b><i></b></i>`.
+ */
 function escapeUnbalancedHtmlChunk(text: string) {
   const tags = [...text.matchAll(/<!--[^]*?-->|<\/?[A-Za-z][^>\n]*>/g)].map((match) => ({
     start: match.index,
@@ -212,9 +236,12 @@ function escapeUnbalancedHtmlChunk(text: string) {
     closing: /^<\//.test(match[0]),
     matched: false,
   }))
+
+  /** Indices into `tags` of openers still waiting for their closing tag. */
   const stack: number[] = []
   for (let index = 0; index < tags.length; index++) {
     const tag = tags[index]
+    // Comments, void elements and self-closing tags never pair, so they are always kept as-is.
     if (!tag.name || tag.value.startsWith("<!--") || voidHtml.has(tag.name) || /\/\s*>$/.test(tag.value)) {
       tag.matched = true
       continue
@@ -229,12 +256,15 @@ function escapeUnbalancedHtmlChunk(text: string) {
       opener = position
       break
     }
+    // No opener: this closer is stray and stays marked unmatched, so it gets escaped below.
     if (opener < 0) continue
     const openIndex = stack[opener]
     tags[openIndex].matched = true
     tag.matched = true
     stack.splice(opener, 1)
   }
+
+  // Anything left on the stack was opened and never closed, so it keeps matched = false.
   let result = ""
   let cursor = 0
   for (const tag of tags) {
