@@ -46,6 +46,7 @@ async function verifyAuthCapture() {
 
 await withEngineOverlays(async () => {
   await run("packages/core", ["test/move-session.test.ts"])
+  await run("packages/opencode", ["test/server/httpapi-control-plane.test.ts"])
   await verifyAuthCapture()
   await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "InstanceStore|CLI bootstrap"])
   await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "Drift requires"])

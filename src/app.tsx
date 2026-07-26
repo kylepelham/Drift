@@ -11,8 +11,10 @@ import { initZoom } from "./state/zoom"
 import {
   activeWorkspace,
   initWorkspaces,
-  purgeArchived,
-  purgeRemovedWorkspaces,
+  confirmDeletions,
+  prepareDeletions,
+  purgeAge,
+  stageWorkspaceDeletion,
   workspaces,
 } from "./state/workspaces"
 import { AttentionStrip } from "./ui/attention"
@@ -106,11 +108,9 @@ function PluginBinding() {
   )
 }
 
-const dayMs = 24 * 60 * 60 * 1000
-
 function WorkspaceBinding() {
   const engine = useEngine()
-  let lastPurge = 0
+  let purging = false
   let permissionTick = 0
   onMount(() => void initWorkspaces())
   createEffect(() => engine.setDirectory(activeWorkspace()?.path ?? null))
@@ -145,9 +145,19 @@ function WorkspaceBinding() {
   }
 
   function purge() {
-    if (engine.state.connection !== "online" || Date.now() - lastPurge < dayMs) return
-    lastPurge = Date.now()
-    void purgeArchived().then((ids) => ids.forEach((id) => void engine.actions.remove(id)))
-    void purgeRemovedWorkspaces().then((paths) => paths.forEach((path) => void engine.actions.removeAllSessions(path)))
+    if (engine.state.connection !== "online" || purging) return
+    purging = true
+    void (async () => {
+      let sweep = await prepareDeletions(Date.now() - purgeAge)
+      for (const workspace of sweep.workspaces) {
+        const ids = await engine.actions.sessionIdsAt(workspace.path)
+        if (!ids) continue
+        sweep = { ...sweep, pending: await stageWorkspaceDeletion(workspace.id, ids) }
+      }
+      const confirmed = await engine.actions.removePendingSessions(sweep.pending)
+      await confirmDeletions(confirmed)
+    })()
+      .catch(() => undefined)
+      .finally(() => (purging = false))
   }
 }

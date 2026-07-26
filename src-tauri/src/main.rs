@@ -12,29 +12,43 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
-use store::{ArchivedSession, Store, Workspace};
+use std::time::{Duration, Instant};
+use store::{ArchivedSession, DeletionSweep, PendingSessionDeletion, Store, Workspace};
 use tauri::{Emitter, Manager, RunEvent, State};
 use tauri_plugin_opener::OpenerExt;
 
 struct Engine {
-    url: Mutex<Option<String>>,
-    child: Mutex<Option<Child>>,
-    diagnostic: Mutex<String>,
-    password: String,
+    process: Mutex<EngineProcess>,
+    shutting_down: AtomicBool,
+    restart_requested: AtomicBool,
+}
+
+#[derive(Default)]
+struct EngineProcess {
+    url: Option<String>,
+    child: Option<Child>,
+    diagnostic: String,
+    password: Option<String>,
+    generation: u64,
+    terminal: bool,
 }
 
 impl Default for Engine {
     fn default() -> Self {
-        let mut bytes = [0u8; 32];
-        getrandom::fill(&mut bytes).expect("failed to generate engine password");
         Self {
-            url: Mutex::new(None),
-            child: Mutex::new(None),
-            diagnostic: Mutex::new(String::new()),
-            password: bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+            process: Mutex::new(EngineProcess::default()),
+            shutting_down: AtomicBool::new(false),
+            restart_requested: AtomicBool::new(false),
         }
     }
+}
+
+fn engine_password() -> String {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).expect("failed to generate engine password");
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[derive(Serialize)]
@@ -122,36 +136,17 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn engine_status(engine: State<Engine>) -> EngineStatus {
-    let url = engine.url.lock().unwrap().clone();
-    if url.is_some() {
+    let process = engine.process.lock().unwrap();
+    if process.url.is_some() {
         return EngineStatus {
-            url,
+            url: process.url.clone(),
             error: None,
-            password: Some(engine.password.clone()),
+            password: process.password.clone(),
         };
     }
-    let (has_child, status) = {
-        let mut child = engine.child.lock().unwrap();
-        (
-            child.is_some(),
-            child
-                .as_mut()
-                .and_then(|child| child.try_wait().ok().flatten()),
-        )
-    };
-    let diagnostic = engine.diagnostic.lock().unwrap();
-    let error = status
-        .map(|status| {
-            if diagnostic.is_empty() {
-                format!("embedded engine exited with {status}")
-            } else {
-                format!("embedded engine exited with {status}: {diagnostic}")
-            }
-        })
-        .or_else(|| (!has_child && !diagnostic.is_empty()).then(|| diagnostic.clone()));
     EngineStatus {
         url: None,
-        error,
+        error: process.terminal.then(|| process.diagnostic.clone()),
         password: None,
     }
 }
@@ -163,7 +158,9 @@ fn clipboard_write_text(window: tauri::WebviewWindow, text: String) -> Result<()
     use windows_sys::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
     };
-    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    use windows_sys::Win32::System::Memory::{
+        GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
+    };
 
     if text.is_empty() {
         return Ok(());
@@ -433,9 +430,25 @@ fn store_remove_workspace(store: State<Store>, id: String) -> Result<(), String>
 }
 
 #[tauri::command]
-fn store_purge_removed_workspaces(store: State<Store>, before: i64) -> Result<Vec<String>, String> {
+fn store_prepare_deletions(store: State<Store>, before: i64) -> Result<DeletionSweep, String> {
+    store.prepare_deletions(before).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn store_stage_workspace_deletion(
+    store: State<Store>,
+    workspace_id: String,
+    session_ids: Vec<String>,
+) -> Result<Vec<PendingSessionDeletion>, String> {
     store
-        .purge_removed_workspaces(before)
+        .stage_workspace_deletion(&workspace_id, &session_ids)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn store_confirm_deletions(store: State<Store>, session_ids: Vec<String>) -> Result<(), String> {
+    store
+        .confirm_deletions(&session_ids)
         .map_err(|e| e.to_string())
 }
 
@@ -460,11 +473,6 @@ fn store_unarchive_session(store: State<Store>, session_id: String) -> Result<()
     store
         .unarchive_session(&session_id)
         .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn store_purge_archived(store: State<Store>, before: i64) -> Result<Vec<String>, String> {
-    store.purge_archived(before).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -627,99 +635,198 @@ fn engine_extensions() -> Option<std::path::PathBuf> {
     source.exists().then_some(source)
 }
 
+const MAX_ENGINE_RESTARTS: u32 = 3;
+const ENGINE_STABLE_AFTER: Duration = Duration::from_secs(30);
+
+fn restart_delay(crashes: u32) -> Option<Duration> {
+    (crashes <= MAX_ENGINE_RESTARTS)
+        .then(|| Duration::from_millis(250 * 2u64.pow(crashes.saturating_sub(1))))
+}
+
+fn wait_for_restart(engine: &Engine, delay: Duration) -> bool {
+    let deadline = Instant::now() + delay;
+    while Instant::now() < deadline {
+        if engine.shutting_down.load(Ordering::SeqCst) {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    true
+}
+
 fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_dir: PathBuf) {
     std::thread::spawn(move || {
         let Some(binary) = engine_binary() else {
-            *app.state::<Engine>().diagnostic.lock().unwrap() =
-                "embedded engine binary not found".into();
+            let engine = app.state::<Engine>();
+            let mut process = engine.process.lock().unwrap();
+            process.diagnostic = "embedded engine binary not found".into();
+            process.terminal = true;
             return;
         };
         let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME"));
-        let password = app.state::<Engine>().password.clone();
-        let mut command = Command::new(binary);
-        command
-            .args(["serve", "--hostname", "127.0.0.1", "--port", "0"])
-            .env("OPENCODE_SERVER_PASSWORD", password)
-            .env("OPENCODE_SERVER_USERNAME", "opencode")
-            .env_remove("OPENCODE_CONFIG")
-            .env_remove("OPENCODE_CONFIG_CONTENT")
-            .env("OPENCODE_CONFIG_DIR", config_dir)
-            .env("DRIFT_MCP_APPROVAL_REQUIRED", "1")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if shared_database {
-            engine_db::configure_shared(&mut command);
-        }
-        if let Ok(home) = home {
-            command.current_dir(home);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x0800_0000);
-        }
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(error) => {
-                *app.state::<Engine>().diagnostic.lock().unwrap() =
-                    format!("failed to start embedded engine: {error}");
+        let mut crashes = 0;
+        loop {
+            let engine = app.state::<Engine>();
+            if engine.shutting_down.load(Ordering::SeqCst) {
                 return;
             }
-        };
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        let engine = app.state::<Engine>();
-        *engine.child.lock().unwrap() = Some(child);
-        if let Some(stderr) = stderr {
-            let diagnostics_app = app.clone();
-            std::thread::spawn(move || {
-                for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                    if !line.trim().is_empty() {
-                        *diagnostics_app.state::<Engine>().diagnostic.lock().unwrap() = line;
+
+            let password = engine_password();
+            let generation = {
+                let mut process = engine.process.lock().unwrap();
+                process.generation += 1;
+                process.url = None;
+                process.child = None;
+                process.diagnostic.clear();
+                process.password = Some(password.clone());
+                process.terminal = false;
+                process.generation
+            };
+            let started = Instant::now();
+            let mut command = Command::new(&binary);
+            command
+                .args(["serve", "--hostname", "127.0.0.1", "--port", "0"])
+                .env("OPENCODE_SERVER_PASSWORD", &password)
+                .env("OPENCODE_SERVER_USERNAME", "opencode")
+                .env_remove("OPENCODE_CONFIG")
+                .env_remove("OPENCODE_CONFIG_CONTENT")
+                .env("OPENCODE_CONFIG_DIR", &config_dir)
+                .env("DRIFT_MCP_APPROVAL_REQUIRED", "1")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            if shared_database {
+                engine_db::configure_shared(&mut command);
+            }
+            if let Ok(home) = &home {
+                command.current_dir(home);
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                command.creation_flags(0x0800_0000);
+            }
+
+            let mut exit = None;
+            match command.spawn() {
+                Ok(mut child) => {
+                    let stdout = child.stdout.take();
+                    let stderr = child.stderr.take();
+                    engine.process.lock().unwrap().child = Some(child);
+                    if let Some(stderr) = stderr {
+                        let diagnostics_app = app.clone();
+                        std::thread::spawn(move || {
+                            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                                if line.trim().is_empty() {
+                                    continue;
+                                }
+                                let engine = diagnostics_app.state::<Engine>();
+                                let mut process = engine.process.lock().unwrap();
+                                if process.generation == generation {
+                                    process.diagnostic = line;
+                                }
+                            }
+                        });
+                    }
+                    if let Some(stdout) = stdout {
+                        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                            if let Some(index) = line.find("http://") {
+                                let mut process = engine.process.lock().unwrap();
+                                if process.generation == generation {
+                                    process.url = Some(line[index..].trim().to_string());
+                                }
+                            }
+                        }
+                    }
+                    let mut process = engine.process.lock().unwrap();
+                    if process.generation == generation {
+                        exit = process.child.take().and_then(|mut child| child.wait().ok());
                     }
                 }
-            });
-        }
-        let Some(stdout) = stdout else { return };
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if let Some(index) = line.find("http://") {
-                let engine = app.state::<Engine>();
-                *engine.url.lock().unwrap() = Some(line[index..].trim().to_string());
+                Err(error) => {
+                    engine.process.lock().unwrap().diagnostic =
+                        format!("failed to start embedded engine: {error}");
+                }
+            }
+            let requested = engine.restart_requested.swap(false, Ordering::SeqCst);
+            let shutting_down = engine.shutting_down.load(Ordering::SeqCst);
+            {
+                let mut process = engine.process.lock().unwrap();
+                if process.generation == generation {
+                    process.url = None;
+                    if !shutting_down && !requested {
+                        let summary = exit
+                            .map(|status| format!("embedded engine exited with {status}"))
+                            .unwrap_or_else(|| "embedded engine stopped unexpectedly".into());
+                        process.diagnostic = if process.diagnostic.is_empty() {
+                            summary
+                        } else {
+                            format!("{summary}: {}", process.diagnostic)
+                        };
+                    }
+                }
+            }
+            if shutting_down {
+                return;
+            }
+            if requested || started.elapsed() >= ENGINE_STABLE_AFTER {
+                crashes = 0;
+            } else {
+                crashes += 1;
+            }
+            let Some(delay) = restart_delay(crashes) else {
+                engine.process.lock().unwrap().terminal = true;
+                return;
+            };
+            if !wait_for_restart(&engine, delay) {
+                return;
             }
         }
-        *app.state::<Engine>().url.lock().unwrap() = None;
     });
 }
 
 fn stop_engine_instances(app: &tauri::AppHandle) -> Result<(), String> {
     let engine = app.state::<Engine>();
-    let Some(url) = engine.url.lock().unwrap().clone() else {
-        return Ok(());
+    let (url, password) = {
+        let process = engine.process.lock().unwrap();
+        let Some(url) = process.url.clone() else {
+            return Ok(());
+        };
+        let Some(password) = process.password.clone() else {
+            return Ok(());
+        };
+        (url, password)
     };
-    let parsed = url::Url::parse(&url).map_err(|error| error.to_string())?;
-    let host = parsed.host_str().ok_or("embedded engine URL has no host")?;
-    let port = parsed
-        .port_or_known_default()
-        .ok_or("embedded engine URL has no port")?;
-    let mut stream = TcpStream::connect((host, port)).map_err(|error| error.to_string())?;
-    stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(3)))
-        .map_err(|error| error.to_string())?;
-    let authorization = basic_authorization("opencode", &engine.password);
-    let request = format!(
-        "POST /global/dispose HTTP/1.1\r\nHost: {host}:{port}\r\nAuthorization: Basic {authorization}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-    );
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|error| error.to_string())?;
-    let mut response = String::new();
-    BufReader::new(stream)
-        .read_line(&mut response)
-        .map_err(|error| error.to_string())?;
-    if !response.starts_with("HTTP/1.1 200") {
-        return Err("embedded engine refused global disposal".into());
+    engine.restart_requested.store(true, Ordering::SeqCst);
+    let result = (|| {
+        let parsed = url::Url::parse(&url).map_err(|error| error.to_string())?;
+        let host = parsed.host_str().ok_or("embedded engine URL has no host")?;
+        let port = parsed
+            .port_or_known_default()
+            .ok_or("embedded engine URL has no port")?;
+        let mut stream = TcpStream::connect((host, port)).map_err(|error| error.to_string())?;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .map_err(|error| error.to_string())?;
+        let authorization = basic_authorization("opencode", &password);
+        let request = format!(
+            "POST /global/dispose HTTP/1.1\r\nHost: {host}:{port}\r\nAuthorization: Basic {authorization}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        stream
+            .write_all(request.as_bytes())
+            .map_err(|error| error.to_string())?;
+        let mut response = String::new();
+        BufReader::new(stream)
+            .read_line(&mut response)
+            .map_err(|error| error.to_string())?;
+        if !response.starts_with("HTTP/1.1 200") {
+            return Err("embedded engine refused global disposal".into());
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        engine.restart_requested.store(false, Ordering::SeqCst);
     }
-    Ok(())
+    result
 }
 
 fn basic_authorization(username: &str, password: &str) -> String {
@@ -989,11 +1096,12 @@ fn main() {
             store_save_workspace,
             store_touch_workspace,
             store_remove_workspace,
-            store_purge_removed_workspaces,
+            store_prepare_deletions,
+            store_stage_workspace_deletion,
+            store_confirm_deletions,
             store_archived,
             store_archive_session,
             store_unarchive_session,
-            store_purge_archived,
             mcp_snapshot,
             prompt_snapshot,
             prompt_save,
@@ -1050,7 +1158,8 @@ fn main() {
         .run(|app, event| {
             if let RunEvent::Exit = event {
                 let engine = app.state::<Engine>();
-                let child = engine.child.lock().unwrap().take();
+                engine.shutting_down.store(true, Ordering::SeqCst);
+                let child = engine.process.lock().unwrap().child.take();
                 if let Some(mut child) = child {
                     let _ = child.kill();
                 }
@@ -1062,7 +1171,8 @@ fn main() {
 mod tests {
     use super::{
         basic_authorization, clipboard_utf16, config_path, editor_arguments, editor_kind,
-        file_signatures, watched_mcp_paths, EditorKind, Engine,
+        engine_password, file_signatures, restart_delay, watched_mcp_paths, EditorKind,
+        MAX_ENGINE_RESTARTS,
     };
     use std::path::Path;
 
@@ -1100,11 +1210,19 @@ mod tests {
 
     #[test]
     fn engine_credentials_are_random_and_basic_auth_encoded() {
-        let first = Engine::default().password;
-        let second = Engine::default().password;
+        let first = engine_password();
+        let second = engine_password();
         assert_eq!(first.len(), 64);
         assert_ne!(first, second);
         assert_eq!(basic_authorization("user", "pass"), "dXNlcjpwYXNz");
+    }
+
+    #[test]
+    fn engine_crash_restarts_are_bounded() {
+        for crash in 1..=MAX_ENGINE_RESTARTS {
+            assert!(restart_delay(crash).is_some());
+        }
+        assert!(restart_delay(MAX_ENGINE_RESTARTS + 1).is_none());
     }
 
     #[test]

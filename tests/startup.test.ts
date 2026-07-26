@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import type { Session } from "@opencode-ai/sdk/client"
 import { createActions } from "../src/engine/actions"
+import { resolveEngine } from "../src/engine/connection"
 import { createEngineState, putSessions } from "../src/engine/store"
 
 if (!("localStorage" in globalThis))
@@ -66,6 +67,29 @@ test("concurrent global session loads share one request", async () => {
 test("engine startup does not replace an active global event pump", async () => {
   const source = await Bun.file("src/engine/index.tsx").text()
   expect(source).toContain("if (!base || disposed || pumpAbort) return")
+})
+
+test("shell engine resolution refreshes a restarted target and credentials", async () => {
+  const original = (globalThis as { __TAURI__?: unknown }).__TAURI__
+  const statuses = [
+    { url: "http://127.0.0.1:4100", password: "first" },
+    { url: "http://127.0.0.1:4200", password: "second" },
+  ]
+  ;(globalThis as { __TAURI__?: unknown }).__TAURI__ = {
+    core: { invoke: async () => statuses.shift() },
+  }
+  try {
+    expect(await resolveEngine()).toEqual({
+      url: "http://127.0.0.1:4100",
+      headers: { Authorization: `Basic ${btoa("opencode:first")}` },
+    })
+    expect(await resolveEngine()).toEqual({
+      url: "http://127.0.0.1:4200",
+      headers: { Authorization: `Basic ${btoa("opencode:second")}` },
+    })
+  } finally {
+    ;(globalThis as { __TAURI__?: unknown }).__TAURI__ = original
+  }
 })
 
 test("startup splash waits for workspace bootstrap without trapping empty or failed startup", async () => {

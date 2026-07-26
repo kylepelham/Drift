@@ -76,8 +76,10 @@ export function EngineProvider(props: ParentProps) {
     set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
   }
 
-  async function pump(target: EngineTarget, signal: AbortSignal) {
+  async function pump(signal: AbortSignal) {
     while (!signal.aborted) {
+      const target = base
+      if (!target) return
       try {
         await streamEvents(target, signal, (event, eventDirectory) => {
           if (event.type === "server.connected") {
@@ -90,9 +92,22 @@ export function EngineProvider(props: ParentProps) {
       } catch {}
       if (signal.aborted) return
       set("connection", "offline")
-      await sleep(1500)
+      await sleep(300)
       if (signal.aborted) return
       set("connection", "connecting")
+      try {
+        const refreshed = await resolveEngine()
+        if (signal.aborted || disposed) return
+        base = refreshed
+        if (directory)
+          client = createOpencodeClient({ baseUrl: refreshed.url, headers: refreshed.headers, directory })
+        set("startupError", "")
+      } catch (error) {
+        if (signal.aborted || disposed) return
+        set("startupError", error instanceof Error ? error.message : String(error))
+        set("connection", "offline")
+        return
+      }
     }
   }
 
@@ -115,7 +130,7 @@ export function EngineProvider(props: ParentProps) {
     )
     if (import.meta.env.DEV) seedBench(set, path)
     pumpAbort = new AbortController()
-    void pump(base, pumpAbort.signal)
+    void pump(pumpAbort.signal)
   }
 
   function setDirectory(path: string | null) {
@@ -146,6 +161,7 @@ export function EngineProvider(props: ParentProps) {
   void resolveEngine()
     .then(async (target) => {
       base = target
+      set("startupError", "")
       const health = await fetch(`${target.url}/global/health`, { headers: target.headers })
         .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
         .catch(() => null)

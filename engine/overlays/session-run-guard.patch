@@ -1,0 +1,205 @@
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
+index 4c13afd..5ce97ba 100644
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
+@@ -4,15 +4,18 @@ import { Effect } from "effect"
+ import { HttpApiBuilder } from "effect/unstable/httpapi"
+ import { RootHttpApi } from "../api"
+ import { ApiMoveSessionError, MoveSessionPayload } from "../groups/control-plane"
++import { Session } from "@/session/session"
++import { SessionRunState } from "@/session/run-state"
+
+ export const controlPlaneHandlers = HttpApiBuilder.group(RootHttpApi, "controlPlane", (handlers) =>
+   Effect.gen(function* () {
+     const service = yield* MoveSession.Service
++    const runState = yield* SessionRunState.Service
+
+     const moveSession = Effect.fn("ControlPlaneHttpApi.moveSession")(function* (ctx: {
+       payload: typeof MoveSessionPayload.Type
+     }) {
+-      yield* service.moveSession(ctx.payload).pipe(
++      yield* runState.whileIdle(ctx.payload.sessionID, service.moveSession(ctx.payload)).pipe(
+         Effect.mapError(
+           (error) =>
+             new ApiMoveSessionError({
+@@ -27,7 +30,8 @@ export const controlPlaneHandlers = HttpApiBuilder.group(RootHttpApi, "controlPl
+   }),
+ )
+
+-function message(error: MoveSession.Error) {
++function message(error: MoveSession.Error | Session.BusyError) {
++  if (error instanceof Session.BusyError) return "Session is still active"
+   if (error instanceof SessionV2.NotFoundError) return `Session not found: ${error.sessionID}`
+   if (error instanceof MoveSession.DestinationProjectMismatchError)
+     return "Destination directory belongs to another project"
+diff --git a/packages/opencode/src/session/run-state.ts b/packages/opencode/src/session/run-state.ts
+index 5cefdd0..2db86e2 100644
+--- a/packages/opencode/src/session/run-state.ts
++++ b/packages/opencode/src/session/run-state.ts
+@@ -3,13 +3,17 @@ import { InstanceState } from "@/effect/instance-state"
+ import { SessionV1 } from "@opencode-ai/core/v1/session"
+ import { Runner } from "@/effect/runner"
+ import { BackgroundJob } from "@/background/job"
+-import { Effect, Latch, Layer, Scope, Context } from "effect"
++import { Effect, Latch, Layer, Scope, Context, Semaphore } from "effect"
+ import { Session } from "./session"
+ import { SessionID } from "./schema"
+ import { SessionStatus } from "./status"
+
+ export interface Interface {
+   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void, Session.BusyError>
++  readonly whileIdle: <A, E, R>(
++    sessionID: SessionID,
++    effect: Effect.Effect<A, E, R>,
++  ) => Effect.Effect<A, E | Session.BusyError, R>
+   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
+   readonly ensureRunning: (
+     sessionID: SessionID,
+@@ -36,6 +40,7 @@ const layer = Layer.effect(
+       Effect.fn("SessionRunState.state")(function* () {
+         const scope = yield* Scope.Scope
+         const runners = new Map<SessionID, Runner.Runner<SessionV1.WithParts>>()
++        const locks = new Map<SessionID, Semaphore.Semaphore>()
+         yield* Effect.addFinalizer(
+           Effect.fnUntraced(function* () {
+             yield* Effect.forEach(runners.values(), (runner) => runner.cancel, {
+@@ -45,27 +50,49 @@ const layer = Layer.effect(
+             runners.clear()
+           }),
+         )
+-        return { runners, scope }
++        return { runners, locks, scope }
+       }),
+     )
+
++    const lock = (data: { locks: Map<SessionID, Semaphore.Semaphore> }, sessionID: SessionID) => {
++      const existing = data.locks.get(sessionID)
++      if (existing) return existing
++      const next = Semaphore.makeUnsafe(1)
++      data.locks.set(sessionID, next)
++      return next
++    }
++
+     const runner = Effect.fn("SessionRunState.runner")(function* (
+       sessionID: SessionID,
+       onInterrupt: Effect.Effect<SessionV1.WithParts>,
+     ) {
+       const data = yield* InstanceState.get(state)
+-      const existing = data.runners.get(sessionID)
+-      if (existing) return existing
+-      const next = Runner.make<SessionV1.WithParts>(data.scope, {
+-        onIdle: Effect.gen(function* () {
+-          data.runners.delete(sessionID)
+-          yield* status.set(sessionID, { type: "idle" })
++      return yield* lock(data, sessionID).withPermits(1)(
++        Effect.sync(() => {
++          const existing = data.runners.get(sessionID)
++          if (existing) return existing
++          const next = Runner.make<SessionV1.WithParts>(data.scope, {
++            onIdle: Effect.gen(function* () {
++              data.runners.delete(sessionID)
++              yield* status.set(sessionID, { type: "idle" })
++            }),
++            onBusy: status.set(sessionID, { type: "busy" }),
++            onInterrupt,
++          })
++          data.runners.set(sessionID, next)
++          return next
+         }),
+-        onBusy: status.set(sessionID, { type: "busy" }),
+-        onInterrupt,
+-      })
+-      data.runners.set(sessionID, next)
+-      return next
++      )
++    })
++
++    const whileIdle: Interface["whileIdle"] = Effect.fn("SessionRunState.whileIdle")(function* (sessionID, effect) {
++      const data = yield* InstanceState.get(state)
++      return yield* lock(data, sessionID).withPermits(1)(
++        Effect.gen(function* () {
++          if (data.runners.get(sessionID)?.busy) return yield* busyError(sessionID)
++          return yield* effect
++        }),
++      )
+     })
+
+     const assertNotBusy = Effect.fn("SessionRunState.assertNotBusy")(function* (sessionID: SessionID) {
+@@ -104,7 +131,7 @@ const layer = Layer.effect(
+         .pipe(Effect.catchTag("RunnerBusy", () => Effect.fail(busyError(sessionID))))
+     })
+
+-    return Service.of({ assertNotBusy, cancel, ensureRunning, startShell })
++    return Service.of({ assertNotBusy, whileIdle, cancel, ensureRunning, startShell })
+   }),
+ )
+
+diff --git a/packages/opencode/test/server/httpapi-control-plane.test.ts b/packages/opencode/test/server/httpapi-control-plane.test.ts
+index b837bf7..c533deb 100644
+--- a/packages/opencode/test/server/httpapi-control-plane.test.ts
++++ b/packages/opencode/test/server/httpapi-control-plane.test.ts
+@@ -10,6 +10,8 @@ import { Auth } from "../../src/auth"
+ import { Config } from "../../src/config/config"
+ import { Installation } from "../../src/installation"
+ import { ServerAuth } from "../../src/server/auth"
++import { Session } from "../../src/session/session"
++import { SessionRunState } from "../../src/session/run-state"
+ import { RootHttpApi } from "../../src/server/routes/instance/httpapi/api"
+ import { controlHandlers } from "../../src/server/routes/instance/httpapi/handlers/control"
+ import { controlPlaneHandlers } from "../../src/server/routes/instance/httpapi/handlers/control-plane"
+@@ -24,6 +26,7 @@ const input = MoveSession.Input.make({
+   moveChanges: true,
+ })
+ const called = Ref.makeUnsafe<MoveSession.Input | undefined>(undefined)
++const busy = Ref.makeUnsafe(false)
+
+ const apiLayer = HttpRouter.serve(
+   HttpApiBuilder.layer(RootHttpApi).pipe(
+@@ -44,6 +47,18 @@ const apiLayer = HttpRouter.serve(
+       moveSession: (value) => Ref.set(called, value),
+     }),
+   ),
++  Layer.provide(
++    Layer.mock(SessionRunState.Service)({
++      assertNotBusy: () => Effect.void,
++      cancel: () => Effect.void,
++      ensureRunning: (_sessionID, _onInterrupt, work) => work,
++      startShell: (_sessionID, _onInterrupt, work) => work,
++      whileIdle: (sessionID, effect) =>
++        Ref.get(busy).pipe(
++          Effect.flatMap((active) => (active ? Effect.fail(new Session.BusyError({ sessionID })) : effect)),
++        ),
++    }),
++  ),
+   Layer.provide(ServerAuth.Config.configLayer({ password: Option.none(), username: "opencode" })),
+ )
+ const it = testEffect(apiLayer)
+@@ -51,6 +66,8 @@ const it = testEffect(apiLayer)
+ describe("control-plane HttpApi", () => {
+   it.live("moves a session through the root control-plane route", () =>
+     Effect.gen(function* () {
++      yield* Ref.set(busy, false)
++      yield* Ref.set(called, undefined)
+       const response = yield* HttpClientRequest.post("/experimental/control-plane/move-session").pipe(
+         HttpClientRequest.setBody(HttpBody.jsonUnsafe(input)),
+         HttpClient.execute,
+@@ -60,4 +77,19 @@ describe("control-plane HttpApi", () => {
+       expect(yield* Ref.get(called)).toEqual(input)
+     }),
+   )
++
++  it.live("rejects a move while the session is active", () =>
++    Effect.gen(function* () {
++      yield* Ref.set(busy, true)
++      yield* Ref.set(called, undefined)
++      const response = yield* HttpClientRequest.post("/experimental/control-plane/move-session").pipe(
++        HttpClientRequest.setBody(HttpBody.jsonUnsafe(input)),
++        HttpClient.execute,
++      )
++
++      expect(response.status).toBe(400)
++      expect(yield* response.text).toContain("Session is still active")
++      expect(yield* Ref.get(called)).toBeUndefined()
++    }),
++  )
+ })

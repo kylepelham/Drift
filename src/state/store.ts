@@ -1,5 +1,7 @@
 export type Workspace = { id: string; path: string; name: string; icon: string; lastUsed: number; removedAt?: number }
 export type ArchivedSession = { sessionId: string; workspaceId: string; archivedAt: number }
+export type PendingSessionDeletion = { sessionId: string; directory: string }
+export type DeletionSweep = { pending: PendingSessionDeletion[]; workspaces: Workspace[] }
 export type McpConfig = Record<string, unknown> & { type: "local" | "remote" }
 export type StoredMcpServer = { name: string; config: McpConfig; updatedAt: number }
 export type McpDecision = "pending" | "approved" | "rejected" | "invalid"
@@ -23,11 +25,12 @@ export interface DriftStore {
   saveWorkspace(workspace: Omit<Workspace, "lastUsed">): Promise<void>
   touchWorkspace(id: string): Promise<void>
   removeWorkspace(id: string): Promise<void>
-  purgeRemovedWorkspaces(before: number): Promise<string[]>
+  prepareDeletions(before: number): Promise<DeletionSweep>
+  stageWorkspaceDeletion(workspaceId: string, sessionIds: string[]): Promise<PendingSessionDeletion[]>
+  confirmDeletions(sessionIds: string[]): Promise<void>
   archived(): Promise<ArchivedSession[]>
   archiveSession(sessionId: string, workspaceId: string): Promise<void>
   unarchiveSession(sessionId: string): Promise<void>
-  purgeArchived(before: number): Promise<string[]>
   mcpSnapshot(directory: string): Promise<McpSnapshot>
   saveMcp(name: string, config: McpConfig, generation: number, previousName?: string): Promise<void>
   removeMcp(name: string, generation: number): Promise<void>
@@ -50,11 +53,13 @@ function shellStore(invoke: Invoke): DriftStore {
     saveWorkspace: (w) => invoke("store_save_workspace", { id: w.id, path: w.path, name: w.name, icon: w.icon }),
     touchWorkspace: (id) => invoke("store_touch_workspace", { id }),
     removeWorkspace: (id) => invoke("store_remove_workspace", { id }),
-    purgeRemovedWorkspaces: (before) => invoke("store_purge_removed_workspaces", { before }),
+    prepareDeletions: (before) => invoke("store_prepare_deletions", { before }),
+    stageWorkspaceDeletion: (workspaceId, sessionIds) =>
+      invoke("store_stage_workspace_deletion", { workspaceId, sessionIds }),
+    confirmDeletions: (sessionIds) => invoke("store_confirm_deletions", { sessionIds }),
     archived: () => invoke("store_archived"),
     archiveSession: (sessionId, workspaceId) => invoke("store_archive_session", { sessionId, workspaceId }),
     unarchiveSession: (sessionId) => invoke("store_unarchive_session", { sessionId }),
-    purgeArchived: (before) => invoke("store_purge_archived", { before }),
     mcpSnapshot: (directory) => invoke("mcp_snapshot", { directory }),
     saveMcp: (name, config, generation, previousName) =>
       invoke("mcp_save", { name, config, generation, previousName }),
@@ -77,11 +82,12 @@ function write(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value))
 }
 
-type StoredWorkspace = Workspace & { removedAt?: number }
+type StoredWorkspace = Workspace & { removedAt?: number; purgeStagedAt?: number }
 
 function browserStore(): DriftStore {
   const wsKey = "drift.store.workspaces"
   const arKey = "drift.store.archived"
+  const pendingKey = "drift.store.pending-session-delete"
   const all = () => read<StoredWorkspace[]>(wsKey, [])
   const desktopMcpOnly = async (): Promise<never> => {
     throw new Error("MCP policy requires the Drift desktop backend")
@@ -92,8 +98,14 @@ function browserStore(): DriftStore {
     addWorkspace: async (w) => {
       const existing = all().find((x) => x.path === w.path)
       if (existing) {
-        const restored = { ...existing, removedAt: undefined, lastUsed: Date.now() }
+        const restored = { ...existing, removedAt: undefined, purgeStagedAt: undefined, lastUsed: Date.now() }
         write(wsKey, [...all().filter((x) => x.id !== existing.id), restored])
+        write(
+          pendingKey,
+          read<(PendingSessionDeletion & { workspaceId?: string })[]>(pendingKey, []).filter(
+            (entry) => entry.workspaceId !== existing.id,
+          ),
+        )
         return restored
       }
       const created = { ...w, lastUsed: Date.now() }
@@ -109,11 +121,57 @@ function browserStore(): DriftStore {
     removeWorkspace: async (id) => {
       write(wsKey, all().map((w) => (w.id === id ? { ...w, removedAt: Date.now() } : w)))
     },
-    purgeRemovedWorkspaces: async (before) => {
-      const gone = all().filter((w) => w.removedAt && w.removedAt < before)
-      write(wsKey, all().filter((w) => !gone.some((g) => g.id === w.id)))
-      write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => !gone.some((g) => g.id === a.workspaceId)))
-      return gone.map((w) => w.path)
+    prepareDeletions: async (before) => {
+      const pending = read<(PendingSessionDeletion & { workspaceId?: string })[]>(pendingKey, [])
+      const archives = read<ArchivedSession[]>(arKey, []).filter((entry) => entry.archivedAt < before)
+      for (const archive of archives) {
+        if (pending.some((entry) => entry.sessionId === archive.sessionId)) continue
+        const workspace = all().find((entry) => entry.id === archive.workspaceId)
+        if (workspace)
+          pending.push({ sessionId: archive.sessionId, directory: workspace.path, workspaceId: archive.workspaceId })
+      }
+      write(pendingKey, pending)
+      return {
+        pending: pending.map(({ sessionId, directory }) => ({ sessionId, directory })),
+        workspaces: all().filter((workspace) => workspace.removedAt && workspace.removedAt < before && !workspace.purgeStagedAt),
+      }
+    },
+    stageWorkspaceDeletion: async (workspaceId, sessionIds) => {
+      const workspace = all().find((entry) => entry.id === workspaceId && entry.removedAt)
+      if (!workspace) return read<PendingSessionDeletion[]>(pendingKey, [])
+      const pending = read<(PendingSessionDeletion & { workspaceId?: string })[]>(pendingKey, [])
+      const archived = read<ArchivedSession[]>(arKey, [])
+        .filter((entry) => entry.workspaceId === workspaceId)
+        .map((entry) => entry.sessionId)
+      for (const sessionId of [...sessionIds, ...archived]) {
+        const existing = pending.find((entry) => entry.sessionId === sessionId)
+        if (existing) {
+          existing.directory = workspace.path
+          existing.workspaceId = workspaceId
+        } else {
+          pending.push({ sessionId, directory: workspace.path, workspaceId })
+        }
+      }
+      write(pendingKey, pending)
+      write(wsKey, all().map((entry) => (entry.id === workspaceId ? { ...entry, purgeStagedAt: Date.now() } : entry)))
+      return pending.map(({ sessionId, directory }) => ({ sessionId, directory }))
+    },
+    confirmDeletions: async (sessionIds) => {
+      const confirmed = new Set(sessionIds)
+      const pending = read<(PendingSessionDeletion & { workspaceId?: string })[]>(pendingKey, []).filter(
+        (entry) => !confirmed.has(entry.sessionId),
+      )
+      write(pendingKey, pending)
+      write(arKey, read<ArchivedSession[]>(arKey, []).filter((entry) => !confirmed.has(entry.sessionId)))
+      write(
+        wsKey,
+        all().filter(
+          (workspace) =>
+            !workspace.removedAt ||
+            !workspace.purgeStagedAt ||
+            pending.some((entry) => entry.workspaceId === workspace.id),
+        ),
+      )
     },
     archived: async () => read<ArchivedSession[]>(arKey, []),
     archiveSession: async (sessionId, workspaceId) => {
@@ -122,11 +180,10 @@ function browserStore(): DriftStore {
     },
     unarchiveSession: async (sessionId) => {
       write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => a.sessionId !== sessionId))
-    },
-    purgeArchived: async (before) => {
-      const list = read<ArchivedSession[]>(arKey, [])
-      write(arKey, list.filter((a) => a.archivedAt >= before))
-      return list.filter((a) => a.archivedAt < before).map((a) => a.sessionId)
+      write(
+        pendingKey,
+        read<PendingSessionDeletion[]>(pendingKey, []).filter((entry) => entry.sessionId !== sessionId),
+      )
     },
     mcpSnapshot: desktopMcpOnly,
     saveMcp: desktopMcpOnly,

@@ -28,6 +28,7 @@ export type PromptOptions = { model: ModelRef | null; agent: string; variant?: s
 export type PermissionResponse = "once" | "always" | "reject"
 export type ProviderAuthResult = { ok: boolean; connected: boolean }
 export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
+export type PendingSessionDeletion = { sessionId: string; directory: string }
 
 type PermissionRequest = {
   id: string
@@ -138,13 +139,6 @@ export function createActions(
     }
   }
 
-  async function removeAllSessions(directory: string) {
-    const result = await requireClient().session.list({ query: { directory } })
-    for (const session of result.data ?? []) {
-      await requireClient().session.delete({ path: { id: session.id }, query: { directory } })
-    }
-  }
-
   async function newSession(): Promise<Session | undefined> {
     const result = await requireClient().session.create({ body: {} })
     if (result.data) set("sessions", result.data.id, result.data)
@@ -232,12 +226,40 @@ export function createActions(
     return (await response.json().catch(() => null)) as Session[] | null
   }
 
-  async function rebindSession(id: string, destination: string): Promise<string | null> {
+  async function sessionIdsAt(directory: string): Promise<string[] | null> {
+    const sessions = await sessionsAt(directory)
+    return sessions?.map((session) => session.id) ?? null
+  }
+
+  async function removePendingSessions(entries: PendingSessionDeletion[]): Promise<PendingSessionDeletion[]> {
+    const base = target()
+    if (!base) return []
+    const confirmed: PendingSessionDeletion[] = []
+    const clients = new Map<string, OpencodeClient>()
+    for (const entry of entries) {
+      let client = clients.get(entry.directory)
+      if (!client) {
+        client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory: entry.directory })
+        clients.set(entry.directory, client)
+      }
+      const result = await client.session.delete({ path: { id: entry.sessionId } }).catch(() => null)
+      if (!result || (result.error && result.response?.status !== 404)) continue
+      confirmed.push(entry)
+      forgetSession(entry.sessionId)
+    }
+    return confirmed
+  }
+
+  async function rebindSession(id: string, source: string, destination: string): Promise<string | null> {
     const base = target()
     if (!base) return "Engine is offline"
     const response = await fetch(`${base.url}/experimental/control-plane/move-session`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...base.headers },
+      headers: {
+        "content-type": "application/json",
+        "x-opencode-directory": encodeURIComponent(source),
+        ...base.headers,
+      },
       body: JSON.stringify({ sessionID: id, destination: { directory: destination }, moveChanges: false }),
     }).catch(() => null)
     if (!response) return "Could not reach the engine"
@@ -249,13 +271,29 @@ export function createActions(
   async function moveSessions(entries: Session[], destination: string): Promise<SessionMoveResult> {
     const moving = entries.filter((session) => normalizeDir(session.directory) !== normalizeDir(destination))
     if (!moving.length) return { ok: true, moved: [] }
-    for (const session of moving) await interrupt(session.id)
+    for (const session of moving) {
+      if (await interrupt(session.id)) continue
+      return { ok: false, moved: [], error: `Session ${session.title || session.id} is still active` }
+    }
+    for (const directory of new Set(moving.map((session) => session.directory))) {
+      const base = target()
+      if (!base) return { ok: false, moved: [], error: "Engine is offline" }
+      const response = await fetch(`${base.url}/session/status?directory=${encodeURIComponent(directory)}`, {
+        headers: base.headers,
+      }).catch(() => null)
+      const statuses = response?.ok
+        ? ((await response.json().catch(() => null)) as Record<string, { type: string }> | null)
+        : null
+      if (!statuses) return { ok: false, moved: [], error: "Could not confirm that the session tree is idle" }
+      const active = moving.find((session) => session.directory === directory && statuses[session.id]?.type !== undefined)
+      if (active) return { ok: false, moved: [], error: `Session ${active.title || active.id} is still active` }
+    }
 
     const completed: Session[] = []
     for (const session of moving) {
-      const error = await rebindSession(session.id, destination)
+      const error = await rebindSession(session.id, session.directory, destination)
       if (error) {
-        for (const rollback of completed.reverse()) await rebindSession(rollback.id, rollback.directory)
+        for (const rollback of completed.reverse()) await rebindSession(rollback.id, destination, rollback.directory)
         const restored = await sessionsAt(moving[0].directory)
         for (const info of restored ?? []) putSession(set, info)
         return { ok: false, moved: [], error }
@@ -434,7 +472,8 @@ export function createActions(
   }
 
   async function remove(id: string) {
-    await requireClient().session.delete({ path: { id } })
+    const result = await requireClient().session.delete({ path: { id } })
+    if (result.error) throw new Error("The engine rejected the session deletion")
     forgetSession(id)
   }
 
@@ -579,13 +618,17 @@ export function createActions(
     for (const permission of state.permissions[id] ?? [])
       await replyPermission(id, permission.id, "reject").catch(() => {})
     for (const question of state.questions[id] ?? []) await answerQuestion(id, question.id, null)
-    if (!sessionBusy(state, id)) return
-    await requireClient().session.abort({ path: { id } }).catch(() => {})
+    if (!sessionBusy(state, id)) return true
+    const result = await requireClient()
+      .session.abort({ path: { id } })
+      .catch(() => null)
+    if (!result || result.error) return false
     for (let waited = 0; waited < 5000 && sessionBusy(state, id); waited += 100) await sleep(100)
+    return !sessionBusy(state, id)
   }
 
   async function revert(id: string, messageID: string) {
-    await interrupt(id)
+    if (!(await interrupt(id))) return false
     const result = await requireClient().session.revert({ path: { id }, body: { messageID } })
     if (result.error) {
       set("errors", id, "Revert failed: the engine rejected the request")
@@ -598,7 +641,7 @@ export function createActions(
   }
 
   async function unrevert(id: string) {
-    await interrupt(id)
+    if (!(await interrupt(id))) return false
     const result = await requireClient().session.unrevert({ path: { id } })
     if (!result.data) return false
     putSession(set, result.data)
@@ -622,7 +665,8 @@ export function createActions(
     loadOlder,
     loadSessions,
     loadAllSessions,
-    removeAllSessions,
+    sessionIdsAt,
+    removePendingSessions,
     newSession,
     fork,
     spawn,

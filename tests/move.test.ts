@@ -38,7 +38,7 @@ test("metadata-only session moves retain history and move the descendant tree", 
   const sessions = [session("root", source), session("child", source, "root"), session("sibling", source)]
   const [state, set] = createEngineState()
   for (const entry of sessions) set("sessions", entry.id, entry)
-  const requests: { id: string; moveChanges: boolean }[] = []
+  const requests: { id: string; moveChanges: boolean; source: string }[] = []
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init)
@@ -48,12 +48,17 @@ test("metadata-only session moves retain history and move the descendant tree", 
       const data = directory === source ? sessions : sessions.map((entry) => ({ ...entry, directory: destination, projectID: "new-project" }))
       return Response.json(data)
     }
+    if (request.method === "GET" && url.pathname === "/session/status") return Response.json({})
     const body = (await request.json()) as {
       sessionID: string
       destination: { directory: string }
       moveChanges: boolean
     }
-    requests.push({ id: body.sessionID, moveChanges: body.moveChanges })
+    requests.push({
+      id: body.sessionID,
+      moveChanges: body.moveChanges,
+      source: decodeURIComponent(request.headers.get("x-opencode-directory") ?? ""),
+    })
     return new Response(null, { status: 204 })
   }) as typeof fetch
 
@@ -66,13 +71,86 @@ test("metadata-only session moves retain history and move the descendant tree", 
     )
     expect(await actions.moveSession("root", destination)).toEqual({ ok: true, moved: ["root", "child"] })
     expect(requests).toEqual([
-      { id: "root", moveChanges: false },
-      { id: "child", moveChanges: false },
+      { id: "root", moveChanges: false, source },
+      { id: "child", moveChanges: false, source },
     ])
     expect(state.sessions.root.directory).toBe(destination)
     expect(state.sessions.root.projectID).toBe("new-project")
     expect(state.sessions.child.directory).toBe(destination)
     expect(state.sessions.sibling.directory).toBe(source)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("session moves reject a tree that is still active before rebinding", async () => {
+  const source = "C:/one"
+  const destination = "C:/two"
+  const sessions = [session("root", source), session("child", source, "root")]
+  const [state, set] = createEngineState()
+  for (const entry of sessions) set("sessions", entry.id, entry)
+  const originalFetch = globalThis.fetch
+  let moves = 0
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    const url = new URL(request.url)
+    if (url.pathname === "/experimental/session") return Response.json(sessions)
+    if (url.pathname === "/session/status") return Response.json({ child: { type: "busy" } })
+    moves += 1
+    return new Response(null, { status: 204 })
+  }) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => ({}) as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+    )
+    expect(await actions.moveSession("root", destination)).toEqual({
+      ok: false,
+      moved: [],
+      error: "Session child is still active",
+    })
+    expect(moves).toBe(0)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("a partially failed tree move rolls completed sessions back to their source", async () => {
+  const source = "C:/one"
+  const destination = "C:/two"
+  const sessions = [session("root", source), session("child", source, "root")]
+  const [state, set] = createEngineState()
+  for (const entry of sessions) set("sessions", entry.id, entry)
+  const requests: { id: string; destination: string }[] = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    const url = new URL(request.url)
+    if (url.pathname === "/experimental/session") return Response.json(sessions)
+    if (url.pathname === "/session/status") return Response.json({})
+    const body = (await request.json()) as { sessionID: string; destination: { directory: string } }
+    requests.push({ id: body.sessionID, destination: body.destination.directory })
+    if (body.sessionID === "child")
+      return Response.json({ data: { message: "still active" } }, { status: 400 })
+    return new Response(null, { status: 204 })
+  }) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => ({}) as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+    )
+    expect(await actions.moveSession("root", destination)).toEqual({ ok: false, moved: [], error: "still active" })
+    expect(requests).toEqual([
+      { id: "root", destination },
+      { id: "child", destination },
+      { id: "root", destination: source },
+    ])
   } finally {
     globalThis.fetch = originalFetch
   }

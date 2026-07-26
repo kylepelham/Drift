@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js"
 import { selectSession } from "./selection"
 import { persisted } from "./persist"
-import { driftStore, type ArchivedSession, type Workspace } from "./store"
+import { driftStore, type ArchivedSession, type PendingSessionDeletion, type Workspace } from "./store"
 
 const [rawWorkspaces, setWorkspaces] = createSignal<Workspace[]>([])
 const [workspacesReady, setWorkspacesReady] = createSignal(false)
@@ -126,16 +126,18 @@ export async function unarchiveSession(sessionId: string) {
   await refreshArchives()
 }
 
-const purgeAge = 7 * 24 * 60 * 60 * 1000
+export const purgeAge = 7 * 24 * 60 * 60 * 1000
 
-export async function purgeArchived() {
-  const ids = await driftStore.purgeArchived(Date.now() - purgeAge)
-  await refreshArchives()
-  return ids
+export function prepareDeletions(before: number) {
+  return driftStore.prepareDeletions(before)
 }
 
-export async function purgeRemovedWorkspaces() {
-  const paths = await driftStore.purgeRemovedWorkspaces(Date.now() - purgeAge)
+export function stageWorkspaceDeletion(workspaceId: string, sessionIds: string[]) {
+  return driftStore.stageWorkspaceDeletion(workspaceId, sessionIds)
+}
+
+export async function confirmDeletions(entries: PendingSessionDeletion[]) {
+  await driftStore.confirmDeletions(entries.map((entry) => entry.sessionId))
+  await refreshArchives()
   await refreshWorkspaces()
-  return paths
 }

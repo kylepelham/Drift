@@ -24,9 +24,10 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   gives the engine and Vite a random shared password.
 - Shell: `src-tauri/src/main.rs` locates the sidecar (next to the app exe, or
   `src-tauri/binaries` in dev), spawns `serve --hostname 127.0.0.1 --port 0` with a random
-  Basic-auth password, parses the printed URL, and serves both via `engine_status`. The child
-  is killed on exit. The frontend polls status until the sidecar is up, surfaces an
-  early process failure with its last stderr line, and times out after 45 seconds.
+  Basic-auth password, parses the printed URL, and serves both via `engine_status`. A bounded
+  supervisor restarts crashes with fresh credentials and backoff; crash-loop exhaustion is
+  surfaced with the last stderr line. Shutdown kills the child without restarting it, and the
+  frontend re-resolves the target after a live connection drops.
 - Packaging: `tauri build` produces an NSIS installer bundling the sidecar
   (`externalBin`) plus generated `drift-extensions/` beside the exe. Tauri builds
   clear the raw release resource directory before copying it so removed plugins
