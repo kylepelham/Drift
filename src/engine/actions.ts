@@ -551,14 +551,27 @@ export function createActions(
   async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
     const permission = (state.permissions[sessionID] ?? []).find((p) => p.id === permissionID)
     const dir = permission?.metadata?.directory as string | undefined
+    const failed = () => {
+      const message = "The request is still pending. Try again."
+      notice({ title: "Permission reply failed", message, variant: "error" })
+      return false
+    }
     if (dir && normalizeDir(dir) !== normalizeDir(state.directory)) {
-      await replyElsewhere(sessionID, permissionID, response, dir)
+      // A swallowed failure would hide the card while the engine stays blocked on the ask, and
+      // because the card is gone poll reconciliation never clears it from `answered`.
+      if (!(await replyElsewhere(sessionID, permissionID, response, dir))) return failed()
     } else {
-      const result = await requireClient().postSessionIdPermissionsPermissionId({
-        path: { id: sessionID, permissionID },
-        body: { response },
-      })
-      if (result.error) return
+      // requireClient() throws while offline and the request itself can reject. UI callers
+      // fire-and-forget this action, so both must resolve to a visible failure.
+      try {
+        const result = await requireClient().postSessionIdPermissionsPermissionId({
+          path: { id: sessionID, permissionID },
+          body: { response },
+        })
+        if (result.error) return failed()
+      } catch {
+        return failed()
+      }
     }
     answered.add(permissionID)
     set(
@@ -566,6 +579,7 @@ export function createActions(
         s.permissions[sessionID] = (s.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID)
       }),
     )
+    return true
   }
 
   async function answerQuestion(sessionID: string, requestID: string, answers: string[][] | null) {
@@ -592,13 +606,14 @@ export function createActions(
 
   async function replyElsewhere(sessionID: string, permissionID: string, response: PermissionResponse, dir: string) {
     const base = target()
-    if (!base) return
+    if (!base) return false
     const url = `${base.url}/session/${sessionID}/permissions/${permissionID}?directory=${encodeURIComponent(dir)}`
-    await fetch(url, {
+    const result = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json", ...base.headers },
       body: JSON.stringify({ response }),
-    }).catch(() => {})
+    }).catch(() => null)
+    return result?.ok === true
   }
 
   async function interrupt(id: string) {
