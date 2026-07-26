@@ -10,7 +10,8 @@ import { agentLabel, t } from "../state/i18n"
 import { collapseCompaction, compactionCollapsed } from "../state/prefs"
 import { IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
-import { Chevron, contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
+import { Chevron } from "./controls"
+import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
 
 export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
   onMount(() =>

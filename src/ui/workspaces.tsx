@@ -1,5 +1,6 @@
-import { createEffect, createMemo, createSignal, Match, onCleanup, onMount, Show, Switch, For, type JSX } from "solid-js"
+import { createMemo, createSignal, Match, onCleanup, onMount, Show, Switch, For, type JSX } from "solid-js"
 import { useEngine } from "../engine"
+import { createDismissOnOutside } from "./dismiss"
 import { emitThreadArchived } from "../plugins"
 import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
 import { childrenOf, normalizeDir, sessionBusy, sessionsFor } from "../engine/store"
@@ -7,7 +8,7 @@ import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
 import { fixedMenuPosition } from "../state/zoom"
 import { t } from "../state/i18n"
-import { Chevron } from "./parts"
+import { Chevron } from "./controls"
 import { dragReorder } from "./drag-reorder"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import {
@@ -337,20 +338,7 @@ export function WorkspaceMenu(props: {
   const [confirming, setConfirming] = createSignal(false)
   const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, confirming() ? 176 : 144)
 
-  createEffect(() => {
-    const away = (event: MouseEvent) => {
-      if (!root.contains(event.target as Node)) props.onClose()
-    }
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") props.onClose()
-    }
-    document.addEventListener("mousedown", away)
-    document.addEventListener("keydown", escape)
-    onCleanup(() => {
-      document.removeEventListener("mousedown", away)
-      document.removeEventListener("keydown", escape)
-    })
-  })
+  createDismissOnOutside({ inside: () => [root], onDismiss: () => props.onClose(), escape: true })
 
   return (
     <div
@@ -409,20 +397,7 @@ export function SessionMenu(props: {
   const height = () => (choosing() ? Math.min(320, 48 + Math.max(1, targets().length) * 36) : 48)
   const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, height())
 
-  createEffect(() => {
-    const away = (event: MouseEvent) => {
-      if (!root.contains(event.target as Node)) props.onClose()
-    }
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") props.onClose()
-    }
-    document.addEventListener("mousedown", away)
-    document.addEventListener("keydown", escape)
-    onCleanup(() => {
-      document.removeEventListener("mousedown", away)
-      document.removeEventListener("keydown", escape)
-    })
-  })
+  createDismissOnOutside({ inside: () => [root], onDismiss: () => props.onClose(), escape: true })
 
   return (
     <div

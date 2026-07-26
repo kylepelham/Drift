@@ -2,6 +2,7 @@ import type { FilePart, Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/c
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
+import { Chevron } from "./controls"
 import { openLightbox } from "./lightbox"
 import { showReasoning, toolErrorsExpanded } from "../state/prefs"
 import { agentLabel, t } from "../state/i18n"
@@ -1014,17 +1015,3 @@ function clip(value: string) {
   return value.length > maxInlineOutputChars ? value.slice(0, maxInlineOutputChars) + "\n..." : value
 }
 
-export function Chevron(props: { open: boolean }) {
-  return (
-    <svg
-      class="size-3 shrink-0 transition-transform duration-150"
-      classList={{ "rotate-90": props.open }}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-    >
-      <path d="M6 4l4 4-4 4" />
-    </svg>
-  )
-}

@@ -1,5 +1,6 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
+import { createDismissOnOutside } from "./dismiss"
 import { fixedMenuPosition } from "../state/zoom"
 import { t } from "../state/i18n"
 import { IconSliders } from "./icons"
@@ -59,17 +60,16 @@ export function Picker(props: {
       setPosition({ left: next.left, top: next.top })
     }
     queueMicrotask(() => input?.focus())
-    const away = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (!root.contains(target) && !panel?.contains(target)) setOpen(false)
-    }
-    const close = () => setOpen(false)
-    document.addEventListener("mousedown", away)
-    if (props.floating) window.addEventListener("resize", close)
-    onCleanup(() => {
-      document.removeEventListener("mousedown", away)
-      window.removeEventListener("resize", close)
-    })
+  })
+
+  createDismissOnOutside({
+    // A floating picker renders its panel in a portal, so the panel is outside `root` in the DOM
+    // but still counts as inside for dismissal. Only a floating panel is position-dependent, so
+    // only it closes on resize.
+    enabled: open,
+    inside: () => [root, panel],
+    onDismiss: () => setOpen(false),
+    resize: props.floating,
   })
 
   const pick = (id: string) => {

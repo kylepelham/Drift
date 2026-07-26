@@ -104,12 +104,13 @@ import {
   IconSliders,
   IconX,
 } from "./icons"
+import { readDataUrl } from "./files"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import { McpManagement } from "./mcp"
-import { Toggle } from "./model-manager"
+import { Toggle } from "./controls"
 import { ProviderIcon } from "./provider-icon"
 import { Picker } from "./picker"
-import { Chevron } from "./parts"
+import { Chevron } from "./controls"
 import { playAlertSound, soundOptions } from "./sounds"
 
 type ProviderNotice = { tone: "success" | "warning" | "error"; text: string }
@@ -492,15 +493,6 @@ function SoundPicker(props: { kind: AttentionKind }) {
       </button>
     </div>
   )
-}
-
-function readDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
 }
 
 function ProvidersSection() {

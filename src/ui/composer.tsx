@@ -37,6 +37,7 @@ import { normalizeDir } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"
 import { PermissionCard, QuestionCard } from "./attention"
 import { IconPaperclip, IconShieldCheck, IconX } from "./icons"
+import { readDataUrl } from "./files"
 import { openLightbox } from "./lightbox"
 import { Picker, type PickerItem } from "./picker"
 import { defaultVisibleModelIds, ModelManager } from "./model-manager"
@@ -54,15 +55,6 @@ const maxMentionResults = 8
 // Matches a trailing `@path` mention at the caret. Used by both the query reader and the replacer,
 // so they cannot drift apart.
 const mentionPattern = /(^|\s)@([\w./\\-]*)$/
-
-function readDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
-}
 
 export function firstManualPermission(permissions: Permission[], autoAccepted: (permission: Permission) => boolean) {
   return permissions.find((permission) => !autoAccepted(permission))
