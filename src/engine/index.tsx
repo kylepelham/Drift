@@ -4,9 +4,10 @@ import { produce } from "solid-js/store"
 import { createActions, type EngineActions } from "./actions"
 import { resolveEngine, sleep, type EngineTarget } from "./connection"
 import { reduce } from "./events"
+import { applySessionSnapshot, applyStatusSnapshot, createRecoveryCoordinator } from "./recovery"
 import { streamEvents } from "./sse"
 import { seedBench } from "./bench"
-import { createEngineState, putSessions, type EngineState, type ProviderInfo } from "./store"
+import { createEngineState, normalizeDir, type EngineState, type ProviderInfo } from "./store"
 
 export type Engine = { state: EngineState; actions: EngineActions; setDirectory: (path: string | null) => void }
 
@@ -30,32 +31,45 @@ export function EngineProvider(props: ParentProps) {
     if (!client) throw new Error("engine offline")
     return client
   }
-  const actions = createActions(requireClient, state, set, () => base)
+  const recovery = createRecoveryCoordinator((event, eventDirectory) => reduce(set, event, eventDirectory))
+  const actions = createActions(requireClient, state, set, () => base, recovery)
 
   async function hydrate() {
     const bootDirectory = directory ?? ""
     const api = requireClient()
+    const token = recovery.begin()
     try {
-      const stale = Object.keys(state.loaded)
-      const [sessions, [statuses, providers, agents, commands]] = await Promise.all([
-        api.session.list().then((result) => {
-          putSessions(set, result.data ?? [])
-          return result
-        }),
-        Promise.all([api.session.status(), api.provider.list(), api.app.agents(), api.command.list()]),
+      const stale = Object.keys(state.loaded).filter((id) => state.loaded[id])
+      const [sessionsResult, statusesResult, providersResult, agentsResult, commandsResult] = await Promise.allSettled([
+        api.session.list(),
+        api.session.status(),
+        api.provider.list(),
+        api.app.agents(),
+        api.command.list(),
       ])
-      set(
-        produce((s) => {
-          const live = statuses.data ?? {}
-          for (const session of sessions.data ?? []) s.status[session.id] = live[session.id] ?? { type: "idle" }
-        }),
-      )
-      set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
-      set("connected", providers.data?.connected ?? [])
-      set("defaultModels", providers.data?.default ?? {})
-      set("agents", agents.data ?? [])
-      set("commands", commands.data ?? [])
-      await Promise.all(stale.map(reload))
+      const sessions = settledData(sessionsResult)
+      const statuses = settledData(statusesResult)
+      const providers = settledData(providersResult)
+      const agents = settledData(agentsResult)
+      const commands = settledData(commandsResult)
+      const committed = recovery.commit(token, (events) => {
+        if (sessions)
+          applySessionSnapshot(
+            set,
+            sessions,
+            (candidate) => normalizeDir(candidate) === normalizeDir(bootDirectory),
+            events,
+          )
+        if (sessions && statuses) applyStatusSnapshot(set, sessions, statuses, events)
+        if (providers) {
+          set("providers", (providers.all ?? []) as unknown as ProviderInfo[])
+          set("connected", providers.connected ?? [])
+          set("defaultModels", providers.default ?? {})
+        }
+        if (agents) set("agents", agents)
+        if (commands) set("commands", commands)
+      })
+      if (committed) await Promise.allSettled(stale.filter((id) => state.sessions[id]).map(actions.reloadSession))
       if (!state.version && base) {
         const health = await fetch(`${base.url}/global/health`, { headers: base.headers })
           .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
@@ -63,17 +77,9 @@ export function EngineProvider(props: ParentProps) {
         if (health?.version) set("version", health.version)
       }
     } finally {
-      if (client === api && directory === bootDirectory) set("bootstrappedDirectory", bootDirectory)
+      if (client === api && directory === bootDirectory && recovery.current(token))
+        set("bootstrappedDirectory", bootDirectory)
     }
-  }
-
-  // ponytail: reconnect catch-up reloads the tail page only; deep scrollback refetches on demand
-  async function reload(id: string) {
-    const result = await requireClient().session.messages({ path: { id }, query: { limit: 100 } })
-    if (!result.data) return
-    const entries = [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id))
-    set("transcripts", id, entries)
-    set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
   }
 
   async function pump(target: EngineTarget, signal: AbortSignal) {
@@ -81,11 +87,12 @@ export function EngineProvider(props: ParentProps) {
       try {
         await streamEvents(target, signal, (event, eventDirectory) => {
           if (event.type === "server.connected") {
+            recovery.advance()
             set("connection", "online")
             void hydrate().catch(() => undefined)
             return
           }
-          reduce(set, event, eventDirectory)
+          recovery.record(event, eventDirectory)
         })
       } catch {}
       if (signal.aborted) return
@@ -99,6 +106,7 @@ export function EngineProvider(props: ParentProps) {
   // Session-keyed state and the global event stream survive directory switches. Only the
   // SDK client is re-pointed so workspace changes don't reconnect or wipe transcripts.
   function stopPump() {
+    recovery.advance()
     pumpAbort?.abort()
     pumpAbort = undefined
     client = undefined
@@ -138,6 +146,7 @@ export function EngineProvider(props: ParentProps) {
       startPump(path)
       return
     }
+    recovery.advance()
     client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory: path })
     set("directory", path)
     if (state.connection === "online") void hydrate().catch(() => undefined)
@@ -162,4 +171,9 @@ export function EngineProvider(props: ParentProps) {
   })
 
   return <EngineContext.Provider value={{ state, actions, setDirectory }}>{props.children}</EngineContext.Provider>
+}
+
+function settledData<T>(result: PromiseSettledResult<{ data?: T; error?: unknown }>): T | undefined {
+  if (result.status === "rejected" || result.value.error !== undefined) return
+  return result.value.data
 }

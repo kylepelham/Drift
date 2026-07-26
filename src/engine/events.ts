@@ -3,7 +3,7 @@ import type { SetStoreFunction } from "solid-js/store"
 import { produce } from "solid-js/store"
 import { clearQuestionDraft } from "../state/question-drafts"
 import { errorText } from "./error"
-import { putSession, recordLink, spawnLink, type EngineState, type Notice, type QuestionRequest } from "./store"
+import { dropSessionState, putSession, recordLink, spawnLink, type EngineState, type Notice, type QuestionRequest } from "./store"
 
 type Set = SetStoreFunction<EngineState>
 
@@ -88,15 +88,7 @@ function upsertSession(set: Set, info: Session) {
 function dropSession(set: Set, info: Session) {
   set(
     produce((s) => {
-      delete s.sessions[info.id]
-      delete s.transcripts[info.id]
-      delete s.loaded[info.id]
-      delete s.permissions[info.id]
-      delete s.questions[info.id]
-      delete s.todos[info.id]
-      delete s.status[info.id]
-      delete s.activity[info.id]
-      delete s.errors[info.id]
+      dropSessionState(s, info.id)
     }),
   )
 }

@@ -3,11 +3,19 @@ import { createOpencodeClient as createControlClient } from "@opencode-ai/sdk/v2
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { sleep, type EngineTarget } from "./connection"
 import { pushNotice } from "./events"
+import {
+  applySessionSnapshot,
+  applyTranscriptSnapshot,
+  createRecoveryCoordinator,
+  eventInDirectory,
+  type BufferedEvent,
+  type RecoveryCoordinator,
+} from "./recovery"
 import type { MessageEntry } from "./store"
 import {
+  dropSessionState,
   normalizeDir,
   putSession,
-  putSessions,
   recordLink,
   sessionBusy,
   spawnLink,
@@ -57,9 +65,11 @@ export function createActions(
   state: EngineState,
   set: SetStoreFunction<EngineState>,
   target: () => EngineTarget | undefined,
+  recovery: RecoveryCoordinator = createRecoveryCoordinator(() => undefined),
 ) {
   const pageSize = 100
   let allSessionsRequest: Promise<void> | undefined
+  const sessionRequests = new Map<string, Promise<boolean>>()
 
   function recordLinks(entries: { parts: { id: string }[] }[]) {
     for (const entry of entries) {
@@ -73,12 +83,24 @@ export function createActions(
   }
 
   async function reloadSession(id: string) {
+    const token = recovery.begin()
     const result = await requireClient().session.messages({ path: { id }, query: { limit: pageSize } })
-    const entries = [...(result.data ?? [])].sort((a, b) => a.info.id.localeCompare(b.info.id))
-    set("transcripts", id, entries)
-    set("loaded", id, true)
-    set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
-    recordLinks(entries)
+    const entries = [...requireSdkData(result, "Could not load the session transcript")].sort((a, b) =>
+      a.info.id.localeCompare(b.info.id),
+    )
+    let applied = false
+    const committed = recovery.commit(token, (events) => {
+      applied = applyTranscriptSnapshot(
+        state,
+        set,
+        id,
+        entries,
+        result.response?.headers?.get("x-next-cursor") ?? null,
+        events,
+      )
+    })
+    if (applied) recordLinks(entries)
+    return committed && applied
   }
 
   // Older pages come via the raw route because the generated SDK lacks the cursor param.
@@ -104,15 +126,41 @@ export function createActions(
     return sorted.length > 0
   }
 
-  async function openSession(id: string) {
-    if (state.loaded[id]) return
-    set("loaded", id, true)
-    await reloadSession(id)
+  function openSession(id: string) {
+    if (state.loaded[id]) return Promise.resolve(true)
+    const current = sessionRequests.get(id)
+    if (current) return current
+    const request = (async () => {
+      set("loading", id, true)
+      try {
+        return await reloadSession(id)
+      } catch (error) {
+        notice({
+          title: "Transcript load failed",
+          message: error instanceof Error ? error.message : "Could not load the session transcript",
+          variant: "error",
+        })
+        return false
+      } finally {
+        set(
+          produce((s) => {
+            delete s.loading[id]
+          }),
+        )
+      }
+    })()
+    sessionRequests.set(id, request)
+    void request.finally(() => sessionRequests.delete(id))
+    return request
   }
 
   async function loadSessions(directory: string) {
+    const token = recovery.begin()
     const result = await requireClient().session.list({ query: { directory } })
-    putSessions(set, result.data ?? [])
+    const sessions = requireSdkData(result, "Could not load sessions")
+    recovery.commit(token, (events) =>
+      applySessionSnapshot(set, sessions, (candidate) => normalizeDir(candidate) === normalizeDir(directory), events),
+    )
   }
 
   // One DB query for every workspace. Avoids booting an OpenCode instance per project.
@@ -121,6 +169,7 @@ export function createActions(
     if (!base) return
     if (allSessionsRequest) return allSessionsRequest
     allSessionsRequest = (async () => {
+      const token = recovery.begin()
       const query = new URLSearchParams({ archived: "true", limit: "10000" })
       const headers = {
         ...base.headers,
@@ -129,7 +178,8 @@ export function createActions(
       const response = await fetch(`${base.url}/experimental/session?${query}`, { headers }).catch(() => null)
       if (!response?.ok) return
       const sessions = (await response.json().catch(() => null)) as Session[] | null
-      putSessions(set, sessions ?? [])
+      if (!Array.isArray(sessions)) return
+      recovery.commit(token, (events) => applySessionSnapshot(set, sessions, () => true, events))
     })()
     try {
       await allSessionsRequest
@@ -441,9 +491,7 @@ export function createActions(
   function forgetSession(id: string) {
     set(
       produce((s) => {
-        delete s.sessions[id]
-        delete s.transcripts[id]
-        delete s.loaded[id]
+        dropSessionState(s, id)
       }),
     )
   }
@@ -451,95 +499,172 @@ export function createActions(
   // Replied ids are filtered out of poll snapshots that raced the reply.
   const answered = new Set<string>()
 
-  async function fetchJson<T>(path: string, dir: string): Promise<T | null> {
+  function askKey(kind: "permission" | "question", directory: string, id: string) {
+    return `${kind}\0${normalizeDir(directory)}\0${id}`
+  }
+
+  type FetchResult<T> = { ok: true; data: T } | { ok: false }
+
+  async function fetchJson<T>(path: string, dir: string): Promise<FetchResult<T>> {
     const base = target()
-    if (!base) return null
+    if (!base) return { ok: false }
     const joiner = path.includes("?") ? "&" : "?"
-    const response = await fetch(`${base.url}${path}${joiner}directory=${encodeURIComponent(dir)}`, {
-      headers: base.headers,
-    }).catch(() => null)
-    if (!response?.ok) return null
-    return (await response.json().catch(() => null)) as T | null
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 8000)
+    try {
+      const response = await fetch(`${base.url}${path}${joiner}directory=${encodeURIComponent(dir)}`, {
+        headers: base.headers,
+        signal: controller.signal,
+      }).catch(() => null)
+      if (!response?.ok) return { ok: false }
+      const data = (await response.json().catch(() => undefined)) as T | undefined
+      return data === undefined ? { ok: false } : { ok: true, data }
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   // The generated SDK lags the engine here; GET /permission and /question recover asks
   // raised while we weren't listening. Walk directories one at a time so idle workspaces
   // don't stampede instance boots on a timer.
-  async function refreshPermissions(directories: string[]) {
-    if (!target() || directories.length === 0) return
-    const results: {
-      permissions: Permission[]
-      questions: QuestionRequest[]
-    }[] = []
-    for (const dir of directories) {
-      const [permissions, questions] = await Promise.all([
-        fetchJson<PermissionRequest[]>("/permission", dir),
-        fetchJson<QuestionRequest[]>("/question", dir),
-      ])
-      results.push({
-        permissions: (permissions ?? []).map((request) => toPermission(request, dir)),
-        questions: (questions ?? []).map((request) => ({ ...request, directory: dir })),
-      })
+  const pendingDirectories = new Map<string, string>()
+  let activeDirectories = new Set<string>()
+  let permissionRequest: Promise<void> | undefined
+
+  function refreshPermissions(directories: string[]) {
+    if (!target()) return Promise.resolve()
+    for (const directory of directories) {
+      const key = normalizeDir(directory)
+      if (!key || activeDirectories.has(key)) continue
+      pendingDirectories.set(key, directory)
     }
-    const keep = new Set(directories.map(normalizeDir))
-    const reported = new Set(results.flatMap((r) => [...r.permissions, ...r.questions].map((item) => item.id)))
-    const previous = new Set<string>()
-    for (const list of Object.values(state.permissions)) {
-      for (const item of list) {
-        const dir = item.metadata?.directory
-        if (typeof dir === "string" && keep.has(normalizeDir(dir))) previous.add(item.id)
+    if (permissionRequest) return permissionRequest
+    permissionRequest = drainPermissions().finally(() => {
+      permissionRequest = undefined
+    })
+    return permissionRequest
+  }
+
+  async function drainPermissions() {
+    try {
+      while (pendingDirectories.size) {
+        const directories = [...pendingDirectories.entries()]
+        pendingDirectories.clear()
+        activeDirectories = new Set(directories.map(([key]) => key))
+        for (const [, directory] of directories) await refreshDirectoryAsks(directory)
       }
+    } finally {
+      activeDirectories = new Set()
     }
-    for (const list of Object.values(state.questions)) {
-      for (const item of list) {
-        if (item.directory && keep.has(normalizeDir(item.directory))) previous.add(item.id)
-      }
-    }
-    for (const id of previous) if (!reported.has(id)) answered.delete(id)
+  }
+
+  async function refreshDirectoryAsks(directory: string) {
+    const token = recovery.begin()
+    const [permissionResult, questionResult] = await Promise.all([
+      fetchJson<PermissionRequest[]>("/permission", directory),
+      fetchJson<QuestionRequest[]>("/question", directory),
+    ])
+    const permissions = permissionResult.ok && Array.isArray(permissionResult.data)
+      ? permissionResult.data.map((request) => toPermission(request, directory))
+      : undefined
+    const questions = questionResult.ok && Array.isArray(questionResult.data)
+      ? questionResult.data.map((request) => ({ ...request, directory }))
+      : undefined
+    if (!permissions && !questions) return
+    recovery.commit(token, (events) => reconcileAsks(directory, permissions, questions, events))
+  }
+
+  function reconcileAsks(
+    directory: string,
+    permissions: Permission[] | undefined,
+    questions: QuestionRequest[] | undefined,
+    events: BufferedEvent[],
+  ) {
+    const touchedPermissions = touchedAsks(events, directory, "permission")
+    const touchedQuestions = touchedAsks(events, directory, "question")
     set(
       produce((s) => {
-        for (const [sessionID, list] of Object.entries(s.permissions)) {
-          s.permissions[sessionID] = list.filter((item) => {
-            const dir = item.metadata?.directory
-            return typeof dir === "string" && !keep.has(normalizeDir(dir))
-          })
-          if (!s.permissions[sessionID]?.length) delete s.permissions[sessionID]
+        if (permissions) {
+          for (const [sessionID, list] of Object.entries(s.permissions)) {
+            s.permissions[sessionID] = list.filter((item) => {
+              const dir = item.metadata?.directory
+              return typeof dir !== "string" || normalizeDir(dir) !== normalizeDir(directory) || touchedPermissions.has(item.id)
+            })
+            if (!s.permissions[sessionID].length) delete s.permissions[sessionID]
+          }
+          for (const permission of permissions) {
+            if (answered.has(askKey("permission", directory, permission.id)) || touchedPermissions.has(permission.id))
+              continue
+            const list = (s.permissions[permission.sessionID] ??= [])
+            if (!list.some((item) => item.id === permission.id)) list.push(permission)
+          }
         }
-        for (const [sessionID, list] of Object.entries(s.questions)) {
-          s.questions[sessionID] = list.filter((item) => {
-            const dir = item.directory
-            return typeof dir === "string" && !keep.has(normalizeDir(dir))
-          })
-          if (!s.questions[sessionID]?.length) delete s.questions[sessionID]
-        }
-        for (const result of results) {
-          for (const permission of result.permissions)
-            if (!answered.has(permission.id)) (s.permissions[permission.sessionID] ??= []).push(permission)
-          for (const question of result.questions)
-            if (!answered.has(question.id)) (s.questions[question.sessionID] ??= []).push(question)
+        if (questions) {
+          for (const [sessionID, list] of Object.entries(s.questions)) {
+            s.questions[sessionID] = list.filter(
+              (item) => normalizeDir(item.directory ?? "") !== normalizeDir(directory) || touchedQuestions.has(item.id),
+            )
+            if (!s.questions[sessionID].length) delete s.questions[sessionID]
+          }
+          for (const question of questions) {
+            if (answered.has(askKey("question", directory, question.id)) || touchedQuestions.has(question.id)) continue
+            const list = (s.questions[question.sessionID] ??= [])
+            if (!list.some((item) => item.id === question.id)) list.push(question)
+          }
         }
       }),
     )
+    if (permissions) {
+      const reported = new Set(permissions.map((item) => askKey("permission", directory, item.id)))
+      const prefix = askKey("permission", directory, "")
+      for (const key of answered) if (key.startsWith(prefix) && !reported.has(key)) answered.delete(key)
+    }
+    if (questions) {
+      const reported = new Set(questions.map((item) => askKey("question", directory, item.id)))
+      const prefix = askKey("question", directory, "")
+      for (const key of answered) if (key.startsWith(prefix) && !reported.has(key)) answered.delete(key)
+    }
+  }
+
+  function touchedAsks(events: BufferedEvent[], directory: string, kind: "permission" | "question") {
+    const ids = new Set<string>()
+    for (const entry of events) {
+      const raw = entry.event as unknown as { type: string; properties?: Record<string, unknown> }
+      if (!raw.type.startsWith(`${kind}.`) || !eventInDirectory(entry, directory)) continue
+      const id = raw.properties?.id ?? raw.properties?.requestID ?? raw.properties?.permissionID
+      if (typeof id === "string") ids.add(id)
+    }
+    return ids
   }
 
   async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
     const permission = (state.permissions[sessionID] ?? []).find((p) => p.id === permissionID)
     const dir = permission?.metadata?.directory as string | undefined
-    if (dir && normalizeDir(dir) !== normalizeDir(state.directory)) {
-      await replyElsewhere(sessionID, permissionID, response, dir)
-    } else {
-      const result = await requireClient().postSessionIdPermissionsPermissionId({
-        path: { id: sessionID, permissionID },
-        body: { response },
-      })
-      if (result.error) return
+    let ok = false
+    try {
+      if (dir && normalizeDir(dir) !== normalizeDir(state.directory)) {
+        ok = await replyElsewhere(sessionID, permissionID, response, dir)
+      } else {
+        const result = await requireClient().postSessionIdPermissionsPermissionId({
+          path: { id: sessionID, permissionID },
+          body: { response },
+        })
+        ok = result.data === true
+      }
+    } catch {
+      ok = false
     }
-    answered.add(permissionID)
+    if (!ok) {
+      notice({ title: "Permission reply failed", message: "The permission is still pending. Try again.", variant: "error" })
+      return false
+    }
+    answered.add(askKey("permission", dir ?? state.directory, permissionID))
     set(
       produce((s) => {
         s.permissions[sessionID] = (s.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID)
       }),
     )
+    return true
   }
 
   async function answerQuestion(sessionID: string, requestID: string, answers: string[][] | null) {
@@ -555,7 +680,7 @@ export function createActions(
       body: JSON.stringify(answers ? { answers } : {}),
     }).catch(() => null)
     if (!response?.ok) return false
-    answered.add(requestID)
+    answered.add(askKey("question", dir, requestID))
     set(
       produce((s) => {
         s.questions[sessionID] = (s.questions[sessionID] ?? []).filter((item) => item.id !== requestID)
@@ -566,13 +691,14 @@ export function createActions(
 
   async function replyElsewhere(sessionID: string, permissionID: string, response: PermissionResponse, dir: string) {
     const base = target()
-    if (!base) return
+    if (!base) return false
     const url = `${base.url}/session/${sessionID}/permissions/${permissionID}?directory=${encodeURIComponent(dir)}`
-    await fetch(url, {
+    const result = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json", ...base.headers },
       body: JSON.stringify({ response }),
-    }).catch(() => {})
+    }).catch(() => null)
+    return result?.ok === true
   }
 
   async function interrupt(id: string) {
@@ -619,6 +745,7 @@ export function createActions(
 
   return {
     openSession,
+    reloadSession,
     loadOlder,
     loadSessions,
     loadAllSessions,

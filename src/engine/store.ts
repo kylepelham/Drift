@@ -69,6 +69,7 @@ export type EngineState = {
   status: Record<string, SessionStatus>
   transcripts: Record<string, MessageEntry[]>
   loaded: Record<string, boolean>
+  loading: Record<string, boolean>
   permissions: Record<string, Permission[]>
   questions: Record<string, QuestionRequest[]>
   todos: Record<string, Todo[]>
@@ -114,6 +115,7 @@ export function createEngineState() {
     status: {},
     transcripts: {},
     loaded: {},
+    loading: {},
     permissions: {},
     questions: {},
     todos: {},
@@ -144,6 +146,20 @@ export function putSessions(set: SetStoreFunction<EngineState>, infos: Session[]
       for (const info of infos) sessions[info.id] = { revert: undefined, share: undefined, ...info }
     }),
   )
+}
+
+export function dropSessionState(state: EngineState, id: string) {
+  delete state.sessions[id]
+  delete state.transcripts[id]
+  delete state.loaded[id]
+  delete state.loading[id]
+  delete state.permissions[id]
+  delete state.questions[id]
+  delete state.todos[id]
+  delete state.status[id]
+  delete state.activity[id]
+  delete state.errors[id]
+  delete state.cursors[id]
 }
 
 export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo | undefined {
