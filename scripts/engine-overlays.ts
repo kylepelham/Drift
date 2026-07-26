@@ -44,9 +44,38 @@ async function gitApply(args: string[], quiet = false) {
   return (await process.exited) === 0
 }
 
+// The shipped format was a directory holding only the owner's decimal pid, which also names its generation.
+function readLegacyLockOwner(directory: string): LockOwner | undefined {
+  let entries: string[]
+  try {
+    entries = readdirSync(directory)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOTDIR") return undefined
+    throw error
+  }
+  if (entries.length !== 1 || entries[0] !== "pid") return undefined
+
+  const raw = readFileSync(path.join(directory, "pid"), "utf8").trim()
+  const pid = Number(raw)
+  if (!/^[1-9][0-9]*$/.test(raw) || !Number.isSafeInteger(pid)) {
+    throw new Error(`Invalid engine overlay lock owner; inspect ${directory} before retrying`)
+  }
+  return { pid, token: `legacy-pid-${pid}` }
+}
+
 function readLockOwner(directory: string): LockOwner {
-  const ownerFile = statSync(directory).isDirectory() ? path.join(directory, "owner.json") : directory
-  const raw = readFileSync(ownerFile, "utf8")
+  const isDirectory = statSync(directory).isDirectory()
+  const ownerFile = isDirectory ? path.join(directory, "owner.json") : directory
+  let raw: string
+  try {
+    raw = readFileSync(ownerFile, "utf8")
+  } catch (error) {
+    if (!isDirectory || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    const legacy = readLegacyLockOwner(directory)
+    // Only the exact legacy shape is recognized; everything else stays ownerless and fails closed.
+    if (!legacy) throw error
+    return legacy
+  }
   let value: unknown
   try {
     value = JSON.parse(raw)

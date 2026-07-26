@@ -66,7 +66,7 @@ function acquired(file: string) {
 }
 
 function candidates(directory: string) {
-  return readdirSync(directory).filter((entry) => entry.startsWith("lock-candidate-"))
+  return readdirSync(directory).filter((entry) => entry.includes("-candidate-"))
 }
 
 function messages(error: unknown): string[] {
@@ -390,6 +390,78 @@ test("an empty ownerless legacy lock is quarantined only when upstream is clean"
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test("a legacy pid lock held by a live process keeps blocking", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-legacy-live-"))
+  const lock = path.join(directory, "lock")
+  const acquisitions = path.join(directory, "acquired")
+  const ready = path.join(directory, "ready")
+  mkdirSync(lock)
+  writeFileSync(path.join(lock, "pid"), `${process.pid}`)
+  const child = worker({ lock, acquired: acquisitions, ready, holdMs: 20_000 })
+
+  try {
+    await Bun.sleep(1_000)
+    expect(acquired(acquisitions)).toEqual([])
+    expect(exists(ready)).toBe(false)
+    expect(readFileSync(path.join(lock, "pid"), "utf8")).toBe(`${process.pid}`)
+    expect(exists(`${lock}-reclaimed`)).toBe(false)
+    assertRunning(child)
+  } finally {
+    await stop(child)
+    rmSync(directory, { recursive: true, force: true })
+  }
+}, 10_000)
+
+test("a legacy pid lock left by a dead process is reclaimed", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-legacy-dead-"))
+  const lock = path.join(directory, "lock")
+  mkdirSync(lock)
+
+  const exited = spawn(process.execPath, ["-e", ""])
+  await new Promise<void>((resolve) => exited.once("close", () => resolve()))
+  writeFileSync(path.join(lock, "pid"), `${exited.pid}`)
+  const reclaimed = path.join(`${lock}-reclaimed`, `legacy-pid-${exited.pid}`)
+
+  try {
+    await acquireEngineOverlayLock(lock)
+    expect(readFileSync(path.join(reclaimed, "pid"), "utf8")).toBe(`${exited.pid}`)
+    expect(JSON.parse(readFileSync(lock, "utf8"))).toMatchObject({ pid: process.pid })
+    releaseEngineOverlayLock(lock)
+    expect(exists(lock)).toBe(false)
+    expect(exists(reclaimed)).toBe(true)
+    expect(candidates(directory)).toEqual([])
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("a malformed or crowded legacy pid lock fails closed", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-legacy-invalid-"))
+  const malformed = path.join(directory, "malformed")
+  const crowded = path.join(directory, "crowded")
+  mkdirSync(malformed)
+  writeFileSync(path.join(malformed, "pid"), "0x1f")
+  mkdirSync(crowded)
+  writeFileSync(path.join(crowded, "pid"), `${process.pid}`)
+  writeFileSync(path.join(crowded, "notes.txt"), "")
+
+  try {
+    await expect(acquireEngineOverlayLock(malformed, { upstreamChanges: async () => [] })).rejects.toThrow(
+      "Invalid engine overlay lock owner",
+    )
+    await expect(acquireEngineOverlayLock(crowded, { upstreamChanges: async () => [] })).rejects.toThrow(
+      "Ownerless engine overlay lock contains unexpected files",
+    )
+    for (const lock of [malformed, crowded]) {
+      expect(readFileSync(path.join(lock, "pid"), "utf8")).not.toBe("")
+      expect(exists(`${lock}-reclaimed`)).toBe(false)
+    }
+    expect(candidates(directory)).toEqual([])
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+}, 10_000)
 
 test("an ownerless legacy lock fails closed when upstream is dirty", async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "drift-overlay-ownerless-dirty-"))
