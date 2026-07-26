@@ -17,6 +17,33 @@ use store::{ArchivedSession, Store, Workspace};
 use tauri::{Emitter, Manager, RunEvent, State};
 use tauri_plugin_opener::OpenerExt;
 
+/// Windows `CREATE_NO_WINDOW`: keeps spawned console processes from flashing a terminal.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// Windows clipboard format for UTF-16 text.
+#[cfg(windows)]
+const CF_UNICODETEXT: u32 = 13;
+
+/// The embedded engine is always addressed with this username; only the password varies per run.
+const ENGINE_USERNAME: &str = "opencode";
+/// Bind to loopback on an ephemeral port; the engine reports the port it actually got.
+const ENGINE_SERVE_ARGS: [&str; 5] = ["serve", "--hostname", "127.0.0.1", "--port", "0"];
+/// Shutdown is best effort - if the engine is wedged we would rather leak than hang on exit.
+const ENGINE_DISPOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+const HTTP_OK_STATUS_LINE: &str = "HTTP/1.1 200";
+
+/// Config files are polled rather than watched, so the interval bounds how stale a change can be.
+const CONFIG_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+const MAX_CONFIG_FILE_BYTES: u64 = 1_048_576;
+const MAX_WATCHED_MCP_FILES: usize = 4096;
+const MAX_WATCHED_FILE_BYTES: u64 = 1_048_576;
+/// Bounds on `{file:...}` reference expansion inside a config file.
+const MAX_FILE_REFERENCES: usize = 256;
+const FILE_REFERENCE_PREFIX: &str = "{file:";
+const MAX_REFERENCE_PATH_CHARS: usize = 4096;
+/// Plugin directories are scanned recursively; this stops a symlink loop from running forever.
+const MAX_PLUGIN_SCAN_DEPTH: usize = 16;
+
 struct Engine {
     url: Mutex<Option<String>>,
     child: Mutex<Option<Child>>,
@@ -85,7 +112,7 @@ fn config_read(config: State<ConfigRoot>, path: String) -> Result<Option<String>
     if !requested.starts_with(&root) {
         return Err("config path escapes Drift's config directory".into());
     }
-    if requested.metadata().map_err(|e| e.to_string())?.len() > 1_048_576 {
+    if requested.metadata().map_err(|e| e.to_string())?.len() > MAX_CONFIG_FILE_BYTES {
         return Err("config file exceeds 1 MiB".into());
     }
     std::fs::read_to_string(requested)
@@ -216,7 +243,6 @@ fn clipboard_write_text(window: tauri::WebviewWindow, text: String) -> Result<()
             GlobalFree(memory);
             return Err(error);
         }
-        const CF_UNICODETEXT: u32 = 13;
         if SetClipboardData(CF_UNICODETEXT, memory).is_null() {
             let error = std::io::Error::last_os_error().to_string();
             CloseClipboard();
@@ -381,7 +407,7 @@ fn spawn_editor(executable: &Path, args: &[String]) -> std::io::Result<Child> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
+        command.creation_flags(CREATE_NO_WINDOW);
     }
     command.spawn()
 }
@@ -638,9 +664,9 @@ fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_dir: PathBu
         let password = app.state::<Engine>().password.clone();
         let mut command = Command::new(binary);
         command
-            .args(["serve", "--hostname", "127.0.0.1", "--port", "0"])
+            .args(ENGINE_SERVE_ARGS)
             .env("OPENCODE_SERVER_PASSWORD", password)
-            .env("OPENCODE_SERVER_USERNAME", "opencode")
+            .env("OPENCODE_SERVER_USERNAME", ENGINE_USERNAME)
             .env_remove("OPENCODE_CONFIG")
             .env_remove("OPENCODE_CONFIG_CONTENT")
             .env("OPENCODE_CONFIG_DIR", config_dir)
@@ -656,7 +682,7 @@ fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_dir: PathBu
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            command.creation_flags(0x0800_0000);
+            command.creation_flags(CREATE_NO_WINDOW);
         }
         let mut child = match command.spawn() {
             Ok(child) => child,
@@ -703,9 +729,9 @@ fn stop_engine_instances(app: &tauri::AppHandle) -> Result<(), String> {
         .ok_or("embedded engine URL has no port")?;
     let mut stream = TcpStream::connect((host, port)).map_err(|error| error.to_string())?;
     stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+        .set_read_timeout(Some(ENGINE_DISPOSE_TIMEOUT))
         .map_err(|error| error.to_string())?;
-    let authorization = basic_authorization("opencode", &engine.password);
+    let authorization = basic_authorization(ENGINE_USERNAME, &engine.password);
     let request = format!(
         "POST /global/dispose HTTP/1.1\r\nHost: {host}:{port}\r\nAuthorization: Basic {authorization}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
     );
@@ -716,7 +742,7 @@ fn stop_engine_instances(app: &tauri::AppHandle) -> Result<(), String> {
     BufReader::new(stream)
         .read_line(&mut response)
         .map_err(|error| error.to_string())?;
-    if !response.starts_with("HTTP/1.1 200") {
+    if !response.starts_with(HTTP_OK_STATUS_LINE) {
         return Err("embedded engine refused global disposal".into());
     }
     Ok(())
@@ -750,7 +776,7 @@ fn watch_mcp_configs(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let mut previous = external_mcp_signature(&app.state::<Store>());
         loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
+            std::thread::sleep(CONFIG_POLL_INTERVAL);
             let current = external_mcp_signature(&app.state::<Store>());
             if current == previous {
                 continue;
@@ -768,9 +794,6 @@ fn watch_mcp_configs(app: tauri::AppHandle) {
         }
     });
 }
-
-const MAX_WATCHED_MCP_FILES: usize = 4096;
-const MAX_WATCHED_FILE_BYTES: u64 = 1_048_576;
 
 fn external_mcp_signature(store: &Store) -> Vec<(PathBuf, u64, u128, u64)> {
     let mut roots = Vec::new();
@@ -860,10 +883,10 @@ fn watched_mcp_paths(mut configs: Vec<PathBuf>, mut plugin_roots: Vec<PathBuf>) 
 fn config_file_references(contents: &str, parent: &Path) -> Vec<PathBuf> {
     let mut references = Vec::new();
     let mut cursor = 0;
-    while references.len() < 256 {
+    while references.len() < MAX_FILE_REFERENCES {
         let Some(start) = contents[cursor..]
-            .find("{file:")
-            .map(|index| cursor + index + 6)
+            .find(FILE_REFERENCE_PREFIX)
+            .map(|index| cursor + index + FILE_REFERENCE_PREFIX.len())
         else {
             break;
         };
@@ -871,7 +894,7 @@ fn config_file_references(contents: &str, parent: &Path) -> Vec<PathBuf> {
             break;
         };
         let value = contents[start..end].trim();
-        if !value.is_empty() && value.len() <= 4096 {
+        if !value.is_empty() && value.len() <= MAX_REFERENCE_PATH_CHARS {
             let path = if let Some(relative) = value.strip_prefix("~/") {
                 std::env::var_os("USERPROFILE")
                     .or_else(|| std::env::var_os("HOME"))
@@ -899,7 +922,7 @@ fn collect_plugin_files(root: &Path, paths: &mut Vec<PathBuf>) {
         if paths.len() >= MAX_WATCHED_MCP_FILES {
             break;
         }
-        if depth > 16 {
+        if depth > MAX_PLUGIN_SCAN_DEPTH {
             continue;
         }
         let Ok(entries) = std::fs::read_dir(directory) else {

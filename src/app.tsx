@@ -107,6 +107,12 @@ function PluginBinding() {
 }
 
 const dayMs = 24 * 60 * 60 * 1000
+const purgeIntervalMs = 60 * 60 * 1000
+// The active workspace is polled on every tick; every other workspace is polled less often because
+// each sweep may have to boot an engine instance for a directory that is not currently loaded.
+const activePermissionPollMs = 10_000
+const allWorkspacePermissionPollMs = 60_000
+const ticksPerAllWorkspaceSweep = allWorkspacePermissionPollMs / activePermissionPollMs
 
 function WorkspaceBinding() {
   const engine = useEngine()
@@ -122,10 +128,9 @@ function WorkspaceBinding() {
     void engine.actions.refreshPermissions(paths)
     purge()
   })
-  const timer = setInterval(() => purge(), 60 * 60 * 1000)
+  const timer = setInterval(() => purge(), purgeIntervalMs)
   // Global /global/event covers live asks; this recovers asks raised while offline.
-  // Active workspace every 10s; other workspaces every 60s so instance boots stay rare.
-  const permissionTimer = setInterval(() => refreshPermissions(), 10000)
+  const permissionTimer = setInterval(() => refreshPermissions(), activePermissionPollMs)
   onCleanup(() => {
     clearInterval(timer)
     clearInterval(permissionTimer)
@@ -137,7 +142,7 @@ function WorkspaceBinding() {
     const active = activeWorkspace()?.path
     const paths = workspaces().map((workspace) => workspace.path)
     permissionTick += 1
-    if (permissionTick % 6 === 0) {
+    if (permissionTick % ticksPerAllWorkspaceSweep === 0) {
       void engine.actions.refreshPermissions(paths)
       return
     }

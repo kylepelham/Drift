@@ -9,6 +9,14 @@ marked.use({ gfm: true, breaks: true })
 
 let shikiModule: Promise<typeof import("shiki")> | undefined
 const codeBlocks = new WeakMap<HTMLElement, string>()
+// How long the code-block copy button shows its "copied" state.
+// NOTE: parts.tsx uses 2000ms for its visually identical shell copy button.
+const copiedFeedbackMs = 1600
+// Code blocks start highlighting this far outside the viewport so scrolling lands on rendered code.
+const chunkPrefetchMargin = "320px 0px"
+// Markers the rendered HTML carries so the delegated copy handler can find its block.
+const codeBlockAttribute = "[data-code-block]"
+const copyButtonAttribute = "[data-copy-code]"
 const copyIcon =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>'
 const copiedIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
@@ -83,18 +91,26 @@ export class AsyncSizeCache<T> {
   }
 }
 
+// The cache is budgeted in approximate bytes, so every entry is charged its payload length plus a
+// rough per-object overhead. These weights only need to be proportional, not exact - they exist so
+// that many small entries cannot sit under the budget while consuming real memory.
+const perLineOverhead = 16
+const perTokenOverhead = 32
+const perSourceEntryOverhead = 128
+const perHtmlEntryOverhead = 64
+
 function tokenOutputSize(lines: SyntaxToken[][]) {
-  let size = lines.length * 16
-  for (const line of lines) for (const token of line) size += token.content.length + 32
+  let size = lines.length * perLineOverhead
+  for (const line of lines) for (const token of line) size += token.content.length + perTokenOverhead
   return size
 }
 
 function shikiSourceSize(key: string, code: string) {
-  return key.length + code.length + 128
+  return key.length + code.length + perSourceEntryOverhead
 }
 
 const shikiCacheBudget = 2 * 1024 * 1024
-const highlightCache = new AsyncSizeCache<string>(shikiCacheBudget, (html) => html.length + 64)
+const highlightCache = new AsyncSizeCache<string>(shikiCacheBudget, (html) => html.length + perHtmlEntryOverhead)
 const tokenCache = new AsyncSizeCache<SyntaxToken[][]>(shikiCacheBudget, tokenOutputSize)
 
 export async function codeTokens(code: string, lang: string): Promise<SyntaxToken[][]> {
@@ -247,7 +263,7 @@ function openExternalLink(event: MouseEvent) {
 function decorateCodeBlocks(root: HTMLElement) {
   for (const pre of root.querySelectorAll<HTMLElement>("pre")) {
     const code = pre.querySelector("code")?.textContent ?? pre.textContent ?? ""
-    const existing = pre.closest<HTMLElement>("[data-code-block]")
+    const existing = pre.closest<HTMLElement>(codeBlockAttribute)
     if (existing) {
       codeBlocks.set(existing, code)
       continue
@@ -269,9 +285,9 @@ function decorateCodeBlocks(root: HTMLElement) {
 }
 
 function markdownClick(event: MouseEvent) {
-  const button = (event.target as Element).closest<HTMLButtonElement>("[data-copy-code]")
+  const button = (event.target as Element).closest<HTMLButtonElement>(copyButtonAttribute)
   if (!button) return openExternalLink(event)
-  const wrapper = button.closest<HTMLElement>("[data-code-block]")
+  const wrapper = button.closest<HTMLElement>(codeBlockAttribute)
   const code = wrapper ? codeBlocks.get(wrapper) : undefined
   if (code === undefined) return
   void writeClipboard(code)
@@ -283,7 +299,7 @@ function markdownClick(event: MouseEvent) {
         button.innerHTML = copyIcon
         button.setAttribute("aria-label", t("drift.markdown.copyCode"))
         button.title = t("drift.markdown.copyCode")
-      }, 1600)
+      }, copiedFeedbackMs)
     })
     .catch((error) => console.warn("[Drift] Could not copy code", error))
 }
@@ -351,7 +367,7 @@ export function ProgressiveCodeView(props: { code: string; lang: string }) {
           if (!visible.length) return
           setActive((current) => new Set([...current, ...visible]))
         },
-        { root, rootMargin: "320px 0px" },
+        { root, rootMargin: chunkPrefetchMargin },
       )
       for (const element of root.querySelectorAll("[data-chunk]")) observer.observe(element)
     })

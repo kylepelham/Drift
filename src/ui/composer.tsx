@@ -45,6 +45,15 @@ import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-
 import { parseSlash, runSlash, slashItem, slashItems, slashPresets, type SlashItem, type SlashPreset } from "./slash"
 
 const maxFileBytes = 10 * 1024 * 1024
+// Autosize ceiling for the textarea. Must stay in sync with the `max-h-50` class on the textarea
+// (Tailwind spacing 50 = 12.5rem = 200px); otherwise the element and its inline height disagree.
+const maxComposerHeightPx = 200
+// The OS clipboard is written after the browser finishes its own copy, so ours lands last and wins.
+const clipboardRepublishDelayMs = 100
+const maxMentionResults = 8
+// Matches a trailing `@path` mention at the caret. Used by both the query reader and the replacer,
+// so they cannot drift apart.
+const mentionPattern = /(^|\s)@([\w./\\-]*)$/
 
 function readDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -193,7 +202,7 @@ export function Composer() {
 
   function updateMention() {
     const caret = area.selectionEnd ?? draft().length
-    const match = draft().slice(0, caret).match(/(^|\s)@([\w./\\-]*)$/)
+    const match = draft().slice(0, caret).match(mentionPattern)
     setMentionQuery(match ? match[2] : null)
   }
 
@@ -206,7 +215,7 @@ export function Composer() {
     const token = ++mentionToken
     void engine.actions.findFiles(query).then((hits) => {
       if (token !== mentionToken) return
-      setFileHits(hits.map((hit) => hit.replaceAll("\\", "/")).slice(0, 8))
+      setFileHits(hits.map((hit) => hit.replaceAll("\\", "/")).slice(0, maxMentionResults))
       setFileCursor(0)
     })
   })
@@ -214,7 +223,7 @@ export function Composer() {
   function pickMention(path: string) {
     const caret = area.selectionEnd ?? draft().length
     const before = draft().slice(0, caret)
-    const match = before.match(/(^|\s)@([\w./\\-]*)$/)
+    const match = before.match(mentionPattern)
     if (!match) return
     const start = caret - match[2].length - 1
     setDraft(draft().slice(0, start) + "@" + path + " " + draft().slice(caret))
@@ -479,7 +488,7 @@ export function Composer() {
 
   function resize() {
     area.style.height = "auto"
-    area.style.height = `${Math.min(area.scrollHeight, 200)}px`
+    area.style.height = `${Math.min(area.scrollHeight, maxComposerHeightPx)}px`
   }
 
   function republishComposerSelection(event: ClipboardEvent & { currentTarget: HTMLTextAreaElement }) {
@@ -487,7 +496,7 @@ export function Composer() {
     const text = composerSelection(target.value, target.selectionStart, target.selectionEnd)
     const invoke = shellInvoke()
     if (!text || !invoke) return
-    setTimeout(() => void invoke("clipboard_write_text", { text }).catch(() => undefined), 100)
+    setTimeout(() => void invoke("clipboard_write_text", { text }).catch(() => undefined), clipboardRepublishDelayMs)
   }
 
   const autoAcceptOn = () => {

@@ -15,6 +15,23 @@ import { openToolContextMenu } from "./tool-context-menu"
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
 
+// How long the shell copy button shows its "copied" state.
+// NOTE: markdown.tsx uses 1600ms for its visually identical code-block copy button.
+const copiedFeedbackMs = 2000
+// Tool output beyond this is clipped before rendering; long outputs otherwise stall the view.
+const maxInlineOutputChars = 4000
+// Tool argument previews are collapsed to a single line of at most this length.
+const maxArgsPreviewChars = 120
+// When re-syncing streamed shell output, compare this many trailing characters of the previous
+// chunk against the new one to confirm the stream is an append rather than a fresh transcript.
+const overlapProbeChars = 64
+// Scroll positions within this many pixels of the bottom count as "at the bottom".
+const bottomSlopPx = 2
+// Shiki packs font styling into a bitmask on each token; these are its FontStyle enum values.
+const fontStyleItalic = 1
+const fontStyleBold = 2
+const fontStyleUnderline = 4
+
 export function PartView(props: { part: Part }) {
   return (
     <Switch>
@@ -264,7 +281,7 @@ function argsPreview(input: Record<string, unknown> | undefined) {
     return `${key}=${raw}`
   })
   const joined = parts.join("  ")
-  return joined.length > 120 ? joined.slice(0, 120) + "..." : joined
+  return joined.length > maxArgsPreviewChars ? joined.slice(0, maxArgsPreviewChars) + "..." : joined
 }
 
 function awaitingPermission(
@@ -616,7 +633,7 @@ export function createShellTranscriptStream() {
         return reset(nextCommand, output, done)
       }
       if (output.startsWith("...\n\n") && !previousOutput.startsWith("...\n\n")) return reset(nextCommand, output, done)
-      const overlap = previousOutput.slice(-64)
+      const overlap = previousOutput.slice(-overlapProbeChars)
       if (output.slice(outputLength - overlap.length, outputLength) !== overlap) return reset(nextCommand, output, done)
       const normalized = consume(output.slice(outputLength), false)
       outputLength = output.length
@@ -701,7 +718,7 @@ function ShellOutput(props: { command: string; output: string; running: boolean 
   const copy = async () => {
     await navigator.clipboard.writeText(shellTranscript(props.command, props.output))
     setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setTimeout(() => setCopied(false), copiedFeedbackMs)
   }
   createEffect(
     on(
@@ -743,7 +760,7 @@ function ShellOutput(props: { command: string; output: string; running: boolean 
 }
 
 export function shellAtBottom(scrollTop: number, clientHeight: number, scrollHeight: number) {
-  return scrollHeight - clientHeight - scrollTop <= 2
+  return scrollHeight - clientHeight - scrollTop <= bottomSlopPx
 }
 
 export function shellScrollTarget(savedTop: number, following: boolean, scrollHeight: number) {
@@ -903,9 +920,9 @@ function SyntaxTokenView(props: { token: SyntaxToken }) {
     const fontStyle = props.token.fontStyle ?? 0
     return {
       color: props.token.color,
-      "font-style": fontStyle & 1 ? "italic" : undefined,
-      "font-weight": fontStyle & 2 ? "bold" : undefined,
-      "text-decoration": fontStyle & 4 ? "underline" : undefined,
+      "font-style": fontStyle & fontStyleItalic ? "italic" : undefined,
+      "font-weight": fontStyle & fontStyleBold ? "bold" : undefined,
+      "text-decoration": fontStyle & fontStyleUnderline ? "underline" : undefined,
     }
   }
   return <span style={style()}>{props.token.content}</span>
@@ -994,7 +1011,7 @@ function stripAnsi(value: string) {
 }
 
 function clip(value: string) {
-  return value.length > 4000 ? value.slice(0, 4000) + "\n..." : value
+  return value.length > maxInlineOutputChars ? value.slice(0, maxInlineOutputChars) + "\n..." : value
 }
 
 export function Chevron(props: { open: boolean }) {

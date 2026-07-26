@@ -24,27 +24,48 @@ export const [customTheme, setCustomTheme] = persisted<CustomTheme>("drift.theme
   text: "#e8eaf0",
   accent: "#a78bfa",
 })
-const savedCustomCss = localStorage.getItem("drift.theme.customCss")
+const customCssKey = "drift.theme.customCss"
+const maxCustomCssChars = 20_000
+// Custom CSS is edited by typing, so persistence and re-injection are both debounced to avoid
+// writing to localStorage and rebuilding the <style> element on every keystroke.
+const cssPersistDebounceMs = 200
+const cssApplyDebounceMs = 75
+
+const savedCustomCss = localStorage.getItem(customCssKey)
 export const [customCss, setCustomCssValue] = createSignal<string>(savedCustomCss ? JSON.parse(savedCustomCss) : "")
 let cssPersistTimer: ReturnType<typeof setTimeout> | undefined
 
 export function setCustomCss(value: string) {
-  const next = value.slice(0, 20_000)
+  const next = value.slice(0, maxCustomCssChars)
   setCustomCssValue(next)
   clearTimeout(cssPersistTimer)
-  cssPersistTimer = setTimeout(() => localStorage.setItem("drift.theme.customCss", JSON.stringify(next)), 200)
+  cssPersistTimer = setTimeout(() => localStorage.setItem(customCssKey, JSON.stringify(next)), cssPersistDebounceMs)
 }
 
 export function setCustomThemeColor(color: keyof CustomTheme, value: string) {
   setCustomTheme({ ...customTheme(), [color]: value })
 }
 
+// A custom theme counts as light when its background is bright enough that dark text reads better.
+// Brightness uses the ITU-R BT.601 luma weights, the same ones behind the classic
+// (r*299 + g*587 + b*114) / 1000 formula, normalized here to 0..1 by also dividing by 255.
+const lumaRed = 299
+const lumaGreen = 587
+const lumaBlue = 114
+const lumaScale = 255_000
+const lightBackgroundThreshold = 0.6
+const hexColorPattern = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i
+
 export function lightTheme() {
   if (theme() === "drift-light" || theme() === "drift-paper") return true
   if (theme() !== "drift-custom") return false
-  const match = customTheme().background.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i)
+  const match = customTheme().background.match(hexColorPattern)
   if (!match) return false
-  return (Number.parseInt(match[1], 16) * 299 + Number.parseInt(match[2], 16) * 587 + Number.parseInt(match[3], 16) * 114) / 255_000 > 0.6
+  const red = Number.parseInt(match[1], 16)
+  const green = Number.parseInt(match[2], 16)
+  const blue = Number.parseInt(match[3], 16)
+  const brightness = (red * lumaRed + green * lumaGreen + blue * lumaBlue) / lumaScale
+  return brightness > lightBackgroundThreshold
 }
 
 export function bindTheme() {
@@ -69,7 +90,7 @@ export function bindTheme() {
       style.id = "drift-custom-css"
       style.textContent = value
       if (!style.isConnected) document.head.append(style)
-    }, 75)
+    }, cssApplyDebounceMs)
     onCleanup(() => clearTimeout(timer))
   })
 }

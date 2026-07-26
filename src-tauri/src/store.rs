@@ -4,6 +4,11 @@ use serde_json::Value;
 use std::path::Path;
 use std::sync::Mutex;
 
+const DATABASE_FILE: &str = "drift.db";
+/// Let SQLite memory-map up to 128 MiB of the database. Reads then avoid a syscall per page, which
+/// matters because the workspace and session lists are re-read on nearly every UI interaction.
+const MMAP_SIZE_BYTES: i64 = 134_217_728;
+
 pub struct Store(Mutex<Connection>);
 
 #[derive(Serialize)]
@@ -62,14 +67,14 @@ pub struct PromptOverride {
 
 pub fn open(dir: &Path) -> rusqlite::Result<Store> {
     std::fs::create_dir_all(dir).ok();
-    open_at(&dir.join("drift.db"))
+    open_at(&dir.join(DATABASE_FILE))
 }
 
 fn open_at(file: &Path) -> rusqlite::Result<Store> {
     let conn = Connection::open(file)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
-    conn.pragma_update(None, "mmap_size", 134_217_728)?;
+    conn.pragma_update(None, "mmap_size", MMAP_SIZE_BYTES)?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspace(
             id TEXT PRIMARY KEY,

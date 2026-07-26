@@ -13,6 +13,37 @@ const MAX_CONFIG_BYTES: usize = 65_536;
 const SENTINEL_FILE: &str = "mcp-fail-closed.json";
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
+/// Files written under the runtime root. Each is referenced from more than one place, so they are
+/// named here rather than repeated as literals.
+const POLICY_FILE: &str = "mcp-approvals.json";
+const CONFIG_FILE: &str = "opencode.json";
+const CATALOG_FILE: &str = "prompt-catalog.json";
+const PROMPT_OVERRIDES_FILE: &str = "prompt-overrides.json";
+const PENDING_DIR: &str = "pending";
+
+/// Server fingerprints are `sha256:` followed by a hex-encoded digest.
+const FINGERPRINT_PREFIX: &str = "sha256:";
+const FINGERPRINT_HEX_LEN: usize = 64;
+const FINGERPRINT_LEN: usize = FINGERPRINT_PREFIX.len() + FINGERPRINT_HEX_LEN;
+
+/// Ceilings on untrusted input. These bound what the frontend and on-disk config can push through
+/// before it reaches the engine; they are not protocol limits. Several share the value 128 by
+/// coincidence rather than by meaning, so each is named separately.
+const MAX_PROMPT_OVERRIDES: usize = 128;
+const MAX_PROMPT_OVERRIDE_BYTES: usize = 262_144;
+const MAX_SERVER_NAME_CHARS: usize = 128;
+const MAX_AGENT_NAME_CHARS: usize = 128;
+const MAX_COMMAND_ARGS: usize = 128;
+const MAX_STRING_MAP_ENTRIES: usize = 128;
+const MAX_REPORT_BYTES: usize = 1_048_576;
+const MAX_PATH_CHARS: usize = 4_096;
+const MAX_STRING_MAP_KEY_CHARS: usize = 256;
+const MAX_STRING_MAP_VALUE_CHARS: usize = 16_384;
+const MAX_OAUTH_FIELD_CHARS: usize = 16_384;
+/// Numbers in the MCP config round trip through JSON and JavaScript, so anything larger than the
+/// f64 safe-integer range would come back altered.
+const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
 pub struct McpRuntime {
     root: PathBuf,
     extensions: PathBuf,
@@ -85,7 +116,7 @@ impl McpRuntime {
     }
 
     fn materialize_inner(&self, store: &Store, reset_approvals: bool) -> Result<(), String> {
-        std::fs::create_dir_all(self.root.join("pending")).map_err(|error| error.to_string())?;
+        std::fs::create_dir_all(self.root.join(PENDING_DIR)).map_err(|error| error.to_string())?;
         let state = store.mcp_state().map_err(|error| error.to_string())?;
         if reset_approvals {
             self.write_policy(state.generation, &[])?;
@@ -104,15 +135,15 @@ impl McpRuntime {
         plugins.push(json!([
             self.plugin_path("prompt-overrides")?,
             {
-                "catalogPath": self.extensions.join("prompt-catalog.json").to_string_lossy(),
-                "settingsPath": self.root.join("prompt-overrides.json").to_string_lossy()
+                "catalogPath": self.extensions.join(CATALOG_FILE).to_string_lossy(),
+                "settingsPath": self.root.join(PROMPT_OVERRIDES_FILE).to_string_lossy()
             }
         ]));
         plugins.push(json!([
             self.plugin_path("mcp-approval")?,
             {
-                "policyPath": self.root.join("mcp-approvals.json").to_string_lossy(),
-                "pendingDirectory": self.root.join("pending").to_string_lossy(),
+                "policyPath": self.root.join(POLICY_FILE).to_string_lossy(),
+                "pendingDirectory": self.root.join(PENDING_DIR).to_string_lossy(),
                 "sentinelPath": self.root.join(SENTINEL_FILE).to_string_lossy(),
                 "generation": state.generation
             }
@@ -139,7 +170,7 @@ impl McpRuntime {
             })
             .collect::<Map<String, Value>>();
         write_json(
-            &self.root.join("prompt-overrides.json"),
+            &self.root.join(PROMPT_OVERRIDES_FILE),
             &json!({ "version": 1, "families": families }),
         )?;
         let agents = root.entry("agent").or_insert_with(|| json!({}));
@@ -151,7 +182,7 @@ impl McpRuntime {
                 agents.insert(name.to_string(), item.value.clone());
             }
         }
-        write_json(&self.root.join("opencode.json"), &config)?;
+        write_json(&self.root.join(CONFIG_FILE), &config)?;
         if reset_approvals {
             self.write_policy(state.generation, &state.decisions)?;
             store
@@ -163,7 +194,7 @@ impl McpRuntime {
     }
 
     pub fn prompt_snapshot(&self, store: &Store) -> Result<PromptSnapshot, String> {
-        let catalog = std::fs::read(self.extensions.join("prompt-catalog.json"))
+        let catalog = std::fs::read(self.extensions.join(CATALOG_FILE))
             .map_err(|error| error.to_string())?;
         Ok(PromptSnapshot {
             catalog: serde_json::from_slice(&catalog).map_err(|error| error.to_string())?,
@@ -192,7 +223,7 @@ impl McpRuntime {
             .prompt_overrides()
             .map_err(|error| error.to_string())?;
         let previous = overrides.iter().find(|item| item.key == key).cloned();
-        if previous.is_none() && overrides.len() >= 128 {
+        if previous.is_none() && overrides.len() >= MAX_PROMPT_OVERRIDES {
             return Err("Drift supports at most 128 prompt overrides".into());
         }
         store
@@ -505,7 +536,7 @@ impl McpRuntime {
             &json!({ "version": 1, "failClosed": true }),
         );
         let policy = write_json(
-            &self.root.join("mcp-approvals.json"),
+            &self.root.join(POLICY_FILE),
             &json!({ "version": 0, "generation": -1, "decisions": [] }),
         );
         let reports = self.clear_reports();
@@ -544,7 +575,7 @@ impl McpRuntime {
         decisions: &[crate::store::McpDecision],
     ) -> Result<(), String> {
         write_json(
-            &self.root.join("mcp-approvals.json"),
+            &self.root.join(POLICY_FILE),
             &json!({
                 "version": POLICY_VERSION,
                 "generation": generation,
@@ -557,7 +588,7 @@ impl McpRuntime {
     }
 
     fn base_config(&self) -> Result<Value, String> {
-        let raw = std::fs::read_to_string(self.extensions.join("opencode.json"))
+        let raw = std::fs::read_to_string(self.extensions.join(CONFIG_FILE))
             .map_err(|error| error.to_string())?;
         serde_json::from_str(&raw).map_err(|error| error.to_string())
     }
@@ -576,13 +607,13 @@ impl McpRuntime {
     }
 
     fn report(&self, directory: &str, generation: i64) -> Result<Option<PendingReport>, String> {
-        let path = report_path(&self.root.join("pending"), directory);
+        let path = report_path(&self.root.join(PENDING_DIR), directory);
         let raw = match std::fs::read_to_string(path) {
             Ok(raw) => raw,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.to_string()),
         };
-        if raw.len() > 1_048_576 {
+        if raw.len() > MAX_REPORT_BYTES {
             return Err("MCP approval report exceeds 1 MiB".into());
         }
         let report: PendingReport =
@@ -605,7 +636,7 @@ impl McpRuntime {
     }
 
     fn clear_reports(&self) -> Result<(), String> {
-        let entries = match std::fs::read_dir(self.root.join("pending")) {
+        let entries = match std::fs::read_dir(self.root.join(PENDING_DIR)) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(error) => return Err(error.to_string()),
@@ -621,7 +652,7 @@ impl McpRuntime {
 }
 
 fn validate_name(name: &str) -> Result<(), String> {
-    if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
+    if name.is_empty() || name.len() > MAX_SERVER_NAME_CHARS || name.chars().any(char::is_control) {
         return Err("MCP server name must be 1-128 characters without control characters".into());
     }
     Ok(())
@@ -648,7 +679,7 @@ fn validate_prompt_key(key: &str) -> Result<(), String> {
     }
     if let Some(agent) = key.strip_prefix("agent:") {
         if !agent.is_empty()
-            && agent.len() <= 128
+            && agent.len() <= MAX_AGENT_NAME_CHARS
             && !agent.chars().any(char::is_control)
             && !["__proto__", "constructor", "prototype"].contains(&agent)
         {
@@ -663,7 +694,7 @@ fn validate_prompt_override(key: &str, value: &Value) -> Result<(), String> {
     let size = serde_json::to_vec(value)
         .map_err(|error| error.to_string())?
         .len();
-    if size > 262_144 {
+    if size > MAX_PROMPT_OVERRIDE_BYTES {
         return Err("Prompt override exceeds 256 KiB".into());
     }
     reject_unsafe_keys(value)?;
@@ -800,17 +831,17 @@ fn validate_local(config: &Map<String, Value>) -> Result<(), String> {
         .and_then(Value::as_array)
         .filter(|command| !command.is_empty())
         .ok_or("Local MCP command must be a non-empty string array")?;
-    if command.len() > 128
+    if command.len() > MAX_COMMAND_ARGS
         || command
             .iter()
-            .any(|part| part.as_str().is_none_or(|part| part.len() > 4096))
+            .any(|part| part.as_str().is_none_or(|part| part.len() > MAX_PATH_CHARS))
         || command[0]
             .as_str()
             .is_none_or(|part| part.trim().is_empty())
     {
         return Err("Local MCP command contains invalid arguments".into());
     }
-    validate_optional_string(config.get("cwd"), "working directory", 4096)?;
+    validate_optional_string(config.get("cwd"), "working directory", MAX_PATH_CHARS)?;
     validate_string_map(config.get("environment"), "environment")
 }
 
@@ -837,7 +868,7 @@ fn validate_enabled_timeout(config: &Map<String, Value>) -> Result<(), String> {
     if config.get("timeout").is_some_and(|value| {
         value
             .as_u64()
-            .is_none_or(|timeout| timeout == 0 || timeout > 9_007_199_254_740_991)
+            .is_none_or(|timeout| timeout == 0 || timeout > MAX_SAFE_INTEGER)
     }) {
         return Err("MCP timeout must be a positive safe integer".into());
     }
@@ -853,7 +884,7 @@ fn validate_oauth(value: Option<&Value>) -> Result<(), String> {
         .as_object()
         .ok_or("MCP OAuth must be an object or false")?;
     for field in ["clientId", "clientSecret", "scope", "redirectUri"] {
-        validate_optional_string(oauth.get(field), &format!("OAuth {field}"), 16_384)?;
+        validate_optional_string(oauth.get(field), &format!("OAuth {field}"), MAX_OAUTH_FIELD_CHARS)?;
     }
     if oauth.get("callbackPort").is_some_and(|value| {
         value
@@ -879,9 +910,9 @@ fn validate_string_map(value: Option<&Value>, field: &str) -> Result<(), String>
     let object = value
         .as_object()
         .ok_or_else(|| format!("MCP {field} must be a JSON object"))?;
-    if object.len() > 128
+    if object.len() > MAX_STRING_MAP_ENTRIES
         || object.iter().any(|(key, value)| {
-            key.len() > 256 || value.as_str().is_none_or(|value| value.len() > 16_384)
+            key.len() > MAX_STRING_MAP_KEY_CHARS || value.as_str().is_none_or(|value| value.len() > MAX_STRING_MAP_VALUE_CHARS)
         })
     {
         return Err(format!("MCP {field} contains invalid entries"));
@@ -910,9 +941,9 @@ fn reject_unsafe_keys(value: &Value) -> Result<(), String> {
 }
 
 fn valid_fingerprint(value: &str) -> bool {
-    value.len() == 71
-        && value.starts_with("sha256:")
-        && value[7..]
+    value.len() == FINGERPRINT_LEN
+        && value.starts_with(FINGERPRINT_PREFIX)
+        && value[FINGERPRINT_PREFIX.len()..]
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }

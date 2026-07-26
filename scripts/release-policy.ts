@@ -80,10 +80,22 @@ export function releaseAssetsMarker(assets: ReleaseAssetDigest[]) {
   return `<!-- drift-release-assets: ${Buffer.from(JSON.stringify(sorted)).toString("base64url")} -->`
 }
 
+// A stable release publishes exactly three files: the installer, its detached signature, and the
+// updater manifest. isReleaseAsset, expectedReleaseAssetNames and releaseAssetCount all describe
+// that same set, so they must be changed together.
+const installerSuffix = "-setup.exe"
+const signatureSuffix = ".sig"
+const updateManifestName = "latest.json"
+const releaseAssetCount = 3
+
+function isReleaseAsset(name: string) {
+  return name.endsWith(installerSuffix) || name.endsWith(signatureSuffix) || name === updateManifestName
+}
+
 function expectedReleaseAssetNames(assets: { name: string }[]) {
-  const installers = assets.filter((asset) => asset.name.endsWith("-setup.exe"))
+  const installers = assets.filter((asset) => asset.name.endsWith(installerSuffix))
   if (installers.length !== 1) throw new Error("Published release must contain exactly one setup executable")
-  return [installers[0].name, `${installers[0].name}.sig`, "latest.json"].sort()
+  return [installers[0].name, `${installers[0].name}${signatureSuffix}`, updateManifestName].sort()
 }
 
 export function validatePublishedRelease(release: GitHubRelease, runId: string, commit: string) {
@@ -218,10 +230,12 @@ export function stampReleaseVersion(tag: string, root = path.resolve(import.meta
 
 export function sealReleaseNotes(notesFile: string, runId: string, commit: string, assetsDirectory: string) {
   const assetFiles = readdirSync(assetsDirectory)
-    .filter((name) => name.endsWith("-setup.exe") || name.endsWith(".sig") || name === "latest.json")
+    .filter(isReleaseAsset)
     .map((name) => path.join(assetsDirectory, name))
   expectedReleaseAssetNames(assetFiles.map((file) => ({ name: path.basename(file) })))
-  if (assetFiles.length !== 3) throw new Error("Release notes must be sealed with exactly three release assets")
+  if (assetFiles.length !== releaseAssetCount) {
+    throw new Error("Release notes must be sealed with exactly three release assets")
+  }
 
   const assets = assetFiles.map((file) => ({
     name: path.basename(file),

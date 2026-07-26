@@ -18,6 +18,15 @@ const overlayDirectory = path.join(root, "engine", "overlays")
 const lockDirectory = path.join(root, "engine", ".overlay-lock")
 const ownedLocks = new Map<string, string>()
 
+// How long to wait for another process to release the overlay lock before giving up. The retry
+// budget is derived so the timeout message and the loop bound cannot disagree.
+const lockPollIntervalMs = 250
+const lockTimeoutMs = 60_000
+const lockAttempts = lockTimeoutMs / lockPollIntervalMs
+// A lock directory with no owner file may just be a contender mid-publish, so tolerate a few polls
+// before treating it as abandoned and quarantining it.
+const ownerlessGraceAttempts = 3
+
 interface LockOwner {
   pid: number
   token: string
@@ -163,7 +172,7 @@ export async function acquireEngineOverlayLock(
     writeFileSync(candidateOwner, JSON.stringify({ pid: process.pid, token }), { flag: "wx" })
     options.beforePublish?.(candidate)
 
-    for (let attempt = 0; attempt < 240; attempt++) {
+    for (let attempt = 0; attempt < lockAttempts; attempt++) {
       try {
         // A same-volume hard link atomically publishes complete metadata and never replaces an existing lock.
         linkSync(candidateOwner, directory)
@@ -180,8 +189,8 @@ export async function acquireEngineOverlayLock(
       } catch (ownerError) {
         if ((ownerError as NodeJS.ErrnoException).code !== "ENOENT") throw ownerError
         if (!existsSync(directory)) continue
-        if (missingOwnerAttempts++ < 3) {
-          await Bun.sleep(250)
+        if (missingOwnerAttempts++ < ownerlessGraceAttempts) {
+          await Bun.sleep(lockPollIntervalMs)
           continue
         }
         if (await quarantineOwnerlessLock(directory, options)) missingOwnerAttempts = 0
@@ -193,7 +202,7 @@ export async function acquireEngineOverlayLock(
       } catch (ownerError) {
         const code = (ownerError as NodeJS.ErrnoException).code
         if (code === "EPERM") {
-          await Bun.sleep(250)
+          await Bun.sleep(lockPollIntervalMs)
           continue
         }
         if (code !== "ESRCH") throw ownerError
@@ -206,9 +215,9 @@ export async function acquireEngineOverlayLock(
         console.warn(`Recovering engine overlays left by process ${owner.pid}`)
         continue
       }
-      await Bun.sleep(250)
+      await Bun.sleep(lockPollIntervalMs)
     }
-    throw new Error("Timed out waiting for the engine overlay lock")
+    throw new Error(`Timed out waiting for the engine overlay lock after ${lockTimeoutMs / 1000}s`)
   } finally {
     try {
       rmSync(candidate, { recursive: true, force: true })

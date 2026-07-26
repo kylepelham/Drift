@@ -60,6 +60,20 @@ export function createActions(
   target: () => EngineTarget | undefined,
 ) {
   const pageSize = 100
+  // The archive listing has no cursor, so it is fetched in one page with a ceiling high enough that
+  // no real workspace reaches it.
+  const archiveListLimit = "10000"
+  // A spawned thread is titled from the first few words of its task.
+  const titleWordCount = 6
+  const maxTitleChars = 64
+  // Disposing an instance is asynchronous on the engine side; this pause lets the old process release
+  // its port and lock before a caller reconnects.
+  const disposeSettleMs = 50
+  // Aborting is best-effort: the engine may already be mid-turn. Poll until it reports idle, then give
+  // up so the caller is never blocked indefinitely.
+  const abortWaitMs = 5000
+  const abortPollMs = 100
+  const moveNoticeDurationMs = 8000
   let allSessionsRequest: Promise<void> | undefined
 
   // Writing `undefined` removes the key from the store. The non-null assertion is only there to
@@ -129,7 +143,7 @@ export function createActions(
     if (!base) return
     if (allSessionsRequest) return allSessionsRequest
     allSessionsRequest = (async () => {
-      const query = new URLSearchParams({ archived: "true", limit: "10000" })
+      const query = new URLSearchParams({ archived: "true", limit: archiveListLimit })
       const headers = {
         ...base.headers,
         ...(state.directory ? { "x-opencode-directory": encodeURIComponent(state.directory) } : {}),
@@ -203,7 +217,7 @@ export function createActions(
     const client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
     const session = await forkAt(id, "active", undefined, base, directory)
     if (!session) return
-    const title = task.trim().split(/\s+/).slice(0, 6).join(" ").slice(0, 64) || "Spawned thread"
+    const title = task.trim().split(/\s+/).slice(0, titleWordCount).join(" ").slice(0, maxTitleChars) || "Spawned thread"
     const renamed = await client.session.update({ path: { id: session.id }, body: { title } }).catch(() => null)
     if (!renamed || renamed.error) {
       await client.session.delete({ path: { id: session.id } }).catch(() => null)
@@ -244,7 +258,7 @@ export function createActions(
   async function sessionsAt(directory: string): Promise<Session[] | null> {
     const base = target()
     if (!base) return null
-    const query = new URLSearchParams({ directory, archived: "true", limit: "10000" })
+    const query = new URLSearchParams({ directory, archived: "true", limit: archiveListLimit })
     const response = await fetch(`${base.url}/experimental/session?${query}`, { headers: base.headers }).catch(() => null)
     if (!response?.ok) return null
     return (await response.json().catch(() => null)) as Session[] | null
@@ -383,7 +397,7 @@ export function createActions(
       if (!control) return false
       const result = await control.global.dispose().catch(() => null)
       if (result?.data !== true) return false
-      await sleep(50)
+      await sleep(disposeSettleMs)
       return true
     }
     reloadQueue = reloadQueue.then(reload, reload)
@@ -629,7 +643,7 @@ export function createActions(
     for (const question of state.questions[id] ?? []) await answerQuestion(id, question.id, null)
     if (!sessionBusy(state, id)) return
     await requireClient().session.abort({ path: { id } }).catch(() => {})
-    for (let waited = 0; waited < 5000 && sessionBusy(state, id); waited += 100) await sleep(100)
+    for (let waited = 0; waited < abortWaitMs && sessionBusy(state, id); waited += abortPollMs) await sleep(abortPollMs)
   }
 
   async function revert(id: string, messageID: string) {
@@ -659,7 +673,7 @@ export function createActions(
   ) {
     pushNotice(set, {
       id: input.id ?? crypto.randomUUID(),
-      duration: 8000,
+      duration: moveNoticeDurationMs,
       ...input,
       created: input.created ?? Date.now(),
     })
