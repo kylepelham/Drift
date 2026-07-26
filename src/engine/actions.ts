@@ -25,6 +25,7 @@ export type PromptFile = {
   source?: { type: "file"; path: string; text: { value: string; start: number; end: number } }
 }
 export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string; files?: PromptFile[] }
+export type PromptSendResult = { ok: true } | { ok: false; error: string }
 export type PermissionResponse = "once" | "always" | "reject"
 export type ProviderAuthResult = { ok: boolean; connected: boolean }
 export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
@@ -132,10 +133,27 @@ export function createActions(
     }
   }
 
-  async function newSession(): Promise<Session | undefined> {
-    const result = await requireClient().session.create({ body: {} })
-    if (result.data) set("sessions", result.data.id, result.data)
-    return result.data
+  async function removeAllSessions(directory: string) {
+    const result = await requireClient().session.list({ query: { directory } })
+    for (const session of result.data ?? []) {
+      await requireClient().session.delete({ path: { id: session.id }, query: { directory } })
+    }
+  }
+
+  async function newSession(): Promise<(Session & { discard: () => Promise<void> }) | undefined> {
+    const client = requireClient()
+    const result = await client.session.create({ body: {} })
+    const session = result.data
+    if (!session) return
+    set("sessions", session.id, session)
+    return {
+      ...session,
+      async discard() {
+        const result = await client.session.delete({ path: { id: session.id } }).catch(() => null)
+        if (!result || result.error !== undefined) return
+        forgetSession(session.id)
+      },
+    }
   }
 
   async function fork(id: string, mode: "active" | "full" = "active", messageID?: string): Promise<Session | undefined> {
@@ -357,7 +375,7 @@ export function createActions(
     return moveSessions(entries, destination)
   }
 
-  async function send(id: string, text: string, options: PromptOptions) {
+  async function send(id: string, text: string, options: PromptOptions): Promise<PromptSendResult> {
     set("errors", id, undefined!)
     const body = {
       parts: [
@@ -368,9 +386,24 @@ export function createActions(
       agent: options.agent,
       ...(options.variant ? { variant: options.variant } : {}),
     }
-    if (body.parts.length === 0) return
-    const result = await requireClient().session.promptAsync({ path: { id }, body })
-    if (result.error) set("errors", id, "Prompt failed: engine rejected the request")
+    if (body.parts.length === 0) {
+      const error = "Prompt failed: the prompt is empty"
+      set("errors", id, error)
+      return { ok: false, error }
+    }
+    try {
+      const result = await requireClient().session.promptAsync({ path: { id }, body })
+      if (result.error !== undefined) {
+        const error = `Prompt failed: ${sdkErrorMessage(result.error, "engine rejected the request")}`
+        set("errors", id, error)
+        return { ok: false, error }
+      }
+      return { ok: true }
+    } catch (cause) {
+      const error = `Prompt failed: ${sdkErrorMessage(cause, "could not reach the engine")}`
+      set("errors", id, error)
+      return { ok: false, error }
+    }
   }
 
   async function abort(id: string) {
@@ -700,6 +733,7 @@ export function createActions(
     loadOlder,
     loadSessions,
     loadAllSessions,
+    removeAllSessions,
     sessionIdsAt,
     removePendingSessions,
     newSession,
