@@ -1,7 +1,11 @@
-use super::{
-    basic_authorization, clipboard_utf16, config_path, editor_arguments, editor_kind,
-    file_signatures, watched_mcp_paths, EditorKind, Engine,
-};
+//! Cross-module tests: these cover behaviour that spans several of the shell's modules, so they
+//! stay attached to the crate root rather than to any one of them.
+
+use crate::clipboard::clipboard_utf16;
+use crate::config::config_path;
+use crate::editor::{editor_arguments, editor_kind, EditorKind};
+use crate::engine::{basic_authorization, Engine};
+use crate::watcher::{file_signatures, watched_mcp_paths};
 use std::path::Path;
 
 #[test]
