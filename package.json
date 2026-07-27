@@ -7,7 +7,7 @@
     "dev": "bun scripts/dev.ts",
     "dev:ui": "vite",
     "build": "bun run build:extensions && vite build",
-    "build:tauri": "bun scripts/build-extensions.ts --clean-release && vite build",
+    "build:tauri": "bun scripts/build-extensions.ts && vite build",
     "build:engine": "bun scripts/build-engine.ts",
     "build:extensions": "bun scripts/build-extensions.ts",
     "build:native": "tauri build --no-bundle",

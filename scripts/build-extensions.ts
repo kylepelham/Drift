@@ -33,9 +33,8 @@ export function promptCatalog() {
   }
 }
 
-export async function buildExtensions(output = defaultOutput, staleReleaseOutput?: string) {
+export async function buildExtensions(output = defaultOutput) {
   const plugins = path.join(output, "plugin")
-  if (staleReleaseOutput) rmSync(staleReleaseOutput, { recursive: true, force: true })
   mkdirSync(output, { recursive: true })
   rmSync(plugins, { recursive: true, force: true })
   rmSync(path.join(output, "opencode.json"), { force: true })
@@ -62,15 +61,7 @@ export async function buildExtensions(output = defaultOutput, staleReleaseOutput
   return output
 }
 
-export function releaseExtensionsPath(targetDir = process.env.CARGO_TARGET_DIR) {
-  const cargoTarget = targetDir
-    ? path.resolve(root, "src-tauri", targetDir)
-    : path.join(root, "src-tauri", "target")
-  return path.join(cargoTarget, "release", "drift-extensions")
-}
-
 if (import.meta.main) {
-  const staleReleaseOutput = process.argv.includes("--clean-release") ? releaseExtensionsPath() : undefined
-  const output = await buildExtensions(defaultOutput, staleReleaseOutput)
+  const output = await buildExtensions(defaultOutput)
   console.log(`drift extensions ready in ${path.relative(root, output)}`)
 }

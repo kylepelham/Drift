@@ -174,11 +174,14 @@ test("settings elevation and toggle contrast follow their visual state", async (
 })
 
 test("appearance exposes persisted startup splash controls", async () => {
-  const { splashDurations, splashExitAnimations, splashMascotAnimations } = await import("../src/state/startup")
+  const { splashDuration, splashDurations, splashExitAnimation, splashExitAnimations, splashMascotAnimations } =
+    await import("../src/state/startup")
   const settings = await Bun.file("src/ui/settings.tsx").text()
   expect(splashMascotAnimations).toEqual(["bounce", "float", "pulse", "still"])
   expect(splashExitAnimations).toEqual(["wave", "fade", "lift"])
   expect(splashDurations).toEqual([1500, 3200, 5000])
+  expect(splashExitAnimation()).toBe("fade")
+  expect(splashDuration()).toBe(3200)
   expect(settings).toContain('title={t("startup.settings.title")}')
   expect(settings).toContain("setSplashEnabled(!splashEnabled())")
   expect(settings).toContain("value={splashFont()}")
@@ -202,7 +205,7 @@ test("code display defaults preserve source and diff structure", async () => {
   expect(codeWordWrap()).toBeFalse()
   expect(diffWordWrap()).toBeFalse()
   expect(diffLineNumbers()).toBeTrue()
-  expect(diffIndicator()).toBe("symbols")
+  expect(diffIndicator()).toBe("background")
   const { codeSettingOptions } = await import("../src/ui/settings")
   expect(codeSettingOptions()).toEqual({
     themes: ["automatic", "github", "vitesse", "one", "dracula", "nord"],

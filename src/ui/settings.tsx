@@ -1013,7 +1013,14 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
 
   return (
     <div class="space-y-6">
-      <Show when={snapshot()} fallback={<div class="px-2 text-sm text-ink-faint">{error() || t("common.loading")}</div>}>
+      <Show
+        when={snapshot()}
+        fallback={
+          <Show when={!error()}>
+            <div class="px-2 text-sm text-ink-faint">{t("common.loading")}</div>
+          </Show>
+        }
+      >
         {(data) => (
           <>
             <Show when={props.view === "prompts"}>

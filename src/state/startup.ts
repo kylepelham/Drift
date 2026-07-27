@@ -13,7 +13,7 @@ export const [splashMascotAnimation, setSplashMascotAnimation] = persisted<Splas
 )
 export const [splashExitAnimation, setSplashExitAnimation] = persisted<SplashExitAnimation>(
   "drift.splash.exit",
-  "wave",
+  "fade",
 )
 export const [splashDuration, setSplashDuration] = persisted<number>("drift.splash.duration", 3200)
 export const [splashFont, setSplashFont] = persisted("drift.splash.font", "")
