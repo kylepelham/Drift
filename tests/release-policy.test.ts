@@ -329,8 +329,8 @@ test("release assets are staged flat so publication globs resolve", () => {
   const publish = workflow.slice(workflow.indexOf("  publish:"))
 
   // A multi-path upload roots the artifact at the common ancestor, which breaks the publication globs.
-  expect(signing).not.toContain("path: |")
-  expect(signing).toContain("path: release-artifacts")
+  const upload = signing.slice(signing.indexOf("- name: Upload signed release artifacts"))
+  expect(upload.match(/^\s+path:\s*(.*)$/m)?.[1].trim()).toBe("release-artifacts")
   expect(signing).toContain('"${{ needs.tag-policy.outputs.commit }}" "release-artifacts"')
   expect(publish).toContain("path: release-artifacts")
   expect(publish).toContain("body_path: release-artifacts/release-notes.md")
