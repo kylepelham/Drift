@@ -47,7 +47,7 @@ function driftDatabasePath() {
   if (!home) return undefined
   const data = process.platform === "darwin"
     ? path.join(home, "Library", "Application Support")
-    : process.env.XDG_DATA_HOME ?? path.join(home, ".local", "share")
+    : process.env.XDG_DATA_HOME || path.join(home, ".local", "share")
   return path.join(data, "dev.drift.app", "drift.db")
 }
 
@@ -154,8 +154,9 @@ function attachDrift(db: Database, driftPath: string | undefined) {
     // Confirm the table this depends on actually exists in that schema.
     db.query(`SELECT 1 FROM ${DRIFT_SCHEMA}.session_meta LIMIT 1`).get()
     return true
-  } catch {
-    return false
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause)
+    throw new Error(`cannot use Drift archive database at ${driftPath}: ${message}`)
   }
 }
 
