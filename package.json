@@ -11,6 +11,8 @@
     "build:engine": "bun scripts/build-engine.ts",
     "build:extensions": "bun scripts/build-extensions.ts",
     "build:native": "tauri build --no-bundle",
+    "db:audit": "bun scripts/db-maintenance.ts --audit",
+    "db:prune": "bun scripts/db-maintenance.ts --prune",
     "package": "tauri build",
     "test": "bun test tests",
     "test:release-policy": "bun test tests/release-policy.test.ts",
