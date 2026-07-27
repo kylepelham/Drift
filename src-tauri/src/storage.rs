@@ -109,6 +109,8 @@ fn open(read_only: bool) -> Result<Connection, String> {
     let conn = Connection::open_with_flags(&path, flags).map_err(|error| error.to_string())?;
     conn.busy_timeout(BUSY_TIMEOUT)
         .map_err(|error| error.to_string())?;
+    conn.pragma_update(None, "foreign_keys", true)
+        .map_err(|error| error.to_string())?;
     Ok(conn)
 }
 
@@ -242,6 +244,7 @@ fn rules_for(rules: PruneRules, archived: &[String]) -> Vec<(String, String)> {
                              PARTITION BY json_extract(data, '{id_path}') ORDER BY seq DESC
                          ) AS rank
                          FROM event WHERE type = '{event_type}'
+                             AND json_extract(data, '{id_path}') IS NOT NULL
                      ) WHERE rank > 1"
                 ),
             ));

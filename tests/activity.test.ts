@@ -55,6 +55,12 @@ test("markdown preserves balanced, void, and code-fenced HTML", async () => {
   expect(prepareMarkdown("orphan </strong> text")).toBe("orphan &lt;/strong&gt; text")
 })
 
+test("markdown preserves tilde fences and multi-backtick code spans", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  expect(prepareMarkdown("~~~html\n<h1>Example\n~~~\nafter")).toBe("~~~html\n<h1>Example\n~~~\nafter")
+  expect(prepareMarkdown("Use ``<h1>`literal`</h1>`` here")).toBe("Use ``<h1>`literal`</h1>`` here")
+})
+
 test("streaming tables bound incomplete links and preserve completed anchors", async () => {
   const { prepareMarkdown } = await import("../src/ui/markdown")
   const { marked } = await import("marked")

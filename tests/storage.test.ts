@@ -45,6 +45,28 @@ test("a rule toggle preserves the other rules", async () => {
   expect(anyRuleEnabled(storageRules())).toBeTrue()
 })
 
+test("reclaimable bytes only include enabled cleanup rules", async () => {
+  const { reclaimableBytes } = await import("../src/state/storage")
+  const estimates = [
+    { rule: "superseded:part", rows: 1, bytes: 40 },
+    { rule: "superseded:message", rows: 1, bytes: 60 },
+    { rule: "subagent-events", rows: 1, bytes: 500 },
+    { rule: "orphan-events", rows: 1, bytes: 25 },
+  ]
+  expect(reclaimableBytes(estimates, {
+    supersededSnapshots: true,
+    subagentEvents: false,
+    archivedEvents: false,
+    orphanEvents: true,
+  })).toBe(100)
+  expect(reclaimableBytes(estimates, {
+    supersededSnapshots: false,
+    subagentEvents: false,
+    archivedEvents: false,
+    orphanEvents: true,
+  })).toBe(25)
+})
+
 test("scheduled cleanup stays off unless enabled, and runs at most daily", async () => {
   const storage = await import("../src/state/storage")
   const dayMs = 24 * 60 * 60 * 1000

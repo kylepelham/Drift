@@ -224,7 +224,9 @@ impl McpRuntime {
             .map_err(|error| error.to_string())?;
         let previous = overrides.iter().find(|item| item.key == key).cloned();
         if previous.is_none() && overrides.len() >= MAX_PROMPT_OVERRIDES {
-            return Err("Drift supports at most 128 prompt overrides".into());
+            return Err(format!(
+                "Drift supports at most {MAX_PROMPT_OVERRIDES} prompt overrides"
+            ));
         }
         store
             .save_prompt_override(key, &value, original.as_ref())
@@ -639,7 +641,9 @@ impl McpRuntime {
             Err(error) => return Err(error.to_string()),
         };
         if raw.len() > MAX_REPORT_BYTES {
-            return Err("MCP approval report exceeds 1 MiB".into());
+            return Err(format!(
+                "MCP approval report exceeds {MAX_REPORT_BYTES} bytes"
+            ));
         }
         let report: PendingReport =
             serde_json::from_str(&raw).map_err(|_| "MCP approval report is malformed")?;
@@ -678,7 +682,9 @@ impl McpRuntime {
 
 fn validate_name(name: &str) -> Result<(), String> {
     if name.is_empty() || name.len() > MAX_SERVER_NAME_CHARS || name.chars().any(char::is_control) {
-        return Err("MCP server name must be 1-128 characters without control characters".into());
+        return Err(format!(
+            "MCP server name must be 1-{MAX_SERVER_NAME_CHARS} characters without control characters"
+        ));
     }
     Ok(())
 }
@@ -720,7 +726,9 @@ fn validate_prompt_override(key: &str, value: &Value) -> Result<(), String> {
         .map_err(|error| error.to_string())?
         .len();
     if size > MAX_PROMPT_OVERRIDE_BYTES {
-        return Err("Prompt override exceeds 256 KiB".into());
+        return Err(format!(
+            "Prompt override exceeds {MAX_PROMPT_OVERRIDE_BYTES} bytes"
+        ));
     }
     reject_unsafe_keys(value)?;
     if key.starts_with("family:") && !value.is_string() {

@@ -261,6 +261,9 @@ test("shell transcript preserves a visible command-output gap and normalizes out
   const previewUpdate = boundary.update("tail", `...\n\n${"x".repeat(29_995)}abcde`, false)
   expect(previewUpdate.replace).toBeTrue()
   expect(previewUpdate.text.startsWith("$ tail\n\n...\n\n")).toBeTrue()
+  const whitespace = createShellTranscriptStream()
+  expect(whitespace.update("wait", "\n ", false)).toEqual({ replace: true, text: "$ wait" })
+  expect(whitespace.update("wait", "\n ready", false)).toEqual({ replace: true, text: "$ wait\n\n\n ready" })
 
   const frames = new Map<number, () => void>()
   const values: string[] = []

@@ -31,15 +31,24 @@ const maxCustomCssChars = 20_000
 const cssPersistDebounceMs = 200
 const cssApplyDebounceMs = 75
 
-const savedCustomCss = localStorage.getItem(customCssKey)
-export const [customCss, setCustomCssValue] = createSignal<string>(savedCustomCss ? JSON.parse(savedCustomCss) : "")
+let savedCustomCss = ""
+try {
+  const raw = localStorage.getItem(customCssKey)
+  const parsed = raw ? JSON.parse(raw) : ""
+  if (typeof parsed === "string") savedCustomCss = parsed.slice(0, maxCustomCssChars)
+} catch {}
+export const [customCss, setCustomCssValue] = createSignal(savedCustomCss)
 let cssPersistTimer: ReturnType<typeof setTimeout> | undefined
 
 export function setCustomCss(value: string) {
   const next = value.slice(0, maxCustomCssChars)
   setCustomCssValue(next)
   clearTimeout(cssPersistTimer)
-  cssPersistTimer = setTimeout(() => localStorage.setItem(customCssKey, JSON.stringify(next)), cssPersistDebounceMs)
+  cssPersistTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(customCssKey, JSON.stringify(next))
+    } catch {}
+  }, cssPersistDebounceMs)
 }
 
 export function setCustomThemeColor(color: keyof CustomTheme, value: string) {

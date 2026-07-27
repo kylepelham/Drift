@@ -5,7 +5,7 @@ use crate::engine_db;
 use crate::CREATE_NO_WINDOW;
 use serde::Serialize;
 use std::io::{BufRead, BufReader, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -193,9 +193,18 @@ pub(crate) fn stop_engine_instances(app: &tauri::AppHandle) -> Result<(), String
     let port = parsed
         .port_or_known_default()
         .ok_or("embedded engine URL has no port")?;
-    let mut stream = TcpStream::connect((host, port)).map_err(|error| error.to_string())?;
+    let address = (host, port)
+        .to_socket_addrs()
+        .map_err(|error| error.to_string())?
+        .next()
+        .ok_or("embedded engine URL could not be resolved")?;
+    let mut stream = TcpStream::connect_timeout(&address, ENGINE_DISPOSE_TIMEOUT)
+        .map_err(|error| error.to_string())?;
     stream
         .set_read_timeout(Some(ENGINE_DISPOSE_TIMEOUT))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_write_timeout(Some(ENGINE_DISPOSE_TIMEOUT))
         .map_err(|error| error.to_string())?;
     let authorization = basic_authorization(ENGINE_USERNAME, &engine.password);
     let request = format!(

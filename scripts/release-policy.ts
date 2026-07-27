@@ -232,9 +232,13 @@ export function sealReleaseNotes(notesFile: string, runId: string, commit: strin
   const assetFiles = readdirSync(assetsDirectory)
     .filter(isReleaseAsset)
     .map((name) => path.join(assetsDirectory, name))
-  expectedReleaseAssetNames(assetFiles.map((file) => ({ name: path.basename(file) })))
   if (assetFiles.length !== releaseAssetCount) {
     throw new Error("Release notes must be sealed with exactly three release assets")
+  }
+  const actualNames = assetFiles.map((file) => path.basename(file)).sort()
+  const expectedNames = expectedReleaseAssetNames(actualNames.map((name) => ({ name })))
+  if (actualNames.some((name, index) => name !== expectedNames[index])) {
+    throw new Error("Release notes must be sealed with the exact installer, signature, and updater assets")
   }
 
   const assets = assetFiles.map((file) => ({
