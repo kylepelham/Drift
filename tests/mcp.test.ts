@@ -527,7 +527,9 @@ describe("MCP frontend coordinator", () => {
         {
           status: async () => {
             statuses++
-            return { docs: { status: statuses === 1 ? "failed" : "connected", error: "closed" } }
+            if (statuses === 1) return { docs: { status: "failed" as const, error: "closed" } }
+            if (statuses === 2) return { docs: { status: "connected" as const } }
+            return {}
           },
         },
       ),
@@ -539,6 +541,33 @@ describe("MCP frontend coordinator", () => {
     expect(coordinator.state.statuses.docs.status).toBe("connected")
     expect(coordinator.state.ready).toBeTrue()
     expect(coordinator.state.loading).toBeFalse()
+    await coordinator.refreshStatus()
+    expect(coordinator.state.statuses).toEqual({})
+  })
+
+  test("failed status polling clears stale connected state", async () => {
+    const { createMcpCoordinator } = await import("../src/state/mcp")
+    let fail = false
+    const coordinator = createMcpCoordinator(
+      dependencies(
+        {
+          mcpSnapshot: async (directory: string) => ({ generation: 1, directory, servers: [], observed: [] }),
+        },
+        {
+          status: async () => {
+            if (fail) throw new Error("engine unavailable")
+            return { docs: { status: "connected" } }
+          },
+        },
+      ),
+    )
+    await coordinator.setActive("S:/repo", true)
+    expect(coordinator.state.statuses.docs.status).toBe("connected")
+
+    fail = true
+    await expect(coordinator.refreshStatus()).rejects.toThrow("engine unavailable")
+    expect(coordinator.state.statuses).toEqual({})
+    expect(coordinator.state.ready).toBeTrue()
   })
 
   test("external refresh bursts coalesce and cancellation prevents delayed work", async () => {
