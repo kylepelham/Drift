@@ -322,3 +322,19 @@ test("release workflow serializes tags globally and rechecks full policy immedia
   expect(publish).toContain("if: steps.final-policy.outputs.published != 'true'")
   expect(workflow).toContain("release-${{ github.run_id }}-${{ github.run_attempt }}-")
 })
+
+test("release assets are staged flat so publication globs resolve", () => {
+  const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
+  const signing = workflow.slice(workflow.indexOf("  signed-artifacts:"), workflow.indexOf("  publish:"))
+  const publish = workflow.slice(workflow.indexOf("  publish:"))
+
+  // A multi-path upload roots the artifact at the common ancestor, which breaks the publication globs.
+  const upload = signing.slice(signing.indexOf("- name: Upload signed release artifacts"))
+  expect(upload.match(/^\s+path:\s*(.*)$/m)?.[1].trim()).toBe("release-artifacts")
+  expect(signing).toContain('"${{ needs.tag-policy.outputs.commit }}" "release-artifacts"')
+  expect(publish).toContain("path: release-artifacts")
+  expect(publish).toContain("body_path: release-artifacts/release-notes.md")
+  for (const asset of ["release-artifacts/*-setup.exe", "release-artifacts/*.sig", "release-artifacts/latest.json"]) {
+    expect(publish).toContain(asset)
+  }
+})
