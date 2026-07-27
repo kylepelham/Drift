@@ -1,5 +1,5 @@
 import type { McpStatus } from "@opencode-ai/sdk/client"
-import { createStore } from "solid-js/store"
+import { createStore, reconcile } from "solid-js/store"
 import type { DriftStore, McpConfig, McpSnapshot, ObservedMcpServer } from "./store"
 
 export type McpExactTarget = ObservedMcpServer & {
@@ -149,7 +149,7 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
 
   function clearForContext(directory: string) {
     setState("snapshot", emptySnapshot(directory))
-    setState("statuses", {})
+    setState("statuses", reconcile({}))
     setState("ready", false)
     setState("error", "")
   }
@@ -168,14 +168,14 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
       const snapshot = await api.store.mcpSnapshot(request.directory)
       if (!current(request)) return snapshot
       setState("snapshot", snapshot)
-      setState("statuses", statuses)
+      setState("statuses", reconcile(statuses))
       setState("ready", true)
       return snapshot
     } catch (error) {
       const message = conciseMcpError(error)
       if (current(request)) {
         setState("snapshot", emptySnapshot(request.directory))
-        setState("statuses", {})
+        setState("statuses", reconcile({}))
         setState("ready", false)
         setState("error", message)
       }
@@ -187,9 +187,14 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
 
   async function refreshStatusUnlocked(request = context()) {
     if (!current(request) || !request.directory || !request.online) return {}
-    const statuses = await requireDependencies().status(request.directory)
-    if (current(request)) setState("statuses", statuses)
-    return statuses
+    try {
+      const statuses = await requireDependencies().status(request.directory)
+      if (current(request)) setState("statuses", reconcile(statuses))
+      return statuses
+    } catch (error) {
+      if (current(request)) setState("statuses", reconcile({}))
+      throw error
+    }
   }
 
   function refresh() {

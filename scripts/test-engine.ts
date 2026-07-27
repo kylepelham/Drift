@@ -59,7 +59,7 @@ await withEngineOverlays(async () => {
   await run("packages/opencode", [
     "test/mcp/lifecycle.test.ts",
     "-t",
-    "newer reconnect wins|ordinary MCP request failures",
+    "restores tools|newer reconnect wins|ordinary MCP request failures",
   ])
   await run("packages/opencode", [
     "test/session/compaction.test.ts",
