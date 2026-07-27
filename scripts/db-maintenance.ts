@@ -247,6 +247,10 @@ function prune(sourcePath: string, inPlace: boolean) {
     }
     console.log("vacuuming ...")
     db.exec("VACUUM")
+    // A large delete grows the write-ahead log to hold every modified page, and SQLite reuses that
+    // space rather than shrinking the file. Without truncating it, a caller who just freed several
+    // gigabytes is left with a multi-gigabyte -wal beside the database and no apparent saving.
+    db.query("PRAGMA wal_checkpoint(TRUNCATE)").get()
     const check = Object.values(db.query("PRAGMA integrity_check").get() as object)[0]
     const violations = (db.query("PRAGMA foreign_key_check").all() as unknown[]).length
     console.log(`integrity_check   : ${check}`)

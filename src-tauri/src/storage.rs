@@ -118,6 +118,16 @@ fn scalar(conn: &Connection, sql: &str) -> Result<i64, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Moves the write-ahead log back into the database and releases the log file.
+///
+/// A large delete grows the WAL to hold every modified page, and SQLite then reuses that space
+/// rather than shrinking the file. Without this a caller who just freed several gigabytes is left
+/// with a multi-gigabyte `-wal` beside the database and no apparent saving. Checkpointing is
+/// best effort: another reader can hold the log open, in which case it is released later.
+fn checkpoint(conn: &Connection) {
+    let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+}
+
 /// Mean payload size for a column, sampled from evenly spaced windows.
 ///
 /// A full `SUM(LENGTH(...))` costs a minute on the `event` table. Reading a few hundred rows from
@@ -313,6 +323,7 @@ pub fn prune(rules: PruneRules, archived: &[String]) -> Result<PruneResult, Stri
         }
         tx.commit().map_err(|error| error.to_string())?;
     }
+    checkpoint(&conn);
     let page_size = scalar(&conn, "PRAGMA page_size")?;
     let free_bytes = scalar(&conn, "PRAGMA freelist_count")? * page_size;
     let after = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
@@ -334,6 +345,7 @@ pub fn compact() -> Result<PruneResult, String> {
     conn.execute_batch("VACUUM").map_err(|error| {
         format!("could not compact the database (it is in use): {error}")
     })?;
+    checkpoint(&conn);
     let page_size = scalar(&conn, "PRAGMA page_size")?;
     let after = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
     Ok(PruneResult {
