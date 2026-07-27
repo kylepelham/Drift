@@ -40,4 +40,3 @@ pub(crate) fn config_read(config: State<ConfigRoot>, path: String) -> Result<Opt
         .map(Some)
         .map_err(|e| e.to_string())
 }
-

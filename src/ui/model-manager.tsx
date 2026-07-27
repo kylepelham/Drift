@@ -187,4 +187,3 @@ export function defaultVisibleModelIds(items: PickerItem[], now = Date.now()) {
   for (const item of latest.values()) visible.add(item.id)
   return visible
 }
-

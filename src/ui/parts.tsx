@@ -1041,4 +1041,3 @@ function stripAnsi(value: string) {
 function clip(value: string) {
   return value.length > maxInlineOutputChars ? value.slice(0, maxInlineOutputChars) + "\n..." : value
 }
-
