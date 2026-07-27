@@ -12,7 +12,8 @@ function engineEnvironment(extra: Record<string, string> = {}) {
     "OPENCODE_SERVER_USERNAME",
   ])
     delete env[key]
-  return { ...env, ...extra }
+  // Bootstrap forks a models.dev catalog refresh that lands inside the first test's timeout.
+  return { ...env, OPENCODE_DISABLE_MODELS_FETCH: "1", ...extra }
 }
 
 async function run(directory: string, args: string[], env?: Record<string, string>) {
