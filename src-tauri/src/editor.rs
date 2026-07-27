@@ -55,11 +55,18 @@ fn open_positioned(path: &str, line: u32, column: u32) -> bool {
     let Some(editor) = EDITOR.get_or_init(detect_editor) else {
         return false;
     };
-    spawn_editor(
+    match spawn_editor(
         &editor.executable,
         &editor_arguments(editor.kind, path, line, column),
-    )
-    .is_ok()
+    ) {
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 pub(crate) fn editor_arguments(kind: EditorKind, path: &str, line: u32, column: u32) -> Vec<String> {

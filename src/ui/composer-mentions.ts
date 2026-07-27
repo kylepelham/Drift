@@ -50,11 +50,14 @@ export function createMentionAutocomplete(options: MentionAutocompleteOptions) {
       return
     }
     const token = search.begin()
-    void options.findFiles(current).then((found) => {
-      if (!search.isCurrent(token)) return
-      setHits(found.map((hit) => hit.replaceAll("\\", "/")).slice(0, maxMentionResults))
-      setCursor(0)
-    })
+    void options
+      .findFiles(current)
+      .catch(() => [] as string[])
+      .then((found) => {
+        if (!search.isCurrent(token)) return
+        setHits(found.map((hit) => hit.replaceAll("\\", "/")).slice(0, maxMentionResults))
+        setCursor(0)
+      })
   })
 
   /** Replaces the partial `@…` at the caret with the chosen path and moves the caret past it. */
@@ -82,7 +85,11 @@ export function createMentionAutocomplete(options: MentionAutocompleteOptions) {
     if (event.key === "ArrowDown") setCursor(Math.min(cursor() + 1, hits().length - 1))
     else if (event.key === "ArrowUp") setCursor(Math.max(cursor() - 1, 0))
     else if (event.key === "Escape") setQuery(null)
-    else if (event.key === "Enter" || event.key === "Tab") pick(hits()[activeIndex()])
+    else if (event.key === "Enter" || event.key === "Tab") {
+      const path = hits()[activeIndex()]
+      if (!path) return false
+      pick(path)
+    }
     else return false
     event.preventDefault()
     return true

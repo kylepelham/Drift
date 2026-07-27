@@ -20,6 +20,9 @@ pub(crate) async fn check_update(app: tauri::AppHandle) -> Result<Option<String>
 /// Never returns on success: `app.restart()` diverges, which is why there is no trailing `Ok(())`.
 #[tauri::command]
 pub(crate) async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    if cfg!(debug_assertions) {
+        return Err("updates cannot be installed from debug builds".into());
+    }
     let updater = tauri_plugin_updater::UpdaterExt::updater(&app).map_err(|e| e.to_string())?;
     let update = updater
         .check()

@@ -6,6 +6,7 @@ import {
   compactStorage,
   formatBytes,
   pruneStorage,
+  reclaimableBytes,
   refreshStorageStats,
   setAutoCleanup,
   setStorageRule,
@@ -82,7 +83,7 @@ export function StorageSection() {
 
   /** Bar widths are relative to the file, so unaccounted bytes (indexes) simply leave a gap. */
   const barTotal = () => Math.max(stats()?.totalBytes ?? 0, 1)
-  const reclaimable = () => storageEstimates()?.reduce((sum, estimate) => Math.max(sum, estimate.bytes), 0) ?? 0
+  const reclaimable = () => reclaimableBytes(storageEstimates() ?? [], storageRules())
 
   return (
     <div class="space-y-6">

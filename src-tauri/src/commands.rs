@@ -11,25 +11,36 @@ use tauri::State;
 
 /// Fast, sampled overview of what is using space in the session database.
 #[tauri::command]
-pub(crate) fn storage_stats(store: State<Store>) -> Result<StorageStats, String> {
-    storage::stats(&storage::archived_ids(&store))
+pub(crate) async fn storage_stats(store: State<'_, Store>) -> Result<StorageStats, String> {
+    let archived = storage::archived_ids(&store);
+    tauri::async_runtime::spawn_blocking(move || storage::stats(&archived))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 /// Exact reclaimable space per rule. Scans the event table, so callers should show progress.
 #[tauri::command]
-pub(crate) fn storage_analyze(store: State<Store>) -> Result<Vec<RuleEstimate>, String> {
-    storage::analyze(&storage::archived_ids(&store))
+pub(crate) async fn storage_analyze(store: State<'_, Store>) -> Result<Vec<RuleEstimate>, String> {
+    let archived = storage::archived_ids(&store);
+    tauri::async_runtime::spawn_blocking(move || storage::analyze(&archived))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub(crate) fn storage_prune(store: State<Store>, rules: PruneRules) -> Result<PruneResult, String> {
-    storage::prune(rules, &storage::archived_ids(&store))
+pub(crate) async fn storage_prune(store: State<'_, Store>, rules: PruneRules) -> Result<PruneResult, String> {
+    let archived = storage::archived_ids(&store);
+    tauri::async_runtime::spawn_blocking(move || storage::prune(rules, &archived))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 /// Releases free pages back to the filesystem. Fails while the engine holds the database.
 #[tauri::command]
-pub(crate) fn storage_compact() -> Result<PruneResult, String> {
-    storage::compact()
+pub(crate) async fn storage_compact() -> Result<PruneResult, String> {
+    tauri::async_runtime::spawn_blocking(storage::compact)
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]

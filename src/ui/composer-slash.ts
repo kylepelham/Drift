@@ -47,6 +47,18 @@ export function createSlashMenu(options: SlashMenuOptions) {
   const activeMatchIndex = () => Math.min(cursor(), matches().length - 1)
   const activePresetIndex = () => Math.min(cursor(), argumentPresets().length - 1)
 
+  async function execute(item: SlashItem, args: string) {
+    try {
+      await runSlash(options.engine, item, args)
+    } catch (error) {
+      options.engine.actions.notice({
+        title: "Command failed",
+        message: error instanceof Error ? error.message : String(error),
+        variant: "error",
+      })
+    }
+  }
+
   /** Runs a command, or fills in its name and waits when it still needs arguments. */
   async function pick(item: SlashItem) {
     const args = parsed()?.args ?? ""
@@ -58,7 +70,7 @@ export function createSlashMenu(options: SlashMenuOptions) {
     }
     options.setDraft("")
     options.resize()
-    await runSlash(options.engine, item, args)
+    await execute(item, args)
   }
 
   /** Runs a preset, or fills it into the draft when the preset is meant to be edited first. */
@@ -74,7 +86,7 @@ export function createSlashMenu(options: SlashMenuOptions) {
     }
     options.setDraft("")
     options.resize()
-    await runSlash(options.engine, item, preset.value.trim())
+    await execute(item, preset.value.trim())
   }
 
   /** Returns true when the key was consumed by the menu. */

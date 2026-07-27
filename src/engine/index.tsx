@@ -42,15 +42,15 @@ export function EngineProvider(props: ParentProps) {
   async function hydrate() {
     const bootDirectory = directory ?? ""
     const api = requireClient()
+    const current = () => client === api && directory === bootDirectory
     try {
       const stale = Object.keys(state.loaded)
       const [sessions, [statuses, providers, agents, commands]] = await Promise.all([
-        api.session.list().then((result) => {
-          putSessions(set, result.data ?? [])
-          return result
-        }),
+        api.session.list(),
         Promise.all([api.session.status(), api.provider.list(), api.app.agents(), api.command.list()]),
       ])
+      if (!current()) return
+      putSessions(set, sessions.data ?? [])
       set(
         produce((draft) => {
           const live = statuses.data ?? {}
@@ -62,23 +62,24 @@ export function EngineProvider(props: ParentProps) {
       set("defaultModels", providers.data?.default ?? {})
       set("agents", agents.data ?? [])
       set("commands", commands.data ?? [])
-      await Promise.all(stale.map(reload))
+      const transcripts = await Promise.all(
+        stale.map(async (id) => [id, await api.session.messages({ path: { id }, query: { limit: 100 } })] as const),
+      )
+      if (!current()) return
+      for (const [id, result] of transcripts) {
+        if (!result.data) continue
+        set("transcripts", id, [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id)))
+        set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
+      }
       if (!state.version && base) {
-        const health = await fetchEngineVersion(base)
+        const target = base
+        const health = await fetchEngineVersion(target)
+        if (!current() || base !== target) return
         if (health?.version) set("version", health.version)
       }
     } finally {
       if (client === api && directory === bootDirectory) set("bootstrappedDirectory", bootDirectory)
     }
-  }
-
-  // ponytail: reconnect catch-up reloads the tail page only; deep scrollback refetches on demand
-  async function reload(id: string) {
-    const result = await requireClient().session.messages({ path: { id }, query: { limit: 100 } })
-    if (!result.data) return
-    const entries = [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id))
-    set("transcripts", id, entries)
-    set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
   }
 
   async function pump(target: EngineTarget, signal: AbortSignal) {

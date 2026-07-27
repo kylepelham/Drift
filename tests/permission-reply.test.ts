@@ -102,3 +102,23 @@ test("a confirmed cross-workspace reply clears the ask and survives a racing pol
   await actions.refreshPermissions([elsewhere])
   expect(state.permissions.s1 ?? []).toHaveLength(0)
 })
+
+test("concurrent replies to one permission share the same engine request", async () => {
+  let requests = 0
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => (release = resolve))
+  const { state, actions } = harness(async () => {
+    requests += 1
+    await pending
+    return new Response(null, { status: 200 })
+  })
+
+  const first = actions.replyPermission("s1", "p1", "once")
+  const second = actions.replyPermission("s1", "p1", "once")
+  expect(first).toBe(second)
+  expect(requests).toBe(1)
+  release()
+  expect(await Promise.all([first, second])).toEqual([true, true])
+  expect(state.permissions.s1 ?? []).toHaveLength(0)
+  expect(state.notices).toHaveLength(0)
+})

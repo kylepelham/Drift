@@ -222,6 +222,20 @@ test("release notes are sealed with exact local asset hashes", () => {
   }
 })
 
+test("release notes reject a signature for a different installer", () => {
+  const temporary = mkdtempSync(path.join(os.tmpdir(), "drift-release-assets-"))
+  try {
+    const notes = path.join(temporary, "notes.md")
+    writeFileSync(notes, "Notes\n")
+    writeFileSync(path.join(temporary, "Drift_1.2.0_x64-setup.exe"), "installer")
+    writeFileSync(path.join(temporary, "Other-setup.exe.sig"), "signature")
+    writeFileSync(path.join(temporary, "latest.json"), "manifest")
+    expect(() => sealReleaseNotes(notes, "100", "A".repeat(40), temporary)).toThrow("exact installer")
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
+})
+
 test("release stamping updates every package version and is idempotent", () => {
   const temporary = mkdtempSync(path.join(os.tmpdir(), "drift-release-policy-"))
   try {

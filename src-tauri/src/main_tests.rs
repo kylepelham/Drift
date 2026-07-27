@@ -16,6 +16,7 @@ fn config_paths_stay_under_the_config_directory() {
         root.join("plugins/example.mjs")
     );
     assert!(config_path(root, "../outside.mjs").is_err());
+    #[cfg(windows)]
     assert!(config_path(root, "C:\\outside.mjs").is_err());
 }
 

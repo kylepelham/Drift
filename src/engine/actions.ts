@@ -75,6 +75,7 @@ export function createActions(
   const abortPollMs = 100
   const moveNoticeDurationMs = 8000
   let allSessionsRequest: Promise<void> | undefined
+  const permissionReplies = new Map<string, Promise<boolean>>()
 
   // Writing `undefined` removes the key from the store. The non-null assertion is only there to
   // satisfy the setter's value type, which does not model deletion - it is not a real value.
@@ -573,7 +574,16 @@ export function createActions(
     )
   }
 
-  async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
+  function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
+    const key = `${sessionID}\0${permissionID}`
+    const existing = permissionReplies.get(key)
+    if (existing) return existing
+    const reply = sendPermissionReply(sessionID, permissionID, response).finally(() => permissionReplies.delete(key))
+    permissionReplies.set(key, reply)
+    return reply
+  }
+
+  async function sendPermissionReply(sessionID: string, permissionID: string, response: PermissionResponse) {
     const permission = (state.permissions[sessionID] ?? []).find((p) => p.id === permissionID)
     const dir = permission?.metadata?.directory as string | undefined
     const failed = () => {

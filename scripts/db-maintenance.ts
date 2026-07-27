@@ -42,7 +42,13 @@ function opencodeDataDir() {
  */
 function driftDatabasePath() {
   const appData = process.env.APPDATA
-  return appData ? path.join(appData, "dev.drift.app", "drift.db") : undefined
+  if (appData) return path.join(appData, "dev.drift.app", "drift.db")
+  const home = process.env.HOME
+  if (!home) return undefined
+  const data = process.platform === "darwin"
+    ? path.join(home, "Library", "Application Support")
+    : process.env.XDG_DATA_HOME ?? path.join(home, ".local", "share")
+  return path.join(data, "dev.drift.app", "drift.db")
 }
 
 const DRIFT_SCHEMA = "drift"
@@ -69,7 +75,7 @@ function supersededSnapshots(type: string, idPath: string): Rule {
       SELECT rowid, ROW_NUMBER() OVER (
         PARTITION BY json_extract(data, '${idPath}') ORDER BY seq DESC
       ) AS rank
-      FROM event WHERE type = '${type}'
+      FROM event WHERE type = '${type}' AND json_extract(data, '${idPath}') IS NOT NULL
     ) WHERE rank > 1`
   return {
     name: `superseded:${type}`,
@@ -144,7 +150,7 @@ const count = (db: Database, sql: string) => Number(Object.values(db.query(sql).
 function attachDrift(db: Database, driftPath: string | undefined) {
   if (!driftPath || !existsSync(driftPath)) return false
   try {
-    db.exec(`ATTACH DATABASE '${driftPath.replaceAll("\\", "/")}' AS ${DRIFT_SCHEMA}`)
+    db.query(`ATTACH DATABASE ? AS ${DRIFT_SCHEMA}`).run(driftPath)
     // Confirm the table this depends on actually exists in that schema.
     db.query(`SELECT 1 FROM ${DRIFT_SCHEMA}.session_meta LIMIT 1`).get()
     return true
@@ -226,7 +232,7 @@ function prune(sourcePath: string, inPlace: boolean) {
     console.log(`copying to ${target} ...`)
     const source = new Database(sourcePath, { readonly: true })
     try {
-      source.exec(`VACUUM INTO '${target.replaceAll("\\", "/")}'`)
+      source.query("VACUUM INTO ?").run(target)
     } finally {
       source.close()
     }
@@ -268,7 +274,10 @@ const args = process.argv.slice(2)
 const flag = (name: string) => args.includes(`--${name}`)
 const value = (name: string) => {
   const index = args.indexOf(`--${name}`)
-  return index >= 0 ? args[index + 1] : undefined
+  if (index < 0) return undefined
+  const next = args[index + 1]
+  if (!next || next.startsWith("--")) throw new Error(`--${name} requires a value`)
+  return next
 }
 
 const dbPath = value("db") ?? path.join(opencodeDataDir(), "opencode.db")

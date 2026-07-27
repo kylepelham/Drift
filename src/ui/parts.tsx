@@ -639,6 +639,7 @@ export function createShellTranscriptStream() {
     pending = []
     const normalized = consume(output, done)
     visible = !!normalized.trim()
+    if (!visible) pending = [normalized]
     return { replace: true, text: `$ ${command}${visible ? `\n\n${normalized}` : ""}` }
   }
 

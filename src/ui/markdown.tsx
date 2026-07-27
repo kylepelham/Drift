@@ -169,15 +169,83 @@ async function highlightBlocks(root: HTMLElement, theme: BundledTheme, current: 
 /**
  * Applies `transform` to the prose in `text`, leaving fenced blocks and inline code untouched.
  *
- * The pattern has one capture group, so `split` interleaves the results: even indices are the prose
- * between the matches and odd indices are the code spans themselves. That is what the parity check
- * below selects on.
+ * Fences are recognized only at line starts (with up to three spaces of indentation), while inline
+ * spans use an exact-length closing backtick run, matching CommonMark's delimiter rules.
  */
 function mapProseChunks(text: string, transform: (chunk: string) => string) {
-  return text
-    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
-    .map((chunk, index) => (index % 2 === 1 ? chunk : transform(chunk)))
-    .join("")
+  let result = ""
+  let proseStart = 0
+  let index = 0
+
+  const preserve = (start: number, end: number) => {
+    result += transform(text.slice(proseStart, start)) + text.slice(start, end)
+    proseStart = end
+    index = end
+  }
+
+  while (index < text.length) {
+    const lineStart = index === 0 || text[index - 1] === "\n"
+    if (lineStart) {
+      let markerStart = index
+      while (markerStart < index + 3 && text[markerStart] === " ") markerStart++
+      const marker = text[markerStart]
+      if (marker === "`" || marker === "~") {
+        let markerEnd = markerStart
+        while (text[markerEnd] === marker) markerEnd++
+        const markerLength = markerEnd - markerStart
+        const openerEnd = text.indexOf("\n", markerEnd)
+        const infoEnd = openerEnd < 0 ? text.length : openerEnd
+        if (markerLength >= 3 && (marker !== "`" || !text.slice(markerEnd, infoEnd).includes("`"))) {
+          let closeStart = openerEnd < 0 ? text.length : openerEnd + 1
+          let fenceEnd = text.length
+          while (closeStart < text.length) {
+            let closeMarkerStart = closeStart
+            while (closeMarkerStart < closeStart + 3 && text[closeMarkerStart] === " ") closeMarkerStart++
+            let closeMarkerEnd = closeMarkerStart
+            while (text[closeMarkerEnd] === marker) closeMarkerEnd++
+            const closeLineEnd = text.indexOf("\n", closeMarkerEnd)
+            const trailingEnd = closeLineEnd < 0 ? text.length : closeLineEnd
+            if (
+              closeMarkerEnd - closeMarkerStart >= markerLength &&
+              text.slice(closeMarkerEnd, trailingEnd).trim() === ""
+            ) {
+              fenceEnd = closeLineEnd < 0 ? text.length : closeLineEnd + 1
+              break
+            }
+            const nextLine = text.indexOf("\n", closeStart)
+            if (nextLine < 0) break
+            closeStart = nextLine + 1
+          }
+          preserve(index, fenceEnd)
+          continue
+        }
+      }
+    }
+
+    if (text[index] === "`") {
+      const start = index
+      let openerEnd = index
+      while (text[openerEnd] === "`") openerEnd++
+      const length = openerEnd - index
+      let cursor = openerEnd
+      while (cursor < text.length) {
+        const close = text.indexOf("`", cursor)
+        if (close < 0) break
+        let closeEnd = close
+        while (text[closeEnd] === "`") closeEnd++
+        if (closeEnd - close === length) {
+          preserve(index, closeEnd)
+          break
+        }
+        cursor = closeEnd
+      }
+      if (index === start) index = openerEnd
+      continue
+    }
+    index++
+  }
+
+  return result + transform(text.slice(proseStart))
 }
 
 // Model output like **C:\** never closes its emphasis because \ escapes the delimiter.

@@ -51,6 +51,25 @@ export function anyRuleEnabled(rules: StorageRules) {
   return Object.values(rules).some(Boolean)
 }
 
+const estimatePrefixes: Record<keyof StorageRules, string> = {
+  supersededSnapshots: "superseded",
+  subagentEvents: "subagent-events",
+  archivedEvents: "archived-events",
+  orphanEvents: "orphan-events",
+}
+
+/** Rules overlap, so the safest useful estimate is the largest enabled rule rather than their sum. */
+export function reclaimableBytes(estimates: RuleEstimate[], rules: StorageRules) {
+  return (Object.keys(rules) as (keyof StorageRules)[])
+    .filter((rule) => rules[rule])
+    .reduce((largest, rule) => {
+      const bytes = estimates
+        .filter((estimate) => estimate.rule.startsWith(estimatePrefixes[rule]))
+        .reduce((sum, estimate) => sum + estimate.bytes, 0)
+      return Math.max(largest, bytes)
+    }, 0)
+}
+
 const [stats, setStats] = createSignal<StorageStats | null>(null)
 const [estimates, setEstimates] = createSignal<RuleEstimate[] | null>(null)
 const [busy, setBusy] = createSignal<"stats" | "analyze" | "prune" | "compact" | null>(null)
