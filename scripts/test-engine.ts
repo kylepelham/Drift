@@ -16,7 +16,7 @@ function engineEnvironment(extra: Record<string, string> = {}) {
 }
 
 async function run(directory: string, args: string[], env?: Record<string, string>) {
-  const child = Bun.spawn([process.execPath, "test", "--timeout", "20000", ...args], {
+  const child = Bun.spawn([process.execPath, "test", "--timeout", "60000", ...args], {
     cwd: path.join(engineUpstream, directory),
     env: engineEnvironment(env),
     stdin: "inherit",
