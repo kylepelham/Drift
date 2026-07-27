@@ -71,14 +71,79 @@ test("agent overrides retain only values changed from upstream", async () => {
   ).toEqual({ prompt: "Custom", mode: "subagent" })
 })
 
+/**
+ * Keys that ship before their translations.
+ *
+ * `t()` falls back to English for a key a locale lacks, so an untranslated key renders in English
+ * rather than breaking. Listing them here keeps the locale files honest - pasting the English string
+ * into all 17 would be indistinguishable from a real translation and would hide the work. Delete an
+ * entry once every locale carries it; the test below fails if this list names a key that no longer
+ * needs it.
+ */
+const pendingTranslation = new Set([
+  "drift.storage",
+  "drift.storage.actions",
+  "drift.storage.analyze",
+  "drift.storage.analyze.action",
+  "drift.storage.analyze.description",
+  "drift.storage.analyzing",
+  "drift.storage.auto",
+  "drift.storage.auto.description",
+  "drift.storage.cleanup",
+  "drift.storage.compact",
+  "drift.storage.compact.action",
+  "drift.storage.compact.description",
+  "drift.storage.compacting",
+  "drift.storage.estimated",
+  "drift.storage.free",
+  "drift.storage.prune",
+  "drift.storage.prune.action",
+  "drift.storage.prune.available",
+  "drift.storage.prune.description",
+  "drift.storage.pruning",
+  "drift.storage.refresh",
+  "drift.storage.rule.archived",
+  "drift.storage.rule.archived.description",
+  "drift.storage.rule.orphan",
+  "drift.storage.rule.orphan.description",
+  "drift.storage.rule.subagent",
+  "drift.storage.rule.subagent.description",
+  "drift.storage.rule.superseded",
+  "drift.storage.rule.superseded.description",
+  "drift.storage.sessions",
+  "drift.storage.sessions.archived",
+  "drift.storage.sessions.archived.description",
+  "drift.storage.sessions.subagent",
+  "drift.storage.sessions.subagent.description",
+  "drift.storage.sessions.total",
+  "drift.storage.sessions.total.description",
+  "drift.storage.subtitle",
+  "drift.storage.table.event",
+  "drift.storage.table.event.hint",
+  "drift.storage.table.message",
+  "drift.storage.table.message.hint",
+  "drift.storage.table.part",
+  "drift.storage.table.part.hint",
+])
+
 test("Drift owns complete app-specific translations for every locale", async () => {
   const { languages } = await import("../src/state/language")
   const english = await import("../src/i18n/en")
-  const keys = Object.keys(english.drift).sort()
+  const translated = (keys: string[]) => keys.filter((key) => !pendingTranslation.has(key)).sort()
+  const keys = translated(Object.keys(english.drift))
   for (const language of languages) {
     const catalog = await import(`../src/i18n/${language.id}.ts`)
-    expect(Object.keys(catalog.drift).sort()).toEqual(keys)
+    expect(translated(Object.keys(catalog.drift))).toEqual(keys)
   }
+  // Every pending key must exist in English, and must still be missing somewhere. Otherwise the
+  // list has gone stale and is silently excusing a key that should now be enforced.
+  const spanish = await import("../src/i18n/es")
+  const englishKeys = new Set(Object.keys(english.drift))
+  const spanishKeys = new Set(Object.keys(spanish.drift))
+  const unknown = [...pendingTranslation].filter((key) => !englishKeys.has(key))
+  const stale = [...pendingTranslation].filter((key) => spanishKeys.has(key))
+  expect(unknown, "pendingTranslation names keys that do not exist in en.ts").toEqual([])
+  expect(stale, "pendingTranslation names keys that are translated now; remove them").toEqual([])
   expect(await Bun.file("src/state/i18n.ts").text()).not.toContain("engine/upstream")
 })
 

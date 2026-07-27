@@ -1,5 +1,5 @@
 import type { Agent, ProviderAuthMethod } from "@opencode-ai/sdk/client"
-import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useEngine } from "../engine"
 import {
@@ -92,6 +92,7 @@ import {
   type ThemeName,
 } from "../state/theme"
 import {
+  IconArchive,
   IconBell,
   IconCheck,
   IconChip,
@@ -105,6 +106,8 @@ import {
   IconX,
 } from "./icons"
 import { readDataUrl } from "./files"
+import { SettingsGroup, SettingsRow } from "./settings-controls"
+import { StorageSection } from "./settings-storage"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import { McpManagement } from "./mcp"
 import { Toggle } from "./controls"
@@ -127,7 +130,7 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Shortcuts", "Providers", "MCP", "Prompts", "Agents", "About"] as const
+const sections = ["General", "Appearance", "Code", "Notifications", "Shortcuts", "Providers", "MCP", "Prompts", "Agents", "Storage", "About"] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
@@ -139,12 +142,13 @@ const sectionLabels: Record<Section, string> = {
   MCP: "dialog.mcp.title",
   Prompts: "drift.settings.prompts",
   Agents: "settings.agents.title",
+  Storage: "drift.storage",
   About: "drift.settings.about",
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
   { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Shortcuts"] },
   { label: "settings.section.server", items: ["Providers", "MCP", "Prompts", "Agents"] },
-  { label: "drift.settings.section", items: ["About"] },
+  { label: "drift.settings.section", items: ["Storage", "About"] },
 ]
 
 const keybindLabels: Record<KeybindAction, string> = {
@@ -269,6 +273,9 @@ function SettingsModal(props: { onClose: () => void }) {
               </Match>
               <Match when={section() === "Agents"}>
                 <PromptEditorSection view="agents" />
+              </Match>
+              <Match when={section() === "Storage"}>
+                <StorageSection />
               </Match>
               <Match when={section() === "About"}>
                 <AboutSection />
@@ -1475,43 +1482,10 @@ function SectionIcon(props: { section: Section }) {
     if (props.section === "MCP") return <IconShieldCheck />
     if (props.section === "Prompts") return <IconCode />
     if (props.section === "Agents") return <IconSliders />
+    if (props.section === "Storage") return <IconArchive />
     return <IconInfo />
   }
   return <span class="flex size-5 shrink-0 items-center justify-center text-ink-faint">{icon()}</span>
-}
-
-function SettingsGroup(props: { title: string; children: JSX.Element }) {
-  return (
-    <section>
-      <div class="mb-1.5 text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">{props.title}</div>
-      <div class="border-y border-edge/80">{props.children}</div>
-    </section>
-  )
-}
-
-function SettingsRow(props: {
-  title: string
-  description: string
-  children: JSX.Element
-  disabled?: boolean
-  onClick?: () => void
-}) {
-  return (
-    <div
-      class="flex min-h-13 flex-col items-stretch gap-2 border-b border-edge/70 px-1 py-2.5 last:border-b-0 sm:flex-row sm:items-center sm:gap-4"
-      classList={{
-        "cursor-pointer hover:bg-raised/40": !!props.onClick && !props.disabled,
-        "opacity-50": !!props.disabled,
-      }}
-      onClick={() => !props.disabled && props.onClick?.()}
-    >
-      <div class="min-w-0 flex-1">
-        <div class="text-[0.82rem] font-medium text-ink">{props.title}</div>
-        <div class="mt-0.5 text-[0.72rem] leading-relaxed text-ink-faint">{props.description}</div>
-      </div>
-      <div class="shrink-0 self-end sm:self-auto">{props.children}</div>
-    </div>
-  )
 }
 
 function ThemeRow(props: { name: ThemeName }) {

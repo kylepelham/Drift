@@ -4,9 +4,33 @@
 
 use crate::engine::stop_engine_instances;
 use crate::mcp;
+use crate::storage::{self, PruneResult, PruneRules, RuleEstimate, StorageStats};
 use crate::store::{ArchivedSession, Store, Workspace};
 use serde_json::Value;
 use tauri::State;
+
+/// Fast, sampled overview of what is using space in the session database.
+#[tauri::command]
+pub(crate) fn storage_stats(store: State<Store>) -> Result<StorageStats, String> {
+    storage::stats(&storage::archived_ids(&store))
+}
+
+/// Exact reclaimable space per rule. Scans the event table, so callers should show progress.
+#[tauri::command]
+pub(crate) fn storage_analyze(store: State<Store>) -> Result<Vec<RuleEstimate>, String> {
+    storage::analyze(&storage::archived_ids(&store))
+}
+
+#[tauri::command]
+pub(crate) fn storage_prune(store: State<Store>, rules: PruneRules) -> Result<PruneResult, String> {
+    storage::prune(rules, &storage::archived_ids(&store))
+}
+
+/// Releases free pages back to the filesystem. Fails while the engine holds the database.
+#[tauri::command]
+pub(crate) fn storage_compact() -> Result<PruneResult, String> {
+    storage::compact()
+}
 
 #[tauri::command]
 pub(crate) fn store_workspaces(store: State<Store>) -> Result<Vec<Workspace>, String> {

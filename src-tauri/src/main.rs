@@ -7,6 +7,7 @@ mod editor;
 mod engine;
 mod engine_db;
 mod mcp;
+mod storage;
 mod store;
 mod updater;
 mod watcher;
@@ -60,7 +61,11 @@ fn main() {
             commands::mcp_remove,
             commands::mcp_approve,
             commands::mcp_reject,
-            commands::mcp_revoke
+            commands::mcp_revoke,
+            commands::storage_stats,
+            commands::storage_analyze,
+            commands::storage_prune,
+            commands::storage_compact
         ])
         .setup(|app| {
             let data_dir = app.path().app_data_dir().expect("no app data dir");
