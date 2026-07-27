@@ -20,7 +20,7 @@ export const [codeTabWidth, setCodeTabWidth] = persisted("drift.code.tabWidth", 
 export const [codeWordWrap, setCodeWordWrap] = persisted("drift.code.wordWrap", false)
 export const [diffWordWrap, setDiffWordWrap] = persisted("drift.code.diffWordWrap", false)
 export const [diffLineNumbers, setDiffLineNumbers] = persisted("drift.code.diffLineNumbers", true)
-export const [diffIndicator, setDiffIndicator] = persisted<DiffIndicator>("drift.code.diffIndicator", "symbols")
+export const [diffIndicator, setDiffIndicator] = persisted<DiffIndicator>("drift.code.diffIndicator", "background")
 
 export function syntaxTheme() {
   const preset = syntaxThemePreset()

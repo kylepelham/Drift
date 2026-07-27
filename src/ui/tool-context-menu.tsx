@@ -1,7 +1,8 @@
 import type { ToolPart } from "@opencode-ai/sdk/client"
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
+import { createSignal, For, Show } from "solid-js"
 import { toolContextActions, type ToolContextAction } from "../tool-actions"
 import { fixedMenuPosition } from "../state/zoom"
+import { createDismissOnOutside } from "./dismiss"
 
 type MenuState = { x: number; y: number; actions: ToolContextAction[] }
 
@@ -25,27 +26,16 @@ export function ToolContextMenuHost() {
     return fixedMenuPosition(state.x, state.y, 288, Math.min(viewport.viewportHeight * 0.7, estimatedHeight))
   }
 
-  createEffect(() => {
-    if (!menu()) return
-    const away = (event: MouseEvent) => {
-      if (!root.contains(event.target as Node)) setMenu(null)
-    }
-    const key = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenu(null)
-    }
-    const close = () => setMenu(null)
-    document.addEventListener("mousedown", away)
-    document.addEventListener("keydown", key)
-    document.addEventListener("scroll", close, true)
-    window.addEventListener("blur", close)
-    window.addEventListener("resize", close)
-    onCleanup(() => {
-      document.removeEventListener("mousedown", away)
-      document.removeEventListener("keydown", key)
-      document.removeEventListener("scroll", close, true)
-      window.removeEventListener("blur", close)
-      window.removeEventListener("resize", close)
-    })
+  createDismissOnOutside({
+    // The menu is positioned at fixed viewport coordinates, so anything that moves the anchor
+    // (scroll, resize) or takes focus away closes it rather than leaving it stranded.
+    enabled: () => !!menu(),
+    inside: () => [root],
+    onDismiss: () => setMenu(null),
+    escape: true,
+    scroll: true,
+    blur: true,
+    resize: true,
   })
 
   return (

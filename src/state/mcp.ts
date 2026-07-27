@@ -42,7 +42,7 @@ export function exactMcpTarget(snapshot: McpSnapshot, observed: ObservedMcpServe
   return { ...observed, directory: snapshot.directory, generation: snapshot.generation }
 }
 
-export function hasExactMcpTarget(snapshot: McpSnapshot, target: McpExactTarget) {
+function hasExactMcpTarget(snapshot: McpSnapshot, target: McpExactTarget) {
   return (
     snapshot.generation === target.generation &&
     snapshot.directory === target.directory &&
@@ -56,7 +56,7 @@ export function hasExactMcpTarget(snapshot: McpSnapshot, target: McpExactTarget)
   )
 }
 
-export function hasExpectedMcpServer(snapshot: McpSnapshot, name: string, expected: McpStoredExpectation) {
+function hasExpectedMcpServer(snapshot: McpSnapshot, name: string, expected: McpStoredExpectation) {
   if (snapshot.generation !== expected.generation) return false
   if (!expected.previousName) return !snapshot.servers.some((server) => server.name === name)
   const current = snapshot.servers.find((server) => server.name === expected.previousName)
@@ -118,6 +118,13 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
   let revision = 0
   let mutationToken: symbol | undefined
 
+  /**
+   * Queues work so MCP operations never overlap: each waits for the previous one to settle.
+   *
+   * `work` is passed as both handlers so it runs whether the previous task resolved or rejected -
+   * one failed operation must not wedge the queue. The tail then swallows the outcome so a
+   * rejection is not treated as unhandled; the caller still receives the real promise.
+   */
   function serialize<T>(work: () => Promise<T>) {
     const task = tail.then(work, work)
     tail = task.then(
@@ -150,11 +157,9 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
   async function refreshUnlocked(request = context()) {
     const api = requireDependencies()
     if (!current(request)) return emptySnapshot(request.directory)
-    if (current(request)) {
-      setState("loading", true)
-      setState("ready", false)
-      setState("error", "")
-    }
+    setState("loading", true)
+    setState("ready", false)
+    setState("error", "")
     try {
       let statuses: Record<string, McpStatus> = {}
       if (request.directory && request.online) {

@@ -2,6 +2,7 @@ import type { FilePart, Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/c
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
+import { Chevron } from "./controls"
 import { openLightbox } from "./lightbox"
 import { showReasoning, toolErrorsExpanded } from "../state/prefs"
 import { agentLabel, t } from "../state/i18n"
@@ -14,6 +15,23 @@ import { openToolContextMenu } from "./tool-context-menu"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
+
+// How long the shell copy button shows its "copied" state.
+// NOTE: markdown.tsx uses 1600ms for its visually identical code-block copy button.
+const copiedFeedbackMs = 2000
+// Tool output beyond this is clipped before rendering; long outputs otherwise stall the view.
+const maxInlineOutputChars = 4000
+// Tool argument previews are collapsed to a single line of at most this length.
+const maxArgsPreviewChars = 120
+// When re-syncing streamed shell output, compare this many trailing characters of the previous
+// chunk against the new one to confirm the stream is an append rather than a fresh transcript.
+const overlapProbeChars = 64
+// Scroll positions within this many pixels of the bottom count as "at the bottom".
+const bottomSlopPx = 2
+// Shiki packs font styling into a bitmask on each token; these are its FontStyle enum values.
+const fontStyleItalic = 1
+const fontStyleBold = 2
+const fontStyleUnderline = 4
 
 export function PartView(props: { part: Part }) {
   return (
@@ -264,7 +282,7 @@ function argsPreview(input: Record<string, unknown> | undefined) {
     return `${key}=${raw}`
   })
   const joined = parts.join("  ")
-  return joined.length > 120 ? joined.slice(0, 120) + "..." : joined
+  return joined.length > maxArgsPreviewChars ? joined.slice(0, maxArgsPreviewChars) + "..." : joined
 }
 
 function awaitingPermission(
@@ -344,13 +362,13 @@ export function rememberToolOpen(partId: string, open: boolean) {
 }
 
 function diffStats(diff: string) {
-  let add = 0
-  let del = 0
+  let additions = 0
+  let deletions = 0
   for (const row of parseDiff(diff)) {
-    if (row.kind === "add") add++
-    if (row.kind === "del") del++
+    if (row.kind === "add") additions++
+    if (row.kind === "del") deletions++
   }
-  return { add, del }
+  return { additions, deletions }
 }
 
 export function ToolView(props: { part: ToolPart }) {
@@ -439,9 +457,10 @@ export function ToolView(props: { part: ToolPart }) {
           </span>
         </Show>
         <Show when={stats()}>
-          {(s) => (
+          {(counts) => (
             <span class="shrink-0 font-mono text-xs">
-              <span class="text-ok">+{s().add}</span> <span class="text-danger">-{s().del}</span>
+              <span class="text-ok">+{counts().additions}</span>{" "}
+              <span class="text-danger">-{counts().deletions}</span>
             </span>
           )}
         </Show>
@@ -548,17 +567,34 @@ export function shellTranscript(command: string, output: string) {
   return `$ ${command}${normalized.trim() ? `\n\n${normalized}` : ""}`
 }
 
+/**
+ * Renders streaming shell output incrementally.
+ *
+ * The engine re-sends the whole output on every update. Re-rendering all of it each time is too
+ * slow for a long-running command, so this tracks how much has already been shown and emits only
+ * the new tail when it can prove the new output is an append of the old one. When it cannot, it
+ * emits a full replacement.
+ *
+ * Callers get `{ replace, text }`: `replace: true` means "this is the whole transcript",
+ * `replace: false` means "append this".
+ */
 export function createShellTranscriptStream() {
   let command = ""
+  /** How many characters of the raw output have already been turned into visible text. */
   let outputLength = 0
   let previousOutput = ""
   let initialized = false
+  /** Set once non-whitespace output has been shown; until then output is buffered in `pending`. */
   let visible = false
   let finished = false
+  /** ANSI escape parser state. CSI sequences run until a byte in the 0x40-0x7e final range. */
   let escape: "none" | "start" | "csi" = "none"
+  /** A trailing CR is held over: it only becomes a newline once we know what follows it. */
   let carriageReturn = false
+  /** Whitespace-only chunks seen before the first visible output, kept so none are lost. */
   let pending: string[] = []
 
+  /** Strips ANSI escapes and folds CR / CRLF into newlines. `flush` resolves a trailing CR. */
   const consume = (value: string, flush: boolean) => {
     let normalized = ""
     for (const character of value) {
@@ -590,6 +626,7 @@ export function createShellTranscriptStream() {
     return normalized
   }
 
+  /** Re-renders the whole transcript from scratch and re-primes the incremental state. */
   const reset = (nextCommand: string, output: string, done: boolean) => {
     command = nextCommand
     outputLength = output.length
@@ -602,25 +639,35 @@ export function createShellTranscriptStream() {
     pending = []
     const normalized = consume(output, done)
     visible = !!normalized.trim()
+    if (!visible) pending = [normalized]
     return { replace: true, text: `$ ${command}${visible ? `\n\n${normalized}` : ""}` }
   }
 
   return {
     update(nextCommand: string, output: string, done: boolean) {
+      // Nothing to append against: first update, a different command, output that shrank, or a
+      // final frame whose trailing CR still has to be flushed.
       if (!initialized || command !== nextCommand || output.length < outputLength || finished || done) {
         return reset(nextCommand, output, done)
       }
+      // Same length: either a genuine no-op, or the content changed underneath us.
       if (output.length === outputLength) {
         if (output === previousOutput) return { replace: false, text: "" }
         return reset(nextCommand, output, done)
       }
+      // The engine truncated the head and prefixed an ellipsis, so earlier offsets no longer line up.
       if (output.startsWith("...\n\n") && !previousOutput.startsWith("...\n\n")) return reset(nextCommand, output, done)
-      const overlap = previousOutput.slice(-64)
+      // Confirm this really is an append: the tail of what we last saw must still sit at the same
+      // offset. If it does not, the output was rewritten rather than extended.
+      const overlap = previousOutput.slice(-overlapProbeChars)
       if (output.slice(outputLength - overlap.length, outputLength) !== overlap) return reset(nextCommand, output, done)
+
       const normalized = consume(output.slice(outputLength), false)
       outputLength = output.length
       previousOutput = output
       if (visible) return { replace: false, text: normalized }
+      // Still nothing but whitespace so far. Hold it back rather than opening the transcript with
+      // blank lines, and emit the whole block at once as soon as real output arrives.
       pending.push(normalized)
       const combined = pending.join("")
       if (!combined.trim()) return { replace: false, text: "" }
@@ -700,7 +747,7 @@ function ShellOutput(props: { command: string; output: string; running: boolean 
   const copy = async () => {
     await navigator.clipboard.writeText(shellTranscript(props.command, props.output))
     setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setTimeout(() => setCopied(false), copiedFeedbackMs)
   }
   createEffect(
     on(
@@ -742,7 +789,7 @@ function ShellOutput(props: { command: string; output: string; running: boolean 
 }
 
 export function shellAtBottom(scrollTop: number, clientHeight: number, scrollHeight: number) {
-  return scrollHeight - clientHeight - scrollTop <= 2
+  return scrollHeight - clientHeight - scrollTop <= bottomSlopPx
 }
 
 export function shellScrollTarget(savedTop: number, following: boolean, scrollHeight: number) {
@@ -902,9 +949,9 @@ function SyntaxTokenView(props: { token: SyntaxToken }) {
     const fontStyle = props.token.fontStyle ?? 0
     return {
       color: props.token.color,
-      "font-style": fontStyle & 1 ? "italic" : undefined,
-      "font-weight": fontStyle & 2 ? "bold" : undefined,
-      "text-decoration": fontStyle & 4 ? "underline" : undefined,
+      "font-style": fontStyle & fontStyleItalic ? "italic" : undefined,
+      "font-weight": fontStyle & fontStyleBold ? "bold" : undefined,
+      "text-decoration": fontStyle & fontStyleUnderline ? "underline" : undefined,
     }
   }
   return <span style={style()}>{props.token.content}</span>
@@ -993,20 +1040,5 @@ function stripAnsi(value: string) {
 }
 
 function clip(value: string) {
-  return value.length > 4000 ? value.slice(0, 4000) + "\n..." : value
-}
-
-export function Chevron(props: { open: boolean }) {
-  return (
-    <svg
-      class="size-3 shrink-0 transition-transform duration-150"
-      classList={{ "rotate-90": props.open }}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-    >
-      <path d="M6 4l4 4-4 4" />
-    </svg>
-  )
+  return value.length > maxInlineOutputChars ? value.slice(0, maxInlineOutputChars) + "\n..." : value
 }

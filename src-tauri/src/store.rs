@@ -4,6 +4,14 @@ use serde_json::Value;
 use std::path::Path;
 use std::sync::Mutex;
 
+const DATABASE_FILE: &str = "drift.db";
+/// The column list every workspace query selects, in the order `map_workspace` reads them.
+/// Keep the two in step: reordering one without the other silently mixes up the fields.
+const WORKSPACE_COLUMNS: &str = "id, path, name, icon, last_used, removed_at";
+/// Let SQLite memory-map up to 128 MiB of the database. Reads then avoid a syscall per page, which
+/// matters because the workspace and session lists are re-read on nearly every UI interaction.
+const MMAP_SIZE_BYTES: i64 = 134_217_728;
+
 pub struct Store(Mutex<Connection>);
 
 #[derive(Serialize)]
@@ -62,14 +70,14 @@ pub struct PromptOverride {
 
 pub fn open(dir: &Path) -> rusqlite::Result<Store> {
     std::fs::create_dir_all(dir).ok();
-    open_at(&dir.join("drift.db"))
+    open_at(&dir.join(DATABASE_FILE))
 }
 
 fn open_at(file: &Path) -> rusqlite::Result<Store> {
     let conn = Connection::open(file)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
-    conn.pragma_update(None, "mmap_size", 134_217_728)?;
+    conn.pragma_update(None, "mmap_size", MMAP_SIZE_BYTES)?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspace(
             id TEXT PRIMARY KEY,
@@ -109,6 +117,9 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
             updated_at INTEGER NOT NULL
         ) STRICT;",
     )?;
+    // Migration for databases created before `removed_at` existed. On any database created by the
+    // CREATE TABLE above the column is already there and this fails with "duplicate column name",
+    // which is why the error is deliberately discarded rather than propagated.
     let _ = conn.execute("ALTER TABLE workspace ADD COLUMN removed_at INTEGER", []);
     Ok(Store(Mutex::new(conn)))
 }
@@ -226,39 +237,21 @@ impl Store {
         result
     }
 
+    /// Workspaces still in use, most recently opened first.
     pub fn workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
-        let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            "SELECT id, path, name, icon, last_used, removed_at FROM workspace WHERE removed_at IS NULL ORDER BY last_used DESC",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(Workspace {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                name: row.get(2)?,
-                icon: row.get(3)?,
-                last_used: row.get(4)?,
-                removed_at: row.get(5)?,
-            })
-        })?;
-        rows.collect()
+        self.query_workspaces("WHERE removed_at IS NULL ORDER BY last_used DESC")
     }
 
+    /// Soft-deleted workspaces awaiting purge, most recently removed first.
     pub fn removed_workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
+        self.query_workspaces("WHERE removed_at IS NOT NULL ORDER BY removed_at DESC")
+    }
+
+    fn query_workspaces(&self, filter: &str) -> rusqlite::Result<Vec<Workspace>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            "SELECT id, path, name, icon, last_used, removed_at FROM workspace WHERE removed_at IS NOT NULL ORDER BY removed_at DESC",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(Workspace {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                name: row.get(2)?,
-                icon: row.get(3)?,
-                last_used: row.get(4)?,
-                removed_at: row.get(5)?,
-            })
-        })?;
+        let mut stmt =
+            conn.prepare_cached(&format!("SELECT {WORKSPACE_COLUMNS} FROM workspace {filter}"))?;
+        let rows = stmt.query_map([], map_workspace)?;
         rows.collect()
     }
 
@@ -289,19 +282,10 @@ impl Store {
             }
         };
         let workspace = conn
-            .prepare_cached(
-                "SELECT id, path, name, icon, last_used, removed_at FROM workspace WHERE id = ?1",
-            )?
-            .query_row([&target], |row| {
-                Ok(Workspace {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                    name: row.get(2)?,
-                    icon: row.get(3)?,
-                    last_used: row.get(4)?,
-                    removed_at: row.get(5)?,
-                })
-            })?;
+            .prepare_cached(&format!(
+                "SELECT {WORKSPACE_COLUMNS} FROM workspace WHERE id = ?1"
+            ))?
+            .query_row([&target], map_workspace)?;
         Ok(workspace)
     }
 
@@ -399,10 +383,7 @@ impl Store {
 
     pub fn mcp_state(&self) -> rusqlite::Result<McpState> {
         let conn = self.0.lock().unwrap();
-        let generation =
-            conn.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-                row.get(0)
-            })?;
+        let generation = current_mcp_generation(&conn)?;
         let servers = conn
             .prepare_cached(
                 "SELECT name, config_json, updated_at FROM mcp_server ORDER BY name COLLATE NOCASE",
@@ -460,10 +441,7 @@ impl Store {
             params![name, serde_json::to_string(config).unwrap(), now()],
         )?;
         next_mcp_generation(&tx)?;
-        let generation =
-            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-                row.get(0)
-            })?;
+        let generation = current_mcp_generation(&tx)?;
         tx.commit()?;
         Ok(generation)
     }
@@ -473,10 +451,7 @@ impl Store {
         let tx = conn.transaction()?;
         tx.execute("DELETE FROM mcp_server WHERE name = ?1", [name])?;
         next_mcp_generation(&tx)?;
-        let generation =
-            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-                row.get(0)
-            })?;
+        let generation = current_mcp_generation(&tx)?;
         tx.commit()?;
         Ok(generation)
     }
@@ -495,10 +470,7 @@ impl Store {
             params![name, fingerprint, decision, now()],
         )?;
         next_mcp_generation(&tx)?;
-        let generation =
-            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-                row.get(0)
-            })?;
+        let generation = current_mcp_generation(&tx)?;
         tx.commit()?;
         Ok(generation)
     }
@@ -514,10 +486,7 @@ impl Store {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
         next_mcp_generation(&tx)?;
-        let generation =
-            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-                row.get(0)
-            })?;
+        let generation = current_mcp_generation(&tx)?;
         tx.commit()?;
         Ok(generation)
     }
@@ -525,9 +494,7 @@ impl Store {
     pub fn advance_mcp_generation(&self) -> rusqlite::Result<i64> {
         let conn = self.0.lock().unwrap();
         next_mcp_generation(&conn)?;
-        conn.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-            row.get(0)
-        })
+        current_mcp_generation(&conn)
     }
 
     pub fn restore_mcp_state(&self, state: &McpState) -> rusqlite::Result<i64> {
@@ -557,10 +524,7 @@ impl Store {
             )?;
         }
         next_mcp_generation(&tx)?;
-        let generation =
-            tx.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-                row.get(0)
-            })?;
+        let generation = current_mcp_generation(&tx)?;
         tx.commit()?;
         Ok(generation)
     }
@@ -585,161 +549,26 @@ fn next_mcp_generation(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn store_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("drift-store-test-{}", std::process::id()));
-        std::fs::remove_dir_all(&dir).ok();
-        std::fs::create_dir_all(&dir).unwrap();
-        let store = open(&dir).unwrap();
-
-        let created = store.add_workspace("w1", "S:/proj", "Proj", "").unwrap();
-        assert_eq!(created.id, "w1");
-        store
-            .save_workspace("w1", "S:/moved", "Renamed", "R")
-            .unwrap();
-        assert_eq!(store.workspaces().unwrap()[0].name, "Renamed");
-        assert_eq!(store.workspaces().unwrap()[0].path, "S:/moved");
-
-        store.archive_session("s1", "w1").unwrap();
-        store.archive_session("s2", "w1").unwrap();
-        assert_eq!(store.archived().unwrap().len(), 2);
-        store.unarchive_session("s1").unwrap();
-        assert_eq!(store.archived().unwrap().len(), 1);
-        let purged = store.purge_archived(now() + 1000).unwrap();
-        assert_eq!(purged.len(), 1);
-        assert!(store.archived().unwrap().is_empty());
-
-        store.remove_workspace("w1").unwrap();
-        assert!(store.workspaces().unwrap().is_empty());
-        assert_eq!(store.removed_workspaces().unwrap().len(), 1);
-
-        let restored = store
-            .add_workspace("w2", "S:/moved", "Ignored", "")
-            .unwrap();
-        assert_eq!(restored.id, "w1");
-        assert_eq!(restored.name, "Renamed");
-        assert_eq!(store.workspaces().unwrap().len(), 1);
-
-        store.remove_workspace("w1").unwrap();
-        let paths = store.purge_removed_workspaces(now() + 1000).unwrap();
-        assert_eq!(paths, vec!["S:/moved".to_string()]);
-        assert!(store.workspaces().unwrap().is_empty());
-        assert!(
-            store
-                .add_workspace("w3", "S:/moved", "Fresh", "")
-                .unwrap()
-                .id
-                == "w3"
-        );
-        let value = serde_json::json!({ "prompt": "Drift prompt" });
-        let original = serde_json::json!({ "prompt": "Original prompt" });
-        store
-            .save_prompt_override("agent:build", &value, Some(&original))
-            .unwrap();
-        let prompts = store.prompt_overrides().unwrap();
-        assert_eq!(prompts.len(), 1);
-        assert_eq!(prompts[0].value, value);
-        assert_eq!(prompts[0].original, Some(original));
-        store.reset_prompt_override("agent:build").unwrap();
-        assert!(store.prompt_overrides().unwrap().is_empty());
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn imports_opencode_projects_without_overwriting_drift_metadata() {
-        let dir = std::env::temp_dir().join(format!("drift-import-test-{}", std::process::id()));
-        std::fs::remove_dir_all(&dir).ok();
-        std::fs::create_dir_all(&dir).unwrap();
-        let source = dir.join("opencode.db");
-        let conn = Connection::open(&source).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
-             CREATE TABLE session(id TEXT PRIMARY KEY, project_id TEXT, time_updated INTEGER);
-             INSERT INTO project VALUES('p1', 'S:/one', 'One', 10);
-             INSERT INTO project VALUES('p2', '/tmp/project-directories', 'Temporary', 15);
-             INSERT INTO project VALUES('p3', '/tmp/manual', 'Manual project', 16);
-             INSERT INTO project VALUES('global', '/', 'Global', 20);
-             INSERT INTO session VALUES('s1', 'p1', 30);",
-        )
-        .unwrap();
-        drop(conn);
-
-        let store = open_at(&dir.join("drift.db")).unwrap();
-        store
-            .add_workspace("p2", "/tmp/project-directories", "Temporary", "")
-            .unwrap();
-        store
-            .add_workspace("manual", "/tmp/manual", "Manual", "")
-            .unwrap();
-        assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 1);
-        let workspaces = store.workspaces().unwrap();
-        assert_eq!(workspaces.len(), 2);
-        assert!(workspaces
-            .iter()
-            .any(|workspace| workspace.path == "S:/one"));
-        assert!(workspaces
-            .iter()
-            .any(|workspace| workspace.path == "/tmp/manual"));
-        assert!(!workspaces
-            .iter()
-            .any(|workspace| workspace.path == "/tmp/project-directories"));
-        store.save_workspace("p1", "S:/one", "Custom", "C").unwrap();
-        assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 0);
-        assert_eq!(
-            store
-                .workspaces()
-                .unwrap()
-                .into_iter()
-                .find(|workspace| workspace.id == "p1")
-                .unwrap()
-                .name,
-            "Custom"
-        );
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn mcp_decisions_are_global_and_survive_definition_changes() {
-        let dir = std::env::temp_dir().join(format!("drift-mcp-store-test-{}", std::process::id()));
-        std::fs::remove_dir_all(&dir).ok();
-        std::fs::create_dir_all(&dir).unwrap();
-        let store = open_at(&dir.join("drift.db")).unwrap();
-        let first = serde_json::json!({ "type": "local", "command": ["one"] });
-        let second = serde_json::json!({ "type": "local", "command": ["two"] });
-
-        assert_eq!(store.save_mcp_server("server", None, &first).unwrap(), 1);
-        assert_eq!(
-            store
-                .decide_mcp(
-                    "server",
-                    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "approved"
-                )
-                .unwrap(),
-            2
-        );
-        store.save_mcp_server("server", None, &second).unwrap();
-        store.save_mcp_server("server", None, &first).unwrap();
-        let state = store.mcp_state().unwrap();
-        assert_eq!(state.decisions.len(), 1);
-        assert_eq!(state.decisions[0].decision, "approved");
-
-        store
-            .decide_mcp(
-                "server",
-                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                "rejected",
-            )
-            .unwrap();
-        assert_eq!(store.mcp_state().unwrap().decisions.len(), 2);
-        store
-            .revoke_mcp("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-            .unwrap();
-        assert_eq!(store.mcp_state().unwrap().decisions[0].decision, "rejected");
-        std::fs::remove_dir_all(dir).ok();
-    }
+/// Reads the current MCP generation counter. Callers pass it back on the next mutation so a stale
+/// frontend cannot overwrite a decision made since it last read.
+fn current_mcp_generation(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
+        row.get(0)
+    })
 }
+
+/// Reads a workspace row. Column order must match `WORKSPACE_COLUMNS`.
+fn map_workspace(row: &rusqlite::Row) -> rusqlite::Result<Workspace> {
+    Ok(Workspace {
+        id: row.get(0)?,
+        path: row.get(1)?,
+        name: row.get(2)?,
+        icon: row.get(3)?,
+        last_used: row.get(4)?,
+        removed_at: row.get(5)?,
+    })
+}
+
+#[cfg(test)]
+#[path = "store_tests.rs"]
+mod tests;

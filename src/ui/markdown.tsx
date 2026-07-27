@@ -2,6 +2,7 @@ import DOMPurify from "dompurify"
 import { marked } from "marked"
 import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki"
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import { shellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import { syntaxTheme } from "../state/code"
 
@@ -9,6 +10,14 @@ marked.use({ gfm: true, breaks: true })
 
 let shikiModule: Promise<typeof import("shiki")> | undefined
 const codeBlocks = new WeakMap<HTMLElement, string>()
+// How long the code-block copy button shows its "copied" state.
+// NOTE: parts.tsx uses 2000ms for its visually identical shell copy button.
+const copiedFeedbackMs = 1600
+// Code blocks start highlighting this far outside the viewport so scrolling lands on rendered code.
+const chunkPrefetchMargin = "320px 0px"
+// Markers the rendered HTML carries so the delegated copy handler can find its block.
+const codeBlockAttribute = "[data-code-block]"
+const copyButtonAttribute = "[data-copy-code]"
 const copyIcon =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>'
 const copiedIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
@@ -42,6 +51,14 @@ export class AsyncSizeCache<T> {
     return entry.value
   }
 
+  /**
+   * Stores an in-flight promise under a provisional size, then corrects that size once it resolves.
+   *
+   * The real cost is not known until the value exists, but the entry has to be cached immediately
+   * so concurrent callers share one computation. It is therefore charged its source size up front
+   * and re-measured on resolution. A value larger than the whole budget is returned uncached rather
+   * than admitted and immediately evicted. A rejected promise is evicted so the failure is retried.
+   */
   set(key: string, sourceSize: number, value: Promise<T>) {
     const existing = this.entries.get(key)
     if (existing) this.remove(key, existing)
@@ -50,6 +67,8 @@ export class AsyncSizeCache<T> {
     const entry: AsyncCacheEntry<T> = { value, size: sourceSize }
     const tracked = value.then(
       (result) => {
+        // The identity check matters: this entry may have been evicted or replaced while the
+        // promise was pending, in which case its size is no longer part of the running total.
         if (this.entries.get(key) !== entry) return result
         this.total -= entry.size
         entry.size = sourceSize + this.outputSize(result)
@@ -83,18 +102,26 @@ export class AsyncSizeCache<T> {
   }
 }
 
+// The cache is budgeted in approximate bytes, so every entry is charged its payload length plus a
+// rough per-object overhead. These weights only need to be proportional, not exact - they exist so
+// that many small entries cannot sit under the budget while consuming real memory.
+const perLineOverhead = 16
+const perTokenOverhead = 32
+const perSourceEntryOverhead = 128
+const perHtmlEntryOverhead = 64
+
 function tokenOutputSize(lines: SyntaxToken[][]) {
-  let size = lines.length * 16
-  for (const line of lines) for (const token of line) size += token.content.length + 32
+  let size = lines.length * perLineOverhead
+  for (const line of lines) for (const token of line) size += token.content.length + perTokenOverhead
   return size
 }
 
 function shikiSourceSize(key: string, code: string) {
-  return key.length + code.length + 128
+  return key.length + code.length + perSourceEntryOverhead
 }
 
 const shikiCacheBudget = 2 * 1024 * 1024
-const highlightCache = new AsyncSizeCache<string>(shikiCacheBudget, (html) => html.length + 64)
+const highlightCache = new AsyncSizeCache<string>(shikiCacheBudget, (html) => html.length + perHtmlEntryOverhead)
 const tokenCache = new AsyncSizeCache<SyntaxToken[][]>(shikiCacheBudget, tokenOutputSize)
 
 export async function codeTokens(code: string, lang: string): Promise<SyntaxToken[][]> {
@@ -139,25 +166,98 @@ async function highlightBlocks(root: HTMLElement, theme: BundledTheme, current: 
   )
 }
 
+/**
+ * Applies `transform` to the prose in `text`, leaving fenced blocks and inline code untouched.
+ *
+ * Fences are recognized only at line starts (with up to three spaces of indentation), while inline
+ * spans use an exact-length closing backtick run, matching CommonMark's delimiter rules.
+ */
+function mapProseChunks(text: string, transform: (chunk: string) => string) {
+  let result = ""
+  let proseStart = 0
+  let index = 0
+
+  const preserve = (start: number, end: number) => {
+    result += transform(text.slice(proseStart, start)) + text.slice(start, end)
+    proseStart = end
+    index = end
+  }
+
+  while (index < text.length) {
+    const lineStart = index === 0 || text[index - 1] === "\n"
+    if (lineStart) {
+      let markerStart = index
+      while (markerStart < index + 3 && text[markerStart] === " ") markerStart++
+      const marker = text[markerStart]
+      if (marker === "`" || marker === "~") {
+        let markerEnd = markerStart
+        while (text[markerEnd] === marker) markerEnd++
+        const markerLength = markerEnd - markerStart
+        const openerEnd = text.indexOf("\n", markerEnd)
+        const infoEnd = openerEnd < 0 ? text.length : openerEnd
+        if (markerLength >= 3 && (marker !== "`" || !text.slice(markerEnd, infoEnd).includes("`"))) {
+          let closeStart = openerEnd < 0 ? text.length : openerEnd + 1
+          let fenceEnd = text.length
+          while (closeStart < text.length) {
+            let closeMarkerStart = closeStart
+            while (closeMarkerStart < closeStart + 3 && text[closeMarkerStart] === " ") closeMarkerStart++
+            let closeMarkerEnd = closeMarkerStart
+            while (text[closeMarkerEnd] === marker) closeMarkerEnd++
+            const closeLineEnd = text.indexOf("\n", closeMarkerEnd)
+            const trailingEnd = closeLineEnd < 0 ? text.length : closeLineEnd
+            if (
+              closeMarkerEnd - closeMarkerStart >= markerLength &&
+              text.slice(closeMarkerEnd, trailingEnd).trim() === ""
+            ) {
+              fenceEnd = closeLineEnd < 0 ? text.length : closeLineEnd + 1
+              break
+            }
+            const nextLine = text.indexOf("\n", closeStart)
+            if (nextLine < 0) break
+            closeStart = nextLine + 1
+          }
+          preserve(index, fenceEnd)
+          continue
+        }
+      }
+    }
+
+    if (text[index] === "`") {
+      const start = index
+      let openerEnd = index
+      while (text[openerEnd] === "`") openerEnd++
+      const length = openerEnd - index
+      let cursor = openerEnd
+      while (cursor < text.length) {
+        const close = text.indexOf("`", cursor)
+        if (close < 0) break
+        let closeEnd = close
+        while (text[closeEnd] === "`") closeEnd++
+        if (closeEnd - close === length) {
+          preserve(index, closeEnd)
+          break
+        }
+        cursor = closeEnd
+      }
+      if (index === start) index = openerEnd
+      continue
+    }
+    index++
+  }
+
+  return result + transform(text.slice(proseStart))
+}
+
 // Model output like **C:\** never closes its emphasis because \ escapes the delimiter.
 // Only path-shaped backslashes (after a drive colon or another segment) get self-escaped.
 export function fixEscapedEmphasis(text: string) {
-  return text
-    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
-    .map((chunk, index) => {
-      if (index % 2) return chunk
-      return chunk
-        .replace(/(:)\\(?=\*\*?|__?)/g, "$1\\\\")
-        .replace(/(\\[\w .()-]+)\\(?=\*\*?|__?)/g, "$1\\\\")
-    })
-    .join("")
+  return mapProseChunks(text, (chunk) =>
+    chunk.replace(/(:)\\(?=\*\*?|__?)/g, "$1\\\\").replace(/(\\[\w .()-]+)\\(?=\*\*?|__?)/g, "$1\\\\"),
+  )
 }
 
-export function preserveLiteralBackslashes(text: string) {
-  return text
-    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
-    .map((chunk, index) => (index % 2 ? chunk : chunk.replaceAll("\\", "&#92;")))
-    .join("")
+function preserveLiteralBackslashes(text: string) {
+  return mapProseChunks(text, (chunk) => chunk.replaceAll("\\", "&#92;"))
 }
 
 const voidHtml = new Set([
@@ -179,13 +279,22 @@ const voidHtml = new Set([
 
 // Marked accepts raw HTML. Escape only unmatched tags so model-written examples cannot
 // turn the rest of a streamed response into one giant heading or emphasis element.
-export function escapeUnbalancedHtml(text: string) {
-  return text
-    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
-    .map((chunk, index) => (index % 2 ? chunk : escapeUnbalancedHtmlChunk(chunk)))
-    .join("")
+function escapeUnbalancedHtml(text: string) {
+  return mapProseChunks(text, escapeUnbalancedHtmlChunk)
 }
 
+/**
+ * Escapes HTML tags in one prose chunk that do not form a matched open/close pair.
+ *
+ * Streamed model output regularly contains a stray `<div>` or a half-written tag. Marked would
+ * treat it as real HTML and swallow the rest of the response into that element, so unmatched tags
+ * are rendered as literal text instead. Tags that do pair up are left alone so intentional inline
+ * HTML keeps working.
+ *
+ * Pairing is a standard bracket match: openers are pushed on a stack, and a closer scans back for
+ * the nearest opener of the same name. Scanning back rather than only checking the top tolerates
+ * improperly nested but individually paired tags such as `<b><i></b></i>`.
+ */
 function escapeUnbalancedHtmlChunk(text: string) {
   const tags = [...text.matchAll(/<!--[^]*?-->|<\/?[A-Za-z][^>\n]*>/g)].map((match) => ({
     start: match.index,
@@ -195,9 +304,12 @@ function escapeUnbalancedHtmlChunk(text: string) {
     closing: /^<\//.test(match[0]),
     matched: false,
   }))
+
+  /** Indices into `tags` of openers still waiting for their closing tag. */
   const stack: number[] = []
   for (let index = 0; index < tags.length; index++) {
     const tag = tags[index]
+    // Comments, void elements and self-closing tags never pair, so they are always kept as-is.
     if (!tag.name || tag.value.startsWith("<!--") || voidHtml.has(tag.name) || /\/\s*>$/.test(tag.value)) {
       tag.matched = true
       continue
@@ -212,12 +324,15 @@ function escapeUnbalancedHtmlChunk(text: string) {
       opener = position
       break
     }
+    // No opener: this closer is stray and stays marked unmatched, so it gets escaped below.
     if (opener < 0) continue
     const openIndex = stack[opener]
     tags[openIndex].matched = true
     tag.matched = true
     stack.splice(opener, 1)
   }
+
+  // Anything left on the stack was opened and never closed, so it keeps matched = false.
   let result = ""
   let cursor = 0
   for (const tag of tags) {
@@ -237,8 +352,7 @@ function openExternalLink(event: MouseEvent) {
   if (!anchor) return
   const url = new URL(anchor.href)
   if (url.protocol !== "http:" && url.protocol !== "https:") return
-  const invoke = (globalThis as { __TAURI__?: { core?: { invoke: (command: string, args: unknown) => Promise<unknown> } } })
-    .__TAURI__?.core?.invoke
+  const invoke = shellInvoke()
   if (!invoke) return
   event.preventDefault()
   void invoke("plugin:opener|open_url", { url: url.href }).catch(() => {})
@@ -247,7 +361,7 @@ function openExternalLink(event: MouseEvent) {
 function decorateCodeBlocks(root: HTMLElement) {
   for (const pre of root.querySelectorAll<HTMLElement>("pre")) {
     const code = pre.querySelector("code")?.textContent ?? pre.textContent ?? ""
-    const existing = pre.closest<HTMLElement>("[data-code-block]")
+    const existing = pre.closest<HTMLElement>(codeBlockAttribute)
     if (existing) {
       codeBlocks.set(existing, code)
       continue
@@ -269,9 +383,9 @@ function decorateCodeBlocks(root: HTMLElement) {
 }
 
 function markdownClick(event: MouseEvent) {
-  const button = (event.target as Element).closest<HTMLButtonElement>("[data-copy-code]")
+  const button = (event.target as Element).closest<HTMLButtonElement>(copyButtonAttribute)
   if (!button) return openExternalLink(event)
-  const wrapper = button.closest<HTMLElement>("[data-code-block]")
+  const wrapper = button.closest<HTMLElement>(codeBlockAttribute)
   const code = wrapper ? codeBlocks.get(wrapper) : undefined
   if (code === undefined) return
   void writeClipboard(code)
@@ -283,7 +397,7 @@ function markdownClick(event: MouseEvent) {
         button.innerHTML = copyIcon
         button.setAttribute("aria-label", t("drift.markdown.copyCode"))
         button.title = t("drift.markdown.copyCode")
-      }, 1600)
+      }, copiedFeedbackMs)
     })
     .catch((error) => console.warn("[Drift] Could not copy code", error))
 }
@@ -305,7 +419,7 @@ async function writeClipboard(text: string) {
   }
 }
 
-export function CodeView(props: { code: string; lang: string }) {
+function CodeView(props: { code: string; lang: string }) {
   const [html, setHtml] = createSignal("")
   let request = 0
   createEffect(() => {
@@ -351,7 +465,7 @@ export function ProgressiveCodeView(props: { code: string; lang: string }) {
           if (!visible.length) return
           setActive((current) => new Set([...current, ...visible]))
         },
-        { root, rootMargin: "320px 0px" },
+        { root, rootMargin: chunkPrefetchMargin },
       )
       for (const element of root.querySelectorAll("[data-chunk]")) observer.observe(element)
     })

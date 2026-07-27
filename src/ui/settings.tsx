@@ -1,5 +1,5 @@
 import type { Agent, ProviderAuthMethod } from "@opencode-ai/sdk/client"
-import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useEngine } from "../engine"
 import {
@@ -49,7 +49,7 @@ import {
   toolErrorsExpanded,
   type AttentionKind,
 } from "../state/prefs"
-import { shellInvoke } from "../state/store"
+import { shellInvoke } from "../shell"
 import {
   setSplashDuration,
   setSplashEnabled,
@@ -92,6 +92,7 @@ import {
   type ThemeName,
 } from "../state/theme"
 import {
+  IconArchive,
   IconBell,
   IconCheck,
   IconChip,
@@ -104,12 +105,15 @@ import {
   IconSliders,
   IconX,
 } from "./icons"
+import { readDataUrl } from "./files"
+import { SettingsGroup, SettingsRow } from "./settings-controls"
+import { StorageSection } from "./settings-storage"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import { McpManagement } from "./mcp"
-import { Toggle } from "./model-manager"
+import { Toggle } from "./controls"
 import { ProviderIcon } from "./provider-icon"
 import { Picker } from "./picker"
-import { Chevron } from "./parts"
+import { Chevron } from "./controls"
 import { playAlertSound, soundOptions } from "./sounds"
 
 type ProviderNotice = { tone: "success" | "warning" | "error"; text: string }
@@ -126,7 +130,7 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Shortcuts", "Providers", "MCP", "Prompts", "Agents", "About"] as const
+const sections = ["General", "Appearance", "Code", "Notifications", "Shortcuts", "Providers", "MCP", "Prompts", "Agents", "Storage", "About"] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
@@ -138,12 +142,13 @@ const sectionLabels: Record<Section, string> = {
   MCP: "dialog.mcp.title",
   Prompts: "drift.settings.prompts",
   Agents: "settings.agents.title",
+  Storage: "drift.storage",
   About: "drift.settings.about",
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
   { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Shortcuts"] },
   { label: "settings.section.server", items: ["Providers", "MCP", "Prompts", "Agents"] },
-  { label: "drift.settings.section", items: ["About"] },
+  { label: "drift.settings.section", items: ["Storage", "About"] },
 ]
 
 const keybindLabels: Record<KeybindAction, string> = {
@@ -268,6 +273,9 @@ function SettingsModal(props: { onClose: () => void }) {
               </Match>
               <Match when={section() === "Agents"}>
                 <PromptEditorSection view="agents" />
+              </Match>
+              <Match when={section() === "Storage"}>
+                <StorageSection />
               </Match>
               <Match when={section() === "About"}>
                 <AboutSection />
@@ -492,15 +500,6 @@ function SoundPicker(props: { kind: AttentionKind }) {
       </button>
     </div>
   )
-}
-
-function readDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
 }
 
 function ProvidersSection() {
@@ -881,7 +880,9 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   const [agentPromptBaseline, setAgentPromptBaseline] = createSignal("")
   const [agentBehaviorBaseline, setAgentBehaviorBaseline] = createSignal("{}")
   const [familyDirty, setFamilyDirty] = createSignal(false)
-  const [saved, setSaved] = createSignal(false)
+  // Prompt and agent overrides are read by the engine at startup, so a successful write only
+  // takes effect after a restart. This flag drives that notice, nothing else.
+  const [showRestartNotice, setShowRestartNotice] = createSignal(false)
   const [error, setError] = createSignal("")
   const [saving, setSaving] = createSignal(false)
   const override = (key: string) => snapshot()?.overrides.find((item) => item.key === key)
@@ -889,9 +890,9 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   const agentOverridden = () => !!override(`agent:${agentName()}`)
   const agentDirty = () => agentPrompt() !== agentPromptBaseline() || agentBehavior() !== agentBehaviorBaseline()
   const agentOverrideFields = () => {
-    const saved = override(`agent:${agentName()}`)?.value
-    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {}
-    return saved as Record<string, unknown>
+    const storedValue = override(`agent:${agentName()}`)?.value
+    if (!storedValue || typeof storedValue !== "object" || Array.isArray(storedValue)) return {}
+    return storedValue as Record<string, unknown>
   }
   const familyModified = () => familyDirty() || familyOverridden()
   const agentPromptModified = () => agentPrompt() !== agentPromptBaseline() || "prompt" in agentOverrideFields()
@@ -917,29 +918,37 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
     setFamilyBaseline(prompt)
   })
 
-  createEffect(() => {
-    if (agentDirty()) return
-    const agent = engine.state.agents.find((item) => item.name === agentName())
-    const saved = override(`agent:${agentName()}`)
-    const config = agentConfig(agent, snapshot(), saved)
-    const prompt = typeof config.prompt === "string" ? config.prompt : ""
-    const { prompt: _prompt, ...behavior } = config
+  // Splits a resolved agent config into the two editors: the prompt gets its own textarea, every
+  // other field is edited as raw JSON. Both editors reset their baseline so nothing reads as dirty.
+  function loadAgentEditors(config: ReturnType<typeof agentConfig>) {
+    const { prompt: promptField, ...behavior } = config
+    const prompt = typeof promptField === "string" ? promptField : ""
     const serialized = JSON.stringify(behavior, null, 2)
     setAgentPrompt(prompt)
     setAgentPromptBaseline(prompt)
     setAgentBehavior(serialized)
     setAgentBehaviorBaseline(serialized)
+  }
+
+  function currentAgent() {
+    return engine.state.agents.find((item) => item.name === agentName())
+  }
+
+  createEffect(() => {
+    if (agentDirty()) return
+    const storedOverride = override(`agent:${agentName()}`)
+    loadAgentEditors(agentConfig(currentAgent(), snapshot(), storedOverride))
   })
 
   async function mutate(action: () => Promise<void>, clean: () => void) {
     setSaving(true)
     setError("")
-    setSaved(false)
+    setShowRestartNotice(false)
     try {
       await action()
       clean()
       await load()
-      setSaved(true)
+      setShowRestartNotice(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -960,16 +969,18 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
       return
     }
     const key = `agent:${agentName()}`
-    const agent = engine.state.agents.find((item) => item.name === agentName())
-    const saved = override(key)
-    const existing = saved?.value && typeof saved.value === "object" ? (saved.value as Record<string, unknown>) : {}
+    const storedOverride = override(key)
+    const existing =
+      storedOverride?.value && typeof storedOverride.value === "object"
+        ? (storedOverride.value as Record<string, unknown>)
+        : {}
     const baseline = JSON.parse(agentBehaviorBaseline()) as Record<string, unknown>
     const value = agentOverrideValue(
       { ...(behavior as object), prompt: agentPrompt() },
       { ...baseline, prompt: agentPromptBaseline() },
       existing,
     )
-    const original = saved?.original ?? agentConfig(agent, snapshot())
+    const original = storedOverride?.original ?? agentConfig(currentAgent(), snapshot())
     const action = Object.keys(value).length
       ? () => savePromptOverride(key, value, original)
       : () => resetPromptOverride(key)
@@ -997,20 +1008,19 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
         setAgentBehaviorBaseline(agentBehavior())
       })
     }
-    const agent = engine.state.agents.find((item) => item.name === agentName())
-    const config = agentConfig(agent, snapshot())
-    const prompt = typeof config.prompt === "string" ? config.prompt : ""
-    const { prompt: _prompt, ...behavior } = config
-    const serialized = JSON.stringify(behavior, null, 2)
-    setAgentPrompt(prompt)
-    setAgentPromptBaseline(prompt)
-    setAgentBehavior(serialized)
-    setAgentBehaviorBaseline(serialized)
+    loadAgentEditors(agentConfig(currentAgent(), snapshot()))
   }
 
   return (
     <div class="space-y-6">
-      <Show when={snapshot()} fallback={<div class="px-2 text-sm text-ink-faint">{error() || t("common.loading")}</div>}>
+      <Show
+        when={snapshot()}
+        fallback={
+          <Show when={!error()}>
+            <div class="px-2 text-sm text-ink-faint">{t("common.loading")}</div>
+          </Show>
+        }
+      >
         {(data) => (
           <>
             <Show when={props.view === "prompts"}>
@@ -1125,7 +1135,7 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
           </>
         )}
       </Show>
-      <Show when={saved()}>
+      <Show when={showRestartNotice()}>
         <div class="text-xs text-accent">{t("drift.settings.prompts.restart")}</div>
       </Show>
       <Show when={error()}>
@@ -1177,8 +1187,11 @@ function familyLabel(id: string) {
   return labels[id] ?? id
 }
 
-function agentConfig(agent: Agent | undefined, snapshot: PromptSnapshot | null, saved?: PromptOverride) {
-  const restored = saved?.value && typeof saved.value === "object" ? (saved.value as Record<string, unknown>) : undefined
+function agentConfig(agent: Agent | undefined, snapshot: PromptSnapshot | null, storedOverride?: PromptOverride) {
+  const restored =
+    storedOverride?.value && typeof storedOverride.value === "object"
+      ? (storedOverride.value as Record<string, unknown>)
+      : undefined
   if (!agent) return restored ? { ...restored } : {}
   const source = agent as Agent & {
     prompt?: string
@@ -1476,43 +1489,10 @@ function SectionIcon(props: { section: Section }) {
     if (props.section === "MCP") return <IconShieldCheck />
     if (props.section === "Prompts") return <IconCode />
     if (props.section === "Agents") return <IconSliders />
+    if (props.section === "Storage") return <IconArchive />
     return <IconInfo />
   }
   return <span class="flex size-5 shrink-0 items-center justify-center text-ink-faint">{icon()}</span>
-}
-
-function SettingsGroup(props: { title: string; children: JSX.Element }) {
-  return (
-    <section>
-      <div class="mb-1.5 text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">{props.title}</div>
-      <div class="border-y border-edge/80">{props.children}</div>
-    </section>
-  )
-}
-
-function SettingsRow(props: {
-  title: string
-  description: string
-  children: JSX.Element
-  disabled?: boolean
-  onClick?: () => void
-}) {
-  return (
-    <div
-      class="flex min-h-13 flex-col items-stretch gap-2 border-b border-edge/70 px-1 py-2.5 last:border-b-0 sm:flex-row sm:items-center sm:gap-4"
-      classList={{
-        "cursor-pointer hover:bg-raised/40": !!props.onClick && !props.disabled,
-        "opacity-50": !!props.disabled,
-      }}
-      onClick={() => !props.disabled && props.onClick?.()}
-    >
-      <div class="min-w-0 flex-1">
-        <div class="text-[0.82rem] font-medium text-ink">{props.title}</div>
-        <div class="mt-0.5 text-[0.72rem] leading-relaxed text-ink-faint">{props.description}</div>
-      </div>
-      <div class="shrink-0 self-end sm:self-auto">{props.children}</div>
-    </div>
-  )
 }
 
 function ThemeRow(props: { name: ThemeName }) {

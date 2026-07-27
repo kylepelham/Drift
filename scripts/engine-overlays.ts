@@ -18,6 +18,15 @@ const overlayDirectory = path.join(root, "engine", "overlays")
 const lockDirectory = path.join(root, "engine", ".overlay-lock")
 const ownedLocks = new Map<string, string>()
 
+// How long to wait for another process to release the overlay lock before giving up. The retry
+// budget is derived so the timeout message and the loop bound cannot disagree.
+const lockPollIntervalMs = 250
+const lockTimeoutMs = 60_000
+const lockAttempts = lockTimeoutMs / lockPollIntervalMs
+// A lock directory with no owner file may just be a contender mid-publish, so tolerate a few polls
+// before treating it as abandoned and quarantining it.
+const ownerlessGraceAttempts = 3
+
 interface LockOwner {
   pid: number
   token: string
@@ -36,12 +45,12 @@ const overlays = () =>
     .map((file) => path.join(overlayDirectory, file))
 
 async function gitApply(args: string[], quiet = false) {
-  const process = Bun.spawn(["git", "apply", "--directory=engine/upstream", ...args], {
+  const child = Bun.spawn(["git", "apply", "--directory=engine/upstream", ...args], {
     cwd: root,
     stdout: quiet ? "ignore" : "inherit",
     stderr: quiet ? "ignore" : "inherit",
   })
-  return (await process.exited) === 0
+  return (await child.exited) === 0
 }
 
 // The shipped format was a directory holding only the owner's decimal pid, which also names its generation.
@@ -82,22 +91,24 @@ function readLockOwner(directory: string): LockOwner {
   } catch (cause) {
     throw new Error(`Invalid engine overlay lock owner; inspect ${directory} before retrying`, { cause })
   }
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("pid" in value) ||
-    !Number.isInteger(value.pid) ||
-    value.pid <= 0 ||
-    !("token" in value) ||
-    typeof value.token !== "string" ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.token)
-  ) {
+  if (!isLockOwner(value)) {
     throw new Error(`Invalid engine overlay lock owner; inspect ${directory} before retrying`)
   }
-  return value as LockOwner
+  return value
 }
 
-function contention(error: unknown, destination: string) {
+const uuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+// A lock owner is trusted only if it carries both a plausible pid and a token this tool minted.
+// Anything else is treated as ownerless so the caller fails closed rather than stealing the lock.
+function isLockOwner(value: unknown): value is LockOwner {
+  if (typeof value !== "object" || value === null) return false
+  if (!("pid" in value) || !Number.isInteger(value.pid) || (value.pid as number) <= 0) return false
+  if (!("token" in value) || typeof value.token !== "string") return false
+  return uuidV4Pattern.test(value.token)
+}
+
+function isContentionError(error: unknown, destination: string) {
   const code = (error as NodeJS.ErrnoException).code
   if (code === "EEXIST" || code === "ENOTEMPTY") return true
   return (code === "EPERM" || code === "EACCES" || code === "EISDIR" || code === "ENOTDIR") && existsSync(destination)
@@ -108,7 +119,7 @@ function quarantine(directory: string, destination: string) {
     renameSync(directory, destination)
     return true
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT" || contention(error, destination)) return false
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" || isContentionError(error, destination)) return false
     throw error
   }
 }
@@ -161,7 +172,7 @@ export async function acquireEngineOverlayLock(
     writeFileSync(candidateOwner, JSON.stringify({ pid: process.pid, token }), { flag: "wx" })
     options.beforePublish?.(candidate)
 
-    for (let attempt = 0; attempt < 240; attempt++) {
+    for (let attempt = 0; attempt < lockAttempts; attempt++) {
       try {
         // A same-volume hard link atomically publishes complete metadata and never replaces an existing lock.
         linkSync(candidateOwner, directory)
@@ -169,7 +180,7 @@ export async function acquireEngineOverlayLock(
         ownedLocks.set(directory, token)
         return
       } catch (error) {
-        if (!contention(error, directory)) throw error
+        if (!isContentionError(error, directory)) throw error
       }
 
       let owner: LockOwner
@@ -178,8 +189,8 @@ export async function acquireEngineOverlayLock(
       } catch (ownerError) {
         if ((ownerError as NodeJS.ErrnoException).code !== "ENOENT") throw ownerError
         if (!existsSync(directory)) continue
-        if (missingOwnerAttempts++ < 3) {
-          await Bun.sleep(250)
+        if (missingOwnerAttempts++ < ownerlessGraceAttempts) {
+          await Bun.sleep(lockPollIntervalMs)
           continue
         }
         if (await quarantineOwnerlessLock(directory, options)) missingOwnerAttempts = 0
@@ -191,7 +202,7 @@ export async function acquireEngineOverlayLock(
       } catch (ownerError) {
         const code = (ownerError as NodeJS.ErrnoException).code
         if (code === "EPERM") {
-          await Bun.sleep(250)
+          await Bun.sleep(lockPollIntervalMs)
           continue
         }
         if (code !== "ESRCH") throw ownerError
@@ -204,9 +215,9 @@ export async function acquireEngineOverlayLock(
         console.warn(`Recovering engine overlays left by process ${owner.pid}`)
         continue
       }
-      await Bun.sleep(250)
+      await Bun.sleep(lockPollIntervalMs)
     }
-    throw new Error("Timed out waiting for the engine overlay lock")
+    throw new Error(`Timed out waiting for the engine overlay lock after ${lockTimeoutMs / 1000}s`)
   } finally {
     try {
       rmSync(candidate, { recursive: true, force: true })
@@ -247,12 +258,12 @@ export interface EngineOverlayOperations {
   upstreamChanges: () => Promise<string[]>
 }
 
-function aggregate(errors: unknown[], message: string) {
+function toAggregateError(errors: unknown[], message: string) {
   if (errors.length === 1 && errors[0] instanceof Error) return errors[0]
   return new AggregateError(errors, message)
 }
 
-async function inspectClean(operations: EngineOverlayOperations) {
+async function collectUncleanFailures(operations: EngineOverlayOperations) {
   const failures: Error[] = []
   try {
     const changes = await operations.upstreamChanges()
@@ -303,7 +314,7 @@ async function recoverInterruptedOverlays(operations: EngineOverlayOperations) {
   } catch (cause) {
     failures.push(new Error("Could not verify startup recovery restored the engine upstream worktree", { cause }))
   }
-  if (failures.length > 0) throw aggregate(failures, "Engine overlay startup recovery failed")
+  if (failures.length > 0) throw toAggregateError(failures, "Engine overlay startup recovery failed")
 }
 
 const defaultOperations = (): EngineOverlayOperations => ({
@@ -349,7 +360,7 @@ export async function runWithEngineOverlays<T>(run: () => Promise<T>, operations
     }
   }
 
-  const cleanlinessFailures = await inspectClean(operations)
+  const cleanlinessFailures = await collectUncleanFailures(operations)
   cleanupFailures.push(...cleanlinessFailures)
   if (cleanlinessFailures.length === 0) {
     try {
@@ -360,7 +371,7 @@ export async function runWithEngineOverlays<T>(run: () => Promise<T>, operations
   }
 
   const cleanupError =
-    cleanupFailures.length > 0 ? aggregate(cleanupFailures, "Engine overlay restoration failed") : undefined
+    cleanupFailures.length > 0 ? toAggregateError(cleanupFailures, "Engine overlay restoration failed") : undefined
   if (operationFailed && cleanupError) {
     throw new AggregateError(
       [operationError, cleanupError],

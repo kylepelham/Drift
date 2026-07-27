@@ -13,7 +13,7 @@ import {
 import { selectedSession } from "../state/selection"
 import { t } from "../state/i18n"
 import { IconCheck } from "./icons"
-import { Chevron } from "./parts"
+import { Chevron } from "./controls"
 
 export function AttentionStrip() {
   return (

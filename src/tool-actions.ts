@@ -1,5 +1,5 @@
 import type { ToolPart } from "@opencode-ai/sdk/client"
-import { shellInvoke } from "./state/store"
+import { shellInvoke } from "./shell"
 import { activeWorkspace } from "./state/workspaces"
 
 export type FileLocation = { line?: number; column?: number }

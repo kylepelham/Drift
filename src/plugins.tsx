@@ -4,7 +4,7 @@ import type { Engine } from "./engine"
 import type { QuestionInfo } from "./engine/store"
 import { pushAsk } from "./state/asks"
 import { selectedSession, selectSession } from "./state/selection"
-import { shellInvoke } from "./state/store"
+import { shellInvoke } from "./shell"
 import { theme } from "./state/theme"
 import { activeWorkspace } from "./state/workspaces"
 import type { Workspace } from "./state/store"
@@ -126,6 +126,8 @@ export function emitMessageRendered(event: HookEvents["message.rendered"]) {
 }
 
 export function hasToolRenderer(tool: string) {
+  // `renderers` is a plain Map, so it is invisible to Solid. Reading the version signal
+  // subscribes the caller to register/unregister so it re-runs when the Map changes.
   rendererVersion()
   return renderers.has(tool)
 }
@@ -133,6 +135,8 @@ export function hasToolRenderer(tool: string) {
 export function PluginToolView(props: { part: ToolPart }) {
   let root!: HTMLDivElement
   createEffect(() => {
+    // Both reads exist purely to declare dependencies; their values are unused. `rendererVersion`
+    // tracks plugin (un)registration, `status` re-renders the tool as it progresses. Do not remove.
     rendererVersion()
     props.part.state.status
     const output = renderers.get(props.part.tool)?.(props.part)
@@ -155,6 +159,7 @@ function registerToolRenderer(tool: string, renderer: ToolRenderer) {
 }
 
 export function hasPartRenderer(type: string) {
+  // See hasToolRenderer: subscribes to plugin (un)registration of the untracked Map.
   rendererVersion()
   return partRenderers.has(type)
 }
@@ -162,6 +167,8 @@ export function hasPartRenderer(type: string) {
 export function PluginPartView(props: { part: Part }) {
   let root!: HTMLDivElement
   createEffect(() => {
+    // Dependency declarations, not computations. A part has no single field that marks it dirty,
+    // so the stringify deep-reads every property to subscribe to all of them. Do not remove.
     rendererVersion()
     JSON.stringify(props.part)
     const output = partRenderers.get(props.part.type)?.(props.part)

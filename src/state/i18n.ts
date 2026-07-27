@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js"
 import { dict, drift } from "../i18n/en"
+import { createLatestOnly } from "./latest"
 
 type Dictionary = Record<string, string>
 const english = { ...dict, ...drift } as Dictionary
@@ -35,10 +36,10 @@ const loaders: Record<string, () => Promise<{ dict: Dictionary; drift: Dictionar
 
 const [dictionary, setDictionary] = createSignal(english)
 const cache = new Map<string, Dictionary>([["en", english]])
-let request = 0
+const load = createLatestOnly()
 
 export async function loadDictionary(language: string) {
-  const current = ++request
+  const token = load.begin()
   const cached = cache.get(language)
   setDictionary(cached ?? english)
   if (cached) return
@@ -48,7 +49,8 @@ export async function loadDictionary(language: string) {
   if (!module) return
   const next = { ...english, ...module.dict, ...module.drift }
   cache.set(language, next)
-  if (current === request) setDictionary(next)
+  // A slow chunk for a language the user already switched away from must not win.
+  if (load.isCurrent(token)) setDictionary(next)
 }
 
 export function t(key: string, variables?: Record<string, string | number>) {

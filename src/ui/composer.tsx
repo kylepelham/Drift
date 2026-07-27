@@ -31,29 +31,28 @@ import {
   type StagedFile,
 } from "../state/composer"
 import { selectedSession, selectSession } from "../state/selection"
-import { shellInvoke } from "../state/store"
+import { shellInvoke } from "../shell"
 import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
 import { normalizeDir } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"
 import { PermissionCard, QuestionCard } from "./attention"
 import { IconPaperclip, IconShieldCheck, IconX } from "./icons"
+import { createMentionAutocomplete, mentionFiles } from "./composer-mentions"
+import { createSlashMenu } from "./composer-slash"
+import { readDataUrl } from "./files"
 import { openLightbox } from "./lightbox"
 import { Picker, type PickerItem } from "./picker"
 import { defaultVisibleModelIds, ModelManager } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit"
-import { parseSlash, runSlash, slashItem, slashItems, slashPresets, type SlashItem, type SlashPreset } from "./slash"
+
 
 const maxFileBytes = 10 * 1024 * 1024
-
-function readDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
-}
+// Autosize ceiling for the textarea. Must stay in sync with the `max-h-50` class on the textarea
+// (Tailwind spacing 50 = 12.5rem = 200px); otherwise the element and its inline height disagree.
+const maxComposerHeightPx = 200
+// The OS clipboard is written after the browser finishes its own copy, so ours lands last and wins.
+const clipboardRepublishDelayMs = 100
 
 export function firstManualPermission(permissions: Permission[], autoAccepted: (permission: Permission) => boolean) {
   return permissions.find((permission) => !autoAccepted(permission))
@@ -84,8 +83,6 @@ export function selectOwningSession(
 
 export function Composer() {
   const engine = useEngine()
-  const [dismissed, setDismissed] = createSignal(false)
-  const [cursor, setCursor] = createSignal(0)
   const [manageModels, setManageModels] = createSignal(false)
   const [fileError, setFileError] = createSignal("")
   const [focusedQuestionID, setFocusedQuestionID] = createSignal<string>()
@@ -157,8 +154,8 @@ export function Composer() {
       setHistoryNavigation(null)
       previousScope = nextScope
     }
-    setDismissed(false)
-    setMentionQuery(null)
+    slash.setDismissed(false)
+    mention.setQuery(null)
     setFileError("")
   })
 
@@ -171,118 +168,24 @@ export function Composer() {
     })
   })
 
-  const slash = () => (dismissed() ? null : parseSlash(draft()))
-  const matches = createMemo<SlashItem[]>(() => {
-    const parsed = slash()
-    return parsed ? slashItems(engine, parsed.query) : []
-  })
-  const argumentItem = createMemo(() => {
-    const parsed = slash()
-    return parsed?.separated ? slashItem(engine, parsed.query) : undefined
-  })
-  const argumentPresets = createMemo(() => {
-    const parsed = slash()
-    const item = argumentItem()
-    return parsed && item ? slashPresets(item, parsed.args) : []
+  const slash = createSlashMenu({
+    engine,
+    area: () => area,
+    draft,
+    setDraft,
+    resize: () => resize(),
   })
 
-  const [mentionQuery, setMentionQuery] = createSignal<string | null>(null)
-  const [fileHits, setFileHits] = createSignal<string[]>([])
-  const [fileCursor, setFileCursor] = createSignal(0)
-  let mentionToken = 0
-
-  function updateMention() {
-    const caret = area.selectionEnd ?? draft().length
-    const match = draft().slice(0, caret).match(/(^|\s)@([\w./\\-]*)$/)
-    setMentionQuery(match ? match[2] : null)
-  }
-
-  createEffect(() => {
-    const query = mentionQuery()
-    if (query === null || !ready()) {
-      setFileHits([])
-      return
-    }
-    const token = ++mentionToken
-    void engine.actions.findFiles(query).then((hits) => {
-      if (token !== mentionToken) return
-      setFileHits(hits.map((hit) => hit.replaceAll("\\", "/")).slice(0, 8))
-      setFileCursor(0)
-    })
+  const mention = createMentionAutocomplete({
+    area: () => area,
+    draft,
+    setDraft,
+    mentions,
+    setMentions,
+    ready: () => ready(),
+    findFiles: (query) => engine.actions.findFiles(query),
+    resize: () => resize(),
   })
-
-  function pickMention(path: string) {
-    const caret = area.selectionEnd ?? draft().length
-    const before = draft().slice(0, caret)
-    const match = before.match(/(^|\s)@([\w./\\-]*)$/)
-    if (!match) return
-    const start = caret - match[2].length - 1
-    setDraft(draft().slice(0, start) + "@" + path + " " + draft().slice(caret))
-    setMentions([...new Set([...mentions(), path])])
-    setMentionQuery(null)
-    queueMicrotask(() => {
-      resize()
-      area.focus()
-      const position = start + path.length + 2
-      area.setSelectionRange(position, position)
-    })
-  }
-
-  function handleMentionKey(event: KeyboardEvent) {
-    if (event.key === "ArrowDown") setFileCursor(Math.min(fileCursor() + 1, fileHits().length - 1))
-    else if (event.key === "ArrowUp") setFileCursor(Math.max(fileCursor() - 1, 0))
-    else if (event.key === "Escape") setMentionQuery(null)
-    else if (event.key === "Enter" || event.key === "Tab") pickMention(fileHits()[Math.min(fileCursor(), fileHits().length - 1)])
-    else return false
-    event.preventDefault()
-    return true
-  }
-
-  function mentionFiles(text: string, paths: string[], root: string) {
-    const directory = root.replaceAll("\\", "/").replace(/\/+$/, "")
-    return paths.flatMap((path) => {
-      const value = "@" + path
-      const start = text.indexOf(value)
-      if (start < 0 || !directory) return []
-      const absolute = `${directory}/${path}`
-      return [
-        {
-          mime: "text/plain",
-          filename: path.split("/").pop(),
-          url: "file:///" + encodeURI(absolute),
-          source: { type: "file" as const, path: absolute, text: { value, start, end: start + value.length } },
-        },
-      ]
-    })
-  }
-
-  async function pickSlash(item: SlashItem) {
-    const args = slash()?.args ?? ""
-    if ((item.requiredArgs || item.presets?.length) && !args) {
-      setDraft(`/${item.name} `)
-      setCursor(0)
-      queueMicrotask(() => area.focus())
-      return
-    }
-    setDraft("")
-    resize()
-    await runSlash(engine, item, args)
-  }
-
-  async function pickSlashPreset(item: SlashItem, preset: SlashPreset) {
-    if (!preset.execute) {
-      setDraft(`/${item.name} ${preset.value}`)
-      setCursor(0)
-      queueMicrotask(() => {
-        resize()
-        area.focus()
-      })
-      return
-    }
-    setDraft("")
-    resize()
-    await runSlash(engine, item, preset.value.trim())
-  }
 
   const busy = () => {
     const id = selectedSession()
@@ -406,8 +309,8 @@ export function Composer() {
       event.preventDefault()
       return
     }
-    if (mentionQuery() !== null && fileHits().length > 0 && handleMentionKey(event)) return
-    if (matches().length > 0 && handleSlashKey(event)) return
+    if (mention.open() && mention.handleKey(event)) return
+    if (slash.open() && slash.handleKey(event)) return
     if ((event.key === "ArrowUp" || event.key === "ArrowDown") && browseHistory(event)) return
     if (event.key === "Tab") {
       event.preventDefault()
@@ -439,8 +342,8 @@ export function Composer() {
         ? null
         : { scope: key, index: result.navigation.index, saved: result.navigation.saved, displayed: result.draft },
     )
-    setDismissed(true)
-    setMentionQuery(null)
+    slash.setDismissed(true)
+    mention.setQuery(null)
     event.preventDefault()
     queueMicrotask(() => {
       resize()
@@ -458,28 +361,9 @@ export function Composer() {
     updatePrefs(selectedSession(), { agent: items[(index + step + items.length) % items.length].id })
   }
 
-  function handleSlashKey(event: KeyboardEvent) {
-    if (event.key === "Enter" && event.shiftKey) return false
-    const item = argumentItem()
-    const presets = argumentPresets()
-    const count = item ? Math.max(1, presets.length) : matches().length
-    if (event.key === "ArrowDown") setCursor(Math.min(cursor() + 1, count - 1))
-    else if (event.key === "ArrowUp") setCursor(Math.max(cursor() - 1, 0))
-    else if (event.key === "Escape") setDismissed(true)
-    else if (item && (event.key === "Enter" || event.key === "Tab") && presets.length)
-      void pickSlashPreset(item, presets[Math.min(cursor(), presets.length - 1)])
-    else if (item && (event.key === "Enter" || event.key === "Tab") && slash()?.args) void pickSlash(item)
-    else if (item && (event.key === "Enter" || event.key === "Tab") && !item.requiredArgs) void pickSlash(item)
-    else if (!item && (event.key === "Enter" || event.key === "Tab"))
-      void pickSlash(matches()[Math.min(cursor(), matches().length - 1)])
-    else return false
-    event.preventDefault()
-    return true
-  }
-
   function resize() {
     area.style.height = "auto"
-    area.style.height = `${Math.min(area.scrollHeight, 200)}px`
+    area.style.height = `${Math.min(area.scrollHeight, maxComposerHeightPx)}px`
   }
 
   function republishComposerSelection(event: ClipboardEvent & { currentTarget: HTMLTextAreaElement }) {
@@ -487,7 +371,7 @@ export function Composer() {
     const text = composerSelection(target.value, target.selectionStart, target.selectionEnd)
     const invoke = shellInvoke()
     if (!text || !invoke) return
-    setTimeout(() => void invoke("clipboard_write_text", { text }).catch(() => undefined), 100)
+    setTimeout(() => void invoke("clipboard_write_text", { text }).catch(() => undefined), clipboardRepublishDelayMs)
   }
 
   const autoAcceptOn = () => {
@@ -621,18 +505,18 @@ export function Composer() {
           void addFiles(event.dataTransfer.files)
         }}
       >
-        <Show when={mentionQuery() !== null && fileHits().length > 0}>
+        <Show when={mention.open()}>
           <div class="pop-in absolute bottom-full left-3 z-20 mb-2 w-96 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
-            <For each={fileHits()}>
+            <For each={mention.hits()}>
               {(path, index) => (
                 <button
                   class="flex w-full items-center px-3 py-1.5 text-left font-mono text-xs transition-colors"
                   classList={{
-                    "bg-raised text-ink": index() === Math.min(fileCursor(), fileHits().length - 1),
-                    "text-ink-muted": index() !== Math.min(fileCursor(), fileHits().length - 1),
+                    "bg-raised text-ink": index() === mention.activeIndex(),
+                    "text-ink-muted": index() !== mention.activeIndex(),
                   }}
-                  onMouseEnter={() => setFileCursor(index())}
-                  onClick={() => pickMention(path)}
+                  onMouseEnter={() => mention.setCursor(index())}
+                  onClick={() => mention.pick(path)}
                 >
                   <span class="truncate">{path}</span>
                 </button>
@@ -640,18 +524,18 @@ export function Composer() {
             </For>
           </div>
         </Show>
-        <Show when={matches().length > 0}>
+        <Show when={slash.open()}>
           <div class="pop-in absolute bottom-full left-3 z-20 mb-2 w-80 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
             <Show
-              when={argumentItem()}
+              when={slash.argumentItem()}
               fallback={
-                <For each={matches()}>
+                <For each={slash.matches()}>
                   {(item, index) => (
                     <button
                       class="flex w-full items-baseline gap-2.5 px-3 py-1.5 text-left text-sm transition-colors"
-                      classList={{ "bg-raised": index() === Math.min(cursor(), matches().length - 1) }}
-                      onMouseEnter={() => setCursor(index())}
-                      onClick={() => void pickSlash(item)}
+                      classList={{ "bg-raised": index() === slash.activeMatchIndex() }}
+                      onMouseEnter={() => slash.setCursor(index())}
+                      onClick={() => void slash.pick(item)}
                     >
                       <span class="shrink-0 font-mono text-xs text-accent">/{item.name}</span>
                       <span class="min-w-0 truncate text-xs text-ink-faint">{item.description}</span>
@@ -665,16 +549,16 @@ export function Composer() {
             >
               {(item) => (
                 <Show
-                  when={argumentPresets().length > 0}
+                  when={slash.argumentPresets().length > 0}
                   fallback={<div class="px-3 py-2 text-xs text-ink-faint">{item().usage}</div>}
                 >
-                  <For each={argumentPresets()}>
+                  <For each={slash.argumentPresets()}>
                     {(preset, index) => (
                       <button
                         class="flex w-full items-start gap-2.5 px-3 py-1.5 text-left transition-colors"
-                        classList={{ "bg-raised": index() === Math.min(cursor(), argumentPresets().length - 1) }}
-                        onMouseEnter={() => setCursor(index())}
-                        onClick={() => void pickSlashPreset(item(), preset)}
+                        classList={{ "bg-raised": index() === slash.activePresetIndex() }}
+                        onMouseEnter={() => slash.setCursor(index())}
+                        onClick={() => void slash.pickPreset(item(), preset)}
                       >
                         <span class="shrink-0 font-mono text-xs text-accent">{preset.label}</span>
                         <span class="min-w-0 text-xs text-ink-faint">{preset.description}</span>
@@ -744,12 +628,12 @@ export function Composer() {
           value={draft()}
           onInput={(event) => {
             setDraft(event.currentTarget.value)
-            setDismissed(false)
-            setCursor(0)
-            updateMention()
+            slash.setDismissed(false)
+            slash.setCursor(0)
+            mention.refresh()
             resize()
           }}
-          onClick={() => updateMention()}
+          onClick={() => mention.refresh()}
           onCopy={republishComposerSelection}
           onCut={republishComposerSelection}
           onPaste={(event) => {

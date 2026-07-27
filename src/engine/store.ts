@@ -157,6 +157,13 @@ function tokenCount(tokens: TokenUsage) {
   return tokens.total || tokens.input + tokens.output + tokens.cache.read + tokens.cache.write
 }
 
+// Ceiling on how much of the context window is set aside for the model's own reply, and the slice
+// of that reserved for compaction headroom. Both mirror the engine's session/overflow.ts - changing
+// one here without changing it there desynchronizes the meter from actual compaction.
+const maxOutputTokens = 32000
+const compactionReserveTokens = 20000
+const percentScale = 100
+
 // Mirrors the engine's session/overflow.ts so the meter predicts the same compaction point.
 // Limits come from the model the next prompt would use; token counts from the last reply.
 export function contextStats(state: EngineState, sessionId: string, modelRef?: ModelRef | null) {
@@ -173,13 +180,13 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
   const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number }
   const context = limits.context ?? 0
   if (!context || !count) return null
-  const maxOutput = Math.min(limits.output || 0, 32000) || 32000
-  const reserved = Math.min(20000, maxOutput)
+  const maxOutput = Math.min(limits.output || 0, maxOutputTokens) || maxOutputTokens
+  const reserved = Math.min(compactionReserveTokens, maxOutput)
   const usable = limits.input ? Math.max(0, limits.input - reserved) : Math.max(0, context - maxOutput)
   return {
     count,
     context,
-    percent: Math.min(100, Math.round((count / context) * 100)),
+    percent: Math.min(percentScale, Math.round((count / context) * percentScale)),
     untilCompaction: Math.max(0, usable - count),
     cost: (state.sessions[sessionId] as { cost?: number } | undefined)?.cost ?? 0,
   }

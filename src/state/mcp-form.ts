@@ -97,7 +97,7 @@ export function mcpConfigFromForm(form: McpFormState): McpFormResult {
   if (callbackPort === null || (callbackPort !== undefined && callbackPort > 65535)) {
     return { issue: "callbackPortInvalid" }
   }
-  if (form.redirectUri && !validAbsoluteUrl(form.redirectUri)) return { issue: "redirectUriInvalid" }
+  if (form.redirectUri && !mcpRemoteUrlAllowed(form.redirectUri)) return { issue: "redirectUriInvalid" }
   const oauth =
     form.oauthMode === "disabled"
       ? { oauth: false }
@@ -174,13 +174,4 @@ function positiveInteger(value: string) {
   if (!/^\d+$/.test(value.trim())) return null
   const number = Number(value)
   return Number.isSafeInteger(number) && number > 0 ? number : null
-}
-
-function validAbsoluteUrl(value: string) {
-  try {
-    const url = new URL(value)
-    return url.protocol === "http:" || url.protocol === "https:"
-  } catch {
-    return false
-  }
 }

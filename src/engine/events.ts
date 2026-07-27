@@ -5,9 +5,9 @@ import { clearQuestionDraft } from "../state/question-drafts"
 import { errorText } from "./error"
 import { putSession, recordLink, spawnLink, type EngineState, type Notice, type QuestionRequest } from "./store"
 
-type Set = SetStoreFunction<EngineState>
+type SetEngineState = SetStoreFunction<EngineState>
 
-export function reduce(set: Set, event: Event, directory?: string) {
+export function reduce(set: SetEngineState, event: Event, directory?: string) {
   // These events are newer than the generated v1 SDK's Event union.
   const raw = event as { id?: string; type: string; properties: Record<string, unknown> }
   if (raw.type === "question.v2.asked" || raw.type === "question.asked")
@@ -81,28 +81,30 @@ export function reduce(set: Set, event: Event, directory?: string) {
   }
 }
 
-function upsertSession(set: Set, info: Session) {
+function upsertSession(set: SetEngineState, info: Session) {
   putSession(set, info)
 }
 
-function dropSession(set: Set, info: Session) {
+// Full purge of every per-session slice, in response to the engine reporting a deleted session.
+// NOTE: actions.ts forgetSession covers only sessions/transcripts/loaded. See the note there.
+function dropSession(set: SetEngineState, info: Session) {
   set(
-    produce((s) => {
-      delete s.sessions[info.id]
-      delete s.transcripts[info.id]
-      delete s.loaded[info.id]
-      delete s.permissions[info.id]
-      delete s.questions[info.id]
-      delete s.todos[info.id]
-      delete s.status[info.id]
-      delete s.activity[info.id]
-      delete s.errors[info.id]
+    produce((draft) => {
+      delete draft.sessions[info.id]
+      delete draft.transcripts[info.id]
+      delete draft.loaded[info.id]
+      delete draft.permissions[info.id]
+      delete draft.questions[info.id]
+      delete draft.todos[info.id]
+      delete draft.status[info.id]
+      delete draft.activity[info.id]
+      delete draft.errors[info.id]
     }),
   )
 }
 
 function moveSession(
-  set: Set,
+  set: SetEngineState,
   moved: {
     sessionID: string
     projectID?: string
@@ -112,8 +114,8 @@ function moveSession(
   },
 ) {
   set(
-    produce((state) => {
-      const session = state.sessions[moved.sessionID]
+    produce((draft) => {
+      const session = draft.sessions[moved.sessionID]
       if (!session) return
       session.directory = moved.location.directory
       if (moved.projectID) session.projectID = moved.projectID
@@ -122,7 +124,7 @@ function moveSession(
   )
 }
 
-function recordError(set: Set, sessionID?: string, error?: { name: string; data?: unknown }) {
+function recordError(set: SetEngineState, sessionID?: string, error?: { name: string; data?: unknown }) {
   const message = errorText(error)
   if (!sessionID) {
     pushNotice(set, {
@@ -136,27 +138,27 @@ function recordError(set: Set, sessionID?: string, error?: { name: string; data?
     return
   }
   set(
-    produce((s) => {
-      s.status[sessionID] = { type: "idle" }
-      if (s.activity[sessionID]) s.activity[sessionID].current = undefined
+    produce((draft) => {
+      draft.status[sessionID] = { type: "idle" }
+      if (draft.activity[sessionID]) draft.activity[sessionID].current = undefined
       if (error?.name === "MessageAbortedError") return
-      s.errors[sessionID] = message
+      draft.errors[sessionID] = message
     }),
   )
 }
 
-function clearError(set: Set, sessionID: string) {
+function clearError(set: SetEngineState, sessionID: string) {
   set(
-    produce((state) => {
-      delete state.errors[sessionID]
+    produce((draft) => {
+      delete draft.errors[sessionID]
     }),
   )
 }
 
-function upsertMessage(set: Set, info: Message) {
+function upsertMessage(set: SetEngineState, info: Message) {
   set(
-    produce((s) => {
-      const list = s.loaded[info.sessionID] ? s.transcripts[info.sessionID] : undefined
+    produce((draft) => {
+      const list = draft.loaded[info.sessionID] ? draft.transcripts[info.sessionID] : undefined
       if (!list) return
       const index = list.findIndex((entry) => entry.info.id === info.id)
       if (index >= 0) list[index].info = info
@@ -165,23 +167,23 @@ function upsertMessage(set: Set, info: Message) {
   )
 }
 
-function dropMessage(set: Set, sessionID: string, messageID: string) {
+function dropMessage(set: SetEngineState, sessionID: string, messageID: string) {
   set(
-    produce((s) => {
-      const list = s.transcripts[sessionID]
-      if (list) s.transcripts[sessionID] = list.filter((entry) => entry.info.id !== messageID)
+    produce((draft) => {
+      const list = draft.transcripts[sessionID]
+      if (list) draft.transcripts[sessionID] = list.filter((entry) => entry.info.id !== messageID)
     }),
   )
 }
 
-function upsertPart(set: Set, part: Part) {
+function upsertPart(set: SetEngineState, part: Part) {
   const link = spawnLink(part)
   if (link) recordLink(link)
   set(
-    produce((s) => {
-      if (link) s.links[link.child] = link.parent
-      if (part.type === "tool") trackActivity(s, part)
-      const entry = s.transcripts[part.sessionID]?.find((item) => item.info.id === part.messageID)
+    produce((draft) => {
+      if (link) draft.links[link.child] = link.parent
+      if (part.type === "tool") trackActivity(draft, part)
+      const entry = draft.transcripts[part.sessionID]?.find((item) => item.info.id === part.messageID)
       if (!entry) return
       const index = entry.parts.findIndex((existing) => existing.id === part.id)
       if (index >= 0) entry.parts[index] = part
@@ -191,12 +193,12 @@ function upsertPart(set: Set, part: Part) {
 }
 
 function appendPartDelta(
-  set: Set,
+  set: SetEngineState,
   ref: { sessionID: string; messageID: string; partID: string; field: string; delta: string },
 ) {
   set(
-    produce((s) => {
-      const entry = s.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
+    produce((draft) => {
+      const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
       const part = entry?.parts.find((item) => item.id === ref.partID)
       if (!part) return
       const record = part as unknown as Record<string, unknown>
@@ -206,51 +208,51 @@ function appendPartDelta(
   )
 }
 
-function trackActivity(s: EngineState, part: Part & { type: "tool" }) {
-  const entry = s.activity[part.sessionID] ?? { tools: 0, lastPartId: "" }
+function trackActivity(draft: EngineState, part: Part & { type: "tool" }) {
+  const entry = draft.activity[part.sessionID] ?? { tools: 0, lastPartId: "" }
   if (entry.lastPartId !== part.id) {
     entry.tools += 1
     entry.lastPartId = part.id
   }
   entry.current = part.state.status === "completed" || part.state.status === "error" ? undefined : part.tool
-  s.activity[part.sessionID] = entry
+  draft.activity[part.sessionID] = entry
 }
 
-function dropPart(set: Set, ref: { sessionID: string; messageID: string; partID: string }) {
+function dropPart(set: SetEngineState, ref: { sessionID: string; messageID: string; partID: string }) {
   set(
-    produce((s) => {
-      const entry = s.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
+    produce((draft) => {
+      const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
       if (entry) entry.parts = entry.parts.filter((part) => part.id !== ref.partID)
     }),
   )
 }
 
-function addQuestion(set: Set, question: QuestionRequest) {
+function addQuestion(set: SetEngineState, question: QuestionRequest) {
   set(
-    produce((s) => {
-      const list = s.questions[question.sessionID] ?? []
+    produce((draft) => {
+      const list = draft.questions[question.sessionID] ?? []
       if (!list.some((existing) => existing.id === question.id)) list.push(question)
-      s.questions[question.sessionID] = list
+      draft.questions[question.sessionID] = list
     }),
   )
 }
 
-function dropQuestion(set: Set, sessionID: string, requestID: string) {
+function dropQuestion(set: SetEngineState, sessionID: string, requestID: string) {
   clearQuestionDraft(requestID)
   set(
-    produce((s) => {
-      const list = s.questions[sessionID]
-      if (list) s.questions[sessionID] = list.filter((question) => question.id !== requestID)
+    produce((draft) => {
+      const list = draft.questions[sessionID]
+      if (list) draft.questions[sessionID] = list.filter((question) => question.id !== requestID)
     }),
   )
 }
 
-function addPermission(set: Set, permission: Permission) {
+function addPermission(set: SetEngineState, permission: Permission) {
   set(
-    produce((s) => {
-      const list = s.permissions[permission.sessionID] ?? []
+    produce((draft) => {
+      const list = draft.permissions[permission.sessionID] ?? []
       if (!list.some((existing) => existing.id === permission.id)) list.push(permission)
-      s.permissions[permission.sessionID] = list
+      draft.permissions[permission.sessionID] = list
     }),
   )
 }
@@ -274,11 +276,11 @@ function permissionFromEvent(properties: Record<string, unknown>, directory?: st
   }
 }
 
-function dropPermission(set: Set, sessionID: string, permissionID: string) {
+function dropPermission(set: SetEngineState, sessionID: string, permissionID: string) {
   set(
-    produce((s) => {
-      const list = s.permissions[sessionID]
-      if (list) s.permissions[sessionID] = list.filter((permission) => permission.id !== permissionID)
+    produce((draft) => {
+      const list = draft.permissions[sessionID]
+      if (list) draft.permissions[sessionID] = list.filter((permission) => permission.id !== permissionID)
     }),
   )
 }
@@ -289,11 +291,11 @@ function noticeVariant(value: unknown): Notice["variant"] {
   return value === "success" || value === "warning" || value === "error" ? value : "info"
 }
 
-export function pushNotice(set: Set, notice: Notice) {
+export function pushNotice(set: SetEngineState, notice: Notice) {
   set(
-    produce((state) => {
-      state.notices = [
-        ...state.notices.filter(
+    produce((draft) => {
+      draft.notices = [
+        ...draft.notices.filter(
           (item) =>
             item.id !== notice.id &&
             (item.title !== notice.title || item.message !== notice.message || item.variant !== notice.variant),

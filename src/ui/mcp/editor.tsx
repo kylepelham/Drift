@@ -13,7 +13,7 @@ import { t } from "../../state/i18n"
 import type { McpConfig, StoredMcpServer } from "../../state/store"
 import { IconPlus, IconX } from "../icons"
 import { activateModal, closeOnBackdropPointerDown } from "../modal"
-import { Toggle } from "../model-manager"
+import { Toggle } from "../controls"
 
 export function McpEditor(props: {
   server?: StoredMcpServer

@@ -13,6 +13,37 @@ const MAX_CONFIG_BYTES: usize = 65_536;
 const SENTINEL_FILE: &str = "mcp-fail-closed.json";
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
+/// Files written under the runtime root. Each is referenced from more than one place, so they are
+/// named here rather than repeated as literals.
+const POLICY_FILE: &str = "mcp-approvals.json";
+const CONFIG_FILE: &str = "opencode.json";
+const CATALOG_FILE: &str = "prompt-catalog.json";
+const PROMPT_OVERRIDES_FILE: &str = "prompt-overrides.json";
+const PENDING_DIR: &str = "pending";
+
+/// Server fingerprints are `sha256:` followed by a hex-encoded digest.
+const FINGERPRINT_PREFIX: &str = "sha256:";
+const FINGERPRINT_HEX_LEN: usize = 64;
+const FINGERPRINT_LEN: usize = FINGERPRINT_PREFIX.len() + FINGERPRINT_HEX_LEN;
+
+/// Ceilings on untrusted input. These bound what the frontend and on-disk config can push through
+/// before it reaches the engine; they are not protocol limits. Several share the value 128 by
+/// coincidence rather than by meaning, so each is named separately.
+const MAX_PROMPT_OVERRIDES: usize = 128;
+const MAX_PROMPT_OVERRIDE_BYTES: usize = 262_144;
+const MAX_SERVER_NAME_CHARS: usize = 128;
+const MAX_AGENT_NAME_CHARS: usize = 128;
+const MAX_COMMAND_ARGS: usize = 128;
+const MAX_STRING_MAP_ENTRIES: usize = 128;
+const MAX_REPORT_BYTES: usize = 1_048_576;
+const MAX_PATH_CHARS: usize = 4_096;
+const MAX_STRING_MAP_KEY_CHARS: usize = 256;
+const MAX_STRING_MAP_VALUE_CHARS: usize = 16_384;
+const MAX_OAUTH_FIELD_CHARS: usize = 16_384;
+/// Numbers in the MCP config round trip through JSON and JavaScript, so anything larger than the
+/// f64 safe-integer range would come back altered.
+const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
 pub struct McpRuntime {
     root: PathBuf,
     extensions: PathBuf,
@@ -85,7 +116,7 @@ impl McpRuntime {
     }
 
     fn materialize_inner(&self, store: &Store, reset_approvals: bool) -> Result<(), String> {
-        std::fs::create_dir_all(self.root.join("pending")).map_err(|error| error.to_string())?;
+        std::fs::create_dir_all(self.root.join(PENDING_DIR)).map_err(|error| error.to_string())?;
         let state = store.mcp_state().map_err(|error| error.to_string())?;
         if reset_approvals {
             self.write_policy(state.generation, &[])?;
@@ -104,15 +135,15 @@ impl McpRuntime {
         plugins.push(json!([
             self.plugin_path("prompt-overrides")?,
             {
-                "catalogPath": self.extensions.join("prompt-catalog.json").to_string_lossy(),
-                "settingsPath": self.root.join("prompt-overrides.json").to_string_lossy()
+                "catalogPath": self.extensions.join(CATALOG_FILE).to_string_lossy(),
+                "settingsPath": self.root.join(PROMPT_OVERRIDES_FILE).to_string_lossy()
             }
         ]));
         plugins.push(json!([
             self.plugin_path("mcp-approval")?,
             {
-                "policyPath": self.root.join("mcp-approvals.json").to_string_lossy(),
-                "pendingDirectory": self.root.join("pending").to_string_lossy(),
+                "policyPath": self.root.join(POLICY_FILE).to_string_lossy(),
+                "pendingDirectory": self.root.join(PENDING_DIR).to_string_lossy(),
                 "sentinelPath": self.root.join(SENTINEL_FILE).to_string_lossy(),
                 "generation": state.generation
             }
@@ -139,7 +170,7 @@ impl McpRuntime {
             })
             .collect::<Map<String, Value>>();
         write_json(
-            &self.root.join("prompt-overrides.json"),
+            &self.root.join(PROMPT_OVERRIDES_FILE),
             &json!({ "version": 1, "families": families }),
         )?;
         let agents = root.entry("agent").or_insert_with(|| json!({}));
@@ -151,7 +182,7 @@ impl McpRuntime {
                 agents.insert(name.to_string(), item.value.clone());
             }
         }
-        write_json(&self.root.join("opencode.json"), &config)?;
+        write_json(&self.root.join(CONFIG_FILE), &config)?;
         if reset_approvals {
             self.write_policy(state.generation, &state.decisions)?;
             store
@@ -163,7 +194,7 @@ impl McpRuntime {
     }
 
     pub fn prompt_snapshot(&self, store: &Store) -> Result<PromptSnapshot, String> {
-        let catalog = std::fs::read(self.extensions.join("prompt-catalog.json"))
+        let catalog = std::fs::read(self.extensions.join(CATALOG_FILE))
             .map_err(|error| error.to_string())?;
         Ok(PromptSnapshot {
             catalog: serde_json::from_slice(&catalog).map_err(|error| error.to_string())?,
@@ -192,8 +223,10 @@ impl McpRuntime {
             .prompt_overrides()
             .map_err(|error| error.to_string())?;
         let previous = overrides.iter().find(|item| item.key == key).cloned();
-        if previous.is_none() && overrides.len() >= 128 {
-            return Err("Drift supports at most 128 prompt overrides".into());
+        if previous.is_none() && overrides.len() >= MAX_PROMPT_OVERRIDES {
+            return Err(format!(
+                "Drift supports at most {MAX_PROMPT_OVERRIDES} prompt overrides"
+            ));
         }
         store
             .save_prompt_override(key, &value, original.as_ref())
@@ -431,6 +464,20 @@ impl McpRuntime {
         Ok(state)
     }
 
+    /// Applies an MCP mutation under a fail-closed protocol.
+    ///
+    /// The invariant is that no MCP server may ever run without a matching approval on disk. That
+    /// forces a specific order:
+    ///
+    /// 1. Write an empty policy at the next generation. Until the mutation completes, any engine
+    ///    that reads the policy sees "nothing is approved" rather than the stale previous set.
+    /// 2. Invalidate the cached reports, then stop the running clients, so nothing keeps using
+    ///    approvals granted under the old policy.
+    /// 3. Apply the caller's mutation and re-materialize the real policy.
+    ///
+    /// Every failure path either restores a consistent state or, if even the restore fails, calls
+    /// `force_closed` to leave a sentinel that blocks MCP entirely until a human intervenes.
+    /// Failing loudly and closed is preferred over silently running with an unknown policy.
     fn change<F, M>(
         &self,
         store: &Store,
@@ -460,6 +507,8 @@ impl McpRuntime {
         if let Err(error) = mutate(store) {
             return self.restore_files(store, error, &stop);
         }
+        // The mutation is committed to the database but the policy files do not reflect it. Roll
+        // the database back to `previous` and rewrite the policy from that, so the two agree again.
         if let Err(error) = self.materialize(store) {
             let rollback = match store.restore_mcp_state(&previous) {
                 Ok(generation) => generation,
@@ -483,6 +532,9 @@ impl McpRuntime {
         Ok(())
     }
 
+    /// Rewrites the policy files from whatever is currently in the database, then reports the
+    /// original failure. Used when the database was never changed, so the database is already the
+    /// source of truth and only the files need to catch up.
     fn restore_files<F>(&self, store: &Store, error: String, stop: &F) -> Result<(), String>
     where
         F: Fn() -> Result<(), String>,
@@ -496,6 +548,12 @@ impl McpRuntime {
         }
     }
 
+    /// Last resort when recovery itself failed and the on-disk state can no longer be trusted.
+    ///
+    /// Writes a sentinel that blocks MCP on the next start, blanks the policy to generation -1 so
+    /// nothing matches it, drops the cached reports and stops the running clients. Every step is
+    /// attempted even if an earlier one fails, and the collected failures are reported so the user
+    /// can see exactly how much of the shutdown succeeded. Always returns Err.
     fn force_closed<F>(&self, stop: &F, error: String) -> Result<(), String>
     where
         F: Fn() -> Result<(), String>,
@@ -505,7 +563,7 @@ impl McpRuntime {
             &json!({ "version": 1, "failClosed": true }),
         );
         let policy = write_json(
-            &self.root.join("mcp-approvals.json"),
+            &self.root.join(POLICY_FILE),
             &json!({ "version": 0, "generation": -1, "decisions": [] }),
         );
         let reports = self.clear_reports();
@@ -544,7 +602,7 @@ impl McpRuntime {
         decisions: &[crate::store::McpDecision],
     ) -> Result<(), String> {
         write_json(
-            &self.root.join("mcp-approvals.json"),
+            &self.root.join(POLICY_FILE),
             &json!({
                 "version": POLICY_VERSION,
                 "generation": generation,
@@ -557,7 +615,7 @@ impl McpRuntime {
     }
 
     fn base_config(&self) -> Result<Value, String> {
-        let raw = std::fs::read_to_string(self.extensions.join("opencode.json"))
+        let raw = std::fs::read_to_string(self.extensions.join(CONFIG_FILE))
             .map_err(|error| error.to_string())?;
         serde_json::from_str(&raw).map_err(|error| error.to_string())
     }
@@ -576,14 +634,16 @@ impl McpRuntime {
     }
 
     fn report(&self, directory: &str, generation: i64) -> Result<Option<PendingReport>, String> {
-        let path = report_path(&self.root.join("pending"), directory);
+        let path = report_path(&self.root.join(PENDING_DIR), directory);
         let raw = match std::fs::read_to_string(path) {
             Ok(raw) => raw,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.to_string()),
         };
-        if raw.len() > 1_048_576 {
-            return Err("MCP approval report exceeds 1 MiB".into());
+        if raw.len() > MAX_REPORT_BYTES {
+            return Err(format!(
+                "MCP approval report exceeds {MAX_REPORT_BYTES} bytes"
+            ));
         }
         let report: PendingReport =
             serde_json::from_str(&raw).map_err(|_| "MCP approval report is malformed")?;
@@ -605,7 +665,7 @@ impl McpRuntime {
     }
 
     fn clear_reports(&self) -> Result<(), String> {
-        let entries = match std::fs::read_dir(self.root.join("pending")) {
+        let entries = match std::fs::read_dir(self.root.join(PENDING_DIR)) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(error) => return Err(error.to_string()),
@@ -621,8 +681,10 @@ impl McpRuntime {
 }
 
 fn validate_name(name: &str) -> Result<(), String> {
-    if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
-        return Err("MCP server name must be 1-128 characters without control characters".into());
+    if name.is_empty() || name.len() > MAX_SERVER_NAME_CHARS || name.chars().any(char::is_control) {
+        return Err(format!(
+            "MCP server name must be 1-{MAX_SERVER_NAME_CHARS} characters without control characters"
+        ));
     }
     Ok(())
 }
@@ -648,7 +710,7 @@ fn validate_prompt_key(key: &str) -> Result<(), String> {
     }
     if let Some(agent) = key.strip_prefix("agent:") {
         if !agent.is_empty()
-            && agent.len() <= 128
+            && agent.len() <= MAX_AGENT_NAME_CHARS
             && !agent.chars().any(char::is_control)
             && !["__proto__", "constructor", "prototype"].contains(&agent)
         {
@@ -663,8 +725,10 @@ fn validate_prompt_override(key: &str, value: &Value) -> Result<(), String> {
     let size = serde_json::to_vec(value)
         .map_err(|error| error.to_string())?
         .len();
-    if size > 262_144 {
-        return Err("Prompt override exceeds 256 KiB".into());
+    if size > MAX_PROMPT_OVERRIDE_BYTES {
+        return Err(format!(
+            "Prompt override exceeds {MAX_PROMPT_OVERRIDE_BYTES} bytes"
+        ));
     }
     reject_unsafe_keys(value)?;
     if key.starts_with("family:") && !value.is_string() {
@@ -800,17 +864,17 @@ fn validate_local(config: &Map<String, Value>) -> Result<(), String> {
         .and_then(Value::as_array)
         .filter(|command| !command.is_empty())
         .ok_or("Local MCP command must be a non-empty string array")?;
-    if command.len() > 128
+    if command.len() > MAX_COMMAND_ARGS
         || command
             .iter()
-            .any(|part| part.as_str().is_none_or(|part| part.len() > 4096))
+            .any(|part| part.as_str().is_none_or(|part| part.len() > MAX_PATH_CHARS))
         || command[0]
             .as_str()
             .is_none_or(|part| part.trim().is_empty())
     {
         return Err("Local MCP command contains invalid arguments".into());
     }
-    validate_optional_string(config.get("cwd"), "working directory", 4096)?;
+    validate_optional_string(config.get("cwd"), "working directory", MAX_PATH_CHARS)?;
     validate_string_map(config.get("environment"), "environment")
 }
 
@@ -837,7 +901,7 @@ fn validate_enabled_timeout(config: &Map<String, Value>) -> Result<(), String> {
     if config.get("timeout").is_some_and(|value| {
         value
             .as_u64()
-            .is_none_or(|timeout| timeout == 0 || timeout > 9_007_199_254_740_991)
+            .is_none_or(|timeout| timeout == 0 || timeout > MAX_SAFE_INTEGER)
     }) {
         return Err("MCP timeout must be a positive safe integer".into());
     }
@@ -853,7 +917,7 @@ fn validate_oauth(value: Option<&Value>) -> Result<(), String> {
         .as_object()
         .ok_or("MCP OAuth must be an object or false")?;
     for field in ["clientId", "clientSecret", "scope", "redirectUri"] {
-        validate_optional_string(oauth.get(field), &format!("OAuth {field}"), 16_384)?;
+        validate_optional_string(oauth.get(field), &format!("OAuth {field}"), MAX_OAUTH_FIELD_CHARS)?;
     }
     if oauth.get("callbackPort").is_some_and(|value| {
         value
@@ -879,9 +943,9 @@ fn validate_string_map(value: Option<&Value>, field: &str) -> Result<(), String>
     let object = value
         .as_object()
         .ok_or_else(|| format!("MCP {field} must be a JSON object"))?;
-    if object.len() > 128
+    if object.len() > MAX_STRING_MAP_ENTRIES
         || object.iter().any(|(key, value)| {
-            key.len() > 256 || value.as_str().is_none_or(|value| value.len() > 16_384)
+            key.len() > MAX_STRING_MAP_KEY_CHARS || value.as_str().is_none_or(|value| value.len() > MAX_STRING_MAP_VALUE_CHARS)
         })
     {
         return Err(format!("MCP {field} contains invalid entries"));
@@ -910,13 +974,19 @@ fn reject_unsafe_keys(value: &Value) -> Result<(), String> {
 }
 
 fn valid_fingerprint(value: &str) -> bool {
-    value.len() == 71
-        && value.starts_with("sha256:")
-        && value[7..]
+    value.len() == FINGERPRINT_LEN
+        && value.starts_with(FINGERPRINT_PREFIX)
+        && value[FINGERPRINT_PREFIX.len()..]
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
+/// Canonical key for a workspace directory, used to name its pending-report file.
+///
+/// Windows paths are case-insensitive, so they are lowercased to keep one report per directory.
+/// The fold is deliberately ASCII-only: `to_lowercase` would apply Unicode rules that Windows does
+/// not use for path comparison, so two distinct directories could collapse onto one key. See the
+/// Unicode case in mcp_tests.rs before changing this.
 fn normalize_directory(value: &str) -> String {
     let normalized = value.replace('\\', "/").trim_end_matches('/').to_string();
     if cfg!(windows) {
@@ -994,298 +1064,5 @@ fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn fixture() -> (PathBuf, Store, McpRuntime) {
-        let root = std::env::temp_dir().join(format!(
-            "drift-mcp-runtime-test-{}-{}",
-            std::process::id(),
-            TEMP_ID.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::remove_dir_all(&root).ok();
-        let extensions = root.join("extensions");
-        std::fs::create_dir_all(extensions.join("plugin")).unwrap();
-        std::fs::write(extensions.join("opencode.json"), r#"{"plugin":["auth@1"]}"#).unwrap();
-        std::fs::write(extensions.join("plugin/spawn-thread.ts"), "export {}\n").unwrap();
-        std::fs::write(extensions.join("plugin/mcp-approval.ts"), "export {}\n").unwrap();
-        std::fs::write(extensions.join("plugin/prompt-overrides.ts"), "export {}\n").unwrap();
-        std::fs::write(
-            extensions.join("prompt-catalog.json"),
-            r#"{"version":1,"families":[],"agents":[]}"#,
-        )
-        .unwrap();
-        let store = crate::store::open(&root.join("data")).unwrap();
-        let runtime = McpRuntime::new(&root.join("data"), extensions);
-        (root, store, runtime)
-    }
-
-    #[test]
-    fn validates_the_current_schema_and_preserves_top_level_extensions() {
-        assert!(validate_config(&json!({
-            "type": "local",
-            "command": ["npx", "server"],
-            "cwd": "./tools",
-            "environment": { "TOKEN": "{env:TOKEN}" },
-            "enabled": false,
-            "timeout": 7_200_000,
-            "vendor": { "mode": "fast" }
-        }))
-        .is_ok());
-        assert!(validate_config(&json!({
-            "type": "remote",
-            "url": "https://example.com/mcp",
-            "headers": { "Authorization": "Bearer {env:TOKEN}" },
-            "oauth": { "clientId": "id", "callbackPort": 29418, "vendorOAuth": true }
-        }))
-        .is_ok());
-        assert!(validate_config(&json!({ "type": "local", "command": [] })).is_err());
-        assert!(validate_config(&json!({
-            "type": "remote", "url": "http://192.0.2.10:8765/mcp"
-        }))
-        .is_ok());
-        assert!(
-            validate_config(&json!({ "type": "remote", "url": "http://127.0.0.2:3000" })).is_ok()
-        );
-        assert!(validate_config(&json!({ "type": "remote", "url": "http://[::1]:3000" })).is_ok());
-        assert!(
-            validate_config(&json!({ "type": "remote", "url": "ftp://example.com" })).is_err()
-        );
-        assert!(validate_config(&json!({
-            "type": "remote", "url": "https://example.com", "oauth": { "callbackPort": 65536 }
-        }))
-        .is_err());
-    }
-
-    #[test]
-    fn materialization_replaces_files_without_touching_extensions() {
-        let (root, store, runtime) = fixture();
-        store
-            .save_mcp_server(
-                "docs",
-                None,
-                &json!({ "type": "remote", "url": "https://example.com", "unknown": true }),
-            )
-            .unwrap();
-        runtime.materialize(&store).unwrap();
-        runtime.materialize(&store).unwrap();
-
-        let generated: Value = serde_json::from_str(
-            &std::fs::read_to_string(runtime.config_dir().join("opencode.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(generated["mcp"]["docs"]["unknown"], true);
-        assert_eq!(generated["plugin"][0], "auth@1");
-        assert_eq!(
-            std::fs::read_to_string(root.join("extensions/opencode.json")).unwrap(),
-            r#"{"plugin":["auth@1"]}"#
-        );
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn decisions_require_the_exact_pending_fingerprint_and_generation() {
-        let (root, store, runtime) = fixture();
-        runtime.materialize(&store).unwrap();
-        let directory = "S:/repo";
-        let fingerprint = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        write_json(
-            &report_path(&runtime.root.join("pending"), directory),
-            &json!({
-                "version": 3,
-                "generation": 0,
-                "directory": directory,
-                "servers": [{ "name": "docs", "type": "remote", "fingerprint": fingerprint, "decision": "pending" }]
-            }),
-        )
-        .unwrap();
-
-        assert!(runtime
-            .decide(
-                &store,
-                directory,
-                "other",
-                fingerprint,
-                0,
-                McpDecision::Approved,
-                || Ok(())
-            )
-            .is_err());
-        runtime
-            .decide(
-                &store,
-                directory,
-                "docs",
-                fingerprint,
-                0,
-                McpDecision::Rejected,
-                || Ok(()),
-            )
-            .unwrap();
-        assert_eq!(store.mcp_state().unwrap().decisions[0].decision, "rejected");
-        assert!(runtime
-            .decide(
-                &store,
-                directory,
-                "docs",
-                fingerprint,
-                0,
-                McpDecision::Approved,
-                || Ok(())
-            )
-            .is_err());
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn invalid_observations_are_visible_but_cannot_be_decided() {
-        let (root, store, runtime) = fixture();
-        runtime.materialize(&store).unwrap();
-        let directory = "S:/repo";
-        let fingerprint = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        write_json(
-            &report_path(&runtime.root.join("pending"), directory),
-            &json!({
-                "version": 3,
-                "generation": 0,
-                "directory": directory,
-                "servers": [{ "name": "insecure", "type": "remote", "fingerprint": fingerprint, "decision": "invalid" }]
-            }),
-        )
-        .unwrap();
-
-        let snapshot = runtime.snapshot(&store, directory).unwrap();
-        assert_eq!(snapshot.observed.len(), 1);
-        assert_eq!(snapshot.observed[0].decision, McpDecision::Invalid);
-        assert!(runtime
-            .decide(
-                &store,
-                directory,
-                "insecure",
-                fingerprint,
-                0,
-                McpDecision::Approved,
-                || Ok(())
-            )
-            .is_err());
-        assert!(runtime
-            .revoke(&store, directory, "insecure", fingerprint, 0, || Ok(()))
-            .is_err());
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn failed_materialization_restores_registry_content() {
-        let (root, store, runtime) = fixture();
-        let first = json!({ "type": "local", "command": ["first"] });
-        store.save_mcp_server("server", None, &first).unwrap();
-        runtime.materialize(&store).unwrap();
-        let config_path = runtime.config_dir().join("opencode.json");
-        std::fs::remove_file(&config_path).unwrap();
-        std::fs::create_dir(&config_path).unwrap();
-
-        let stops = std::cell::Cell::new(0);
-        assert!(runtime
-            .save(
-                &store,
-                "server",
-                Some("server"),
-                json!({ "type": "local", "command": ["second"] }),
-                1,
-                || {
-                    stops.set(stops.get() + 1);
-                    Ok(())
-                }
-            )
-            .is_err());
-        assert_eq!(store.mcp_state().unwrap().servers[0].config, first);
-        assert_eq!(stops.get(), 2);
-        assert!(runtime.config_dir().join(SENTINEL_FILE).is_file());
-        let policy: Value = serde_json::from_str(
-            &std::fs::read_to_string(runtime.config_dir().join("mcp-approvals.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(policy["version"], 0);
-        assert!(std::fs::read_dir(runtime.config_dir())
-            .unwrap()
-            .all(|entry| !entry
-                .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .ends_with(".tmp")));
-
-        std::fs::remove_dir(&config_path).unwrap();
-        runtime.materialize(&store).unwrap();
-        assert!(!runtime.config_dir().join(SENTINEL_FILE).exists());
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn prompt_changes_preserve_pending_approval_reports() {
-        let (root, store, runtime) = fixture();
-        runtime.materialize(&store).unwrap();
-        let directory = "S:/repo";
-        let report = report_path(&runtime.root.join("pending"), directory);
-        write_json(
-            &report,
-            &json!({ "version": 3, "generation": 0, "directory": directory, "servers": [] }),
-        )
-        .unwrap();
-
-        runtime
-            .save_prompt(
-                &store,
-                "family:gpt",
-                json!("Custom prompt"),
-                Some(json!("Original prompt")),
-            )
-            .unwrap();
-        assert!(report.is_file());
-        let generated: Value = serde_json::from_str(
-            &std::fs::read_to_string(runtime.config_dir().join("prompt-overrides.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(generated["families"]["gpt"], "Custom prompt");
-
-        runtime.reset_prompt(&store, "family:gpt").unwrap();
-        assert!(report.is_file());
-        assert!(store.prompt_overrides().unwrap().is_empty());
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn prompt_validation_matches_agent_configuration_shapes() {
-        let (root, store, runtime) = fixture();
-        runtime
-            .save_prompt(
-                &store,
-                "agent:build",
-                json!({ "permission": "deny", "color": "#a1B2c3", "tools": { "bash": false } }),
-                None,
-            )
-            .unwrap();
-        assert!(runtime
-            .save_prompt(
-                &store,
-                "agent:build",
-                json!({ "permission": { "bash": "sometimes" } }),
-                None,
-            )
-            .is_err());
-        assert!(runtime
-            .save_prompt(&store, "agent:build", json!({ "color": "purple" }), None)
-            .is_err());
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn windows_directory_normalization_is_ascii_only() {
-        let input = r"S:\Ünicode\İ\Repo\";
-        let expected = if cfg!(windows) {
-            "s:/Ünicode/İ/repo"
-        } else {
-            "S:/Ünicode/İ/Repo"
-        };
-        assert_eq!(normalize_directory(input), expected);
-    }
-}
+#[path = "mcp_tests.rs"]
+mod tests;

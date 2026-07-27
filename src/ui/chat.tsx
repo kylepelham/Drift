@@ -13,6 +13,18 @@ import { DriftLogo } from "./logo"
 const estimatedRow = 96
 const overscan = 800
 const loadOlderAt = 1200
+// Within this distance of the bottom the view is considered "at the bottom": it keeps auto-scrolling
+// with new output and hides the jump-to-latest button. scrollGestureSticks and
+// shouldShowScrollToBottom are complementary halves of that decision and must share the threshold.
+const stickyThresholdPx = 80
+// A wheel gesture is treated as still in progress for this long after the last event, so momentum
+// scrolling does not get mistaken for the user settling on a position.
+const gestureWindowMs = 250
+// Wheel events forwarded from a nested scroller stop being redirected once the source goes quiet.
+const forwardedWheelSettleMs = 180
+// Messages younger than this are treated as newly arrived rather than restored history.
+const freshMessageMs = 2000
+const maxRetryMessageChars = 80
 
 export function Chat() {
   const engine = useEngine()
@@ -159,7 +171,7 @@ export function Chat() {
     forwardedTarget = accumulatedWheelTarget(scroller.scrollTop, forwardedTarget, delta, max)
     scroller.scrollTo({ top: forwardedTarget, behavior: "smooth" })
     clearTimeout(forwardedReset)
-    forwardedReset = setTimeout(() => (forwardedTarget = null), 180)
+    forwardedReset = setTimeout(() => (forwardedTarget = null), forwardedWheelSettleMs)
   }
   window.addEventListener("pointerup", releaseDrag)
   window.addEventListener(chatWheelEvent, forwardedWheel)
@@ -174,7 +186,7 @@ export function Chat() {
     const previous = untrack(viewTop)
     setViewTop(top)
     setViewHeight(scroller.clientHeight)
-    if (dragging || Date.now() - gestureAt < 250) {
+    if (dragging || Date.now() - gestureAt < gestureWindowMs) {
       const distance = scroller.scrollHeight - top - scroller.clientHeight
       const nextStick = scrollGestureSticks(previous, top, distance)
       batch(() => {
@@ -314,11 +326,11 @@ export function resizeCompensation(previous: number, next: number, rowBottom: nu
 
 export function scrollGestureSticks(previousTop: number, nextTop: number, distanceFromBottom: number) {
   if (nextTop < previousTop) return false
-  return distanceFromBottom < 80
+  return distanceFromBottom < stickyThresholdPx
 }
 
 export function shouldShowScrollToBottom(distanceFromBottom: number) {
-  return distanceFromBottom >= 80
+  return distanceFromBottom >= stickyThresholdPx
 }
 
 type RevisionPart = {
@@ -437,7 +449,7 @@ function Row(props: {
   retry?: Extract<SessionStatus, { type: "retry" }>
   measure: (element: HTMLDivElement) => void
 }) {
-  const fresh = Date.now() - props.entry.info.time.created < 2000
+  const fresh = Date.now() - props.entry.info.time.created < freshMessageMs
   return (
     <div ref={props.measure} data-mid={props.entry.info.id} class="min-w-0 max-w-full pb-6" classList={{ "fade-up": fresh }}>
       <MessageView entry={props.entry} footer={props.next?.info.role !== "assistant"} />
@@ -474,12 +486,13 @@ function SessionRetry(props: { status: Extract<SessionStatus, { type: "retry" }>
 
 export function retryPresentation(status: Extract<SessionStatus, { type: "retry" }>, now: number) {
   const normalized = status.message.trim() || t("drift.chat.retry.providerRejected")
-  const message = normalized.length > 80 ? normalized.slice(0, 80) + "..." : normalized
+  const truncated = normalized.length > maxRetryMessageChars
+  const message = truncated ? normalized.slice(0, maxRetryMessageChars) + "..." : normalized
   const seconds = Math.max(0, Math.round((status.next - now) / 1000))
   const retry = seconds > 0 ? t("drift.chat.retry.inSeconds", { seconds }) : t("drift.chat.retry.now")
   return {
     message,
-    truncated: normalized.length > 80,
+    truncated,
     info: t("drift.chat.retry.info", { retry, attempt: status.attempt }),
   }
 }

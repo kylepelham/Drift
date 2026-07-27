@@ -10,7 +10,8 @@ import { agentLabel, t } from "../state/i18n"
 import { collapseCompaction, compactionCollapsed } from "../state/prefs"
 import { IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
-import { Chevron, contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
+import { Chevron } from "./controls"
+import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
 
 export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
   onMount(() =>
@@ -203,8 +204,10 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
         <For each={groups()}>
           {(group) => (
             <Switch>
-              <Match when={"explored" in group.value && group.value}>{(g) => <ExploredGroup parts={g().explored} />}</Match>
-              <Match when={"part" in group.value && group.value}>{(g) => <PartView part={g().part} />}</Match>
+              <Match when={"explored" in group.value && group.value}>
+                {(explored) => <ExploredGroup parts={explored().explored} />}
+              </Match>
+              <Match when={"part" in group.value && group.value}>{(single) => <PartView part={single().part} />}</Match>
             </Switch>
           )}
         </For>
@@ -250,8 +253,6 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
     </Show>
   )
 }
-
-export { errorText, unwrapErrorMessage } from "../engine/error"
 
 function formatDuration(ms: number) {
   const seconds = Math.max(1, Math.round(ms / 1000))

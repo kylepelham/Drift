@@ -174,15 +174,14 @@ test("release extensions load without workspace node_modules", async () => {
   }
 })
 
-test("release extension build removes stale raw resources", async () => {
+test("release extension build removes stale raw resources from its output", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "drift-release-extensions-"))
   const output = path.join(root, "generated")
-  const release = path.join(root, "release", "drift-extensions")
   try {
-    mkdirSync(path.join(release, "plugin"), { recursive: true })
-    writeFileSync(path.join(release, "plugin", "spawn-thread.ts"), "stale")
-    await buildExtensions(output, release)
-    expect(await Bun.file(path.join(release, "plugin", "spawn-thread.ts")).exists()).toBe(false)
+    mkdirSync(path.join(output, "plugin"), { recursive: true })
+    writeFileSync(path.join(output, "plugin", "spawn-thread.ts"), "stale")
+    await buildExtensions(output)
+    expect(await Bun.file(path.join(output, "plugin", "spawn-thread.ts")).exists()).toBe(false)
     expect(await Bun.file(path.join(output, "plugin", "spawn-thread.js")).exists()).toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })

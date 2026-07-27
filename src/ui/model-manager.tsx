@@ -3,7 +3,7 @@ import { modelVisible, moveModelProvider, setModelsVisible, setModelVisible } fr
 import { IconX } from "./icons"
 import { dragReorder } from "./drag-reorder"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
-import { Chevron } from "./parts"
+import { Chevron, Toggle, ToggleTrack } from "./controls"
 import type { PickerItem } from "./picker"
 import { t } from "../state/i18n"
 
@@ -186,43 +186,4 @@ export function defaultVisibleModelIds(items: PickerItem[], now = Date.now()) {
   }
   for (const item of latest.values()) visible.add(item.id)
   return visible
-}
-
-export function Toggle(props: { label: string; checked: boolean; disabled?: boolean; onChange: () => void }) {
-  return (
-    <button
-      role="switch"
-      aria-label={props.label}
-      aria-checked={props.checked}
-      disabled={props.disabled}
-      class="shrink-0 disabled:opacity-50"
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => {
-        event.stopPropagation()
-        props.onChange()
-      }}
-    >
-      <ToggleTrack checked={props.checked} />
-    </button>
-  )
-}
-
-function ToggleTrack(props: { checked: boolean }) {
-  return (
-    <span
-      class="relative block h-4 w-7 shrink-0 rounded-full border transition-colors"
-      classList={{
-        "border-accent bg-accent": props.checked,
-        "border-edge-strong bg-raised": !props.checked,
-      }}
-    >
-      <span
-        class="absolute top-0.5 left-0.5 size-2.5 rounded-full transition-[transform,background-color]"
-        classList={{
-          "translate-x-3 bg-accent-ink": props.checked,
-          "bg-ink-muted": !props.checked,
-        }}
-      />
-    </span>
-  )
 }

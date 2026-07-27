@@ -27,12 +27,3 @@ export function resolveAsk(id: string, answers: string[][] | null) {
   clearQuestionDraft(id)
   setLocalAsks(localAsks().filter((ask) => ask.id !== id))
 }
-
-export function clearAsks() {
-  for (const ask of localAsks()) {
-    resolvers.get(ask.id)?.(null)
-    clearQuestionDraft(ask.id)
-  }
-  resolvers.clear()
-  setLocalAsks([])
-}

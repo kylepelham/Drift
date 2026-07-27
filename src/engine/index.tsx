@@ -12,6 +12,13 @@ export type Engine = { state: EngineState; actions: EngineActions; setDirectory:
 
 const EngineContext = createContext<Engine>()
 
+/** Reads the engine version, or null if the engine is unreachable or does not answer with it. */
+function fetchEngineVersion(target: EngineTarget) {
+  return fetch(`${target.url}/global/health`, { headers: target.headers })
+    .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
+    .catch(() => null)
+}
+
 export function useEngine() {
   const engine = useContext(EngineContext)
   if (!engine) throw new Error("useEngine outside EngineProvider")
@@ -35,19 +42,19 @@ export function EngineProvider(props: ParentProps) {
   async function hydrate() {
     const bootDirectory = directory ?? ""
     const api = requireClient()
+    const current = () => client === api && directory === bootDirectory
     try {
       const stale = Object.keys(state.loaded)
       const [sessions, [statuses, providers, agents, commands]] = await Promise.all([
-        api.session.list().then((result) => {
-          putSessions(set, result.data ?? [])
-          return result
-        }),
+        api.session.list(),
         Promise.all([api.session.status(), api.provider.list(), api.app.agents(), api.command.list()]),
       ])
+      if (!current()) return
+      putSessions(set, sessions.data ?? [])
       set(
-        produce((s) => {
+        produce((draft) => {
           const live = statuses.data ?? {}
-          for (const session of sessions.data ?? []) s.status[session.id] = live[session.id] ?? { type: "idle" }
+          for (const session of sessions.data ?? []) draft.status[session.id] = live[session.id] ?? { type: "idle" }
         }),
       )
       set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
@@ -55,25 +62,24 @@ export function EngineProvider(props: ParentProps) {
       set("defaultModels", providers.data?.default ?? {})
       set("agents", agents.data ?? [])
       set("commands", commands.data ?? [])
-      await Promise.all(stale.map(reload))
+      const transcripts = await Promise.all(
+        stale.map(async (id) => [id, await api.session.messages({ path: { id }, query: { limit: 100 } })] as const),
+      )
+      if (!current()) return
+      for (const [id, result] of transcripts) {
+        if (!result.data) continue
+        set("transcripts", id, [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id)))
+        set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
+      }
       if (!state.version && base) {
-        const health = await fetch(`${base.url}/global/health`, { headers: base.headers })
-          .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
-          .catch(() => null)
+        const target = base
+        const health = await fetchEngineVersion(target)
+        if (!current() || base !== target) return
         if (health?.version) set("version", health.version)
       }
     } finally {
       if (client === api && directory === bootDirectory) set("bootstrappedDirectory", bootDirectory)
     }
-  }
-
-  // ponytail: reconnect catch-up reloads the tail page only; deep scrollback refetches on demand
-  async function reload(id: string) {
-    const result = await requireClient().session.messages({ path: { id }, query: { limit: 100 } })
-    if (!result.data) return
-    const entries = [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id))
-    set("transcripts", id, entries)
-    set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
   }
 
   async function pump(target: EngineTarget, signal: AbortSignal) {
@@ -108,9 +114,9 @@ export function EngineProvider(props: ParentProps) {
     if (!base || disposed || pumpAbort) return
     client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory: path })
     set(
-      produce((s) => {
-        s.directory = path
-        s.connection = "connecting"
+      produce((draft) => {
+        draft.directory = path
+        draft.connection = "connecting"
       }),
     )
     if (import.meta.env.DEV) seedBench(set, path)
@@ -119,6 +125,9 @@ export function EngineProvider(props: ParentProps) {
   }
 
   function setDirectory(path: string | null) {
+    // Already on this directory with nothing left to do: either a client exists, or the target is
+    // null and there is nothing to connect to. Without the client check a repeated call before the
+    // first connection completed would be dropped and never start the pump.
     if (path === directory && (client || !path)) return
     const prev = directory
     directory = path
@@ -126,18 +135,21 @@ export function EngineProvider(props: ParentProps) {
     if (!path) {
       stopPump()
       set(
-        produce((s) => {
-          s.directory = ""
-          s.connection = "idle"
+        produce((draft) => {
+          draft.directory = ""
+          draft.connection = "idle"
         }),
       )
       return
     }
+    // With no stream running, or no previous directory, there is nothing to reuse - start fresh.
     if (!pumpAbort || !prev) {
       stopPump()
       startPump(path)
       return
     }
+    // Otherwise the event stream is global and already running, so switching workspaces only means
+    // pointing the client at the new directory. Restarting the stream here would drop events.
     client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory: path })
     set("directory", path)
     if (state.connection === "online") void hydrate().catch(() => undefined)
@@ -146,9 +158,7 @@ export function EngineProvider(props: ParentProps) {
   void resolveEngine()
     .then(async (target) => {
       base = target
-      const health = await fetch(`${target.url}/global/health`, { headers: target.headers })
-        .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
-        .catch(() => null)
+      const health = await fetchEngineVersion(target)
       if (health?.version) set("version", health.version)
       if (directory) startPump(directory)
     })

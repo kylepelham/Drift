@@ -63,7 +63,7 @@ export function parseSlash(draft: string) {
 }
 
 export function slashItems(engine: Engine, query: string): SlashItem[] {
-  const q = query.toLowerCase()
+  const needle = query.toLowerCase()
   const engineItems: SlashItem[] = engine.state.commands.map((command) => ({
     name: command.name,
     description: command.description ?? t("drift.slash.workspaceCommand"),
@@ -71,7 +71,7 @@ export function slashItems(engine: Engine, query: string): SlashItem[] {
   }))
   return [...builtins.map((item) => ({ ...item, description: t(item.description) })), ...engineItems]
     .filter((item) => !item.needsSession || selectedSession())
-    .filter((item) => item.name.toLowerCase().startsWith(q))
+    .filter((item) => item.name.toLowerCase().startsWith(needle))
     .slice(0, 8)
 }
 

@@ -1,7 +1,9 @@
 import { createEffect, onCleanup, onMount, untrack } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
 import { PluginHost } from "./plugins"
+import { shellEvents } from "./shell"
 import { bindCodePreferences } from "./state/code"
+import { runScheduledCleanup } from "./state/storage"
 import { initKeybinds } from "./state/keybinds"
 import { bindLanguage } from "./state/language"
 import { mcpCoordinator } from "./state/mcp"
@@ -76,9 +78,7 @@ export function App() {
 
 function McpBinding() {
   const engine = useEngine()
-  const event = (globalThis as {
-    __TAURI__?: { event?: { listen: (name: string, handler: () => void) => Promise<() => void> } }
-  }).__TAURI__?.event
+  const event = shellEvents()
   const stop = mcpCoordinator.start({
     store: driftStore,
     status: engine.actions.mcpStatus,
@@ -107,6 +107,12 @@ function PluginBinding() {
 }
 
 const dayMs = 24 * 60 * 60 * 1000
+const purgeIntervalMs = 60 * 60 * 1000
+// The active workspace is polled on every tick; every other workspace is polled less often because
+// each sweep may have to boot an engine instance for a directory that is not currently loaded.
+const activePermissionPollMs = 10_000
+const allWorkspacePermissionPollMs = 60_000
+const ticksPerAllWorkspaceSweep = allWorkspacePermissionPollMs / activePermissionPollMs
 
 function WorkspaceBinding() {
   const engine = useEngine()
@@ -122,10 +128,9 @@ function WorkspaceBinding() {
     void engine.actions.refreshPermissions(paths)
     purge()
   })
-  const timer = setInterval(() => purge(), 60 * 60 * 1000)
+  const timer = setInterval(() => purge(), purgeIntervalMs)
   // Global /global/event covers live asks; this recovers asks raised while offline.
-  // Active workspace every 10s; other workspaces every 60s so instance boots stay rare.
-  const permissionTimer = setInterval(() => refreshPermissions(), 10000)
+  const permissionTimer = setInterval(() => refreshPermissions(), activePermissionPollMs)
   onCleanup(() => {
     clearInterval(timer)
     clearInterval(permissionTimer)
@@ -137,7 +142,7 @@ function WorkspaceBinding() {
     const active = activeWorkspace()?.path
     const paths = workspaces().map((workspace) => workspace.path)
     permissionTick += 1
-    if (permissionTick % 6 === 0) {
+    if (permissionTick % ticksPerAllWorkspaceSweep === 0) {
       void engine.actions.refreshPermissions(paths)
       return
     }
@@ -149,5 +154,8 @@ function WorkspaceBinding() {
     lastPurge = Date.now()
     void purgeArchived().then((ids) => ids.forEach((id) => void engine.actions.remove(id)))
     void purgeRemovedWorkspaces().then((paths) => paths.forEach((path) => void engine.actions.removeAllSessions(path)))
+    // Storage cleanup rides the same daily timer and keeps its own last-run stamp, so it stays off
+    // the startup path where a large event log would block the first paint.
+    void runScheduledCleanup().catch(() => undefined)
   }
 }
