@@ -294,7 +294,13 @@ test("release workflow uses immutable action pins and triggering SHA binding", (
 
   expect(actions.length).toBeGreaterThan(0)
   for (const action of actions) expect(action).toMatch(/^[^@]+@[0-9a-f]{40}$/)
-  expect(workflow).toContain('check "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GITHUB_RUN_ID"')
+  // Each job must bind the triggering ref/sha/run using its own shell: bash on ubuntu, pwsh on windows.
+  expect(workflow.slice(workflow.indexOf("  tag-policy:"), workflow.indexOf("  validation:"))).toContain(
+    'check "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GITHUB_RUN_ID"',
+  )
+  expect(workflow.slice(workflow.indexOf("  publish:"))).toContain(
+    'check "$env:GITHUB_REF_NAME" "$env:GITHUB_SHA" "$env:GITHUB_RUN_ID"',
+  )
   expect(workflow).toContain("bun-version: 1.3.14")
   expect(workflow).not.toContain("bun-version: latest")
 })
