@@ -12,11 +12,15 @@ function engineEnvironment(extra: Record<string, string> = {}) {
     "OPENCODE_SERVER_USERNAME",
   ])
     delete env[key]
-  return { ...env, ...extra }
+  // Bootstrap forks a models.dev catalog refresh that lands inside the first test's timeout.
+  return { ...env, OPENCODE_DISABLE_MODELS_FETCH: "1", ...extra }
 }
 
+// Instance bootstrap costs ~20s locally and ~50s on CI runners, so this only guards against hangs.
+const testTimeoutMs = 180_000
+
 async function run(directory: string, args: string[], env?: Record<string, string>) {
-  const child = Bun.spawn([process.execPath, "test", "--timeout", "60000", ...args], {
+  const child = Bun.spawn([process.execPath, "test", "--timeout", String(testTimeoutMs), ...args], {
     cwd: path.join(engineUpstream, directory),
     env: engineEnvironment(env),
     stdin: "inherit",

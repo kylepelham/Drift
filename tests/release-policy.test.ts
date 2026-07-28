@@ -302,7 +302,13 @@ test("release workflow uses immutable action pins and triggering SHA binding", (
 
   expect(actions.length).toBeGreaterThan(0)
   for (const action of actions) expect(action).toMatch(/^[^@]+@[0-9a-f]{40}$/)
-  expect(workflow).toContain('check "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GITHUB_RUN_ID"')
+  // Each job must bind the triggering ref/sha/run using its own shell: bash on ubuntu, pwsh on windows.
+  expect(workflow.slice(workflow.indexOf("  tag-policy:"), workflow.indexOf("  validation:"))).toContain(
+    'check "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GITHUB_RUN_ID"',
+  )
+  expect(workflow.slice(workflow.indexOf("  publish:"))).toContain(
+    'check "$env:GITHUB_REF_NAME" "$env:GITHUB_SHA" "$env:GITHUB_RUN_ID"',
+  )
   expect(workflow).toContain("bun-version: 1.3.14")
   expect(workflow).not.toContain("bun-version: latest")
 })
@@ -323,4 +329,20 @@ test("release workflow serializes tags globally and rechecks full policy immedia
   expect(publish.slice(finalPolicy, publicationStep)).not.toContain("- name:")
   expect(publish).toContain("if: steps.final-policy.outputs.published != 'true'")
   expect(workflow).toContain("release-${{ github.run_id }}-${{ github.run_attempt }}-")
+})
+
+test("release assets are staged flat so publication globs resolve", () => {
+  const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
+  const signing = workflow.slice(workflow.indexOf("  signed-artifacts:"), workflow.indexOf("  publish:"))
+  const publish = workflow.slice(workflow.indexOf("  publish:"))
+
+  // A multi-path upload roots the artifact at the common ancestor, which breaks the publication globs.
+  const upload = signing.slice(signing.indexOf("- name: Upload signed release artifacts"))
+  expect(upload.match(/^\s+path:\s*(.*)$/m)?.[1].trim()).toBe("release-artifacts")
+  expect(signing).toContain('"${{ needs.tag-policy.outputs.commit }}" "release-artifacts"')
+  expect(publish).toContain("path: release-artifacts")
+  expect(publish).toContain("body_path: release-artifacts/release-notes.md")
+  for (const asset of ["release-artifacts/*-setup.exe", "release-artifacts/*.sig", "release-artifacts/latest.json"]) {
+    expect(publish).toContain(asset)
+  }
 })

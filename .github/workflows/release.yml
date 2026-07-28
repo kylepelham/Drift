@@ -156,20 +156,25 @@ jobs:
           RELEASE_NOTES_MODEL: openai/gpt-4.1
         run: bun scripts/release-notes.ts release-notes.md
 
+      # Uploading a single directory keeps the artifact flat; multiple paths root it at their common ancestor.
+      - name: Stage release artifacts
+        shell: pwsh
+        run: |
+          $bundle = "src-tauri/target/release/bundle/nsis"
+          New-Item -ItemType Directory -Path release-artifacts | Out-Null
+          Copy-Item "$bundle/*-setup.exe", "$bundle/*.sig", "$bundle/latest.json" release-artifacts
+          Move-Item release-notes.md release-artifacts
+
       - name: Seal release notes and asset digests
         run: >-
-          bun scripts/release-policy.ts seal release-notes.md "$env:GITHUB_RUN_ID"
-          "${{ needs.tag-policy.outputs.commit }}" "src-tauri/target/release/bundle/nsis"
+          bun scripts/release-policy.ts seal release-artifacts/release-notes.md "$env:GITHUB_RUN_ID"
+          "${{ needs.tag-policy.outputs.commit }}" "release-artifacts"
 
       - name: Upload signed release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.tag-policy.outputs.commit }}
-          path: |
-            src-tauri/target/release/bundle/nsis/*-setup.exe
-            src-tauri/target/release/bundle/nsis/*.sig
-            src-tauri/target/release/bundle/nsis/latest.json
-            release-notes.md
+          path: release-artifacts
           if-no-files-found: error
           retention-days: 1
 
@@ -203,7 +208,7 @@ jobs:
         id: final-policy
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: bun scripts/release-policy.ts check "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GITHUB_RUN_ID"
+        run: bun scripts/release-policy.ts check "$env:GITHUB_REF_NAME" "$env:GITHUB_SHA" "$env:GITHUB_RUN_ID"
 
       - name: Publish stable GitHub release
         if: steps.final-policy.outputs.published != 'true'
