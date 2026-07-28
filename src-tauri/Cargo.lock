@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "drift"
-version = "1.1.0"
+version = "1.2.5"
 dependencies = [
  "getrandom 0.3.4",
  "rfd",

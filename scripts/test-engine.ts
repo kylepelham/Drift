@@ -55,6 +55,7 @@ await withEngineOverlays(async () => {
   await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "Drift requires"])
   await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "mutable synthetic"])
   await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "changed after sealing"])
+  await run("packages/opencode", ["test/provider/provider.test.ts", "-t", "LM Studio discovers"])
   await run("packages/opencode", ["test/server/httpapi-instance-route-auth.test.ts"])
   await run("packages/opencode", ["test/mcp/lifecycle.test.ts", "-t", "required Drift mode"], {
     DRIFT_MCP_APPROVAL_REQUIRED: "1",

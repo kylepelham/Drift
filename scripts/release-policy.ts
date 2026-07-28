@@ -38,6 +38,16 @@ export function compareStableTags(left: string, right: string) {
   return 0
 }
 
+export function developmentTag(tags: string[], exactTag?: string, dirty = true) {
+  if (!dirty && exactTag && stableTagPattern.test(exactTag)) return exactTag
+  const latest = tags.filter((tag) => stableTagPattern.test(tag)).reduce<string | undefined>((current, tag) => {
+    return !current || compareStableTags(tag, current) > 0 ? tag : current
+  }, undefined)
+  if (!latest) throw new Error("Cannot derive development version without a stable tag")
+  const [major, minor, patch] = versionParts(latest)
+  return `v${major}.${minor}.${patch + 1n}`
+}
+
 export function latestStableTag(tags: string[], releases: GitHubRelease[], currentTag: string) {
   const candidates = [
     ...tags,
@@ -228,6 +238,14 @@ export function stampReleaseVersion(tag: string, root = path.resolve(import.meta
   return version
 }
 
+export function stampDevelopmentVersion(root = path.resolve(import.meta.dirname, "..")) {
+  if (process.env.GITHUB_ACTIONS === "true") return undefined
+  const tags = git(["tag", "--list"]).output.split("\n").filter(Boolean)
+  const exactTag = git(["describe", "--tags", "--exact-match", "HEAD"], true).output || undefined
+  const dirty = git(["status", "--porcelain"]).output.length > 0
+  return stampReleaseVersion(developmentTag(tags, exactTag, dirty), root)
+}
+
 export function sealReleaseNotes(notesFile: string, runId: string, commit: string, assetsDirectory: string) {
   const assetFiles = readdirSync(assetsDirectory)
     .filter(isReleaseAsset)
@@ -277,6 +295,10 @@ if (import.meta.main) {
   const [command, ...args] = process.argv.slice(2)
   if (command === "check" && args.length === 3) await checkPolicy(args[0], args[1], args[2])
   else if (command === "stamp" && args.length === 1) console.log(`Stamped release version ${stampReleaseVersion(args[0])}`)
+  else if (command === "stamp-dev" && args.length === 0) {
+    const version = stampDevelopmentVersion()
+    console.log(version ? `Stamped development version ${version}` : "Keeping CI-stamped release version")
+  }
   else if (command === "seal" && args.length === 4) sealReleaseNotes(args[0], args[1], args[2], args[3])
   else throw new Error(`Unknown release policy command: ${command}`)
 }

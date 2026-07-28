@@ -9,6 +9,7 @@ export type PickerItem = {
   id: string
   label: string
   hint?: string
+  detail?: string
   group?: string
   providerID?: string
   family?: string
@@ -43,6 +44,7 @@ export function Picker(props: {
       (item) =>
         item.label.toLowerCase().includes(needle) ||
         item.id.toLowerCase().includes(needle) ||
+        item.detail?.toLowerCase().includes(needle) ||
         item.group?.toLowerCase().includes(needle),
     )
   })
@@ -136,7 +138,12 @@ export function Picker(props: {
                 onMouseEnter={() => setCursor(index())}
                 onClick={() => pick(item.id)}
               >
-                <span class="truncate">{item.label}</span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate">{item.label}</span>
+                  <Show when={item.detail}>
+                    <span class="block truncate text-[0.68rem] text-ink-faint">{item.detail}</span>
+                  </Show>
+                </span>
               </button>
             </>
           )}

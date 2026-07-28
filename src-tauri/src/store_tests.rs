@@ -36,9 +36,13 @@ fn store_roundtrip() {
     assert_eq!(store.workspaces().unwrap().len(), 1);
 
     store.remove_workspace("w1").unwrap();
-    let paths = store.purge_removed_workspaces(now() + 1000).unwrap();
-    assert_eq!(paths, vec!["S:/moved".to_string()]);
+    let expired = store.expired_removed_workspaces(now() + 1000).unwrap();
+    assert_eq!(expired.len(), 1);
+    assert_eq!(expired[0].path, "S:/moved");
+    assert!(store.expired_removed_workspaces(now() - 1000).unwrap().is_empty());
+    store.forget_workspace(&expired[0].id).unwrap();
     assert!(store.workspaces().unwrap().is_empty());
+    assert!(store.removed_workspaces().unwrap().is_empty());
     assert!(
         store
             .add_workspace("w3", "S:/moved", "Fresh", "")
@@ -61,6 +65,90 @@ fn store_roundtrip() {
 }
 
 #[test]
+fn expired_duplicates_of_active_directories_are_collapsed_not_returned() {
+    let dir = std::env::temp_dir().join(format!("drift-dup-test-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("drift.db");
+    let store = open_at(&file).unwrap();
+    store
+        .add_workspace("active", "S:\\proj\\app", "App", "icon")
+        .unwrap();
+    // Seed raw: add_workspace's canonical guard forbids creating a duplicate through the API.
+    let raw = Connection::open(&file).unwrap();
+    raw.execute(
+        "INSERT INTO workspace(id, path, name, icon, last_used, removed_at) VALUES('dup', 'S:/proj/APP', 'App', '', 1, 1)",
+        [],
+    )
+    .unwrap();
+    raw.execute(
+        "INSERT INTO session_meta(session_id, workspace_id, archived_at) VALUES('s-arch', 'dup', 5)",
+        [],
+    )
+    .unwrap();
+    drop(raw);
+
+    // The duplicate must never be offered for session deletion: its directory is on the sidebar.
+    assert!(store.expired_removed_workspaces(now() + 1000).unwrap().is_empty());
+    assert_eq!(store.workspaces().unwrap().len(), 1);
+    assert!(store.removed_workspaces().unwrap().is_empty());
+    let archived = store.archived().unwrap();
+    assert_eq!(archived.len(), 1);
+    assert_eq!(archived[0].workspace_id, "active");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn saving_a_path_onto_another_workspace_merges_the_rows() {
+    let dir = std::env::temp_dir().join(format!("drift-save-merge-test-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = open_at(&dir.join("drift.db")).unwrap();
+    store.add_workspace("a", "S:/one", "One", "icon").unwrap();
+    store.add_workspace("b", "S:/two", "Two", "").unwrap();
+    store.archive_session("s1", "b").unwrap();
+    store.save_workspace("a", "S:\\TWO", "One", "icon").unwrap();
+    let workspaces = store.workspaces().unwrap();
+    assert_eq!(workspaces.len(), 1);
+    assert_eq!(workspaces[0].id, "a");
+    assert_eq!(store.archived().unwrap()[0].workspace_id, "a");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn open_collapses_duplicate_workspace_paths() {
+    let dir = std::env::temp_dir().join(format!("drift-collapse-test-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("drift.db");
+    {
+        let store = open_at(&file).unwrap();
+        store
+            .add_workspace("user", "S:\\proj", "Proj", "icon")
+            .unwrap();
+        let raw = Connection::open(&file).unwrap();
+        raw.execute(
+            "INSERT INTO workspace(id, path, name, icon, last_used) VALUES('imported', 'S:/proj', 'Proj', '', 999)",
+            [],
+        )
+        .unwrap();
+        raw.execute(
+            "INSERT INTO session_meta(session_id, workspace_id, archived_at) VALUES('s1', 'imported', 7)",
+            [],
+        )
+        .unwrap();
+    }
+    let store = open_at(&file).unwrap();
+    let workspaces = store.workspaces().unwrap();
+    assert_eq!(workspaces.len(), 1);
+    assert_eq!(workspaces[0].id, "user");
+    let archived = store.archived().unwrap();
+    assert_eq!(archived.len(), 1);
+    assert_eq!(archived[0].workspace_id, "user");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn imports_opencode_projects_without_overwriting_drift_metadata() {
     let dir = std::env::temp_dir().join(format!("drift-import-test-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
@@ -74,7 +162,8 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
          INSERT INTO project VALUES('p2', '/tmp/project-directories', 'Temporary', 15);
          INSERT INTO project VALUES('p3', '/tmp/manual', 'Manual project', 16);
          INSERT INTO project VALUES('global', '/', 'Global', 20);
-         INSERT INTO session VALUES('s1', 'p1', 30);",
+         INSERT INTO session VALUES('s1', 'p1', 30);
+         INSERT INTO session VALUES('s2', 'p2', 31);",
     )
     .unwrap();
     drop(conn);
@@ -110,6 +199,27 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
             .name,
         "Custom"
     );
+
+    // A slash/case variant of an existing workspace directory must not import as a duplicate,
+    // and a removed workspace must stay removed instead of being resurrected by the import.
+    let variants = dir.join("opencode-variants.db");
+    let conn = Connection::open(&variants).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
+         CREATE TABLE session(id TEXT PRIMARY KEY, project_id TEXT, time_updated INTEGER);
+         INSERT INTO project VALUES('p9', 'S:/ONE', 'Case variant', 40);
+         INSERT INTO session VALUES('s9', 'p9', 41);",
+    )
+    .unwrap();
+    drop(conn);
+    assert_eq!(store.import_opencode_workspaces(&variants).unwrap(), 0);
+    store.remove_workspace("p1").unwrap();
+    assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 0);
+    assert!(store
+        .workspaces()
+        .unwrap()
+        .iter()
+        .all(|workspace| workspace.id != "p1"));
     std::fs::remove_dir_all(&dir).ok();
 }
 

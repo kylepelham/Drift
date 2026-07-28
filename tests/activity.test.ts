@@ -350,9 +350,11 @@ test("provider credentials dispose cached instances and refresh connection state
     expect(state.connected).toEqual(["opencode"])
     expect(await actions.disconnectProvider("opencode")).toEqual({ ok: true, connected: false })
     expect(state.connected).toEqual([])
+    expect(await actions.reloadProviders()).toBe(true)
     expect(requests).toEqual([
       "POST /global/dispose",
       "DELETE /auth/opencode",
+      "POST /global/dispose",
       "POST /global/dispose",
     ])
   } finally {

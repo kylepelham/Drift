@@ -90,10 +90,18 @@ pub(crate) fn store_remove_workspace(store: State<Store>, id: String) -> Result<
 }
 
 #[tauri::command]
-pub(crate) fn store_purge_removed_workspaces(store: State<Store>, before: i64) -> Result<Vec<String>, String> {
+pub(crate) fn store_expired_removed_workspaces(
+    store: State<Store>,
+    before: i64,
+) -> Result<Vec<Workspace>, String> {
     store
-        .purge_removed_workspaces(before)
+        .expired_removed_workspaces(before)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn store_forget_workspace(store: State<Store>, id: String) -> Result<(), String> {
+    store.forget_workspace(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

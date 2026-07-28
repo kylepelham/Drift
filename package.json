@@ -1,6 +1,6 @@
 {
   "name": "drift",
-  "version": "1.1.0",
+  "version": "1.2.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,10 +10,10 @@
     "build:tauri": "bun run build",
     "build:engine": "bun scripts/build-engine.ts",
     "build:extensions": "bun scripts/build-extensions.ts",
-    "build:native": "tauri build --no-bundle",
+    "build:native": "bun scripts/release-policy.ts stamp-dev && tauri build --no-bundle",
     "db:audit": "bun scripts/db-maintenance.ts --audit",
     "db:prune": "bun scripts/db-maintenance.ts --prune",
-    "package": "tauri build",
+    "package": "bun scripts/release-policy.ts stamp-dev && tauri build",
     "test": "bun test tests",
     "test:release-policy": "bun test tests/release-policy.test.ts",
     "test:engine": "bun scripts/test-engine.ts",

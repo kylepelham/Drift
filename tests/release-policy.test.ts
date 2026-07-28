@@ -6,6 +6,7 @@ import path from "node:path"
 import {
   assertVersionIsNewer,
   compareStableTags,
+  developmentTag,
   latestStableTag,
   releaseAssetsMarker,
   releaseRunMarker,
@@ -32,6 +33,13 @@ test("stable tags have exactly one v and three numeric components", () => {
     "v1.2.3+build.1",
     "v1.2.3.4",
   ]) expect(() => versionFromTag(tag)).toThrow("must match vMAJOR.MINOR.PATCH exactly")
+})
+
+test("development builds use an exact clean tag or the next patch", () => {
+  expect(developmentTag(["v1.1.0", "v1.2.4"], "v1.2.4", false)).toBe("v1.2.4")
+  expect(developmentTag(["v1.1.0", "v1.2.4"], "v1.2.4", true)).toBe("v1.2.5")
+  expect(developmentTag(["v1.2.4", "v1.3.0-beta.1"])).toBe("v1.2.5")
+  expect(() => developmentTag(["v1.3.0-beta.1"])).toThrow("without a stable tag")
 })
 
 test("stable versions compare numerically", () => {

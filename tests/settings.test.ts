@@ -32,6 +32,20 @@ test("settings expose the OpenCode language and sound catalogs", async () => {
   expect(new Set(soundOptions.map((item) => item.id)).size).toBe(45)
 })
 
+test("LM Studio readiness uses the loaded context required by the coding agent", async () => {
+  const { formatModelContext, lmStudioMinimumContext, lmStudioModelReady } = await import("../src/state/lm-studio")
+  const model = {
+    capabilities: { toolcall: true },
+    limit: { context: 4096 },
+  }
+  expect(lmStudioMinimumContext).toBe(32768)
+  expect(formatModelContext(4096)).toBe("4K")
+  expect(formatModelContext(32768)).toBe("32K")
+  expect(lmStudioModelReady(model as never)).toBe(false)
+  expect(lmStudioModelReady({ ...model, limit: { context: 32768 } } as never)).toBe(true)
+  expect(lmStudioModelReady({ ...model, capabilities: { toolcall: false }, limit: { context: 65536 } } as never)).toBe(false)
+})
+
 test("selected language dictionaries translate settings without loading every locale", async () => {
   const { loadDictionary, reasoningLevelLabel, t } = await import("../src/state/i18n")
   await loadDictionary("es")
@@ -81,6 +95,18 @@ test("agent overrides retain only values changed from upstream", async () => {
  * needs it.
  */
 const pendingTranslation = new Set([
+  "drift.lmStudio.apiToken",
+  "drift.lmStudio.contextTooSmall",
+  "drift.lmStudio.description",
+  "drift.lmStudio.discovered",
+  "drift.lmStudio.modelReady",
+  "drift.lmStudio.noReady",
+  "drift.lmStudio.notLoaded",
+  "drift.lmStudio.ready",
+  "drift.lmStudio.refresh",
+  "drift.lmStudio.refreshed",
+  "drift.lmStudio.refreshFailed",
+  "drift.lmStudio.unavailable",
   "drift.storage",
   "drift.storage.actions",
   "drift.storage.analyze",

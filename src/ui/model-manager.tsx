@@ -128,7 +128,12 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
                             class="flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-2 text-left hover:bg-raised/60"
                             onClick={() => setModelVisible(item.id, !enabled(item))}
                           >
-                            <span class="min-w-0 truncate text-sm text-ink">{item.label}</span>
+                            <span class="min-w-0 flex-1">
+                              <span class="block truncate text-sm text-ink">{item.label}</span>
+                              <Show when={item.detail}>
+                                <span class="block truncate text-[0.68rem] text-ink-faint">{item.detail}</span>
+                              </Show>
+                            </span>
                             <ToggleTrack checked={enabled(item)} />
                           </button>
                         )}

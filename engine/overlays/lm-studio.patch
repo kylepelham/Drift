@@ -1,0 +1,221 @@
+diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
+index a0ab5eb3..ab777110 100644
+--- a/packages/opencode/src/provider/provider.ts
++++ b/packages/opencode/src/provider/provider.ts
+@@ -141,6 +141,7 @@ type CustomLoader = (provider: Info) => Effect.Effect<{
+   getModel?: CustomModelLoader
+   vars?: CustomVarsLoader
+   options?: Record<string, any>
++  models?: Record<string, Model>
+   discoverModels?: CustomDiscoverModels
+ }>
+ 
+@@ -151,6 +152,89 @@ type CustomDep = {
+   get: (key: string) => Effect.Effect<string | undefined>
+ }
+ 
++const LM_STUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
++
++function positiveInteger(input: unknown) {
++  if (typeof input !== "number" || !Number.isInteger(input) || input <= 0) return
++  return input
++}
++
++function lmStudioBaseURL(input: unknown) {
++  if (typeof input !== "string" || input.trim() === "") return LM_STUDIO_BASE_URL
++  try {
++    const url = new URL(input)
++    const pathname = url.pathname.replace(/\/+$/, "")
++    url.pathname = pathname.endsWith("/v1") ? pathname : `${pathname}/v1`
++    return url.toString().replace(/\/$/, "")
++  } catch {
++    return LM_STUDIO_BASE_URL
++  }
++}
++
++function lmStudioDiscoveryURL(baseURL: string) {
++  const url = new URL(baseURL)
++  url.pathname = "/api/v1/models"
++  url.search = ""
++  url.hash = ""
++  return url.toString()
++}
++
++function lmStudioModels(input: unknown, provider: Info, baseURL: string) {
++  if (!isRecord(input) || !Array.isArray(input.models)) return
++  const models: Record<string, Model> = {}
++
++  for (const item of input.models) {
++    if (!isRecord(item) || item.type !== "llm" || typeof item.key !== "string") continue
++    const maximumContext = positiveInteger(item.max_context_length)
++    const capabilities = isRecord(item.capabilities) ? item.capabilities : {}
++    const loaded = Array.isArray(item.loaded_instances)
++      ? item.loaded_instances.filter((instance) => isRecord(instance))
++      : []
++    const instances = loaded.length > 0 ? loaded : [{ id: item.key }]
++
++    for (const instance of instances) {
++      const modelID = typeof instance.id === "string" ? instance.id : item.key
++      const config = isRecord(instance.config) ? instance.config : {}
++      const context = positiveInteger(config.context_length) ?? maximumContext
++      if (!context) continue
++      const catalog = provider.models[modelID] ?? provider.models[item.key]
++      const isLoaded = loaded.length > 0
++      const output = Math.max(256, Math.min(catalog?.limit.output ?? 8192, Math.floor(context / 4)))
++      const vision = capabilities.vision === true
++
++      models[modelID] = {
++        id: ModelV2.ID.make(modelID),
++        providerID: ProviderV2.ID.make(provider.id),
++        api: {
++          id: modelID,
++          npm: "@ai-sdk/openai-compatible",
++          url: baseURL,
++        },
++        name: typeof item.display_name === "string" ? item.display_name : (catalog?.name ?? modelID),
++        family: typeof item.architecture === "string" ? item.architecture : (catalog?.family ?? ""),
++        capabilities: {
++          temperature: true,
++          reasoning: capabilities.reasoning === true,
++          attachment: vision,
++          toolcall: isLoaded && capabilities.trained_for_tool_use === true,
++          input: { text: true, audio: false, image: vision, video: false, pdf: false },
++          output: { text: true, audio: false, image: false, video: false, pdf: false },
++          interleaved: false,
++        },
++        cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
++        limit: { context, output },
++        status: "active",
++        options: {},
++        headers: {},
++        release_date: catalog?.release_date ?? "",
++        variants: {},
++      }
++    }
++  }
++
++  return models
++}
++
+ function selectAzureLanguageModel(sdk: any, modelID: string, useChat: boolean) {
+   if (useChat && sdk.chat) return sdk.chat(modelID)
+   if (sdk.responses) return sdk.responses(modelID)
+@@ -167,6 +251,37 @@ function selectBedrockMantleLanguageModel(sdk: BundledSDK, modelID: string) {
+ 
+ function custom(dep: CustomDep): Record<string, CustomLoader> {
+   return {
++    lmstudio: Effect.fnUntraced(function* (input: Info) {
++      const env = yield* dep.env()
++      const stored = yield* dep.auth(input.id)
++      const baseURL = lmStudioBaseURL(
++        input.options.baseURL ?? env["LMSTUDIO_BASE_URL"] ?? input.models[Object.keys(input.models)[0]]?.api.url,
++      )
++      const apiKey =
++        (typeof input.options.apiKey === "string" ? input.options.apiKey : undefined) ??
++        (stored?.type === "api" ? stored.key : undefined) ??
++        env["LMSTUDIO_API_KEY"]
++      const models = yield* Effect.promise(async () => {
++        try {
++          const response = await fetch(lmStudioDiscoveryURL(baseURL), {
++            headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
++            signal: AbortSignal.timeout(2_000),
++          })
++          if (!response.ok) return
++          const body = await response.text()
++          if (body.length > 2_000_000) return
++          return lmStudioModels(JSON.parse(body), input, baseURL)
++        } catch {
++          return
++        }
++      })
++      if (!models || Object.keys(models).length === 0) return { autoload: false, models: {} }
++      return {
++        autoload: true,
++        models,
++        options: { baseURL, apiKey: apiKey ?? "lm-studio" },
++      }
++    }),
+     anthropic: () =>
+       Effect.succeed({
+         autoload: false,
+@@ -1573,6 +1688,10 @@ const layer = Layer.effect(
+             if (result.getModel) modelLoaders[providerID] = result.getModel
+             if (result.vars) varsLoaders[providerID] = result.vars
+             if (result.discoverModels) discoveryLoaders[providerID] = result.discoverModels
++            if (result.models !== undefined) {
++              data.models = result.models
++              if (providers[providerID]) providers[providerID].models = result.models
++            }
+             const opts = result.options ?? {}
+             const patch: Partial<Info> = providers[providerID] ? { options: opts } : { source: "custom", options: opts }
+             mergeProvider(providerID, patch)
+diff --git a/packages/opencode/test/provider/provider.test.ts b/packages/opencode/test/provider/provider.test.ts
+index 058bad23..36d10eb3 100644
+--- a/packages/opencode/test/provider/provider.test.ts
++++ b/packages/opencode/test/provider/provider.test.ts
+@@ -109,6 +109,65 @@ const alphaProviderConfig = {
+   },
+ }
+ 
++it.instance("LM Studio discovers local models and their loaded context without a credential", () =>
++  Effect.gen(function* () {
++    const server = yield* Effect.acquireRelease(
++      Effect.sync(() =>
++        Bun.serve({
++          hostname: "127.0.0.1",
++          port: 0,
++          fetch(request) {
++            if (new URL(request.url).pathname !== "/api/v1/models") return new Response(null, { status: 404 })
++            return Response.json({
++              models: [
++                {
++                  type: "llm",
++                  key: "local/qwen",
++                  display_name: "Local Qwen",
++                  architecture: "qwen35",
++                  max_context_length: 262144,
++                  capabilities: { vision: true, trained_for_tool_use: true },
++                  loaded_instances: [{ id: "local-qwen-loaded", config: { context_length: 4096 } }],
++                },
++                {
++                  type: "llm",
++                  key: "local/unloaded",
++                  display_name: "Unloaded Model",
++                  architecture: "qwen35",
++                  max_context_length: 65536,
++                  capabilities: { trained_for_tool_use: true },
++                  loaded_instances: [],
++                },
++                { type: "embedding", key: "local/embed", max_context_length: 2048, loaded_instances: [] },
++              ],
++            })
++          },
++        }),
++      ),
++      (server) => Effect.promise(() => server.stop(true)),
++    )
++    yield* remove("LMSTUDIO_API_KEY")
++    yield* set("LMSTUDIO_BASE_URL", `http://127.0.0.1:${server.port}`)
++
++    const providers = yield* list
++    const lmstudio = providers[ProviderV2.ID.make("lmstudio")]
++    expect(lmstudio.source).toBe("custom")
++    expect(lmstudio.options).toEqual({
++      baseURL: `http://127.0.0.1:${server.port}/v1`,
++      apiKey: "lm-studio",
++    })
++    expect(Object.keys(lmstudio.models).sort()).toEqual(["local-qwen-loaded", "local/unloaded"])
++    expect(lmstudio.models["local-qwen-loaded"].limit).toEqual({ context: 4096, output: 1024 })
++    expect(lmstudio.models["local-qwen-loaded"].capabilities).toMatchObject({
++      attachment: true,
++      toolcall: true,
++      input: { image: true },
++    })
++    expect(lmstudio.models["local/unloaded"].limit.context).toBe(65536)
++    expect(lmstudio.models["local/unloaded"].capabilities.toolcall).toBe(false)
++  }),
++)
++
+ it.instance("provider loaded from env variable", () =>
+   Effect.gen(function* () {
+     yield* setProcessEnv("ANTHROPIC_API_KEY", "test-api-key")

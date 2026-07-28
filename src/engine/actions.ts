@@ -160,10 +160,27 @@ export function createActions(
     }
   }
 
-  async function removeAllSessions(directory: string) {
-    const result = await requireClient().session.list({ query: { directory } })
-    for (const session of result.data ?? []) {
-      await requireClient().session.delete({ path: { id: session.id }, query: { directory } })
+  // Drains in passes because the engine caps each listing at 100. False means the directory
+  // wasn't fully drained, so callers keep their bookkeeping and retry on a later purge.
+  // `eligible` is re-checked every pass so a workspace restored mid-drain stops the sweep.
+  async function removeAllSessions(directory: string, eligible: () => boolean = () => true): Promise<boolean> {
+    const attempted = new Set<string>()
+    for (;;) {
+      if (!eligible()) return false
+      const result = await requireClient()
+        .session.list({ query: { directory } })
+        .catch(() => null)
+      if (!result || result.error !== undefined) return false
+      const sessions = result.data ?? []
+      if (!sessions.length) return true
+      // Every remaining session already survived a delete attempt: the drain is stuck.
+      if (sessions.every((session) => attempted.has(session.id))) return false
+      for (const session of sessions) {
+        attempted.add(session.id)
+        await requireClient()
+          .session.delete({ path: { id: session.id }, query: { directory } })
+          .catch(() => null)
+      }
     }
   }
 
@@ -407,6 +424,11 @@ export function createActions(
     // rejected - a failed reload must not block every reload after it.
     reloadQueue = reloadQueue.then(reload, reload)
     return reloadQueue
+  }
+
+  async function reloadProviders() {
+    if (!(await reloadInstances())) return false
+    return (await refreshProviders()) !== null
   }
 
   async function syncProvider(id: string, changed: boolean): Promise<ProviderAuthResult> {
@@ -711,6 +733,7 @@ export function createActions(
     unshare,
     findFiles,
     refreshProviders,
+    reloadProviders,
     refreshAgents,
     providerAuthMethods,
     providerAuthorize,

@@ -1,0 +1,125 @@
+diff --git a/packages/opencode/src/mcp/index.ts b/packages/opencode/src/mcp/index.ts
+--- a/packages/opencode/src/mcp/index.ts
++++ b/packages/opencode/src/mcp/index.ts
+@@ -26,6 +26,6 @@ import { McpAuth } from "./auth"
+ import { EventV2Bridge } from "@/event-v2-bridge"
+ import { TuiEvent } from "@/server/tui-event"
+-import { Cause, Effect, Exit, Layer, Context, Schema, Stream } from "effect"
++import { Cause, Effect, Exit, Fiber, Layer, Context, Schema, Stream } from "effect"
+ import { EffectBridge } from "@/effect/bridge"
+ import { InstanceState } from "@/effect/instance-state"
+ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+@@ -147,6 +147,7 @@ interface State {
+   instructions: Record<string, string>
+   desired: Record<string, boolean>
+   reconnect: Record<string, number>
++  restoring: Record<string, Fiber.Fiber<void, never>>
+   disposed: boolean
+ }
+ 
+@@ -451,9 +452,9 @@ const layer = Layer.effect(
+         yield* Effect.sleep(Math.min(500 * 2 ** attempt, 30_000))
+         if (s.disposed || !s.desired[name] || s.reconnect[name] !== token) return
+ 
+-        const config = yield* requireMcpConfig(name).pipe(Effect.either)
+-        if (config._tag === "Left") return
+-        yield* createAndStore(name, { ...config.right, enabled: true }, token)
++        const config = s.config[name] ?? (yield* getMcpConfig(name))
++        if (!config) return
++        yield* createAndStore(name, { ...config, enabled: true }, token)
+         if (s.disposed || !s.desired[name] || s.reconnect[name] !== token) return
+ 
+         yield* events.publish(ToolsChanged, { server: name }).pipe(Effect.ignore)
+@@ -475,12 +477,16 @@ const layer = Layer.effect(
+         const token = (s.reconnect[name] ?? 0) + 1
+         s.reconnect[name] = token
+-        bridge.fork(
+-          Effect.logWarning("MCP connection closed", { server: name }).pipe(
+-            Effect.andThen(events.publish(ToolsChanged, { server: name })),
+-            Effect.andThen(s.desired[name] && !s.disposed ? restore(s, name, token) : Effect.void),
+-            Effect.ignore,
+-          ),
++        const restoring = Effect.logWarning("MCP connection closed", { server: name }).pipe(
++          Effect.andThen(events.publish(ToolsChanged, { server: name })),
++          Effect.andThen(s.desired[name] && !s.disposed ? restore(s, name, token) : Effect.void),
++          Effect.ignore,
++          Effect.ensuring(
++            Effect.sync(() => {
++              if (s.reconnect[name] === token) delete s.restoring[name]
++            }),
++          ),
+         )
++        s.restoring[name] = bridge.fork(restoring)
+       }
+ 
+       client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) =>
+@@ -531,6 +537,7 @@ const layer = Layer.effect(
+           instructions: {},
+           desired: {},
+           reconnect: {},
++          restoring: {},
+           disposed: false,
+         }
+ 
+@@ -563,6 +570,12 @@ const layer = Layer.effect(
+             s.disposed = true
+             s.desired = {}
+             for (const key of Object.keys(s.reconnect)) s.reconnect[key]++
++            yield* Effect.forEach(
++              Object.values(s.restoring),
++              (fiber) => Fiber.interrupt(fiber),
++              { concurrency: "unbounded", discard: true },
++            )
++            s.restoring = {}
+             const clients = Object.values(s.clients)
+             s.clients = {}
+             s.defs = {}
+@@ -737,5 +750,19 @@ const layer = Layer.effect(
+       const config = cfg.mcp ?? {}
+       const defaultTimeout = cfg.experimental?.mcp_timeout
++      const reconnectDeadline = Date.now() + 2_000
++      for (;;) {
++        const reconnecting = Object.entries(s.restoring).filter(
++          ([name]) => s.desired[name] && s.status[name]?.status !== "connected",
++        )
++        if (reconnecting.length === 0) break
++        const remaining = reconnectDeadline - Date.now()
++        if (remaining <= 0) break
++        yield* Effect.forEach(
++          reconnecting,
++          ([, fiber]) => Fiber.await(fiber).pipe(Effect.timeout(remaining), Effect.ignore),
++          { concurrency: "unbounded", discard: true },
++        )
++      }
+       const incomplete = Object.keys(s.status).filter(
+         (name) =>
+           s.desired[name] &&
+diff --git a/packages/opencode/test/mcp/lifecycle.test.ts b/packages/opencode/test/mcp/lifecycle.test.ts
+--- a/packages/opencode/test/mcp/lifecycle.test.ts
++++ b/packages/opencode/test/mcp/lifecycle.test.ts
+@@ -337,17 +337,19 @@ it.instance("restores tools after an unexpected transport closure", () =>
+     const server = yield* lifecycleServer()
+     const mcp = yield* MCP.Service
+     yield* mcp.add("resilient-server", remote(server.url))
++    const client = (yield* mcp.clients())["resilient-server"]
+-    const initialRequests = server.state.requests.length
+ 
++    yield* Effect.promise(() => client.close())
+     yield* Effect.promise(server.restart)
+     yield* pollWithTimeout(
+-      Effect.gen(function* () {
+-        const status = (yield* mcp.status())["resilient-server"]
+-        return status?.status === "connected" && server.state.requests.length > initialRequests ? true : undefined
+-      }),
+-      "MCP server did not reconnect after its transport closed",
++      Effect.gen(function* () {
++        const status = (yield* mcp.status())["resilient-server"]
++        return status?.status === "failed" ? true : undefined
++      }),
++      "MCP server did not report its transport closure",
+     )
+ 
++    // Tool resolution joins the in-flight reconnect instead of publishing a transiently empty catalog.
+     expect(Object.keys(yield* mcp.tools())).toEqual(["resilient-server_test_tool"])
+   }),
+ )
