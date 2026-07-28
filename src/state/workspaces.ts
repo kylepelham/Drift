@@ -134,8 +134,20 @@ export async function purgeArchived() {
   return ids
 }
 
-export async function purgeRemovedWorkspaces() {
-  const paths = await driftStore.purgeRemovedWorkspaces(Date.now() - purgeAge)
+export async function purgeRemovedWorkspaces(
+  removeSessions: (directory: string, eligible: () => boolean) => Promise<boolean>,
+) {
+  const expired = await driftStore.expiredRemovedWorkspaces(Date.now() - purgeAge)
+  const canonical = (path: string) => path.replaceAll("\\", "/").toLowerCase()
+  for (const workspace of expired) {
+    // Never delete sessions in a directory that is on the sidebar or restored mid-drain.
+    const eligible = () =>
+      !rawWorkspaces().some((current) => canonical(current.path) === canonical(workspace.path)) &&
+      !removedWorkspaces().some(
+        (current) => current.id === workspace.id && (current.removedAt ?? 0) > (workspace.removedAt ?? 0),
+      )
+    if (!(await removeSessions(workspace.path, eligible))) continue
+    await driftStore.forgetWorkspace(workspace.id)
+  }
   await refreshWorkspaces()
-  return paths
 }

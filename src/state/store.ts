@@ -25,7 +25,8 @@ export interface DriftStore {
   saveWorkspace(workspace: Omit<Workspace, "lastUsed">): Promise<void>
   touchWorkspace(id: string): Promise<void>
   removeWorkspace(id: string): Promise<void>
-  purgeRemovedWorkspaces(before: number): Promise<string[]>
+  expiredRemovedWorkspaces(before: number): Promise<Workspace[]>
+  forgetWorkspace(id: string): Promise<void>
   archived(): Promise<ArchivedSession[]>
   archiveSession(sessionId: string, workspaceId: string): Promise<void>
   unarchiveSession(sessionId: string): Promise<void>
@@ -48,7 +49,8 @@ function shellStore(invoke: Invoke): DriftStore {
     saveWorkspace: (w) => invoke("store_save_workspace", { id: w.id, path: w.path, name: w.name, icon: w.icon }),
     touchWorkspace: (id) => invoke("store_touch_workspace", { id }),
     removeWorkspace: (id) => invoke("store_remove_workspace", { id }),
-    purgeRemovedWorkspaces: (before) => invoke("store_purge_removed_workspaces", { before }),
+    expiredRemovedWorkspaces: (before) => invoke("store_expired_removed_workspaces", { before }),
+    forgetWorkspace: (id) => invoke("store_forget_workspace", { id }),
     archived: () => invoke("store_archived"),
     archiveSession: (sessionId, workspaceId) => invoke("store_archive_session", { sessionId, workspaceId }),
     unarchiveSession: (sessionId) => invoke("store_unarchive_session", { sessionId }),
@@ -107,11 +109,20 @@ function browserStore(): DriftStore {
     removeWorkspace: async (id) => {
       write(wsKey, all().map((w) => (w.id === id ? { ...w, removedAt: Date.now() } : w)))
     },
-    purgeRemovedWorkspaces: async (before) => {
-      const gone = all().filter((w) => w.removedAt && w.removedAt < before)
-      write(wsKey, all().filter((w) => !gone.some((g) => g.id === w.id)))
-      write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => !gone.some((g) => g.id === a.workspaceId)))
-      return gone.map((w) => w.path)
+    expiredRemovedWorkspaces: async (before) => {
+      const canonical = (path: string) => path.replaceAll("\\", "/").toLowerCase()
+      const activePaths = new Set(all().filter((w) => !w.removedAt).map((w) => canonical(w.path)))
+      // Removed rows still matching an active directory are stale duplicates: drop, never return.
+      const duplicates = all().filter((w) => w.removedAt && activePaths.has(canonical(w.path)))
+      if (duplicates.length) {
+        write(wsKey, all().filter((w) => !duplicates.some((d) => d.id === w.id)))
+        write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => !duplicates.some((d) => d.id === a.workspaceId)))
+      }
+      return all().filter((w) => w.removedAt && w.removedAt < before && !activePaths.has(canonical(w.path)))
+    },
+    forgetWorkspace: async (id) => {
+      write(wsKey, all().filter((w) => !(w.id === id && w.removedAt)))
+      write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => a.workspaceId !== id))
     },
     archived: async () => read<ArchivedSession[]>(arKey, []),
     archiveSession: async (sessionId, workspaceId) => {

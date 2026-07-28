@@ -121,7 +121,34 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
     // CREATE TABLE above the column is already there and this fails with "duplicate column name",
     // which is why the error is deliberately discarded rather than propagated.
     let _ = conn.execute("ALTER TABLE workspace ADD COLUMN removed_at INTEGER", []);
+    collapse_duplicate_workspaces(&conn)?;
     Ok(Store(Mutex::new(conn)))
+}
+
+/// Collapses rows whose paths differ only in slash direction or casing (old imports used
+/// forward slashes), keeping active > iconed > most recently used.
+fn collapse_duplicate_workspaces(conn: &Connection) -> rusqlite::Result<()> {
+    let losers: Vec<(String, String)> = conn
+        .prepare(
+            "SELECT id, winner FROM (
+                SELECT id,
+                       FIRST_VALUE(id) OVER (
+                           PARTITION BY LOWER(REPLACE(path, '\\', '/'))
+                           ORDER BY (removed_at IS NULL) DESC, (icon <> '') DESC, last_used DESC, id
+                       ) AS winner
+                FROM workspace
+            ) WHERE id <> winner",
+        )?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    for (loser, winner) in &losers {
+        conn.execute(
+            "UPDATE session_meta SET workspace_id = ?2 WHERE workspace_id = ?1",
+            (loser, winner),
+        )?;
+        conn.execute("DELETE FROM workspace WHERE id = ?1", [loser])?;
+    }
+    Ok(())
 }
 
 fn now() -> i64 {
@@ -208,6 +235,7 @@ impl Store {
                 .replace('\\', "/")
                 .trim_end_matches('/')
         );
+        // Imported temp-dir rows are scratch artifacts; the id/worktree match spares user rows.
         conn.execute(
             "DELETE FROM workspace
              WHERE removed_at IS NULL AND icon = ''
@@ -215,13 +243,10 @@ impl Store {
                AND EXISTS (
                    SELECT 1 FROM opencode_import.project project
                    WHERE project.id = workspace.id AND project.worktree = workspace.path
-                     AND workspace.name = COALESCE(NULLIF(project.name, ''), project.worktree)
-                     AND NOT EXISTS (
-                         SELECT 1 FROM opencode_import.session session WHERE session.project_id = project.id
-                     )
                )",
             params![temp_prefix],
         )?;
+        // Skip temp directories and any canonical path that already has a row, active or removed.
         let result = conn.execute(
             "INSERT OR IGNORE INTO workspace(id, path, name, icon, last_used)
              SELECT project.id, project.worktree,
@@ -230,8 +255,14 @@ impl Store {
              FROM opencode_import.project project
              JOIN opencode_import.session session ON session.project_id = project.id
              WHERE project.worktree <> '' AND project.worktree <> '/'
+               AND REPLACE(project.worktree, '\\', '/') NOT LIKE ?1 || '%'
+               AND REPLACE(project.worktree, '\\', '/') NOT LIKE '/tmp/%'
+               AND NOT EXISTS (
+                   SELECT 1 FROM workspace existing
+                   WHERE LOWER(REPLACE(existing.path, '\\', '/')) = LOWER(REPLACE(project.worktree, '\\', '/'))
+               )
              GROUP BY project.id, project.worktree, project.name",
-            [],
+            params![temp_prefix],
         );
         let _ = conn.execute_batch("DETACH DATABASE opencode_import");
         result
@@ -263,8 +294,13 @@ impl Store {
         icon: &str,
     ) -> rusqlite::Result<Workspace> {
         let conn = self.0.lock().unwrap();
+        // Canonical match so re-adding a directory restores its row instead of minting a variant.
         let existing: Option<String> = conn
-            .prepare_cached("SELECT id FROM workspace WHERE path = ?1")?
+            .prepare_cached(
+                "SELECT id FROM workspace
+                 WHERE LOWER(REPLACE(path, '\\', '/')) = LOWER(REPLACE(?1, '\\', '/'))
+                 ORDER BY (removed_at IS NULL) DESC, last_used DESC LIMIT 1",
+            )?
             .query_row([path], |row| row.get(0))
             .optional()?;
         let target = match existing {
@@ -297,6 +333,21 @@ impl Store {
         icon: &str,
     ) -> rusqlite::Result<()> {
         let conn = self.0.lock().unwrap();
+        // Editing a path onto another row's directory merges that row into this one.
+        let clashes: Vec<String> = conn
+            .prepare_cached(
+                "SELECT id FROM workspace
+                 WHERE id <> ?1 AND LOWER(REPLACE(path, '\\', '/')) = LOWER(REPLACE(?2, '\\', '/'))",
+            )?
+            .query_map((id, path), |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+        for clash in &clashes {
+            conn.execute(
+                "UPDATE session_meta SET workspace_id = ?2 WHERE workspace_id = ?1",
+                (clash, id),
+            )?;
+            conn.execute("DELETE FROM workspace WHERE id = ?1", [clash])?;
+        }
         conn.prepare_cached(
             "INSERT INTO workspace(id, path, name, icon, last_used) VALUES(?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(id) DO UPDATE SET path = ?2, name = ?3, icon = ?4",
@@ -319,21 +370,50 @@ impl Store {
         Ok(())
     }
 
-    pub fn purge_removed_workspaces(&self, before: i64) -> rusqlite::Result<Vec<String>> {
+    /// Workspaces removed before `before` whose directory no active workspace uses. Removed rows
+    /// that still match an active directory are stale duplicates: collapsed here, never returned,
+    /// so retention can't delete sessions that are still on the sidebar.
+    pub fn expired_removed_workspaces(&self, before: i64) -> rusqlite::Result<Vec<Workspace>> {
         let conn = self.0.lock().unwrap();
-        let rows: Vec<(String, String)> = conn
+        let duplicates: Vec<(String, String)> = conn
             .prepare_cached(
-                "SELECT id, path FROM workspace WHERE removed_at IS NOT NULL AND removed_at < ?1",
+                "SELECT removed.id, active.id FROM workspace removed
+                 JOIN workspace active
+                   ON active.removed_at IS NULL
+                  AND LOWER(REPLACE(active.path, '\\', '/')) = LOWER(REPLACE(removed.path, '\\', '/'))
+                 WHERE removed.removed_at IS NOT NULL",
             )?
-            .query_map([before], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<Result<_, _>>()?;
-        for (id, _) in &rows {
-            conn.prepare_cached("DELETE FROM session_meta WHERE workspace_id = ?1")?
-                .execute([id])?;
-            conn.prepare_cached("DELETE FROM workspace WHERE id = ?1")?
-                .execute([id])?;
+        for (removed, active) in &duplicates {
+            conn.execute(
+                "UPDATE session_meta SET workspace_id = ?2 WHERE workspace_id = ?1",
+                (removed, active),
+            )?;
+            conn.execute("DELETE FROM workspace WHERE id = ?1", [removed])?;
         }
-        Ok(rows.into_iter().map(|(_, path)| path).collect())
+        let mut stmt = conn.prepare_cached(&format!(
+            "SELECT {WORKSPACE_COLUMNS} FROM workspace expired
+             WHERE removed_at IS NOT NULL AND removed_at < ?1
+               AND NOT EXISTS (
+                   SELECT 1 FROM workspace active
+                   WHERE active.removed_at IS NULL
+                     AND LOWER(REPLACE(active.path, '\\', '/')) = LOWER(REPLACE(expired.path, '\\', '/'))
+               )"
+        ))?;
+        let rows = stmt.query_map([before], map_workspace)?;
+        rows.collect()
+    }
+
+    /// Drops an expired removed workspace. Only call after its engine sessions are gone, or the
+    /// startup import resurrects the row from the leftovers.
+    pub fn forget_workspace(&self, id: &str) -> rusqlite::Result<()> {
+        let conn = self.0.lock().unwrap();
+        conn.prepare_cached("DELETE FROM session_meta WHERE workspace_id = ?1")?
+            .execute([id])?;
+        conn.prepare_cached("DELETE FROM workspace WHERE id = ?1 AND removed_at IS NOT NULL")?
+            .execute([id])?;
+        Ok(())
     }
 
     pub fn archived(&self) -> rusqlite::Result<Vec<ArchivedSession>> {

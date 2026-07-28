@@ -153,7 +153,7 @@ function WorkspaceBinding() {
     if (engine.state.connection !== "online" || Date.now() - lastPurge < dayMs) return
     lastPurge = Date.now()
     void purgeArchived().then((ids) => ids.forEach((id) => void engine.actions.remove(id)))
-    void purgeRemovedWorkspaces().then((paths) => paths.forEach((path) => void engine.actions.removeAllSessions(path)))
+    void purgeRemovedWorkspaces((directory, eligible) => engine.actions.removeAllSessions(directory, eligible))
     // Storage cleanup rides the same daily timer and keeps its own last-run stamp, so it stays off
     // the startup path where a large event log would block the first paint.
     void runScheduledCleanup().catch(() => undefined)

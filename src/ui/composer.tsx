@@ -31,6 +31,7 @@ import {
   type StagedFile,
 } from "../state/composer"
 import { selectedSession, selectSession } from "../state/selection"
+import { formatModelContext, lmStudioModelReady } from "../state/lm-studio"
 import { shellInvoke } from "../shell"
 import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
 import { normalizeDir } from "../engine/store"
@@ -200,20 +201,27 @@ export function Composer() {
   }
 
   const availableModelItems = createMemo<PickerItem[]>(() => {
-    const providers = engine.state.providers.filter(
-      (provider) => engine.state.connected.includes(provider.id) || engine.state.connected.length === 0,
-    )
+    const providers = engine.state.providers.filter((provider) => {
+      if (provider.id === "lmstudio") return engine.state.connected.includes(provider.id)
+      return engine.state.connected.includes(provider.id) || engine.state.connected.length === 0
+    })
     const order = orderedModelProviderIds(providers.map((provider) => provider.id))
     return order.flatMap((providerID) => {
       const provider = providers.find((item) => item.id === providerID)
       if (!provider) return []
       return Object.values(provider.models)
-        .filter((model) => model.capabilities.toolcall)
+        .filter((model) =>
+          provider.id === "lmstudio" ? lmStudioModelReady(model) : model.capabilities.toolcall,
+        )
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((model) => ({
           id: `${provider.id}/${model.id}`,
           label: model.name,
           group: provider.name,
+          detail:
+            provider.id === "lmstudio"
+              ? `${model.id} | ${formatModelContext(model.limit.context)} context`
+              : undefined,
           providerID: provider.id,
           family: model.family,
           releaseDate: model.release_date,
