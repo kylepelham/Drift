@@ -263,7 +263,7 @@ test("release stamping updates every package version and is idempotent", () => {
   }
 })
 
-test("release workflow gates secrets and publication on policy and full validation", () => {
+test("release workflow gates publication on policy and successful master CI", () => {
   const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
   const validation = workflow.slice(workflow.indexOf("  validation:"), workflow.indexOf("  signed-artifacts:"))
   const signing = workflow.slice(workflow.indexOf("  signed-artifacts:"), workflow.indexOf("  publish:"))
@@ -271,18 +271,17 @@ test("release workflow gates secrets and publication on policy and full validati
 
   expect(workflow).toContain("needs: tag-policy")
   expect(workflow).toContain("if: needs.tag-policy.outputs.published != 'true'")
-  expect(signing).toContain("needs: [tag-policy, validation]")
+  expect(signing).toContain("needs: tag-policy")
   expect(publish).toContain("needs: [tag-policy, validation, signed-artifacts]")
   expect(validation).not.toContain("secrets.")
-  for (const command of [
-    "bun install --frozen-lockfile",
-    "bun run typecheck",
-    "bun run test",
-    "bun run test:engine",
-    "bun run build:engine",
-    "cargo test --locked --manifest-path src-tauri/Cargo.toml",
-    "bun run build:native",
-  ]) expect(validation).toContain(command)
+  expect(validation).toContain("actions: read")
+  expect(validation).toContain("actions/workflows/ci.yml/runs?head_sha=$COMMIT&event=push")
+  expect(validation).toContain('select(.head_branch == "master")')
+  expect(validation).toContain('if [[ "$conclusion" != "success" ]]')
+  expect(validation).toContain("Timed out waiting for master CI")
+  for (const command of ["bun run test:engine", "cargo test", "bun run build:native"]) {
+    expect(validation).not.toContain(command)
+  }
   expect(signing).toContain("contents: read")
   expect(signing).not.toContain("contents: write")
   expect(signing).toContain("persist-credentials: false")
