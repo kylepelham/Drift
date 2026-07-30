@@ -259,3 +259,37 @@ test("notification migration and global auto-accept stay explicit", async () => 
   expect(autoAcceptAllowed(false, ["linked"], "child", undefined, "linked")).toBeTrue()
   expect(autoAcceptAllowed(false, ["other"], "child", "parent", "linked")).toBeFalse()
 })
+
+test("the About mascot always disposes its scene, including when it loads after unmount", async () => {
+  const { mountScene } = await import("../src/ui/jellyfish")
+  const settle = async () => {
+    for (let tick = 0; tick < 4; tick++) await Promise.resolve()
+  }
+
+  let disposed = 0
+  let land!: (dispose: () => void) => void
+  const slow = new Promise<() => void>((resolve) => (land = resolve))
+  mountScene(() => slow, () => {})()
+  land(() => disposed++)
+  await settle()
+  expect(disposed).toBe(1)
+
+  let live = 0
+  const cleanup = mountScene(() => Promise.resolve(() => live++), () => {})
+  await settle()
+  expect(live).toBe(0)
+  cleanup()
+  cleanup()
+  expect(live).toBe(1)
+
+  let fallbacks = 0
+  mountScene(() => Promise.reject(new Error("no webgl")), () => fallbacks++)
+  mountScene(() => Promise.resolve(undefined), () => fallbacks++)
+  await settle()
+  expect(fallbacks).toBe(2)
+
+  let ignored = 0
+  mountScene(() => Promise.reject(new Error("no webgl")), () => ignored++)()
+  await settle()
+  expect(ignored).toBe(0)
+})
