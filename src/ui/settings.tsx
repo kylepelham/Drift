@@ -164,6 +164,21 @@ const keybindLabels: Record<KeybindAction, string> = {
 
 const [settingsOpen, setSettingsOpen] = createSignal(false)
 const [settingsSection, setSettingsSection] = createSignal<Section>("General")
+const [updateSupported, setUpdateSupported] = createSignal<boolean | undefined>()
+let updateSupportLoad: Promise<void> | undefined
+
+function preloadUpdateSupport() {
+  if (updateSupportLoad) return
+  const invoke = shellInvoke()
+  if (!invoke) return setUpdateSupported(false)
+  updateSupportLoad = invoke<boolean>("update_support")
+    .then((supported) => {
+      setUpdateSupported(supported === true)
+    })
+    .catch(() => {
+      setUpdateSupported(false)
+    })
+}
 
 export function openSettings(section?: Section) {
   setSettingsSection(section && sections.includes(section) ? section : "General")
@@ -171,6 +186,7 @@ export function openSettings(section?: Section) {
 }
 
 export function SettingsHost() {
+  onMount(preloadUpdateSupport)
   return (
     <Show when={settingsOpen()}>
       <Portal>
@@ -1353,15 +1369,8 @@ const websiteUrl = "https://driftagent.dev"
 
 function AboutSection() {
   const engine = useEngine()
-  const [installed, setInstalled] = createSignal<boolean | undefined>()
   const engineVersion = () =>
     engine.state.version || (engine.state.startupError ? t("drift.about.failed") : t("drift.about.starting"))
-
-  onMount(() => {
-    void shellInvoke()?.("update_support")
-      .then((supported) => setInstalled(supported === true))
-      .catch(() => {})
-  })
 
   return (
     <div class="space-y-6 select-text">
@@ -1378,16 +1387,24 @@ function AboutSection() {
         <SettingsRow title={t("drift.about.row.engine.title")} description={t("drift.about.row.engine.description")}>
           <span class="font-mono text-[0.75rem] text-ink-muted">{engineVersion()}</span>
         </SettingsRow>
-        <Show when={installed() !== undefined}>
-          <SettingsRow
-            title={t("drift.about.row.updates.title")}
-            description={installed() ? t("drift.about.row.updates.installed") : t("drift.about.row.updates.local")}
-          >
-            <span class="text-[0.75rem] text-ink-muted">
-              {installed() ? t("drift.about.updates.available") : t("drift.about.updates.unavailable")}
-            </span>
-          </SettingsRow>
-        </Show>
+        <SettingsRow
+          title={t("drift.about.row.updates.title")}
+          description={
+            updateSupported() === undefined
+              ? t("drift.about.starting")
+              : updateSupported()
+                ? t("drift.about.row.updates.installed")
+                : t("drift.about.row.updates.local")
+          }
+        >
+          <span class="text-[0.75rem] text-ink-muted">
+            {updateSupported() === undefined
+              ? t("common.loading")
+              : updateSupported()
+                ? t("drift.about.updates.available")
+                : t("drift.about.updates.unavailable")}
+          </span>
+        </SettingsRow>
         <Show when={engine.state.startupError}>
           <div class="px-1 py-2.5 text-[0.72rem] leading-relaxed text-danger">{engine.state.startupError}</div>
         </Show>
@@ -1407,7 +1424,6 @@ function AboutSection() {
       <SettingsGroup title={t("drift.about.group.credits")}>
         <div class="space-y-2 px-1 py-2.5 text-[0.74rem] leading-relaxed text-ink-muted">
           <p>{t("drift.about.credits.engine")}</p>
-          <p>{t("drift.about.credits.ui")}</p>
         </div>
       </SettingsGroup>
     </div>

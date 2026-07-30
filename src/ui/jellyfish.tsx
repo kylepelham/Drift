@@ -1,20 +1,24 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js"
+import type { Mesh } from "three"
 import { DriftLogo } from "./logo"
 
 /** The About mascot loads three.js lazily and disposes every scene resource on cleanup. */
 export function Jellyfish(props: { class?: string }) {
-  const [fallback, setFallback] = createSignal(!canAnimate())
+  const [fallback, setFallback] = createSignal(true)
   let host!: HTMLDivElement
 
   onMount(() => {
     if (!canAnimate()) return
-    onCleanup(mountScene(() => createScene(host), () => setFallback(true)))
+    onCleanup(mountScene(() => createScene(host, () => setFallback(false)), () => setFallback(true)))
   })
 
   return (
-    <div ref={host} class={`relative grid place-items-center ${props.class ?? ""}`}>
+    <div class={`relative grid overflow-hidden ${props.class ?? ""}`}>
+      <div ref={host} class="absolute inset-0 grid place-items-center" />
       <Show when={fallback()}>
-        <DriftLogo class="size-16 text-accent" />
+        <div class="relative z-10 grid place-items-center">
+          <DriftLogo class="size-16 text-accent" />
+        </div>
       </Show>
     </div>
   )
@@ -43,12 +47,9 @@ export function mountScene(load: () => Promise<(() => void) | undefined>, onFall
   }
 }
 
-const bellColor = 0x8fd9fb
-const tentacleCount = 8
-const tentacleSegments = 14
-
-async function createScene(host: HTMLElement) {
-  const THREE = await import("three")
+async function createScene(host: HTMLElement, ready: () => void) {
+  const [THREE, { createJellyfish }] = await Promise.all([import("three"), import("./jelly/jellyfish")])
+  if (!host.isConnected) return undefined
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true })
   const canvas = renderer.domElement
   if (!renderer.getContext()) {
@@ -57,56 +58,21 @@ async function createScene(host: HTMLElement) {
   }
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2))
   canvas.style.display = "block"
-  host.append(canvas)
+  canvas.style.background = "transparent"
 
   const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100)
-  camera.position.set(0, -0.45, 6.2)
-  scene.add(new THREE.AmbientLight(0xffffff, 1.1))
-  const key = new THREE.DirectionalLight(0xffffff, 1.4)
-  key.position.set(1.4, 2.2, 2.6)
-  scene.add(key)
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 40)
+  camera.position.set(0, 0, 6.4)
+  let jelly: ReturnType<typeof createJellyfish> | undefined
 
-  const jelly = new THREE.Group()
-  scene.add(jelly)
-
-  const bellGeometry = new THREE.SphereGeometry(1, 48, 32, 0, Math.PI * 2, 0, Math.PI * 0.58)
-  const bellMaterial = new THREE.MeshStandardMaterial({
-    color: bellColor,
-    emissive: bellColor,
-    emissiveIntensity: 0.28,
-    transparent: true,
-    opacity: 0.62,
-    roughness: 0.28,
-    metalness: 0.05,
-    side: THREE.DoubleSide,
-  })
-  const bell = new THREE.Mesh(bellGeometry, bellMaterial)
-  jelly.add(bell)
-
-  const rimGeometry = new THREE.TorusGeometry(0.94, 0.035, 12, 64)
-  const rimMaterial = new THREE.MeshStandardMaterial({
-    color: bellColor,
-    emissive: bellColor,
-    emissiveIntensity: 0.6,
-    transparent: true,
-    opacity: 0.85,
-    roughness: 0.35,
-  })
-  const rim = new THREE.Mesh(rimGeometry, rimMaterial)
-  rim.rotation.x = Math.PI / 2
-  rim.position.y = 0.02
-  jelly.add(rim)
-
-  const tentacleMaterial = new THREE.LineBasicMaterial({ color: bellColor, transparent: true, opacity: 0.5 })
-  const tentacles = Array.from({ length: tentacleCount }, (_, index) => {
-    const geometry = new THREE.BufferGeometry()
-    const position = new THREE.BufferAttribute(new Float32Array(tentacleSegments * 3), 3)
-    geometry.setAttribute("position", position)
-    jelly.add(new THREE.Line(geometry, tentacleMaterial))
-    return { geometry, position, angle: (index / tentacleCount) * Math.PI * 2 }
-  })
-
+  const pointer = new THREE.Vector2()
+  const pointerSmooth = new THREE.Vector2()
+  const onPointer = (event: PointerEvent) => {
+    const bounds = host.getBoundingClientRect()
+    pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
+    pointer.y = -(((event.clientY - bounds.top) / bounds.height) * 2 - 1)
+  }
+  const resetPointer = () => pointer.set(0, 0)
   const resize = () => {
     const size = Math.max(1, Math.min(host.clientWidth || 1, host.clientHeight || 1))
     renderer.setSize(size, size, false)
@@ -115,12 +81,11 @@ async function createScene(host: HTMLElement) {
     camera.aspect = 1
     camera.updateProjectionMatrix()
   }
-  resize()
-  const observer = new ResizeObserver(resize)
-  observer.observe(host)
+  let observer: ResizeObserver | undefined
 
   let frame = 0
   let running = false
+  const started = performance.now()
   const start = () => {
     if (running || document.hidden) return
     running = true
@@ -131,52 +96,59 @@ async function createScene(host: HTMLElement) {
     cancelAnimationFrame(frame)
   }
   const visibility = () => (document.hidden ? stop() : start())
-  document.addEventListener("visibilitychange", visibility)
 
   function render(now: number) {
-    if (!running) return
-    const time = now / 1000
-    const pulse = Math.sin(time * 1.6)
-    bell.scale.set(1 + pulse * 0.08, 1 - pulse * 0.13, 1 + pulse * 0.08)
-    rim.scale.setScalar(1 + pulse * 0.08)
-    rim.position.y = 0.02 - pulse * 0.1
-    jelly.position.y = Math.sin(time * 0.8) * 0.12
-    jelly.rotation.y = time * 0.35
-
-    for (const tentacle of tentacles) {
-      for (let segment = 0; segment < tentacleSegments; segment++) {
-        const drop = segment / (tentacleSegments - 1)
-        const sway = Math.sin(time * 2.1 - drop * 3.4 + tentacle.angle) * 0.16 * drop
-        const spread = 0.72 + drop * 0.14 + sway
-        tentacle.position.setXYZ(
-          segment,
-          Math.cos(tentacle.angle) * spread,
-          -0.05 - drop * 1.85 - pulse * 0.12 * drop,
-          Math.sin(tentacle.angle) * spread,
-        )
-      }
-      tentacle.position.needsUpdate = true
-      tentacle.geometry.computeBoundingSphere()
-    }
-
+    if (!running || !jelly) return
+    const time = (now - started) / 1000
+    pointerSmooth.lerp(pointer, 0.08)
+    jelly.group.position.y = 0.65 + Math.sin(time * 0.8) * 0.05
+    jelly.group.rotation.y = pointerSmooth.x * 0.3 + Math.sin(time * 0.14) * 0.08
+    jelly.group.rotation.x = -pointerSmooth.y * 0.12
+    jelly.update(time, pointerSmooth)
     renderer.render(scene, camera)
     frame = requestAnimationFrame(render)
   }
-  start()
-
-  return () => {
+  const dispose = () => {
+    canvas.remove()
     stop()
     document.removeEventListener("visibilitychange", visibility)
-    observer.disconnect()
-    for (const tentacle of tentacles) tentacle.geometry.dispose()
-    tentacleMaterial.dispose()
-    bellGeometry.dispose()
-    bellMaterial.dispose()
-    rimGeometry.dispose()
-    rimMaterial.dispose()
+    host.removeEventListener("pointermove", onPointer)
+    host.removeEventListener("pointerleave", resetPointer)
+    observer?.disconnect()
+    jelly?.group.traverse((object) => {
+      const mesh = object as Mesh
+      mesh.geometry?.dispose()
+      const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []
+      for (const material of materials) material.dispose()
+    })
     scene.clear()
     renderer.dispose()
     renderer.forceContextLoss()
-    canvas.remove()
+  }
+
+  try {
+    jelly = createJellyfish()
+    jelly.group.scale.setScalar(0.72)
+    jelly.group.position.y = 0.65
+    scene.add(jelly.group)
+    resize()
+    jelly.update(0, pointerSmooth)
+    renderer.render(scene, camera)
+    if (!host.isConnected) {
+      dispose()
+      return undefined
+    }
+    host.addEventListener("pointermove", onPointer)
+    host.addEventListener("pointerleave", resetPointer)
+    observer = new ResizeObserver(resize)
+    observer.observe(host)
+    document.addEventListener("visibilitychange", visibility)
+    host.append(canvas)
+    ready()
+    start()
+    return dispose
+  } catch (error) {
+    dispose()
+    throw error
   }
 }

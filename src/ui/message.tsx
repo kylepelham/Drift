@@ -94,7 +94,12 @@ function UserBubble(props: { entry: MessageEntry }) {
           </Show>
           <Show when={text()}>
             <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
-              <Markdown text={text()} done humanAuthored={!generated()} />
+              <Show
+                when={!generated() && largeUserText(text())}
+                fallback={<Markdown text={text()} done humanAuthored={!generated()} />}
+              >
+                <pre class="user-paste">{text()}</pre>
+              </Show>
             </div>
           </Show>
           <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
@@ -115,6 +120,10 @@ function UserBubble(props: { entry: MessageEntry }) {
       <For each={compactions()}>{(part) => <PartView part={part} />}</For>
     </>
   )
+}
+
+export function largeUserText(text: string) {
+  return text.length >= 2000 || text.split("\n", 41).length > 40
 }
 
 export type PartGroup = { id: string; key: string; explored: ToolPart[] } | { id: string; key: string; part: Part }

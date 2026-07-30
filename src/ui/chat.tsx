@@ -1,12 +1,13 @@
 import type { SessionStatus } from "@opencode-ai/sdk/client"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
-import type { MessageEntry } from "../engine/store"
+import { messageText, type MessageEntry } from "../engine/store"
+import { codeFontSize } from "../state/code"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
 import { IconArrowDown } from "./icons"
-import { MessageView, messageVisible } from "./message"
+import { largeUserText, MessageView, messageVisible } from "./message"
 import { TextShimmer } from "./text-shimmer"
 import { DriftLogo } from "./logo"
 
@@ -76,22 +77,16 @@ export function Chat() {
   const offsets = createMemo(() => {
     measured()
     const list = timeline()
+    const fontSize = codeFontSize()
     const result = new Array<number>(list.length + 1)
     result[0] = 0
     for (let index = 0; index < list.length; index++)
-      result[index + 1] = result[index] + (heights.get(list[index].info.id) ?? estimatedRow)
+      result[index + 1] = result[index] + (heights.get(list[index].info.id) ?? estimatedTimelineRow(list[index], fontSize))
     return result
   })
 
   const range = createMemo(() => {
-    const list = offsets()
-    const top = viewTop() - overscan
-    const bottom = viewTop() + viewHeight() + overscan
-    let start = 0
-    while (start < list.length - 1 && list[start + 1] < top) start++
-    let end = start
-    while (end < list.length - 1 && list[end] < bottom) end++
-    return { start, end }
+    return virtualRange(offsets(), viewTop(), viewHeight())
   })
 
   const slice = createMemo(() => timeline().slice(range().start, range().end))
@@ -106,7 +101,8 @@ export function Chat() {
       if (!id) continue
       const next = observation.borderBoxSize[0]?.blockSize ?? row.offsetHeight
       if (next === 0) continue
-      const previous = heights.get(id) ?? estimatedRow
+      const entry = untrack(timeline).find((item) => item.info.id === id)
+      const previous = heights.get(id) ?? (entry ? estimatedTimelineRow(entry, untrack(codeFontSize)) : estimatedRow)
       if (Math.abs(next - previous) < 1) continue
       heights.set(id, next)
       changed = true
@@ -222,7 +218,7 @@ export function Chat() {
     <div class="relative min-h-0 flex-1">
       <div
         ref={scroller}
-        class="h-full overflow-x-hidden overflow-y-auto"
+        class="transcript-scroll h-full overflow-x-hidden overflow-y-auto"
         onScroll={onScroll}
         onWheel={nativeWheel}
         onPointerDown={(event) => {
@@ -320,8 +316,43 @@ export function accumulatedWheelTarget(scrollTop: number, pendingTarget: number 
   return Math.min(max, Math.max(0, (pendingTarget ?? scrollTop) + delta))
 }
 
+export function estimatedTimelineRow(entry: MessageEntry, fontSize = 13) {
+  const text = messageText(entry)
+  const generated = entry.parts.some((part) => part.type === "text" && part.metadata?.generated === true)
+  if (entry.info.role === "user" && !generated && largeUserText(text))
+    return Math.max(estimatedRow, Math.ceil(text.split("\n").length * fontSize * 1.6 + 62))
+  const width = entry.info.role === "user" ? 72 : 88
+  const textHeight = estimateTextLines(text, width) * 14 * 1.6
+  const toolHeight = entry.parts.filter((part) => part.type === "tool").length * 56
+  return Math.max(estimatedRow, Math.ceil(textHeight + toolHeight + (text ? 48 : 0)))
+}
+
+export function estimateTextLines(text: string, width: number) {
+  let fenced = false
+  return text.split("\n").reduce((total, line) => {
+    if (/^\s*```/.test(line)) {
+      fenced = !fenced
+      return total + 1
+    }
+    if (fenced) return total + 1
+    if (!line) return total
+    return total + Math.max(1, Math.ceil(line.length / width))
+  }, 0)
+}
+
 export function resizeCompensation(previous: number, next: number, rowBottom: number, viewportTop: number) {
   return rowBottom < viewportTop ? next - previous : 0
+}
+
+export function virtualRange(offsets: number[], viewTop: number, viewHeight: number) {
+  const currentTop = Math.min(viewTop, Math.max(0, (offsets.at(-1) ?? 0) - viewHeight))
+  const top = currentTop - overscan
+  const bottom = currentTop + viewHeight + overscan
+  let start = 0
+  while (start < offsets.length - 1 && offsets[start + 1] < top) start++
+  let end = start
+  while (end < offsets.length - 1 && offsets[end] < bottom) end++
+  return { start, end }
 }
 
 export function scrollGestureSticks(previousTop: number, nextTop: number, distanceFromBottom: number) {

@@ -238,11 +238,13 @@ impl Store {
         // Imported temp-dir rows are scratch artifacts; the id/worktree match spares user rows.
         conn.execute(
             "DELETE FROM workspace
-             WHERE removed_at IS NULL AND icon = ''
-               AND (REPLACE(path, '\\', '/') LIKE ?1 || '%' OR REPLACE(path, '\\', '/') LIKE '/tmp/%')
-               AND EXISTS (
-                   SELECT 1 FROM opencode_import.project project
-                   WHERE project.id = workspace.id AND project.worktree = workspace.path
+              WHERE removed_at IS NULL AND icon = ''
+                AND (REPLACE(path, '\\', '/') LIKE (?1 || '%')
+                  OR REPLACE(path, '\\', '/') LIKE '%/AppData/Local/Temp/%'
+                  OR REPLACE(path, '\\', '/') LIKE '/tmp/%')
+                AND EXISTS (
+                    SELECT 1 FROM opencode_import.project project
+                    WHERE project.id = workspace.id AND project.worktree = workspace.path
                )",
             params![temp_prefix],
         )?;
@@ -252,12 +254,13 @@ impl Store {
              SELECT project.id, project.worktree,
                     COALESCE(NULLIF(project.name, ''), project.worktree), '',
                     MAX(COALESCE(session.time_updated, project.time_updated, 0))
-             FROM opencode_import.project project
-             JOIN opencode_import.session session ON session.project_id = project.id
-             WHERE project.worktree <> '' AND project.worktree <> '/'
-               AND REPLACE(project.worktree, '\\', '/') NOT LIKE ?1 || '%'
-               AND REPLACE(project.worktree, '\\', '/') NOT LIKE '/tmp/%'
-               AND NOT EXISTS (
+              FROM opencode_import.project project
+              JOIN opencode_import.session session ON session.project_id = project.id
+              WHERE project.worktree <> '' AND project.worktree <> '/'
+                AND REPLACE(project.worktree, '\\', '/') NOT LIKE (?1 || '%')
+                AND REPLACE(project.worktree, '\\', '/') NOT LIKE '%/AppData/Local/Temp/%'
+                AND REPLACE(project.worktree, '\\', '/') NOT LIKE '/tmp/%'
+                AND NOT EXISTS (
                    SELECT 1 FROM workspace existing
                    WHERE LOWER(REPLACE(existing.path, '\\', '/')) = LOWER(REPLACE(project.worktree, '\\', '/'))
                )

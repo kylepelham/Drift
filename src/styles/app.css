@@ -782,6 +782,23 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   tab-size: var(--code-tab-size);
 }
 
+/* Large literal messages stay full-height; the transcript remains the only vertical scroller. */
+.user-paste {
+  margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--code-size);
+  line-height: 1.6;
+  white-space: pre;
+  tab-size: var(--code-tab-size);
+}
+
+.transcript-scroll {
+  overflow-anchor: none;
+}
+
 .md .code-block {
   position: relative;
   margin-block: 0.6em;

@@ -259,10 +259,10 @@ export function fixEscapedEmphasis(text: string) {
 const urlPattern = /https?:\/\/[^\s<>"')\]]+/g
 const accidentalEntities: Record<string, string> = { "-": "&#45;", "=": "&#61;", "*": "&#42;", _: "&#95;" }
 
-// Preserve literal prose while retaining fences, inline code, tables, dash/number lists, and links.
+// Preserve literal prose and pasted markup while retaining deliberate Markdown constructs.
 function humanizeProse(text: string) {
   return mapProseChunks(text, (chunk) =>
-    chunk.replaceAll("\\", "&#92;").split("\n").map(neutralizeProseLine).join("\n"),
+    chunk.replaceAll("\\", "&#92;").replaceAll("<", "&lt;").split("\n").map(neutralizeProseLine).join("\n"),
   )
 }
 
@@ -529,5 +529,5 @@ export function Markdown(props: { text: string; done?: boolean; humanAuthored?: 
         if (current === request) decorateCodeBlocks(root)
       })
   })
-  return <div ref={root} class="md" onClick={markdownClick} />
+  return <div ref={root} class="md" classList={{ "md-user": props.humanAuthored }} onClick={markdownClick} />
 }

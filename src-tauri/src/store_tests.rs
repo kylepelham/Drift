@@ -161,9 +161,11 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
          INSERT INTO project VALUES('p1', 'S:/one', 'One', 10);
          INSERT INTO project VALUES('p2', '/tmp/project-directories', 'Temporary', 15);
          INSERT INTO project VALUES('p3', '/tmp/manual', 'Manual project', 16);
+         INSERT INTO project VALUES('p4', 'C:/Users/Example/AppData/Local/Temp/opencode-test-long', 'Windows temporary', 17);
          INSERT INTO project VALUES('global', '/', 'Global', 20);
          INSERT INTO session VALUES('s1', 'p1', 30);
-         INSERT INTO session VALUES('s2', 'p2', 31);",
+         INSERT INTO session VALUES('s2', 'p2', 31);
+         INSERT INTO session VALUES('s4', 'p4', 32);",
     )
     .unwrap();
     drop(conn);
@@ -174,6 +176,14 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
         .unwrap();
     store
         .add_workspace("manual", "/tmp/manual", "Manual", "")
+        .unwrap();
+    store
+        .add_workspace(
+            "p4",
+            "C:/Users/Example/AppData/Local/Temp/opencode-test-long",
+            "Windows temporary",
+            "",
+        )
         .unwrap();
     assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 1);
     let workspaces = store.workspaces().unwrap();
@@ -187,6 +197,9 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
     assert!(!workspaces
         .iter()
         .any(|workspace| workspace.path == "/tmp/project-directories"));
+    assert!(!workspaces
+        .iter()
+        .any(|workspace| workspace.path.contains("AppData/Local/Temp")));
     store.save_workspace("p1", "S:/one", "Custom", "C").unwrap();
     assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 0);
     assert_eq!(
