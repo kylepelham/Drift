@@ -59,17 +59,42 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
 
 ## Engine update runbook
 
-1. `git fetch --no-tags https://github.com/sst/opencode.git dev` then
-   `git subtree merge --prefix engine/upstream FETCH_HEAD --squash`. Never plain
-   `git subtree pull`: it follows upstream's ~1000 release tags into the local repo,
-   and pushing any of them would trigger Drift's own `v*` release workflow.
-2. `bun install --ignore-scripts` inside `engine/upstream` (skips optional native grammars).
-3. `bun run test:engine` from the repo root. If an overlay no longer applies, refresh
+The `OpenCode update` workflow checks upstream `dev` every day at 06:17 UTC and can be
+run manually. When an update exists and no update pull request is open, it fetches into
+the dedicated `refs/remotes/opencode-update/dev` ref, creates or refreshes
+`automation/opencode-update`, opens one review pull request, and explicitly dispatches
+CI for that branch. It never merges the pull request. The repository Actions setting
+must allow GitHub Actions to create and approve pull requests.
+
+`engine/upstream.commit` records the imported upstream SHA outside the pristine subtree.
+Before each merge, automation updates that marker and writes the previous SHA into the
+subtree metadata commit. The marker survives normal, rebase, and squash PR merges, so the
+next update never depends on GitHub preserving intermediate subtree commits. The initial
+`5542415b6` baseline and merge process were validated against the existing vendored fixture
+adjustment; the resulting tree matches upstream exactly.
+
+For a manual update, reproduce the workflow's marker and metadata sequence:
+
+```bash
+git fetch --no-tags https://github.com/sst/opencode.git +dev:refs/remotes/opencode-update/dev
+current="$(tr -d '\r\n' < engine/upstream.commit)"
+latest="$(git rev-parse refs/remotes/opencode-update/dev)"
+printf '%s\n' "$latest" > engine/upstream.commit
+git add engine/upstream.commit
+git commit -m "Prepare vendored OpenCode update" -m "git-subtree-dir: engine/upstream" -m "git-subtree-split: $current"
+git subtree merge --prefix engine/upstream refs/remotes/opencode-update/dev --squash
+```
+
+Never use plain `git subtree pull`: it follows upstream's release tags into the local
+repo, and pushing those tags could trigger Drift's own `v*` release workflow.
+
+1. `bun install --ignore-scripts` inside `engine/upstream` (skips optional native grammars).
+2. `bun run test:engine` from the repo root. If an overlay no longer applies, refresh
    that isolated patch against the new source; never resolve it inside `engine/upstream`.
-4. `bun run build:engine` from the repo root to rebuild `src-tauri/binaries/drift-engine.exe`.
-5. Restart the dev loop or the app, then confirm the new version in Settings > About
+3. `bun run build:engine` from the repo root to rebuild `src-tauri/binaries/drift-engine.exe`.
+4. Restart the dev loop or the app, then confirm the new version in Settings > About
    (served live from `GET /global/health`).
-6. Smoke: send a prompt, run a tool, answer a permission. Schema errors mean step 4
+5. Smoke: send a prompt, run a tool, answer a permission. Schema errors mean step 3
    was skipped or failed.
 
 ## Surface used
