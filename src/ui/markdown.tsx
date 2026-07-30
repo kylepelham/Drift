@@ -259,23 +259,14 @@ export function fixEscapedEmphasis(text: string) {
 const urlPattern = /https?:\/\/[^\s<>"')\]]+/g
 const accidentalEntities: Record<string, string> = { "-": "&#45;", "=": "&#61;", "*": "&#42;", _: "&#95;" }
 
-// Human-typed prose: backslashes stay literal and accidental block/emphasis syntax is
-// neutralized, while fenced code, inline code, pipe tables, lists, and links keep rendering.
+// Preserve literal prose while retaining fences, inline code, tables, dash/number lists, and links.
 function humanizeProse(text: string) {
   return mapProseChunks(text, (chunk) =>
     chunk.replaceAll("\\", "&#92;").split("\n").map(neutralizeProseLine).join("\n"),
   )
 }
 
-/**
- * Keeps one line of human-typed prose literal where Markdown would misread it.
- *
- * Pasted terminal output is full of accidental syntax: `>` continuation prompts would become
- * blockquotes, `#` comments would become headings, and separator lines of `---` or `===` would
- * become horizontal rules or turn the line above into a Setext heading. Those markers are
- * replaced with entities so they stay visible text. Emphasis delimiters are escaped everywhere
- * except inside URLs, where `_` and `*` are ordinary path characters.
- */
+/** Neutralizes block and emphasis syntax commonly pasted from terminals or prose. */
 function neutralizeProseLine(line: string) {
   let result = line.replace(/^(\s{0,3})>/, "$1&gt;").replace(/^(\s{0,3})#(?=#{0,5}(\s|$))/, "$1&#35;")
   if (/^\s{0,3}[-=*_](\s*[-=*_])*\s*$/.test(result)) {
