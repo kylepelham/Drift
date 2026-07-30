@@ -86,6 +86,13 @@ stored locally as a capped data URL. Drift owns its English and 17 localized cat
 only the selected non-English catalog loads as a cached Vite chunk. Custom CSS
 persistence and application are debounced.
 
+The About section shows the app version, the live engine version, whether this copy can
+update itself, a link to driftagent.dev, and credit to OpenCode. Its jellyfish mascot
+imports three.js only on mount, as a lazy chunk outside the startup bundle, and reduced
+motion keeps the static logo instead. Leaving About cancels the frame loop, disposes the
+geometries, materials, and renderer, force-loses the WebGL context, and removes the
+canvas.
+
 Transcript scrolling unsticks on the first upward movement, including inside the
 bottom follow zone. Virtual row resize correction uses the measured row's real viewport
 position so a tall row cannot be mistaken for a short row above the viewport.
