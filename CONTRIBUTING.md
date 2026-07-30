@@ -81,11 +81,22 @@ source.
 
 ## Updating OpenCode
 
-Fetch upstream without tags and merge it through the subtree:
+The scheduled `OpenCode update` workflow opens one review pull request when upstream
+`dev` advances and can also be run manually. It uses a dedicated remote ref, records the
+imported SHA in `engine/upstream.commit`, dispatches CI for the generated branch, and never
+merges automatically. The marker keeps later updates reliable regardless of the PR merge
+strategy.
+
+A local update uses:
 
 ```bash
-git fetch --no-tags https://github.com/sst/opencode.git dev
-git subtree merge --prefix engine/upstream FETCH_HEAD --squash
+git fetch --no-tags https://github.com/sst/opencode.git +dev:refs/remotes/opencode-update/dev
+current="$(tr -d '\r\n' < engine/upstream.commit)"
+latest="$(git rev-parse refs/remotes/opencode-update/dev)"
+printf '%s\n' "$latest" > engine/upstream.commit
+git add engine/upstream.commit
+git commit -m "Prepare vendored OpenCode update" -m "git-subtree-dir: engine/upstream" -m "git-subtree-split: $current"
+git subtree merge --prefix engine/upstream refs/remotes/opencode-update/dev --squash
 bun install --ignore-scripts --cwd engine/upstream
 bun run test:engine
 bun run build:engine
