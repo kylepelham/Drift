@@ -67,6 +67,9 @@ Drift does not include paid model access. Provider accounts, terms, and usage ch
 still apply. Installed copies check the signed update manifest on startup; automatic
 checks can be disabled under **Settings > General**.
 
+See Drift's [privacy policy](PRIVACY.md) and [code signing policy](CODE_SIGNING.md) for
+details about network connections, local data, and official Windows releases.
+
 ## How it works
 
 ```text
@@ -161,6 +164,8 @@ substantial pull request.
 | [MCP approvals](docs/mcp.md) | MCP trust boundary, exact-definition decisions, reloads, and recovery |
 | [Drift store](docs/store.md) | SQLite schema, persistence, archive behavior, and workspace lifecycle |
 | [Theming](docs/theming.md) | Design tokens, built-in themes, fonts, and custom CSS |
+| [Privacy policy](PRIVACY.md) | Local data, network connections, and user control |
+| [Code signing policy](CODE_SIGNING.md) | Release signing process and responsible roles |
 
 ## Contributing
 
