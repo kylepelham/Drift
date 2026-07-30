@@ -118,6 +118,21 @@ test("human-typed prose renders shell transcripts and separators as written", as
   expect(notes).toContain("Deployment notes")
 })
 
+test("human-typed prose keeps pasted markup literal", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  const { marked } = await import("marked")
+  const paste = "<configuration>\n  <system.webServer>\n    <rewrite />\n  </system.webServer>\n</configuration>"
+  const html = marked.parse(prepareMarkdown(paste, true), { async: false })
+  expect(html).not.toMatch(/<(configuration|system\.webServer|rewrite)/)
+  expect(html).toContain("&lt;configuration")
+  const fenced = "```xml\n<configuration />\n```"
+  expect(prepareMarkdown(fenced, true)).toBe(fenced)
+
+  const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text()
+  expect(css).not.toMatch(/\.user-paste \{[^}]*max-height:/s)
+  expect(css).toMatch(/\.transcript-scroll \{[^}]*overflow-anchor: none/s)
+})
+
 test("human-typed prose still renders deliberate fences and tables", async () => {
   const { prepareMarkdown } = await import("../src/ui/markdown")
   const { marked } = await import("marked")
@@ -496,6 +511,46 @@ test("tall row measurement only compensates rows actually above the viewport", a
   const { resizeCompensation } = await import("../src/ui/chat")
   expect(resizeCompensation(96, 2000, 2100, 1000)).toBe(0)
   expect(resizeCompensation(96, 2000, 900, 1000)).toBe(1904)
+})
+
+test("virtual range clamps a stale scroll offset after a tall row collapses", async () => {
+  const { virtualRange } = await import("../src/ui/chat")
+  expect(virtualRange([0, 100, 450, 550], 5000, 800)).toEqual({ start: 0, end: 3 })
+  expect(virtualRange([0, 500, 1000, 1096], 5000, 400)).toEqual({ start: 0, end: 3 })
+})
+
+test("large multiline user content uses a full-height literal row estimate", async () => {
+  const { largeUserText } = await import("../src/ui/message")
+  expect(largeUserText("x".repeat(1999))).toBeFalse()
+  expect(largeUserText("x".repeat(2000))).toBeTrue()
+  expect(largeUserText(Array.from({ length: 40 }, () => "line").join("\n"))).toBeFalse()
+  expect(largeUserText(Array.from({ length: 41 }, () => "line").join("\n"))).toBeTrue()
+
+  const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text()
+  expect(css).toMatch(/\.user-paste \{[^}]*white-space: pre/s)
+  expect(css).toMatch(/\.user-paste \{[^}]*overflow-x: auto/s)
+  expect(css).toMatch(/\.user-paste \{[^}]*overflow-y: hidden/s)
+
+  const { estimatedTimelineRow } = await import("../src/ui/chat")
+  const entry = (text: string, generated = false) => ({
+    info: { id: "u1", role: "user", time: { created: 1 } },
+    parts: [{ type: "text", text, metadata: generated ? { generated: true } : undefined }],
+  }) as never
+  const long = Array.from({ length: 41 }, () => "line").join("\n")
+  expect(estimatedTimelineRow(entry(long))).toBe(915)
+  expect(estimatedTimelineRow(entry(long), 16)).toBe(1112)
+  expect(estimatedTimelineRow(entry(long, true))).toBe(967)
+})
+
+test("assistant row estimates account for wrapping and fenced code", async () => {
+  const { estimatedTimelineRow, estimateTextLines } = await import("../src/ui/chat")
+  expect(estimateTextLines("a".repeat(176), 88)).toBe(2)
+  expect(estimateTextLines("```text\n" + "a".repeat(176) + "\n```", 88)).toBe(3)
+  const entry = {
+    info: { id: "a1", role: "assistant", time: { created: 1 } },
+    parts: [{ type: "text", text: "a".repeat(849) }],
+  } as never
+  expect(estimatedTimelineRow(entry)).toBe(272)
 })
 
 test("thinking follows OpenCode's active user turn", async () => {

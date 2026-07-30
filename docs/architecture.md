@@ -87,15 +87,19 @@ only the selected non-English catalog loads as a cached Vite chunk. Custom CSS
 persistence and application are debounced.
 
 The About section shows the app version, the live engine version, whether this copy can
-update itself, a link to driftagent.dev, and credit to OpenCode. Its jellyfish mascot
-imports three.js only on mount, as a lazy chunk outside the startup bundle, and reduced
-motion keeps the static logo instead. Leaving About cancels the frame loop, disposes the
-geometries, materials, and renderer, force-loses the WebGL context, and removes the
-canvas.
+update itself, a link to driftagent.dev, and credit to OpenCode. Update capability loads
+once with the settings host and its row always occupies space. The jellyfish uses the
+same model and shaders as driftagent.dev and imports them with three.js only on mount, as
+a lazy chunk outside the startup bundle. A static logo occupies the frame until the first
+WebGL frame has rendered off-DOM. Reduced motion keeps that logo. Leaving About removes
+the canvas before cancelling the frame loop, disposing resources, and losing the context,
+so WebView2 cannot composite a cleared canvas over the next settings section.
 
 Transcript scrolling unsticks on the first upward movement, including inside the
 bottom follow zone. Virtual row resize correction uses the measured row's real viewport
-position so a tall row cannot be mistaken for a short row above the viewport.
+position so a tall row cannot be mistaken for a short row above the viewport. Range
+selection clamps stale browser scroll offsets to the current measured transcript height,
+preventing blank space when a tall row collapses.
 
 Busy turns derive an optional topic beside `Thinking` from the first heading in streamed
 reasoning text. The provider/model supplies that text; Drift recognizes the same HTML,
@@ -122,8 +126,15 @@ markers people paste by accident stay visible rather than becoming structure. A 
 `-` or `=` does not become a thematic break or Setext heading, and `*`, `_`, and `~~` do
 not italicize, bold, or strike text. Deliberate constructs still render: fenced code,
 inline code, pipe tables, `-` lists, and links, with URLs left unescaped so autolinks
-keep working. Assistant output is unaffected, and machine-written user-role text keeps
-full Markdown by carrying `metadata.generated` on its text part, which both spawn-thread
+keep working. Raw HTML and XML are escaped so pasted configuration stays literal instead
+of becoming transcript DOM. Human messages above 2,000 characters or 40 lines bypass
+Markdown and render as exact full-height preformatted text. Their initial virtual height
+comes from the known line count and code font size, while other rows estimate wrapped text,
+fenced code, and tool summaries from their content. A terminal dump is therefore never
+represented as a 96px row before measurement. The transcript remains the only vertical
+scroller and disables native browser anchoring because its virtualizer owns resize
+compensation. Assistant output is unaffected, and machine-written user-role text keeps full
+Markdown by carrying `metadata.generated` on its text part, which both spawn-thread
 producers set. Compaction summaries are assistant messages and were never affected.
 
 ## Updates
