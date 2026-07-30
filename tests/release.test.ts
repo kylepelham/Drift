@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { cleanModelNotes, previousReleaseTag, releaseNotesPrompt } from "../scripts/release-notes"
+import { cleanModelNotes, normalizeCommitLinks, previousReleaseTag, releaseNotesPrompt } from "../scripts/release-notes"
 
 test("release notes select the prior published tag", () => {
   expect(
@@ -24,4 +24,15 @@ test("release note prompts bound untrusted source material", () => {
 test("release note output removes a wrapping markdown fence", () => {
   expect(cleanModelNotes("```markdown\n## Improvements\n\n- Faster startup.\n```"))
     .toBe("## Improvements\n\n- Faster startup.")
+})
+
+test("release note commit links use the current repository", () => {
+  const notes = "Fixed startup. ([#226bfa6](https://github.com/drift-ai/drift/commit/226bfa6))"
+  expect(normalizeCommitLinks(notes, "kylepelham/Drift"))
+    .toBe("Fixed startup. ([226bfa6](https://github.com/kylepelham/Drift/commit/226bfa6))")
+})
+
+test("release note commit links retain mismatched references for review", () => {
+  const notes = "Fixed startup. ([226bfa6](https://github.com/example/wrong/commit/1234567))"
+  expect(normalizeCommitLinks(notes, "kylepelham/Drift")).toBe(notes)
 })
