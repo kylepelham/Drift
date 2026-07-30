@@ -251,6 +251,7 @@ export function createActions(
             "Start by forming a concise plan for the task, then carry it out.",
             `Task: ${task.trim()}`,
           ].join("\n\n"),
+          metadata: { generated: true },
         },
       ],
       model: options.model ?? undefined,

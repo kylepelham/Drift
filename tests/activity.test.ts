@@ -88,6 +88,52 @@ test("user markdown preserves literal Windows path backslashes", async () => {
   )
 })
 
+test("human-typed prose keeps accidental block markers literal", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  expect(prepareMarkdown("> quoted", true)).toBe("&gt; quoted")
+  expect(prepareMarkdown(">> continued", true)).toBe("&gt;> continued")
+  expect(prepareMarkdown("# comment", true)).toBe("&#35; comment")
+  expect(prepareMarkdown("#!/bin/sh", true)).toBe("#!/bin/sh")
+  expect(prepareMarkdown("-----", true)).toBe("&#45;----")
+  expect(prepareMarkdown("=====", true)).toBe("&#61;====")
+  expect(prepareMarkdown("snake_case_name and *glob*", true)).toBe("snake&#95;case&#95;name and &#42;glob&#42;")
+  expect(prepareMarkdown("~~kept~~", true)).toBe("&#126;&#126;kept&#126;&#126;")
+})
+
+test("human-typed prose renders shell transcripts and separators as written", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  const { marked } = await import("marked")
+  const url = "https://example.test/api/a_b?id=42"
+  const transcript = [`PS C:\\Demo> probe ${url}`, ">> retrying with diagnostic headers", `403 ${url}`].join("\n")
+  const html = marked.parse(prepareMarkdown(transcript, true), { async: false })
+  expect(html).not.toContain("<blockquote>")
+  expect(html).toContain(`href="${url}"`)
+
+  const notes = marked.parse(prepareMarkdown("Deployment notes\n----------------\nRestart it.", true), {
+    async: false,
+  })
+  expect(notes).not.toContain("<hr")
+  expect(notes).not.toContain("<h1")
+  expect(notes).not.toContain("<h2")
+  expect(notes).toContain("Deployment notes")
+})
+
+test("human-typed prose still renders deliberate fences and tables", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  const { marked } = await import("marked")
+  const fenced = "```powershell\n> $value = 1\n-----\n```"
+  expect(prepareMarkdown(fenced, true)).toBe(fenced)
+  const table = marked.parse(prepareMarkdown("| Name | State |\n| --- | --- |\n| a_b | ok |", true), { async: false })
+  expect(table).toContain("<table>")
+  expect(table).toContain("<td>a&#95;b</td>")
+})
+
+test("generated user-role seed prompts keep full markdown", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  const seed = "## Carried context\nUse the *active* summary."
+  expect(prepareMarkdown(seed)).toBe(seed)
+})
+
 test("progressive code chunks retain the complete file", async () => {
   const { codeChunks } = await import("../src/ui/markdown")
   const code = Array.from({ length: 401 }, (_, index) => `line ${index + 1}`).join("\n")
