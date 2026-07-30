@@ -116,6 +116,22 @@ copy, and revert action. Revert state comes from the engine session record; the 
 filters messages at that marker while `/undo` and `/redo` move it one user prompt at a
 time. Reverted prompt text is returned to the composer for editing.
 
+## Updates
+
+The updater only runs from an installed copy, detected by an `uninstall.exe` beside the
+executable. A locally built release binary lives in the cargo target directory, where an
+installer can never replace it, so offering an update there produced an endless prompt
+against a separately installed copy: the badge advertised the released version while the
+running executable and About kept reporting the older local build. Debug builds stay
+excluded as before, and About names the running kind so the two are never confused.
+
+Installing stops the engine sidecar between download and install, waiting for it to exit
+rather than only signalling it, because Windows keeps the executable locked until the
+process is gone. The plugin exits this process without firing `RunEvent::Exit`, so the
+sidecar would otherwise survive and hold `drift-engine.exe` locked while NSIS tried to
+replace it. An install that fails, most often a declined elevation prompt, leaves the app
+running, so the sidecar is started again from the parameters it was first launched with.
+
 ## Known constraints
 
 - REST calls are scoped to the per-directory instance; the event stream is global.

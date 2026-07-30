@@ -1,13 +1,33 @@
 //! Update check and install, delegated to the Tauri updater plugin.
 
+use std::path::Path;
+
+/// True when the executable sits in an NSIS-installed location next to its uninstaller.
+pub(crate) fn installed_alongside_uninstaller(exe: &Path) -> bool {
+    exe.parent()
+        .is_some_and(|dir| dir.join("uninstall.exe").is_file())
+}
+
+/// Debug builds and local release builds cannot update themselves.
+fn updatable() -> bool {
+    if cfg!(debug_assertions) {
+        return false;
+    }
+    std::env::current_exe()
+        .map(|exe| installed_alongside_uninstaller(&exe))
+        .unwrap_or(false)
+}
+
+/// Whether this build can update itself, surfaced in About so a local build is recognizable.
+#[tauri::command]
+pub(crate) fn update_support() -> bool {
+    updatable()
+}
+
 /// Returns the version of an available update, or `None` if the app is current.
-///
-/// Debug builds never check: a local build's version usually trails the latest release, so it
-/// would otherwise be offered an "update" that replaces the build under development. In release
-/// builds the plugin compares semver against the manifest and only offers strictly newer versions.
 #[tauri::command]
 pub(crate) async fn check_update(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    if cfg!(debug_assertions) {
+    if !updatable() {
         return Ok(None);
     }
     let updater = tauri_plugin_updater::UpdaterExt::updater(&app).map_err(|e| e.to_string())?;
@@ -15,13 +35,11 @@ pub(crate) async fn check_update(app: tauri::AppHandle) -> Result<Option<String>
     Ok(update.map(|u| u.version))
 }
 
-/// Downloads and installs the pending update, then restarts.
-///
-/// Never returns on success: `app.restart()` diverges, which is why there is no trailing `Ok(())`.
+/// Downloads the update, releases the sidecar executable, installs, and restarts.
 #[tauri::command]
 pub(crate) async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
-    if cfg!(debug_assertions) {
-        return Err("updates cannot be installed from debug builds".into());
+    if !updatable() {
+        return Err("updates can only be installed from an installed copy of Drift".into());
     }
     let updater = tauri_plugin_updater::UpdaterExt::updater(&app).map_err(|e| e.to_string())?;
     let update = updater
@@ -29,9 +47,14 @@ pub(crate) async fn install_update(app: tauri::AppHandle) -> Result<(), String> 
         .await
         .map_err(|e| e.to_string())?
         .ok_or("no update available")?;
-    update
-        .download_and_install(|_, _| {}, || {})
+    let bytes = update
+        .download(|_, _| {}, || {})
         .await
         .map_err(|e| e.to_string())?;
+    crate::engine::stop_engine_child(&app);
+    if let Err(error) = update.install(bytes) {
+        crate::engine::respawn_engine(&app);
+        return Err(error.to_string());
+    }
     app.restart();
 }
