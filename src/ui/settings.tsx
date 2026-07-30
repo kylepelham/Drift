@@ -107,6 +107,7 @@ import {
   IconX,
 } from "./icons"
 import { readDataUrl } from "./files"
+import { Jellyfish } from "./jellyfish"
 import { SettingsGroup, SettingsRow } from "./settings-controls"
 import { StorageSection } from "./settings-storage"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
@@ -1348,22 +1349,67 @@ function agentConfig(agent: Agent | undefined, snapshot: PromptSnapshot | null, 
   }
 }
 
+const websiteUrl = "https://driftagent.dev"
+
 function AboutSection() {
   const engine = useEngine()
-  const engineVersion =
+  const [installed, setInstalled] = createSignal<boolean | undefined>()
+  const engineVersion = () =>
     engine.state.version || (engine.state.startupError ? t("drift.about.failed") : t("drift.about.starting"))
+
+  onMount(() => {
+    void shellInvoke()?.("update_support")
+      .then((supported) => setInstalled(supported === true))
+      .catch(() => {})
+  })
+
   return (
-    <div class="space-y-1 px-3 text-sm text-ink-muted select-text">
-      <div>{t("drift.about.description")}</div>
-      <div class="text-xs text-ink-faint">
-        {t("drift.about.version", { version: __DRIFT_VERSION__ })}
+    <div class="space-y-6 select-text">
+      <div class="flex flex-col items-center gap-2 text-center">
+        <Jellyfish class="size-32" />
+        <div class="drift-wordmark text-base">drift</div>
+        <p class="max-w-xs text-[0.76rem] leading-relaxed text-ink-muted">{t("drift.about.description")}</p>
       </div>
-      <div class="text-xs text-ink-faint">
-        {t("drift.about.engine", { version: engineVersion })}
-      </div>
-      <Show when={engine.state.startupError}>
-        <div class="text-xs text-danger">{engine.state.startupError}</div>
-      </Show>
+
+      <SettingsGroup title={t("drift.about.group.build")}>
+        <SettingsRow title={t("drift.about.row.app.title")} description={t("drift.about.row.app.description")}>
+          <span class="font-mono text-[0.75rem] text-ink-muted">{__DRIFT_VERSION__}</span>
+        </SettingsRow>
+        <SettingsRow title={t("drift.about.row.engine.title")} description={t("drift.about.row.engine.description")}>
+          <span class="font-mono text-[0.75rem] text-ink-muted">{engineVersion()}</span>
+        </SettingsRow>
+        <Show when={installed() !== undefined}>
+          <SettingsRow
+            title={t("drift.about.row.updates.title")}
+            description={installed() ? t("drift.about.row.updates.installed") : t("drift.about.row.updates.local")}
+          >
+            <span class="text-[0.75rem] text-ink-muted">
+              {installed() ? t("drift.about.updates.available") : t("drift.about.updates.unavailable")}
+            </span>
+          </SettingsRow>
+        </Show>
+        <Show when={engine.state.startupError}>
+          <div class="px-1 py-2.5 text-[0.72rem] leading-relaxed text-danger">{engine.state.startupError}</div>
+        </Show>
+      </SettingsGroup>
+
+      <SettingsGroup title={t("drift.about.group.links")}>
+        <SettingsRow title={t("drift.about.row.website.title")} description={t("drift.about.row.website.description")}>
+          <button
+            class="rounded border border-edge px-2 py-1 text-[0.72rem] text-accent hover:bg-raised"
+            onClick={() => openExternal(websiteUrl)}
+          >
+            driftagent.dev
+          </button>
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={t("drift.about.group.credits")}>
+        <div class="space-y-2 px-1 py-2.5 text-[0.74rem] leading-relaxed text-ink-muted">
+          <p>{t("drift.about.credits.engine")}</p>
+          <p>{t("drift.about.credits.ui")}</p>
+        </div>
+      </SettingsGroup>
     </div>
   )
 }
