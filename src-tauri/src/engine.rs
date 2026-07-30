@@ -8,6 +8,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::{Manager, State};
 
@@ -28,6 +29,8 @@ pub(crate) struct Engine {
     pub(crate) password: String,
     /// How the engine was launched, so a caller that stops it can start an equivalent one.
     launch: Mutex<Option<(bool, PathBuf)>>,
+    /// Bumped per spawn so a stopped engine's reader cannot publish over its replacement.
+    generation: AtomicU64,
 }
 
 impl Default for Engine {
@@ -40,6 +43,7 @@ impl Default for Engine {
             diagnostic: Mutex::new(String::new()),
             password: bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
             launch: Mutex::new(None),
+            generation: AtomicU64::new(0),
         }
     }
 }
@@ -123,7 +127,11 @@ pub(crate) fn engine_extensions() -> Option<std::path::PathBuf> {
 }
 
 pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_dir: PathBuf) {
-    *app.state::<Engine>().launch.lock().unwrap() = Some((shared_database, config_dir.clone()));
+    let generation = {
+        let engine = app.state::<Engine>();
+        *engine.launch.lock().unwrap() = Some((shared_database, config_dir.clone()));
+        engine.generation.fetch_add(1, Ordering::SeqCst) + 1
+    };
     std::thread::spawn(move || {
         let Some(binary) = engine_binary() else {
             *app.state::<Engine>().diagnostic.lock().unwrap() =
@@ -177,13 +185,19 @@ pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_
             });
         }
         let Some(stdout) = stdout else { return };
+        let current = || app.state::<Engine>().generation.load(Ordering::SeqCst) == generation;
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             if let Some(index) = line.find("http://") {
                 let engine = app.state::<Engine>();
-                *engine.url.lock().unwrap() = Some(line[index..].trim().to_string());
+                if current() {
+                    *engine.url.lock().unwrap() = Some(line[index..].trim().to_string());
+                }
             }
         }
-        *app.state::<Engine>().url.lock().unwrap() = None;
+        // A superseded engine must not report its own exit as the current engine going down.
+        if current() {
+            *app.state::<Engine>().url.lock().unwrap() = None;
+        }
     });
 }
 
