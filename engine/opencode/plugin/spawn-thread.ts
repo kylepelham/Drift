@@ -93,7 +93,12 @@ export const SpawnThread: Plugin = async ({ client }) => ({
         try {
           prompted = await client.session.promptAsync({
             path: { id: session.id },
-            body: { messageID: seedMessageID, parts: [{ type: "text", text: seed }], model, agent: ctx.agent },
+            body: {
+              messageID: seedMessageID,
+              parts: [{ type: "text", text: seed, metadata: { generated: true } }],
+              model,
+              agent: ctx.agent,
+            },
             query: { directory },
           })
         } catch (error) {

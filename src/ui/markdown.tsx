@@ -256,8 +256,42 @@ export function fixEscapedEmphasis(text: string) {
   )
 }
 
-function preserveLiteralBackslashes(text: string) {
-  return mapProseChunks(text, (chunk) => chunk.replaceAll("\\", "&#92;"))
+const urlPattern = /https?:\/\/[^\s<>"')\]]+/g
+const accidentalEntities: Record<string, string> = { "-": "&#45;", "=": "&#61;", "*": "&#42;", _: "&#95;" }
+
+// Human-typed prose: backslashes stay literal and accidental block/emphasis syntax is
+// neutralized, while fenced code, inline code, pipe tables, lists, and links keep rendering.
+function humanizeProse(text: string) {
+  return mapProseChunks(text, (chunk) =>
+    chunk.replaceAll("\\", "&#92;").split("\n").map(neutralizeProseLine).join("\n"),
+  )
+}
+
+/**
+ * Keeps one line of human-typed prose literal where Markdown would misread it.
+ *
+ * Pasted terminal output is full of accidental syntax: `>` continuation prompts would become
+ * blockquotes, `#` comments would become headings, and separator lines of `---` or `===` would
+ * become horizontal rules or turn the line above into a Setext heading. Those markers are
+ * replaced with entities so they stay visible text. Emphasis delimiters are escaped everywhere
+ * except inside URLs, where `_` and `*` are ordinary path characters.
+ */
+function neutralizeProseLine(line: string) {
+  let result = line.replace(/^(\s{0,3})>/, "$1&gt;").replace(/^(\s{0,3})#(?=#{0,5}(\s|$))/, "$1&#35;")
+  if (/^\s{0,3}[-=*_](\s*[-=*_])*\s*$/.test(result)) {
+    result = result.replace(/[-=*_]/, (marker) => accidentalEntities[marker])
+  }
+  let escaped = ""
+  let cursor = 0
+  for (const match of result.matchAll(urlPattern)) {
+    escaped += escapeEmphasis(result.slice(cursor, match.index)) + match[0]
+    cursor = match.index + match[0].length
+  }
+  return escaped + escapeEmphasis(result.slice(cursor))
+}
+
+function escapeEmphasis(text: string) {
+  return text.replaceAll("*", "&#42;").replaceAll("_", "&#95;").replaceAll("~~", "&#126;&#126;")
 }
 
 const voidHtml = new Set([
@@ -343,8 +377,8 @@ function escapeUnbalancedHtmlChunk(text: string) {
   return result + text.slice(cursor)
 }
 
-export function prepareMarkdown(text: string, literalBackslashes = false) {
-  return escapeUnbalancedHtml(literalBackslashes ? preserveLiteralBackslashes(text) : fixEscapedEmphasis(text))
+export function prepareMarkdown(text: string, humanAuthored = false) {
+  return escapeUnbalancedHtml(humanAuthored ? humanizeProse(text) : fixEscapedEmphasis(text))
 }
 
 function openExternalLink(event: MouseEvent) {
@@ -487,11 +521,11 @@ export function ProgressiveCodeView(props: { code: string; lang: string }) {
   )
 }
 
-export function Markdown(props: { text: string; done?: boolean; literalBackslashes?: boolean }) {
+export function Markdown(props: { text: string; done?: boolean; humanAuthored?: boolean }) {
   let root!: HTMLDivElement
   let request = 0
   const html = createMemo(() =>
-    DOMPurify.sanitize(marked.parse(prepareMarkdown(props.text, props.literalBackslashes), { async: false })),
+    DOMPurify.sanitize(marked.parse(prepareMarkdown(props.text, props.humanAuthored), { async: false })),
   )
   createEffect(() => {
     const source = html()

@@ -72,6 +72,8 @@ function UserBubble(props: { entry: MessageEntry }) {
   const engine = useEngine()
   const info = () => props.entry.info as UserMessage
   const text = () => messageText(props.entry)
+  // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
+  const generated = () => props.entry.parts.some((part) => part.type === "text" && part.metadata?.generated === true)
   const files = () => props.entry.parts.filter((part) => part.type === "file")
   const compactions = () => compactionParts(props.entry)
   const model = () => modelInfo(engine.state, info().model)?.name ?? info().model.modelID
@@ -92,7 +94,7 @@ function UserBubble(props: { entry: MessageEntry }) {
           </Show>
           <Show when={text()}>
             <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
-              <Markdown text={text()} done literalBackslashes />
+              <Markdown text={text()} done humanAuthored={!generated()} />
             </div>
           </Show>
           <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
