@@ -8,6 +8,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::{Manager, State};
 
@@ -26,6 +27,10 @@ pub(crate) struct Engine {
     diagnostic: Mutex<String>,
     /// Random per run; the frontend receives it from `engine_status` and uses it for basic auth.
     pub(crate) password: String,
+    /// How the engine was launched, so a caller that stops it can start an equivalent one.
+    launch: Mutex<Option<(bool, PathBuf)>>,
+    /// Bumped per spawn so a stopped engine's reader cannot publish over its replacement.
+    generation: AtomicU64,
 }
 
 impl Default for Engine {
@@ -37,6 +42,8 @@ impl Default for Engine {
             child: Mutex::new(None),
             diagnostic: Mutex::new(String::new()),
             password: bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+            launch: Mutex::new(None),
+            generation: AtomicU64::new(0),
         }
     }
 }
@@ -120,10 +127,19 @@ pub(crate) fn engine_extensions() -> Option<std::path::PathBuf> {
 }
 
 pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_dir: PathBuf) {
+    let generation = {
+        let engine = app.state::<Engine>();
+        *engine.launch.lock().unwrap() = Some((shared_database, config_dir.clone()));
+        let generation = engine.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        engine.diagnostic.lock().unwrap().clear();
+        generation
+    };
     std::thread::spawn(move || {
         let Some(binary) = engine_binary() else {
-            *app.state::<Engine>().diagnostic.lock().unwrap() =
-                "embedded engine binary not found".into();
+            let engine = app.state::<Engine>();
+            if engine.generation.load(Ordering::SeqCst) == generation {
+                *engine.diagnostic.lock().unwrap() = "embedded engine binary not found".into();
+            }
             return;
         };
         let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME"));
@@ -153,34 +169,74 @@ pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(error) => {
-                *app.state::<Engine>().diagnostic.lock().unwrap() =
-                    format!("failed to start embedded engine: {error}");
+                let engine = app.state::<Engine>();
+                if engine.generation.load(Ordering::SeqCst) == generation {
+                    *engine.diagnostic.lock().unwrap() =
+                        format!("failed to start embedded engine: {error}");
+                }
                 return;
             }
         };
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let engine = app.state::<Engine>();
-        *engine.child.lock().unwrap() = Some(child);
+        let mut slot = engine.child.lock().unwrap();
+        if engine.generation.load(Ordering::SeqCst) != generation || slot.is_some() {
+            drop(slot);
+            let _ = child.kill();
+            let _ = child.wait();
+            return;
+        }
+        *slot = Some(child);
+        drop(slot);
         if let Some(stderr) = stderr {
             let diagnostics_app = app.clone();
             std::thread::spawn(move || {
                 for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                    if !line.trim().is_empty() {
-                        *diagnostics_app.state::<Engine>().diagnostic.lock().unwrap() = line;
+                    let engine = diagnostics_app.state::<Engine>();
+                    if engine.generation.load(Ordering::SeqCst) == generation
+                        && !line.trim().is_empty()
+                    {
+                        *engine.diagnostic.lock().unwrap() = line;
                     }
                 }
             });
         }
         let Some(stdout) = stdout else { return };
+        let current = || app.state::<Engine>().generation.load(Ordering::SeqCst) == generation;
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             if let Some(index) = line.find("http://") {
                 let engine = app.state::<Engine>();
-                *engine.url.lock().unwrap() = Some(line[index..].trim().to_string());
+                if current() {
+                    *engine.url.lock().unwrap() = Some(line[index..].trim().to_string());
+                }
             }
         }
-        *app.state::<Engine>().url.lock().unwrap() = None;
+        // A superseded engine must not report its own exit as the current engine going down.
+        if current() {
+            *app.state::<Engine>().url.lock().unwrap() = None;
+        }
     });
+}
+
+/// Stops the sidecar and waits until Windows releases the executable lock.
+pub(crate) fn stop_engine_child(app: &tauri::AppHandle) {
+    let engine = app.state::<Engine>();
+    engine.generation.fetch_add(1, Ordering::SeqCst);
+    let child = engine.child.lock().unwrap().take();
+    if let Some(mut child) = child {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    *engine.url.lock().unwrap() = None;
+}
+
+/// Starts a replacement sidecar using the parameters the first one was launched with.
+pub(crate) fn respawn_engine(app: &tauri::AppHandle) {
+    let launch = app.state::<Engine>().launch.lock().unwrap().clone();
+    if let Some((shared_database, config_dir)) = launch {
+        spawn_engine(app.clone(), shared_database, config_dir);
+    }
 }
 
 pub(crate) fn stop_engine_instances(app: &tauri::AppHandle) -> Result<(), String> {
