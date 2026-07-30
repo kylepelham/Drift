@@ -2,18 +2,13 @@
 
 use std::path::Path;
 
-/// True when the executable sits in an NSIS-installed location (next to its uninstaller).
-///
-/// Local release builds run from a cargo target directory. The installer can never replace
-/// them, so offering updates there produces an endless "update available" loop against the
-/// separately installed copy.
+/// True when the executable sits in an NSIS-installed location next to its uninstaller.
 pub(crate) fn installed_alongside_uninstaller(exe: &Path) -> bool {
     exe.parent()
         .is_some_and(|dir| dir.join("uninstall.exe").is_file())
 }
 
-/// Debug builds never update: a local build's version usually trails the latest release, so it
-/// would otherwise be offered an "update" that replaces the build under development.
+/// Debug builds and local release builds cannot update themselves.
 fn updatable() -> bool {
     if cfg!(debug_assertions) {
         return false;
@@ -40,16 +35,7 @@ pub(crate) async fn check_update(app: tauri::AppHandle) -> Result<Option<String>
     Ok(update.map(|u| u.version))
 }
 
-/// Downloads and installs the pending update, then restarts.
-///
-/// The engine sidecar is stopped between download and install: the NSIS run replaces files in
-/// the install directory, and on Windows the plugin exits this process without firing
-/// `RunEvent::Exit`, so the sidecar would otherwise survive and hold `drift-engine.exe` locked.
-/// A failed install (a declined elevation prompt, most often) leaves the app running, so the
-/// sidecar is started again rather than leaving a live app with no engine.
-///
-/// Never returns on success: the installer exits the process on Windows and `app.restart()`
-/// diverges elsewhere, which is why there is no trailing `Ok(())`.
+/// Downloads the update, releases the sidecar executable, installs, and restarts.
 #[tauri::command]
 pub(crate) async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     if !updatable() {

@@ -130,12 +130,16 @@ pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_
     let generation = {
         let engine = app.state::<Engine>();
         *engine.launch.lock().unwrap() = Some((shared_database, config_dir.clone()));
-        engine.generation.fetch_add(1, Ordering::SeqCst) + 1
+        let generation = engine.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        engine.diagnostic.lock().unwrap().clear();
+        generation
     };
     std::thread::spawn(move || {
         let Some(binary) = engine_binary() else {
-            *app.state::<Engine>().diagnostic.lock().unwrap() =
-                "embedded engine binary not found".into();
+            let engine = app.state::<Engine>();
+            if engine.generation.load(Ordering::SeqCst) == generation {
+                *engine.diagnostic.lock().unwrap() = "embedded engine binary not found".into();
+            }
             return;
         };
         let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME"));
@@ -165,21 +169,35 @@ pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(error) => {
-                *app.state::<Engine>().diagnostic.lock().unwrap() =
-                    format!("failed to start embedded engine: {error}");
+                let engine = app.state::<Engine>();
+                if engine.generation.load(Ordering::SeqCst) == generation {
+                    *engine.diagnostic.lock().unwrap() =
+                        format!("failed to start embedded engine: {error}");
+                }
                 return;
             }
         };
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let engine = app.state::<Engine>();
-        *engine.child.lock().unwrap() = Some(child);
+        let mut slot = engine.child.lock().unwrap();
+        if engine.generation.load(Ordering::SeqCst) != generation || slot.is_some() {
+            drop(slot);
+            let _ = child.kill();
+            let _ = child.wait();
+            return;
+        }
+        *slot = Some(child);
+        drop(slot);
         if let Some(stderr) = stderr {
             let diagnostics_app = app.clone();
             std::thread::spawn(move || {
                 for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                    if !line.trim().is_empty() {
-                        *diagnostics_app.state::<Engine>().diagnostic.lock().unwrap() = line;
+                    let engine = diagnostics_app.state::<Engine>();
+                    if engine.generation.load(Ordering::SeqCst) == generation
+                        && !line.trim().is_empty()
+                    {
+                        *engine.diagnostic.lock().unwrap() = line;
                     }
                 }
             });
@@ -201,12 +219,10 @@ pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_
     });
 }
 
-/// Stops the sidecar and waits for it to actually exit.
-///
-/// `kill` only signals; on Windows the executable stays locked until the process is gone, which
-/// would defeat an installer trying to replace `drift-engine.exe`.
+/// Stops the sidecar and waits until Windows releases the executable lock.
 pub(crate) fn stop_engine_child(app: &tauri::AppHandle) {
     let engine = app.state::<Engine>();
+    engine.generation.fetch_add(1, Ordering::SeqCst);
     let child = engine.child.lock().unwrap().take();
     if let Some(mut child) = child {
         let _ = child.kill();
