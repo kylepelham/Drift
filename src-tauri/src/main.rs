@@ -38,6 +38,7 @@ fn main() {
             engine::engine_status,
             updater::check_update,
             updater::install_update,
+            updater::update_support,
             clipboard::clipboard_write_text,
             config::config_read,
             editor::pick_folder,
