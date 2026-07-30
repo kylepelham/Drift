@@ -116,6 +116,16 @@ copy, and revert action. Revert state comes from the engine session record; the 
 filters messages at that marker while `/undo` and `/redo` move it one user prompt at a
 time. Reverted prompt text is returned to the composer for editing.
 
+Human-typed prompts render with conservative Markdown: backslashes stay literal, and the
+markers people paste by accident stay visible rather than becoming structure. A leading
+`>` does not open a blockquote, a leading `#` does not become a heading, a line of only
+`-` or `=` does not become a thematic break or Setext heading, and `*`, `_`, and `~~` do
+not italicize, bold, or strike text. Deliberate constructs still render: fenced code,
+inline code, pipe tables, `-` lists, and links, with URLs left unescaped so autolinks
+keep working. Assistant output is unaffected, and machine-written user-role text keeps
+full Markdown by carrying `metadata.generated` on its text part, which both spawn-thread
+producers set. Compaction summaries are assistant messages and were never affected.
+
 ## Updates
 
 The updater only runs from an installed copy, detected by an `uninstall.exe` beside the
