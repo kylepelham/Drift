@@ -1384,7 +1384,7 @@ function AboutSection() {
             description={installed() ? t("drift.about.row.updates.installed") : t("drift.about.row.updates.local")}
           >
             <span class="text-[0.75rem] text-ink-muted">
-              {installed() ? t("drift.about.updates.enabled") : t("drift.about.updates.disabled")}
+              {installed() ? t("drift.about.updates.available") : t("drift.about.updates.unavailable")}
             </span>
           </SettingsRow>
         </Show>

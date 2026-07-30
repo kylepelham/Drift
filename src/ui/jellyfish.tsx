@@ -15,18 +15,7 @@ export function Jellyfish(props: { class?: string }) {
 
   onMount(() => {
     if (!canAnimate()) return
-    let dispose: (() => void) | undefined
-    let cancelled = false
-    void createScene(host)
-      .then((created) => {
-        if (cancelled || !created) return setFallback(true)
-        dispose = created
-      })
-      .catch(() => setFallback(true))
-    onCleanup(() => {
-      cancelled = true
-      dispose?.()
-    })
+    onCleanup(mountScene(() => createScene(host), () => setFallback(true)))
   })
 
   return (
@@ -41,6 +30,30 @@ export function Jellyfish(props: { class?: string }) {
 /** Reduced motion keeps the static logo: no context, no frame loop, nothing to tear down. */
 function canAnimate() {
   return !globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+}
+
+/**
+ * Starts a scene and returns its cleanup, disposing a scene that arrives after cleanup ran.
+ *
+ * Unmounting during the `three` import is the common case: settings closes before a cold chunk
+ * finishes loading. The scene is fully built by then, so dropping the resolved dispose would leak
+ * a live renderer, its frame loop, and its listeners with nothing left holding a reference.
+ */
+export function mountScene(load: () => Promise<(() => void) | undefined>, onFallback: () => void) {
+  let dispose: (() => void) | undefined
+  let cancelled = false
+  void load()
+    .then((created) => {
+      if (!created) return cancelled || onFallback()
+      if (cancelled) return created()
+      dispose = created
+    })
+    .catch(() => cancelled || onFallback())
+  return () => {
+    cancelled = true
+    dispose?.()
+    dispose = undefined
+  }
 }
 
 const bellColor = 0x8fd9fb
