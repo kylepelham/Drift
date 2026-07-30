@@ -5,6 +5,7 @@ use crate::clipboard::clipboard_utf16;
 use crate::config::config_path;
 use crate::editor::{editor_arguments, editor_kind, EditorKind};
 use crate::engine::{basic_authorization, Engine};
+use crate::updater::installed_alongside_uninstaller;
 use crate::watcher::{file_signatures, watched_mcp_paths};
 use std::path::Path;
 
@@ -48,6 +49,21 @@ fn engine_credentials_are_random_and_basic_auth_encoded() {
     assert_eq!(first.len(), 64);
     assert_ne!(first, second);
     assert_eq!(basic_authorization("user", "pass"), "dXNlcjpwYXNz");
+}
+
+#[test]
+fn updates_are_only_offered_next_to_the_uninstaller() {
+    let root = std::env::temp_dir().join(format!("drift-updater-test-{}", std::process::id()));
+    std::fs::remove_dir_all(&root).ok();
+    let installed = root.join("installed");
+    let portable = root.join("target/release");
+    std::fs::create_dir_all(&installed).unwrap();
+    std::fs::create_dir_all(&portable).unwrap();
+    std::fs::write(installed.join("uninstall.exe"), "nsis").unwrap();
+    assert!(installed_alongside_uninstaller(&installed.join("drift.exe")));
+    assert!(!installed_alongside_uninstaller(&portable.join("drift.exe")));
+    assert!(!installed_alongside_uninstaller(Path::new("drift.exe")));
+    std::fs::remove_dir_all(root).ok();
 }
 
 #[test]
