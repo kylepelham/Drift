@@ -1,14 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js"
 import { DriftLogo } from "./logo"
 
-/**
- * The About page mascot: a procedural jellyfish, the same idea as the one on driftagent.dev.
- *
- * three.js is imported only when this mounts, so nothing WebGL related is in the startup bundle.
- * Everything the scene allocates is released again in `dispose`: the frame loop is cancelled, the
- * GPU resources are disposed, the context is force-lost, and the canvas leaves the DOM. Closing
- * settings therefore leaves no renderer, no context, and no running animation behind.
- */
+/** The About mascot loads three.js lazily and disposes every scene resource on cleanup. */
 export function Jellyfish(props: { class?: string }) {
   const [fallback, setFallback] = createSignal(!canAnimate())
   let host!: HTMLDivElement
@@ -32,13 +25,7 @@ function canAnimate() {
   return !globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches
 }
 
-/**
- * Starts a scene and returns its cleanup, disposing a scene that arrives after cleanup ran.
- *
- * Unmounting during the `three` import is the common case: settings closes before a cold chunk
- * finishes loading. The scene is fully built by then, so dropping the resolved dispose would leak
- * a live renderer, its frame loop, and its listeners with nothing left holding a reference.
- */
+/** Disposes a scene that finishes loading after its host has unmounted. */
 export function mountScene(load: () => Promise<(() => void) | undefined>, onFallback: () => void) {
   let dispose: (() => void) | undefined
   let cancelled = false
@@ -74,7 +61,7 @@ async function createScene(host: HTMLElement) {
 
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100)
-  camera.position.set(0, 0.15, 5.2)
+  camera.position.set(0, -0.45, 6.2)
   scene.add(new THREE.AmbientLight(0xffffff, 1.1))
   const key = new THREE.DirectionalLight(0xffffff, 1.4)
   key.position.set(1.4, 2.2, 2.6)
