@@ -1,7 +1,6 @@
 //! Update check and install, delegated to the Tauri updater plugin.
 
 use std::path::Path;
-use tauri::Manager;
 
 /// True when the executable sits in an NSIS-installed location (next to its uninstaller).
 ///
@@ -43,9 +42,11 @@ pub(crate) async fn check_update(app: tauri::AppHandle) -> Result<Option<String>
 
 /// Downloads and installs the pending update, then restarts.
 ///
-/// The engine sidecar is killed between download and install: the NSIS run replaces files in
+/// The engine sidecar is stopped between download and install: the NSIS run replaces files in
 /// the install directory, and on Windows the plugin exits this process without firing
 /// `RunEvent::Exit`, so the sidecar would otherwise survive and hold `drift-engine.exe` locked.
+/// A failed install (a declined elevation prompt, most often) leaves the app running, so the
+/// sidecar is started again rather than leaving a live app with no engine.
 ///
 /// Never returns on success: the installer exits the process on Windows and `app.restart()`
 /// diverges elsewhere, which is why there is no trailing `Ok(())`.
@@ -64,10 +65,10 @@ pub(crate) async fn install_update(app: tauri::AppHandle) -> Result<(), String> 
         .download(|_, _| {}, || {})
         .await
         .map_err(|e| e.to_string())?;
-    let child = app.state::<crate::engine::Engine>().child.lock().unwrap().take();
-    if let Some(mut child) = child {
-        let _ = child.kill();
+    crate::engine::stop_engine_child(&app);
+    if let Err(error) = update.install(bytes) {
+        crate::engine::respawn_engine(&app);
+        return Err(error.to_string());
     }
-    update.install(bytes).map_err(|e| e.to_string())?;
     app.restart();
 }

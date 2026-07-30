@@ -26,6 +26,8 @@ pub(crate) struct Engine {
     diagnostic: Mutex<String>,
     /// Random per run; the frontend receives it from `engine_status` and uses it for basic auth.
     pub(crate) password: String,
+    /// How the engine was launched, so a caller that stops it can start an equivalent one.
+    launch: Mutex<Option<(bool, PathBuf)>>,
 }
 
 impl Default for Engine {
@@ -37,6 +39,7 @@ impl Default for Engine {
             child: Mutex::new(None),
             diagnostic: Mutex::new(String::new()),
             password: bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+            launch: Mutex::new(None),
         }
     }
 }
@@ -120,6 +123,7 @@ pub(crate) fn engine_extensions() -> Option<std::path::PathBuf> {
 }
 
 pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_dir: PathBuf) {
+    *app.state::<Engine>().launch.lock().unwrap() = Some((shared_database, config_dir.clone()));
     std::thread::spawn(move || {
         let Some(binary) = engine_binary() else {
             *app.state::<Engine>().diagnostic.lock().unwrap() =
@@ -181,6 +185,28 @@ pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_
         }
         *app.state::<Engine>().url.lock().unwrap() = None;
     });
+}
+
+/// Stops the sidecar and waits for it to actually exit.
+///
+/// `kill` only signals; on Windows the executable stays locked until the process is gone, which
+/// would defeat an installer trying to replace `drift-engine.exe`.
+pub(crate) fn stop_engine_child(app: &tauri::AppHandle) {
+    let engine = app.state::<Engine>();
+    let child = engine.child.lock().unwrap().take();
+    if let Some(mut child) = child {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    *engine.url.lock().unwrap() = None;
+}
+
+/// Starts a replacement sidecar using the parameters the first one was launched with.
+pub(crate) fn respawn_engine(app: &tauri::AppHandle) {
+    let launch = app.state::<Engine>().launch.lock().unwrap().clone();
+    if let Some((shared_database, config_dir)) = launch {
+        spawn_engine(app.clone(), shared_database, config_dir);
+    }
 }
 
 pub(crate) fn stop_engine_instances(app: &tauri::AppHandle) -> Result<(), String> {

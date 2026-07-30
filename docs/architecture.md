@@ -118,9 +118,12 @@ against a separately installed copy: the badge advertised the released version w
 running executable and About kept reporting the older local build. Debug builds stay
 excluded as before, and About names the running kind so the two are never confused.
 
-Installing kills the engine sidecar between download and install. The Windows plugin
-exits the process without firing `RunEvent::Exit`, so the sidecar would otherwise survive
-and hold `drift-engine.exe` locked while NSIS tried to replace it.
+Installing stops the engine sidecar between download and install, waiting for it to exit
+rather than only signalling it, because Windows keeps the executable locked until the
+process is gone. The plugin exits this process without firing `RunEvent::Exit`, so the
+sidecar would otherwise survive and hold `drift-engine.exe` locked while NSIS tried to
+replace it. An install that fails, most often a declined elevation prompt, leaves the app
+running, so the sidecar is started again from the parameters it was first launched with.
 
 ## Known constraints
 
