@@ -2,6 +2,15 @@ import { createOpencodeClient, type OpencodeClient, type Permission, type Sessio
 import { createOpencodeClient as createControlClient } from "@opencode-ai/sdk/v2/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
+import {
+  beginPermissionReply,
+  clearPermissionAttention,
+  clearPermissionAttentionFor,
+  failPermissionReply,
+  observePermission,
+  prunePermissionAttention,
+  type DriftPermission,
+} from "../state/permission-attention"
 import { sleep, type EngineTarget } from "./connection"
 import { pushNotice } from "./events"
 import type { MessageEntry } from "./store"
@@ -39,6 +48,7 @@ type PermissionRequest = {
   sessionID: string
   permission: string
   patterns?: string[]
+  always?: string[]
   metadata?: Record<string, unknown>
   tool?: { messageID: string; callID: string }
 }
@@ -52,7 +62,7 @@ function toPermission(request: PermissionRequest, directory: string): Permission
     messageID: request.tool?.messageID ?? "",
     callID: request.tool?.callID,
     title: String(request.metadata?.title ?? request.permission),
-    metadata: { ...request.metadata, directory },
+    metadata: { ...request.metadata, ...(request.always ? { always: request.always } : {}), directory },
     time: { created: Date.now() },
   }
 }
@@ -79,6 +89,7 @@ export function createActions(
   const abortPollMs = 100
   const moveNoticeDurationMs = 8000
   const askPollTimeoutMs = 8000
+  const permissionReplyTimeoutMs = 8000
   let allSessionsRequest: Promise<void> | undefined
   const transcriptRequests = new Map<string, Promise<boolean>>()
   const permissionReplies = new Map<string, Promise<boolean>>()
@@ -456,6 +467,7 @@ export function createActions(
       if (!control) return false
       const result = await control.global.dispose().catch(() => null)
       if (result?.data !== true) return false
+      clearPermissionAttentionFor(Object.values(state.permissions).flat())
       set("liveTools", {})
       await sleep(disposeSettleMs)
       return true
@@ -557,6 +569,7 @@ export function createActions(
   // clears permissions, questions, todos, status, activity and errors. The two have never agreed;
   // whether this one is missing those deletes has not been established.
   function forgetSession(id: string) {
+    clearPermissionAttentionFor(state.permissions[id] ?? [])
     set(
       produce((draft) => {
         delete draft.sessions[id]
@@ -605,10 +618,12 @@ export function createActions(
     const reported = new Set(permissions.map((permission) => permission.id))
     clearConfirmedAnswers("permission", dir, reported)
     const normalized = normalizeDir(dir)
+    for (const permission of permissions) observePermission(permission, state)
     set(
       produce((draft) => {
         for (const [sessionID, list] of Object.entries(draft.permissions)) {
           draft.permissions[sessionID] = list.filter((permission) => {
+            if ((permission as DriftPermission).driftProtocol === "v2") return true
             const directory = permission.metadata?.directory
             return typeof directory !== "string" || normalizeDir(directory) !== normalized
           })
@@ -621,6 +636,7 @@ export function createActions(
         }
       }),
     )
+    prunePermissionAttention(new Set(Object.values(state.permissions).flat().map((permission) => permission.id)))
   }
 
   function reconcileQuestions(dir: string, questions: QuestionRequest[]) {
@@ -708,30 +724,16 @@ export function createActions(
 
   async function sendPermissionReply(sessionID: string, permissionID: string, response: PermissionResponse) {
     const permission = (state.permissions[sessionID] ?? []).find((p) => p.id === permissionID)
+    if (permission) beginPermissionReply(permission, response, Object.values(state.permissions).flat())
     const dir = permission?.metadata?.directory as string | undefined
     const failed = () => {
+      failPermissionReply(permissionID)
       const message = "The request is still pending. Try again."
       notice({ title: "Permission reply failed", message, variant: "error" })
       return false
     }
-    if (dir && normalizeDir(dir) !== normalizeDir(state.directory)) {
-      // A swallowed failure would hide the card while the engine stays blocked on the ask, and
-      // because the card is gone poll reconciliation never clears it from `answered`.
-      if (!(await replyElsewhere(sessionID, permissionID, response, dir))) return failed()
-    } else {
-      // requireClient() throws while offline and the request itself can reject. UI callers
-      // fire-and-forget this action, so both must resolve to a visible failure.
-      try {
-        const result = await requireClient().postSessionIdPermissionsPermissionId({
-          path: { id: sessionID, permissionID },
-          body: { response },
-        })
-        if (result.error) return failed()
-      } catch {
-        return failed()
-      }
-    }
     const answerDirectory = dir ?? state.directory
+    if (!(await postPermissionReply(permission, sessionID, permissionID, response, answerDirectory))) return failed()
     answered.add(askKey("permission", answerDirectory, permissionID))
     set(
       produce((draft) => {
@@ -739,6 +741,7 @@ export function createActions(
         bumpAskRevision(draft, "permission", answerDirectory)
       }),
     )
+    clearPermissionAttention(permissionID)
     return true
   }
 
@@ -765,16 +768,33 @@ export function createActions(
     return true
   }
 
-  async function replyElsewhere(sessionID: string, permissionID: string, response: PermissionResponse, dir: string) {
+  async function postPermissionReply(
+    permission: Permission | undefined,
+    sessionID: string,
+    permissionID: string,
+    response: PermissionResponse,
+    dir: string,
+  ) {
     const base = target()
     if (!base) return false
-    const url = withDirectory(`${base.url}/session/${sessionID}/permissions/${permissionID}`, dir)
-    const result = await engineFetch(url, {
-      method: "POST",
-      headers: jsonHeaders(base),
-      body: JSON.stringify({ response }),
-    })
-    return result !== null
+    const v2 = (permission as DriftPermission | undefined)?.driftProtocol === "v2"
+    const path = v2
+      ? `/api/session/${sessionID}/permission/${permissionID}/reply`
+      : `/session/${sessionID}/permissions/${permissionID}`
+    const url = withDirectory(`${base.url}${path}`, dir)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), permissionReplyTimeoutMs)
+    try {
+      const result = await engineFetch(url, {
+        method: "POST",
+        headers: jsonHeaders(base),
+        body: JSON.stringify(v2 ? { reply: response } : { response }),
+        signal: controller.signal,
+      })
+      return result !== null
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 
   async function interrupt(id: string) {

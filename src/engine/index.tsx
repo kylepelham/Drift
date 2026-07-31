@@ -3,6 +3,7 @@ import { createContext, onCleanup, useContext, type ParentProps } from "solid-js
 import { produce } from "solid-js/store"
 import { shellEvents } from "../shell"
 import { t } from "../state/i18n"
+import { clearPermissionAttentionFor } from "../state/permission-attention"
 import { createActions, type EngineActions } from "./actions"
 import { inspectShellEngine, resolveEngine, restartShellEngine, sleep, type EngineTarget } from "./connection"
 import { reduce } from "./events"
@@ -144,7 +145,7 @@ export function EngineProvider(props: ParentProps) {
             void hydrate().catch(() => undefined)
             return
           }
-          reduce(set, event, eventDirectory)
+          reduce(set, event, eventDirectory, state)
         })
       } catch {}
       if (signal.aborted) return
@@ -280,6 +281,7 @@ export function EngineProvider(props: ParentProps) {
     disposed = true
     pumpAbort?.abort()
     unlistenEngineExit?.()
+    clearPermissionAttentionFor(Object.values(state.permissions).flat())
   })
 
   return <EngineContext.Provider value={{ state, actions, setDirectory, restartEngine }}>{props.children}</EngineContext.Provider>

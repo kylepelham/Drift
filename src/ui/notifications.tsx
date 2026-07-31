@@ -2,13 +2,11 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack }
 import { useEngine, type Engine } from "../engine"
 import {
   alertSounds,
-  autoAcceptAllowed,
-  autoAcceptGlobal,
-  autoAcceptSessions,
   customSound,
   systemNotifications,
   type AttentionKind,
 } from "../state/prefs"
+import { permissionRequiresAttention } from "../state/permission-attention"
 import { selectSession } from "../state/selection"
 import { t } from "../state/i18n"
 import {
@@ -43,22 +41,13 @@ function show(kind: AttentionKind, sessionId: string, title: string, body: strin
 export function AttentionNotifier(props: { engine: Engine }) {
   const seen = new Set<string>()
   createEffect(() => {
-    const all = Object.values(props.engine.state.permissions).flat()
-    const present = new Set(all.map((permission) => permission.id))
+    const pending = Object.values(props.engine.state.permissions).flat()
+    const all = pending.filter((permission) => permissionRequiresAttention(permission, props.engine.state))
+    const present = new Set(pending.map((permission) => permission.id))
     for (const id of seen) if (!present.has(id)) seen.delete(id)
     for (const permission of all) {
       if (seen.has(permission.id)) continue
       seen.add(permission.id)
-      if (
-        autoAcceptAllowed(
-          autoAcceptGlobal(),
-          autoAcceptSessions(),
-          permission.sessionID,
-          props.engine.state.sessions[permission.sessionID]?.parentID,
-          props.engine.state.links[permission.sessionID],
-        )
-      )
-        continue
       untrack(() => {
         const session = props.engine.state.sessions[permission.sessionID]
         show(

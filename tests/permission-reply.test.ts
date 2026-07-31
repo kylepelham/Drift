@@ -122,3 +122,24 @@ test("concurrent replies to one permission share the same engine request", async
   expect(state.permissions.s1 ?? []).toHaveLength(0)
   expect(state.notices).toHaveLength(0)
 })
+
+test("v2 permission replies use the protocol endpoint and payload", async () => {
+  const [state, set] = createEngineState()
+  set("directory", home)
+  set("permissions", "s1", [{ ...permission(), metadata: { directory: home }, driftProtocol: "v2" } as Permission])
+  let request!: Request
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    request = input instanceof Request ? input : new Request(input, init)
+    return new Response(null, { status: 204 })
+  }) as typeof fetch
+  const actions = createActions(
+    () => ({}) as never,
+    state,
+    set,
+    () => ({ url: "http://engine.test" }),
+  )
+
+  expect(await actions.replyPermission("s1", "p1", "always")).toBeTrue()
+  expect(new URL(request.url).pathname).toBe("/api/session/s1/permission/p1/reply")
+  expect(await request.json()).toEqual({ reply: "always" })
+})
