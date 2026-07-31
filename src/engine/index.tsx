@@ -1,14 +1,20 @@
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client"
 import { createContext, onCleanup, useContext, type ParentProps } from "solid-js"
 import { produce } from "solid-js/store"
+import { shellEvents } from "../shell"
 import { createActions, type EngineActions } from "./actions"
-import { resolveEngine, sleep, type EngineTarget } from "./connection"
+import { inspectShellEngine, resolveEngine, restartShellEngine, sleep, type EngineTarget } from "./connection"
 import { reduce } from "./events"
 import { streamEvents } from "./sse"
 import { seedBench } from "./bench"
 import { createEngineState, putSessions, type EngineState, type ProviderInfo } from "./store"
 
-export type Engine = { state: EngineState; actions: EngineActions; setDirectory: (path: string | null) => void }
+export type Engine = {
+  state: EngineState
+  actions: EngineActions
+  setDirectory: (path: string | null) => void
+  restartEngine: () => Promise<boolean>
+}
 
 const EngineContext = createContext<Engine>()
 
@@ -32,6 +38,9 @@ export function EngineProvider(props: ParentProps) {
   let pumpAbort: AbortController | undefined
   let directory: string | null = null
   let disposed = false
+  let engineEpoch = 0
+  let restartRequest: Promise<boolean> | undefined
+  let unlistenEngineExit: (() => void) | undefined
 
   const requireClient = () => {
     if (!client) throw new Error("engine offline")
@@ -82,8 +91,42 @@ export function EngineProvider(props: ParentProps) {
     }
   }
 
-  async function pump(target: EngineTarget, signal: AbortSignal) {
+  function sameTarget(left: EngineTarget | undefined, right: EngineTarget) {
+    return left?.url === right.url && JSON.stringify(left.headers ?? {}) === JSON.stringify(right.headers ?? {})
+  }
+
+  function recordEngineFailure(message: string) {
+    engineEpoch += 1
+    stopPump()
+    base = undefined
+    set(
+      produce((draft) => {
+        draft.engineError = message
+        draft.engineRestarting = false
+        draft.connection = directory ? "offline" : "idle"
+      }),
+    )
+  }
+
+  async function inspectRuntimeEngine() {
+    const epoch = engineEpoch
+    const status = await inspectShellEngine().catch(() => undefined)
+    if (!status || disposed || epoch !== engineEpoch) return false
+    if (status.error) {
+      recordEngineFailure(status.error)
+      return true
+    }
+    if (status.target && !sameTarget(base, status.target)) {
+      base = status.target
+      if (directory) client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
+    }
+    return false
+  }
+
+  async function pump(signal: AbortSignal) {
     while (!signal.aborted) {
+      const target = base
+      if (!target) return
       try {
         await streamEvents(target, signal, (event, eventDirectory) => {
           if (event.type === "server.connected") {
@@ -94,6 +137,8 @@ export function EngineProvider(props: ParentProps) {
           reduce(set, event, eventDirectory)
         })
       } catch {}
+      if (signal.aborted) return
+      if (await inspectRuntimeEngine()) return
       if (signal.aborted) return
       set("connection", "offline")
       await sleep(1500)
@@ -121,7 +166,45 @@ export function EngineProvider(props: ParentProps) {
     )
     if (import.meta.env.DEV) seedBench(set, path)
     pumpAbort = new AbortController()
-    void pump(base, pumpAbort.signal)
+    void pump(pumpAbort.signal)
+  }
+
+  function restartEngine() {
+    if (restartRequest) return restartRequest
+    engineEpoch += 1
+    const epoch = engineEpoch
+    stopPump()
+    base = undefined
+    set(
+      produce((draft) => {
+        draft.engineRestarting = true
+        draft.connection = directory ? "connecting" : "idle"
+      }),
+    )
+    let request!: Promise<boolean>
+    request = restartShellEngine()
+      .then((target) => {
+        if (disposed || epoch !== engineEpoch) return false
+        base = target
+        set(
+          produce((draft) => {
+            draft.engineError = ""
+            draft.engineRestarting = false
+            draft.startupError = ""
+          }),
+        )
+        if (directory) startPump(directory)
+        return true
+      })
+      .catch((error: unknown) => {
+        if (!disposed && epoch === engineEpoch) recordEngineFailure(error instanceof Error ? error.message : String(error))
+        return false
+      })
+      .finally(() => {
+        if (restartRequest === request) restartRequest = undefined
+      })
+    restartRequest = request
+    return request
   }
 
   function setDirectory(path: string | null) {
@@ -155,21 +238,38 @@ export function EngineProvider(props: ParentProps) {
     if (state.connection === "online") void hydrate().catch(() => undefined)
   }
 
+  const startupEpoch = engineEpoch
   void resolveEngine()
     .then(async (target) => {
+      if (disposed || startupEpoch !== engineEpoch) return
       base = target
+      set("engineError", "")
       const health = await fetchEngineVersion(target)
+      if (disposed || startupEpoch !== engineEpoch) return
       if (health?.version) set("version", health.version)
       if (directory) startPump(directory)
     })
     .catch((error: unknown) => {
-      set("startupError", error instanceof Error ? error.message : String(error))
+      if (disposed || startupEpoch !== engineEpoch) return
+      const message = error instanceof Error ? error.message : String(error)
+      set("startupError", message)
+      set("engineError", message)
       if (directory) set("connection", "offline")
     })
+  const events = shellEvents()
+  if (events)
+    void events
+      .listen("engine-exited", () => void inspectRuntimeEngine())
+      .then((unlisten) => {
+        if (disposed) unlisten()
+        else unlistenEngineExit = unlisten
+      })
+      .catch(() => undefined)
   onCleanup(() => {
     disposed = true
     pumpAbort?.abort()
+    unlistenEngineExit?.()
   })
 
-  return <EngineContext.Provider value={{ state, actions, setDirectory }}>{props.children}</EngineContext.Provider>
+  return <EngineContext.Provider value={{ state, actions, setDirectory, restartEngine }}>{props.children}</EngineContext.Provider>
 }

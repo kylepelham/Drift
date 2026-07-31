@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 /// The embedded engine is always addressed with this username; only the password varies per run.
 const ENGINE_USERNAME: &str = "opencode";
@@ -18,6 +18,8 @@ const ENGINE_USERNAME: &str = "opencode";
 const ENGINE_SERVE_ARGS: [&str; 5] = ["serve", "--hostname", "127.0.0.1", "--port", "0"];
 /// Shutdown is best effort - if the engine is wedged we would rather leak than hang on exit.
 const ENGINE_DISPOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+const ENGINE_EXIT_POLL: std::time::Duration = std::time::Duration::from_millis(10);
+const ENGINE_EXIT_POLLS: usize = 100;
 const HTTP_OK_STATUS_LINE: &str = "HTTP/1.1 200";
 
 pub(crate) struct Engine {
@@ -76,19 +78,35 @@ pub(crate) fn engine_status(engine: State<Engine>) -> EngineStatus {
     };
     let diagnostic = engine.diagnostic.lock().unwrap();
     let error = status
-        .map(|status| {
-            if diagnostic.is_empty() {
-                format!("embedded engine exited with {status}")
-            } else {
-                format!("embedded engine exited with {status}: {diagnostic}")
-            }
-        })
+        .map(|status| engine_exit_error(&status, &diagnostic))
         .or_else(|| (!has_child && !diagnostic.is_empty()).then(|| diagnostic.clone()));
     EngineStatus {
         url: None,
         error,
         password: None,
     }
+}
+
+fn engine_exit_error(status: &dyn std::fmt::Display, diagnostic: &str) -> String {
+    if diagnostic.is_empty() {
+        format!("embedded engine exited with {status}")
+    } else {
+        format!("embedded engine exited with {status}: {diagnostic}")
+    }
+}
+
+#[tauri::command]
+pub(crate) fn restart_engine(app: tauri::AppHandle) -> Result<(), String> {
+    let engine = app.state::<Engine>();
+    if engine.url.lock().unwrap().is_some() {
+        return Ok(());
+    }
+    if engine.launch.lock().unwrap().is_none() {
+        return Err("embedded engine launch configuration is unavailable".into());
+    }
+    stop_engine_child(&app);
+    respawn_engine(&app);
+    Ok(())
 }
 
 pub(crate) fn engine_binary() -> Option<std::path::PathBuf> {
@@ -131,14 +149,26 @@ pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_
         let engine = app.state::<Engine>();
         *engine.launch.lock().unwrap() = Some((shared_database, config_dir.clone()));
         let generation = engine.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        engine.diagnostic.lock().unwrap().clear();
+        {
+            let mut url = engine.url.lock().unwrap();
+            if engine.generation.load(Ordering::SeqCst) == generation {
+                *url = None;
+            }
+        }
+        {
+            let mut diagnostic = engine.diagnostic.lock().unwrap();
+            if engine.generation.load(Ordering::SeqCst) == generation {
+                diagnostic.clear();
+            }
+        }
         generation
     };
     std::thread::spawn(move || {
         let Some(binary) = engine_binary() else {
             let engine = app.state::<Engine>();
+            let mut diagnostic = engine.diagnostic.lock().unwrap();
             if engine.generation.load(Ordering::SeqCst) == generation {
-                *engine.diagnostic.lock().unwrap() = "embedded engine binary not found".into();
+                *diagnostic = "embedded engine binary not found".into();
             }
             return;
         };
@@ -170,9 +200,9 @@ pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_
             Ok(child) => child,
             Err(error) => {
                 let engine = app.state::<Engine>();
+                let mut diagnostic = engine.diagnostic.lock().unwrap();
                 if engine.generation.load(Ordering::SeqCst) == generation {
-                    *engine.diagnostic.lock().unwrap() =
-                        format!("failed to start embedded engine: {error}");
+                    *diagnostic = format!("failed to start embedded engine: {error}");
                 }
                 return;
             }
@@ -181,40 +211,73 @@ pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_
         let stderr = child.stderr.take();
         let engine = app.state::<Engine>();
         let mut slot = engine.child.lock().unwrap();
-        if engine.generation.load(Ordering::SeqCst) != generation || slot.is_some() {
+        if engine.generation.load(Ordering::SeqCst) != generation {
             drop(slot);
             let _ = child.kill();
             let _ = child.wait();
             return;
         }
-        *slot = Some(child);
+        let previous = slot.replace(child);
         drop(slot);
-        if let Some(stderr) = stderr {
+        if let Some(mut previous) = previous {
+            let _ = previous.kill();
+            let _ = previous.wait();
+        }
+        let diagnostic_reader = stderr.map(|stderr| {
             let diagnostics_app = app.clone();
             std::thread::spawn(move || {
                 for line in BufReader::new(stderr).lines().map_while(Result::ok) {
                     let engine = diagnostics_app.state::<Engine>();
+                    let mut diagnostic = engine.diagnostic.lock().unwrap();
                     if engine.generation.load(Ordering::SeqCst) == generation
                         && !line.trim().is_empty()
                     {
-                        *engine.diagnostic.lock().unwrap() = line;
+                        *diagnostic = line;
                     }
                 }
-            });
-        }
+            })
+        });
         let Some(stdout) = stdout else { return };
         let current = || app.state::<Engine>().generation.load(Ordering::SeqCst) == generation;
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             if let Some(index) = line.find("http://") {
                 let engine = app.state::<Engine>();
-                if current() {
-                    *engine.url.lock().unwrap() = Some(line[index..].trim().to_string());
+                let mut url = engine.url.lock().unwrap();
+                if engine.generation.load(Ordering::SeqCst) == generation {
+                    *url = Some(line[index..].trim().to_string());
                 }
             }
         }
         // A superseded engine must not report its own exit as the current engine going down.
-        if current() {
-            *app.state::<Engine>().url.lock().unwrap() = None;
+        let engine = app.state::<Engine>();
+        let mut url = engine.url.lock().unwrap();
+        if engine.generation.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        *url = None;
+        drop(url);
+        for _ in 0..ENGINE_EXIT_POLLS {
+            if !current() {
+                return;
+            }
+            let exited = app
+                .state::<Engine>()
+                .child
+                .lock()
+                .unwrap()
+                .as_mut()
+                .and_then(|child| child.try_wait().ok().flatten())
+                .is_some();
+            if exited {
+                if let Some(reader) = diagnostic_reader {
+                    let _ = reader.join();
+                }
+                if current() {
+                    let _ = app.emit("engine-exited", ());
+                }
+                return;
+            }
+            std::thread::sleep(ENGINE_EXIT_POLL);
         }
     });
 }
@@ -229,6 +292,19 @@ pub(crate) fn stop_engine_child(app: &tauri::AppHandle) {
         let _ = child.wait();
     }
     *engine.url.lock().unwrap() = None;
+    engine.diagnostic.lock().unwrap().clear();
+}
+
+/// Invalidates process readers and terminates the child without delaying app shutdown.
+pub(crate) fn stop_engine_on_exit(app: &tauri::AppHandle) {
+    let engine = app.state::<Engine>();
+    engine.generation.fetch_add(1, Ordering::SeqCst);
+    let child = engine.child.lock().unwrap().take();
+    if let Some(mut child) = child {
+        let _ = child.kill();
+    }
+    *engine.url.lock().unwrap() = None;
+    engine.diagnostic.lock().unwrap().clear();
 }
 
 /// Starts a replacement sidecar using the parameters the first one was launched with.
@@ -301,4 +377,21 @@ pub(crate) fn basic_authorization(username: &str, password: &str) -> String {
         });
     }
     encoded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::engine_exit_error;
+
+    #[test]
+    fn exit_diagnostics_include_status_and_last_error() {
+        assert_eq!(
+            engine_exit_error(&"exit code 1", "database unavailable"),
+            "embedded engine exited with exit code 1: database unavailable"
+        );
+        assert_eq!(
+            engine_exit_error(&"exit code 1", ""),
+            "embedded engine exited with exit code 1"
+        );
+    }
 }

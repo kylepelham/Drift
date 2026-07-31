@@ -173,6 +173,19 @@ export function NoticeHost() {
         class="pointer-events-auto mt-auto flex max-h-full min-h-0 w-full flex-col gap-2 overflow-y-auto overscroll-contain pr-1"
         aria-live="polite"
       >
+        <Show when={engine.state.engineError}>
+          <div class="rounded-lg border border-danger/40 bg-surface/95 px-3 py-2 text-danger shadow-xl backdrop-blur" role="alert">
+            <div class="text-sm font-semibold">{t("drift.engine.stopped.title")}</div>
+            <div class="mt-0.5 text-sm break-words">{engine.state.engineError}</div>
+            <button
+              class="mt-2 rounded-md border border-danger/40 px-2 py-1 text-xs hover:bg-danger/10 disabled:opacity-40"
+              disabled={engine.state.engineRestarting}
+              onClick={() => void engine.restartEngine()}
+            >
+              {engine.state.engineRestarting ? t("drift.engine.restarting") : t("drift.engine.restart")}
+            </button>
+          </div>
+        </Show>
         <For each={pendingMcp().filter((target) => !hiddenMcp().has(mcpPromptKey(target)))}>
           {(target) => (
             <div class="rounded-lg border border-warn/40 bg-surface/95 px-3 py-2 shadow-xl backdrop-blur" role="status">
