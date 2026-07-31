@@ -238,6 +238,51 @@ test("compaction-only user messages retain their delimiter part", async () => {
   expect(compactionParts(entry).map((part) => part.id)).toEqual(["p1"])
 })
 
+test("loaded stale tool states become interrupted without mutating live or completed parts", async () => {
+  const { interruptStaleTools } = await import("../src/engine/store")
+  const tool = (id: string, status: "pending" | "running" | "completed", messageID = "a1") =>
+    ({
+      id,
+      sessionID: "s1",
+      messageID,
+      type: "tool",
+      callID: id,
+      tool: "bash",
+      state:
+        status === "pending"
+          ? { status, input: {}, raw: "" }
+          : status === "running"
+          ? { status, input: {}, time: { start: 2 } }
+          : { status, input: {}, output: "ok", title: "", metadata: {}, time: { start: 2, end: 3 } },
+    }) as never
+  const entry = {
+    info: { id: "a1", sessionID: "s1", role: "assistant", time: { created: 1 } },
+    parts: [tool("stale", "running"), tool("pending", "pending"), tool("done", "completed")],
+  } as never
+
+  expect(interruptStaleTools([entry], { stale: "s1", pending: "s1" }, "Interrupted")[0]).toBe(entry)
+  const interrupted = interruptStaleTools([entry], {}, "Interrupted")[0]
+  expect((interrupted.parts[0] as { state: { status: string; error: string } }).state).toMatchObject({
+    status: "error",
+    error: "Interrupted",
+  })
+  expect((interrupted.parts[1] as { state: { status: string; error: string } }).state).toMatchObject({
+    status: "error",
+    error: "Interrupted",
+  })
+  expect((interrupted.parts[2] as { state: { status: string } }).state.status).toBe("completed")
+  expect((entry.parts[0] as { state: { status: string } }).state.status).toBe("running")
+
+  const old = entry
+  const live = {
+    info: { id: "a2", sessionID: "s1", role: "assistant", time: { created: 4 } },
+    parts: [tool("live", "running", "a2")],
+  } as never
+  const duringTurn = interruptStaleTools([old, live], { live: "s1" }, "Interrupted")
+  expect((duringTurn[0].parts[0] as { state: { status: string } }).state.status).toBe("error")
+  expect((duringTurn[1].parts[0] as { state: { status: string } }).state.status).toBe("running")
+})
+
 test("streamed tool replacements retain mounted group and plugin identities", async () => {
   const { groupParts, updatePartGroupSlots } = await import("../src/ui/message")
   // Bun selects Solid's server condition for tests, so load the browser primitives
@@ -676,20 +721,29 @@ test("context usage skips a trailing zero-token assistant message", async () => 
 test("activity counts distinct tool parts and tracks the running tool", () => {
   const [state, set] = createEngineState()
   reduce(set, toolEvent("p1", "grep", "running"))
+  expect(state.liveTools.p1).toBe("child")
   reduce(set, toolEvent("p1", "grep", "completed"))
+  expect(state.liveTools.p1).toBeUndefined()
   reduce(set, toolEvent("p2", "read", "pending"))
   reduce(set, toolEvent("p2", "read", "running"))
+  expect(state.liveTools.p2).toBe("child")
   expect(state.activity["child"].tools).toBe(2)
   expect(state.activity["child"].current).toBe("read")
   reduce(set, toolEvent("p2", "read", "completed"))
+  expect(state.liveTools.p2).toBeUndefined()
   expect(state.activity["child"].tools).toBe(2)
   expect(state.activity["child"].current).toBeUndefined()
+
+  reduce(set, toolEvent("p3", "bash", "running"))
+  reduce(set, { type: "session.idle", properties: { sessionID: "child" } } as never)
+  expect(state.liveTools.p3).toBeUndefined()
 })
 
 test("session errors terminate busy activity and remain visible", () => {
   const [state, set] = createEngineState()
   set("status", "s1", { type: "busy" })
   set("activity", "s1", { tools: 1, lastPartId: "p1", current: "bash" })
+  set("liveTools", "p1", "s1")
   reduce(
     set,
     {
@@ -699,6 +753,7 @@ test("session errors terminate busy activity and remain visible", () => {
   )
   expect(state.status["s1"].type).toBe("idle")
   expect(state.activity["s1"].current).toBeUndefined()
+  expect(state.liveTools.p1).toBeUndefined()
   expect(state.errors["s1"]).toBe("credit balance is too low")
 })
 

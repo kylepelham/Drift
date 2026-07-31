@@ -2,12 +2,13 @@ import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/clie
 import { createContext, onCleanup, useContext, type ParentProps } from "solid-js"
 import { produce } from "solid-js/store"
 import { shellEvents } from "../shell"
+import { t } from "../state/i18n"
 import { createActions, type EngineActions } from "./actions"
 import { inspectShellEngine, resolveEngine, restartShellEngine, sleep, type EngineTarget } from "./connection"
 import { reduce } from "./events"
 import { streamEvents } from "./sse"
 import { seedBench } from "./bench"
-import { createEngineState, putSessions, type EngineState, type ProviderInfo } from "./store"
+import { createEngineState, interruptStaleTools, putSessions, type EngineState, type ProviderInfo } from "./store"
 
 export type Engine = {
   state: EngineState
@@ -63,7 +64,13 @@ export function EngineProvider(props: ParentProps) {
       set(
         produce((draft) => {
           const live = statuses.data ?? {}
-          for (const session of sessions.data ?? []) draft.status[session.id] = live[session.id] ?? { type: "idle" }
+          for (const session of sessions.data ?? []) {
+            const status = live[session.id] ?? { type: "idle" as const }
+            draft.status[session.id] = status
+            if (status.type === "idle")
+              for (const [partID, owner] of Object.entries(draft.liveTools))
+                if (owner === session.id) delete draft.liveTools[partID]
+          }
         }),
       )
       set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
@@ -77,7 +84,8 @@ export function EngineProvider(props: ParentProps) {
       if (!current()) return
       for (const [id, result] of transcripts) {
         if (!result.data) continue
-        set("transcripts", id, [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id)))
+        const entries = [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id))
+        set("transcripts", id, interruptStaleTools(entries, state.liveTools, t("drift.message.interrupted")))
         set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
       }
       if (!state.version && base) {
@@ -104,6 +112,7 @@ export function EngineProvider(props: ParentProps) {
         draft.engineError = message
         draft.engineRestarting = false
         draft.connection = directory ? "offline" : "idle"
+        draft.liveTools = {}
       }),
     )
   }
@@ -179,6 +188,7 @@ export function EngineProvider(props: ParentProps) {
       produce((draft) => {
         draft.engineRestarting = true
         draft.connection = directory ? "connecting" : "idle"
+        draft.liveTools = {}
       }),
     )
     let request!: Promise<boolean>

@@ -8,6 +8,7 @@ import type {
   Session,
   SessionStatus,
   Todo,
+  ToolPart,
 } from "@opencode-ai/sdk/client"
 import { createStore, produce, type SetStoreFunction } from "solid-js/store"
 import type { Connection } from "./connection"
@@ -16,6 +17,31 @@ export type ModelInfo = Model & { family?: string; release_date?: string; varian
 export type ProviderInfo = { id: string; name: string; models: Record<string, ModelInfo> }
 export type ModelRef = { providerID: string; modelID: string }
 export type MessageEntry = { info: Message; parts: Part[] }
+
+export function interruptStaleTools(entries: MessageEntry[], liveTools: Readonly<Record<string, string>>, error = "Interrupted") {
+  return entries.map((entry) => {
+    let changed = false
+    const parts = entry.parts.map((part) => {
+      if (part.type !== "tool" || (part.state.status !== "pending" && part.state.status !== "running")) return part
+      if (liveTools[part.id] === part.sessionID) return part
+      changed = true
+      const completed = (entry.info as { time: { completed?: number } }).time.completed
+      const start = "time" in part.state ? part.state.time.start : entry.info.time.created
+      const metadata = "metadata" in part.state ? part.state.metadata : undefined
+      return {
+        ...part,
+        state: {
+          status: "error",
+          input: part.state.input,
+          error,
+          metadata,
+          time: { start, end: Math.max(start, completed ?? start) },
+        },
+      } as ToolPart
+    })
+    return changed ? { ...entry, parts } : entry
+  })
+}
 
 export function messageText(entry: MessageEntry) {
   return entry.parts
@@ -84,6 +110,7 @@ export type EngineState = {
   notices: Notice[]
   links: Record<string, string>
   activity: Record<string, SessionActivity>
+  liveTools: Record<string, string>
   cursors: Record<string, string | null>
   version: string
   startupError: string
@@ -132,6 +159,7 @@ export function createEngineState() {
     notices: [],
     links: { ...loadLinks() },
     activity: {},
+    liveTools: {},
     startupError: "",
     engineError: "",
     engineRestarting: false,

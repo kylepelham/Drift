@@ -65,12 +65,24 @@ export function reduce(set: SetEngineState, event: Event, directory?: string) {
       return upsertSession(set, event.properties.info)
     case "session.deleted":
       return dropSession(set, event.properties.info)
-    case "session.status":
-      set("status", event.properties.sessionID, event.properties.status)
+    case "session.status": {
+      const sessionID = event.properties.sessionID
+      set(
+        produce((draft) => {
+          draft.status[sessionID] = event.properties.status
+          if (event.properties.status.type === "idle") clearLiveTools(draft, sessionID)
+        }),
+      )
       if (event.properties.status.type !== "idle") clearError(set, event.properties.sessionID)
       return
+    }
     case "session.idle":
-      return set("status", event.properties.sessionID, { type: "idle" })
+      return set(
+        produce((draft) => {
+          draft.status[event.properties.sessionID] = { type: "idle" }
+          clearLiveTools(draft, event.properties.sessionID)
+        }),
+      )
     case "session.error":
       return recordError(set, event.properties.sessionID, event.properties.error)
     case "message.updated":
@@ -108,8 +120,13 @@ function dropSession(set: SetEngineState, info: Session) {
       delete draft.status[info.id]
       delete draft.activity[info.id]
       delete draft.errors[info.id]
+      clearLiveTools(draft, info.id)
     }),
   )
+}
+
+function clearLiveTools(draft: EngineState, sessionID: string) {
+  for (const [partID, owner] of Object.entries(draft.liveTools)) if (owner === sessionID) delete draft.liveTools[partID]
 }
 
 function moveSession(
@@ -150,6 +167,7 @@ function recordError(set: SetEngineState, sessionID?: string, error?: { name: st
     produce((draft) => {
       draft.status[sessionID] = { type: "idle" }
       if (draft.activity[sessionID]) draft.activity[sessionID].current = undefined
+      clearLiveTools(draft, sessionID)
       if (error?.name === "MessageAbortedError") return
       draft.errors[sessionID] = message
     }),
@@ -191,7 +209,11 @@ function upsertPart(set: SetEngineState, part: Part) {
   set(
     produce((draft) => {
       if (link) draft.links[link.child] = link.parent
-      if (part.type === "tool") trackActivity(draft, part)
+      if (part.type === "tool") {
+        trackActivity(draft, part)
+        if (part.state.status === "pending" || part.state.status === "running") draft.liveTools[part.id] = part.sessionID
+        else delete draft.liveTools[part.id]
+      }
       const entry = draft.transcripts[part.sessionID]?.find((item) => item.info.id === part.messageID)
       if (!entry) return
       const index = entry.parts.findIndex((existing) => existing.id === part.id)
@@ -232,6 +254,7 @@ function dropPart(set: SetEngineState, ref: { sessionID: string; messageID: stri
     produce((draft) => {
       const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
       if (entry) entry.parts = entry.parts.filter((part) => part.id !== ref.partID)
+      delete draft.liveTools[ref.partID]
     }),
   )
 }
