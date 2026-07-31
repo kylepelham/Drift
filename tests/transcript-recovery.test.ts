@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import type { Message, Part } from "@opencode-ai/sdk/client"
+import type { Message, Part, Session } from "@opencode-ai/sdk/client"
 import { createActions } from "../src/engine/actions"
 import { createEngineState, type MessageEntry } from "../src/engine/store"
 
@@ -90,4 +90,35 @@ test("a successful empty transcript is authoritative", async () => {
   expect(state.loaded.session).toBeTrue()
   expect(state.transcripts.session).toEqual([])
   expect(state.cursors.session).toBeNull()
+})
+
+test("revert actions remain successful when their transcript refresh fails", async () => {
+  const session = {
+    id: "session",
+    slug: "session",
+    projectID: "project",
+    directory: "C:/work",
+    title: "Session",
+    version: "test",
+    time: { created: 1, updated: 1 },
+  } as Session
+  const [state, set] = createEngineState()
+  const actions = createActions(
+    () => ({
+      session: {
+        revert: async () => ({ data: session }),
+        unrevert: async () => ({ data: session }),
+        messages: async () => {
+          throw new Error("refresh failed")
+        },
+      },
+    }) as never,
+    state,
+    set,
+    () => ({ url: "http://engine.test" }),
+  )
+
+  expect(await actions.revert("session", "message")).toBeTrue()
+  expect(await actions.unrevert("session")).toBeTrue()
+  expect(state.notices.at(-1)?.message).toBe("refresh failed")
 })

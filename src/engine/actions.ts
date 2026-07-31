@@ -106,6 +106,15 @@ export function createActions(
     recordLinks(entries)
   }
 
+  function reportTranscriptFailure(id: string, cause: unknown) {
+    notice({
+      id: `transcript-load-${id}`,
+      title: "Transcript load failed",
+      message: sdkErrorMessage(cause, "Could not reach the engine"),
+      variant: "error",
+    })
+  }
+
   // Older pages come via the raw route because the generated SDK lacks the cursor param.
   async function loadOlder(id: string) {
     const cursor = state.cursors[id]
@@ -138,12 +147,7 @@ export function createActions(
     request = reloadSession(id)
       .then(() => true)
       .catch((cause) => {
-        notice({
-          id: `transcript-load-${id}`,
-          title: "Transcript load failed",
-          message: sdkErrorMessage(cause, "Could not reach the engine"),
-          variant: "error",
-        })
+        reportTranscriptFailure(id, cause)
         return false
       })
       .finally(() => {
@@ -712,7 +716,7 @@ export function createActions(
     }
     clearSessionError(id)
     if (result.data) putSession(set, result.data)
-    await reloadSession(id)
+    await reloadSession(id).catch((cause) => reportTranscriptFailure(id, cause))
     return true
   }
 
@@ -721,7 +725,7 @@ export function createActions(
     const result = await requireClient().session.unrevert({ path: { id } })
     if (!result.data) return false
     putSession(set, result.data)
-    await reloadSession(id)
+    await reloadSession(id).catch((cause) => reportTranscriptFailure(id, cause))
     return true
   }
 
