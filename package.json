@@ -9,6 +9,7 @@
     "build": "bun run build:extensions && vite build",
     "build:tauri": "bun run build",
     "build:engine": "bun scripts/build-engine.ts",
+    "build:whisper": "bun scripts/build-whisper.ts",
     "build:extensions": "bun scripts/build-extensions.ts",
     "build:native": "bun scripts/release-policy.ts stamp-dev && tauri build --no-bundle",
     "db:audit": "bun scripts/db-maintenance.ts --audit",

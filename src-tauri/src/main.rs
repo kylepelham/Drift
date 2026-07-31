@@ -10,10 +10,12 @@ mod mcp;
 mod storage;
 mod store;
 mod updater;
+mod voice;
 mod watcher;
 
 use config::ConfigRoot;
 use engine::Engine;
+use voice::VoiceDownload;
 use tauri::{Manager, RunEvent};
 
 /// Windows `CREATE_NO_WINDOW`: keeps spawned console processes from flashing a terminal.
@@ -21,6 +23,8 @@ use tauri::{Manager, RunEvent};
 pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 fn main() {
+    // Reqwest is built without a bundled provider so the release build needs no extra C toolchain.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.webview_windows().values().next() {
@@ -32,6 +36,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Engine::default())
+        .manage(VoiceDownload::default())
         // Commands are named by full path: generate_handler! resolves helper macros in the
         // module that defines each command, so a plain `use` re-export is not enough.
         .invoke_handler(tauri::generate_handler![
@@ -67,7 +72,14 @@ fn main() {
             commands::storage_stats,
             commands::storage_analyze,
             commands::storage_prune,
-            commands::storage_compact
+            commands::storage_compact,
+            voice::voice_supported,
+            voice::voice_acceleration,
+            voice::voice_models,
+            voice::voice_model_download,
+            voice::voice_model_remove,
+            voice::voice_model_cancel,
+            voice::voice_transcribe
         ])
         .setup(|app| {
             let data_dir = app.path().app_data_dir().expect("no app data dir");
