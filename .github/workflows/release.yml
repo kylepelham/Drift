@@ -113,7 +113,8 @@ jobs:
         run: bun run build:engine
 
       # Provides glslc for the GPU sidecar's shaders. Installed directly so the signing job gains
-      # no third-party action.
+      # no third-party action, and deliberately uncached: a signed release builds its binaries from
+      # source rather than restoring an artifact a branch build could have written.
       - name: Install Vulkan SDK
         shell: pwsh
         run: |

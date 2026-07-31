@@ -52,7 +52,16 @@ jobs:
       - name: Build engine
         run: bun run build:engine
 
+      # The sidecars only change when the build script does, so a hit skips both the SDK and the build.
+      - name: Cache speech recognizer
+        id: whisper
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/binaries/whisper-cli*.exe
+          key: whisper-${{ runner.os }}-${{ hashFiles('scripts/build-whisper.ts') }}
+
       - name: Install Vulkan SDK
+        if: steps.whisper.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $version = "1.4.350.0"
@@ -64,6 +73,7 @@ jobs:
           "VULKAN_SDK=C:\VulkanSDK\$version" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build speech recognizer
+        if: steps.whisper.outputs.cache-hit != 'true'
         run: bun run build:whisper
 
       - uses: dtolnay/rust-toolchain@stable
