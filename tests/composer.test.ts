@@ -297,6 +297,24 @@ test("active tool rows keep their target subtitle visible", async () => {
   expect(source).not.toContain("info().subtitle && !active()")
 })
 
+test("delegated tool headers always toggle while the arrow owns navigation", async () => {
+  const { activateToolHeader, openSpawnedThread, toolChevronVisible } = await import("../src/ui/parts")
+  const toggled: string[] = []
+  for (const lifecycle of ["pending-no-child", "running-with-child", "completed"])
+    activateToolHeader(() => toggled.push(lifecycle))
+  expect(toggled).toEqual(["pending-no-child", "running-with-child", "completed"])
+
+  let stopped = false
+  let selected = ""
+  openSpawnedThread({ stopPropagation: () => (stopped = true) }, "child", (id) => (selected = id))
+  expect(stopped).toBeTrue()
+  expect(selected).toBe("child")
+  expect(toggled).toHaveLength(3)
+  expect(toolChevronVisible(true, true)).toBeTrue()
+  expect(toolChevronVisible(true, false)).toBeFalse()
+  expect(toolChevronVisible(false, false)).toBeTrue()
+})
+
 test("question drafts preserve single, multiple, and custom answers", async () => {
   const { questionAnswer, selectQuestionCustom, selectQuestionOption } = await import("../src/ui/attention")
   const empty = { selected: [], custom: "", customSelected: false }

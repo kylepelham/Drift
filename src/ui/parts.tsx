@@ -359,6 +359,19 @@ export function rememberToolOpen(partId: string, open: boolean) {
   if (explicitToolOpen.size > maxExplicitToolOpen) explicitToolOpen.delete(explicitToolOpen.keys().next().value!)
 }
 
+export function activateToolHeader(toggle: () => void) {
+  toggle()
+}
+
+export function openSpawnedThread(event: Pick<MouseEvent, "stopPropagation">, childId: string, select: (id: string) => void) {
+  event.stopPropagation()
+  select(childId)
+}
+
+export function toolChevronVisible(active: boolean, delegated: boolean) {
+  return !active || delegated
+}
+
 function diffStats(diff: string) {
   let additions = 0
   let deletions = 0
@@ -413,11 +426,7 @@ export function ToolView(props: { part: ToolPart }) {
       <button
         class="flex min-h-8 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md px-1.5 text-left transition-colors hover:bg-raised/40"
         classList={{ "delegate-tool border-accent/35": delegated() }}
-        onClick={() => {
-          const childId = spawnedId()
-          if (childId && state().status !== "completed" && state().status !== "error") return selectSession(childId)
-          toggleOpen()
-        }}
+        onClick={() => activateToolHeader(toggleOpen)}
       >
         <Show when={error()}>
           <span class="size-3.5 shrink-0 text-danger">
@@ -474,16 +483,13 @@ export function ToolView(props: { part: ToolPart }) {
               role="button"
               title={t("drift.thread.openSpawned")}
               class="flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
-              onClick={(event) => {
-                event.stopPropagation()
-                selectSession(childId())
-              }}
+              onClick={(event) => openSpawnedThread(event, childId(), selectSession)}
             >
               <IconArrowUpRight class="size-3.5" />
             </span>
           )}
         </Show>
-        <Show when={!active()}>
+        <Show when={toolChevronVisible(active(), delegated())}>
           <Chevron open={expanded()} />
         </Show>
       </button>
