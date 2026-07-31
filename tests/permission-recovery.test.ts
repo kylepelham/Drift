@@ -3,6 +3,7 @@ import type { Permission } from "@opencode-ai/sdk/client"
 import { createActions } from "../src/engine/actions"
 import { reduce } from "../src/engine/events"
 import { createEngineState, type QuestionRequest } from "../src/engine/store"
+import type { DriftPermission } from "../src/state/permission-attention"
 
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
@@ -92,6 +93,37 @@ test("successful scoped snapshots remove confirmed asks but preserve unknown and
   await actions.refreshPermissions([home])
   expect(state.permissions.session?.map((item) => item.id)).toEqual(["unknown", "other"])
   expect(state.questions.session?.map((item) => item.id)).toEqual(["unknown", "other"])
+})
+
+test("legacy polling does not remove pending v2 permissions", async () => {
+  const { state, set, actions } = harness()
+  reduce(
+    set,
+    {
+      type: "permission.v2.asked",
+      properties: {
+        id: "v2",
+        sessionID: "session",
+        action: "bash",
+        resources: ["git status"],
+        save: ["git *"],
+        metadata: {},
+      },
+    } as never,
+    home,
+  )
+  const paths: string[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    paths.push(new URL(String(input)).pathname)
+    return Response.json([])
+  }) as typeof fetch
+
+  await actions.refreshPermissions([home])
+  expect(paths).toContain("/permission")
+  const request = state.permissions.session?.[0] as DriftPermission
+  expect(request.id).toBe("v2")
+  expect(request.driftProtocol).toBe("v2")
+  expect(request.metadata.always).toEqual(["git *"])
 })
 
 test("new SSE asks survive an older empty polling snapshot", async () => {

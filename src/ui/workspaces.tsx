@@ -9,6 +9,7 @@ import type { Workspace } from "../state/store"
 import { fixedMenuPosition } from "../state/zoom"
 import { t } from "../state/i18n"
 import { Chevron } from "./controls"
+import { permissionRequiresAttention } from "../state/permission-attention"
 import { dragReorder } from "./drag-reorder"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import {
@@ -245,11 +246,14 @@ function ThreadItem(props: {
 
 function StatusDot(props: { sessionId: string }) {
   const engine = useEngine()
+  const permissions = () =>
+    (engine.state.permissions[props.sessionId] ?? []).filter((permission) =>
+      permissionRequiresAttention(permission, engine.state),
+    )
   const attention = () =>
-    (engine.state.permissions[props.sessionId]?.length ?? 0) > 0 ||
-    (engine.state.questions[props.sessionId]?.length ?? 0) > 0
+    permissions().length > 0 || (engine.state.questions[props.sessionId]?.length ?? 0) > 0
   const attentionTitle = () =>
-    (engine.state.permissions[props.sessionId]?.length ?? 0) > 0
+    permissions().length > 0
       ? t("drift.thread.waitingForPermission")
       : t("drift.thread.waitingForAnswer")
   return (

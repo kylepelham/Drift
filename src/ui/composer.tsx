@@ -3,7 +3,6 @@ import { useEngine } from "../engine"
 import { modelInfo, resolveModel, sessionBusy, type QuestionRequest } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
 import {
-  autoAcceptAllowed,
   autoAcceptGlobal,
   autoAcceptSessions,
   modelVisible,
@@ -36,6 +35,7 @@ import { shellInvoke } from "../shell"
 import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
 import { normalizeDir } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"
+import { permissionRequiresAttention, permissionShouldAutoReply } from "../state/permission-attention"
 import { PermissionCard, QuestionCard } from "./attention"
 import { IconMic, IconPaperclip, IconShieldCheck, IconX } from "./icons"
 import { dictationEnabled, dictationModel } from "../state/voice"
@@ -421,16 +421,6 @@ export function Composer() {
     return autoAcceptGlobal() || (!!id && autoAcceptSessions().includes(id))
   }
 
-  function autoAccepted(sessionId: string) {
-    return autoAcceptAllowed(
-      autoAcceptGlobal(),
-      autoAcceptSessions(),
-      sessionId,
-      engine.state.sessions[sessionId]?.parentID,
-      engine.state.links[sessionId],
-    )
-  }
-
   onMount(() => {
     if (dictationEnabled()) void refreshVoiceModels()
     return onKeybind("autoAccept", () => {
@@ -442,14 +432,14 @@ export function Composer() {
 
   createEffect(() => {
     for (const permission of Object.values(engine.state.permissions).flat()) {
-      if (!autoAccepted(permission.sessionID)) continue
+      if (!permissionShouldAutoReply(permission, engine.state)) continue
       untrack(() => void engine.actions.replyPermission(permission.sessionID, permission.id, "once"))
     }
   })
 
   const permissions = () => Object.values(engine.state.permissions).flat()
   const questions = () => Object.values(engine.state.questions).flat()
-  const pendingPermission = () => firstManualPermission(permissions(), (permission) => autoAccepted(permission.sessionID))
+  const pendingPermission = () => firstManualPermission(permissions(), (permission) => !permissionRequiresAttention(permission, engine.state))
   const pendingQuestion = () => focusedQuestion(questions(), focusedQuestionID())
   const pendingAsk = () => localAsks()[0]
 

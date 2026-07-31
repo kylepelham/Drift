@@ -12,6 +12,8 @@ import { codeTokens, Markdown, ProgressiveCodeView, type SyntaxToken } from "./m
 import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../state/code"
 import { TextShimmer } from "./text-shimmer"
 import { openToolContextMenu } from "./tool-context-menu"
+import { permissionRequiresAttention } from "../state/permission-attention"
+import type { EngineState } from "../engine/store"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -285,15 +287,11 @@ function argsPreview(input: Record<string, unknown> | undefined) {
   return joined.length > maxArgsPreviewChars ? joined.slice(0, maxArgsPreviewChars) + "..." : joined
 }
 
-function awaitingPermission(
-  state: {
-    permissions: Record<string, { callID?: string }[]>
-    questions: Record<string, { tool?: { callID: string } }[]>
-  },
-  part: ToolPart,
-) {
+function awaitingPermission(state: EngineState, part: ToolPart) {
   return (
-    (state.permissions[part.sessionID] ?? []).some((permission) => permission.callID === part.callID) ||
+    (state.permissions[part.sessionID] ?? []).some(
+      (permission) => permission.callID === part.callID && permissionRequiresAttention(permission, state),
+    ) ||
     (state.questions[part.sessionID] ?? []).some((question) => question.tool?.callID === part.callID)
   )
 }
