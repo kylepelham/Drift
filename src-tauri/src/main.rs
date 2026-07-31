@@ -15,8 +15,8 @@ mod watcher;
 
 use config::ConfigRoot;
 use engine::Engine;
-use voice::VoiceDownload;
 use tauri::{Manager, RunEvent};
+use voice::VoiceDownload;
 
 /// Windows `CREATE_NO_WINDOW`: keeps spawned console processes from flashing a terminal.
 #[cfg(windows)]
@@ -41,6 +41,7 @@ fn main() {
         // module that defines each command, so a plain `use` re-export is not enough.
         .invoke_handler(tauri::generate_handler![
             engine::engine_status,
+            engine::restart_engine,
             updater::check_update,
             updater::install_update,
             updater::update_support,
@@ -126,11 +127,7 @@ fn main() {
         .expect("failed to build drift")
         .run(|app, event| {
             if let RunEvent::Exit = event {
-                let engine = app.state::<Engine>();
-                let child = engine.child.lock().unwrap().take();
-                if let Some(mut child) = child {
-                    let _ = child.kill();
-                }
+                engine::stop_engine_on_exit(app);
             }
         });
 }
