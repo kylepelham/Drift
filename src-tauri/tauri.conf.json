@@ -50,7 +50,9 @@
       }
     },
     "externalBin": [
-      "binaries/drift-engine"
+      "binaries/drift-engine",
+      "binaries/whisper-cli",
+      "binaries/whisper-cli-vulkan"
     ],
     "resources": {
       "generated/drift-extensions/": "drift-extensions/",

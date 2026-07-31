@@ -37,7 +37,21 @@ import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspace
 import { normalizeDir } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"
 import { PermissionCard, QuestionCard } from "./attention"
-import { IconPaperclip, IconShieldCheck, IconX } from "./icons"
+import { IconMic, IconPaperclip, IconShieldCheck, IconX } from "./icons"
+import { dictationEnabled, dictationModel } from "../state/voice"
+import {
+  dictationActive,
+  dictationElapsed,
+  dictationError,
+  dictationPending,
+  dictationStatus,
+  dismissDictationError,
+  stopDictation,
+  toggleDictation,
+} from "../voice/dictation"
+import { modelInstalled, refreshVoiceModels } from "../voice/models"
+import { appendDictation, formatDictationElapsed } from "../voice/transcript"
+import { openSettings } from "./settings"
 import { createMentionAutocomplete, mentionFiles } from "./composer-mentions"
 import { createSlashMenu } from "./composer-slash"
 import { readDataUrl } from "./files"
@@ -114,6 +128,25 @@ export function Composer() {
     patchComposerDraft(key, { staged: typeof value === "function" ? value(current) : value })
   }
   const setMentions = (mentions: string[]) => patchComposerDraft(scope(), { mentions })
+
+  // Only finalized speech reaches the draft, so live text can never rewrite what was typed.
+  function appendVoice(segment: string) {
+    const key = scope()
+    setHistoryNavigation(null)
+    patchComposerDraft(key, { text: appendDictation(composerDraft(key).text, segment) })
+  }
+
+  function toggleVoice() {
+    if (!modelInstalled(dictationModel())) return openSettings("Voice")
+    void toggleDictation(appendVoice)
+  }
+
+  const voiceBusy = () => dictationActive() || dictationPending() > 0
+
+  const voiceHint = () => {
+    if (dictationStatus() === "starting") return t("drift.voice.starting")
+    return dictationPending() > 0 ? t("drift.voice.transcribing") : t("drift.voice.listening")
+  }
 
   async function addFiles(files: Iterable<File>) {
     const key = scope()
@@ -293,6 +326,7 @@ export function Composer() {
         })
       },
       admitted(key, snapshot, historyDraft) {
+        stopDictation()
         recordComposerHistory(historyDraft)
         setHistoryNavigation(null)
         clearComposerDraft(key, snapshot)
@@ -397,13 +431,14 @@ export function Composer() {
     )
   }
 
-  onMount(() =>
-    onKeybind("autoAccept", () => {
+  onMount(() => {
+    if (dictationEnabled()) void refreshVoiceModels()
+    return onKeybind("autoAccept", () => {
       if (autoAcceptGlobal()) return
       const id = selectedSession()
       if (id) toggleAutoAccept(id)
-    }),
-  )
+    })
+  })
 
   createEffect(() => {
     for (const permission of Object.values(engine.state.permissions).flat()) {
@@ -627,6 +662,28 @@ export function Composer() {
             </Show>
           </div>
         </Show>
+        <Show when={voiceBusy() || dictationError()}>
+          <div class="flex items-center gap-2 px-4 pt-2.5 text-xs">
+            <Show
+              when={voiceBusy()}
+              fallback={
+                <button
+                  class="min-w-0 truncate text-left text-danger hover:underline"
+                  title={t("common.dismiss")}
+                  onClick={dismissDictationError}
+                >
+                  {dictationError()}
+                </button>
+              }
+            >
+              <span class="size-1.5 shrink-0 animate-pulse rounded-full bg-danger" />
+              <Show when={dictationActive()}>
+                <span class="shrink-0 font-mono text-ink-faint">{formatDictationElapsed(dictationElapsed())}</span>
+              </Show>
+              <span class="min-w-0 truncate text-ink-faint italic">{voiceHint()}</span>
+            </Show>
+          </div>
+        </Show>
         <textarea
           ref={area}
           rows={1}
@@ -701,6 +758,22 @@ export function Composer() {
               event.currentTarget.value = ""
             }}
           />
+          <Show when={dictationEnabled()}>
+            <button
+              title={dictationActive() ? t("drift.voice.stop") : t("drift.voice.start")}
+              aria-label={dictationActive() ? t("drift.voice.stop") : t("drift.voice.start")}
+              aria-pressed={dictationActive()}
+              class="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-raised disabled:cursor-default disabled:opacity-60"
+              classList={{
+                "text-ink-faint hover:text-ink": !dictationActive(),
+                "text-danger": dictationActive(),
+              }}
+              disabled={!ready()}
+              onClick={toggleVoice}
+            >
+              <IconMic class="size-4" />
+            </button>
+          </Show>
           <button
             title={t("prompt.action.attachFile")}
             class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"

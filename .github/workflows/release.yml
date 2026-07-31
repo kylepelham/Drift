@@ -112,6 +112,23 @@ jobs:
       - name: Build engine
         run: bun run build:engine
 
+      # Provides glslc for the GPU sidecar's shaders. Installed directly so the signing job gains
+      # no third-party action.
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: |
+          $version = "1.4.350.0"
+          $installer = "$env:RUNNER_TEMP\vulkan-sdk.exe"
+          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/$version/windows/vulkansdk-windows-X64-$version.exe" -OutFile $installer
+          $args = @("--root", "C:\VulkanSDK\$version", "--accept-licenses", "--default-answer", "--confirm-command", "install")
+          $process = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Vulkan SDK install failed with $($process.ExitCode)" }
+          if (-not (Test-Path "C:\VulkanSDK\$version\Bin\glslc.exe")) { throw "glslc missing after install" }
+          "VULKAN_SDK=C:\VulkanSDK\$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build speech recognizer
+        run: bun run build:whisper
+
       - name: Build signed installer
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

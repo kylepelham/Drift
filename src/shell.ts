@@ -21,7 +21,7 @@ export type ShellWebview = {
 }
 
 export type ShellEvents = {
-  listen(name: string, handler: () => void): Promise<() => void>
+  listen<T = unknown>(name: string, handler: (event: { payload: T }) => void): Promise<() => void>
 }
 
 type TauriGlobal = {

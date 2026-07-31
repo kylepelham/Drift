@@ -164,6 +164,7 @@ substantial pull request.
 | [MCP approvals](docs/mcp.md) | MCP trust boundary, exact-definition decisions, reloads, and recovery |
 | [Drift store](docs/store.md) | SQLite schema, persistence, archive behavior, and workspace lifecycle |
 | [Theming](docs/theming.md) | Design tokens, built-in themes, fonts, and custom CSS |
+| [Voice](docs/voice.md) | Dictation engine choice, capture and socket lifecycle, and settings |
 | [Privacy policy](PRIVACY.md) | Local data, network connections, and user control |
 | [Code signing policy](CODE_SIGNING.md) | Release signing process and responsible roles |
 

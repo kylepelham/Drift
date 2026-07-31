@@ -15,3 +15,4 @@ examples/
 .tauri/
 engine/.overlay-lock-reclaimed/
 engine/.overlay-lock-candidate-*/
+.build/

@@ -100,6 +100,7 @@ import {
   IconCode,
   IconInfo,
   IconKeyboard,
+  IconMic,
   IconPalette,
   IconPlus,
   IconShieldCheck,
@@ -110,6 +111,7 @@ import { readDataUrl } from "./files"
 import { Jellyfish } from "./jellyfish"
 import { SettingsGroup, SettingsRow } from "./settings-controls"
 import { StorageSection } from "./settings-storage"
+import { VoiceSection } from "./settings-voice"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import { McpManagement } from "./mcp"
 import { Toggle } from "./controls"
@@ -132,13 +134,14 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Shortcuts", "Providers", "MCP", "Prompts", "Agents", "Storage", "About"] as const
+const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Providers", "MCP", "Prompts", "Agents", "Storage", "About"] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
   Appearance: "settings.general.section.appearance",
   Code: "drift.settings.code",
   Notifications: "drift.settings.notifications",
+  Voice: "drift.voice",
   Shortcuts: "settings.tab.shortcuts",
   Providers: "settings.providers.title",
   MCP: "dialog.mcp.title",
@@ -148,7 +151,7 @@ const sectionLabels: Record<Section, string> = {
   About: "drift.settings.about",
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
-  { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Shortcuts"] },
+  { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts"] },
   { label: "settings.section.server", items: ["Providers", "MCP", "Prompts", "Agents"] },
   { label: "drift.settings.section", items: ["Storage", "About"] },
 ]
@@ -276,6 +279,9 @@ function SettingsModal(props: { onClose: () => void }) {
               </Match>
               <Match when={section() === "Notifications"}>
                 <NotificationsSection />
+              </Match>
+              <Match when={section() === "Voice"}>
+                <VoiceSection />
               </Match>
               <Match when={section() === "Providers"}>
                 <ProvidersSection />
@@ -1678,6 +1684,7 @@ function SectionIcon(props: { section: Section }) {
     if (props.section === "Appearance") return <IconPalette />
     if (props.section === "Code") return <IconCode />
     if (props.section === "Notifications") return <IconBell />
+    if (props.section === "Voice") return <IconMic />
     if (props.section === "Shortcuts") return <IconKeyboard />
     if (props.section === "Providers") return <IconChip />
     if (props.section === "MCP") return <IconShieldCheck />
