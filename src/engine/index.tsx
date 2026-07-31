@@ -127,6 +127,7 @@ export function EngineProvider(props: ParentProps) {
     }
     if (status.target && !sameTarget(base, status.target)) {
       base = status.target
+      set("liveTools", {})
       if (directory) client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
     }
     return false
