@@ -5,6 +5,8 @@ import { sleep, type EngineTarget } from "./connection"
 import { pushNotice } from "./events"
 import type { MessageEntry } from "./store"
 import {
+  askRevision,
+  bumpAskRevision,
   normalizeDir,
   putSession,
   putSessions,
@@ -74,9 +76,13 @@ export function createActions(
   const abortWaitMs = 5000
   const abortPollMs = 100
   const moveNoticeDurationMs = 8000
+  const askPollTimeoutMs = 8000
   let allSessionsRequest: Promise<void> | undefined
   const transcriptRequests = new Map<string, Promise<boolean>>()
   const permissionReplies = new Map<string, Promise<boolean>>()
+  const queuedAskDirectories = new Map<string, string>()
+  const activeAskDirectories = new Set<string>()
+  let askRefresh: Promise<void> | undefined
 
   // Writing `undefined` removes the key from the store. The non-null assertion is only there to
   // satisfy the setter's value type, which does not model deletion - it is not a real value.
@@ -554,71 +560,130 @@ export function createActions(
   // Replied ids are filtered out of poll snapshots that raced the reply.
   const answered = new Set<string>()
 
-  async function fetchJson<T>(path: string, dir: string): Promise<T | null> {
-    const base = target()
-    if (!base) return null
-    const response = await engineFetch(withDirectory(`${base.url}${path}`, dir), { headers: base.headers })
-    return response ? readJson<T | null>(response, null) : null
+  function askKey(kind: "permission" | "question", dir: string, id: string) {
+    return `${kind}\0${normalizeDir(dir)}\0${id}`
   }
 
-  // The generated SDK lags the engine here; GET /permission and /question recover asks
-  // raised while we weren't listening. Walk directories one at a time so idle workspaces
-  // don't stampede instance boots on a timer.
-  async function refreshPermissions(directories: string[]) {
-    if (!target() || directories.length === 0) return
-    const results: {
-      permissions: Permission[]
-      questions: QuestionRequest[]
-    }[] = []
-    for (const dir of directories) {
-      const [permissions, questions] = await Promise.all([
-        fetchJson<PermissionRequest[]>("/permission", dir),
-        fetchJson<QuestionRequest[]>("/question", dir),
-      ])
-      results.push({
-        permissions: (permissions ?? []).map((request) => toPermission(request, dir)),
-        questions: (questions ?? []).map((request) => ({ ...request, directory: dir })),
-      })
+  async function fetchAskSnapshot<T>(path: string, dir: string): Promise<{ ok: true; data: T[] } | { ok: false }> {
+    const base = target()
+    if (!base) return { ok: false }
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), askPollTimeoutMs)
+    try {
+      const response = await fetch(withDirectory(`${base.url}${path}`, dir), {
+        headers: base.headers,
+        signal: controller.signal,
+      }).catch(() => null)
+      if (!response?.ok) return { ok: false }
+      const data = await response.json().catch(() => null)
+      return Array.isArray(data) ? { ok: true, data: data as T[] } : { ok: false }
+    } finally {
+      clearTimeout(timeout)
     }
-    const keep = new Set(directories.map(normalizeDir))
-    const reported = new Set(results.flatMap((r) => [...r.permissions, ...r.questions].map((item) => item.id)))
-    const previous = new Set<string>()
-    for (const list of Object.values(state.permissions)) {
-      for (const item of list) {
-        const dir = item.metadata?.directory
-        if (typeof dir === "string" && keep.has(normalizeDir(dir))) previous.add(item.id)
-      }
+  }
+
+  function clearConfirmedAnswers(kind: "permission" | "question", dir: string, reported: Set<string>) {
+    const prefix = `${kind}\0${normalizeDir(dir)}\0`
+    for (const key of answered) {
+      if (!key.startsWith(prefix)) continue
+      if (!reported.has(key.slice(prefix.length))) answered.delete(key)
     }
-    for (const list of Object.values(state.questions)) {
-      for (const item of list) {
-        if (item.directory && keep.has(normalizeDir(item.directory))) previous.add(item.id)
-      }
-    }
-    for (const id of previous) if (!reported.has(id)) answered.delete(id)
+  }
+
+  function reconcilePermissions(dir: string, permissions: Permission[]) {
+    const reported = new Set(permissions.map((permission) => permission.id))
+    clearConfirmedAnswers("permission", dir, reported)
+    const normalized = normalizeDir(dir)
     set(
       produce((draft) => {
         for (const [sessionID, list] of Object.entries(draft.permissions)) {
-          draft.permissions[sessionID] = list.filter((item) => {
-            const dir = item.metadata?.directory
-            return typeof dir === "string" && !keep.has(normalizeDir(dir))
+          draft.permissions[sessionID] = list.filter((permission) => {
+            const directory = permission.metadata?.directory
+            return typeof directory !== "string" || normalizeDir(directory) !== normalized
           })
           if (!draft.permissions[sessionID]?.length) delete draft.permissions[sessionID]
         }
-        for (const [sessionID, list] of Object.entries(draft.questions)) {
-          draft.questions[sessionID] = list.filter((item) => {
-            const dir = item.directory
-            return typeof dir === "string" && !keep.has(normalizeDir(dir))
-          })
-          if (!draft.questions[sessionID]?.length) delete draft.questions[sessionID]
-        }
-        for (const result of results) {
-          for (const permission of result.permissions)
-            if (!answered.has(permission.id)) (draft.permissions[permission.sessionID] ??= []).push(permission)
-          for (const question of result.questions)
-            if (!answered.has(question.id)) (draft.questions[question.sessionID] ??= []).push(question)
+        for (const permission of permissions) {
+          if (answered.has(askKey("permission", dir, permission.id))) continue
+          const list = (draft.permissions[permission.sessionID] ??= [])
+          if (!list.some((current) => current.id === permission.id)) list.push(permission)
         }
       }),
     )
+  }
+
+  function reconcileQuestions(dir: string, questions: QuestionRequest[]) {
+    const reported = new Set(questions.map((question) => question.id))
+    clearConfirmedAnswers("question", dir, reported)
+    const normalized = normalizeDir(dir)
+    set(
+      produce((draft) => {
+        for (const [sessionID, list] of Object.entries(draft.questions)) {
+          draft.questions[sessionID] = list.filter(
+            (question) => !question.directory || normalizeDir(question.directory) !== normalized,
+          )
+          if (!draft.questions[sessionID]?.length) delete draft.questions[sessionID]
+        }
+        for (const question of questions) {
+          if (answered.has(askKey("question", dir, question.id))) continue
+          const list = (draft.questions[question.sessionID] ??= [])
+          if (!list.some((current) => current.id === question.id)) list.push(question)
+        }
+      }),
+    )
+  }
+
+  async function refreshDirectoryAsks(dir: string) {
+    const permissionRevision = askRevision(state, "permission", dir)
+    const questionRevision = askRevision(state, "question", dir)
+    const [permissionResult, questionResult] = await Promise.all([
+      fetchAskSnapshot<PermissionRequest>("/permission", dir),
+      fetchAskSnapshot<QuestionRequest>("/question", dir),
+    ])
+    if (permissionResult.ok && askRevision(state, "permission", dir) === permissionRevision) {
+      reconcilePermissions(
+        dir,
+        permissionResult.data.map((request) => toPermission(request, dir)),
+      )
+    }
+    if (questionResult.ok && askRevision(state, "question", dir) === questionRevision) {
+      reconcileQuestions(
+        dir,
+        questionResult.data.map((request) => ({ ...request, directory: dir })),
+      )
+    }
+  }
+
+  async function drainAskRefresh() {
+    while (queuedAskDirectories.size) {
+      const next = queuedAskDirectories.entries().next().value as [string, string]
+      queuedAskDirectories.delete(next[0])
+      activeAskDirectories.add(next[0])
+      try {
+        await refreshDirectoryAsks(next[1])
+      } finally {
+        activeAskDirectories.delete(next[0])
+      }
+    }
+  }
+
+  // The generated SDK lags the engine here; GET /permission and /question recover asks
+  // raised while we weren't listening. Polls are coalesced and directories are walked one
+  // at a time so idle workspaces do not stampede instance boots.
+  function refreshPermissions(directories: string[]) {
+    if (!target()) return Promise.resolve()
+    for (const dir of directories) {
+      const normalized = normalizeDir(dir)
+      if (!normalized || activeAskDirectories.has(normalized) || queuedAskDirectories.has(normalized)) continue
+      queuedAskDirectories.set(normalized, dir)
+    }
+    if (askRefresh) return askRefresh
+    let request!: Promise<void>
+    request = drainAskRefresh().finally(() => {
+      if (askRefresh === request) askRefresh = undefined
+    })
+    askRefresh = request
+    return request
   }
 
   function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
@@ -655,10 +720,12 @@ export function createActions(
         return failed()
       }
     }
-    answered.add(permissionID)
+    const answerDirectory = dir ?? state.directory
+    answered.add(askKey("permission", answerDirectory, permissionID))
     set(
       produce((draft) => {
         draft.permissions[sessionID] = (draft.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID)
+        bumpAskRevision(draft, "permission", answerDirectory)
       }),
     )
     return true
@@ -677,10 +744,11 @@ export function createActions(
       body: JSON.stringify(answers ? { answers } : {}),
     })
     if (!response) return false
-    answered.add(requestID)
+    answered.add(askKey("question", dir, requestID))
     set(
       produce((draft) => {
         draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter((item) => item.id !== requestID)
+        bumpAskRevision(draft, "question", dir)
       }),
     )
     return true

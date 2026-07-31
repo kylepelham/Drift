@@ -61,6 +61,8 @@ export type Notice = {
   duration: number
 }
 
+export type AskKind = "permission" | "question"
+
 export type EngineState = {
   connection: Connection
   directory: string
@@ -71,6 +73,7 @@ export type EngineState = {
   loaded: Record<string, boolean>
   permissions: Record<string, Permission[]>
   questions: Record<string, QuestionRequest[]>
+  askRevisions: Record<string, number>
   todos: Record<string, Todo[]>
   providers: ProviderInfo[]
   connected: string[]
@@ -116,6 +119,7 @@ export function createEngineState() {
     loaded: {},
     permissions: {},
     questions: {},
+    askRevisions: {},
     todos: {},
     providers: [],
     connected: [],
@@ -207,6 +211,20 @@ export function sessionBusy(state: EngineState, id: string) {
 
 export function normalizeDir(path: string) {
   return path.replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase()
+}
+
+export function askRevisionKey(kind: AskKind, directory: string) {
+  return `${kind}\0${normalizeDir(directory)}`
+}
+
+export function askRevision(state: EngineState, kind: AskKind, directory: string) {
+  return state.askRevisions[askRevisionKey(kind, directory)] ?? 0
+}
+
+export function bumpAskRevision(state: EngineState, kind: AskKind, directory?: string) {
+  if (!directory) return
+  const key = askRevisionKey(kind, directory)
+  state.askRevisions[key] = (state.askRevisions[key] ?? 0) + 1
 }
 
 export function sessionsFor(state: EngineState, directory: string) {
