@@ -119,6 +119,7 @@ test("revert actions remain successful when their transcript refresh fails", asy
   )
 
   expect(await actions.revert("session", "message")).toBeTrue()
+  expect(state.notices.at(-1)?.message).toBe("refresh failed")
   expect(await actions.unrevert("session")).toBeTrue()
   expect(state.notices.at(-1)?.message).toBe("refresh failed")
 })
