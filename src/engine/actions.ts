@@ -75,6 +75,7 @@ export function createActions(
   const abortPollMs = 100
   const moveNoticeDurationMs = 8000
   let allSessionsRequest: Promise<void> | undefined
+  const transcriptRequests = new Map<string, Promise<boolean>>()
   const permissionReplies = new Map<string, Promise<boolean>>()
 
   // Writing `undefined` removes the key from the store. The non-null assertion is only there to
@@ -96,7 +97,9 @@ export function createActions(
 
   async function reloadSession(id: string) {
     const result = await requireClient().session.messages({ path: { id }, query: { limit: pageSize } })
-    const entries = [...(result.data ?? [])].sort((a, b) => a.info.id.localeCompare(b.info.id))
+    const entries = [...requireSdkData(result, "Could not load transcript")].sort((a, b) =>
+      a.info.id.localeCompare(b.info.id),
+    )
     set("transcripts", id, entries)
     set("loaded", id, true)
     set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
@@ -127,10 +130,27 @@ export function createActions(
     return sorted.length > 0
   }
 
-  async function openSession(id: string) {
-    if (state.loaded[id]) return
-    set("loaded", id, true)
-    await reloadSession(id)
+  function openSession(id: string) {
+    if (state.loaded[id]) return Promise.resolve(true)
+    const active = transcriptRequests.get(id)
+    if (active) return active
+    let request!: Promise<boolean>
+    request = reloadSession(id)
+      .then(() => true)
+      .catch((cause) => {
+        notice({
+          id: `transcript-load-${id}`,
+          title: "Transcript load failed",
+          message: sdkErrorMessage(cause, "Could not reach the engine"),
+          variant: "error",
+        })
+        return false
+      })
+      .finally(() => {
+        if (transcriptRequests.get(id) === request) transcriptRequests.delete(id)
+      })
+    transcriptRequests.set(id, request)
+    return request
   }
 
   async function loadSessions(directory: string) {
