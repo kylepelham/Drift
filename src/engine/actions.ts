@@ -564,10 +564,6 @@ export function createActions(
     forgetSession(id)
   }
 
-  // Drops only the transcript-shaped state for a session we deleted ourselves.
-  // NOTE: events.ts dropSession, which handles the engine's own session-deleted event, additionally
-  // clears permissions, questions, todos, status, activity and errors. The two have never agreed;
-  // whether this one is missing those deletes has not been established.
   function forgetSession(id: string) {
     clearPermissionAttentionFor(state.permissions[id] ?? [])
     set(
@@ -575,6 +571,13 @@ export function createActions(
         delete draft.sessions[id]
         delete draft.transcripts[id]
         delete draft.loaded[id]
+        delete draft.permissions[id]
+        delete draft.questions[id]
+        delete draft.todos[id]
+        delete draft.status[id]
+        delete draft.activity[id]
+        delete draft.errors[id]
+        delete draft.cursors[id]
         for (const [partID, owner] of Object.entries(draft.liveTools))
           if (owner === id) delete draft.liveTools[partID]
       }),

@@ -112,9 +112,14 @@ test("legacy polling does not remove pending v2 permissions", async () => {
     } as never,
     home,
   )
-  globalThis.fetch = (async () => Response.json([])) as typeof fetch
+  const paths: string[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    paths.push(new URL(String(input)).pathname)
+    return Response.json([])
+  }) as typeof fetch
 
   await actions.refreshPermissions([home])
+  expect(paths).toContain("/permission")
   const request = state.permissions.session?.[0] as DriftPermission
   expect(request.id).toBe("v2")
   expect(request.driftProtocol).toBe("v2")
