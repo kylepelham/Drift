@@ -1,12 +1,14 @@
 import { createOpencodeClient, type OpencodeClient, type Permission, type Session } from "@opencode-ai/sdk/client"
 import { createOpencodeClient as createControlClient } from "@opencode-ai/sdk/v2/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
+import { t } from "../state/i18n"
 import { sleep, type EngineTarget } from "./connection"
 import { pushNotice } from "./events"
 import type { MessageEntry } from "./store"
 import {
   askRevision,
   bumpAskRevision,
+  interruptStaleTools,
   normalizeDir,
   putSession,
   putSessions,
@@ -103,8 +105,10 @@ export function createActions(
 
   async function reloadSession(id: string) {
     const result = await requireClient().session.messages({ path: { id }, query: { limit: pageSize } })
-    const entries = [...requireSdkData(result, "Could not load transcript")].sort((a, b) =>
-      a.info.id.localeCompare(b.info.id),
+    const entries = interruptStaleTools(
+      [...requireSdkData(result, "Could not load transcript")].sort((a, b) => a.info.id.localeCompare(b.info.id)),
+      state.liveTools,
+      t("drift.message.interrupted"),
     )
     set("transcripts", id, entries)
     set("loaded", id, true)
@@ -132,7 +136,11 @@ export function createActions(
     const response = await engineFetch(url, { headers: base.headers })
     if (!response) return false
     const older = await readJson<MessageEntry[]>(response, [])
-    const sorted = [...older].sort((a, b) => a.info.id.localeCompare(b.info.id))
+    const sorted = interruptStaleTools(
+      [...older].sort((a, b) => a.info.id.localeCompare(b.info.id)),
+      state.liveTools,
+      t("drift.message.interrupted"),
+    )
     set(
       produce((draft) => {
         const existing = new Set((draft.transcripts[id] ?? []).map((entry) => entry.info.id))
@@ -448,6 +456,7 @@ export function createActions(
       if (!control) return false
       const result = await control.global.dispose().catch(() => null)
       if (result?.data !== true) return false
+      set("liveTools", {})
       await sleep(disposeSettleMs)
       return true
     }
@@ -553,6 +562,8 @@ export function createActions(
         delete draft.sessions[id]
         delete draft.transcripts[id]
         delete draft.loaded[id]
+        for (const [partID, owner] of Object.entries(draft.liveTools))
+          if (owner === id) delete draft.liveTools[partID]
       }),
     )
   }
