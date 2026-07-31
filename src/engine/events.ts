@@ -3,7 +3,15 @@ import type { SetStoreFunction } from "solid-js/store"
 import { produce } from "solid-js/store"
 import { clearQuestionDraft } from "../state/question-drafts"
 import { errorText } from "./error"
-import { putSession, recordLink, spawnLink, type EngineState, type Notice, type QuestionRequest } from "./store"
+import {
+  bumpAskRevision,
+  putSession,
+  recordLink,
+  spawnLink,
+  type EngineState,
+  type Notice,
+  type QuestionRequest,
+} from "./store"
 
 type SetEngineState = SetStoreFunction<EngineState>
 
@@ -18,14 +26,15 @@ export function reduce(set: SetEngineState, event: Event, directory?: string) {
     raw.type === "question.replied" ||
     raw.type === "question.rejected"
   )
-    return dropQuestion(set, raw.properties.sessionID as string, raw.properties.requestID as string)
+    return dropQuestion(set, raw.properties.sessionID as string, raw.properties.requestID as string, directory)
   if (raw.type === "permission.asked" || raw.type === "permission.v2.asked")
-    return addPermission(set, permissionFromEvent(raw.properties, directory))
+    return addPermission(set, permissionFromEvent(raw.properties, directory), directory)
   if (raw.type === "permission.v2.replied" || raw.type === "permission.replied")
     return dropPermission(
       set,
       raw.properties.sessionID as string,
       (raw.properties.requestID ?? raw.properties.permissionID) as string,
+      directory,
     )
   if (raw.type === "tui.toast.show")
     return pushNotice(set, {
@@ -73,9 +82,9 @@ export function reduce(set: SetEngineState, event: Event, directory?: string) {
     case "message.part.removed":
       return dropPart(set, event.properties)
     case "permission.updated":
-      return addPermission(set, event.properties)
+      return addPermission(set, event.properties, directory)
     case "permission.replied":
-      return dropPermission(set, event.properties.sessionID, event.properties.permissionID)
+      return dropPermission(set, event.properties.sessionID, event.properties.permissionID, directory)
     case "todo.updated":
       return set("todos", event.properties.sessionID, event.properties.todos)
   }
@@ -230,6 +239,7 @@ function dropPart(set: SetEngineState, ref: { sessionID: string; messageID: stri
 function addQuestion(set: SetEngineState, question: QuestionRequest) {
   set(
     produce((draft) => {
+      bumpAskRevision(draft, "question", question.directory)
       const list = draft.questions[question.sessionID] ?? []
       if (!list.some((existing) => existing.id === question.id)) list.push(question)
       draft.questions[question.sessionID] = list
@@ -237,22 +247,31 @@ function addQuestion(set: SetEngineState, question: QuestionRequest) {
   )
 }
 
-function dropQuestion(set: SetEngineState, sessionID: string, requestID: string) {
+function dropQuestion(set: SetEngineState, sessionID: string, requestID: string, directory?: string) {
   clearQuestionDraft(requestID)
   set(
     produce((draft) => {
       const list = draft.questions[sessionID]
+      const current = list?.find((question) => question.id === requestID)
+      bumpAskRevision(draft, "question", current?.directory ?? directory)
       if (list) draft.questions[sessionID] = list.filter((question) => question.id !== requestID)
     }),
   )
 }
 
-function addPermission(set: SetEngineState, permission: Permission) {
+function addPermission(set: SetEngineState, permission: Permission, directory?: string) {
+  const resolvedDirectory =
+    typeof permission.metadata?.directory === "string" ? permission.metadata.directory : directory
+  const entry =
+    resolvedDirectory && !permission.metadata?.directory
+      ? { ...permission, metadata: { ...permission.metadata, directory: resolvedDirectory } }
+      : permission
   set(
     produce((draft) => {
-      const list = draft.permissions[permission.sessionID] ?? []
-      if (!list.some((existing) => existing.id === permission.id)) list.push(permission)
-      draft.permissions[permission.sessionID] = list
+      bumpAskRevision(draft, "permission", resolvedDirectory)
+      const list = draft.permissions[entry.sessionID] ?? []
+      if (!list.some((existing) => existing.id === entry.id)) list.push(entry)
+      draft.permissions[entry.sessionID] = list
     }),
   )
 }
@@ -276,10 +295,13 @@ function permissionFromEvent(properties: Record<string, unknown>, directory?: st
   }
 }
 
-function dropPermission(set: SetEngineState, sessionID: string, permissionID: string) {
+function dropPermission(set: SetEngineState, sessionID: string, permissionID: string, directory?: string) {
   set(
     produce((draft) => {
       const list = draft.permissions[sessionID]
+      const current = list?.find((permission) => permission.id === permissionID)
+      const currentDirectory = current?.metadata?.directory
+      bumpAskRevision(draft, "permission", typeof currentDirectory === "string" ? currentDirectory : directory)
       if (list) draft.permissions[sessionID] = list.filter((permission) => permission.id !== permissionID)
     }),
   )
