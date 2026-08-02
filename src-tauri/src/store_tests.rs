@@ -7,6 +7,12 @@ fn store_roundtrip() {
     std::fs::create_dir_all(&dir).unwrap();
     let store = open(&dir).unwrap();
 
+    assert!(!store.dictation_enabled().unwrap());
+    store.save_dictation_enabled(true).unwrap();
+    assert!(store.dictation_enabled().unwrap());
+    store.save_dictation_enabled(false).unwrap();
+    assert!(!store.dictation_enabled().unwrap());
+
     let created = store.add_workspace("w1", "S:/proj", "Proj", "").unwrap();
     assert_eq!(created.id, "w1");
     store

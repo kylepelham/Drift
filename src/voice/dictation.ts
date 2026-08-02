@@ -1,9 +1,17 @@
 import { createSignal } from "solid-js"
 import { shellInvoke } from "../shell"
 import { t } from "../state/i18n"
-import { dictationKeyterms, dictationLanguage, dictationModel, keytermPrompt } from "../state/voice"
+import {
+  dictationEnabled,
+  dictationKeyterms,
+  dictationLanguage,
+  dictationModel,
+  keytermPrompt,
+  persistDictationEnabled,
+} from "../state/voice"
 import { blockEnergy, createSegmenter, drainSegmenter, encodePcm16, phraseSeconds, pushBlock } from "./audio"
 import { startCapture, type Capture } from "./capture"
+import { selectedCaptureDeviceId } from "./devices"
 import { cleanTranscript } from "./transcript"
 
 export type DictationStatus = "idle" | "starting" | "listening"
@@ -46,7 +54,7 @@ export async function toggleDictation(emit: (text: string) => void) {
 }
 
 export async function startDictation(emit: (text: string) => void) {
-  if (dictationActive()) return
+  if (dictationActive() || !dictationEnabled()) return
   onSegment = emit
   segmenter = createSegmenter()
   blocks = 0
@@ -55,13 +63,13 @@ export async function startDictation(emit: (text: string) => void) {
   setLevel(0)
   setStatus("starting")
   try {
-    capture = await startCapture(handleBlock)
+    capture = await startCapture(handleBlock, selectedCaptureDeviceId())
   } catch (cause) {
     setStatus("idle")
     return setError(captureError(cause))
   }
   // Stopped while the permission prompt was open.
-  if (status() === "idle") return void capture.stop().catch(() => undefined)
+  if (status() === "idle" || !dictationEnabled()) return void capture.stop().catch(() => undefined)
   startedAt = Date.now()
   ticker = setInterval(() => setElapsed(Date.now() - startedAt), 1000)
   setStatus("listening")
@@ -79,6 +87,24 @@ export function stopDictation() {
   const tail = drainSegmenter(segmenter)
   if (tail) enqueue(tail)
   void active?.stop().catch(() => undefined)
+}
+
+export async function setDictationEnabled(enabled: boolean) {
+  if (!enabled) {
+    persistDictationEnabled(false)
+    stopDictation()
+  }
+  const invoke = shellInvoke()
+  try {
+    await invoke?.("voice_dictation_set_enabled", { enabled })
+    if (enabled) persistDictationEnabled(true)
+  } catch (cause) {
+    setError(cause instanceof Error ? cause.message : String(cause))
+  }
+}
+
+export async function syncDictationConsent() {
+  await shellInvoke()?.("voice_dictation_set_enabled", { enabled: dictationEnabled() })
 }
 
 function handleBlock(block: Float32Array) {
@@ -112,10 +138,14 @@ async function transcribe(phrase: Float32Array) {
   }
 }
 
-function captureError(cause: unknown) {
+export function captureErrorKey(cause: unknown) {
   const name = cause instanceof Error ? cause.name : ""
-  if (name === "NotSupportedError") return t("drift.voice.error.unsupported")
-  if (name === "NotAllowedError" || name === "SecurityError") return t("drift.voice.error.permission")
-  if (name === "NotFoundError") return t("drift.voice.error.noMicrophone")
-  return t("drift.voice.error.microphone")
+  if (name === "NotSupportedError") return "drift.voice.error.unsupported"
+  if (name === "NotAllowedError" || name === "SecurityError") return "drift.voice.error.permission"
+  if (name === "NotFoundError") return "drift.voice.error.noMicrophone"
+  return "drift.voice.error.microphone"
+}
+
+function captureError(cause: unknown) {
+  return t(captureErrorKey(cause))
 }

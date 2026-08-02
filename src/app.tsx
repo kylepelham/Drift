@@ -26,6 +26,7 @@ import { Sidebar } from "./ui/sidebar"
 import { StartupSplash } from "./ui/startup"
 import { Titlebar } from "./ui/titlebar"
 import { ToolContextMenuHost } from "./ui/tool-context-menu"
+import { syncDictationConsent } from "./voice/dictation"
 
 export function App() {
   bindTheme()
@@ -33,6 +34,7 @@ export function App() {
   bindLanguage()
   initKeybinds()
   initZoom()
+  onMount(() => void syncDictationConsent().catch(() => undefined))
   return (
     <EngineProvider>
       <WorkspaceBinding />

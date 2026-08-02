@@ -7,6 +7,7 @@ mod editor;
 mod engine;
 mod engine_db;
 mod mcp;
+mod permissions;
 mod storage;
 mod store;
 mod updater;
@@ -37,6 +38,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Engine::default())
         .manage(VoiceDownload::default())
+        .manage(permissions::DictationConsent::default())
         // Commands are named by full path: generate_handler! resolves helper macros in the
         // module that defines each command, so a plain `use` re-export is not enough.
         .invoke_handler(tauri::generate_handler![
@@ -84,7 +86,8 @@ fn main() {
             voice::voice_model_download,
             voice::voice_model_remove,
             voice::voice_model_cancel,
-            voice::voice_transcribe
+            voice::voice_transcribe,
+            permissions::voice_dictation_set_enabled
         ])
         .setup(|app| {
             let data_dir = app.path().app_data_dir().expect("no app data dir");
@@ -110,6 +113,9 @@ fn main() {
                     .unwrap_or(false)
             };
             let store = store::open(&data_dir).expect("failed to open drift store");
+            let dictation_enabled = store.dictation_enabled().unwrap_or(false);
+            app.state::<permissions::DictationConsent>()
+                .set(dictation_enabled);
             if let Ok(database) = engine_db::database_path(shared_database) {
                 if let Err(error) = store.import_opencode_workspaces(&database) {
                     eprintln!("failed to import OpenCode workspaces: {error}");
@@ -123,6 +129,8 @@ fn main() {
             let engine_config = mcp_runtime.config_dir().to_path_buf();
             app.manage(store);
             app.manage(mcp_runtime);
+            #[cfg(windows)]
+            permissions::install(app)?;
             engine::spawn_engine(app.handle().clone(), shared_database, engine_config);
             watcher::watch_mcp_configs(app.handle().clone());
             Ok(())

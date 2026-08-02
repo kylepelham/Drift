@@ -17,6 +17,13 @@ import {
 } from "../src/voice/audio"
 import { appendDictation, cleanTranscript, formatDictationElapsed } from "../src/voice/transcript"
 import { downloadPercent, formatBytes } from "../src/voice/models"
+import { captureConstraints, deviceUnavailable, stopStreamTracks } from "../src/voice/capture"
+import {
+  availableCaptureDeviceId,
+  enumerateAudioInputs,
+  filterAudioInputDevices,
+  watchAudioInputDevices,
+} from "../src/voice/devices"
 
 const silence = () => new Float32Array(blockSamples)
 const speech = () => new Float32Array(blockSamples).fill(0.3)
@@ -144,6 +151,117 @@ test("stored voice preferences are repaired rather than trusted", async () => {
   expect(voice.normalizeModel("../escape")).toBe("large-v3-turbo-q5_0")
   expect(voice.normalizeKeyterms(["ok", 7, null])).toEqual(["ok"])
   expect(voice.normalizeKeyterms("nope")).toEqual([])
+  expect(voice.normalizeInputDeviceId(" microphone-id ")).toBe("microphone-id")
+  expect(voice.normalizeInputDeviceId("default")).toBeNull()
+  expect(voice.normalizeInputDeviceId(7)).toBeNull()
+})
+
+test("capture uses an exact explicit device and leaves system default unconstrained", () => {
+  expect(captureConstraints()).toEqual({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  })
+  expect(captureConstraints("headset")).toEqual({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      deviceId: { exact: "headset" },
+    },
+  })
+  expect(deviceUnavailable(Object.assign(new Error(), { name: "NotFoundError" }))).toBeTrue()
+  expect(deviceUnavailable(Object.assign(new Error(), { name: "OverconstrainedError" }))).toBeTrue()
+  expect(deviceUnavailable(Object.assign(new Error(), { name: "NotAllowedError" }))).toBeFalse()
+})
+
+test("device enumeration keeps unique physical audio inputs", () => {
+  const devices = filterAudioInputDevices([
+    { kind: "audiooutput", deviceId: "speaker", label: "Speakers" },
+    { kind: "audioinput", deviceId: "default", label: "Default" },
+    { kind: "audioinput", deviceId: "mic-1", label: "Headset" },
+    { kind: "audioinput", deviceId: "mic-1", label: "Duplicate" },
+    { kind: "audioinput", deviceId: "mic-2", label: "" },
+  ])
+  expect(devices).toEqual([
+    { deviceId: "mic-1", label: "Headset" },
+    { deviceId: "mic-2", label: "" },
+  ])
+})
+
+test("enumerating inputs does not open a microphone stream", async () => {
+  let captures = 0
+  const media = {
+    enumerateDevices: async () => [{ kind: "audioinput", deviceId: "mic", label: "Desk mic" }],
+    getUserMedia: async () => {
+      captures += 1
+    },
+  } as unknown as MediaDevices
+  expect(await enumerateAudioInputs(media)).toEqual([{ deviceId: "mic", label: "Desk mic" }])
+  expect(captures).toBe(0)
+})
+
+test("device changes refresh settings and cleanup removes the listener", () => {
+  let listener: (() => void) | undefined
+  let refreshes = 0
+  const media = {
+    addEventListener: (name: string, handler: () => void) => {
+      if (name === "devicechange") listener = handler
+    },
+    removeEventListener: (_name: string, handler: () => void) => {
+      if (listener === handler) listener = undefined
+    },
+  } as unknown as MediaDevices
+  const cleanup = watchAudioInputDevices(media, () => refreshes++)
+  expect(refreshes).toBe(1)
+  listener?.()
+  expect(refreshes).toBe(2)
+  cleanup()
+  expect(listener).toBeUndefined()
+})
+
+test("a missing saved device falls back without discarding its reconnection preference", () => {
+  const saved = "usb-mic"
+  expect(availableCaptureDeviceId(saved, [{ deviceId: "laptop", label: "Laptop" }])).toBeUndefined()
+  expect(saved).toBe("usb-mic")
+  expect(availableCaptureDeviceId(saved, [{ deviceId: saved, label: "USB microphone" }])).toBe(saved)
+})
+
+test("capture cleanup stops every stream track", () => {
+  const stopped: string[] = []
+  stopStreamTracks({
+    getTracks: () => [
+      { stop: () => stopped.push("audio") },
+      { stop: () => stopped.push("other") },
+    ] as MediaStreamTrack[],
+  })
+  expect(stopped).toEqual(["audio", "other"])
+})
+
+test("Windows privacy denials are classified as actionable permission errors", async () => {
+  const { captureErrorKey } = await import("../src/voice/dictation")
+  for (const name of ["NotAllowedError", "SecurityError"]) {
+    expect(captureErrorKey(Object.assign(new Error("denied"), { name }))).toBe("drift.voice.error.permission")
+  }
+})
+
+test("disabling dictation prevents a new capture", async () => {
+  const voice = await import("../src/state/voice")
+  const dictation = await import("../src/voice/dictation")
+  let captures = 0
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "navigator")
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { mediaDevices: { getUserMedia: async () => (captures += 1) } },
+  })
+  try {
+    voice.persistDictationEnabled(true)
+    await dictation.setDictationEnabled(false)
+    await dictation.startDictation(() => undefined)
+    expect(captures).toBe(0)
+    expect(voice.dictationEnabled()).toBeFalse()
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "navigator", previous)
+    else delete (globalThis as { navigator?: Navigator }).navigator
+  }
 })
 
 test("custom vocabulary becomes a whisper prompt", async () => {

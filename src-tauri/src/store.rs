@@ -151,6 +151,10 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
             updated_at INTEGER NOT NULL,
             dismissed_at INTEGER,
             PRIMARY KEY(session_id, identity)
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS app_setting(
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
         ) STRICT;",
     )?;
     // Migration for databases created before `removed_at` existed. On any database created by the
@@ -195,6 +199,29 @@ fn now() -> i64 {
 }
 
 impl Store {
+    pub fn dictation_enabled(&self) -> rusqlite::Result<bool> {
+        let value: Option<String> = self
+            .0
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT value FROM app_setting WHERE key = 'dictation_enabled'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(value.as_deref() == Some("true"))
+    }
+
+    pub fn save_dictation_enabled(&self, enabled: bool) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().execute(
+            "INSERT INTO app_setting(key, value) VALUES('dictation_enabled', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = ?1",
+            [if enabled { "true" } else { "false" }],
+        )?;
+        Ok(())
+    }
+
     pub fn prompt_overrides(&self) -> rusqlite::Result<Vec<PromptOverride>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare_cached(
