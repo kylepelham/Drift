@@ -20,8 +20,12 @@ fn store_roundtrip() {
     assert_eq!(store.archived().unwrap().len(), 2);
     store.unarchive_session("s1").unwrap();
     assert_eq!(store.archived().unwrap().len(), 1);
-    let purged = store.purge_archived(now() + 1000).unwrap();
-    assert_eq!(purged.len(), 1);
+    // Listing expired tombstones must not drop them: only the confirmed unarchive does.
+    let expired_sessions = store.expired_archived(now() + 1000).unwrap();
+    assert_eq!(expired_sessions, vec!["s2".to_string()]);
+    assert_eq!(store.archived().unwrap().len(), 1);
+    assert!(store.expired_archived(now() - 1000).unwrap().is_empty());
+    store.unarchive_session("s2").unwrap();
     assert!(store.archived().unwrap().is_empty());
 
     store.remove_workspace("w1").unwrap();

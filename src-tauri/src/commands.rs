@@ -128,8 +128,8 @@ pub(crate) fn store_unarchive_session(store: State<Store>, session_id: String) -
 }
 
 #[tauri::command]
-pub(crate) fn store_purge_archived(store: State<Store>, before: i64) -> Result<Vec<String>, String> {
-    store.purge_archived(before).map_err(|e| e.to_string())
+pub(crate) fn store_expired_archived(store: State<Store>, before: i64) -> Result<Vec<String>, String> {
+    store.expired_archived(before).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

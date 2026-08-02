@@ -128,10 +128,18 @@ export async function unarchiveSession(sessionId: string) {
 
 const purgeAge = 7 * 24 * 60 * 60 * 1000
 
-export async function purgeArchived() {
-  const ids = await driftStore.purgeArchived(Date.now() - purgeAge)
+// Both purges are two-phase: the Drift record is the deletion tombstone and is only dropped once
+// the engine confirms every session is gone. A failed engine deletion keeps the tombstone, so the
+// purge resumes on the next startup, reconnect, or timer tick. `true` means nothing is pending.
+export async function purgeArchived(removeSession: (sessionId: string) => Promise<boolean>) {
+  const expired = await driftStore.expiredArchived(Date.now() - purgeAge)
+  let complete = true
+  for (const sessionId of expired) {
+    if (await removeSession(sessionId)) await driftStore.unarchiveSession(sessionId)
+    else complete = false
+  }
   await refreshArchives()
-  return ids
+  return complete
 }
 
 export async function purgeRemovedWorkspaces(
@@ -139,6 +147,7 @@ export async function purgeRemovedWorkspaces(
 ) {
   const expired = await driftStore.expiredRemovedWorkspaces(Date.now() - purgeAge)
   const canonical = (path: string) => path.replaceAll("\\", "/").toLowerCase()
+  let complete = true
   for (const workspace of expired) {
     // Never delete sessions in a directory that is on the sidebar or restored mid-drain.
     const eligible = () =>
@@ -146,8 +155,23 @@ export async function purgeRemovedWorkspaces(
       !removedWorkspaces().some(
         (current) => current.id === workspace.id && (current.removedAt ?? 0) > (workspace.removedAt ?? 0),
       )
-    if (!(await removeSessions(workspace.path, eligible))) continue
+    if (!(await removeSessions(workspace.path, eligible))) {
+      complete = false
+      continue
+    }
     await driftStore.forgetWorkspace(workspace.id)
   }
   await refreshWorkspaces()
+  return complete
+}
+
+export async function purgeAll(engine: {
+  purgeSession: (sessionId: string) => Promise<boolean>
+  removeAllSessions: (directory: string, eligible: () => boolean) => Promise<boolean>
+}) {
+  const [archived, removed] = await Promise.all([
+    purgeArchived(engine.purgeSession).catch(() => false),
+    purgeRemovedWorkspaces(engine.removeAllSessions).catch(() => false),
+  ])
+  return archived && removed
 }

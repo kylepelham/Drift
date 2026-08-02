@@ -575,6 +575,20 @@ export function createActions(
     forgetSession(id)
   }
 
+  // Purge deletions must be confirmed before Drift drops its tombstone, so unlike `remove` this
+  // validates the SDK result. A 404 means the engine already lost the session (e.g. a previous
+  // purge deleted it before the tombstone was cleared), which counts as removed.
+  async function purgeSession(id: string): Promise<boolean> {
+    try {
+      const result = await requireClient().session.delete({ path: { id } })
+      if (result.error !== undefined && result.response.status !== 404) return false
+      forgetSession(id)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   function forgetSession(id: string) {
     set(produce((draft) => purgeSession(draft, id)))
   }
@@ -871,6 +885,7 @@ export function createActions(
     runCommand,
     rename,
     remove,
+    purgeSession,
     refreshPermissions,
     replyPermission,
     answerQuestion,

@@ -451,17 +451,16 @@ impl Store {
         Ok(())
     }
 
-    pub fn purge_archived(&self, before: i64) -> rusqlite::Result<Vec<String>> {
+    /// Archived sessions whose retention window has lapsed. Non-destructive: each row is the
+    /// deletion tombstone and is only dropped via `unarchive_session` once the engine confirms
+    /// the session is gone, so a failed engine deletion is retried on a later purge.
+    pub fn expired_archived(&self, before: i64) -> rusqlite::Result<Vec<String>> {
         let conn = self.0.lock().unwrap();
-        let ids: Vec<String> = conn
-            .prepare_cached("SELECT session_id FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1")?
-            .query_map([before], |row| row.get(0))?
-            .collect::<Result<_, _>>()?;
-        conn.prepare_cached(
-            "DELETE FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1",
-        )?
-        .execute([before])?;
-        Ok(ids)
+        let mut stmt = conn.prepare_cached(
+            "SELECT session_id FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1",
+        )?;
+        let rows = stmt.query_map([before], |row| row.get(0))?;
+        rows.collect()
     }
 
     pub fn mcp_state(&self) -> rusqlite::Result<McpState> {

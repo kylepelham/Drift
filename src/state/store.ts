@@ -30,7 +30,7 @@ export interface DriftStore {
   archived(): Promise<ArchivedSession[]>
   archiveSession(sessionId: string, workspaceId: string): Promise<void>
   unarchiveSession(sessionId: string): Promise<void>
-  purgeArchived(before: number): Promise<string[]>
+  expiredArchived(before: number): Promise<string[]>
   mcpSnapshot(directory: string): Promise<McpSnapshot>
   saveMcp(name: string, config: McpConfig, generation: number, previousName?: string): Promise<void>
   removeMcp(name: string, generation: number): Promise<void>
@@ -54,7 +54,7 @@ function shellStore(invoke: Invoke): DriftStore {
     archived: () => invoke("store_archived"),
     archiveSession: (sessionId, workspaceId) => invoke("store_archive_session", { sessionId, workspaceId }),
     unarchiveSession: (sessionId) => invoke("store_unarchive_session", { sessionId }),
-    purgeArchived: (before) => invoke("store_purge_archived", { before }),
+    expiredArchived: (before) => invoke("store_expired_archived", { before }),
     mcpSnapshot: (directory) => invoke("mcp_snapshot", { directory }),
     saveMcp: (name, config, generation, previousName) =>
       invoke("mcp_save", { name, config, generation, previousName }),
@@ -132,11 +132,10 @@ function browserStore(): DriftStore {
     unarchiveSession: async (sessionId) => {
       write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => a.sessionId !== sessionId))
     },
-    purgeArchived: async (before) => {
-      const list = read<ArchivedSession[]>(arKey, [])
-      write(arKey, list.filter((a) => a.archivedAt >= before))
-      return list.filter((a) => a.archivedAt < before).map((a) => a.sessionId)
-    },
+    expiredArchived: async (before) =>
+      read<ArchivedSession[]>(arKey, [])
+        .filter((a) => a.archivedAt < before)
+        .map((a) => a.sessionId),
     mcpSnapshot: desktopMcpOnly,
     saveMcp: desktopMcpOnly,
     removeMcp: desktopMcpOnly,

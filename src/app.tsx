@@ -10,13 +10,7 @@ import { mcpCoordinator } from "./state/mcp"
 import { driftStore } from "./state/store"
 import { bindTheme } from "./state/theme"
 import { initZoom } from "./state/zoom"
-import {
-  activeWorkspace,
-  initWorkspaces,
-  purgeArchived,
-  purgeRemovedWorkspaces,
-  workspaces,
-} from "./state/workspaces"
+import { activeWorkspace, initWorkspaces, purgeAll, workspaces } from "./state/workspaces"
 import { AttentionStrip } from "./ui/attention"
 import { Chat, forwardWheelToChat } from "./ui/chat"
 import { Composer } from "./ui/composer"
@@ -152,8 +146,11 @@ function WorkspaceBinding() {
   function purge() {
     if (engine.state.connection !== "online" || Date.now() - lastPurge < dayMs) return
     lastPurge = Date.now()
-    void purgeArchived().then((ids) => ids.forEach((id) => void engine.actions.remove(id)))
-    void purgeRemovedWorkspaces((directory, eligible) => engine.actions.removeAllSessions(directory, eligible))
+    void purgeAll(engine.actions).then((complete) => {
+      // Failed engine deletions kept their tombstones; clearing the stamp retries on the next
+      // reconnect or hourly tick instead of waiting out the daily interval.
+      if (!complete) lastPurge = 0
+    })
     // Storage cleanup rides the same daily timer and keeps its own last-run stamp, so it stays off
     // the startup path where a large event log would block the first paint.
     void runScheduledCleanup().catch(() => undefined)

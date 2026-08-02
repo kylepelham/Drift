@@ -60,7 +60,7 @@ fn main() {
             commands::store_archived,
             commands::store_archive_session,
             commands::store_unarchive_session,
-            commands::store_purge_archived,
+            commands::store_expired_archived,
             commands::mcp_snapshot,
             commands::prompt_snapshot,
             commands::prompt_save,
