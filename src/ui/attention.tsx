@@ -14,11 +14,13 @@ import { selectedSession } from "../state/selection"
 import { t } from "../state/i18n"
 import { IconCheck } from "./icons"
 import { Chevron } from "./controls"
+import { RevertDock } from "./revert-dock"
 
 export function AttentionStrip() {
   return (
     <div class="mx-auto flex w-full max-w-3xl flex-col gap-2">
       <TodoStrip />
+      <RevertDock />
     </div>
   )
 }
