@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { backendRoute } from "../src/backend"
 import { isNarrowWidth, navigationHash, parseNavigationHash } from "../src/state/navigation"
-import { remoteStatusTone, type RemoteAccessStatus } from "../src/state/remote-access"
+import { nextRemoteAccessEnabled, remoteStatusTone, type RemoteAccessStatus } from "../src/state/remote-access"
 import { remoteEngineBase, remoteRuntimeFrom, runtimeNameFrom } from "../src/runtime"
 
 test("remote runtime uses the same-origin engine gateway", () => {
@@ -43,4 +43,14 @@ test("remote settings state distinguishes online, offline, and error", () => {
   expect(remoteStatusTone(base)).toBe("online")
   expect(remoteStatusTone({ ...base, listening: false })).toBe("offline")
   expect(remoteStatusTone({ ...base, error: "busy" })).toBe("error")
+  expect(nextRemoteAccessEnabled(base)).toBeFalse()
+  expect(nextRemoteAccessEnabled({ ...base, enabled: false })).toBeTrue()
+})
+
+test("remote access toggle has one state transition helper", async () => {
+  const source = await Bun.file("src/ui/settings.tsx").text()
+  const section = source.slice(source.indexOf("function RemoteAccessSection"), source.indexOf("function ToolExecutionSection"))
+  expect(section).toContain("onChange={() => void setRemoteAccess(nextRemoteAccessEnabled(status()))}")
+  expect(section).not.toContain("onClick={() => void setRemoteAccess")
+  expect(section).not.toContain("remote-access-card")
 })

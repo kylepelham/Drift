@@ -1091,6 +1091,14 @@ export const dict = {
 
 export const drift = {
   "drift.remote.title": "Remote Access",
+  "drift.remote.statusOff": "ปิด",
+  "drift.remote.statusStarting": "กำลังเริ่ม",
+  "drift.remote.statusError": "ข้อผิดพลาด",
+  "drift.remote.clipboardError": "คัดลอกไม่ได้",
+  "drift.settings.shellTimeout.hostWide": "นโยบายการทำงานทั้งโฮสต์",
+  "drift.settings.shellTimeout.appliesNew": "ใช้กับการเรียกใหม่",
+  "drift.settings.shellTimeout.presets": "ค่าล่วงหน้าการหมดเวลา",
+  "drift.settings.shellTimeout.scope": "การหมดเวลาของเชลล์จะยุติผังกระบวนการ โดยไม่กระทบโมเดล เซิร์ฟเวอร์ MCP หรือการเรียกเครือข่าย",
   "drift.remote.connected": "Connected to Drift",
   "drift.remote.manageOnDesktop": "This device is using the host gateway. Enable, disable, or rotate access from Drift on the host computer.",
   "drift.remote.gateway": "Gateway",

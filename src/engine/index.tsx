@@ -5,7 +5,7 @@ import { shellEvents } from "../shell"
 import { t } from "../state/i18n"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
 import { clearRecoverableInterruption } from "../state/recovery"
-import { shellTimeoutMs } from "../state/prefs"
+import { reportShellTimeoutError, shellTimeoutMs } from "../state/prefs"
 import { createActions, type EngineActions } from "./actions"
 import {
   configureShellTimeout,
@@ -76,7 +76,8 @@ export function EngineProvider(props: ParentProps) {
         if (disposed || base !== target || shellTimeoutMs() !== timeout) return
         return configureShellTimeout(target, timeout)
       })
-      .catch(() => undefined)
+      .then(() => reportShellTimeoutError(""))
+      .catch((cause) => reportShellTimeoutError(cause instanceof Error ? cause.message : String(cause)))
   }
 
   createEffect(() => {

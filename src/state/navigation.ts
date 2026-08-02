@@ -36,6 +36,11 @@ export function pushRemoteSelection(patch: Pick<RemoteRoute, "workspace" | "sess
   history.pushState(null, "", navigationHash(next))
 }
 
+export function replaceRemoteSelection(workspace: string | null, session: string | null) {
+  if (!isRemoteRuntime()) return
+  history.replaceState(null, "", navigationHash({ workspace: workspace ?? undefined, session: session ?? undefined }))
+}
+
 export function pushRemoteOverlay(overlay: RemoteRoute["overlay"]) {
   if (!isRemoteRuntime()) return
   history.pushState(null, "", navigationHash({ ...currentRoute(), overlay }))

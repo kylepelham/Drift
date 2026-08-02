@@ -18,6 +18,10 @@ export function remoteStatusTone(status: RemoteAccessStatus | null) {
   return status.enabled && status.listening ? "online" : "offline"
 }
 
+export function nextRemoteAccessEnabled(status: RemoteAccessStatus | null) {
+  return !status?.enabled
+}
+
 const [status, setStatus] = createSignal<RemoteAccessStatus | null>(null)
 const [busy, setBusy] = createSignal(false)
 const [error, setError] = createSignal("")

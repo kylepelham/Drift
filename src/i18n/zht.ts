@@ -1074,6 +1074,14 @@ export const dict = {
 
 export const drift = {
   "drift.remote.title": "Remote Access",
+  "drift.remote.statusOff": "已關閉",
+  "drift.remote.statusStarting": "正在啟動",
+  "drift.remote.statusError": "錯誤",
+  "drift.remote.clipboardError": "無法複製",
+  "drift.settings.shellTimeout.hostWide": "主機層級執行政策",
+  "drift.settings.shellTimeout.appliesNew": "套用至新呼叫",
+  "drift.settings.shellTimeout.presets": "逾時預設",
+  "drift.settings.shellTimeout.scope": "Shell 逾時會終止處理程序樹狀結構，但不會影響模型、MCP 伺服器或網路呼叫。",
   "drift.remote.connected": "Connected to Drift",
   "drift.remote.manageOnDesktop": "This device is using the host gateway. Enable, disable, or rotate access from Drift on the host computer.",
   "drift.remote.gateway": "Gateway",

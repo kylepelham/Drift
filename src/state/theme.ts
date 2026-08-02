@@ -1,5 +1,6 @@
 import { createEffect, createSignal, onCleanup } from "solid-js"
 import { persisted } from "./persist"
+import { publishMirrorTheme, type MirrorTheme } from "./mirror"
 
 export const themes = [
   "drift-dark",
@@ -15,10 +16,10 @@ export const themes = [
 export type ThemeName = (typeof themes)[number]
 export type CustomTheme = { background: string; surface: string; text: string; accent: string }
 
-export const [theme, setTheme] = persisted<ThemeName>("drift.theme", "drift-dark")
-export const [uiFont, setUiFont] = persisted("drift.theme.uiFont", "")
-export const [codeFont, setCodeFont] = persisted("drift.theme.codeFont", "")
-export const [customTheme, setCustomTheme] = persisted<CustomTheme>("drift.theme.custom", {
+export const [theme, setThemeValue] = persisted<ThemeName>("drift.theme", "drift-dark")
+export const [uiFont, setUiFontValue] = persisted("drift.theme.uiFont", "")
+export const [codeFont, setCodeFontValue] = persisted("drift.theme.codeFont", "")
+export const [customTheme, setCustomThemeValue] = persisted<CustomTheme>("drift.theme.custom", {
   background: "#111318",
   surface: "#1b1e25",
   text: "#e8eaf0",
@@ -43,6 +44,7 @@ let cssPersistTimer: ReturnType<typeof setTimeout> | undefined
 export function setCustomCss(value: string) {
   const next = value.slice(0, maxCustomCssChars)
   setCustomCssValue(next)
+  publishTheme()
   clearTimeout(cssPersistTimer)
   cssPersistTimer = setTimeout(() => {
     try {
@@ -53,6 +55,38 @@ export function setCustomCss(value: string) {
 
 export function setCustomThemeColor(color: keyof CustomTheme, value: string) {
   setCustomTheme({ ...customTheme(), [color]: value })
+}
+
+export function setTheme(value: ThemeName) {
+  setThemeValue(value)
+  publishTheme()
+}
+
+export function setUiFont(value: string) {
+  setUiFontValue(value)
+  publishTheme()
+}
+
+export function setCodeFont(value: string) {
+  setCodeFontValue(value)
+  publishTheme()
+}
+
+export function setCustomTheme(value: CustomTheme) {
+  setCustomThemeValue(value)
+  publishTheme()
+}
+
+export function applyMirroredTheme(value: MirrorTheme) {
+  setThemeValue(value.name)
+  setCustomThemeValue(value.custom)
+  setUiFontValue(value.uiFont)
+  setCodeFontValue(value.codeFont)
+  setCustomCssValue(value.customCss)
+}
+
+function publishTheme() {
+  publishMirrorTheme({ name: theme(), custom: customTheme(), uiFont: uiFont(), codeFont: codeFont(), customCss: customCss() })
 }
 
 // A custom theme counts as light when its background is bright enough that dark text reads better.

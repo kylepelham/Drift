@@ -46,6 +46,7 @@ import {
   setCustomSound,
   setShowReasoning,
   setShellTimeoutMs,
+  listenShellTimeoutError,
   setSystemNotification,
   setToolErrorsExpanded,
   shellTimeoutMaxMs,
@@ -65,6 +66,7 @@ import {
   remoteAccessBusy,
   remoteAccessError,
   remoteAccessStatus,
+  nextRemoteAccessEnabled,
   rotateRemoteAccessToken,
   setRemoteAccess,
 } from "../state/remote-access"
@@ -469,14 +471,20 @@ function RemoteAccessSection() {
   const status = remoteAccessStatus
   const [copied, setCopied] = createSignal(false)
   const [rotated, setRotated] = createSignal(false)
+  const [clipboardError, setClipboardError] = createSignal("")
   onMount(() => !remote && void refreshRemoteAccess())
 
   async function copyConnectionUrl() {
     const url = status()?.connectionUrls[0]
     if (!url) return
-    await navigator.clipboard.writeText(url)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1800)
+    setClipboardError("")
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    } catch (cause) {
+      setClipboardError(cause instanceof Error ? cause.message : String(cause))
+    }
   }
 
   async function rotate() {
@@ -489,65 +497,68 @@ function RemoteAccessSection() {
   }
 
   return (
-    <div class="space-y-5">
+    <div class="space-y-4">
       <Show
         when={!remote}
         fallback={
-          <div class="rounded-xl border border-accent/25 bg-accent/8 p-4">
-            <div class="flex items-center gap-2 text-sm font-semibold text-ink">
+          <div class="flex items-center gap-2 border-y border-edge/80 px-1 py-3">
+            <div class="flex items-center gap-2 text-sm font-medium text-ink">
               <span class="size-2 rounded-full bg-ok" />
               {t("drift.remote.connected")}
             </div>
-            <p class="mt-2 text-xs leading-relaxed text-ink-muted">{t("drift.remote.manageOnDesktop")}</p>
           </div>
         }
       >
+        <div class="flex items-center justify-between border-y border-edge/80 px-1 py-2.5">
+          <div class="flex items-center gap-2 text-[0.82rem] font-medium text-ink">
+            <span
+              class="size-2 rounded-full"
+              classList={{
+                "bg-ink-faint": !status()?.enabled,
+                "bg-warn": !!status()?.enabled && !status()?.listening && !status()?.error,
+                "bg-ok": !!status()?.listening,
+                "bg-danger": !!status()?.error,
+              }}
+            />
+            {status()?.error
+              ? t("drift.remote.statusError")
+              : status()?.listening
+                ? t("drift.remote.listening")
+                : status()?.enabled
+                  ? t("drift.remote.statusStarting")
+                  : t("drift.remote.statusOff")}
+          </div>
+          <span class="font-mono text-[0.68rem] text-ink-faint">{status()?.listeningAddress ?? ""}</span>
+        </div>
+
         <SettingsGroup title={t("drift.remote.gateway") }>
-          <SettingsRow title={t("drift.remote.enable")} description={t("drift.remote.enableDescription") } onClick={() => void setRemoteAccess(!status()?.enabled)}>
+          <SettingsRow title={t("drift.remote.enable")} description={t("drift.remote.enableDescription") }>
             <Toggle
               label={t("drift.remote.enable")}
               checked={!!status()?.enabled}
               disabled={remoteAccessBusy()}
-              onChange={() => void setRemoteAccess(!status()?.enabled)}
+              onChange={() => void setRemoteAccess(nextRemoteAccessEnabled(status()))}
             />
           </SettingsRow>
-          <Show when={status()?.enabled}>
-            <SettingsRow title={t("drift.remote.address")} description={status()?.listeningAddress || t("common.loading")}>
-              <span class="rounded-md border border-edge bg-raised/45 px-2.5 py-1.5 font-mono text-xs text-ink-muted">
-                {status()?.listening ? t("drift.remote.listening") : t("common.loading")}
-              </span>
-            </SettingsRow>
-          </Show>
-        </SettingsGroup>
-
-        <Show when={status()?.enabled && status()?.listening}>
-          <div class="remote-access-card overflow-hidden rounded-xl border border-edge bg-raised/25">
-            <div class="border-b border-edge px-4 py-3">
-              <div class="text-sm font-semibold text-ink">{t("drift.remote.connectionUrl")}</div>
-              <div class="mt-1 text-xs text-ink-faint">{t("drift.remote.connectionDescription")}</div>
-            </div>
-            <div class="space-y-3 p-4">
-              <code class="block overflow-x-auto rounded-lg border border-edge bg-bg px-3 py-2.5 text-xs text-ink-muted select-text">
-                {status()?.urls[0] || t("drift.remote.noLanAddress")}
-              </code>
-              <div class="flex flex-wrap gap-2">
-                <button class="min-h-11 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink" onClick={() => void copyConnectionUrl()}>
+          <Show when={status()?.enabled && status()?.listening}>
+            <SettingsRow title={t("drift.remote.connectionUrl")} description={status()?.urls[0] || t("drift.remote.noLanAddress")}>
+              <div class="flex flex-wrap justify-end gap-2">
+                <button class="h-8 rounded-md bg-accent px-3 text-xs font-medium text-accent-ink" onClick={() => void copyConnectionUrl()}>
                   {copied() ? t("drift.remote.copied") : t("drift.remote.copy")}
                 </button>
                 <button
-                  class="min-h-11 rounded-md border border-edge px-3.5 text-xs text-ink-muted hover:border-edge-strong hover:text-ink disabled:opacity-40"
+                  class="h-8 rounded-md border border-edge px-3 text-xs text-ink-muted hover:border-edge-strong hover:text-ink disabled:opacity-40"
                   disabled={remoteAccessBusy()}
                   onClick={() => void rotate()}
                 >
                   {t("drift.remote.rotate")}
                 </button>
               </div>
-              <Show when={rotated()}>
-                <div class="text-xs text-ok">{t("drift.remote.rotated")}</div>
-              </Show>
-            </div>
-          </div>
-        </Show>
+            </SettingsRow>
+          </Show>
+        </SettingsGroup>
+        <Show when={rotated()}><div class="text-xs text-ok">{t("drift.remote.rotated")}</div></Show>
+        <Show when={clipboardError()}><div class="text-xs text-danger">{t("drift.remote.clipboardError")}: {clipboardError()}</div></Show>
       </Show>
 
       <Show when={remoteAccessError() || status()?.error}>
@@ -555,24 +566,13 @@ function RemoteAccessSection() {
           {remoteAccessError() || status()?.error}
         </div>
       </Show>
-      <div class="rounded-xl border border-warn/30 bg-warn/8 p-4">
-        <div class="flex items-center gap-2 text-sm font-semibold text-warn">
-          <IconShieldCheck class="size-4" />
-          {t("drift.remote.securityTitle")}
-        </div>
-        <p class="mt-2 text-xs leading-relaxed text-ink-muted">{t("drift.remote.securityWarning")}</p>
+      <div class="flex items-start gap-2 text-xs leading-relaxed text-ink-faint">
+        <IconInfo class="mt-0.5 size-3.5 shrink-0" />
+        <span>{t("drift.remote.securityWarning")}</span>
       </div>
       <p class="text-xs leading-relaxed text-ink-faint">{t("drift.remote.deckHelp")}</p>
     </div>
   )
-}
-
-const customShellTimeoutMs = 600_000
-
-function shellTimeoutSelection() {
-  const timeout = shellTimeoutMs()
-  if (timeout === null) return "none"
-  return shellTimeoutPresets.includes(timeout as (typeof shellTimeoutPresets)[number]) ? String(timeout) : "custom"
 }
 
 function ToolExecutionSection() {
@@ -580,56 +580,58 @@ function ToolExecutionSection() {
   const [customMinutes, setCustomMinutes] = createSignal(
     String(initial !== null && !shellTimeoutPresets.includes(initial as never) ? initial / 60_000 : 10),
   )
+  const [error, setError] = createSignal("")
+  onMount(() => {
+    const stop = listenShellTimeoutError(setError)
+    onCleanup(stop)
+  })
   const customValue = () => Number(customMinutes()) * 60_000
   const customValid = () =>
     Number.isInteger(Number(customMinutes())) &&
     customValue() >= shellTimeoutMinMs &&
     customValue() <= shellTimeoutMaxMs
 
-  function selectTimeout(value: string) {
-    if (value === "none") return setShellTimeoutMs(null)
-    if (value === "custom") {
-      if (!customValid()) setCustomMinutes(String(customShellTimeoutMs / 60_000))
-      return setShellTimeoutMs(customValid() ? customValue() : customShellTimeoutMs)
-    }
-    setShellTimeoutMs(Number(value))
+  async function applyTimeout(value: number | null) {
+    setError("")
+    await setShellTimeoutMs(value).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
   }
 
   return (
     <div class="space-y-5">
-      <SettingsGroup title={t("drift.settings.toolExecution")}>
+      <div class="border-y border-edge/80 px-1 py-3">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="text-[0.82rem] font-medium text-ink">{t("drift.settings.shellTimeout.title")}</div>
+            <div class="mt-0.5 text-[0.72rem] text-ink-faint">{t("drift.settings.shellTimeout.hostWide")}</div>
+          </div>
+          <div class="text-right">
+            <div class="text-sm font-semibold text-ink">{shellTimeoutMs() === null ? t("drift.settings.shellTimeout.noTimeout") : `${shellTimeoutMs()! / 60_000}m`}</div>
+            <div class="text-[0.68rem] text-ink-faint">{t("drift.settings.shellTimeout.appliesNew")}</div>
+          </div>
+        </div>
+      </div>
+      <SettingsGroup title={t("drift.settings.shellTimeout.presets")}>
+        <div class="flex flex-wrap gap-2 px-1 py-3">
+          <For each={[null, ...shellTimeoutPresets] as (number | null)[]}>
+            {(timeout) => (
+              <button
+                class="h-8 rounded-md border px-3 text-xs transition-colors"
+                classList={{
+                  "border-accent bg-accent/10 text-accent": shellTimeoutMs() === timeout,
+                  "border-edge text-ink-muted hover:border-edge-strong hover:text-ink": shellTimeoutMs() !== timeout,
+                }}
+                onClick={() => void applyTimeout(timeout)}
+              >
+                {timeout === null ? t("drift.settings.shellTimeout.noTimeout") : t(`drift.settings.shellTimeout.preset${timeout / 60_000}`)}
+              </button>
+            )}
+          </For>
+        </div>
         <SettingsRow
-          title={t("drift.settings.shellTimeout.title")}
-          description={t("drift.settings.shellTimeout.description")}
+          title={t("drift.settings.shellTimeout.customMinutes")}
+          description={customValid() ? t("drift.settings.shellTimeout.customDescription") : t("drift.settings.shellTimeout.invalid")}
         >
-          <Picker
-            label={t("drift.settings.shellTimeout.title")}
-            items={[
-              { id: "none", label: t("drift.settings.shellTimeout.noTimeout") },
-              ...shellTimeoutPresets.map((timeout) => ({
-                id: String(timeout),
-                label: t(`drift.settings.shellTimeout.preset${timeout / 60_000}`),
-              })),
-              { id: "custom", label: t("drift.settings.shellTimeout.custom") },
-            ]}
-            selected={shellTimeoutSelection()}
-            floating
-            bordered
-            chevronAtEnd
-            placement="below"
-            width="10rem"
-            onPick={selectTimeout}
-          />
-        </SettingsRow>
-        <Show when={shellTimeoutSelection() === "custom"}>
-          <SettingsRow
-            title={t("drift.settings.shellTimeout.customMinutes")}
-            description={
-              customValid()
-                ? t("drift.settings.shellTimeout.customDescription")
-                : t("drift.settings.shellTimeout.invalid")
-            }
-          >
+          <div class="flex items-center gap-2">
             <input
               type="number"
               min={shellTimeoutMinMs / 60_000}
@@ -641,14 +643,20 @@ function ToolExecutionSection() {
               value={customMinutes()}
               onInput={(event) => {
                 setCustomMinutes(event.currentTarget.value)
-                const value = Number(event.currentTarget.value) * 60_000
-                if (Number.isSafeInteger(value) && value >= shellTimeoutMinMs && value <= shellTimeoutMaxMs)
-                  setShellTimeoutMs(value)
               }}
             />
-          </SettingsRow>
-        </Show>
+            <button
+              class="h-8 rounded-md bg-accent px-3 text-xs font-medium text-accent-ink disabled:opacity-40"
+              disabled={!customValid()}
+              onClick={() => void applyTimeout(customValue())}
+            >
+              {t("common.apply")}
+            </button>
+          </div>
+        </SettingsRow>
       </SettingsGroup>
+      <p class="flex items-start gap-2 text-xs leading-relaxed text-ink-faint"><IconInfo class="mt-0.5 size-3.5 shrink-0" />{t("drift.settings.shellTimeout.scope")}</p>
+      <Show when={error()}><div class="text-xs text-danger">{error()}</div></Show>
     </div>
   )
 }

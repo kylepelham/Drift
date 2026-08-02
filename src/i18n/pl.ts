@@ -1028,6 +1028,14 @@ export const dict = {
 
 export const drift = {
   "drift.remote.title": "Remote Access",
+  "drift.remote.statusOff": "Wyłączony",
+  "drift.remote.statusStarting": "Uruchamianie",
+  "drift.remote.statusError": "Błąd",
+  "drift.remote.clipboardError": "Nie udało się skopiować",
+  "drift.settings.shellTimeout.hostWide": "Zasada wykonywania dla całego hosta",
+  "drift.settings.shellTimeout.appliesNew": "Dotyczy nowych wywołań",
+  "drift.settings.shellTimeout.presets": "Ustawienia limitu czasu",
+  "drift.settings.shellTimeout.scope": "Limity powłoki kończą drzewa procesów. Nie wpływają na modele, serwery MCP ani wywołania sieciowe.",
   "drift.remote.connected": "Connected to Drift",
   "drift.remote.manageOnDesktop": "This device is using the host gateway. Enable, disable, or rotate access from Drift on the host computer.",
   "drift.remote.gateway": "Gateway",

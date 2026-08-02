@@ -1,4 +1,6 @@
 import type { ModelRef } from "../engine/store"
+import { backendInvoke } from "../backend"
+import { shellEvents } from "../shell"
 import { persisted } from "./persist"
 
 export const attentionKinds = ["agent", "permission", "error"] as const
@@ -32,11 +34,59 @@ export const [modelProviderOrder, setModelProviderOrder] = persisted<string[]>("
 export const [showReasoning, setShowReasoning] = persisted<boolean>("drift.reasoning", false)
 export const [toolErrorsExpanded, setToolErrorsExpanded] = persisted<boolean>("drift.toolErrors.expanded", false)
 export const [animateResponses, setAnimateResponses] = persisted<boolean>("drift.responses.animate", false)
-export const [shellTimeoutMs, setShellTimeoutMs] = persisted<number | null>(
+export const [shellTimeoutMs, setShellTimeoutValue] = persisted<number | null>(
   "drift.shell.timeout",
   null,
   normalizeShellTimeout,
 )
+let shellTimeoutErrorValue = ""
+const timeoutErrorListeners = new Set<(error: string) => void>()
+
+export function shellTimeoutError() {
+  return shellTimeoutErrorValue
+}
+
+export function listenShellTimeoutError(listener: (error: string) => void) {
+  timeoutErrorListeners.add(listener)
+  listener(shellTimeoutErrorValue)
+  return () => timeoutErrorListeners.delete(listener)
+}
+
+export function reportShellTimeoutError(error: string) {
+  shellTimeoutErrorValue = error
+  for (const listener of timeoutErrorListeners) listener(error)
+}
+
+export async function setShellTimeoutMs(value: number | null) {
+  const timeoutMs = normalizeShellTimeout(value)
+  if (value !== null && timeoutMs === null) throw new Error("Invalid shell timeout")
+  const invoke = backendInvoke()
+  if (!invoke) {
+    setShellTimeoutValue(timeoutMs)
+    return
+  }
+  const previous = shellTimeoutMs()
+  setShellTimeoutValue(timeoutMs)
+  try {
+    const policy = await invoke<{ timeoutMs: number | null }>("shell_timeout_update", { policy: { timeoutMs } })
+    setShellTimeoutValue(policy.timeoutMs)
+    reportShellTimeoutError("")
+  } catch (cause) {
+    setShellTimeoutValue(previous)
+    const message = cause instanceof Error ? cause.message : String(cause)
+    reportShellTimeoutError(message)
+    throw cause
+  }
+}
+
+export function bindShellTimeoutPolicy() {
+  const events = shellEvents()
+  if (!events) return
+  void events.listen<{ timeoutMs: number | null }>("shell-timeout-changed", (event) => {
+    setShellTimeoutValue(event.payload.timeoutMs)
+    reportShellTimeoutError("")
+  })
+}
 const [legacyNotifications] = persisted<boolean>("drift.notifications", false)
 export const [systemNotifications, setSystemNotifications] = persisted<Record<AttentionKind, boolean>>(
   "drift.notifications.events",

@@ -312,6 +312,14 @@ export const dict = {
 
 export const drift = {
   "drift.remote.title": "Remote Access",
+  "drift.remote.statusOff": "Off",
+  "drift.remote.statusStarting": "Starting",
+  "drift.remote.statusError": "Error",
+  "drift.remote.clipboardError": "Could not copy",
+  "drift.settings.shellTimeout.hostWide": "Host-wide execution policy",
+  "drift.settings.shellTimeout.appliesNew": "Applies to new calls",
+  "drift.settings.shellTimeout.presets": "Timeout presets",
+  "drift.settings.shellTimeout.scope": "Shell timeouts terminate process trees. They do not affect models, MCP servers, or network calls.",
   "drift.remote.connected": "Connected to Drift",
   "drift.remote.manageOnDesktop": "This device is using the host gateway. Enable, disable, or rotate access from Drift on the host computer.",
   "drift.remote.gateway": "Gateway",

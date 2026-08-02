@@ -11,6 +11,7 @@ mod permissions;
 mod remote;
 mod storage;
 mod store;
+mod ui_state;
 mod updater;
 mod voice;
 mod watcher;
@@ -93,7 +94,13 @@ fn main() {
             remote::remote_access_enable,
             remote::remote_access_disable,
             remote::remote_access_rotate_token,
-            remote::remote_access_urls
+            remote::remote_access_urls,
+            ui_state::ui_state_initialize,
+            ui_state::ui_state_snapshot,
+            ui_state::ui_state_update,
+            ui_state::shell_timeout_initialize,
+            ui_state::shell_timeout_snapshot,
+            ui_state::shell_timeout_update
         ])
         .setup(|app| {
             let data_dir = app.path().app_data_dir().expect("no app data dir");
@@ -119,6 +126,10 @@ fn main() {
                     .unwrap_or(false)
             };
             let store = store::open(&data_dir).expect("failed to open drift store");
+            let ui_state = ui_state::UiStateAuthority::load(&store)
+                .expect("failed to load UI mirror state");
+            let shell_timeout = ui_state::ShellTimeoutAuthority::load(&store)
+                .expect("failed to load shell timeout policy");
             let dictation_enabled = store.dictation_enabled().unwrap_or(false);
             app.state::<permissions::DictationConsent>()
                 .set(dictation_enabled);
@@ -134,6 +145,8 @@ fn main() {
                 .expect("failed to prepare Drift MCP policy");
             let engine_config = mcp_runtime.config_dir().to_path_buf();
             app.manage(store);
+            app.manage(ui_state);
+            app.manage(shell_timeout);
             app.manage(mcp_runtime);
             #[cfg(windows)]
             permissions::install(app)?;

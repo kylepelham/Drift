@@ -1106,6 +1106,14 @@ export const dict = {
 
 export const drift = {
   "drift.remote.title": "Remote Access",
+  "drift.remote.statusOff": "Kapalı",
+  "drift.remote.statusStarting": "Başlatılıyor",
+  "drift.remote.statusError": "Hata",
+  "drift.remote.clipboardError": "Kopyalanamadı",
+  "drift.settings.shellTimeout.hostWide": "Ana bilgisayar genelinde yürütme ilkesi",
+  "drift.settings.shellTimeout.appliesNew": "Yeni çağrılara uygulanır",
+  "drift.settings.shellTimeout.presets": "Zaman aşımı hazır ayarları",
+  "drift.settings.shellTimeout.scope": "Kabuk zaman aşımları işlem ağaçlarını sonlandırır. Modelleri, MCP sunucularını veya ağ çağrılarını etkilemez.",
   "drift.remote.connected": "Connected to Drift",
   "drift.remote.manageOnDesktop": "This device is using the host gateway. Enable, disable, or rotate access from Drift on the host computer.",
   "drift.remote.gateway": "Gateway",

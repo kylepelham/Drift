@@ -204,6 +204,51 @@ fn now() -> i64 {
 }
 
 impl Store {
+    pub fn app_setting(&self, key: &str) -> rusqlite::Result<Option<String>> {
+        self.0
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT value FROM app_setting WHERE key = ?1",
+                [key],
+                |row| row.get(0),
+            )
+            .optional()
+    }
+
+    pub fn initialize_app_setting(&self, key: &str, value: &str) -> rusqlite::Result<String> {
+        let mut conn = self.0.lock().unwrap();
+        let transaction = conn.transaction()?;
+        transaction.execute(
+            "INSERT OR IGNORE INTO app_setting(key, value) VALUES(?1, ?2)",
+            params![key, value],
+        )?;
+        let stored = transaction.query_row(
+            "SELECT value FROM app_setting WHERE key = ?1",
+            [key],
+            |row| row.get(0),
+        )?;
+        transaction.commit()?;
+        Ok(stored)
+    }
+
+    pub fn save_app_setting(&self, key: &str, value: &str) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().execute(
+            "INSERT INTO app_setting(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    pub fn workspace_exists(&self, id: &str) -> rusqlite::Result<bool> {
+        self.0.lock().unwrap().query_row(
+            "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = ?1 AND removed_at IS NULL)",
+            [id],
+            |row| row.get(0),
+        )
+    }
+
     pub fn dictation_enabled(&self) -> rusqlite::Result<bool> {
         let value: Option<String> = self
             .0
@@ -372,8 +417,9 @@ impl Store {
 
     fn query_workspaces(&self, filter: &str) -> rusqlite::Result<Vec<Workspace>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt =
-            conn.prepare_cached(&format!("SELECT {WORKSPACE_COLUMNS} FROM workspace {filter}"))?;
+        let mut stmt = conn.prepare_cached(&format!(
+            "SELECT {WORKSPACE_COLUMNS} FROM workspace {filter}"
+        ))?;
         let rows = stmt.query_map([], map_workspace)?;
         rows.collect()
     }

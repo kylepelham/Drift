@@ -1019,6 +1019,14 @@ export const dict = {
 
 export const drift = {
   "drift.remote.title": "Remote Access",
+  "drift.remote.statusOff": "꺼짐",
+  "drift.remote.statusStarting": "시작 중",
+  "drift.remote.statusError": "오류",
+  "drift.remote.clipboardError": "복사할 수 없음",
+  "drift.settings.shellTimeout.hostWide": "호스트 전체 실행 정책",
+  "drift.settings.shellTimeout.appliesNew": "새 호출에 적용",
+  "drift.settings.shellTimeout.presets": "시간 제한 사전 설정",
+  "drift.settings.shellTimeout.scope": "셸 시간 제한은 프로세스 트리를 종료합니다. 모델, MCP 서버 또는 네트워크 호출에는 영향을 주지 않습니다.",
   "drift.remote.connected": "Connected to Drift",
   "drift.remote.manageOnDesktop": "This device is using the host gateway. Enable, disable, or rotate access from Drift on the host computer.",
   "drift.remote.gateway": "Gateway",

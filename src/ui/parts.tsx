@@ -439,6 +439,10 @@ export function toolChevronVisible(active: boolean, delegated: boolean) {
   return !active || delegated
 }
 
+export function delegatedTaskClickPolicy(status: DelegatedTaskStatus | null, childId: string | null) {
+  return childId && (status === "running" || status === "resumed") ? "navigate" : "expand"
+}
+
 function diffStats(diff: string) {
   let additions = 0
   let deletions = 0
@@ -459,6 +463,10 @@ export function ToolView(props: { part: ToolPart }) {
     resumedSessions()
     const childId = spawnedId()
     return childId ? delegatedTaskStatus(engine.state, props.part, childId) : null
+  }
+  const visibleDelegatedStatus = () => {
+    const status = delegatedStatus()
+    return status === "running" ? null : status
   }
   const active = () => {
     if (awaitingPermission(engine.state, props.part)) return false
@@ -498,12 +506,20 @@ export function ToolView(props: { part: ToolPart }) {
     if (props.part.tool !== "task" && props.part.tool !== "spawn_thread") return null
     return (toolMeta(props.part) as { sessionId?: string } | undefined)?.sessionId ?? null
   }
+  const activate = () => {
+    if (delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "navigate") {
+      selectSession(spawnedId()!)
+      return
+    }
+    activateToolHeader(toggleOpen)
+  }
+  const inlineExpanded = () => expanded() && delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "expand"
   return (
     <div class="flex min-w-0 max-w-full flex-col gap-1 text-sm">
       <button
         class="flex min-h-8 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md px-1.5 text-left transition-colors hover:bg-raised/40"
         classList={{ "delegate-tool border-accent/35": delegated() }}
-        onClick={() => activateToolHeader(toggleOpen)}
+        onClick={activate}
       >
         <Show when={error()}>
           <span class="size-3.5 shrink-0 text-danger">
@@ -551,13 +567,13 @@ export function ToolView(props: { part: ToolPart }) {
         <Show when={progress()}>
           {(text) => <span class="shrink-0 font-mono text-xs text-accent/80">{text()}</span>}
         </Show>
-        <Show when={delegatedStatus()}>
+        <Show when={visibleDelegatedStatus()}>
           {(status) => (
             <span
               class="shrink-0 rounded px-1.5 py-0.5 text-[0.65rem] font-medium"
               classList={{
                 "bg-warn/12 text-warn": status() === "interrupted",
-                "bg-accent/10 text-accent": status() === "running" || status() === "resumed",
+                "bg-accent/10 text-accent": status() === "resumed",
                 "bg-ok/10 text-ok": status() === "completed",
                 "bg-danger/10 text-danger": status() === "error",
               }}
@@ -592,11 +608,11 @@ export function ToolView(props: { part: ToolPart }) {
             </span>
           )}
         </Show>
-        <Show when={toolChevronVisible(active(), delegated())}>
-          <Chevron open={expanded()} />
+        <Show when={toolChevronVisible(active(), delegated()) && delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "expand"}>
+          <Chevron open={inlineExpanded()} />
         </Show>
       </button>
-      <Show when={expanded()}>
+      <Show when={inlineExpanded()}>
         <div class="min-w-0 max-w-full">
           <ToolBody part={props.part} diff={diff()} error={error()} />
         </div>

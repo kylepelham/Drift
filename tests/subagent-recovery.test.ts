@@ -145,6 +145,17 @@ test("parent delegated status follows interruption, resumed work, and completion
   expect(delegatedTaskStatus(state, part, "child")).toBe("completed")
 })
 
+test("running delegated rows navigate while terminal rows expand without a running badge", async () => {
+  const { delegatedTaskClickPolicy } = await import("../src/ui/parts")
+  expect(delegatedTaskClickPolicy("running", "child")).toBe("navigate")
+  expect(delegatedTaskClickPolicy("resumed", "child")).toBe("navigate")
+  expect(delegatedTaskClickPolicy("completed", "child")).toBe("expand")
+  expect(delegatedTaskClickPolicy("error", "child")).toBe("expand")
+  const source = await Bun.file("src/ui/parts.tsx").text()
+  expect(source).toContain('return status === "running" ? null : status')
+  expect(source).toContain("selectSession(spawnedId()!)")
+})
+
 test("failed recovery keeps the interruption actionable and updates its model and reason", async () => {
   const { createActions } = await import("../src/engine/actions")
   recordRecoverableInterruption(

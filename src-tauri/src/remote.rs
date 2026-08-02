@@ -1,8 +1,9 @@
-use crate::{commands, config, editor, engine, mcp, store::Store, voice};
+use crate::{commands, config, editor, engine, mcp, store::Store, ui_state, voice};
 use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
 use axum::middleware::{self, Next};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
@@ -16,7 +17,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Component, Path};
 use std::sync::Mutex;
 use tauri::Manager;
-use tokio::sync::{watch, Mutex as AsyncMutex};
+use tokio::sync::{broadcast, watch, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 
 pub(crate) const HTTP_PORT: u16 = 41718;
@@ -46,6 +47,7 @@ struct Running {
 pub(crate) struct RemoteAccess {
     config: Mutex<RemoteConfig>,
     running: AsyncMutex<Option<Running>>,
+    auth_revision: watch::Sender<u64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -77,6 +79,7 @@ impl RemoteAccess {
     pub(crate) fn load(store: &Store) -> Result<Self, String> {
         let saved = store.remote_access().map_err(|error| error.to_string())?;
         let (enabled, token) = saved.unwrap_or_else(|| (false, random_token()));
+        let (auth_revision, _) = watch::channel(0);
         Ok(Self {
             config: Mutex::new(RemoteConfig {
                 enabled,
@@ -84,6 +87,7 @@ impl RemoteAccess {
                 error: None,
             }),
             running: AsyncMutex::new(None),
+            auth_revision,
         })
     }
 
@@ -173,6 +177,15 @@ impl RemoteAccess {
     pub(crate) fn set_error(&self, error: String) {
         self.config.lock().unwrap().error = Some(error);
     }
+
+    fn auth_changes(&self) -> watch::Receiver<u64> {
+        self.auth_revision.subscribe()
+    }
+
+    fn invalidate_streams(&self) {
+        let next = self.auth_revision.borrow().wrapping_add(1);
+        let _ = self.auth_revision.send(next);
+    }
 }
 
 async fn wait_for_shutdown(mut shutdown: watch::Receiver<bool>) {
@@ -256,6 +269,7 @@ pub(crate) async fn remote_access_disable(
     store
         .save_remote_access(false, &token)
         .map_err(|error| error.to_string())?;
+    access.invalidate_streams();
     access.stop().await;
     Ok(access.status().await)
 }
@@ -274,6 +288,7 @@ pub(crate) async fn remote_access_rotate_token(
     store
         .save_remote_access(enabled, &token)
         .map_err(|error| error.to_string())?;
+    access.invalidate_streams();
     Ok(access.status().await)
 }
 
@@ -291,6 +306,7 @@ fn router(app: tauri::AppHandle) -> Router {
         .route("/engine", any(proxy_engine))
         .route("/engine/{*path}", any(proxy_engine))
         .route("/api/invoke", post(invoke_rpc))
+        .route("/api/ui-state/events", get(ui_state_events))
         .fallback(static_asset)
         .layer(DefaultBodyLimit::max(MAX_RPC_BODY))
         .layer(middleware::from_fn_with_state(
@@ -298,6 +314,50 @@ fn router(app: tauri::AppHandle) -> Router {
             gateway_middleware,
         ))
         .with_state(app)
+}
+
+async fn ui_state_events(State(app): State<tauri::AppHandle>) -> Response {
+    let authority = app.state::<ui_state::UiStateAuthority>();
+    let Ok(initial) = authority.snapshot() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "desktop UI state has not been initialized",
+        )
+            .into_response();
+    };
+    let receiver = authority.subscribe();
+    let auth = app.state::<RemoteAccess>().auth_changes();
+    let stream = futures_util::stream::unfold(
+        (Some(initial), receiver, auth),
+        |(initial, mut receiver, mut auth)| async move {
+            if let Some(snapshot) = initial {
+                let event = Event::default().json_data(snapshot).ok()?;
+                return Some((
+                    Ok::<_, std::convert::Infallible>(event),
+                    (None, receiver, auth),
+                ));
+            }
+            loop {
+                tokio::select! {
+                    changed = auth.changed() => {
+                        let _ = changed;
+                        return None;
+                    }
+                    received = receiver.recv() => match received {
+                        Ok(snapshot) => {
+                            let event = Event::default().json_data(snapshot).ok()?;
+                            return Some((Ok(event), (None, receiver, auth)));
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => return None,
+                    }
+                }
+            }
+        },
+    );
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
 }
 
 async fn gateway_middleware(
@@ -693,6 +753,10 @@ fn rpc_allowed(command: &str) -> bool {
             | "voice_model_remove"
             | "voice_model_cancel"
             | "voice_transcribe"
+            | "ui_state_snapshot"
+            | "ui_state_update"
+            | "shell_timeout_snapshot"
+            | "shell_timeout_update"
     )
 }
 
@@ -857,6 +921,20 @@ async fn dispatch_rpc(
             )
             .await?,
         ),
+        "ui_state_snapshot" => value(ui_state::ui_state_snapshot(app.state())?),
+        "ui_state_update" => value(ui_state::ui_state_update(
+            app.clone(),
+            app.state(),
+            store(),
+            arg(args, "mutation")?,
+        )?),
+        "shell_timeout_snapshot" => value(ui_state::shell_timeout_snapshot(app.state())?),
+        "shell_timeout_update" => value(ui_state::shell_timeout_update(
+            app.clone(),
+            app.state(),
+            store(),
+            arg(args, "policy")?,
+        )?),
         _ => Err("command is not available remotely".into()),
     }
 }
@@ -1014,8 +1092,14 @@ mod tests {
         assert!(rpc_allowed("store_expired_archived"));
         assert!(rpc_allowed("store_interruptions"));
         assert!(rpc_allowed("voice_transcribe"));
+        assert!(rpc_allowed("ui_state_snapshot"));
+        assert!(rpc_allowed("ui_state_update"));
+        assert!(rpc_allowed("shell_timeout_snapshot"));
+        assert!(rpc_allowed("shell_timeout_update"));
         assert!(!rpc_allowed("voice_dictation_set_enabled"));
         assert!(!rpc_allowed("remote_access_enable"));
+        assert!(!rpc_allowed("ui_state_initialize"));
+        assert!(!rpc_allowed("shell_timeout_initialize"));
         assert!(!rpc_allowed("plugin:shell|execute"));
     }
 

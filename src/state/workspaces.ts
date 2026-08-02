@@ -1,8 +1,9 @@
 import { createSignal } from "solid-js"
 import { isRemoteRuntime } from "../runtime"
 import { parseNavigationHash, pushRemoteSelection } from "./navigation"
-import { selectSession } from "./selection"
+import { applyMirroredSession } from "./selection"
 import { persisted } from "./persist"
+import { publishMirrorSelection } from "./mirror"
 import { driftStore, type ArchivedSession, type Workspace } from "./store"
 
 const [rawWorkspaces, setWorkspaces] = createSignal<Workspace[]>([])
@@ -36,6 +37,10 @@ export function activeWorkspace() {
   return rawWorkspaces().find((w) => w.id === activeWorkspaceId()) ?? null
 }
 
+export function workspaceDirectoryForSelection(items: Workspace[], id: string | null) {
+  return items.find((workspace) => workspace.id === id)?.path ?? null
+}
+
 export function workspaceCollapsed(id: string) {
   return collapsedWorkspaceIds().includes(id)
 }
@@ -48,7 +53,13 @@ export function toggleWorkspaceCollapsed(id: string) {
   setCollapsedWorkspaceIds(nextCollapsedWorkspaceIds(collapsedWorkspaceIds(), id))
 }
 
-export async function initWorkspaces() {
+let initialization: Promise<void> | undefined
+
+export function initWorkspaces() {
+  return (initialization ??= loadWorkspaces())
+}
+
+async function loadWorkspaces() {
   try {
     await refreshWorkspaces()
   } finally {
@@ -74,10 +85,15 @@ async function refreshArchives() {
 }
 
 export function selectWorkspace(id: string) {
-  if (activeWorkspaceId() !== id) selectSession(null, false)
+  if (activeWorkspaceId() !== id) applyMirroredSession(null)
   setActiveWorkspaceId(id)
+  publishMirrorSelection({ workspaceId: id, sessionId: null })
   pushRemoteSelection({ workspace: id, session: undefined })
   void driftStore.touchWorkspace(id)
+}
+
+export function applyMirroredWorkspace(id: string | null) {
+  setActiveWorkspaceId(id)
 }
 
 export async function addWorkspace(path: string) {
@@ -111,7 +127,8 @@ export async function removeWorkspace(id: string) {
   await refreshWorkspaces()
   if (activeWorkspaceId() === id) {
     setActiveWorkspaceId(null)
-    selectSession(null)
+    applyMirroredSession(null)
+    publishMirrorSelection({ workspaceId: null, sessionId: null })
   }
 }
 

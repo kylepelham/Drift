@@ -1109,6 +1109,14 @@ export const dict = {
 
 export const drift = {
   "drift.remote.title": "Remote Access",
+  "drift.remote.statusOff": "Вимкнено",
+  "drift.remote.statusStarting": "Запуск",
+  "drift.remote.statusError": "Помилка",
+  "drift.remote.clipboardError": "Не вдалося скопіювати",
+  "drift.settings.shellTimeout.hostWide": "Політика виконання для всього хоста",
+  "drift.settings.shellTimeout.appliesNew": "Для нових викликів",
+  "drift.settings.shellTimeout.presets": "Шаблони часу очікування",
+  "drift.settings.shellTimeout.scope": "Час очікування оболонки завершує дерева процесів. Він не впливає на моделі, сервери MCP чи мережеві виклики.",
   "drift.remote.connected": "Connected to Drift",
   "drift.remote.manageOnDesktop": "This device is using the host gateway. Enable, disable, or rotate access from Drift on the host computer.",
   "drift.remote.gateway": "Gateway",

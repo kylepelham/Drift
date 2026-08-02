@@ -1104,6 +1104,14 @@ export const dict = {
 
 export const drift = {
   "drift.remote.title": "Remote Access",
+  "drift.remote.statusOff": "Isključeno",
+  "drift.remote.statusStarting": "Pokretanje",
+  "drift.remote.statusError": "Greška",
+  "drift.remote.clipboardError": "Kopiranje nije uspjelo",
+  "drift.settings.shellTimeout.hostWide": "Pravila izvršavanja za cijeli host",
+  "drift.settings.shellTimeout.appliesNew": "Važi za nove pozive",
+  "drift.settings.shellTimeout.presets": "Postavke vremenskog ograničenja",
+  "drift.settings.shellTimeout.scope": "Ograničenja ljuske prekidaju stabla procesa. Ne utiču na modele, MCP servere ili mrežne pozive.",
   "drift.remote.connected": "Connected to Drift",
   "drift.remote.manageOnDesktop": "This device is using the host gateway. Enable, disable, or rotate access from Drift on the host computer.",
   "drift.remote.gateway": "Gateway",

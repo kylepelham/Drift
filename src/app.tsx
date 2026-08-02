@@ -1,4 +1,4 @@
-import { createEffect, onCleanup, onMount, Show, untrack } from "solid-js"
+import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
 import { PluginHost } from "./plugins"
 import { shellEvents } from "./shell"
@@ -13,6 +13,8 @@ import { initRecoverableInterruptions } from "./state/recovery"
 import { bindTheme } from "./state/theme"
 import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation"
 import { initZoom } from "./state/zoom"
+import { bindShellTimeoutPolicy } from "./state/prefs"
+import { listenMirrorLiveError } from "./state/mirror"
 import { activeWorkspace, initWorkspaces, purgeAll, workspaces } from "./state/workspaces"
 import { AttentionStrip } from "./ui/attention"
 import { Chat, forwardWheelToChat } from "./ui/chat"
@@ -36,6 +38,7 @@ export function App() {
   bindLanguage()
   initKeybinds()
   initZoom()
+  bindShellTimeoutPolicy()
   onMount(() => void syncDictationConsent().catch(() => undefined))
   return (
     <EngineProvider>
@@ -76,9 +79,25 @@ export function App() {
         <PaletteHost />
         <ToolContextMenuHost />
         <NoticeHost />
+        <MirrorConnectionNotice />
       </div>
       <StartupSplash />
     </EngineProvider>
+  )
+}
+
+function MirrorConnectionNotice() {
+  const [error, setError] = createSignal("")
+  onMount(() => {
+    const stop = listenMirrorLiveError(setError)
+    onCleanup(stop)
+  })
+  return (
+    <Show when={error()}>
+      <div class="fixed right-3 bottom-3 z-100 max-w-sm rounded-md border border-danger/35 bg-surface px-3 py-2 text-xs text-danger shadow-lg">
+        {error()}
+      </div>
+    </Show>
   )
 }
 
