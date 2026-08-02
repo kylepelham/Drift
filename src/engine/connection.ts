@@ -34,6 +34,15 @@ export async function restartShellEngine(): Promise<EngineTarget> {
   return waitForShellEngine(invoke)
 }
 
+export async function configureShellTimeout(target: EngineTarget, timeoutMs: number | null) {
+  const response = await fetch(`${target.url}/experimental/control-plane/shell-timeout`, {
+    method: "PUT",
+    headers: { "content-type": "application/json", ...target.headers },
+    body: JSON.stringify({ timeout: timeoutMs }),
+  })
+  if (!response.ok) throw new Error(`engine rejected shell timeout (${response.status})`)
+}
+
 export function inspectStatus(status: ShellEngineStatus): ShellEngineInspection {
   if (status.url) return { target: { url: status.url, headers: basicAuth(engineUsername, status.password) } }
   if (status.error) return { error: status.error }

@@ -1,8 +1,12 @@
 import { expect, test } from "bun:test"
 
+const settingsStorage = new Map<string, string>()
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
-    value: { getItem: () => null, setItem: () => undefined },
+    value: {
+      getItem: (key: string) => settingsStorage.get(key) ?? null,
+      setItem: (key: string, value: string) => settingsStorage.set(key, value),
+    },
   })
 
 test("settings expose the OpenCode language and sound catalogs", async () => {
@@ -61,7 +65,7 @@ test("selected language dictionaries translate settings without loading every lo
 
 test("prompt and agent editors are separate Server settings with inherited-value styling", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
-  expect(source).toContain('items: ["Providers", "MCP", "Prompts", "Agents"]')
+  expect(source).toContain('items: ["Tools", "Providers", "MCP", "Prompts", "Agents"]')
   expect(source).toContain('<PromptEditorSection view="prompts" />')
   expect(source).toContain('<PromptEditorSection view="agents" />')
   expect(source).toContain('"text-ink-faint": !familyModified()')
@@ -295,6 +299,32 @@ test("notification migration and global auto-accept stay explicit", async () => 
   expect(autoAcceptAllowed(false, ["parent"], "child", "parent")).toBeTrue()
   expect(autoAcceptAllowed(false, ["linked"], "child", undefined, "linked")).toBeTrue()
   expect(autoAcceptAllowed(false, ["other"], "child", "parent", "linked")).toBeFalse()
+})
+
+test("shell timeout preferences normalize and persist explicit no-timeout", async () => {
+  const { normalizeShellTimeout, setShellTimeoutMs, shellTimeoutMs, shellTimeoutPresets } = await import(
+    "../src/state/prefs"
+  )
+  expect(shellTimeoutPresets).toEqual([60_000, 300_000, 900_000, 1_800_000])
+  expect(normalizeShellTimeout(null)).toBeNull()
+  expect(normalizeShellTimeout(60_000)).toBe(60_000)
+  expect(normalizeShellTimeout(59_999)).toBeNull()
+  expect(normalizeShellTimeout(86_400_001)).toBeNull()
+  expect(normalizeShellTimeout("300000")).toBeNull()
+
+  const setItem = localStorage.setItem
+  const writes = new Map<string, string>()
+  localStorage.setItem = (key, value) => writes.set(key, value)
+  try {
+    setShellTimeoutMs(900_000)
+    expect(shellTimeoutMs()).toBe(900_000)
+    expect(writes.get("drift.shell.timeout")).toBe("900000")
+    setShellTimeoutMs(null)
+    expect(shellTimeoutMs()).toBeNull()
+    expect(writes.get("drift.shell.timeout")).toBe("null")
+  } finally {
+    localStorage.setItem = setItem
+  }
 })
 
 test("the About mascot always disposes its scene, including when it loads after unmount", async () => {

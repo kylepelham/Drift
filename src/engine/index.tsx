@@ -1,12 +1,20 @@
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client"
-import { createContext, onCleanup, useContext, type ParentProps } from "solid-js"
+import { createContext, createEffect, onCleanup, useContext, type ParentProps } from "solid-js"
 import { produce } from "solid-js/store"
 import { shellEvents } from "../shell"
 import { t } from "../state/i18n"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
 import { clearRecoverableInterruption } from "../state/recovery"
+import { shellTimeoutMs } from "../state/prefs"
 import { createActions, type EngineActions } from "./actions"
-import { inspectShellEngine, resolveEngine, restartShellEngine, sleep, type EngineTarget } from "./connection"
+import {
+  configureShellTimeout,
+  inspectShellEngine,
+  resolveEngine,
+  restartShellEngine,
+  sleep,
+  type EngineTarget,
+} from "./connection"
 import { applySessionSnapshot, applyStatusSnapshot, reduce } from "./events"
 import { streamEvents } from "./sse"
 import { seedBench } from "./bench"
@@ -52,12 +60,29 @@ export function EngineProvider(props: ParentProps) {
   let engineEpoch = 0
   let restartRequest: Promise<boolean> | undefined
   let unlistenEngineExit: (() => void) | undefined
+  let timeoutSync = Promise.resolve()
 
   const requireClient = () => {
     if (!client) throw new Error("engine offline")
     return client
   }
   const actions = createActions(requireClient, state, set, () => base)
+
+  function syncShellTimeout(target = base) {
+    if (!target) return
+    const timeout = shellTimeoutMs()
+    timeoutSync = timeoutSync
+      .then(() => {
+        if (disposed || base !== target || shellTimeoutMs() !== timeout) return
+        return configureShellTimeout(target, timeout)
+      })
+      .catch(() => undefined)
+  }
+
+  createEffect(() => {
+    shellTimeoutMs()
+    syncShellTimeout()
+  })
 
   async function hydrate() {
     const bootDirectory = directory ?? ""
@@ -215,6 +240,7 @@ export function EngineProvider(props: ParentProps) {
       .then((target) => {
         if (disposed || epoch !== engineEpoch) return false
         base = target
+        syncShellTimeout(target)
         set(
           produce((draft) => {
             draft.engineError = ""
@@ -272,6 +298,7 @@ export function EngineProvider(props: ParentProps) {
     .then(async (target) => {
       if (disposed || startupEpoch !== engineEpoch) return
       base = target
+      syncShellTimeout(target)
       set("engineError", "")
       const health = await fetchEngineVersion(target)
       if (disposed || startupEpoch !== engineEpoch) return

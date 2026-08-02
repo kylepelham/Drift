@@ -5,6 +5,15 @@ export const attentionKinds = ["agent", "permission", "error"] as const
 export type AttentionKind = (typeof attentionKinds)[number]
 export type AlertSound = "none" | "custom" | string
 export type CustomSound = { name: string; dataUrl: string }
+export const shellTimeoutPresets = [60_000, 300_000, 900_000, 1_800_000] as const
+export const shellTimeoutMinMs = 60_000
+export const shellTimeoutMaxMs = 86_400_000
+
+export function normalizeShellTimeout(value: unknown): number | null {
+  if (value === null) return null
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) return null
+  return value >= shellTimeoutMinMs && value <= shellTimeoutMaxMs ? value : null
+}
 
 export function notificationDefaults(enabled: boolean) {
   return Object.fromEntries(attentionKinds.map((kind) => [kind, enabled])) as Record<AttentionKind, boolean>
@@ -23,6 +32,11 @@ export const [modelProviderOrder, setModelProviderOrder] = persisted<string[]>("
 export const [showReasoning, setShowReasoning] = persisted<boolean>("drift.reasoning", false)
 export const [toolErrorsExpanded, setToolErrorsExpanded] = persisted<boolean>("drift.toolErrors.expanded", false)
 export const [animateResponses, setAnimateResponses] = persisted<boolean>("drift.responses.animate", false)
+export const [shellTimeoutMs, setShellTimeoutMs] = persisted<number | null>(
+  "drift.shell.timeout",
+  null,
+  normalizeShellTimeout,
+)
 const [legacyNotifications] = persisted<boolean>("drift.notifications", false)
 export const [systemNotifications, setSystemNotifications] = persisted<Record<AttentionKind, boolean>>(
   "drift.notifications.events",

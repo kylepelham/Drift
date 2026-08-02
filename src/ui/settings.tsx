@@ -45,8 +45,13 @@ import {
   setCompactionCollapsed,
   setCustomSound,
   setShowReasoning,
+  setShellTimeoutMs,
   setSystemNotification,
   setToolErrorsExpanded,
+  shellTimeoutMaxMs,
+  shellTimeoutMinMs,
+  shellTimeoutMs,
+  shellTimeoutPresets,
   showReasoning,
   systemNotifications,
   toolErrorsExpanded,
@@ -136,7 +141,7 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Providers", "MCP", "Prompts", "Agents", "Storage", "About"] as const
+const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "MCP", "Prompts", "Agents", "Storage", "About"] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
@@ -145,6 +150,7 @@ const sectionLabels: Record<Section, string> = {
   Notifications: "drift.settings.notifications",
   Voice: "drift.voice",
   Shortcuts: "settings.tab.shortcuts",
+  Tools: "drift.settings.toolExecution",
   Providers: "settings.providers.title",
   MCP: "dialog.mcp.title",
   Prompts: "drift.settings.prompts",
@@ -154,7 +160,7 @@ const sectionLabels: Record<Section, string> = {
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
   { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts"] },
-  { label: "settings.section.server", items: ["Providers", "MCP", "Prompts", "Agents"] },
+  { label: "settings.section.server", items: ["Tools", "Providers", "MCP", "Prompts", "Agents"] },
   { label: "drift.settings.section", items: ["Storage", "About"] },
 ]
 
@@ -284,6 +290,9 @@ function SettingsModal(props: { onClose: () => void }) {
               </Match>
               <Match when={section() === "Voice"}>
                 <VoiceSection />
+              </Match>
+              <Match when={section() === "Tools"}>
+                <ToolExecutionSection />
               </Match>
               <Match when={section() === "Providers"}>
                 <ProvidersSection />
@@ -422,6 +431,92 @@ function GeneralSection() {
             onChange={() => setAutoUpdate(!autoUpdate())}
           />
         </SettingsRow>
+      </SettingsGroup>
+    </div>
+  )
+}
+
+const customShellTimeoutMs = 600_000
+
+function shellTimeoutSelection() {
+  const timeout = shellTimeoutMs()
+  if (timeout === null) return "none"
+  return shellTimeoutPresets.includes(timeout as (typeof shellTimeoutPresets)[number]) ? String(timeout) : "custom"
+}
+
+function ToolExecutionSection() {
+  const initial = shellTimeoutMs()
+  const [customMinutes, setCustomMinutes] = createSignal(
+    String(initial !== null && !shellTimeoutPresets.includes(initial as never) ? initial / 60_000 : 10),
+  )
+  const customValue = () => Number(customMinutes()) * 60_000
+  const customValid = () =>
+    Number.isInteger(Number(customMinutes())) &&
+    customValue() >= shellTimeoutMinMs &&
+    customValue() <= shellTimeoutMaxMs
+
+  function selectTimeout(value: string) {
+    if (value === "none") return setShellTimeoutMs(null)
+    if (value === "custom") {
+      if (!customValid()) setCustomMinutes(String(customShellTimeoutMs / 60_000))
+      return setShellTimeoutMs(customValid() ? customValue() : customShellTimeoutMs)
+    }
+    setShellTimeoutMs(Number(value))
+  }
+
+  return (
+    <div class="space-y-5">
+      <SettingsGroup title={t("drift.settings.toolExecution")}>
+        <SettingsRow
+          title={t("drift.settings.shellTimeout.title")}
+          description={t("drift.settings.shellTimeout.description")}
+        >
+          <Picker
+            label={t("drift.settings.shellTimeout.title")}
+            items={[
+              { id: "none", label: t("drift.settings.shellTimeout.noTimeout") },
+              ...shellTimeoutPresets.map((timeout) => ({
+                id: String(timeout),
+                label: t(`drift.settings.shellTimeout.preset${timeout / 60_000}`),
+              })),
+              { id: "custom", label: t("drift.settings.shellTimeout.custom") },
+            ]}
+            selected={shellTimeoutSelection()}
+            floating
+            bordered
+            chevronAtEnd
+            placement="below"
+            width="10rem"
+            onPick={selectTimeout}
+          />
+        </SettingsRow>
+        <Show when={shellTimeoutSelection() === "custom"}>
+          <SettingsRow
+            title={t("drift.settings.shellTimeout.customMinutes")}
+            description={
+              customValid()
+                ? t("drift.settings.shellTimeout.customDescription")
+                : t("drift.settings.shellTimeout.invalid")
+            }
+          >
+            <input
+              type="number"
+              min={shellTimeoutMinMs / 60_000}
+              max={shellTimeoutMaxMs / 60_000}
+              step="1"
+              aria-label={t("drift.settings.shellTimeout.customMinutes")}
+              aria-invalid={!customValid()}
+              class="w-24 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-right font-mono text-xs text-ink outline-none focus:border-edge-strong"
+              value={customMinutes()}
+              onInput={(event) => {
+                setCustomMinutes(event.currentTarget.value)
+                const value = Number(event.currentTarget.value) * 60_000
+                if (Number.isSafeInteger(value) && value >= shellTimeoutMinMs && value <= shellTimeoutMaxMs)
+                  setShellTimeoutMs(value)
+              }}
+            />
+          </SettingsRow>
+        </Show>
       </SettingsGroup>
     </div>
   )
@@ -1699,6 +1794,7 @@ function SectionIcon(props: { section: Section }) {
     if (props.section === "Notifications") return <IconBell />
     if (props.section === "Voice") return <IconMic />
     if (props.section === "Shortcuts") return <IconKeyboard />
+    if (props.section === "Tools") return <IconSliders />
     if (props.section === "Providers") return <IconChip />
     if (props.section === "MCP") return <IconShieldCheck />
     if (props.section === "Prompts") return <IconCode />

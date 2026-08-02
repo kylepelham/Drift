@@ -218,6 +218,7 @@ test("shell transcript preserves a visible command-output gap and normalizes out
     shellAtBottom,
     shellScrollTarget,
     shellTranscript,
+    shellTimeoutStatus,
   } = await import("../src/ui/parts")
   expect(shellTranscript("bun run build", "\u001b[32mok\u001b[0m\r\ndone")).toBe("$ bun run build\n\nok\ndone")
   const output = Array.from({ length: 10_000 }, (_, index) => `line ${index}`).join("\r\n")
@@ -239,6 +240,16 @@ test("shell transcript preserves a visible command-output gap and normalizes out
   expect(shellAtBottom(250, 200, 501)).toBe(false)
   expect(shellScrollTarget(250, false, 700)).toBe(250)
   expect(shellScrollTarget(300, true, 700)).toBe(700)
+  const shellPart = (status: "running" | "completed", metadata: Record<string, unknown>) =>
+    ({ tool: "bash", state: { status, input: {}, metadata } }) as never
+  expect(shellTimeoutStatus(shellPart("running", { shellTimeoutMs: 300_000 }))).toEqual({
+    timedOut: false,
+    text: "Limit 5m",
+  })
+  expect(shellTimeoutStatus(shellPart("completed", { shellTimeoutMs: 60_000, timedOut: true }))).toEqual({
+    timedOut: true,
+    text: "Timed out after 1m",
+  })
 
   const stream = createShellTranscriptStream()
   expect(stream.update("generate", "\u001b[3", false)).toEqual({ replace: true, text: "$ generate" })

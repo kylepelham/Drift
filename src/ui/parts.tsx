@@ -346,6 +346,28 @@ function toolMeta(part: ToolPart) {
   return (("metadata" in state ? state.metadata : undefined) ?? part.metadata) as Record<string, unknown> | undefined
 }
 
+export function formatShellTimeout(ms: number) {
+  if (ms % 60_000 === 0) return `${ms / 60_000}m`
+  if (ms % 1_000 === 0) return `${ms / 1_000}s`
+  return `${ms}ms`
+}
+
+export function shellTimeoutStatus(part: ToolPart) {
+  if (part.tool !== "bash") return null
+  const metadata = toolMeta(part)
+  if (!metadata || !("shellTimeoutMs" in metadata)) return null
+  const timeout = metadata.shellTimeoutMs
+  const timedOut = metadata.timedOut === true
+  if (!timedOut && part.state.status !== "running" && part.state.status !== "pending") return null
+  const duration = typeof timeout === "number" ? formatShellTimeout(timeout) : t("drift.settings.shellTimeout.noTimeout")
+  return {
+    timedOut,
+    text: timedOut
+      ? t("drift.shell.timeout.expired", { duration })
+      : t("drift.shell.timeout.limit", { duration }),
+  }
+}
+
 export function patchFiles(part: ToolPart) {
   const files = toolMeta(part)?.files
   if (!Array.isArray(files)) return []
@@ -471,6 +493,7 @@ export function ToolView(props: { part: ToolPart }) {
     const patch = diff()
     return patch ? diffStats(patch) : null
   }
+  const timeout = () => shellTimeoutStatus(props.part)
   const spawnedId = () => {
     if (props.part.tool !== "task" && props.part.tool !== "spawn_thread") return null
     return (toolMeta(props.part) as { sessionId?: string } | undefined)?.sessionId ?? null
@@ -540,6 +563,16 @@ export function ToolView(props: { part: ToolPart }) {
               }}
             >
               {t(`drift.recovery.task.${status()}`)}
+            </span>
+          )}
+        </Show>
+        <Show when={timeout()}>
+          {(status) => (
+            <span
+              class="shrink-0 font-mono text-xs"
+              classList={{ "text-danger": status().timedOut, "text-ink-faint": !status().timedOut }}
+            >
+              {status().text}
             </span>
           )}
         </Show>
