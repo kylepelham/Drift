@@ -1139,6 +1139,7 @@ export const drift = {
   "drift.message.duration.minutes": "{{minutes}}분 {{seconds}}초",
   "drift.message.duration.seconds": "{{seconds}}초",
   "drift.message.interrupted": "중단됨",
+  "drift.move.sessionBusy": "세션이 아직 작업 중입니다. 이동하기 전에 중단하세요.",
   "drift.message.revertHere": "여기로 되돌리기",
   "drift.message.tokenCounts": "입력 {{input}} / 출력 {{output}}",
   "drift.message.tokensPerSecond": "{{rate}} 토큰/초",

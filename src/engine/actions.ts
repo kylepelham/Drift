@@ -69,11 +69,14 @@ function toPermission(request: PermissionRequest, directory: string): Permission
   }
 }
 
+const defaultAbortWait = { waitMs: 5000, pollMs: 100 }
+
 export function createActions(
   requireClient: () => OpencodeClient,
   state: EngineState,
   set: SetStoreFunction<EngineState>,
   target: () => EngineTarget | undefined,
+  abortWait: { waitMs: number; pollMs: number } = defaultAbortWait,
 ) {
   const pageSize = 100
   // The archive listing has no cursor, so it is fetched in one page with a ceiling high enough that
@@ -85,10 +88,6 @@ export function createActions(
   // Disposing an instance is asynchronous on the engine side; this pause lets the old process release
   // its port and lock before a caller reconnects.
   const disposeSettleMs = 50
-  // Aborting is best-effort: the engine may already be mid-turn. Poll until it reports idle, then give
-  // up so the caller is never blocked indefinitely.
-  const abortWaitMs = 5000
-  const abortPollMs = 100
   const moveNoticeDurationMs = 8000
   const askPollTimeoutMs = 8000
   const permissionReplyTimeoutMs = 8000
@@ -361,16 +360,30 @@ export function createActions(
   async function moveSessions(entries: Session[], destination: string): Promise<SessionMoveResult> {
     const moving = entries.filter((session) => normalizeDir(session.directory) !== normalizeDir(destination))
     if (!moving.length) return { ok: true, moved: [] }
-    for (const session of moving) await interrupt(session.id)
+    for (const session of moving) {
+      if (!(await interrupt(session.id))) return { ok: false, moved: [], error: t("drift.move.sessionBusy") }
+    }
 
     const completed: Session[] = []
     for (const session of moving) {
       const error = await rebindSession(session.id, destination)
       if (error) {
-        for (const rollback of completed.reverse()) await rebindSession(rollback.id, rollback.directory)
-        const restored = await sessionsAt(moving[0].directory)
-        for (const info of restored ?? []) putSession(set, info)
-        return { ok: false, moved: [], error }
+        const stillMoved: string[] = []
+        let rollbackError: string | undefined
+        for (const rollback of completed.reverse()) {
+          const failure = await rebindSession(rollback.id, rollback.directory)
+          if (failure) {
+            rollbackError ??= failure
+            stillMoved.push(rollback.id)
+            continue
+          }
+          putSession(set, rollback)
+        }
+        return {
+          ok: false,
+          moved: stillMoved,
+          error: rollbackError ? `${error}; rollback failed: ${rollbackError}` : error,
+        }
       }
       completed.push(session)
       putSession(set, { ...session, directory: destination })
@@ -809,13 +822,16 @@ export function createActions(
     }
   }
 
-  async function interrupt(id: string) {
+  // Resolves true only when the session is confirmed idle after the abort settled.
+  async function interrupt(id: string): Promise<boolean> {
     for (const permission of state.permissions[id] ?? [])
       await replyPermission(id, permission.id, "reject").catch(() => {})
     for (const question of state.questions[id] ?? []) await answerQuestion(id, question.id, null)
-    if (!sessionBusy(state, id)) return
+    if (!sessionBusy(state, id)) return true
     await requireClient().session.abort({ path: { id } }).catch(() => {})
-    for (let waited = 0; waited < abortWaitMs && sessionBusy(state, id); waited += abortPollMs) await sleep(abortPollMs)
+    for (let waited = 0; waited < abortWait.waitMs && sessionBusy(state, id); waited += abortWait.pollMs)
+      await sleep(abortWait.pollMs)
+    return !sessionBusy(state, id)
   }
 
   async function revert(id: string, messageID: string) {
@@ -948,15 +964,23 @@ function sdkErrorMessage(error: unknown, fallback: string): string {
 }
 
 export function sessionTree(sessions: Session[], rootId: string) {
-  const ids = new Set([rootId])
-  let changed = true
-  while (changed) {
-    changed = false
-    for (const session of sessions) {
-      if (!session.parentID || !ids.has(session.parentID) || ids.has(session.id)) continue
-      ids.add(session.id)
-      changed = true
+  const byParent = new Map<string, Session[]>()
+  for (const session of sessions) {
+    if (!session.parentID) continue
+    const children = byParent.get(session.parentID) ?? []
+    children.push(session)
+    byParent.set(session.parentID, children)
+  }
+  const root = sessions.find((session) => session.id === rootId)
+  if (!root) return []
+  const result = [root]
+  const seen = new Set([root.id])
+  for (let index = 0; index < result.length; index++) {
+    for (const child of byParent.get(result[index].id) ?? []) {
+      if (seen.has(child.id)) continue
+      seen.add(child.id)
+      result.push(child)
     }
   }
-  return sessions.filter((session) => ids.has(session.id))
+  return result
 }

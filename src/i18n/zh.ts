@@ -1198,6 +1198,7 @@ export const drift = {
   "drift.message.duration.minutes": "{{minutes}}m {{seconds}}s",
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "已中断",
+  "drift.move.sessionBusy": "会话仍在运行；移动前请先停止它。",
   "drift.message.revertHere": "还原到此处",
   "drift.message.tokenCounts": "输入 {{input}} / 输出 {{output}}",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",

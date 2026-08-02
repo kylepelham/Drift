@@ -1211,6 +1211,7 @@ export const drift = {
   "drift.message.duration.minutes": "{{minutes}}m {{seconds}}s",
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "ถูกขัดจังหวะ",
+  "drift.move.sessionBusy": "เซสชันยังทำงานอยู่ หยุดเซสชันก่อนย้าย",
   "drift.message.revertHere": "ย้อนกลับมาที่นี่",
   "drift.message.tokenCounts": "เข้า {{input}} / ออก {{output}}",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",

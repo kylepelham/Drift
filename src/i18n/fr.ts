@@ -1163,6 +1163,7 @@ export const drift = {
   "drift.message.duration.minutes": "{{minutes}}m {{seconds}}s",
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "Interrompu",
+  "drift.move.sessionBusy": "La session est encore occupée ; arrêtez-la avant de la déplacer.",
   "drift.message.revertHere": "Revenir ici",
   "drift.message.tokenCounts": "{{input}} en entrée / {{output}} en sortie",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
