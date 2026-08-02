@@ -54,15 +54,22 @@ import { appendDictation, formatDictationElapsed } from "../voice/transcript"
 import { openSettings } from "./settings"
 import { createMentionAutocomplete, mentionFiles } from "./composer-mentions"
 import { createSlashMenu } from "./composer-slash"
-import { readDataUrl } from "./files"
 import { openLightbox } from "./lightbox"
 import { Picker, type PickerItem } from "./picker"
 import { defaultVisibleModelIds, ModelManager } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit"
+import {
+  formatAttachmentBytes,
+  prepareAttachment,
+  prepareAttachmentsForSend,
+  resolveAttachmentKind,
+  unsupportedModelAttachment,
+  type AttachmentFailure,
+  type AttachmentKind,
+} from "../attachments"
 
 
-const maxFileBytes = 10 * 1024 * 1024
 // Autosize ceiling for the textarea. Must stay in sync with the `max-h-50` class on the textarea
 // (Tailwind spacing 50 = 12.5rem = 200px); otherwise the element and its inline height disagree.
 const maxComposerHeightPx = 200
@@ -152,29 +159,62 @@ export function Composer() {
     const key = scope()
     setHistoryNavigation(null)
     setFileError("")
-    for (const file of files) {
-      if (file.size > maxFileBytes) {
-        setFileError(t("drift.composer.fileTooLarge", { filename: file.name }))
-        continue
-      }
-      const dataUrl = await readDataUrl(file).catch(() => null)
-      if (!dataUrl) {
-        setFileError(t("drift.composer.fileReadFailed", { filename: file.name }))
-        continue
-      }
-      patchComposerDraft(key, {
-        staged: [
-          ...composerDraft(key).staged,
-          {
-            id: crypto.randomUUID(),
+    await Promise.all([...files].map((file) => addFile(file, key)))
+  }
+
+  async function addFile(file: File, key: string) {
+    const resolved = resolveAttachmentKind({ filename: file.name, mime: file.type })
+    if (resolved.kind === "unsupported") return showFileFailure(key, file.name, resolved.reason)
+    if (resolved.kind === "audio" || resolved.kind === "video") {
+      const unsupported = unsupportedModelAttachment(
+        [{ filename: file.name, mime: resolved.mime }],
+        modelInfo(engine.state, resolveModel(engine.state, prefs().model)),
+      )
+      if (unsupported) {
+        const selected = modelInfo(engine.state, resolveModel(engine.state, prefs().model))
+        setFileError(
+          t("drift.composer.modelUnsupported", {
             filename: file.name,
-            mime: file.type || "application/octet-stream",
-            dataUrl,
-            size: file.size,
-          },
-        ],
-      })
+            kind: t(`drift.attachment.kind.${unsupported.kind}`),
+            model: selected?.name ?? t("command.category.model"),
+          }),
+        )
+        return
+      }
     }
+
+    const id = crypto.randomUUID()
+    patchComposerDraft(key, {
+      staged: [
+        ...composerDraft(key).staged,
+        { id, filename: file.name, mime: resolved.mime, size: file.size, status: "processing", meta: {} },
+      ],
+    })
+    const prepared = await prepareAttachment(file, id)
+    if (!prepared.ok) {
+      patchComposerDraft(key, { staged: composerDraft(key).staged.filter((item) => item.id !== id) })
+      showFileFailure(key, file.name, prepared.reason, prepared.kind, prepared.limit)
+      return
+    }
+    patchComposerDraft(key, {
+      staged: composerDraft(key).staged.map((item) => (item.id === id ? prepared.attachment : item)),
+    })
+  }
+
+  function showFileFailure(key: string, filename: string, reason: AttachmentFailure, kind?: AttachmentKind, limit?: number) {
+    if (scope() !== key) return
+    if (reason === "archive" || reason === "binary")
+      return setFileError(t("drift.composer.fileUnsupported", { filename }))
+    if (reason === "invalid-utf8") return setFileError(t("drift.composer.fileInvalidUtf8", { filename }))
+    if (reason === "too-large")
+      return setFileError(
+        t("drift.composer.fileTooLarge", {
+          filename,
+          kind: t(`drift.attachment.kind.${kind}`),
+          limit: formatAttachmentBytes(limit ?? 0),
+        }),
+      )
+    setFileError(t("drift.composer.fileReadFailed", { filename }))
   }
 
   let previousScope = scope()
@@ -313,12 +353,24 @@ export function Composer() {
         seedPrefs(id)
         emitThreadCreated(id)
       },
-      send(id, text, snapshot, workspace, prepared) {
+      async send(id, text, snapshot, workspace, prepared) {
+        const unsupported = unsupportedModelAttachment(snapshot.staged, modelInfo(engine.state, prepared.selectedModel))
+        if (unsupported) {
+          const message = t("drift.composer.modelUnsupported", {
+            filename: unsupported.attachment.filename,
+            kind: t(`drift.attachment.kind.${unsupported.kind}`),
+            model: modelInfo(engine.state, prepared.selectedModel)?.name ?? t("command.category.model"),
+          })
+          setFileError(message)
+          return { ok: false as const, error: message }
+        }
+        const attachments = await prepareAttachmentsForSend(snapshot.staged)
         const files = [
           ...mentionFiles(text, snapshot.mentions, workspace.path),
-          ...snapshot.staged.map((file) => ({ filename: file.filename, mime: file.mime, url: file.dataUrl })),
+          ...attachments.files,
         ]
-        return engine.actions.send(id, text, {
+        const prompt = [text, attachments.text].filter(Boolean).join("\n\n")
+        return engine.actions.send(id, prompt, {
           model: prepared.selectedModel,
           agent: prepared.selectedPrefs.agent,
           variant: prepared.selectedVariant,
@@ -608,43 +660,7 @@ export function Composer() {
             <For each={staged()}>
               {(file) => {
                 const remove = () => setStaged(staged().filter((item) => item.id !== file.id))
-                return (
-                  <Show
-                    when={file.mime.startsWith("image/")}
-                    fallback={
-                      <span class="group/chip flex items-center gap-1.5 rounded-md border border-edge bg-raised py-1 pr-1 pl-1.5 text-xs text-ink-muted">
-                        <span class="max-w-40 truncate">{file.filename}</span>
-                        <button
-                          title={t("prompt.attachment.remove")}
-                          class="flex size-4 items-center justify-center rounded text-ink-faint hover:bg-overlay hover:text-ink"
-                          onClick={remove}
-                        >
-                          <IconX class="size-3" />
-                        </button>
-                      </span>
-                    }
-                  >
-                    <div class="group/chip relative">
-                      <img
-                        src={file.dataUrl}
-                        alt={file.filename}
-                        title={file.filename}
-                        class="size-16 cursor-pointer rounded-md border border-edge object-cover transition-colors hover:border-edge-strong"
-                        onClick={() => openLightbox({ url: file.dataUrl, filename: file.filename, mime: file.mime })}
-                      />
-                      <div class="pointer-events-none absolute right-0 bottom-0 left-0 rounded-b-md bg-black/50 px-1 py-0.5">
-                        <span class="block truncate text-[0.6rem] text-white">{file.filename}</span>
-                      </div>
-                      <button
-                        title={t("prompt.attachment.remove")}
-                        class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-edge bg-overlay text-ink-muted opacity-0 transition-opacity group-hover/chip:opacity-100 hover:bg-raised hover:text-ink"
-                        onClick={remove}
-                      >
-                        <IconX class="size-3" />
-                      </button>
-                    </div>
-                  </Show>
-                )
+                return <AttachmentChip file={file} remove={remove} />
               }}
             </For>
             <Show when={fileError()}>
@@ -784,7 +800,12 @@ export function Composer() {
           <button
             class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
             title={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
-            disabled={(!draft().trim() && staged().length === 0) || !ready() || submitting()}
+            disabled={
+              (!draft().trim() && staged().length === 0) ||
+              staged().some((file) => file.status === "processing") ||
+              !ready() ||
+              submitting()
+            }
             onClick={() => void submit()}
           >
             {busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
@@ -795,5 +816,76 @@ export function Composer() {
         <ModelManager items={availableModelItems()} onClose={() => setManageModels(false)} />
       </Show>
     </div>
+  )
+}
+
+function AttachmentChip(props: { file: StagedFile; remove: () => void }) {
+  const kind = () => resolveAttachmentKind(props.file).kind
+  const label = () => t(`drift.attachment.kind.${kind()}`)
+  const detail = () => {
+    if (props.file.status === "processing") return t("drift.attachment.processing")
+    if (kind() === "text" && props.file.meta.lines !== undefined)
+      return t("drift.attachment.lines", { count: props.file.meta.lines })
+    if (kind() === "csv" && props.file.meta.rows !== undefined)
+      return t("drift.attachment.table", { rows: props.file.meta.rows, columns: props.file.meta.columns ?? 0 })
+    if (kind() === "pdf" && props.file.meta.pages !== undefined)
+      return t("drift.attachment.pages", { count: props.file.meta.pages })
+    return formatAttachmentBytes(props.file.size)
+  }
+  const title = () => [props.file.filename, props.file.meta.preview].filter(Boolean).join("\n\n")
+  const remove = (
+    <button
+      title={t("prompt.attachment.remove")}
+      class="flex size-4 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-overlay hover:text-ink"
+      onClick={props.remove}
+    >
+      <IconX class="size-3" />
+    </button>
+  )
+
+  return (
+    <Show
+      when={kind() === "image" && props.file.dataUrl}
+      fallback={
+        <span
+          class="group/chip flex max-w-64 items-center gap-2 rounded-md border border-edge bg-raised py-1 pr-1 pl-1.5 text-xs text-ink-muted"
+          title={title()}
+        >
+          <Show when={kind() === "pdf" && props.file.meta.thumbnail}>
+            {(thumbnail) => <img src={thumbnail()} alt="" class="h-10 w-8 rounded-sm border border-edge object-cover" />}
+          </Show>
+          <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[0.6rem] font-semibold text-accent uppercase">
+            {label()}
+          </span>
+          <span class="min-w-0">
+            <span class="block truncate">{props.file.filename}</span>
+            <span class="block truncate text-[0.65rem] text-ink-faint">{detail()}</span>
+          </span>
+          {remove}
+        </span>
+      }
+    >
+      {(url) => (
+        <div class="group/chip relative">
+          <img
+            src={url()}
+            alt={props.file.filename}
+            title={props.file.filename}
+            class="size-16 cursor-pointer rounded-md border border-edge object-cover transition-colors hover:border-edge-strong"
+            onClick={() => openLightbox({ url: url(), filename: props.file.filename, mime: props.file.mime })}
+          />
+          <div class="pointer-events-none absolute right-0 bottom-0 left-0 rounded-b-md bg-black/50 px-1 py-0.5">
+            <span class="block truncate text-[0.6rem] text-white">{props.file.filename}</span>
+          </div>
+          <button
+            title={t("prompt.attachment.remove")}
+            class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-edge bg-overlay text-ink-muted opacity-0 transition-opacity group-hover/chip:opacity-100 hover:bg-raised hover:text-ink"
+            onClick={props.remove}
+          >
+            <IconX class="size-3" />
+          </button>
+        </div>
+      )}
+    </Show>
   )
 }

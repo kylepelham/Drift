@@ -1,8 +1,9 @@
 import { createSignal } from "solid-js"
 import type { MessageEntry } from "../engine/store"
+import { resolveAttachmentKind, type StagedAttachment } from "../attachments"
 import { persisted } from "./persist"
 
-export type StagedFile = { id: string; filename: string; mime: string; dataUrl: string; size: number }
+export type StagedFile = StagedAttachment
 export type ComposerDraft = { text: string; staged: StagedFile[]; mentions: string[] }
 export type ComposerHistoryEntry = Pick<ComposerDraft, "text" | "mentions">
 export type ComposerHistoryNavigation = { index: number; saved: ComposerDraft | null }
@@ -130,12 +131,16 @@ export function draftFromMessage(entry: MessageEntry): ComposerDraft {
       continue
     }
     if (!part.url.startsWith("data:")) continue
+    const resolved = resolveAttachmentKind({ filename: part.filename, mime: part.mime })
+    if (resolved.kind === "unsupported") continue
     staged.push({
       id: part.id,
       filename: part.filename ?? "attachment",
-      mime: part.mime,
+      mime: resolved.mime,
       dataUrl: part.url,
       size: 0,
+      status: "ready",
+      meta: {},
     })
   }
   return { text, staged, mentions: [...new Set(mentions)] }

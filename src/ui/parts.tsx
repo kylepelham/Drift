@@ -16,6 +16,7 @@ import { permissionRequiresAttention } from "../state/permission-attention"
 import type { EngineState } from "../engine/store"
 import { recoverableForSession, recoverableInterruptions, resumedSessions } from "../state/recovery"
 import { ToolDuration } from "./tool-duration"
+import { resolveAttachmentKind } from "../attachments"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -119,6 +120,8 @@ export function partVisible(part: Part) {
 
 export function FilePartView(props: { part: Pick<FilePart, "mime" | "filename" | "url"> }) {
   const linkable = () => props.part.url.startsWith("data:") || props.part.url.startsWith("http")
+  const resolved = () => resolveAttachmentKind(props.part)
+  const kind = () => resolved().kind
   return (
     <Switch
       fallback={
@@ -141,16 +144,47 @@ export function FilePartView(props: { part: Pick<FilePart, "mime" | "filename" |
         </Show>
       }
     >
-      <Match when={props.part.mime.startsWith("image/") && linkable()}>
+      <Match when={kind() === "image" && linkable()}>
         <ImageThumb url={props.part.url} filename={props.part.filename} mime={props.part.mime} />
       </Match>
-      <Match when={props.part.mime.startsWith("audio/") && linkable()}>
+      <Match when={kind() === "audio" && linkable()}>
         <audio controls src={props.part.url} class="max-w-full" />
       </Match>
-      <Match when={props.part.mime.startsWith("video/") && linkable()}>
+      <Match when={kind() === "video" && linkable()}>
         <video controls src={props.part.url} class="max-h-64 max-w-full rounded-lg border border-edge" />
       </Match>
+      <Match when={(kind() === "pdf" || kind() === "text" || kind() === "csv") && kind()}>
+        {(attachmentKind) => (
+          <Show
+            when={linkable()}
+            fallback={<AttachmentFileLabel filename={props.part.filename} kind={attachmentKind()} />}
+          >
+            <a
+              href={props.part.url}
+              download={props.part.filename ?? "attachment"}
+              title={t("drift.attachment.download")}
+              class="inline-flex max-w-full items-center gap-2 rounded-md border border-edge bg-raised py-1 pr-2 pl-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+            >
+              <AttachmentFileLabel filename={props.part.filename} kind={attachmentKind()} bare />
+            </a>
+          </Show>
+        )}
+      </Match>
     </Switch>
+  )
+}
+
+function AttachmentFileLabel(props: { filename?: string; kind: string; bare?: boolean }) {
+  return (
+    <span
+      class="inline-flex min-w-0 max-w-full items-center gap-2"
+      classList={{ "rounded-md border border-edge bg-raised py-1 pr-2 pl-1.5 text-xs text-ink-muted": !props.bare }}
+    >
+      <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[0.6rem] font-semibold text-accent uppercase">
+        {t(`drift.attachment.kind.${props.kind}`)}
+      </span>
+      <span class="truncate">{props.filename ?? t("common.attachment")}</span>
+    </span>
   )
 }
 
