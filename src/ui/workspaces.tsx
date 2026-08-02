@@ -11,6 +11,7 @@ import { t } from "../state/i18n"
 import { Chevron } from "./controls"
 import { permissionRequiresAttention } from "../state/permission-attention"
 import { dragReorder } from "./drag-reorder"
+import { recoverableForSession, recoverableInterruptions } from "../state/recovery"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import {
   activeWorkspaceId,
@@ -51,8 +52,12 @@ export function WorkspaceGroup(props: {
     if (engine.state.connection === "online" && !live.length) sessionListCache.delete(props.workspace.path)
     return live.length || engine.state.connection === "online" ? live : (sessionListCache.get(props.workspace.path) ?? live)
   })
-  const children = (parentId: string) =>
-    childrenOf(engine.state, parentId).filter((child) => sessionBusy(engine.state, child.id))
+  const children = (parentId: string) => {
+    recoverableInterruptions()
+    return childrenOf(engine.state, parentId).filter(
+      (child) => sessionBusy(engine.state, child.id) || !!recoverableForSession(child.id),
+    )
+  }
   const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
   const visibleSessions = createMemo(() => sessions().slice(0, visibleCount()))
   const remaining = createMemo(() => Math.max(0, sessions().length - visibleSessions().length))
@@ -258,6 +263,9 @@ function StatusDot(props: { sessionId: string }) {
       : t("drift.thread.waitingForAnswer")
   return (
     <Switch>
+      <Match when={(recoverableInterruptions(), recoverableForSession(props.sessionId))}>
+        <span class="size-1.5 shrink-0 rounded-full bg-warn" title={t("drift.recovery.title")} />
+      </Match>
       <Match when={attention()}>
         <span class="size-1.5 shrink-0 rounded-full bg-warn" title={attentionTitle()} />
       </Match>

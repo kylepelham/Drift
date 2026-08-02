@@ -10,6 +10,8 @@ import { IconArrowDown } from "./icons"
 import { largeUserText, MessageView, messageVisible } from "./message"
 import { TextShimmer } from "./text-shimmer"
 import { DriftLogo } from "./logo"
+import { recoverableForSession, recoverableInterruptions } from "../state/recovery"
+import { RecoveryCard } from "./recovery"
 
 const estimatedRow = 96
 const overscan = 800
@@ -47,6 +49,11 @@ export function Chat() {
     if (latest?.info.role !== "assistant") return error
     const messageError = (latest.info as { error?: { name: string; data?: unknown } }).error
     return messageError && messageError.name !== "MessageAbortedError" ? null : error
+  })
+  const recoverable = createMemo(() => {
+    recoverableInterruptions()
+    const id = selectedSession()
+    return id ? recoverableForSession(id) : undefined
   })
   const thinking = createMemo(() => {
     const id = selectedSession()
@@ -245,7 +252,14 @@ export function Chat() {
                 </For>
               </div>
             </div>
-            <Show when={sessionError()}>
+            <Show keyed when={recoverable()}>
+              {(interruption) => (
+                <div class="pb-6">
+                  <RecoveryCard interruption={interruption} />
+                </div>
+              )}
+            </Show>
+            <Show when={!recoverable() && sessionError()}>
               {(error) => (
                 <div class="pb-6" role="alert">
                   <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger">

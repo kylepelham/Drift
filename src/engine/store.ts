@@ -107,6 +107,7 @@ export type EngineState = {
   agents: Agent[]
   commands: Command[]
   errors: Record<string, string>
+  sessionModels: Record<string, ModelRef & { messageId?: string }>
   notices: Notice[]
   links: Record<string, string>
   activity: Record<string, SessionActivity>
@@ -157,6 +158,7 @@ export function createEngineState() {
     agents: [],
     commands: [],
     errors: {},
+    sessionModels: {},
     notices: [],
     links: { ...loadLinks() },
     activity: {},
@@ -175,6 +177,8 @@ export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
   set(
     produce((draft) => {
       draft.sessions[info.id] = { revert: undefined, share: undefined, ...info }
+      const model = (info as Session & { model?: { id: string; providerID: string } }).model
+      if (model) draft.sessionModels[info.id] = { providerID: model.providerID, modelID: model.id }
       bumpRevision(draft, sessionRevisionKey(info.id))
     }),
   )
@@ -185,6 +189,15 @@ export function putSessions(set: SetStoreFunction<EngineState>, infos: Session[]
     "sessions",
     produce((sessions) => {
       for (const info of infos) sessions[info.id] = { revert: undefined, share: undefined, ...info }
+    }),
+  )
+  set(
+    "sessionModels",
+    produce((models) => {
+      for (const info of infos) {
+        const model = (info as Session & { model?: { id: string; providerID: string } }).model
+        if (model) models[info.id] = { providerID: model.providerID, modelID: model.id }
+      }
     }),
   )
 }

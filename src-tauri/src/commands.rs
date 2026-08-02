@@ -5,7 +5,7 @@
 use crate::engine::stop_engine_instances;
 use crate::mcp;
 use crate::storage::{self, PruneResult, PruneRules, RuleEstimate, StorageStats};
-use crate::store::{ArchivedSession, Store, Workspace};
+use crate::store::{ArchivedSession, RecoverableInterruption, Store, Workspace};
 use serde_json::Value;
 use tauri::State;
 
@@ -130,6 +130,45 @@ pub(crate) fn store_unarchive_session(store: State<Store>, session_id: String) -
 #[tauri::command]
 pub(crate) fn store_expired_archived(store: State<Store>, before: i64) -> Result<Vec<String>, String> {
     store.expired_archived(before).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn store_interruptions(
+    store: State<Store>,
+) -> Result<Vec<RecoverableInterruption>, String> {
+    store.interruptions().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn store_save_interruption(
+    store: State<Store>,
+    interruption: RecoverableInterruption,
+) -> Result<(), String> {
+    store
+        .save_interruption(&interruption)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn store_dismiss_interruption(
+    store: State<Store>,
+    session_id: String,
+    identity: String,
+    dismissed_at: i64,
+) -> Result<(), String> {
+    store
+        .dismiss_interruption(&session_id, &identity, dismissed_at)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn store_clear_interruptions(
+    store: State<Store>,
+    session_id: String,
+) -> Result<(), String> {
+    store
+        .clear_interruptions(&session_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

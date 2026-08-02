@@ -17,6 +17,22 @@ export type McpSnapshot = {
   servers: StoredMcpServer[]
   observed: ObservedMcpServer[]
 }
+export type RecoverableInterruption = {
+  sessionId: string
+  identity: string
+  workspaceId?: string
+  directory: string
+  threadTitle: string
+  parentSessionId?: string
+  providerId: string
+  modelId: string
+  kind: "usage" | "rate_limit" | "unavailable" | "provider_auth" | "transient"
+  reason: string
+  errorName: string
+  createdAt: number
+  updatedAt: number
+  dismissedAt?: number
+}
 
 export interface DriftStore {
   workspaces(): Promise<Workspace[]>
@@ -31,6 +47,10 @@ export interface DriftStore {
   archiveSession(sessionId: string, workspaceId: string): Promise<void>
   unarchiveSession(sessionId: string): Promise<void>
   expiredArchived(before: number): Promise<string[]>
+  interruptions(): Promise<RecoverableInterruption[]>
+  saveInterruption(interruption: RecoverableInterruption): Promise<void>
+  dismissInterruption(sessionId: string, identity: string, dismissedAt: number): Promise<void>
+  clearInterruptions(sessionId: string): Promise<void>
   mcpSnapshot(directory: string): Promise<McpSnapshot>
   saveMcp(name: string, config: McpConfig, generation: number, previousName?: string): Promise<void>
   removeMcp(name: string, generation: number): Promise<void>
@@ -55,6 +75,11 @@ function shellStore(invoke: Invoke): DriftStore {
     archiveSession: (sessionId, workspaceId) => invoke("store_archive_session", { sessionId, workspaceId }),
     unarchiveSession: (sessionId) => invoke("store_unarchive_session", { sessionId }),
     expiredArchived: (before) => invoke("store_expired_archived", { before }),
+    interruptions: () => invoke("store_interruptions"),
+    saveInterruption: (interruption) => invoke("store_save_interruption", { interruption }),
+    dismissInterruption: (sessionId, identity, dismissedAt) =>
+      invoke("store_dismiss_interruption", { sessionId, identity, dismissedAt }),
+    clearInterruptions: (sessionId) => invoke("store_clear_interruptions", { sessionId }),
     mcpSnapshot: (directory) => invoke("mcp_snapshot", { directory }),
     saveMcp: (name, config, generation, previousName) =>
       invoke("mcp_save", { name, config, generation, previousName }),
@@ -82,6 +107,7 @@ type StoredWorkspace = Workspace & { removedAt?: number }
 function browserStore(): DriftStore {
   const wsKey = "drift.store.workspaces"
   const arKey = "drift.store.archived"
+  const interruptionKey = "drift.store.interruptions"
   const all = () => read<StoredWorkspace[]>(wsKey, [])
   const desktopMcpOnly = async (): Promise<never> => {
     throw new Error("MCP policy requires the Drift desktop backend")
@@ -136,6 +162,34 @@ function browserStore(): DriftStore {
       read<ArchivedSession[]>(arKey, [])
         .filter((a) => a.archivedAt < before)
         .map((a) => a.sessionId),
+    interruptions: async () => read<RecoverableInterruption[]>(interruptionKey, []),
+    saveInterruption: async (interruption) => {
+      const list = read<RecoverableInterruption[]>(interruptionKey, [])
+      const existing = list.find(
+        (item) => item.sessionId === interruption.sessionId && item.identity === interruption.identity,
+      )
+      const next = existing
+        ? { ...interruption, createdAt: existing.createdAt, dismissedAt: existing.dismissedAt }
+        : interruption
+      write(interruptionKey, [
+        ...list.filter((item) => item.sessionId !== next.sessionId),
+        next,
+      ])
+    },
+    dismissInterruption: async (sessionId, identity, dismissedAt) => {
+      write(
+        interruptionKey,
+        read<RecoverableInterruption[]>(interruptionKey, []).map((item) =>
+          item.sessionId === sessionId && item.identity === identity ? { ...item, dismissedAt } : item,
+        ),
+      )
+    },
+    clearInterruptions: async (sessionId) => {
+      write(
+        interruptionKey,
+        read<RecoverableInterruption[]>(interruptionKey, []).filter((item) => item.sessionId !== sessionId),
+      )
+    },
     mcpSnapshot: desktopMcpOnly,
     saveMcp: desktopMcpOnly,
     removeMcp: desktopMcpOnly,

@@ -8,6 +8,7 @@ import { initKeybinds } from "./state/keybinds"
 import { bindLanguage } from "./state/language"
 import { mcpCoordinator } from "./state/mcp"
 import { driftStore } from "./state/store"
+import { initRecoverableInterruptions } from "./state/recovery"
 import { bindTheme } from "./state/theme"
 import { initZoom } from "./state/zoom"
 import { activeWorkspace, initWorkspaces, purgeAll, workspaces } from "./state/workspaces"
@@ -112,7 +113,10 @@ function WorkspaceBinding() {
   const engine = useEngine()
   let lastPurge = 0
   let permissionTick = 0
-  onMount(() => void initWorkspaces())
+  onMount(() => {
+    void initWorkspaces()
+    void initRecoverableInterruptions()
+  })
   createEffect(() => engine.setDirectory(activeWorkspace()?.path ?? null))
   createEffect(() => {
     if (engine.state.connection !== "online") return

@@ -1,0 +1,18 @@
+export const recovery = {
+  "drift.recovery.title": "Model interrupted",
+  "drift.recovery.explanation": "This session stopped because its model or provider could not continue. Choose a model and resume the same session.",
+  "drift.recovery.failedModel": "Failed model",
+  "drift.recovery.chooseModel": "Recovery model",
+  "drift.recovery.continue": "Continue session",
+  "drift.recovery.starting": "Starting...",
+  "drift.recovery.durableHint": "The model will reassess saved messages, tools, and todos before continuing.",
+  "drift.recovery.notification.title": "Session needs a model",
+  "drift.recovery.notification.body": "{{workspace}} - {{thread}} - {{model}} - {{reason}}",
+  "drift.recovery.subagent": "Subagent",
+  "drift.recovery.open": "Open and recover",
+  "drift.recovery.task.running": "Running",
+  "drift.recovery.task.interrupted": "Interrupted",
+  "drift.recovery.task.resumed": "Resumed",
+  "drift.recovery.task.completed": "Completed",
+  "drift.recovery.task.error": "Failed",
+}

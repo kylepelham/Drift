@@ -1,4 +1,5 @@
 import { promptAndSpawn } from "./prompt-and-spawn"
+import { recovery } from "./recovery"
 
 export const dict = {
   "command.category.suggested": "แนะนำ",
@@ -1090,6 +1091,7 @@ export const dict = {
 
 export const drift = {
   ...promptAndSpawn,
+  ...recovery,
   "drift.agent.build": "สร้าง",
   "drift.agent.plan": "วางแผน",
   "drift.agent.general": "ทั่วไป",

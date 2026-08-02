@@ -4,6 +4,7 @@ import { produce } from "solid-js/store"
 import { shellEvents } from "../shell"
 import { t } from "../state/i18n"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
+import { clearRecoverableInterruption } from "../state/recovery"
 import { createActions, type EngineActions } from "./actions"
 import { inspectShellEngine, resolveEngine, restartShellEngine, sleep, type EngineTarget } from "./connection"
 import { applySessionSnapshot, applyStatusSnapshot, reduce } from "./events"
@@ -79,6 +80,8 @@ export function EngineProvider(props: ParentProps) {
         ...(complete && bootDirectory ? { scope: { directory: bootDirectory } } : {}),
       })
       applyStatusSnapshot(set, { sessions: list, statuses: statuses.data ?? {}, captured })
+      for (const [sessionID, status] of Object.entries(statuses.data ?? {}))
+        if (status.type !== "idle") clearRecoverableInterruption(sessionID, true)
       set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
       set("connected", providers.data?.connected ?? [])
       set("defaultModels", providers.data?.default ?? {})
@@ -99,6 +102,9 @@ export function EngineProvider(props: ParentProps) {
         )
         set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], entries, id, captured, state.revisions))
         set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
+        const latest = [...entries].reverse().find((entry) => entry.info.role === "assistant")?.info
+        if (latest?.role === "assistant" && latest.time.completed && !latest.error)
+          clearRecoverableInterruption(id, true)
       }
       if (!state.version && base) {
         const target = base

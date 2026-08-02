@@ -14,6 +14,7 @@ import { TextShimmer } from "./text-shimmer"
 import { openToolContextMenu } from "./tool-context-menu"
 import { permissionRequiresAttention } from "../state/permission-attention"
 import type { EngineState } from "../engine/store"
+import { recoverableForSession, recoverableInterruptions, resumedSessions } from "../state/recovery"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -387,12 +388,21 @@ export function ToolView(props: { part: ToolPart }) {
   const state = () => props.part.state
   const info = () => toolInfo(props.part)
   const delegated = () => props.part.tool === "task" || props.part.tool === "spawn_thread"
-  const active = () =>
-    !awaitingPermission(engine.state, props.part) && (state().status === "running" || state().status === "pending")
+  const delegatedStatus = () => {
+    recoverableInterruptions()
+    resumedSessions()
+    const childId = spawnedId()
+    return childId ? delegatedTaskStatus(engine.state, props.part, childId) : null
+  }
+  const active = () => {
+    if (awaitingPermission(engine.state, props.part)) return false
+    if (delegated()) return delegatedStatus() === "running" || delegatedStatus() === "resumed"
+    return state().status === "running" || state().status === "pending"
+  }
   const title = () => (info().called ? `${t("drift.tool.called")} ${info().called}` : (info().title ?? props.part.tool))
   const progress = () => {
     const childId = spawnedId()
-    if (!childId || state().status !== "running") return null
+    if (!childId || (delegatedStatus() !== "running" && delegatedStatus() !== "resumed")) return null
     const activity = engine.state.activity[childId]
     if (!activity) return null
     const count = t(activity.tools === 1 ? "drift.count.tool.one" : "drift.count.tool.other", { count: activity.tools })
@@ -474,6 +484,21 @@ export function ToolView(props: { part: ToolPart }) {
         <Show when={progress()}>
           {(text) => <span class="shrink-0 font-mono text-xs text-accent/80">{text()}</span>}
         </Show>
+        <Show when={delegatedStatus()}>
+          {(status) => (
+            <span
+              class="shrink-0 rounded px-1.5 py-0.5 text-[0.65rem] font-medium"
+              classList={{
+                "bg-warn/12 text-warn": status() === "interrupted",
+                "bg-accent/10 text-accent": status() === "running" || status() === "resumed",
+                "bg-ok/10 text-ok": status() === "completed",
+                "bg-danger/10 text-danger": status() === "error",
+              }}
+            >
+              {t(`drift.recovery.task.${status()}`)}
+            </span>
+          )}
+        </Show>
         <Show when={awaitingPermission(engine.state, props.part)}>
           <span class="shrink-0 text-xs text-warn/90">{t("drift.status.waitingForPermission")}</span>
         </Show>
@@ -500,6 +525,46 @@ export function ToolView(props: { part: ToolPart }) {
       </Show>
     </div>
   )
+}
+
+export type DelegatedTaskStatus = "running" | "interrupted" | "resumed" | "completed" | "error"
+
+export function delegatedTaskStatus(
+  state: EngineState,
+  part: Pick<ToolPart, "sessionID" | "state">,
+  childId: string,
+): DelegatedTaskStatus {
+  if (recoverableForSession(childId)) return "interrupted"
+  const resumed = resumedSessions().has(childId)
+  if (sessionRunning(state, childId)) return resumed ? "resumed" : "running"
+  if (resumed) return "completed"
+  const terminal = delegatedTerminalState(state, part, childId)
+  if (terminal) return terminal
+  return part.state.status === "error" ? "error" : "running"
+}
+
+function sessionRunning(state: EngineState, sessionId: string) {
+  const status = state.status[sessionId]?.type
+  return status === "busy" || status === "retry"
+}
+
+function delegatedTerminalState(
+  state: EngineState,
+  part: Pick<ToolPart, "sessionID" | "state">,
+  childId: string,
+): "completed" | "error" | undefined {
+  const pattern = new RegExp(`<task\\s+id=["']${escapeRegExp(childId)}["']\\s+state=["'](completed|error)["']`)
+  for (const entry of state.transcripts[part.sessionID] ?? []) {
+    for (const item of entry.parts) {
+      const value = item.type === "text" ? item.text : item.type === "tool" && item.state.status === "completed" ? item.state.output : ""
+      const match = value.match(pattern)?.[1]
+      if (match === "completed" || match === "error") return match
+    }
+  }
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 function ToolBody(props: { part: ToolPart; diff: string | null; error: string | null }) {

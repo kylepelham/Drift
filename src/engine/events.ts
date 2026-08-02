@@ -8,7 +8,13 @@ import {
   observePermission,
   type DriftPermission,
 } from "../state/permission-attention"
-import { errorText } from "./error"
+import { classifyRecoverableError, errorText, type EngineError } from "./error"
+import {
+  clearRecoverableInterruption,
+  interruptionIdentity,
+  recordRecoverableInterruption,
+} from "../state/recovery"
+import { workspaces } from "../state/workspaces"
 import {
   bumpAskRevision,
   bumpRevision,
@@ -22,6 +28,7 @@ import {
   spawnLink,
   statusRevisionKey,
   type EngineState,
+  type ModelRef,
   type Notice,
   type QuestionRequest,
 } from "./store"
@@ -65,7 +72,12 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, st
     })
   if (raw.type === "message.part.delta")
     return appendPartDelta(set, raw.properties as { sessionID: string; messageID: string; partID: string; field: string; delta: string })
-  if (raw.type === "session.compacted") return clearError(set, raw.properties.sessionID as string)
+  if (raw.type === "session.compacted") {
+    const sessionID = raw.properties.sessionID as string
+    clearError(set, sessionID)
+    clearRecoverableInterruption(sessionID, true)
+    return
+  }
   if (raw.type === "session.next.moved")
     return moveSession(
       set,
@@ -92,7 +104,10 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, st
           if (event.properties.status.type === "idle") clearLiveTools(draft, sessionID)
         }),
       )
-      if (event.properties.status.type !== "idle") clearError(set, event.properties.sessionID)
+      if (event.properties.status.type !== "idle") {
+        clearError(set, event.properties.sessionID)
+        clearRecoverableInterruption(event.properties.sessionID, true)
+      }
       return
     }
     case "session.idle":
@@ -104,7 +119,7 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, st
         }),
       )
     case "session.error":
-      return recordError(set, event.properties.sessionID, event.properties.error)
+      return recordError(set, event.properties.sessionID, event.properties.error, state, directory)
     case "message.updated":
       return upsertMessage(set, event.properties.info)
     case "message.removed":
@@ -129,6 +144,7 @@ function upsertSession(set: SetEngineState, info: Session) {
 // Full purge of every per-session slice, in response to the engine reporting a deleted session.
 function dropSession(set: SetEngineState, info: Session) {
   set(produce((draft) => purgeSession(draft, info.id)))
+  clearRecoverableInterruption(info.id)
 }
 
 // The session revision bump outlives the purge so an in-flight snapshot taken before the
@@ -144,6 +160,7 @@ export function purgeSession(draft: EngineState, id: string) {
   delete draft.status[id]
   delete draft.activity[id]
   delete draft.errors[id]
+  delete draft.sessionModels[id]
   delete draft.cursors[id]
   clearLiveTools(draft, id)
   pruneSessionRevisions(draft, id)
@@ -160,21 +177,26 @@ export function applySessionSnapshot(
 ) {
   const ids = new Set(input.sessions.map((info) => info.id))
   const dir = input.scope ? normalizeDir(input.scope.directory) : undefined
+  const removed: string[] = []
   set(
     produce((draft) => {
       const advanced = (id: string) => revisionAdvanced(draft.revisions, input.captured, sessionRevisionKey(id))
       for (const info of input.sessions) {
         if (advanced(info.id)) continue
         draft.sessions[info.id] = { revert: undefined, share: undefined, ...info }
+        const model = (info as Session & { model?: { id: string; providerID: string } }).model
+        if (model) draft.sessionModels[info.id] = { providerID: model.providerID, modelID: model.id }
       }
       if (dir === undefined) return
       for (const session of Object.values(draft.sessions)) {
         if (ids.has(session.id) || advanced(session.id)) continue
         if (normalizeDir(session.directory) !== dir) continue
+        removed.push(session.id)
         purgeSession(draft, session.id)
       }
     }),
   )
+  for (const id of removed) clearRecoverableInterruption(id)
 }
 
 // Applies a status snapshot for the given sessions, skipping any whose status a live event
@@ -222,7 +244,13 @@ function moveSession(
   )
 }
 
-function recordError(set: SetEngineState, sessionID?: string, error?: { name: string; data?: unknown }) {
+function recordError(
+  set: SetEngineState,
+  sessionID?: string,
+  error?: { name: string; data?: unknown },
+  state?: EngineState,
+  eventDirectory?: string,
+) {
   const message = errorText(error)
   if (!sessionID) {
     pushNotice(set, {
@@ -245,6 +273,24 @@ function recordError(set: SetEngineState, sessionID?: string, error?: { name: st
       draft.errors[sessionID] = message
     }),
   )
+  const recoverable = classifyRecoverableError(error)
+  if (!recoverable || !state) return
+  const session = state.sessions[sessionID]
+  const model = sessionModel(state, sessionID, error)
+  const directory = session?.directory ?? eventDirectory ?? state.directory
+  const workspace = workspaces().find((item) => normalizeDirectory(item.path) === normalizeDirectory(directory))
+  recordRecoverableInterruption({
+    sessionId: sessionID,
+    identity: interruptionIdentity(error as EngineError, model, state.sessionModels[sessionID]?.messageId),
+    workspaceId: workspace?.id,
+    directory,
+    threadTitle: session?.title ?? "",
+    parentSessionId: session?.parentID ?? state.links[sessionID],
+    providerId: model?.providerID ?? providerFromError(error) ?? "unknown",
+    modelId: model?.modelID ?? "unknown",
+    errorName: error?.name ?? "Error",
+    ...recoverable,
+  })
 }
 
 function clearError(set: SetEngineState, sessionID: string) {
@@ -258,6 +304,12 @@ function clearError(set: SetEngineState, sessionID: string) {
 function upsertMessage(set: SetEngineState, info: Message) {
   set(
     produce((draft) => {
+      if (info.role === "assistant")
+        draft.sessionModels[info.sessionID] = {
+          providerID: info.providerID,
+          modelID: info.modelID,
+          messageId: info.id,
+        }
       const list = draft.loaded[info.sessionID] ? draft.transcripts[info.sessionID] : undefined
       if (!list) return
       bumpRevision(draft, messageRevisionKey(info.sessionID, info.id))
@@ -266,6 +318,12 @@ function upsertMessage(set: SetEngineState, info: Message) {
       else list.push({ info, parts: [] })
     }),
   )
+  if (
+    info.role === "assistant" &&
+    info.time.completed &&
+    !(info as { error?: unknown }).error
+  )
+    clearRecoverableInterruption(info.sessionID, true)
 }
 
 function dropMessage(set: SetEngineState, sessionID: string, messageID: string) {
@@ -285,6 +343,12 @@ function upsertPart(set: SetEngineState, part: Part) {
   set(
     produce((draft) => {
       if (link) draft.links[link.child] = link.parent
+      if (link && part.type === "tool") {
+        const metadata = (("metadata" in part.state ? part.state.metadata : undefined) ?? part.metadata) as
+          | { model?: ModelRef }
+          | undefined
+        if (metadata?.model) draft.sessionModels[link.child] = metadata.model
+      }
       if (part.type === "tool") {
         trackActivity(draft, part)
         if (part.state.status === "pending" || part.state.status === "running") draft.liveTools[part.id] = part.sessionID
@@ -298,6 +362,27 @@ function upsertPart(set: SetEngineState, part: Part) {
       else entry.parts.push(part)
     }),
   )
+}
+
+function sessionModel(state: EngineState, sessionID: string, error?: { data?: unknown }): ModelRef | undefined {
+  const known = state.sessionModels[sessionID]
+  if (known) return known
+  const latest = [...(state.transcripts[sessionID] ?? [])]
+    .reverse()
+    .find((entry) => entry.info.role === "assistant")?.info
+  if (latest?.role === "assistant") return { providerID: latest.providerID, modelID: latest.modelID }
+  const data = error?.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined
+  if (typeof data?.providerID === "string" && typeof data.modelID === "string")
+    return { providerID: data.providerID, modelID: data.modelID }
+}
+
+function providerFromError(error?: { data?: unknown }) {
+  const data = error?.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined
+  return typeof data?.providerID === "string" ? data.providerID : undefined
+}
+
+function normalizeDirectory(directory: string) {
+  return directory.replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase()
 }
 
 function appendPartDelta(

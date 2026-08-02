@@ -69,6 +69,56 @@ fn store_roundtrip() {
 }
 
 #[test]
+fn recoverable_interruptions_deduplicate_and_survive_reopen() {
+    let dir = std::env::temp_dir().join(format!("drift-interruption-test-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("drift.db");
+    let item = RecoverableInterruption {
+        session_id: "child".into(),
+        identity: "message-1".into(),
+        workspace_id: Some("workspace".into()),
+        directory: "S:/repo".into(),
+        thread_title: "Research".into(),
+        parent_session_id: Some("parent".into()),
+        provider_id: "anthropic".into(),
+        model_id: "claude".into(),
+        kind: "usage".into(),
+        reason: "usage limit".into(),
+        error_name: "APIError".into(),
+        created_at: 10,
+        updated_at: 10,
+        dismissed_at: None,
+    };
+    {
+        let store = open_at(&file).unwrap();
+        store.save_interruption(&item).unwrap();
+        let mut updated = item.clone();
+        updated.reason = "new detail".into();
+        updated.updated_at = 20;
+        store.save_interruption(&updated).unwrap();
+        assert_eq!(store.interruptions().unwrap().len(), 1);
+        assert_eq!(store.interruptions().unwrap()[0].reason, "new detail");
+        store
+            .dismiss_interruption("child", "message-1", 30)
+            .unwrap();
+    }
+    let reopened = open_at(&file).unwrap();
+    let rows = reopened.interruptions().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].dismissed_at, Some(30));
+    let mut replacement = item.clone();
+    replacement.identity = "message-2".into();
+    reopened.save_interruption(&replacement).unwrap();
+    let rows = reopened.interruptions().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].identity, "message-2");
+    reopened.clear_interruptions("child").unwrap();
+    assert!(reopened.interruptions().unwrap().is_empty());
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
 fn expired_duplicates_of_active_directories_are_collapsed_not_returned() {
     let dir = std::env::temp_dir().join(format!("drift-dup-test-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
