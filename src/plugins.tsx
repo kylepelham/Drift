@@ -8,6 +8,7 @@ import { shellInvoke } from "./shell"
 import { theme } from "./state/theme"
 import { activeWorkspace } from "./state/workspaces"
 import type { Workspace } from "./state/store"
+import { ToolDuration } from "./ui/tool-duration"
 import {
   openFile,
   registerToolContextActions,
@@ -144,7 +145,12 @@ export function PluginToolView(props: { part: ToolPart }) {
     if (typeof output === "string") root.textContent = output
     else if (output) root.append(output)
   })
-  return <div ref={root} class="text-sm" />
+  return (
+    <div class="flex min-w-0 items-start gap-2 text-sm">
+      <div ref={root} class="min-w-0 flex-1" />
+      <ToolDuration state={props.part.state} />
+    </div>
+  )
 }
 
 function registerToolRenderer(tool: string, renderer: ToolRenderer) {

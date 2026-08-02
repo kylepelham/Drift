@@ -26,7 +26,7 @@ export function interruptStaleTools(entries: MessageEntry[], liveTools: Readonly
       if (liveTools[part.id] === part.sessionID) return part
       changed = true
       const completed = (entry.info as { time: { completed?: number } }).time.completed
-      const start = "time" in part.state ? part.state.time.start : entry.info.time.created
+      const start = "time" in part.state ? part.state.time.start : undefined
       const metadata = "metadata" in part.state ? part.state.metadata : undefined
       return {
         ...part,
@@ -35,7 +35,7 @@ export function interruptStaleTools(entries: MessageEntry[], liveTools: Readonly
           input: part.state.input,
           error,
           metadata,
-          time: { start, end: Math.max(start, completed ?? start) },
+          ...(start === undefined ? {} : { time: { start, end: Math.max(start, completed ?? start) } }),
         },
       } as ToolPart
     })

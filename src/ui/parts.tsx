@@ -15,6 +15,7 @@ import { openToolContextMenu } from "./tool-context-menu"
 import { permissionRequiresAttention } from "../state/permission-attention"
 import type { EngineState } from "../engine/store"
 import { recoverableForSession, recoverableInterruptions, resumedSessions } from "../state/recovery"
+import { ToolDuration } from "./tool-duration"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -502,6 +503,7 @@ export function ToolView(props: { part: ToolPart }) {
         <Show when={awaitingPermission(engine.state, props.part)}>
           <span class="shrink-0 text-xs text-warn/90">{t("drift.status.waitingForPermission")}</span>
         </Show>
+        <ToolDuration state={state()} />
         <Show when={spawnedId()}>
           {(childId) => (
             <span
@@ -1073,6 +1075,12 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
   const waiting = () => props.parts.some((part) => awaitingPermission(engine.state, part))
   const running = () =>
     props.parts.some((part) => part.state.status === "running" || part.state.status === "pending")
+  const activePart = () => {
+    for (let index = props.parts.length - 1; index >= 0; index--) {
+      const part = props.parts[index]
+      if (part.state.status === "running" || part.state.status === "pending") return part
+    }
+  }
   const expanded = () => open() || waiting()
   return (
     <div class="flex flex-col gap-1.5 text-sm">
@@ -1093,6 +1101,7 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
         <Show when={waiting()}>
           <span class="text-xs text-warn/90">{t("notification.permission.title")}</span>
         </Show>
+        <Show when={activePart()}>{(part) => <ToolDuration state={part().state} />}</Show>
         <Chevron open={expanded()} />
       </button>
       <Show when={expanded()}>

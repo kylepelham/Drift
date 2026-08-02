@@ -270,6 +270,11 @@ test("loaded stale tool states become interrupted without mutating live or compl
     status: "error",
     error: "Interrupted",
   })
+  expect((interrupted.parts[1] as { state: Record<string, unknown> }).state).not.toHaveProperty("time")
+  expect((interrupted.parts[0] as { state: { time: { start: number; end: number } } }).state.time).toEqual({
+    start: 2,
+    end: 2,
+  })
   expect((interrupted.parts[2] as { state: { status: string } }).state.status).toBe("completed")
   expect((entry.parts[0] as { state: { status: string } }).state.status).toBe("running")
 
