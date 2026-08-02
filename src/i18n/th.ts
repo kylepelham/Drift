@@ -1100,6 +1100,8 @@ export const drift = {
   "drift.settings.about": "เกี่ยวกับ",
   "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "ขยายข้อผิดพลาดของเครื่องมือโดยค่าเริ่มต้น",
+  "drift.settings.responseAnimation.title": "แสดงคำตอบอย่างนุ่มนวล",
+  "drift.settings.responseAnimation.description": "ค่อย ๆ แสดงข้อความก้อนใหญ่ในคำตอบสดของผู้ช่วย คำตอบก่อนหน้าจะแสดงทันที",
   "drift.settings.toolErrors.description": "เลือกสถานะเริ่มต้น แถวข้อผิดพลาดยังคลิกได้ไม่ว่าจะเลือกแบบใด",
   "drift.settings.summaries": "สรุป",
   "drift.settings.summaries.collapsible.title": "สรุปการย่อบริบทแบบพับได้",

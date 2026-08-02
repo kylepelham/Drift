@@ -1021,6 +1021,8 @@ export const drift = {
   "drift.settings.about": "حول",
   "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "توسيع أخطاء الأدوات افتراضيًا",
+  "drift.settings.responseAnimation.title": "كشف الردود بسلاسة",
+  "drift.settings.responseAnimation.description": "اعرض الدفعات الكبيرة من نص المساعد المباشر بسلاسة. تبقى الردود السابقة فورية.",
   "drift.settings.toolErrors.description": "اختر الحالة الأولية. تبقى صفوف الأخطاء قابلة للنقر في الحالتين.",
   "drift.settings.summaries": "الملخصات",
   "drift.settings.summaries.collapsible.title": "ملخصات ضغط قابلة للطي",

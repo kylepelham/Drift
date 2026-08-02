@@ -1028,6 +1028,8 @@ export const drift = {
   "drift.settings.about": "정보",
   "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "도구 오류를 기본으로 펼치기",
+  "drift.settings.responseAnimation.title": "응답을 부드럽게 표시",
+  "drift.settings.responseAnimation.description": "진행 중인 어시스턴트 응답에 추가된 큰 텍스트 블록을 부드럽게 표시합니다. 이전 응답은 즉시 표시됩니다.",
   "drift.settings.toolErrors.description": "초기 상태를 선택하세요. 어느 쪽이든 오류 행을 클릭할 수 있습니다.",
   "drift.settings.summaries": "요약",
   "drift.settings.summaries.collapsible.title": "접을 수 있는 압축 요약",

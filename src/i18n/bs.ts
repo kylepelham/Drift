@@ -1113,6 +1113,8 @@ export const drift = {
   "drift.settings.about": "O aplikaciji",
   "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Proširi greške alata prema zadanim postavkama",
+  "drift.settings.responseAnimation.title": "Glatko otkrivanje odgovora",
+  "drift.settings.responseAnimation.description": "Glatko prikaži velike nalete teksta aktivnog asistenta. Historijski odgovori ostaju trenutni.",
   "drift.settings.toolErrors.description": "Odaberite početno stanje. Redovi s greškama ostaju dostupni za klik u oba slučaja.",
   "drift.settings.summaries": "Sažeci",
   "drift.settings.summaries.collapsible.title": "Sklopivi sažeci sažimanja",

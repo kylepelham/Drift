@@ -3,7 +3,7 @@ import { createRenderEffect, createSignal, For, Match, onMount, Show, Switch } f
 import { createStore, reconcile } from "solid-js/store"
 import { useEngine } from "../engine"
 import { errorText } from "../engine/error"
-import { messageText, modelInfo, type MessageEntry } from "../engine/store"
+import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store"
 import { emitMessageRendered } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
 import { agentLabel, t } from "../state/i18n"
@@ -241,11 +241,18 @@ export function updatePartGroupSlots(
 }
 
 function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[] }) {
+  const engine = useEngine()
   const info = () => props.entry.info as AssistantMessage
   const slots = new Map<string, PartGroupSlot>()
   const [groups, setGroups] = createSignal<PartGroupSlot[]>([])
   createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)))
   const visible = () => groups().length > 0 || !!info().error || (!!props.footer && !!info().time.completed)
+  const liveTextPartID = () => {
+    if (info().time.completed || !sessionBusy(engine.state, info().sessionID)) return undefined
+    return [...props.entry.parts]
+      .reverse()
+      .find((part) => part.type === "text" && !part.time?.end)?.id
+  }
   return (
     <Show when={visible()}>
       <div class="group flex min-w-0 max-w-full flex-col gap-3">
@@ -255,7 +262,15 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
               <Match when={"explored" in group.value && group.value}>
                 {(explored) => <ExploredGroup parts={explored().explored} />}
               </Match>
-              <Match when={"part" in group.value && group.value}>{(single) => <PartView part={single().part} />}</Match>
+              <Match when={"part" in group.value && group.value}>
+                {(single) => (
+                  <PartView
+                    part={single().part}
+                    responseID={`${info().id}:${single().part.id}`}
+                    live={single().part.id === liveTextPartID()}
+                  />
+                )}
+              </Match>
             </Switch>
           )}
         </For>

@@ -527,6 +527,8 @@ export const drift = {
   "drift.settings.summaries.collapsible.title": "Collapsible compaction summaries",
   "drift.settings.toolErrors.description": "Choose the initial state. Error rows remain clickable either way.",
   "drift.settings.toolErrors.title": "Expand tool errors by default",
+  "drift.settings.responseAnimation.title": "Smooth response reveals",
+  "drift.settings.responseAnimation.description": "Smoothly reveal large bursts of live assistant text. Historical responses remain instant.",
   "drift.settings.typography": "Typography",
   "drift.shell.copyOutput": "Copy shell output",
   "drift.shell.output": "Shell output",

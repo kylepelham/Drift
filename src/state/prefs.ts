@@ -22,6 +22,7 @@ export const [shownModelIds, setShownModelIds] = persisted<string[]>("drift.mode
 export const [modelProviderOrder, setModelProviderOrder] = persisted<string[]>("drift.models.providerOrder", [])
 export const [showReasoning, setShowReasoning] = persisted<boolean>("drift.reasoning", false)
 export const [toolErrorsExpanded, setToolErrorsExpanded] = persisted<boolean>("drift.toolErrors.expanded", false)
+export const [animateResponses, setAnimateResponses] = persisted<boolean>("drift.responses.animate", false)
 const [legacyNotifications] = persisted<boolean>("drift.notifications", false)
 export const [systemNotifications, setSystemNotifications] = persisted<Record<AttentionKind, boolean>>(
   "drift.notifications.events",

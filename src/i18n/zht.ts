@@ -1083,6 +1083,8 @@ export const drift = {
   "drift.settings.about": "關於",
   "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "預設展開工具錯誤",
+  "drift.settings.responseAnimation.title": "平滑顯示回覆",
+  "drift.settings.responseAnimation.description": "平滑顯示助理即時回覆中大量新增的文字。歷史回覆仍會立即顯示。",
   "drift.settings.toolErrors.description": "選擇初始狀態。無論是否展開，錯誤列均可點選。",
   "drift.settings.summaries": "摘要",
   "drift.settings.summaries.collapsible.title": "可摺疊的壓縮摘要",

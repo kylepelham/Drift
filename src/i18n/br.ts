@@ -1037,6 +1037,8 @@ export const drift = {
   "drift.settings.about": "Sobre",
   "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Expandir erros de ferramentas por padrão",
+  "drift.settings.responseAnimation.title": "Revelação suave de respostas",
+  "drift.settings.responseAnimation.description": "Revele suavemente grandes blocos de texto ao vivo do assistente. Respostas do histórico continuam instantâneas.",
   "drift.settings.toolErrors.description": "Escolha o estado inicial. As linhas de erro continuam clicáveis em ambos os casos.",
   "drift.settings.summaries": "Resumos",
   "drift.settings.summaries.collapsible.title": "Resumos de compactação recolhíveis",

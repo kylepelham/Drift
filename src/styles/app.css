@@ -679,6 +679,23 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   }
 }
 
+@keyframes response-block-reveal {
+  from {
+    opacity: 0.15;
+    transform: translateY(7px);
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0);
+  }
+}
+
+.md-response-reveal {
+  animation: response-block-reveal var(--response-reveal-duration, 320ms) cubic-bezier(0.2, 0.72, 0.25, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .startup-splash[data-mascot] .startup-jelly {
     animation: none;
@@ -711,6 +728,10 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
 
   [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"] {
     opacity: 0 !important;
+  }
+
+  .md-response-reveal {
+    animation: none !important;
   }
 }
 

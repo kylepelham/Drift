@@ -1050,6 +1050,8 @@ export const drift = {
   "drift.settings.about": "À propos",
   "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Développer les erreurs d’outil par défaut",
+  "drift.settings.responseAnimation.title": "Révélation fluide des réponses",
+  "drift.settings.responseAnimation.description": "Révéler progressivement les grands blocs de texte de l’assistant en direct. Les réponses précédentes restent instantanées.",
   "drift.settings.toolErrors.description":
     "Choisissez l’état initial. Les lignes d’erreur restent cliquables dans tous les cas.",
   "drift.settings.summaries": "Résumés",

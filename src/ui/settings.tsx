@@ -30,6 +30,7 @@ import { language, languages, setLanguage, type LanguageId } from "../state/lang
 import { formatModelContext, lmStudioMinimumContext, lmStudioModelReady } from "../state/lm-studio"
 import {
   alertSounds,
+  animateResponses,
   attentionKinds,
   autoAcceptGlobal,
   autoUpdate,
@@ -37,6 +38,7 @@ import {
   compactionCollapsed,
   customSound,
   setAlertSound,
+  setAnimateResponses,
   setAutoAcceptGlobal,
   setAutoUpdate,
   setCollapseCompaction,
@@ -330,6 +332,17 @@ function GeneralSection() {
             placement="below"
             width="12rem"
             onPick={(value) => setLanguage(value as LanguageId)}
+          />
+        </SettingsRow>
+        <SettingsRow
+          title={t("drift.settings.responseAnimation.title")}
+          description={t("drift.settings.responseAnimation.description")}
+          onClick={() => setAnimateResponses(!animateResponses())}
+        >
+          <Toggle
+            label={t("drift.settings.responseAnimation.title")}
+            checked={animateResponses()}
+            onChange={() => setAnimateResponses(!animateResponses())}
           />
         </SettingsRow>
       </SettingsGroup>

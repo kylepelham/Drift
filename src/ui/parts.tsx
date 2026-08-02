@@ -38,13 +38,22 @@ const fontStyleItalic = 1
 const fontStyleBold = 2
 const fontStyleUnderline = 4
 
-export function PartView(props: { part: Part }) {
+export function PartView(props: { part: Part; responseID?: string; live?: boolean }) {
   return (
     <Switch>
       <Match when={props.part.type !== "tool" && hasPartRenderer(props.part.type) && props.part}>
         {(part) => <PluginPartView part={part()} />}
       </Match>
-      <Match when={visibleText(props.part)}>{(part) => <Markdown text={part().text} done={!!part().time?.end} />}</Match>
+      <Match when={visibleText(props.part)}>
+        {(part) => (
+          <Markdown
+            text={part().text}
+            done={!!part().time?.end}
+            responseID={props.responseID}
+            live={props.live}
+          />
+        )}
+      </Match>
       <Match when={showReasoning() && props.part.type === "reasoning" && (props.part as ReasoningPart)}>
         {(part) => <ReasoningView part={part()} />}
       </Match>

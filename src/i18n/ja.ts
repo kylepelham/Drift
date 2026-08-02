@@ -1029,6 +1029,8 @@ export const drift = {
   "drift.settings.about": "Driftについて",
   "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "ツールエラーをデフォルトで展開",
+  "drift.settings.responseAnimation.title": "応答を滑らかに表示",
+  "drift.settings.responseAnimation.description": "進行中のアシスタント応答に追加された大量のテキストを滑らかに表示します。過去の応答は即座に表示されます。",
   "drift.settings.toolErrors.description": "初期状態を選択します。どちらを選んでもエラー行はクリックできます。",
   "drift.settings.summaries": "要約",
   "drift.settings.summaries.collapsible.title": "折りたたみ可能な圧縮要約",

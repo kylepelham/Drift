@@ -1121,6 +1121,8 @@ export const drift = {
   "drift.settings.about": "Om",
   "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Utvid verktøyfeil som standard",
+  "drift.settings.responseAnimation.title": "Jevn visning av svar",
+  "drift.settings.responseAnimation.description": "Vis store tekstblokker i aktive assistentsvar gradvis. Tidligere svar vises umiddelbart.",
   "drift.settings.toolErrors.description": "Velg starttilstand. Feilrader forblir klikkbare uansett.",
   "drift.settings.summaries": "Sammendrag",
   "drift.settings.summaries.collapsible.title": "Sammenleggbare komprimeringssammendrag",

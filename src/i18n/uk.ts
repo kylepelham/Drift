@@ -1118,6 +1118,8 @@ export const drift = {
   "drift.settings.about": "Про програму",
   "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Розгортати помилки інструментів за замовчуванням",
+  "drift.settings.responseAnimation.title": "Плавна поява відповідей",
+  "drift.settings.responseAnimation.description": "Плавно показувати великі фрагменти тексту в поточній відповіді асистента. Попередні відповіді відображаються миттєво.",
   "drift.settings.toolErrors.description": "Виберіть початковий стан. Рядки помилок можна натискати в обох випадках.",
   "drift.settings.summaries": "Підсумки",
   "drift.settings.summaries.collapsible.title": "Згортані підсумки стиснення",

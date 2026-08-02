@@ -1115,6 +1115,8 @@ export const drift = {
   "drift.settings.about": "Hakkında",
   "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Araç hatalarını varsayılan olarak genişlet",
+  "drift.settings.responseAnimation.title": "Yanıtları yumuşakça göster",
+  "drift.settings.responseAnimation.description": "Etkin asistan yanıtındaki büyük metin bloklarını yumuşakça göster. Önceki yanıtlar anında görünür.",
   "drift.settings.toolErrors.description": "Başlangıç durumunu seçin. Hata satırları her iki durumda da tıklanabilir.",
   "drift.settings.summaries": "Özetler",
   "drift.settings.summaries.collapsible.title": "Daraltılabilir sıkıştırma özetleri",

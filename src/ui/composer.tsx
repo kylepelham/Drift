@@ -68,6 +68,7 @@ import {
   type AttachmentFailure,
   type AttachmentKind,
 } from "../attachments"
+import { interruptResponseAnimations } from "./response-animation"
 
 
 // Autosize ceiling for the textarea. Must stay in sync with the `max-h-50` class on the textarea
@@ -792,7 +793,10 @@ export function Composer() {
             <button
               class="rounded-md border border-edge px-3 py-1 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
               title={t("prompt.action.stop")}
-              onClick={() => void engine.actions.abort(selectedSession()!)}
+              onClick={() => {
+                interruptResponseAnimations()
+                void engine.actions.abort(selectedSession()!)
+              }}
             >
               {t("prompt.action.stop")}
             </button>

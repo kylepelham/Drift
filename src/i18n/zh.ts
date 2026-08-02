@@ -1087,6 +1087,8 @@ export const drift = {
   "drift.settings.about": "关于",
   "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "默认展开工具错误",
+  "drift.settings.responseAnimation.title": "平滑显示回复",
+  "drift.settings.responseAnimation.description": "平滑显示助手实时回复中大段新增的文本。历史回复仍会立即显示。",
   "drift.settings.toolErrors.description": "选择初始状态。无论是否展开，错误行均可点击。",
   "drift.settings.summaries": "摘要",
   "drift.settings.summaries.collapsible.title": "可折叠的压缩摘要",

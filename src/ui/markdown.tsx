@@ -1,10 +1,17 @@
 import DOMPurify from "dompurify"
 import { marked } from "marked"
 import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki"
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { shellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import { syntaxTheme } from "../state/code"
+import { animateResponses } from "../state/prefs"
+import {
+  responseAnimationInterruptEvent,
+  responseBurstSize,
+  responseRevealDuration,
+  revealResponseNodes,
+} from "./response-animation"
 
 marked.use({ gfm: true, breaks: true })
 
@@ -512,18 +519,91 @@ export function ProgressiveCodeView(props: { code: string; lang: string }) {
   )
 }
 
-export function Markdown(props: { text: string; done?: boolean; humanAuthored?: boolean }) {
+function markdownNodeSignature(node: Node) {
+  return node.nodeType === Node.ELEMENT_NODE ? (node as Element).outerHTML : `${node.nodeType}:${node.textContent ?? ""}`
+}
+
+function replaceMarkdownSuffix(root: HTMLElement, source: string, previous: string[]) {
+  const template = document.createElement("template")
+  template.innerHTML = source
+  const nodes = [...template.content.childNodes]
+  const signatures = nodes.map(markdownNodeSignature)
+  let unchanged = root.childNodes.length === previous.length ? 0 : -1
+  while (unchanged >= 0 && unchanged < previous.length && previous[unchanged] === signatures[unchanged]) unchanged++
+  if (unchanged < 0) unchanged = 0
+  while (root.childNodes.length > unchanged) root.lastChild?.remove()
+  root.append(...nodes.slice(unchanged))
+  return { signatures, changedFrom: unchanged }
+}
+
+export function Markdown(props: {
+  text: string
+  done?: boolean
+  humanAuthored?: boolean
+  responseID?: string
+  live?: boolean
+}) {
   let root!: HTMLDivElement
   let request = 0
+  let mounted = false
+  let previousLength = 0
+  let previousIdentity: string | undefined
+  let sourceSignatures: string[] = []
+  let finishReveal = () => {}
   const html = createMemo(() =>
     DOMPurify.sanitize(marked.parse(prepareMarkdown(props.text, props.humanAuthored), { async: false })),
   )
+  onMount(() => window.addEventListener(responseAnimationInterruptEvent, finishActiveReveal))
+  onCleanup(() => {
+    request++
+    finishReveal()
+    window.removeEventListener(responseAnimationInterruptEvent, finishActiveReveal)
+  })
+
+  function finishActiveReveal() {
+    finishReveal()
+  }
+
   createEffect(() => {
     const source = html()
+    const textLength = props.text.length
+    const responseID = props.responseID
+    const animationEnabled = animateResponses()
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+    const burst = responseID
+      ? responseBurstSize({
+          previousLength,
+          nextLength: textLength,
+          previousIdentity,
+          identity: responseID,
+          mounted,
+          live: !!props.live && !props.done,
+          enabled: animationEnabled,
+          reducedMotion,
+        })
+      : 0
     const theme = syntaxTheme() as BundledTheme
     const current = ++request
-    root.innerHTML = source
+    finishReveal()
+    let changedFrom = 0
+    if (responseID && animationEnabled) {
+      const update = replaceMarkdownSuffix(root, source, sourceSignatures)
+      sourceSignatures = update.signatures
+      changedFrom = update.changedFrom
+    } else {
+      root.innerHTML = source
+      sourceSignatures = []
+    }
     decorateCodeBlocks(root)
+    if (burst) {
+      const nodes = [...root.childNodes]
+        .slice(changedFrom)
+        .filter((node): node is HTMLElement => node.nodeType === Node.ELEMENT_NODE)
+      finishReveal = revealResponseNodes(nodes, responseRevealDuration(burst))
+    }
+    mounted = true
+    previousLength = textLength
+    previousIdentity = responseID
     if (props.done)
       void highlightBlocks(root, theme, () => current === request).then(() => {
         if (current === request) decorateCodeBlocks(root)
