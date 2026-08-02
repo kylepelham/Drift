@@ -190,6 +190,11 @@ html,
 body,
 #root {
   height: 100%;
+}
+
+html[data-runtime="remote"],
+html[data-runtime="remote"] body,
+html[data-runtime="remote"] #root {
   height: 100dvh;
 }
 

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { backendRoute } from "../src/backend"
 import { isNarrowWidth, navigationHash, parseNavigationHash } from "../src/state/navigation"
 import { remoteStatusTone, type RemoteAccessStatus } from "../src/state/remote-access"
-import { remoteEngineBase, remoteRuntimeFrom } from "../src/runtime"
+import { remoteEngineBase, remoteRuntimeFrom, runtimeNameFrom } from "../src/runtime"
 
 test("remote runtime uses the same-origin engine gateway", () => {
   const remote = { pathname: "/companion", origin: "http://192.168.1.8:41718" }
@@ -11,6 +11,11 @@ test("remote runtime uses the same-origin engine gateway", () => {
   expect(remoteRuntimeFrom(desktop)).toBe(false)
   expect(remoteEngineBase(remote)).toBe("http://192.168.1.8:41718/engine")
   expect(remoteEngineBase(desktop)).toBeUndefined()
+})
+
+test("dynamic viewport sizing is limited to the remote runtime", () => {
+  expect(runtimeNameFrom({ pathname: "/companion", origin: "http://192.168.1.20:41718" })).toBe("remote")
+  expect(runtimeNameFrom({ pathname: "/", origin: "tauri://localhost" })).toBe("desktop")
 })
 
 test("host backend routing prefers Tauri and otherwise uses remote RPC", () => {

@@ -4,6 +4,10 @@ export function remoteRuntimeFrom(location: RuntimeLocation) {
   return location.pathname === "/companion" || location.pathname.startsWith("/companion/")
 }
 
+export function runtimeNameFrom(location: RuntimeLocation) {
+  return remoteRuntimeFrom(location) ? "remote" : "desktop"
+}
+
 export function isRemoteRuntime() {
   return typeof window !== "undefined" && remoteRuntimeFrom(window.location)
 }
