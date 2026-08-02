@@ -12,17 +12,19 @@ import {
   type DriftPermission,
 } from "../state/permission-attention"
 import { sleep, type EngineTarget } from "./connection"
-import { pushNotice } from "./events"
+import { applySessionSnapshot, purgeSession, pushNotice } from "./events"
 import type { MessageEntry } from "./store"
 import {
   askRevision,
   bumpAskRevision,
+  captureRevisions,
   interruptStaleTools,
+  mergeTranscriptSnapshot,
   normalizeDir,
   putSession,
-  putSessions,
   recordLink,
   sessionBusy,
+  sessionSnapshotLimit,
   spawnLink,
   type EngineState,
   type ModelRef,
@@ -115,13 +117,17 @@ export function createActions(
   }
 
   async function reloadSession(id: string) {
+    const captured = captureRevisions(state)
+    const existed = id in state.sessions
     const result = await requireClient().session.messages({ path: { id }, query: { limit: pageSize } })
     const entries = interruptStaleTools(
       [...requireSdkData(result, "Could not load transcript")].sort((a, b) => a.info.id.localeCompare(b.info.id)),
       state.liveTools,
       t("drift.message.interrupted"),
     )
-    set("transcripts", id, entries)
+    // The session vanished while the transcript was in flight; applying would resurrect it.
+    if (existed && !state.sessions[id]) return
+    set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], entries, id, captured, state.revisions))
     set("loaded", id, true)
     set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
     recordLinks(entries)
@@ -183,8 +189,12 @@ export function createActions(
   }
 
   async function loadSessions(directory: string) {
+    const captured = captureRevisions(state)
     const result = await requireClient().session.list({ query: { directory } })
-    putSessions(set, result.data ?? [])
+    const sessions = result.data
+    if (result.error !== undefined || !sessions) return
+    const complete = sessions.length < sessionSnapshotLimit
+    applySessionSnapshot(set, { sessions, captured, ...(complete ? { scope: { directory } } : {}) })
   }
 
   // One DB query for every workspace. Avoids booting an OpenCode instance per project.
@@ -193,6 +203,7 @@ export function createActions(
     if (!base) return
     if (allSessionsRequest) return allSessionsRequest
     allSessionsRequest = (async () => {
+      const captured = captureRevisions(state)
       const query = new URLSearchParams({ archived: "true", limit: archiveListLimit })
       const headers = {
         ...base.headers,
@@ -200,7 +211,7 @@ export function createActions(
       }
       const response = await engineFetch(`${base.url}/experimental/session?${query}`, { headers })
       if (!response) return
-      putSessions(set, await readJson<Session[]>(response, []))
+      applySessionSnapshot(set, { sessions: await readJson<Session[]>(response, []), captured })
     })()
     try {
       await allSessionsRequest
@@ -565,23 +576,7 @@ export function createActions(
   }
 
   function forgetSession(id: string) {
-    clearPermissionAttentionFor(state.permissions[id] ?? [])
-    set(
-      produce((draft) => {
-        delete draft.sessions[id]
-        delete draft.transcripts[id]
-        delete draft.loaded[id]
-        delete draft.permissions[id]
-        delete draft.questions[id]
-        delete draft.todos[id]
-        delete draft.status[id]
-        delete draft.activity[id]
-        delete draft.errors[id]
-        delete draft.cursors[id]
-        for (const [partID, owner] of Object.entries(draft.liveTools))
-          if (owner === id) delete draft.liveTools[partID]
-      }),
-    )
+    set(produce((draft) => purgeSession(draft, id)))
   }
 
   // Replied ids are filtered out of poll snapshots that raced the reply.

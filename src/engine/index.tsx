@@ -6,10 +6,18 @@ import { t } from "../state/i18n"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
 import { createActions, type EngineActions } from "./actions"
 import { inspectShellEngine, resolveEngine, restartShellEngine, sleep, type EngineTarget } from "./connection"
-import { reduce } from "./events"
+import { applySessionSnapshot, applyStatusSnapshot, reduce } from "./events"
 import { streamEvents } from "./sse"
 import { seedBench } from "./bench"
-import { createEngineState, interruptStaleTools, putSessions, type EngineState, type ProviderInfo } from "./store"
+import {
+  captureRevisions,
+  createEngineState,
+  interruptStaleTools,
+  mergeTranscriptSnapshot,
+  sessionSnapshotLimit,
+  type EngineState,
+  type ProviderInfo,
+} from "./store"
 
 export type Engine = {
   state: EngineState
@@ -56,24 +64,21 @@ export function EngineProvider(props: ParentProps) {
     const current = () => client === api && directory === bootDirectory
     try {
       const stale = Object.keys(state.loaded)
+      const captured = captureRevisions(state)
       const [sessions, [statuses, providers, agents, commands]] = await Promise.all([
         api.session.list(),
         Promise.all([api.session.status(), api.provider.list(), api.app.agents(), api.command.list()]),
       ])
       if (!current()) return
-      putSessions(set, sessions.data ?? [])
-      set(
-        produce((draft) => {
-          const live = statuses.data ?? {}
-          for (const session of sessions.data ?? []) {
-            const status = live[session.id] ?? { type: "idle" as const }
-            draft.status[session.id] = status
-            if (status.type === "idle")
-              for (const [partID, owner] of Object.entries(draft.liveTools))
-                if (owner === session.id) delete draft.liveTools[partID]
-          }
-        }),
-      )
+      const list = sessions.data ?? []
+      // Only a successful, untruncated listing is authoritative for the workspace.
+      const complete = sessions.error === undefined && sessions.data !== undefined && list.length < sessionSnapshotLimit
+      applySessionSnapshot(set, {
+        sessions: list,
+        captured,
+        ...(complete && bootDirectory ? { scope: { directory: bootDirectory } } : {}),
+      })
+      applyStatusSnapshot(set, { sessions: list, statuses: statuses.data ?? {}, captured })
       set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
       set("connected", providers.data?.connected ?? [])
       set("defaultModels", providers.data?.default ?? {})
@@ -85,8 +90,14 @@ export function EngineProvider(props: ParentProps) {
       if (!current()) return
       for (const [id, result] of transcripts) {
         if (!result.data) continue
-        const entries = [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id))
-        set("transcripts", id, interruptStaleTools(entries, state.liveTools, t("drift.message.interrupted")))
+        // Reconciliation or a deletion event removed the session; do not resurrect its transcript.
+        if (!state.sessions[id]) continue
+        const entries = interruptStaleTools(
+          [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id)),
+          state.liveTools,
+          t("drift.message.interrupted"),
+        )
+        set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], entries, id, captured, state.revisions))
         set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
       }
       if (!state.version && base) {

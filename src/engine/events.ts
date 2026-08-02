@@ -1,4 +1,4 @@
-import type { Event, Message, Part, Permission, Session } from "@opencode-ai/sdk/client"
+import type { Event, Message, Part, Permission, Session, SessionStatus } from "@opencode-ai/sdk/client"
 import type { SetStoreFunction } from "solid-js/store"
 import { produce } from "solid-js/store"
 import { clearQuestionDraft } from "../state/question-drafts"
@@ -11,9 +11,16 @@ import {
 import { errorText } from "./error"
 import {
   bumpAskRevision,
+  bumpRevision,
+  messageRevisionKey,
+  normalizeDir,
+  pruneSessionRevisions,
   putSession,
   recordLink,
+  revisionAdvanced,
+  sessionRevisionKey,
   spawnLink,
+  statusRevisionKey,
   type EngineState,
   type Notice,
   type QuestionRequest,
@@ -81,6 +88,7 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, st
       set(
         produce((draft) => {
           draft.status[sessionID] = event.properties.status
+          bumpRevision(draft, statusRevisionKey(sessionID))
           if (event.properties.status.type === "idle") clearLiveTools(draft, sessionID)
         }),
       )
@@ -91,6 +99,7 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, st
       return set(
         produce((draft) => {
           draft.status[event.properties.sessionID] = { type: "idle" }
+          bumpRevision(draft, statusRevisionKey(event.properties.sessionID))
           clearLiveTools(draft, event.properties.sessionID)
         }),
       )
@@ -118,21 +127,71 @@ function upsertSession(set: SetEngineState, info: Session) {
 }
 
 // Full purge of every per-session slice, in response to the engine reporting a deleted session.
-// NOTE: actions.ts forgetSession covers only sessions/transcripts/loaded. See the note there.
 function dropSession(set: SetEngineState, info: Session) {
+  set(produce((draft) => purgeSession(draft, info.id)))
+}
+
+// The session revision bump outlives the purge so an in-flight snapshot taken before the
+// deletion cannot resurrect the session.
+export function purgeSession(draft: EngineState, id: string) {
+  clearPermissionAttentionFor(draft.permissions[id] ?? [])
+  delete draft.sessions[id]
+  delete draft.transcripts[id]
+  delete draft.loaded[id]
+  delete draft.permissions[id]
+  delete draft.questions[id]
+  delete draft.todos[id]
+  delete draft.status[id]
+  delete draft.activity[id]
+  delete draft.errors[id]
+  delete draft.cursors[id]
+  clearLiveTools(draft, id)
+  pruneSessionRevisions(draft, id)
+  bumpRevision(draft, sessionRevisionKey(id))
+}
+
+// Applies a session-list snapshot. Sessions whose revision advanced while the request was in
+// flight keep their live state. When `scope` is present the snapshot is authoritative and
+// complete for that directory, so sessions absent from it are purged; partial or failed
+// snapshots must never pass a scope.
+export function applySessionSnapshot(
+  set: SetEngineState,
+  input: { sessions: Session[]; captured: Record<string, number>; scope?: { directory: string } },
+) {
+  const ids = new Set(input.sessions.map((info) => info.id))
+  const dir = input.scope ? normalizeDir(input.scope.directory) : undefined
   set(
     produce((draft) => {
-      clearPermissionAttentionFor(draft.permissions[info.id] ?? [])
-      delete draft.sessions[info.id]
-      delete draft.transcripts[info.id]
-      delete draft.loaded[info.id]
-      delete draft.permissions[info.id]
-      delete draft.questions[info.id]
-      delete draft.todos[info.id]
-      delete draft.status[info.id]
-      delete draft.activity[info.id]
-      delete draft.errors[info.id]
-      clearLiveTools(draft, info.id)
+      const advanced = (id: string) => revisionAdvanced(draft.revisions, input.captured, sessionRevisionKey(id))
+      for (const info of input.sessions) {
+        if (advanced(info.id)) continue
+        draft.sessions[info.id] = { revert: undefined, share: undefined, ...info }
+      }
+      if (dir === undefined) return
+      for (const session of Object.values(draft.sessions)) {
+        if (ids.has(session.id) || advanced(session.id)) continue
+        if (normalizeDir(session.directory) !== dir) continue
+        purgeSession(draft, session.id)
+      }
+    }),
+  )
+}
+
+// Applies a status snapshot for the given sessions, skipping any whose status a live event
+// already moved past the capture point.
+export function applyStatusSnapshot(
+  set: SetEngineState,
+  input: { sessions: Session[]; statuses: Record<string, SessionStatus>; captured: Record<string, number> },
+) {
+  set(
+    produce((draft) => {
+      for (const session of input.sessions) {
+        if (!draft.sessions[session.id]) continue
+        if (revisionAdvanced(draft.revisions, input.captured, statusRevisionKey(session.id))) continue
+        const status = input.statuses[session.id] ?? { type: "idle" as const }
+        draft.status[session.id] = status
+        if (status.type === "idle") clearLiveTools(draft, session.id)
+      }
     }),
   )
 }
@@ -158,6 +217,7 @@ function moveSession(
       session.directory = moved.location.directory
       if (moved.projectID) session.projectID = moved.projectID
       session.time.updated = moved.timestamp
+      bumpRevision(draft, sessionRevisionKey(moved.sessionID))
     }),
   )
 }
@@ -178,6 +238,7 @@ function recordError(set: SetEngineState, sessionID?: string, error?: { name: st
   set(
     produce((draft) => {
       draft.status[sessionID] = { type: "idle" }
+      bumpRevision(draft, statusRevisionKey(sessionID))
       if (draft.activity[sessionID]) draft.activity[sessionID].current = undefined
       clearLiveTools(draft, sessionID)
       if (error?.name === "MessageAbortedError") return
@@ -199,6 +260,7 @@ function upsertMessage(set: SetEngineState, info: Message) {
     produce((draft) => {
       const list = draft.loaded[info.sessionID] ? draft.transcripts[info.sessionID] : undefined
       if (!list) return
+      bumpRevision(draft, messageRevisionKey(info.sessionID, info.id))
       const index = list.findIndex((entry) => entry.info.id === info.id)
       if (index >= 0) list[index].info = info
       else list.push({ info, parts: [] })
@@ -210,7 +272,9 @@ function dropMessage(set: SetEngineState, sessionID: string, messageID: string) 
   set(
     produce((draft) => {
       const list = draft.transcripts[sessionID]
-      if (list) draft.transcripts[sessionID] = list.filter((entry) => entry.info.id !== messageID)
+      if (!list) return
+      bumpRevision(draft, messageRevisionKey(sessionID, messageID))
+      draft.transcripts[sessionID] = list.filter((entry) => entry.info.id !== messageID)
     }),
   )
 }
@@ -228,6 +292,7 @@ function upsertPart(set: SetEngineState, part: Part) {
       }
       const entry = draft.transcripts[part.sessionID]?.find((item) => item.info.id === part.messageID)
       if (!entry) return
+      bumpRevision(draft, messageRevisionKey(part.sessionID, part.messageID))
       const index = entry.parts.findIndex((existing) => existing.id === part.id)
       if (index >= 0) entry.parts[index] = part
       else entry.parts.push(part)
@@ -244,6 +309,7 @@ function appendPartDelta(
       const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
       const part = entry?.parts.find((item) => item.id === ref.partID)
       if (!part) return
+      bumpRevision(draft, messageRevisionKey(ref.sessionID, ref.messageID))
       const record = part as unknown as Record<string, unknown>
       const current = record[ref.field]
       if (typeof current === "string") record[ref.field] = current + ref.delta
@@ -265,7 +331,10 @@ function dropPart(set: SetEngineState, ref: { sessionID: string; messageID: stri
   set(
     produce((draft) => {
       const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
-      if (entry) entry.parts = entry.parts.filter((part) => part.id !== ref.partID)
+      if (entry) {
+        bumpRevision(draft, messageRevisionKey(ref.sessionID, ref.messageID))
+        entry.parts = entry.parts.filter((part) => part.id !== ref.partID)
+      }
       delete draft.liveTools[ref.partID]
     }),
   )

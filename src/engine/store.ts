@@ -112,6 +112,7 @@ export type EngineState = {
   activity: Record<string, SessionActivity>
   liveTools: Record<string, string>
   cursors: Record<string, string | null>
+  revisions: Record<string, number>
   version: string
   startupError: string
   engineError: string
@@ -164,13 +165,19 @@ export function createEngineState() {
     engineError: "",
     engineRestarting: false,
     cursors: {},
+    revisions: {},
     version: "",
   })
 }
 
 // Store sets merge; optional keys the engine dropped (revert, share) must clear explicitly.
 export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
-  set("sessions", info.id, { revert: undefined, share: undefined, ...info })
+  set(
+    produce((draft) => {
+      draft.sessions[info.id] = { revert: undefined, share: undefined, ...info }
+      bumpRevision(draft, sessionRevisionKey(info.id))
+    }),
+  )
 }
 
 export function putSessions(set: SetStoreFunction<EngineState>, infos: Session[]) {
@@ -180,6 +187,65 @@ export function putSessions(set: SetStoreFunction<EngineState>, infos: Session[]
       for (const info of infos) sessions[info.id] = { revert: undefined, share: undefined, ...info }
     }),
   )
+}
+
+// The engine caps session listings at this size; a shorter page means the snapshot covered its
+// entire scope, so sessions absent from it can be reconciled away.
+export const sessionSnapshotLimit = 100
+
+// Monotonic counters bumped by every live reduction that touches the keyed slice. Snapshot writes
+// compare them against a capture taken before the HTTP request started, so state that raced ahead
+// of the snapshot is never overwritten by it.
+export function sessionRevisionKey(sessionID: string) {
+  return `session\0${sessionID}`
+}
+
+export function statusRevisionKey(sessionID: string) {
+  return `status\0${sessionID}`
+}
+
+export function messageRevisionKey(sessionID: string, messageID: string) {
+  return `message\0${sessionID}\0${messageID}`
+}
+
+export function bumpRevision(draft: EngineState, key: string) {
+  draft.revisions[key] = (draft.revisions[key] ?? 0) + 1
+}
+
+export function captureRevisions(state: EngineState): Record<string, number> {
+  return { ...state.revisions }
+}
+
+export function revisionAdvanced(current: Record<string, number>, captured: Record<string, number>, key: string) {
+  return (current[key] ?? 0) !== (captured[key] ?? 0)
+}
+
+// The session revision survives so an in-flight snapshot cannot resurrect a purged session.
+export function pruneSessionRevisions(draft: EngineState, sessionID: string) {
+  delete draft.revisions[statusRevisionKey(sessionID)]
+  const prefix = `message\0${sessionID}\0`
+  for (const key of Object.keys(draft.revisions)) if (key.startsWith(prefix)) delete draft.revisions[key]
+}
+
+// Merges a transcript snapshot with what the event stream did while the request was in flight:
+// the snapshot is authoritative for untouched messages, live state wins for touched ones.
+export function mergeTranscriptSnapshot(
+  live: MessageEntry[] | undefined,
+  snapshot: MessageEntry[],
+  sessionID: string,
+  captured: Record<string, number>,
+  revisions: Record<string, number>,
+) {
+  const advanced = (messageID: string) => revisionAdvanced(revisions, captured, messageRevisionKey(sessionID, messageID))
+  const liveById = new Map((live ?? []).map((entry) => [entry.info.id, entry]))
+  const snapshotIds = new Set(snapshot.map((entry) => entry.info.id))
+  const merged = snapshot.flatMap((entry) => {
+    if (!advanced(entry.info.id)) return [entry]
+    const current = liveById.get(entry.info.id)
+    return current ? [current] : []
+  })
+  for (const entry of live ?? []) if (advanced(entry.info.id) && !snapshotIds.has(entry.info.id)) merged.push(entry)
+  return merged.sort((a, b) => a.info.id.localeCompare(b.info.id))
 }
 
 export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo | undefined {
