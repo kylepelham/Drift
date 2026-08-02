@@ -13,7 +13,7 @@ import { Markdown } from "./markdown"
 import { Chevron } from "./controls"
 import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
 
-export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
+export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[] }) {
   onMount(() =>
     emitMessageRendered({
       sessionId: props.entry.info.sessionID,
@@ -24,7 +24,7 @@ export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
   const summary = () => (props.entry.info as AssistantMessage).summary && collapseCompaction()
   return (
     <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} />}>
-      <Show when={summary()} fallback={<AssistantFlow entry={props.entry} footer={props.footer} />}>
+      <Show when={summary()} fallback={<AssistantFlow entry={props.entry} footer={props.footer} groups={props.groups} />}>
         <CompactionSummary entry={props.entry} footer={props.footer} />
       </Show>
     </Show>
@@ -145,6 +145,43 @@ export function groupParts(parts: Part[]): PartGroup[] {
   return groups
 }
 
+function assistantBoundary(entry: MessageEntry) {
+  if (entry.info.role !== "assistant") return true
+  const info = entry.info as AssistantMessage
+  return !!info.summary || !!info.error || entry.parts.some((part) => part.type === "compaction")
+}
+
+export function assistantFlowContinues(previous: MessageEntry, next: MessageEntry) {
+  return previous.info.role === "assistant" && next.info.role === "assistant" &&
+    !assistantBoundary(previous) && !assistantBoundary(next)
+}
+
+export function groupAssistantEntries(entries: MessageEntry[]) {
+  const result = new Map<string, PartGroup[]>()
+  let previous: MessageEntry | undefined
+  let trailing: Extract<PartGroup, { explored: ToolPart[] }> | undefined
+  for (const entry of entries) {
+    if (entry.info.role !== "assistant") {
+      previous = entry
+      trailing = undefined
+      continue
+    }
+    if (!previous || !assistantFlowContinues(previous, entry)) trailing = undefined
+    const groups: PartGroup[] = []
+    for (const group of groupParts(entry.parts)) {
+      if ("explored" in group && trailing) {
+        trailing.explored.push(...group.explored)
+        continue
+      }
+      groups.push(group)
+      trailing = "explored" in group ? group : undefined
+    }
+    result.set(entry.info.id, groups)
+    previous = entry
+  }
+  return result
+}
+
 function createPartGroupSlot(group: PartGroup): PartGroupSlot {
   const [value, setValue] = createStore(group)
   return { id: group.id, value, update: (updated) => setValue(reconcile(updated)) }
@@ -203,12 +240,12 @@ export function updatePartGroupSlots(
   return next
 }
 
-function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
+function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[] }) {
   const info = () => props.entry.info as AssistantMessage
   const slots = new Map<string, PartGroupSlot>()
   const [groups, setGroups] = createSignal<PartGroupSlot[]>([])
-  createRenderEffect(() => setGroups(updatePartGroupSlots(groupParts(props.entry.parts), slots)))
-  const visible = () => props.entry.parts.some(partVisible) || !!info().error
+  createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)))
+  const visible = () => groups().length > 0 || !!info().error || (!!props.footer && !!info().time.completed)
   return (
     <Show when={visible()}>
       <div class="group flex min-w-0 max-w-full flex-col gap-3">

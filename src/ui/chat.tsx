@@ -1,4 +1,4 @@
-import type { SessionStatus } from "@opencode-ai/sdk/client"
+import type { AssistantMessage, Part, SessionStatus } from "@opencode-ai/sdk/client"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
 import { messageText, type MessageEntry } from "../engine/store"
@@ -7,7 +7,14 @@ import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
 import { IconArrowDown } from "./icons"
-import { largeUserText, MessageView, messageVisible } from "./message"
+import {
+  assistantFlowContinues,
+  groupAssistantEntries,
+  largeUserText,
+  MessageView,
+  messageVisible,
+  type PartGroup,
+} from "./message"
 import { TextShimmer } from "./text-shimmer"
 import { DriftLogo } from "./logo"
 import { recoverableForSession, recoverableInterruptions } from "../state/recovery"
@@ -64,7 +71,18 @@ export function Chat() {
     const status = id ? engine.state.status[id] : undefined
     return status?.type === "retry" ? status : undefined
   })
-  const timeline = createMemo(() => timelineEntries(entries(), thinking()?.messageID))
+  const timelineSource = createMemo(() => timelineEntries(entries(), thinking()?.messageID))
+  const assistantGroups = createMemo(() => groupAssistantEntries(timelineSource()))
+  const timeline = createMemo(() => {
+    const source = timelineSource()
+    const groups = assistantGroups()
+    const active = thinking()?.messageID
+    return source.filter((entry, index) => timelineRowVisible(entry, groups.get(entry.info.id), source[index + 1], active))
+  })
+  const nextEntries = createMemo(() => {
+    const list = timeline()
+    return new Map(list.map((entry, index) => [entry.info.id, list[index + 1]]))
+  })
 
   createEffect(() => {
     const id = selectedSession()
@@ -87,8 +105,12 @@ export function Chat() {
     const fontSize = codeFontSize()
     const result = new Array<number>(list.length + 1)
     result[0] = 0
-    for (let index = 0; index < list.length; index++)
-      result[index + 1] = result[index] + (heights.get(list[index].info.id) ?? estimatedTimelineRow(list[index], fontSize))
+    const groups = assistantGroups()
+    for (let index = 0; index < list.length; index++) {
+      const entry = list[index]
+      const parts = timelineParts(entry, groups.get(entry.info.id))
+      result[index + 1] = result[index] + (heights.get(entry.info.id) ?? estimatedTimelineRow(entry, fontSize, parts))
+    }
     return result
   })
 
@@ -109,7 +131,8 @@ export function Chat() {
       const next = observation.borderBoxSize[0]?.blockSize ?? row.offsetHeight
       if (next === 0) continue
       const entry = untrack(timeline).find((item) => item.info.id === id)
-      const previous = heights.get(id) ?? (entry ? estimatedTimelineRow(entry, untrack(codeFontSize)) : estimatedRow)
+      const parts = entry ? timelineParts(entry, untrack(assistantGroups).get(id)) : undefined
+      const previous = heights.get(id) ?? (entry ? estimatedTimelineRow(entry, untrack(codeFontSize), parts) : estimatedRow)
       if (Math.abs(next - previous) < 1) continue
       heights.set(id, next)
       changed = true
@@ -239,13 +262,15 @@ export function Chat() {
             <div style={{ height: `${offsets().at(-1)}px` }}>
               <div style={{ transform: `translateY(${offsets()[range().start]}px)` }}>
                 <For each={slice()}>
-                  {(entry, index) => (
+                  {(entry) => (
                     <Row
                       entry={entry}
-                      next={slice()[index() + 1]}
+                      next={nextEntries().get(entry.info.id)}
+                      groups={assistantGroups().get(entry.info.id)}
                       thinking={thinking()?.messageID === entry.info.id && !retry()}
                       thinkingHeading={thinking()?.heading}
                       retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
+                      terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
                       measure={measureRow}
                     />
                   )}
@@ -261,7 +286,7 @@ export function Chat() {
             </Show>
             <Show when={!recoverable() && sessionError()}>
               {(error) => (
-                <div class="pb-6" role="alert">
+                <div role="alert">
                   <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger">
                     {error()}
                   </div>
@@ -330,14 +355,14 @@ export function accumulatedWheelTarget(scrollTop: number, pendingTarget: number 
   return Math.min(max, Math.max(0, (pendingTarget ?? scrollTop) + delta))
 }
 
-export function estimatedTimelineRow(entry: MessageEntry, fontSize = 13) {
-  const text = messageText(entry)
-  const generated = entry.parts.some((part) => part.type === "text" && part.metadata?.generated === true)
+export function estimatedTimelineRow(entry: MessageEntry, fontSize = 13, parts: Part[] = entry.parts) {
+  const text = messageText(parts === entry.parts ? entry : { ...entry, parts })
+  const generated = parts.some((part) => part.type === "text" && part.metadata?.generated === true)
   if (entry.info.role === "user" && !generated && largeUserText(text))
     return Math.max(estimatedRow, Math.ceil(text.split("\n").length * fontSize * 1.6 + 62))
   const width = entry.info.role === "user" ? 72 : 88
   const textHeight = estimateTextLines(text, width) * 14 * 1.6
-  const toolHeight = entry.parts.filter((part) => part.type === "tool").length * 56
+  const toolHeight = parts.filter((part) => part.type === "tool").length * 56
   return Math.max(estimatedRow, Math.ceil(textHeight + toolHeight + (text ? 48 : 0)))
 }
 
@@ -425,6 +450,23 @@ export function timelineEntries(entries: MessageEntry[], activeMessageID?: strin
   return entries.filter((entry) => entry.info.id === activeMessageID || messageVisible(entry))
 }
 
+export function timelinePitch(entry: MessageEntry, next?: MessageEntry) {
+  if (!next) return "none" as const
+  return assistantFlowContinues(entry, next) ? "part" as const : "turn" as const
+}
+
+function timelineParts(entry: MessageEntry, groups?: PartGroup[]) {
+  if (entry.info.role !== "assistant" || !groups) return entry.parts
+  return groups.flatMap((group) => "explored" in group ? group.explored : [group.part])
+}
+
+function timelineRowVisible(entry: MessageEntry, groups: PartGroup[] | undefined, next: MessageEntry | undefined, active?: string) {
+  if (entry.info.role === "user") return true
+  const info = entry.info as AssistantMessage
+  return !!groups?.length || !!info.summary || !!info.error || entry.info.id === active ||
+    (!!info.time.completed && next?.info.role !== "assistant")
+}
+
 export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {
   return thinkingState(entries, status)?.messageID ?? null
 }
@@ -489,15 +531,23 @@ function cleanHeading(value: string) {
 function Row(props: {
   entry: MessageEntry
   next?: MessageEntry
+  groups?: PartGroup[]
   thinking: boolean
   thinkingHeading?: string
   retry?: Extract<SessionStatus, { type: "retry" }>
+  terminalError: boolean
   measure: (element: HTMLDivElement) => void
 }) {
   const fresh = Date.now() - props.entry.info.time.created < freshMessageMs
+  const pitch = () => props.next ? timelinePitch(props.entry, props.next) : props.terminalError ? "turn" : "none"
   return (
-    <div ref={props.measure} data-mid={props.entry.info.id} class="min-w-0 max-w-full pb-6" classList={{ "fade-up": fresh }}>
-      <MessageView entry={props.entry} footer={props.next?.info.role !== "assistant"} />
+    <div
+      ref={props.measure}
+      data-mid={props.entry.info.id}
+      class="min-w-0 max-w-full"
+      classList={{ "fade-up": fresh, "pb-3": pitch() === "part", "pb-6": pitch() === "turn" }}
+    >
+      <MessageView entry={props.entry} footer={props.next?.info.role !== "assistant"} groups={props.groups} />
       <Show when={props.thinking}>
         <div class="timeline-thinking select-none" role="status" aria-live="polite">
           <TextShimmer text={t("drift.chat.thinking")} />
