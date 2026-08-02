@@ -50,6 +50,7 @@ plugins, and configuration.
 | **Guarded MCP management** | Review exact MCP server definitions before enabling them. Changed definitions require a new decision and invalid policy state fails closed. |
 | **A workspace you can tune** | Use the command palette, rebind shortcuts, select from eight themes, customize fonts and CSS, and choose from 18 interface languages. |
 | **Desktop behavior** | Open files in your editor, receive configurable notifications, use native folder dialogs, and install signed updates from GitHub Releases. |
+| **Trusted-LAN remote control** | Opt in to the complete Drift interface from a phone, browser, or the existing Deck app while the engine remains private on loopback. |
 
 Drift and the OpenCode CLI can use the same projects and canonical engine storage at the
 same time. Drift-specific workspace names, icons, archive state, preferences, and MCP
@@ -89,6 +90,10 @@ configure. OpenCode and Drift plugins execute code in the engine process, so ins
 third-party plugins only when you trust their source. See the
 [architecture](docs/architecture.md), [MCP trust boundary](docs/mcp.md), and
 [security policy](SECURITY.md) for details.
+
+Optional [Remote Access](docs/remote.md) adds a Tauri-owned authenticated LAN gateway on
+port `41718` and legacy Deck discovery on UDP `41717`. It is disabled by default; LAN
+HTTP is not encrypted and must be used only on a trusted private network.
 
 ## Development
 
@@ -165,6 +170,7 @@ substantial pull request.
 | [Drift store](docs/store.md) | SQLite schema, persistence, archive behavior, and workspace lifecycle |
 | [Theming](docs/theming.md) | Design tokens, built-in themes, fonts, and custom CSS |
 | [Voice](docs/voice.md) | Dictation engine choice, capture and socket lifecycle, and settings |
+| [Remote Access](docs/remote.md) | Full web UI, Deck discovery, authentication, threat model, and device testing |
 | [Privacy policy](PRIVACY.md) | Local data, network connections, and user control |
 | [Code signing policy](CODE_SIGNING.md) | Release signing process and responsible roles |
 

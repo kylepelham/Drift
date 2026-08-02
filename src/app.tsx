@@ -1,15 +1,17 @@
-import { createEffect, onCleanup, onMount, untrack } from "solid-js"
+import { createEffect, onCleanup, onMount, Show, untrack } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
 import { PluginHost } from "./plugins"
 import { shellEvents } from "./shell"
 import { bindCodePreferences } from "./state/code"
 import { runScheduledCleanup } from "./state/storage"
 import { initKeybinds } from "./state/keybinds"
+import { t } from "./state/i18n"
 import { bindLanguage } from "./state/language"
 import { mcpCoordinator } from "./state/mcp"
 import { driftStore } from "./state/store"
 import { initRecoverableInterruptions } from "./state/recovery"
 import { bindTheme } from "./state/theme"
+import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation"
 import { initZoom } from "./state/zoom"
 import { activeWorkspace, initWorkspaces, purgeAll, workspaces } from "./state/workspaces"
 import { AttentionStrip } from "./ui/attention"
@@ -40,9 +42,16 @@ export function App() {
       <WorkspaceBinding />
       <McpBinding />
       <PluginBinding />
-      <div class="flex h-full flex-col bg-bg text-ink">
+      <div class="app-shell flex h-full flex-col bg-bg text-ink">
         <Titlebar />
         <div class="flex min-h-0 flex-1">
+          <Show when={mobileDrawerOpen()}>
+            <button
+              aria-label={t("common.close")}
+              class="mobile-sidebar-backdrop fixed inset-0 z-30 bg-black/55"
+              onClick={() => closeMobileDrawer()}
+            />
+          </Show>
           <Sidebar />
           <main class="flex min-w-0 flex-1">
             <div class="flex min-w-0 flex-1 flex-col">

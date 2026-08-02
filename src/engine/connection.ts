@@ -1,3 +1,5 @@
+import { backendInvoke } from "../backend"
+import { isRemoteRuntime, remoteEngineBase } from "../runtime"
 import { shellInvoke, type ShellInvoke } from "../shell"
 
 export type Connection = "idle" | "connecting" | "online" | "offline"
@@ -13,6 +15,8 @@ const engineReadyPollMs = 300
 const engineUsername = "opencode"
 
 export async function resolveEngine(): Promise<EngineTarget> {
+  const remote = remoteEngineBase()
+  if (remote) return { url: remote }
   const invoke = shellInvoke()
   if (invoke) return waitForShellEngine(invoke)
   return {
@@ -22,15 +26,17 @@ export async function resolveEngine(): Promise<EngineTarget> {
 }
 
 export async function inspectShellEngine(): Promise<ShellEngineInspection | undefined> {
+  if (isRemoteRuntime()) return { target: { url: remoteEngineBase()! } }
   const invoke = shellInvoke()
   if (!invoke) return undefined
   return inspectStatus(await invoke<ShellEngineStatus>("engine_status"))
 }
 
 export async function restartShellEngine(): Promise<EngineTarget> {
-  const invoke = shellInvoke()
+  const invoke = backendInvoke()
   if (!invoke) throw new Error("embedded engine restart is unavailable")
   await invoke("restart_engine")
+  if (isRemoteRuntime()) return { url: remoteEngineBase()! }
   return waitForShellEngine(invoke)
 }
 

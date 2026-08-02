@@ -155,6 +155,11 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
         CREATE TABLE IF NOT EXISTS app_setting(
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS remote_access(
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
+            token TEXT NOT NULL
         ) STRICT;",
     )?;
     // Migration for databases created before `removed_at` existed. On any database created by the
@@ -218,6 +223,27 @@ impl Store {
             "INSERT INTO app_setting(key, value) VALUES('dictation_enabled', ?1)
              ON CONFLICT(key) DO UPDATE SET value = ?1",
             [if enabled { "true" } else { "false" }],
+        )?;
+        Ok(())
+    }
+
+    pub fn remote_access(&self) -> rusqlite::Result<Option<(bool, String)>> {
+        self.0
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT enabled, token FROM remote_access WHERE id = 1",
+                [],
+                |row| Ok((row.get::<_, i64>(0)? != 0, row.get(1)?)),
+            )
+            .optional()
+    }
+
+    pub fn save_remote_access(&self, enabled: bool, token: &str) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().execute(
+            "INSERT INTO remote_access(id, enabled, token) VALUES(1, ?1, ?2)
+                 ON CONFLICT(id) DO UPDATE SET enabled = ?1, token = ?2",
+            params![enabled as i64, token],
         )?;
         Ok(())
     }

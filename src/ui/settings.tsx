@@ -58,6 +58,16 @@ import {
   type AttentionKind,
 } from "../state/prefs"
 import { shellInvoke } from "../shell"
+import { isRemoteRuntime } from "../runtime"
+import { parseNavigationHash, pushRemoteOverlay } from "../state/navigation"
+import {
+  refreshRemoteAccess,
+  remoteAccessBusy,
+  remoteAccessError,
+  remoteAccessStatus,
+  rotateRemoteAccessToken,
+  setRemoteAccess,
+} from "../state/remote-access"
 import {
   setSplashDuration,
   setSplashEnabled,
@@ -141,7 +151,7 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "MCP", "Prompts", "Agents", "Storage", "About"] as const
+const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "MCP", "Prompts", "Agents", "Storage", "Remote Access", "About"] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
@@ -156,12 +166,13 @@ const sectionLabels: Record<Section, string> = {
   Prompts: "drift.settings.prompts",
   Agents: "settings.agents.title",
   Storage: "drift.storage",
+  "Remote Access": "drift.remote.title",
   About: "drift.settings.about",
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
   { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts"] },
   { label: "settings.section.server", items: ["Tools", "Providers", "MCP", "Prompts", "Agents"] },
-  { label: "drift.settings.section", items: ["Storage", "About"] },
+  { label: "drift.settings.section", items: ["Storage", "Remote Access", "About"] },
 ]
 
 const keybindLabels: Record<KeybindAction, string> = {
@@ -193,15 +204,27 @@ function preloadUpdateSupport() {
 
 export function openSettings(section?: Section) {
   setSettingsSection(section && sections.includes(section) ? section : "General")
+  if (!settingsOpen()) pushRemoteOverlay("settings")
   setSettingsOpen(true)
 }
 
 export function SettingsHost() {
   onMount(preloadUpdateSupport)
+  onMount(() => {
+    const sync = () => {
+      if (isRemoteRuntime() && parseNavigationHash(window.location.hash).overlay !== "settings") setSettingsOpen(false)
+    }
+    window.addEventListener("popstate", sync)
+    onCleanup(() => window.removeEventListener("popstate", sync))
+  })
+  const close = () => {
+    setSettingsOpen(false)
+    if (isRemoteRuntime() && parseNavigationHash(window.location.hash).overlay === "settings") history.back()
+  }
   return (
     <Show when={settingsOpen()}>
       <Portal>
-        <SettingsModal onClose={() => setSettingsOpen(false)} />
+        <SettingsModal onClose={close} />
       </Portal>
     </Show>
   )
@@ -228,7 +251,7 @@ function SettingsModal(props: { onClose: () => void }) {
         class="fade-up flex h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40 sm:h-[min(42rem,calc(100vh-3rem))] sm:w-[min(54rem,calc(100vw-3rem))]"
         onClick={(event) => event.stopPropagation()}
       >
-        <nav class="flex w-13 shrink-0 flex-col overflow-hidden border-r border-edge px-1.5 py-3 sm:w-44 sm:px-3">
+        <nav class="flex w-13 shrink-0 flex-col overflow-y-auto border-r border-edge px-1.5 py-3 sm:w-44 sm:px-3">
           <For each={sectionGroups}>
             {(group) => (
               <div class="mb-3 last:mb-0">
@@ -311,6 +334,9 @@ function SettingsModal(props: { onClose: () => void }) {
               </Match>
               <Match when={section() === "Storage"}>
                 <StorageSection />
+              </Match>
+              <Match when={section() === "Remote Access"}>
+                <RemoteAccessSection />
               </Match>
               <Match when={section() === "About"}>
                 <AboutSection />
@@ -419,19 +445,124 @@ function GeneralSection() {
         </SettingsRow>
       </SettingsGroup>
 
-      <SettingsGroup title={t("settings.general.section.updates")}>
-        <SettingsRow
-          title={t("settings.updates.row.startup.title")}
-          description={t("settings.updates.row.startup.description")}
-          onClick={() => setAutoUpdate(!autoUpdate())}
-        >
-          <Toggle
-            label={t("settings.updates.row.startup.title")}
-            checked={autoUpdate()}
-            onChange={() => setAutoUpdate(!autoUpdate())}
-          />
-        </SettingsRow>
-      </SettingsGroup>
+      <Show when={!isRemoteRuntime()}>
+        <SettingsGroup title={t("settings.general.section.updates")}>
+          <SettingsRow
+            title={t("settings.updates.row.startup.title")}
+            description={t("settings.updates.row.startup.description")}
+            onClick={() => setAutoUpdate(!autoUpdate())}
+          >
+            <Toggle
+              label={t("settings.updates.row.startup.title")}
+              checked={autoUpdate()}
+              onChange={() => setAutoUpdate(!autoUpdate())}
+            />
+          </SettingsRow>
+        </SettingsGroup>
+      </Show>
+    </div>
+  )
+}
+
+function RemoteAccessSection() {
+  const remote = isRemoteRuntime()
+  const status = remoteAccessStatus
+  const [copied, setCopied] = createSignal(false)
+  const [rotated, setRotated] = createSignal(false)
+  onMount(() => !remote && void refreshRemoteAccess())
+
+  async function copyConnectionUrl() {
+    const url = status()?.connectionUrls[0]
+    if (!url) return
+    await navigator.clipboard.writeText(url)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1800)
+  }
+
+  async function rotate() {
+    setRotated(false)
+    await rotateRemoteAccessToken()
+    if (!remoteAccessError()) {
+      setRotated(true)
+      setTimeout(() => setRotated(false), 2400)
+    }
+  }
+
+  return (
+    <div class="space-y-5">
+      <Show
+        when={!remote}
+        fallback={
+          <div class="rounded-xl border border-accent/25 bg-accent/8 p-4">
+            <div class="flex items-center gap-2 text-sm font-semibold text-ink">
+              <span class="size-2 rounded-full bg-ok" />
+              {t("drift.remote.connected")}
+            </div>
+            <p class="mt-2 text-xs leading-relaxed text-ink-muted">{t("drift.remote.manageOnDesktop")}</p>
+          </div>
+        }
+      >
+        <SettingsGroup title={t("drift.remote.gateway") }>
+          <SettingsRow title={t("drift.remote.enable")} description={t("drift.remote.enableDescription") } onClick={() => void setRemoteAccess(!status()?.enabled)}>
+            <Toggle
+              label={t("drift.remote.enable")}
+              checked={!!status()?.enabled}
+              disabled={remoteAccessBusy()}
+              onChange={() => void setRemoteAccess(!status()?.enabled)}
+            />
+          </SettingsRow>
+          <Show when={status()?.enabled}>
+            <SettingsRow title={t("drift.remote.address")} description={status()?.listeningAddress || t("common.loading")}>
+              <span class="rounded-md border border-edge bg-raised/45 px-2.5 py-1.5 font-mono text-xs text-ink-muted">
+                {status()?.listening ? t("drift.remote.listening") : t("common.loading")}
+              </span>
+            </SettingsRow>
+          </Show>
+        </SettingsGroup>
+
+        <Show when={status()?.enabled && status()?.listening}>
+          <div class="remote-access-card overflow-hidden rounded-xl border border-edge bg-raised/25">
+            <div class="border-b border-edge px-4 py-3">
+              <div class="text-sm font-semibold text-ink">{t("drift.remote.connectionUrl")}</div>
+              <div class="mt-1 text-xs text-ink-faint">{t("drift.remote.connectionDescription")}</div>
+            </div>
+            <div class="space-y-3 p-4">
+              <code class="block overflow-x-auto rounded-lg border border-edge bg-bg px-3 py-2.5 text-xs text-ink-muted select-text">
+                {status()?.urls[0] || t("drift.remote.noLanAddress")}
+              </code>
+              <div class="flex flex-wrap gap-2">
+                <button class="min-h-11 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink" onClick={() => void copyConnectionUrl()}>
+                  {copied() ? t("drift.remote.copied") : t("drift.remote.copy")}
+                </button>
+                <button
+                  class="min-h-11 rounded-md border border-edge px-3.5 text-xs text-ink-muted hover:border-edge-strong hover:text-ink disabled:opacity-40"
+                  disabled={remoteAccessBusy()}
+                  onClick={() => void rotate()}
+                >
+                  {t("drift.remote.rotate")}
+                </button>
+              </div>
+              <Show when={rotated()}>
+                <div class="text-xs text-ok">{t("drift.remote.rotated")}</div>
+              </Show>
+            </div>
+          </div>
+        </Show>
+      </Show>
+
+      <Show when={remoteAccessError() || status()?.error}>
+        <div class="rounded-lg border border-danger/35 bg-danger/10 px-3 py-2 text-xs text-danger">
+          {remoteAccessError() || status()?.error}
+        </div>
+      </Show>
+      <div class="rounded-xl border border-warn/30 bg-warn/8 p-4">
+        <div class="flex items-center gap-2 text-sm font-semibold text-warn">
+          <IconShieldCheck class="size-4" />
+          {t("drift.remote.securityTitle")}
+        </div>
+        <p class="mt-2 text-xs leading-relaxed text-ink-muted">{t("drift.remote.securityWarning")}</p>
+      </div>
+      <p class="text-xs leading-relaxed text-ink-faint">{t("drift.remote.deckHelp")}</p>
     </div>
   )
 }
@@ -1800,6 +1931,7 @@ function SectionIcon(props: { section: Section }) {
     if (props.section === "Prompts") return <IconCode />
     if (props.section === "Agents") return <IconSliders />
     if (props.section === "Storage") return <IconArchive />
+    if (props.section === "Remote Access") return <IconShieldCheck />
     return <IconInfo />
   }
   return <span class="flex size-5 shrink-0 items-center justify-center text-ink-faint">{icon()}</span>

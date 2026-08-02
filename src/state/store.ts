@@ -1,4 +1,5 @@
-import { shellInvoke, type ShellInvoke } from "../shell"
+import { backendInvoke } from "../backend"
+import type { ShellInvoke } from "../shell"
 
 export type Workspace = { id: string; path: string; name: string; icon: string; lastUsed: number; removedAt?: number }
 export type ArchivedSession = { sessionId: string; workspaceId: string; archivedAt: number }
@@ -199,5 +200,5 @@ function browserStore(): DriftStore {
   }
 }
 
-const invoke = shellInvoke()
+const invoke = backendInvoke()
 export const driftStore: DriftStore = invoke ? shellStore(invoke) : browserStore()

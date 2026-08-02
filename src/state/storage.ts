@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js"
-import { shellInvoke } from "../shell"
+import { backendInvoke } from "../backend"
 import { persisted } from "./persist"
 
 export type TableUsage = { table: string; rows: number; bytes: number }
@@ -79,9 +79,9 @@ export { stats as storageStats, estimates as storageEstimates, busy as storageBu
 
 /** Runs a backend call, tracking which operation is in flight and surfacing its failure. */
 async function run<T>(kind: NonNullable<ReturnType<typeof busy>>, command: string, args?: Record<string, unknown>) {
-  const invoke = shellInvoke()
+  const invoke = backendInvoke()
   if (!invoke) {
-    setError("Storage management needs the desktop app")
+    setError("Storage management needs the Drift host backend")
     return undefined
   }
   setBusy(kind)

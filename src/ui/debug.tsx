@@ -17,7 +17,7 @@ export function DebugPanel() {
   }
   return (
     <Show when={debugPanelOpen() && selectedSession()}>
-      <div class="flex w-[26rem] shrink-0 flex-col border-l border-edge bg-surface">
+      <div class="debug-panel flex w-[26rem] shrink-0 flex-col border-l border-edge bg-surface">
         <div class="flex items-center justify-between border-b border-edge px-3 py-2.5">
           <span class="text-sm font-semibold text-ink">{t("drift.debug.context")}</span>
           <button

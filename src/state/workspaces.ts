@@ -1,4 +1,6 @@
 import { createSignal } from "solid-js"
+import { isRemoteRuntime } from "../runtime"
+import { parseNavigationHash, pushRemoteSelection } from "./navigation"
 import { selectSession } from "./selection"
 import { persisted } from "./persist"
 import { driftStore, type ArchivedSession, type Workspace } from "./store"
@@ -72,8 +74,9 @@ async function refreshArchives() {
 }
 
 export function selectWorkspace(id: string) {
-  if (activeWorkspaceId() !== id) selectSession(null)
+  if (activeWorkspaceId() !== id) selectSession(null, false)
   setActiveWorkspaceId(id)
+  pushRemoteSelection({ workspace: id, session: undefined })
   void driftStore.touchWorkspace(id)
 }
 
@@ -82,6 +85,13 @@ export async function addWorkspace(path: string) {
   const workspace = await driftStore.addWorkspace({ id: crypto.randomUUID(), path, name, icon: "" })
   await refreshWorkspaces()
   selectWorkspace(workspace.id)
+}
+
+if (typeof window !== "undefined" && isRemoteRuntime()) {
+  window.addEventListener("popstate", () => {
+    const workspace = parseNavigationHash(window.location.hash).workspace
+    if (workspace) setActiveWorkspaceId(workspace)
+  })
 }
 
 export async function updateWorkspace(id: string, patch: { path?: string; name?: string; icon?: string }) {

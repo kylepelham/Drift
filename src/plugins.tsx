@@ -4,7 +4,7 @@ import type { Engine } from "./engine"
 import type { QuestionInfo } from "./engine/store"
 import { pushAsk } from "./state/asks"
 import { selectedSession, selectSession } from "./state/selection"
-import { shellInvoke } from "./shell"
+import { backendInvoke } from "./backend"
 import { theme } from "./state/theme"
 import { activeWorkspace } from "./state/workspaces"
 import type { Workspace } from "./state/store"
@@ -221,7 +221,7 @@ async function importPlugin(source: string) {
 }
 
 async function readConfigFile(path: string) {
-  const invoke = shellInvoke()
+  const invoke = backendInvoke()
   if (invoke) return invoke<string | null>("config_read", { path })
   return localStorage.getItem(`drift.config:${path}`)
 }

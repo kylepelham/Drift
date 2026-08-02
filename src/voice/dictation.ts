@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js"
-import { shellInvoke } from "../shell"
+import { backendInvoke } from "../backend"
 import { t } from "../state/i18n"
 import {
   dictationEnabled,
@@ -122,7 +122,7 @@ function enqueue(phrase: Float32Array) {
 }
 
 async function transcribe(phrase: Float32Array) {
-  const invoke = shellInvoke()
+  const invoke = backendInvoke()
   if (!invoke) return
   try {
     const text = await invoke<string>("voice_transcribe", {

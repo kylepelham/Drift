@@ -3,6 +3,7 @@ import { useEngine } from "../engine"
 import { normalizeDir } from "../engine/store"
 import { pickFolder } from "../state/dialog"
 import { persisted } from "../state/persist"
+import { closeMobileDrawer, isNarrowWidth, mobileDrawerOpen } from "../state/navigation"
 import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
 import { addWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, workspaces } from "../state/workspaces"
@@ -110,7 +111,12 @@ export function Sidebar() {
   onCleanup(finishResize)
 
   return (
-    <aside class="relative flex shrink-0 flex-col border-r border-edge bg-surface" style={{ width: `${width()}px` }}>
+    <aside
+      class="app-sidebar relative flex shrink-0 flex-col border-r border-edge bg-surface"
+      classList={{ "mobile-sidebar-open": mobileDrawerOpen() }}
+      style={{ width: `${width()}px` }}
+      onClick={() => isNarrowWidth(window.innerWidth) && queueMicrotask(() => closeMobileDrawer())}
+    >
       <div class="flex items-center justify-between pt-2.5 pb-1.5 pr-3.5 pl-4">
         <span class="min-w-0 truncate text-[0.68rem] tracking-wider text-ink-faint uppercase">
           {t("drift.sidebar.workspaces")}
@@ -187,7 +193,7 @@ export function Sidebar() {
         aria-valuemax={maxSidebarWidth}
         aria-valuenow={Math.round(width())}
         tabIndex={0}
-        class="absolute inset-y-0 right-0 z-20 w-1 translate-x-1/2 cursor-col-resize transition-colors hover:bg-accent/50 focus:bg-accent/50 focus:outline-none"
+        class="sidebar-resizer absolute inset-y-0 right-0 z-20 w-1 translate-x-1/2 cursor-col-resize transition-colors hover:bg-accent/50 focus:bg-accent/50 focus:outline-none"
         onPointerDown={(event) => {
           event.preventDefault()
           const aside = event.currentTarget.parentElement

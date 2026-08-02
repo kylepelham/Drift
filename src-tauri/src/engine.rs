@@ -50,6 +50,12 @@ impl Default for Engine {
     }
 }
 
+impl Engine {
+    pub(crate) fn current_url(&self) -> Option<String> {
+        self.url.lock().unwrap().clone()
+    }
+}
+
 #[derive(Serialize)]
 pub(crate) struct EngineStatus {
     url: Option<String>,

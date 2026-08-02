@@ -8,6 +8,7 @@ mod engine;
 mod engine_db;
 mod mcp;
 mod permissions;
+mod remote;
 mod storage;
 mod store;
 mod updater;
@@ -87,7 +88,12 @@ fn main() {
             voice::voice_model_remove,
             voice::voice_model_cancel,
             voice::voice_transcribe,
-            permissions::voice_dictation_set_enabled
+            permissions::voice_dictation_set_enabled,
+            remote::remote_access_status,
+            remote::remote_access_enable,
+            remote::remote_access_disable,
+            remote::remote_access_rotate_token,
+            remote::remote_access_urls
         ])
         .setup(|app| {
             let data_dir = app.path().app_data_dir().expect("no app data dir");
@@ -131,14 +137,34 @@ fn main() {
             app.manage(mcp_runtime);
             #[cfg(windows)]
             permissions::install(app)?;
+            let remote_access = remote::RemoteAccess::load(&app.state::<store::Store>())
+                .expect("failed to load remote access settings");
+            let start_remote = remote_access.should_start();
+            app.manage(remote_access);
             engine::spawn_engine(app.handle().clone(), shared_database, engine_config);
             watcher::watch_mcp_configs(app.handle().clone());
+            if start_remote {
+                let app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    for _ in 0..150 {
+                        if app.state::<Engine>().current_url().is_some() {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    }
+                    let access = app.state::<remote::RemoteAccess>();
+                    if let Err(error) = access.start(app.clone()).await {
+                        access.set_error(error);
+                    }
+                });
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("failed to build drift")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                app.state::<remote::RemoteAccess>().stop_on_exit();
                 engine::stop_engine_on_exit(app);
             }
         });
