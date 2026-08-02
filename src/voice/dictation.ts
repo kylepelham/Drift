@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js"
 import { backendInvoke } from "../backend"
+import { shellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import {
   dictationEnabled,

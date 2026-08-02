@@ -13,7 +13,7 @@ import {
   type DriftPermission,
 } from "../state/permission-attention"
 import { sleep, type EngineTarget } from "./connection"
-import { applySessionSnapshot, purgeSession, pushNotice } from "./events"
+import { applySessionSnapshot, purgeSession as purgeSessionState, pushNotice } from "./events"
 import type { MessageEntry } from "./store"
 import {
   askRevision,
@@ -642,7 +642,8 @@ export function createActions(
   }
 
   function forgetSession(id: string) {
-    set(produce((draft) => purgeSession(draft, id)))
+    set(produce((draft) => purgeSessionState(draft, id)))
+    clearRecoverableInterruption(id)
   }
 
   // Replied ids are filtered out of poll snapshots that raced the reply.

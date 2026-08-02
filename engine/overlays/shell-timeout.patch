@@ -8,11 +8,11 @@ index d2ee99a..a9d9f86 100644
  import { Schema } from "effect"
  import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
  import { described } from "./metadata"
- 
+
  const root = "/experimental/control-plane"
  export const MoveSessionPayload = Schema.Struct({ ...MoveSession.Input.fields })
 +export const ShellTimeoutPayload = Schema.Struct({ timeout: Schema.NullOr(PositiveInt) })
- 
+
  export class ApiMoveSessionError extends Schema.ErrorClass<ApiMoveSessionError>("MoveSessionError")(
 @@ -31,5 +33,17 @@ export const ControlPlaneApi = HttpApi.make("controlPlane").add(
          }),
@@ -33,22 +33,18 @@ index d2ee99a..a9d9f86 100644
      .annotateMerge(OpenApi.annotations({ title: "controlPlane", description: "Control-plane orchestration routes." })),
  )
 diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
-index 859f84d..ad65ec1 100644
 --- a/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
 +++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
-@@ -4,6 +4,7 @@ import { Effect } from "effect"
- import { HttpApiBuilder } from "effect/unstable/httpapi"
+@@ -10,6 +10,7 @@ import { Session } from "@/session/session"
+ import { SessionStatus } from "@/session/status"
  import { RootHttpApi } from "../api"
 -import { ApiMoveSessionError, MoveSessionPayload } from "../groups/control-plane"
 +import { ApiMoveSessionError, MoveSessionPayload, ShellTimeoutPayload } from "../groups/control-plane"
 +import { ShellTimeout } from "@/tool/shell-timeout"
- 
+
  export const controlPlaneHandlers = HttpApiBuilder.group(RootHttpApi, "controlPlane", (handlers) =>
    Effect.gen(function* () {
-@@ -23,7 +24,13 @@ export const controlPlaneHandlers = HttpApiBuilder.group(RootHttpApi, "controlP
-       )
-     })
- 
+@@ -64,3 +65,9 @@
 -    return handlers.handle("moveSession", moveSession)
 +    const shellTimeout = Effect.fn("ControlPlaneHttpApi.shellTimeout")(function* (ctx: {
 +      payload: typeof ShellTimeoutPayload.Type
@@ -59,7 +55,6 @@ index 859f84d..ad65ec1 100644
 +    return handlers.handle("moveSession", moveSession).handle("shellTimeout", shellTimeout)
    }),
  )
- 
 diff --git a/packages/opencode/src/tool/shell-timeout.ts b/packages/opencode/src/tool/shell-timeout.ts
 new file mode 100644
 index 0000000..8c3ef9c
@@ -94,16 +89,16 @@ index c60ee49..42da276 100644
  import { ShellPrompt, type Parameters } from "./shell/prompt"
  import { BashArity } from "@/permission/arity"
 +import { ShellTimeout } from "./shell-timeout"
- 
+
  export { Parameters } from "./shell/prompt"
- 
+
 @@ -344,7 +345,7 @@ export const ShellTool = Tool.define(
      const trunc = yield* Truncate.Service
      const plugin = yield* Plugin.Service
      const flags = yield* RuntimeFlags.Service
 -    const defaultTimeoutMs = flags.bashDefaultTimeoutMs ?? 2 * 60 * 1000
 +    const runtimeDefaultTimeoutMs = flags.bashDefaultTimeoutMs
- 
+
      const cygpath = Effect.fn("ShellTool.cygpath")(function* (shell: string, text: string) {
        const lines = yield* spawner
 @@ -431,7 +432,7 @@ export const ShellTool = Tool.define(
@@ -122,7 +117,7 @@ index c60ee49..42da276 100644
 +          shellTimeoutMs: input.timeout ?? null,
          },
        })
- 
+
 @@ -515,6 +517,7 @@ export const ShellTool = Tool.define(
                        ctx.metadata({
                          metadata: {
@@ -142,7 +137,7 @@ index c60ee49..42da276 100644
 @@ -537,12 +541,17 @@ export const ShellTool = Tool.define(
              return Effect.sync(() => ctx.abort.removeEventListener("abort", handler))
            })
- 
+
 -          const timeout = Effect.sleep(`${input.timeout + 100} millis`)
 +          const timeout =
 +            input.timeout === undefined
@@ -150,14 +145,14 @@ index c60ee49..42da276 100644
 +              : Effect.sleep(`${input.timeout + 100} millis`).pipe(
 +                  Effect.map(() => ({ kind: "timeout" as const, code: null })),
 +                )
- 
+
            const exit = yield* Effect.raceAll([
              handle.exitCode.pipe(Effect.map((code) => ({ kind: "exit" as const, code }))),
              abort.pipe(Effect.map(() => ({ kind: "abort" as const, code: null }))),
 -            timeout.pipe(Effect.map(() => ({ kind: "timeout" as const, code: null }))),
 +            timeout,
            ])
- 
+
            if (exit.kind === "abort") {
 @@ -550,6 +557,13 @@ export const ShellTool = Tool.define(
            }
@@ -172,9 +167,9 @@ index c60ee49..42da276 100644
 +            })
              yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.orDie)
            }
- 
+
 @@ -560,8 +574,9 @@ export const ShellTool = Tool.define(
- 
+
        const meta: string[] = []
        if (expired) {
 +        const duration = `${input.timeout} ms`
@@ -211,7 +206,7 @@ index c60ee49..42da276 100644
 +              }
 +            : rendered
          yield* Effect.logInfo("shell tool using shell", { shell })
- 
+
          return {
 @@ -615,7 +632,7 @@ export const ShellTool = Tool.define(
                if (params.timeout !== undefined && params.timeout < 0) {

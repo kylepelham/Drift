@@ -15,7 +15,7 @@ index 4c13afdb..77a97441 100644
 +import { SessionStatus } from "@/session/status"
  import { RootHttpApi } from "../api"
  import { ApiMoveSessionError, MoveSessionPayload } from "../groups/control-plane"
- 
+
  export const controlPlaneHandlers = HttpApiBuilder.group(RootHttpApi, "controlPlane", (handlers) =>
    Effect.gen(function* () {
      const service = yield* MoveSession.Service
@@ -43,7 +43,7 @@ index 4c13afdb..77a97441 100644
 +      }
 +      return false
 +    })
- 
+
      const moveSession = Effect.fn("ControlPlaneHttpApi.moveSession")(function* (ctx: {
        payload: typeof MoveSessionPayload.Type
      }) {
@@ -284,7 +284,7 @@ index bcbe7aec..e4ebf2f4 100644
 +import { Session } from "../../src/session/session"
 +import { SessionStatus } from "../../src/session/status"
  import { testEffect } from "../lib/effect"
- 
+
  const apiLayer = HttpRouter.serve(
 @@ -31,6 +34,9 @@ const apiLayer = HttpRouter.serve(
    Layer.provide(Layer.mock(Auth.Service)({})),
