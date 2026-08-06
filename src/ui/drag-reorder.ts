@@ -9,6 +9,10 @@ export function dragLayoutScale(renderedSize: number, layoutSize: number) {
   return Number.isFinite(scale) && scale > 0 ? scale : 1
 }
 
+export function dragReorderAllowed(event: Pick<PointerEvent, "button" | "isPrimary" | "pointerType">) {
+  return event.button === 0 && event.isPrimary && event.pointerType !== "touch"
+}
+
 export function dragReorder(
   event: PointerEvent,
   root: HTMLElement,
@@ -21,7 +25,7 @@ export function dragReorder(
     gap?: number
   },
 ) {
-  if (event.button !== 0) return () => {}
+  if (!dragReorderAllowed(event)) return () => {}
   const header = event.currentTarget as HTMLElement
   const startY = event.clientY
   let boxes: DragBox[] = []

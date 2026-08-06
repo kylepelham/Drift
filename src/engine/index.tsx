@@ -3,6 +3,7 @@ import { createContext, createEffect, onCleanup, useContext, type ParentProps } 
 import { produce } from "solid-js/store"
 import { shellEvents } from "../shell"
 import { t } from "../state/i18n"
+import { selectedSession } from "../state/selection"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
 import { clearRecoverableInterruption } from "../state/recovery"
 import { reportShellTimeoutError, shellTimeoutMs } from "../state/prefs"
@@ -36,6 +37,9 @@ export type Engine = {
 }
 
 const EngineContext = createContext<Engine>()
+
+// Reconnect transcript refreshes run in small batches so they cannot starve the visible session.
+const transcriptRefreshBatch = 3
 
 /** Reads the engine version, or null if the engine is unreachable or does not answer with it. */
 function fetchEngineVersion(target: EngineTarget) {
@@ -113,24 +117,33 @@ export function EngineProvider(props: ParentProps) {
       set("defaultModels", providers.data?.default ?? {})
       set("agents", agents.data ?? [])
       set("commands", commands.data ?? [])
-      const transcripts = await Promise.all(
-        stale.map(async (id) => [id, await api.session.messages({ path: { id }, query: { limit: 100 } })] as const),
-      )
-      if (!current()) return
-      for (const [id, result] of transcripts) {
-        if (!result.data) continue
-        // Reconciliation or a deletion event removed the session; do not resurrect its transcript.
-        if (!state.sessions[id]) continue
-        const entries = interruptStaleTools(
-          [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id)),
-          state.liveTools,
-          t("drift.message.interrupted"),
+      // The visible session refreshes first so a reconnect never leaves the open transcript
+      // waiting behind bulk refetches; the rest trickle in small batches to avoid saturating
+      // the handful of HTTP connections a remote browser gives the proxy.
+      const selected = selectedSession()
+      const ordered = [...stale].sort((a, b) => Number(b === selected) - Number(a === selected))
+      for (let index = 0; index < ordered.length; index += transcriptRefreshBatch) {
+        const transcripts = await Promise.all(
+          ordered
+            .slice(index, index + transcriptRefreshBatch)
+            .map(async (id) => [id, await api.session.messages({ path: { id }, query: { limit: 100 } })] as const),
         )
-        set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], entries, id, captured, state.revisions))
-        set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
-        const latest = [...entries].reverse().find((entry) => entry.info.role === "assistant")?.info
-        if (latest?.role === "assistant" && latest.time.completed && !latest.error)
-          clearRecoverableInterruption(id, true)
+        if (!current()) return
+        for (const [id, result] of transcripts) {
+          if (!result.data) continue
+          // Reconciliation or a deletion event removed the session; do not resurrect its transcript.
+          if (!state.sessions[id]) continue
+          const entries = interruptStaleTools(
+            [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id)),
+            state.liveTools,
+            t("drift.message.interrupted"),
+          )
+          set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], entries, id, captured, state.revisions))
+          set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
+          const latest = [...entries].reverse().find((entry) => entry.info.role === "assistant")?.info
+          if (latest?.role === "assistant" && latest.time.completed && !latest.error)
+            clearRecoverableInterruption(id, true)
+        }
       }
       if (!state.version && base) {
         const target = base

@@ -15,8 +15,13 @@ const zoomPrecision = 10
 const clamp = (value: number) =>
   Math.min(maxZoom, Math.max(minZoom, Math.round(value * zoomPrecision) / zoomPrecision))
 
+// Viewport units ignore CSS zoom, so the dvh-sized remote shell divides by this factor to keep the
+// zoomed layout exactly one viewport large. Percentage sizing needs no correction.
 function cssZoom(value: number) {
-  ;(document.documentElement.style as CSSStyleDeclaration & { zoom: string }).zoom = value === 1 ? "" : String(value)
+  const root = document.documentElement
+  ;(root.style as CSSStyleDeclaration & { zoom: string }).zoom = value === 1 ? "" : String(value)
+  if (value === 1) root.style.removeProperty("--zoom-scale")
+  else root.style.setProperty("--zoom-scale", String(value))
 }
 
 function apply(value: number) {

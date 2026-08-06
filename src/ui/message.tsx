@@ -296,7 +296,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
           <div class="flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
             <span>{info().modelID}</span>
             <span>{formatTokens(info())}</span>
-            <Show when={tokensPerSecond(info())}>
+            <Show when={tokensPerSecond(props.entry)}>
               {(rate) => <span>{t("drift.message.tokensPerSecond", { rate: rate() })}</span>}
             </Show>
             <Show when={info().cost > 0}>
@@ -325,11 +325,27 @@ function formatDuration(ms: number) {
   return t("drift.message.duration.hours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 })
 }
 
-function tokensPerSecond(info: AssistantMessage) {
-  const seconds = ((info.time.completed ?? 0) - info.time.created) / 1000
+// Only the spans the model spent generating text or reasoning count toward the rate; wall time
+// also covers tool runs and subagent waits, which made the shown rate meaningless.
+export function generationMs(entry: MessageEntry) {
+  const info = entry.info as AssistantMessage
+  let total = 0
+  for (const part of entry.parts) {
+    if (part.type !== "text" && part.type !== "reasoning") continue
+    const time = (part as { time?: { start?: number; end?: number } }).time
+    if (time?.start === undefined) continue
+    const end = time.end ?? info.time.completed
+    if (end) total += Math.max(0, end - time.start)
+  }
+  return total
+}
+
+export function tokensPerSecond(entry: MessageEntry) {
+  const info = entry.info as AssistantMessage
+  const elapsed = generationMs(entry) || (info.time.completed ?? 0) - info.time.created
   const tokens = info.tokens.output + info.tokens.reasoning
-  if (seconds <= 0 || tokens <= 0) return null
-  return (tokens / seconds).toFixed(1)
+  if (elapsed <= 0 || tokens <= 0) return null
+  return (tokens / (elapsed / 1000)).toFixed(1)
 }
 
 function formatTokens(info: AssistantMessage) {

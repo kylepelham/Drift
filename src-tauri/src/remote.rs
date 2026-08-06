@@ -108,7 +108,7 @@ impl RemoteAccess {
             .map_err(|error| format!("could not listen on port {HTTP_PORT}: {error}"))?;
         let discovery_socket = tokio::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, DISCOVERY_PORT))
             .await
-            .map_err(|error| format!("could not listen for Deck discovery: {error}"))?;
+            .map_err(|error| format!("could not listen for LAN discovery: {error}"))?;
         discovery_socket
             .set_broadcast(true)
             .map_err(|error| error.to_string())?;
@@ -123,7 +123,7 @@ impl RemoteAccess {
                 eprintln!("remote access HTTP listener stopped: {error}");
             }
         });
-        let discovery = tokio::spawn(discovery_loop(app, discovery_socket, discovery_shutdown));
+        let discovery = tokio::spawn(discovery_loop(discovery_socket, discovery_shutdown));
         *running = Some(Running {
             shutdown,
             http,
@@ -959,11 +959,7 @@ fn value<T: Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|error| error.to_string())
 }
 
-async fn discovery_loop(
-    app: tauri::AppHandle,
-    socket: tokio::net::UdpSocket,
-    mut shutdown: watch::Receiver<bool>,
-) {
+async fn discovery_loop(socket: tokio::net::UdpSocket, mut shutdown: watch::Receiver<bool>) {
     let mut buffer = [0u8; 256];
     loop {
         tokio::select! {
@@ -971,9 +967,8 @@ async fn discovery_loop(
             received = socket.recv_from(&mut buffer) => {
                 let Ok((size, peer)) = received else { continue };
                 if &buffer[..size] != DISCOVERY_PROBE { continue; }
-                let Some(token) = app.state::<RemoteAccess>().token_if_enabled() else { continue };
                 let Some(ip) = local_ipv4_for(peer) else { continue };
-                let descriptor = discovery_descriptor(ip, &token);
+                let descriptor = discovery_descriptor(ip);
                 if let Ok(payload) = serde_json::to_vec(&descriptor) {
                     let _ = socket.send_to(&payload, peer).await;
                 }
@@ -982,14 +977,14 @@ async fn discovery_loop(
     }
 }
 
-fn discovery_descriptor(ip: Ipv4Addr, token: &str) -> DiscoveryDescriptor {
+fn discovery_descriptor(ip: Ipv4Addr) -> DiscoveryDescriptor {
     DiscoveryDescriptor {
-        kind: "opencode-companion",
+        kind: "drift-companion",
         name: "Drift",
         brand: "Drift",
         protocol: "drift-remote",
         version: 1,
-        url: format!("http://{ip}:{HTTP_PORT}/companion?token={token}"),
+        url: format!("http://{ip}:{HTTP_PORT}/companion"),
         host: ip.to_string(),
         port: HTTP_PORT,
     }
@@ -1115,16 +1110,14 @@ mod tests {
     }
 
     #[test]
-    fn discovery_is_legacy_compatible_and_branded() {
-        let descriptor = discovery_descriptor(Ipv4Addr::new(192, 168, 1, 20), "secret");
+    fn discovery_is_branded_without_disclosing_credentials() {
+        let descriptor = discovery_descriptor(Ipv4Addr::new(192, 168, 1, 20));
         let value = serde_json::to_value(descriptor).unwrap();
-        assert_eq!(value["kind"], "opencode-companion");
+        assert_eq!(value["kind"], "drift-companion");
         assert_eq!(value["brand"], "Drift");
         assert_eq!(value["version"], 1);
-        assert_eq!(
-            value["url"],
-            "http://192.168.1.20:41718/companion?token=secret"
-        );
+        assert_eq!(value["url"], "http://192.168.1.20:41718/companion");
+        assert!(!value.to_string().contains("secret"));
     }
 
     #[test]

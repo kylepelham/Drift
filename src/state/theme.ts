@@ -27,6 +27,7 @@ export const [customTheme, setCustomThemeValue] = persisted<CustomTheme>("drift.
 })
 const customCssKey = "drift.theme.customCss"
 const maxCustomCssChars = 20_000
+const truncateChars = (value: string, max: number) => [...value].slice(0, max).join("")
 // Custom CSS is edited by typing, so persistence and re-injection are both debounced to avoid
 // writing to localStorage and rebuilding the <style> element on every keystroke.
 const cssPersistDebounceMs = 200
@@ -36,13 +37,13 @@ let savedCustomCss = ""
 try {
   const raw = localStorage.getItem(customCssKey)
   const parsed = raw ? JSON.parse(raw) : ""
-  if (typeof parsed === "string") savedCustomCss = parsed.slice(0, maxCustomCssChars)
+  if (typeof parsed === "string") savedCustomCss = truncateChars(parsed, maxCustomCssChars)
 } catch {}
 export const [customCss, setCustomCssValue] = createSignal(savedCustomCss)
 let cssPersistTimer: ReturnType<typeof setTimeout> | undefined
 
 export function setCustomCss(value: string) {
-  const next = value.slice(0, maxCustomCssChars)
+  const next = truncateChars(value, maxCustomCssChars)
   setCustomCssValue(next)
   publishTheme()
   clearTimeout(cssPersistTimer)
@@ -63,12 +64,12 @@ export function setTheme(value: ThemeName) {
 }
 
 export function setUiFont(value: string) {
-  setUiFontValue(value)
+  setUiFontValue(truncateChars(value, 256))
   publishTheme()
 }
 
 export function setCodeFont(value: string) {
-  setCodeFontValue(value)
+  setCodeFontValue(truncateChars(value, 256))
   publishTheme()
 }
 

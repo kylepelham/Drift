@@ -1,5 +1,5 @@
 import type { AssistantMessage, Part, SessionStatus } from "@opencode-ai/sdk/client"
-import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
 import { messageText, type MessageEntry } from "../engine/store"
 import { codeFontSize } from "../state/code"
@@ -20,6 +20,7 @@ import { DriftLogo } from "./logo"
 import { recoverableForSession, recoverableInterruptions } from "../state/recovery"
 import { RecoveryCard } from "./recovery"
 import { interruptResponseAnimations } from "./response-animation"
+import { collapseCompaction, compactionCollapsed } from "../state/prefs"
 
 const estimatedRow = 96
 const overscan = 800
@@ -84,6 +85,10 @@ export function Chat() {
     const list = timeline()
     return new Map(list.map((entry, index) => [entry.info.id, list[index + 1]]))
   })
+  const thinkingOnly = (entry?: MessageEntry) =>
+    !!entry && thinking()?.messageID === entry.info.id && !messageVisible(entry)
+  const collapsedSummary = (entry: MessageEntry) =>
+    entry.info.role === "assistant" && !!(entry.info as AssistantMessage).summary && collapseCompaction() && compactionCollapsed()
 
   createEffect(() => {
     const id = selectedSession()
@@ -110,7 +115,8 @@ export function Chat() {
     for (let index = 0; index < list.length; index++) {
       const entry = list[index]
       const parts = timelineParts(entry, groups.get(entry.info.id))
-      result[index + 1] = result[index] + (heights.get(entry.info.id) ?? estimatedTimelineRow(entry, fontSize, parts))
+      result[index + 1] = result[index] +
+        (heights.get(entry.info.id) ?? estimatedTimelineRow(entry, fontSize, parts, thinkingOnly(entry), collapsedSummary(entry)))
     }
     return result
   })
@@ -133,7 +139,16 @@ export function Chat() {
       if (next === 0) continue
       const entry = untrack(timeline).find((item) => item.info.id === id)
       const parts = entry ? timelineParts(entry, untrack(assistantGroups).get(id)) : undefined
-      const previous = heights.get(id) ?? (entry ? estimatedTimelineRow(entry, untrack(codeFontSize), parts) : estimatedRow)
+      const previous = heights.get(id) ??
+        (entry
+          ? estimatedTimelineRow(
+            entry,
+            untrack(codeFontSize),
+            parts,
+            untrack(() => thinkingOnly(entry)),
+            untrack(() => collapsedSummary(entry)),
+          )
+          : estimatedRow)
       if (Math.abs(next - previous) < 1) continue
       heights.set(id, next)
       changed = true
@@ -144,6 +159,22 @@ export function Chat() {
     if (deltaAbove !== 0 && !untrack(stick)) scroller.scrollTop += deltaAbove
   })
   onCleanup(() => observer.disconnect())
+
+  const viewportObserver = new ResizeObserver(() => {
+    const top = scroller.scrollTop
+    batch(() => {
+      setViewTop(top)
+      setViewHeight(scroller.clientHeight)
+    })
+    if (untrack(stick)) {
+      queueMicrotask(() => scroller.scrollTo({ top: scroller.scrollHeight }))
+      return
+    }
+    const distance = scroller.scrollHeight - top - scroller.clientHeight
+    setAwayFromBottom(shouldShowScrollToBottom(distance))
+  })
+  onMount(() => viewportObserver.observe(scroller))
+  onCleanup(() => viewportObserver.disconnect())
 
   function measureRow(element: HTMLDivElement) {
     observer.observe(element)
@@ -183,6 +214,7 @@ export function Chat() {
   let dragging = false
   let forwardedTarget: number | null = null
   let forwardedReset: ReturnType<typeof setTimeout> | undefined
+  let scrollLatchReset: ReturnType<typeof setTimeout> | undefined
   const gesture = () => (gestureAt = Date.now())
   const nativeWheel = () => {
     interruptResponseAnimations()
@@ -206,6 +238,7 @@ export function Chat() {
   window.addEventListener(chatWheelEvent, forwardedWheel)
   onCleanup(() => {
     clearTimeout(forwardedReset)
+    clearTimeout(scrollLatchReset)
     window.removeEventListener("pointerup", releaseDrag)
     window.removeEventListener(chatWheelEvent, forwardedWheel)
   })
@@ -215,6 +248,11 @@ export function Chat() {
     const previous = untrack(viewTop)
     setViewTop(top)
     setViewHeight(scroller.clientHeight)
+    if (scroller.classList.contains("transcript-scroll-active") || dragging || Date.now() - gestureAt < gestureWindowMs) {
+      scroller.classList.add("transcript-scroll-active")
+      clearTimeout(scrollLatchReset)
+      scrollLatchReset = setTimeout(() => scroller.classList.remove("transcript-scroll-active"), gestureWindowMs)
+    }
     if (dragging || Date.now() - gestureAt < gestureWindowMs) {
       interruptResponseAnimations()
       const distance = scroller.scrollHeight - top - scroller.clientHeight
@@ -264,24 +302,31 @@ export function Chat() {
       >
         <Show when={selectedSession()} keyed fallback={<EmptyState />}>
           <div class="fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
-            <div style={{ height: `${offsets().at(-1)}px` }}>
-              <div style={{ transform: `translateY(${offsets()[range().start]}px)` }}>
-                <For each={slice()}>
-                  {(entry) => (
-                    <Row
-                      entry={entry}
-                      next={nextEntries().get(entry.info.id)}
-                      groups={assistantGroups().get(entry.info.id)}
-                      thinking={thinking()?.messageID === entry.info.id && !retry()}
-                      thinkingHeading={thinking()?.heading}
-                      retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
-                      terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
-                      measure={measureRow}
-                    />
-                  )}
-                </For>
+            <Show when={timeline().length === 0 && !engine.state.loaded[selectedSession()!] && engine.state.connection === "online" && !sessionError()}>
+              <div class="flex justify-center pt-8 text-sm select-none" role="status" aria-live="polite">
+                <TextShimmer text={t("common.loading")} />
               </div>
-            </div>
+            </Show>
+            <div aria-hidden="true" style={{ height: `${offsets()[range().start]}px` }} />
+            <For each={slice()}>
+              {(entry) => (
+                <Row
+                  entry={entry}
+                  next={nextEntries().get(entry.info.id)}
+                  nextThinking={thinkingOnly(nextEntries().get(entry.info.id))}
+                  groups={assistantGroups().get(entry.info.id)}
+                  thinking={thinking()?.messageID === entry.info.id && !retry()}
+                  thinkingHeading={thinking()?.heading}
+                  retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
+                  terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
+                  measure={measureRow}
+                />
+              )}
+            </For>
+            <div
+              aria-hidden="true"
+              style={{ height: `${(offsets().at(-1) ?? 0) - offsets()[range().end]}px` }}
+            />
             <Show keyed when={recoverable()}>
               {(interruption) => (
                 <div class="pb-6">
@@ -360,7 +405,15 @@ export function accumulatedWheelTarget(scrollTop: number, pendingTarget: number 
   return Math.min(max, Math.max(0, (pendingTarget ?? scrollTop) + delta))
 }
 
-export function estimatedTimelineRow(entry: MessageEntry, fontSize = 13, parts: Part[] = entry.parts) {
+export function estimatedTimelineRow(
+  entry: MessageEntry,
+  fontSize = 13,
+  parts: Part[] = entry.parts,
+  thinkingOnly = false,
+  collapsedSummary = false,
+) {
+  if (thinkingOnly) return 32
+  if (collapsedSummary) return 44
   const text = messageText(parts === entry.parts ? entry : { ...entry, parts })
   const generated = parts.some((part) => part.type === "text" && part.metadata?.generated === true)
   if (entry.info.role === "user" && !generated && largeUserText(text))
@@ -482,14 +535,18 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
   const unfinished = newestFirst.find(
     (entry) => entry.info.role === "assistant" && !(entry.info as { time: { completed?: number } }).time.completed,
   )
-  const parentID = unfinished && "parentID" in unfinished.info ? unfinished.info.parentID : undefined
-  const activeUser =
-    (parentID && entries.find((entry) => entry.info.role === "user" && entry.info.id === parentID)) ??
-    newestFirst.find((entry) => entry.info.role === "user")
-  if (!activeUser) return null
-  const assistants = entries.filter(
-    (entry) => entry.info.role === "assistant" && "parentID" in entry.info && entry.info.parentID === activeUser.info.id,
-  )
+  // A user turn newer than every assistant message has no response row yet, so the indicator
+  // anchors under that prompt; otherwise it stays on the assistant turn that is actually running.
+  const anchor = unfinished ?? newestFirst.find((entry) => entry.info.role === "user" || entry.info.role === "assistant")
+  if (!anchor) return null
+  const parentID = anchor.info.role === "user"
+    ? anchor.info.id
+    : "parentID" in anchor.info ? anchor.info.parentID : undefined
+  const assistants = parentID
+    ? entries.filter(
+      (entry) => entry.info.role === "assistant" && "parentID" in entry.info && entry.info.parentID === parentID,
+    )
+    : anchor.info.role === "assistant" ? [anchor] : []
   const error = assistants.find(
     (entry) =>
       (entry.info as { error?: { name?: string } }).error &&
@@ -500,7 +557,7 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
     .flatMap((entry) => entry.parts)
     .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
     .find((value): value is string => !!value)
-  return { messageID: assistants.at(-1)?.info.id ?? activeUser.info.id, heading }
+  return { messageID: unfinished?.info.id ?? assistants.at(-1)?.info.id ?? anchor.info.id, heading }
 }
 
 export function reasoningHeading(text: string) {
@@ -536,6 +593,7 @@ function cleanHeading(value: string) {
 function Row(props: {
   entry: MessageEntry
   next?: MessageEntry
+  nextThinking: boolean
   groups?: PartGroup[]
   thinking: boolean
   thinkingHeading?: string
@@ -544,7 +602,7 @@ function Row(props: {
   measure: (element: HTMLDivElement) => void
 }) {
   const fresh = Date.now() - props.entry.info.time.created < freshMessageMs
-  const pitch = () => props.next ? timelinePitch(props.entry, props.next) : props.terminalError ? "turn" : "none"
+  const pitch = () => props.nextThinking ? "none" : props.next ? timelinePitch(props.entry, props.next) : props.terminalError ? "turn" : "none"
   return (
     <div
       ref={props.measure}

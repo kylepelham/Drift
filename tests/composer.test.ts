@@ -101,13 +101,16 @@ test("composer history navigation restores the draft and attachments", async () 
 })
 
 test("drag reorder ignores released pointers and converts zoomed geometry", async () => {
-  const { dragLayoutScale, dragPointerPressed } = await import("../src/ui/drag-reorder")
+  const { dragLayoutScale, dragPointerPressed, dragReorderAllowed } = await import("../src/ui/drag-reorder")
   expect(dragPointerPressed(4, { pointerId: 4, buttons: 1 })).toBeTrue()
   expect(dragPointerPressed(4, { pointerId: 4, buttons: 0 })).toBeFalse()
   expect(dragPointerPressed(4, { pointerId: 5, buttons: 1 })).toBeFalse()
   expect(dragLayoutScale(52, 40)).toBe(1.3)
   expect(dragLayoutScale(32, 40)).toBe(0.8)
   expect(dragLayoutScale(0, 0)).toBe(1)
+  expect(dragReorderAllowed({ button: 0, isPrimary: true, pointerType: "mouse" })).toBeTrue()
+  expect(dragReorderAllowed({ button: 0, isPrimary: true, pointerType: "touch" })).toBeFalse()
+  expect(dragReorderAllowed({ button: 0, isPrimary: false, pointerType: "pen" })).toBeFalse()
 })
 
 test("reverted messages restore uploads and file mentions", async () => {
@@ -246,6 +249,7 @@ test("shell transcript preserves a visible command-output gap and normalizes out
     timedOut: false,
     text: "Limit 5m",
   })
+  expect(shellTimeoutStatus(shellPart("running", { shellTimeoutMs: null }))).toBeNull()
   expect(shellTimeoutStatus(shellPart("completed", { shellTimeoutMs: 60_000, timedOut: true }))).toEqual({
     timedOut: true,
     text: "Timed out after 1m",
@@ -363,6 +367,27 @@ test("queued questions retain focus while other requests arrive or reorder", asy
   expect(focusedQuestion([first, second])?.id).toBe("q1")
   expect(focusedQuestion([second, first], "q1")?.id).toBe("q1")
   expect(focusedQuestion([second], "q1")?.id).toBe("q2")
+})
+
+test("composer attention cards share one stack without suppressing concurrent requests", async () => {
+  const app = await Bun.file("src/app.tsx").text()
+  const composer = await Bun.file("src/ui/composer.tsx").text()
+  const attention = await Bun.file("src/ui/attention.tsx").text()
+  const revert = await Bun.file("src/ui/revert-dock.tsx").text()
+  const css = await Bun.file("src/styles/app.css").text()
+
+  expect(app).not.toContain("<AttentionStrip />")
+  expect(composer).toContain('class="composer-attention-stack')
+  expect(composer).toContain("<AttentionStrip />")
+  expect(composer).toContain("<Show keyed when={pendingQuestion()?.id}>")
+  expect(composer).toContain("<Show when={pendingAsk()}>")
+  expect(composer.match(/class="flow-root"/g)).toHaveLength(3)
+  expect(composer).not.toContain("pendingPermission() ? undefined : pendingQuestion()")
+  expect(composer).not.toContain("pendingPermission() || pendingQuestion() ? undefined : pendingAsk()")
+  expect(attention.match(/composer-layer-card/g)).toHaveLength(3)
+  expect(revert).toContain("composer-layer-card")
+  expect(css).not.toContain(".composer-attention-stack:has(> :nth-child(2))")
+  expect(css).not.toMatch(/\.composer-attention-stack[^}]*overflow/s)
 })
 
 test("question steps and answers persist independently by request id", async () => {

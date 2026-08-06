@@ -1120,7 +1120,7 @@ export const drift = {
   "drift.remote.rotated": "Access key rotated. Existing remote devices have been signed out.",
   "drift.remote.securityTitle": "Trusted LAN only",
   "drift.remote.securityWarning": "Traffic uses HTTP and is not encrypted. Anyone with the connection URL and network access can control Drift and access host workspace data.",
-  "drift.remote.deckHelp": "Drift answers the existing Deck discovery broadcast automatically while Remote Access is enabled.",
+  "drift.remote.deckHelp": "LAN discovery advertises Drift's address without sharing the private access key.",
   "drift.mobile.openNavigation": "Open workspace navigation",
   ...promptAndSpawn,
   ...recovery,

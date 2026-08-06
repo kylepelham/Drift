@@ -85,3 +85,40 @@ test("timeline pitch keeps turn, compaction, and error breaks without trailing s
   expect(timelinePitch(regular, failed)).toBe("turn")
   expect(timelinePitch(regular)).toBe("none")
 })
+
+test("tokens per second uses generation time, not tool and subagent wall time", async () => {
+  const { generationMs, tokensPerSecond } = await import("../src/ui/message")
+  const entry = {
+    info: {
+      id: "a1",
+      sessionID: "s1",
+      role: "assistant",
+      time: { created: 0, completed: 600_000 },
+      tokens: { input: 10, output: 500, reasoning: 100, cache: { read: 0, write: 0 } },
+      cost: 0,
+      modelID: "m",
+    },
+    parts: [
+      { id: "p1", messageID: "a1", sessionID: "s1", type: "reasoning", text: "r", time: { start: 0, end: 2_000 } },
+      { id: "p2", messageID: "a1", sessionID: "s1", type: "tool", tool: "task", state: { status: "completed", input: {}, output: "", title: "", metadata: {}, time: { start: 2_000, end: 590_000 } } },
+      { id: "p3", messageID: "a1", sessionID: "s1", type: "text", text: "answer", time: { start: 590_000, end: 600_000 } },
+    ],
+  } as never
+  expect(generationMs(entry)).toBe(12_000)
+  // 600 tokens over 12s of generation, not 600s of wall time.
+  expect(tokensPerSecond(entry)).toBe("50.0")
+
+  const openEnded = {
+    info: {
+      id: "a2",
+      sessionID: "s1",
+      role: "assistant",
+      time: { created: 0, completed: 20_000 },
+      tokens: { input: 1, output: 100, reasoning: 0, cache: { read: 0, write: 0 } },
+    },
+    parts: [{ id: "p1", messageID: "a2", sessionID: "s1", type: "text", text: "t", time: { start: 10_000 } }],
+  } as never
+  // An unterminated part falls back to the message completion time.
+  expect(generationMs(openEnded)).toBe(10_000)
+  expect(tokensPerSecond(openEnded)).toBe("10.0")
+})

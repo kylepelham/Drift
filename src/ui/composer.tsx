@@ -36,7 +36,7 @@ import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspace
 import { normalizeDir } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"
 import { permissionRequiresAttention, permissionShouldAutoReply } from "../state/permission-attention"
-import { PermissionCard, QuestionCard } from "./attention"
+import { AttentionStrip, PermissionCard, QuestionCard } from "./attention"
 import { IconMic, IconPaperclip, IconShieldCheck, IconX } from "./icons"
 import { dictationEnabled, dictationModel } from "../state/voice"
 import {
@@ -165,25 +165,6 @@ export function Composer() {
 
   async function addFile(file: File, key: string) {
     const resolved = resolveAttachmentKind({ filename: file.name, mime: file.type })
-    if (resolved.kind === "unsupported") return showFileFailure(key, file.name, resolved.reason)
-    if (resolved.kind === "audio" || resolved.kind === "video") {
-      const unsupported = unsupportedModelAttachment(
-        [{ filename: file.name, mime: resolved.mime }],
-        modelInfo(engine.state, resolveModel(engine.state, prefs().model)),
-      )
-      if (unsupported) {
-        const selected = modelInfo(engine.state, resolveModel(engine.state, prefs().model))
-        setFileError(
-          t("drift.composer.modelUnsupported", {
-            filename: file.name,
-            kind: t(`drift.attachment.kind.${unsupported.kind}`),
-            model: selected?.name ?? t("command.category.model"),
-          }),
-        )
-        return
-      }
-    }
-
     const id = crypto.randomUUID()
     patchComposerDraft(key, {
       staged: [
@@ -195,6 +176,22 @@ export function Composer() {
     if (!prepared.ok) {
       patchComposerDraft(key, { staged: composerDraft(key).staged.filter((item) => item.id !== id) })
       showFileFailure(key, file.name, prepared.reason, prepared.kind, prepared.limit)
+      return
+    }
+    const unsupported = unsupportedModelAttachment(
+      [{ filename: prepared.attachment.filename, mime: prepared.attachment.mime }],
+      modelInfo(engine.state, resolveModel(engine.state, prefs().model)),
+    )
+    if (unsupported) {
+      patchComposerDraft(key, { staged: composerDraft(key).staged.filter((item) => item.id !== id) })
+      const selected = modelInfo(engine.state, resolveModel(engine.state, prefs().model))
+      setFileError(
+        t("drift.composer.modelUnsupported", {
+          filename: file.name,
+          kind: t(`drift.attachment.kind.${unsupported.kind}`),
+          model: selected?.name ?? t("command.category.model"),
+        }),
+      )
       return
     }
     patchComposerDraft(key, {
@@ -514,72 +511,75 @@ export function Composer() {
 
   return (
     <div class="composer-shell relative z-10">
-      <Show when={pendingPermission()}>
-        {(permission) => (
-          <div class="mx-auto max-w-3xl">
-            <Show when={permission().sessionID !== selectedSession()}>
-              <button
-                class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
-                title={t("drift.composer.openThread")}
-                onClick={() =>
-                  openAttentionSession(
-                    permission().sessionID,
-                    permission().metadata?.directory as string | undefined,
-                  )
-                }
-              >
-                {t("drift.composer.pendingInThread", {
-                  thread: engine.state.sessions[permission().sessionID]?.title || t("drift.composer.anotherThread"),
-                })}
-              </button>
-            </Show>
-            <PermissionCard permission={permission()} />
-          </div>
-        )}
-      </Show>
-      <Show keyed when={pendingPermission() ? undefined : pendingQuestion()?.id}>
-        {(questionID) => {
-          const question = () => questions().find((item) => item.id === questionID)
-          return (
-            <Show when={question()}>
-              {(request) => (
-                <div class="mx-auto max-w-3xl">
-                  <Show when={request().sessionID !== selectedSession()}>
-                    <button
-                      class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
-                      title={t("drift.composer.openThread")}
-                      onClick={() => openAttentionSession(request().sessionID, request().directory)}
-                    >
-                      {t("drift.composer.pendingInThread", {
-                        thread: engine.state.sessions[request().sessionID]?.title || t("drift.composer.anotherThread"),
-                      })}
-                    </button>
-                  </Show>
-                  <QuestionCard
-                    requestID={questionID}
-                    questions={[...request().questions]}
-                    onAnswer={(answers) => engine.actions.answerQuestion(request().sessionID, questionID, answers)}
-                  />
-                </div>
-              )}
-            </Show>
-          )
-        }}
-      </Show>
-      <Show when={pendingPermission() || pendingQuestion() ? undefined : pendingAsk()}>
-        {(ask) => (
-          <div class="mx-auto max-w-3xl">
-            <QuestionCard
-              requestID={ask().id}
-              questions={ask().questions}
-              onAnswer={(answers) => {
-                resolveAsk(ask().id, answers)
-                return true
-              }}
-            />
-          </div>
-        )}
-      </Show>
+      <div class="composer-attention-stack mx-auto flex w-full max-w-3xl flex-col gap-2">
+        <AttentionStrip />
+        <Show when={pendingPermission()}>
+          {(permission) => (
+            <div class="flow-root">
+              <Show when={permission().sessionID !== selectedSession()}>
+                <button
+                  class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
+                  title={t("drift.composer.openThread")}
+                  onClick={() =>
+                    openAttentionSession(
+                      permission().sessionID,
+                      permission().metadata?.directory as string | undefined,
+                    )
+                  }
+                >
+                  {t("drift.composer.pendingInThread", {
+                    thread: engine.state.sessions[permission().sessionID]?.title || t("drift.composer.anotherThread"),
+                  })}
+                </button>
+              </Show>
+              <PermissionCard permission={permission()} />
+            </div>
+          )}
+        </Show>
+        <Show keyed when={pendingQuestion()?.id}>
+          {(questionID) => {
+            const question = () => questions().find((item) => item.id === questionID)
+            return (
+              <Show when={question()}>
+                {(request) => (
+                  <div class="flow-root">
+                    <Show when={request().sessionID !== selectedSession()}>
+                      <button
+                        class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
+                        title={t("drift.composer.openThread")}
+                        onClick={() => openAttentionSession(request().sessionID, request().directory)}
+                      >
+                        {t("drift.composer.pendingInThread", {
+                          thread: engine.state.sessions[request().sessionID]?.title || t("drift.composer.anotherThread"),
+                        })}
+                      </button>
+                    </Show>
+                    <QuestionCard
+                      requestID={questionID}
+                      questions={[...request().questions]}
+                      onAnswer={(answers) => engine.actions.answerQuestion(request().sessionID, questionID, answers)}
+                    />
+                  </div>
+                )}
+              </Show>
+            )
+          }}
+        </Show>
+        <Show when={pendingAsk()}>
+          {(ask) => (
+            <div class="flow-root">
+              <QuestionCard
+                requestID={ask().id}
+                questions={ask().questions}
+                onAnswer={(answers) => {
+                  resolveAsk(ask().id, answers)
+                  return true
+                }}
+              />
+            </div>
+          )}
+        </Show>
+      </div>
       <div
         class="relative mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong"
         onDragOver={(event) => {
@@ -715,105 +715,108 @@ export function Composer() {
           }}
           onKeyDown={onKey}
         />
-        <div class="flex items-center gap-1 px-2.5 pb-2">
-          <Picker
-            label={t("command.category.agent")}
-            items={agentItems()}
-            selected={prefs().agent}
-            fallbackLabel={agentLabel(prefs().agent)}
-            onPick={(id) => updatePrefs(selectedSession(), { agent: id })}
-          />
-          <Picker
-            label={t("command.category.model")}
-            items={modelItems()}
-            selected={modelId()}
-            icon={<ProviderIcon id={model()?.providerID} class="size-3.5 shrink-0" />}
-            fallbackLabel={modelInfo(engine.state, model())?.name}
-            onManage={() => setManageModels(true)}
-            onPick={(id) => {
-              const [providerID, ...rest] = id.split("/")
-              updatePrefs(selectedSession(), { model: { providerID, modelID: rest.join("/") } })
-            }}
-          />
-          <Show when={variants().length > 0}>
+        <div class="composer-actions flex min-w-0 items-center gap-1 px-2.5 pb-2">
+          <div class="composer-options relative flex min-w-0 flex-1 items-center gap-1">
             <Picker
-              label={t("drift.composer.thinkingLevel")}
-              items={variantItems()}
-              selected={variant() ?? "default"}
-              onPick={(id) => updatePrefs(selectedSession(), { variant: id === "default" ? null : id })}
+              label={t("command.category.agent")}
+              items={agentItems()}
+              selected={prefs().agent}
+              fallbackLabel={agentLabel(prefs().agent)}
+              onPick={(id) => updatePrefs(selectedSession(), { agent: id })}
             />
-          </Show>
-          <div class="flex-1" />
-          <Show when={autoAcceptOn()}>
-            <button
-              class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
-              title={autoAcceptGlobal() ? t("drift.permissions.autoGlobal") : t("drift.permissions.autoThread")}
-              aria-label={t("command.permissions.autoaccept.disable")}
-              disabled={autoAcceptGlobal()}
-              onClick={() => toggleAutoAccept(selectedSession()!)}
-            >
-              <IconShieldCheck class="size-3.5" />
-            </button>
-          </Show>
-          <input
-            ref={filePicker}
-            type="file"
-            multiple
-            class="hidden"
-            onChange={(event) => {
-              if (event.currentTarget.files) void addFiles(event.currentTarget.files)
-              event.currentTarget.value = ""
-            }}
-          />
-          <Show when={dictationEnabled()}>
-            <button
-              title={dictationActive() ? t("drift.voice.stop") : t("drift.voice.start")}
-              aria-label={dictationActive() ? t("drift.voice.stop") : t("drift.voice.start")}
-              aria-pressed={dictationActive()}
-              class="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-raised disabled:cursor-default disabled:opacity-60"
-              classList={{
-                "text-ink-faint hover:text-ink": !dictationActive(),
-                "text-danger": dictationActive(),
+            <Picker
+              label={t("command.category.model")}
+              items={modelItems()}
+              selected={modelId()}
+              icon={<ProviderIcon id={model()?.providerID} class="size-3.5 shrink-0" />}
+              fallbackLabel={modelInfo(engine.state, model())?.name}
+              onManage={() => setManageModels(true)}
+              onPick={(id) => {
+                const [providerID, ...rest] = id.split("/")
+                updatePrefs(selectedSession(), { model: { providerID, modelID: rest.join("/") } })
               }}
+            />
+            <Show when={variants().length > 0}>
+              <Picker
+                label={t("drift.composer.thinkingLevel")}
+                items={variantItems()}
+                selected={variant() ?? "default"}
+                onPick={(id) => updatePrefs(selectedSession(), { variant: id === "default" ? null : id })}
+              />
+            </Show>
+          </div>
+          <div class="composer-action-buttons ml-auto flex shrink-0 items-center gap-1">
+            <Show when={autoAcceptOn()}>
+              <button
+                class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
+                title={autoAcceptGlobal() ? t("drift.permissions.autoGlobal") : t("drift.permissions.autoThread")}
+                aria-label={t("command.permissions.autoaccept.disable")}
+                disabled={autoAcceptGlobal()}
+                onClick={() => toggleAutoAccept(selectedSession()!)}
+              >
+                <IconShieldCheck class="size-3.5" />
+              </button>
+            </Show>
+            <input
+              ref={filePicker}
+              type="file"
+              multiple
+              class="hidden"
+              onChange={(event) => {
+                if (event.currentTarget.files) void addFiles(event.currentTarget.files)
+                event.currentTarget.value = ""
+              }}
+            />
+            <Show when={dictationEnabled()}>
+              <button
+                title={dictationActive() ? t("drift.voice.stop") : t("drift.voice.start")}
+                aria-label={dictationActive() ? t("drift.voice.stop") : t("drift.voice.start")}
+                aria-pressed={dictationActive()}
+                class="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-raised disabled:cursor-default disabled:opacity-60"
+                classList={{
+                  "text-ink-faint hover:text-ink": !dictationActive(),
+                  "text-danger": dictationActive(),
+                }}
+                disabled={!ready()}
+                onClick={toggleVoice}
+              >
+                <IconMic class="size-4" />
+              </button>
+            </Show>
+            <button
+              title={t("prompt.action.attachFile")}
+              class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
               disabled={!ready()}
-              onClick={toggleVoice}
+              onClick={() => filePicker.click()}
             >
-              <IconMic class="size-4" />
+              <IconPaperclip class="size-4" />
             </button>
-          </Show>
-          <button
-            title={t("prompt.action.attachFile")}
-            class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-            disabled={!ready()}
-            onClick={() => filePicker.click()}
-          >
-            <IconPaperclip class="size-4" />
-          </button>
-          <Show when={busy()}>
+            <Show when={busy()}>
+              <button
+                class="rounded-md border border-edge px-3 py-1 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
+                title={t("prompt.action.stop")}
+                onClick={() => {
+                  interruptResponseAnimations()
+                  void engine.actions.abort(selectedSession()!)
+                }}
+              >
+                {t("prompt.action.stop")}
+              </button>
+            </Show>
             <button
-              class="rounded-md border border-edge px-3 py-1 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
-              title={t("prompt.action.stop")}
-              onClick={() => {
-                interruptResponseAnimations()
-                void engine.actions.abort(selectedSession()!)
-              }}
+              class="composer-submit rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
+              title={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
+              disabled={
+                (!draft().trim() && staged().length === 0) ||
+                staged().some((file) => file.status === "processing") ||
+                !ready() ||
+                submitting()
+              }
+              onClick={() => void submit()}
             >
-              {t("prompt.action.stop")}
+              {busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
             </button>
-          </Show>
-          <button
-            class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
-            title={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
-            disabled={
-              (!draft().trim() && staged().length === 0) ||
-              staged().some((file) => file.status === "processing") ||
-              !ready() ||
-              submitting()
-            }
-            onClick={() => void submit()}
-          >
-            {busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
-          </button>
+          </div>
         </div>
       </div>
       <Show when={manageModels()}>

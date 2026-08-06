@@ -2,6 +2,7 @@ node_modules/
 dist/
 src-tauri/target/
 src-tauri/target-*/
+src-tauri/src-tauri/
 src-tauri/binaries/
 src-tauri/generated/drift-extensions/plugin/
 src-tauri/generated/drift-extensions/opencode.json

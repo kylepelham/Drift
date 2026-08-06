@@ -18,10 +18,10 @@ import { RevertDock } from "./revert-dock"
 
 export function AttentionStrip() {
   return (
-    <div class="mx-auto flex w-full max-w-3xl flex-col gap-2">
+    <>
       <TodoStrip />
       <RevertDock />
-    </div>
+    </>
   )
 }
 
@@ -32,7 +32,7 @@ function TodoStrip() {
   const remaining = () => todos().filter((todo) => todo.status !== "completed" && todo.status !== "cancelled")
   return (
     <Show when={remaining().length > 0}>
-      <div class="dock-card plan-card rounded-lg border border-edge bg-surface text-sm">
+      <div class="composer-layer-card dock-card rounded-lg border border-edge bg-surface text-sm">
         <button
           class="flex w-full min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap px-3 py-1.5 text-ink-muted"
           onClick={() => setOpen(!open())}
@@ -93,7 +93,7 @@ export function PermissionCard(props: { permission: Permission }) {
   const reply = (response: PermissionResponse) =>
     void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response)
   return (
-    <div class="fade-up rounded-lg border border-warn/40 bg-warn/10 px-3 py-2.5">
+    <div class="composer-layer-card fade-up rounded-lg border border-warn/40 bg-warn/10 px-3 py-2.5">
       <div class="mb-2 text-sm">
         <span class="text-warn">{t("notification.permission.title")}</span>{" "}
         <span class="text-ink">{props.permission.title}</span>
@@ -147,7 +147,7 @@ export function QuestionCard(props: {
     <Show when={current()}>
       {(question) => (
         <div
-          class="fade-up overflow-hidden rounded-xl border border-edge-strong bg-surface shadow-xl shadow-black/15"
+          class="composer-layer-card fade-up overflow-hidden rounded-xl border border-edge-strong bg-surface shadow-xl shadow-black/15"
           onKeyDown={(event) => {
             if (event.key === "Escape") void answer(null)
             if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) advance()
@@ -184,7 +184,7 @@ export function QuestionCard(props: {
             <div class="mt-1 text-xs text-ink-faint">
               {question().multiple ? t("drift.question.selectMultiple") : t("drift.question.selectOne")}
             </div>
-            <div class="mt-3 max-h-[min(26rem,52vh)] space-y-2 overflow-y-auto pr-1">
+            <div class="question-options mt-3 max-h-[min(26rem,52vh)] space-y-2 overflow-y-auto pr-1">
               <For each={question().options}>
                 {(option) => {
                   const selected = () => draft().selected.includes(option.label)

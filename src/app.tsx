@@ -16,7 +16,6 @@ import { initZoom } from "./state/zoom"
 import { bindShellTimeoutPolicy } from "./state/prefs"
 import { listenMirrorLiveError } from "./state/mirror"
 import { activeWorkspace, initWorkspaces, purgeAll, workspaces } from "./state/workspaces"
-import { AttentionStrip } from "./ui/attention"
 import { Chat, forwardWheelToChat } from "./ui/chat"
 import { Composer } from "./ui/composer"
 import { DebugPanel } from "./ui/debug"
@@ -56,8 +55,8 @@ export function App() {
             />
           </Show>
           <Sidebar />
-          <main class="flex min-w-0 flex-1">
-            <div class="flex min-w-0 flex-1 flex-col">
+          <main class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+            <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               <div class="relative flex min-h-0 flex-1 flex-col">
                 <ChatHeader />
                 <Chat />
@@ -66,7 +65,6 @@ export function App() {
                 class="composer-dock shrink-0 px-4 pb-4"
                 onWheel={(event) => forwardWheelToChat(event, event.currentTarget)}
               >
-                <AttentionStrip />
                 <Composer />
               </div>
             </div>
@@ -94,7 +92,7 @@ function MirrorConnectionNotice() {
   })
   return (
     <Show when={error()}>
-      <div class="fixed right-3 bottom-3 z-100 max-w-sm rounded-md border border-danger/35 bg-surface px-3 py-2 text-xs text-danger shadow-lg">
+      <div class="fixed right-3 bottom-3 z-20 max-w-sm rounded-md border border-danger/35 bg-surface px-3 py-2 text-xs text-danger shadow-lg">
         {error()}
       </div>
     </Show>

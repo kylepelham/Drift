@@ -65,8 +65,8 @@ export function WorkspaceGroup(props: {
   return (
     <div ref={root} data-workspace={props.workspace.id}>
       <div
-        class="group flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
-        classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
+        class="group sticky top-0 z-[1] flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
+        classList={{ "bg-raised": active(), "bg-surface hover:bg-raised/60": !active() }}
         onPointerDown={(event) => {
           cancelDrag()
           cancelDrag = dragReorder(event, root, {
@@ -114,6 +114,7 @@ export function WorkspaceGroup(props: {
           </RowButton>
           <RowButton
             title={t("drift.thread.new")}
+            navigation
             onClick={() => {
               selectWorkspace(props.workspace.id)
               selectSession(null)
@@ -172,10 +173,11 @@ function markWorkspaceDragged() {
   setTimeout(() => (dragged = false), 0)
 }
 
-function RowButton(props: { title: string; onClick: (event: MouseEvent) => void; children: JSX.Element }) {
+function RowButton(props: { title: string; navigation?: boolean; onClick: (event: MouseEvent) => void; children: JSX.Element }) {
   return (
     <button
       title={props.title}
+      data-sidebar-navigation={props.navigation ? "" : undefined}
       class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
@@ -199,6 +201,7 @@ function ThreadItem(props: {
   const active = () => selectedSession() === props.sessionId
   return (
     <div
+      data-sidebar-navigation
       class="group flex h-8 cursor-pointer items-center gap-2 rounded-md py-1 pr-1 pl-2 transition-colors"
       classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
       onClick={() => {
@@ -288,6 +291,7 @@ function ChildThreadItem(props: {
   const active = () => selectedSession() === props.sessionId
   return (
     <div
+      data-sidebar-navigation
       class="flex h-7 cursor-pointer items-center gap-1.5 rounded-md py-0.5 pr-2 pl-5 transition-colors"
       classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
       onClick={() => {

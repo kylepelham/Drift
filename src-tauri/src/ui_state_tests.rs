@@ -20,6 +20,7 @@ fn snapshot(workspace_id: Option<&str>) -> UiMirrorSnapshot {
             workspace_id: workspace_id.map(str::to_string),
             session_id: None,
         },
+        workspace_order: vec!["one".into(), "two".into()],
     }
 }
 
@@ -64,6 +65,7 @@ fn mutations_increment_once_and_deduplicate_retries() {
         mutation_id: "m1".into(),
         theme: Some(snapshot(None).theme),
         selection: None,
+        workspace_order: None,
     };
     let (first, changed) = authority.update(&store, mutation.clone()).unwrap();
     let (retry, retry_changed) = authority.update(&store, mutation).unwrap();
@@ -71,6 +73,35 @@ fn mutations_increment_once_and_deduplicate_retries() {
     assert!(!retry_changed);
     assert_eq!(first.revision, 1);
     assert_eq!(retry, first);
+    let (reordered, order_changed) = authority
+        .update(
+            &store,
+            UiStateMutation {
+                client_id: "desktop".into(),
+                mutation_id: "m2".into(),
+                theme: None,
+                selection: None,
+                workspace_order: Some(vec!["two".into(), "one".into()]),
+            },
+        )
+        .unwrap();
+    assert!(order_changed);
+    assert_eq!(reordered.revision, 2);
+    assert_eq!(reordered.workspace_order, vec!["two", "one"]);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn workspace_selection_is_a_soft_reference() {
+    let (dir, store) = test_store("soft-selection");
+    let authority = UiStateAuthority::load(&store).unwrap();
+    let selected = authority
+        .initialize(&store, snapshot(Some("not-hydrated-yet")))
+        .unwrap();
+    assert_eq!(
+        selected.selection.workspace_id.as_deref(),
+        Some("not-hydrated-yet")
+    );
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -84,6 +115,12 @@ fn validation_rejects_bad_themes_selection_and_timeouts() {
     assert!(validate_snapshot(&invalid).is_err());
     let mut invalid = snapshot(None);
     invalid.theme.custom_css = "x".repeat(20_001);
+    assert!(validate_snapshot(&invalid).is_err());
+    let mut invalid = snapshot(None);
+    invalid.workspace_order = vec!["".into()];
+    assert!(validate_snapshot(&invalid).is_err());
+    let mut invalid = snapshot(None);
+    invalid.workspace_order = vec!["w".into(); 501];
     assert!(validate_snapshot(&invalid).is_err());
     assert!(validate_timeout(Some(59_999)).is_err());
     assert!(validate_timeout(Some(60_000)).is_ok());

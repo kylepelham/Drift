@@ -30,7 +30,7 @@ export function RevertDock() {
 
   return (
     <Show when={items().length > 0}>
-      <div class="dock-card rounded-lg border border-edge bg-surface text-sm">
+      <div class="composer-layer-card dock-card rounded-lg border border-edge bg-surface text-sm">
         <button
           class="flex w-full min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap px-3 py-1.5 text-ink-muted"
           aria-expanded={open()}

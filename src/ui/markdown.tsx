@@ -505,7 +505,7 @@ export function ProgressiveCodeView(props: { code: string; lang: string }) {
   onCleanup(() => observer?.disconnect())
 
   return (
-    <div ref={root} class="code-view code-stream max-h-80 overflow-auto rounded-lg border border-edge">
+    <div ref={root} class="transcript-tool-output code-view code-stream max-h-80 overflow-auto rounded-lg border border-edge">
       <For each={chunks()}>
         {(code, index) => (
           <div class="code-stream-chunk" data-chunk={index()}>

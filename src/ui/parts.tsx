@@ -358,8 +358,9 @@ export function shellTimeoutStatus(part: ToolPart) {
   if (!metadata || !("shellTimeoutMs" in metadata)) return null
   const timeout = metadata.shellTimeoutMs
   const timedOut = metadata.timedOut === true
+  if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) return null
   if (!timedOut && part.state.status !== "running" && part.state.status !== "pending") return null
-  const duration = typeof timeout === "number" ? formatShellTimeout(timeout) : t("drift.settings.shellTimeout.noTimeout")
+  const duration = formatShellTimeout(timeout)
   return {
     timedOut,
     text: timedOut
@@ -464,10 +465,6 @@ export function ToolView(props: { part: ToolPart }) {
     const childId = spawnedId()
     return childId ? delegatedTaskStatus(engine.state, props.part, childId) : null
   }
-  const visibleDelegatedStatus = () => {
-    const status = delegatedStatus()
-    return status === "running" ? null : status
-  }
   const active = () => {
     if (awaitingPermission(engine.state, props.part)) return false
     if (delegated()) return delegatedStatus() === "running" || delegatedStatus() === "resumed"
@@ -566,21 +563,6 @@ export function ToolView(props: { part: ToolPart }) {
         </Show>
         <Show when={progress()}>
           {(text) => <span class="shrink-0 font-mono text-xs text-accent/80">{text()}</span>}
-        </Show>
-        <Show when={visibleDelegatedStatus()}>
-          {(status) => (
-            <span
-              class="shrink-0 rounded px-1.5 py-0.5 text-[0.65rem] font-medium"
-              classList={{
-                "bg-warn/12 text-warn": status() === "interrupted",
-                "bg-accent/10 text-accent": status() === "resumed",
-                "bg-ok/10 text-ok": status() === "completed",
-                "bg-danger/10 text-danger": status() === "error",
-              }}
-            >
-              {t(`drift.recovery.task.${status()}`)}
-            </span>
-          )}
         </Show>
         <Show when={timeout()}>
           {(status) => (
@@ -687,12 +669,12 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
           {(task) => (
             <div class="space-y-2 border-l-2 border-edge pl-3">
               <Show when={task().prompt}>
-                <div class="max-h-40 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-faint">
+                <div class="transcript-tool-output max-h-40 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-faint">
                   {clip(task().prompt)}
                 </div>
               </Show>
               <Show when={task().result}>
-                <div class="max-h-80 overflow-auto text-ink-muted">
+                <div class="transcript-tool-output max-h-80 overflow-auto text-ink-muted">
                   <Markdown text={task().result} done />
                 </div>
               </Show>
@@ -937,7 +919,7 @@ function ShellOutput(props: { command: string; output: string; running: boolean 
       </button>
       <pre
         ref={viewport}
-        class="shell-output code-display max-h-60 overflow-x-hidden overflow-y-auto p-3 pr-10 font-mono leading-[1.5] text-ink"
+        class="shell-output transcript-tool-output code-display max-h-60 overflow-x-hidden overflow-y-auto p-3 pr-10 font-mono leading-[1.5] text-ink"
         role="region"
         aria-label={t("drift.shell.output")}
         tabIndex={0}
@@ -979,7 +961,7 @@ function GenericBody(props: { part: ToolPart }) {
         </div>
       </Show>
       <Show when={output().trim()}>
-        <div class="max-h-64 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-muted">
+        <div class="transcript-tool-output max-h-64 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-muted">
           {clip(stripAnsi(output()))}
         </div>
       </Show>
@@ -1053,7 +1035,7 @@ function DiffPanel(props: { diff: string; lang: string; bare?: boolean }) {
   const visibleTokens = () => (highlighted === source() ? tokens() : [])
   return (
     <div class="diff-view overflow-hidden" classList={{ "rounded-lg border border-edge": !props.bare }}>
-      <div class="max-h-80 overflow-auto py-1 font-mono leading-relaxed">
+      <div class="transcript-tool-output max-h-80 overflow-auto py-1 font-mono leading-relaxed">
         <div classList={{ "w-full": diffWordWrap(), "w-max min-w-full": !diffWordWrap() }}>
           <For each={rows()}>
             {(row, index) => (

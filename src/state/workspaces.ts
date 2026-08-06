@@ -3,7 +3,7 @@ import { isRemoteRuntime } from "../runtime"
 import { parseNavigationHash, pushRemoteSelection } from "./navigation"
 import { applyMirroredSession } from "./selection"
 import { persisted } from "./persist"
-import { publishMirrorSelection } from "./mirror"
+import { publishMirrorSelection, publishMirrorWorkspaceOrder } from "./mirror"
 import { driftStore, type ArchivedSession, type Workspace } from "./store"
 
 const [rawWorkspaces, setWorkspaces] = createSignal<Workspace[]>([])
@@ -12,7 +12,7 @@ const [archivedIds, setArchivedIds] = createSignal<ReadonlySet<string>>(new Set(
 const [archivedSessions, setArchivedSessions] = createSignal<ArchivedSession[]>([])
 const [removedWorkspaces, setRemovedWorkspaces] = createSignal<Workspace[]>([])
 const [activeWorkspaceId, setActiveWorkspaceId] = persisted<string | null>("drift.workspace", null)
-const [workspaceOrder, setWorkspaceOrder] = persisted<string[]>("drift.workspace.order", [])
+const [workspaceOrder, setWorkspaceOrderValue] = persisted<string[]>("drift.workspace.order", [])
 const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = persisted<string[]>("drift.workspace.collapsed", [])
 
 export { archivedIds, archivedSessions, removedWorkspaces, activeWorkspaceId, workspacesReady }
@@ -24,6 +24,15 @@ export function workspaces() {
     return index < 0 ? order.length : index
   }
   return [...rawWorkspaces()].sort((a, b) => rank(a) - rank(b))
+}
+
+function setWorkspaceOrder(ids: string[]) {
+  setWorkspaceOrderValue(ids)
+  publishMirrorWorkspaceOrder(ids)
+}
+
+export function applyMirroredWorkspaceOrder(ids: string[]) {
+  setWorkspaceOrderValue(ids)
 }
 
 export function moveWorkspace(id: string, beforeId: string | null) {
@@ -61,18 +70,30 @@ export function initWorkspaces() {
 
 async function loadWorkspaces() {
   try {
-    await refreshWorkspaces()
+    await refreshWorkspaces(true)
   } finally {
     setWorkspacesReady(true)
   }
   await refreshArchives()
 }
 
-async function refreshWorkspaces() {
+export function hydratedWorkspaceSelection(items: Workspace[], selected: string | null) {
+  if (!selected || items.some((workspace) => workspace.id === selected)) return selected
+  return items[0]?.id ?? null
+}
+
+async function refreshWorkspaces(repairSelection = false) {
   const [active, removed] = await Promise.all([driftStore.workspaces(), driftStore.removedWorkspaces()])
   setWorkspaces(active)
   setRemovedWorkspaces(removed)
   const ids = active.map((w) => w.id)
+  const selected = activeWorkspaceId()
+  const hydrated = repairSelection ? hydratedWorkspaceSelection(active, selected) : selected
+  if (hydrated !== selected) {
+    setActiveWorkspaceId(hydrated)
+    applyMirroredSession(null)
+    publishMirrorSelection({ workspaceId: hydrated, sessionId: null })
+  }
   const kept = workspaceOrder().filter((id) => ids.includes(id))
   const merged = [...kept, ...ids.filter((id) => !kept.includes(id))]
   if (merged.join(",") !== workspaceOrder().join(",")) setWorkspaceOrder(merged)

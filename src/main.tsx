@@ -23,6 +23,7 @@ async function start() {
     await workspaces.initWorkspaces()
     registerMirrorApplier({
       theme: theme.applyMirroredTheme,
+      order: workspaces.applyMirroredWorkspaceOrder,
       selection: (next) => {
         workspaces.applyMirroredWorkspace(next.workspaceId)
         selection.applyMirroredSession(next.sessionId)
@@ -30,6 +31,7 @@ async function start() {
       },
     })
     startMirrorEvents()
+    root.replaceChildren()
     render(() => <App />, root)
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause)

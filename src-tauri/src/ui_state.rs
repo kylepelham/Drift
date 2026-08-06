@@ -35,11 +35,14 @@ pub(crate) struct UiSelection {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct UiMirrorSnapshot {
     pub schema: u8,
     pub revision: u64,
     pub theme: UiTheme,
     pub selection: UiSelection,
+    #[serde(default)]
+    pub workspace_order: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -49,6 +52,8 @@ pub(crate) struct UiStateMutation {
     pub mutation_id: String,
     pub theme: Option<UiTheme>,
     pub selection: Option<UiSelection>,
+    #[serde(default)]
+    pub workspace_order: Option<Vec<String>>,
 }
 
 struct UiStateInner {
@@ -104,7 +109,6 @@ impl UiStateAuthority {
         snapshot.schema = 1;
         snapshot.revision = 0;
         validate_snapshot(&snapshot)?;
-        validate_workspace(store, &snapshot.selection)?;
         let encoded = serde_json::to_string(&snapshot).map_err(|error| error.to_string())?;
         let stored = store
             .initialize_app_setting(UI_STATE_KEY, &encoded)
@@ -123,7 +127,7 @@ impl UiStateAuthority {
     ) -> Result<(UiMirrorSnapshot, bool), String> {
         validate_identifier("clientId", &mutation.client_id)?;
         validate_identifier("mutationId", &mutation.mutation_id)?;
-        if mutation.theme.is_none() && mutation.selection.is_none() {
+        if mutation.theme.is_none() && mutation.selection.is_none() && mutation.workspace_order.is_none() {
             return Err("UI state mutation is empty".into());
         }
         let key = (mutation.client_id, mutation.mutation_id);
@@ -141,12 +145,14 @@ impl UiStateAuthority {
         if let Some(selection) = mutation.selection {
             next.selection = selection;
         }
+        if let Some(order) = mutation.workspace_order {
+            next.workspace_order = order;
+        }
         next.revision = next
             .revision
             .checked_add(1)
             .ok_or_else(|| "UI state revision overflow".to_string())?;
         validate_snapshot(&next)?;
-        validate_workspace(store, &next.selection)?;
         store
             .save_app_setting(
                 UI_STATE_KEY,
@@ -335,30 +341,24 @@ fn validate_snapshot(snapshot: &UiMirrorSnapshot) -> Result<(), String> {
     if snapshot.selection.workspace_id.is_none() && snapshot.selection.session_id.is_some() {
         return Err("sessionId requires workspaceId".into());
     }
-    Ok(())
-}
-
-fn validate_workspace(store: &Store, selection: &UiSelection) -> Result<(), String> {
-    if let Some(id) = selection.workspace_id.as_deref() {
-        if !store
-            .workspace_exists(id)
-            .map_err(|error| error.to_string())?
-        {
-            return Err("selected workspace does not exist".into());
-        }
+    if snapshot.workspace_order.len() > 500 {
+        return Err("workspace order is too long".into());
+    }
+    for id in &snapshot.workspace_order {
+        validate_identifier("workspaceId", id)?;
     }
     Ok(())
 }
 
 fn validate_identifier(name: &str, value: &str) -> Result<(), String> {
-    if value.is_empty() || value.len() > 256 || value.chars().any(char::is_control) {
+    if value.is_empty() || value.chars().count() > 256 || value.chars().any(char::is_control) {
         return Err(format!("invalid {name}"));
     }
     Ok(())
 }
 
 fn validate_text(name: &str, value: &str, max: usize) -> Result<(), String> {
-    if value.len() > max {
+    if value.chars().count() > max {
         return Err(format!("{name} is too long"));
     }
     Ok(())

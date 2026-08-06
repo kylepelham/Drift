@@ -241,14 +241,6 @@ impl Store {
         Ok(())
     }
 
-    pub fn workspace_exists(&self, id: &str) -> rusqlite::Result<bool> {
-        self.0.lock().unwrap().query_row(
-            "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = ?1 AND removed_at IS NULL)",
-            [id],
-            |row| row.get(0),
-        )
-    }
-
     pub fn dictation_enabled(&self) -> rusqlite::Result<bool> {
         let value: Option<String> = self
             .0

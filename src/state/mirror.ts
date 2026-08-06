@@ -27,12 +27,16 @@ export type UiMirrorSnapshot = {
   revision: number
   theme: MirrorTheme
   selection: MirrorSelection
+  workspaceOrder: string[]
 }
 
 type MirrorApplier = {
   theme: (theme: MirrorTheme) => void
   selection: (selection: MirrorSelection) => void
+  order: (ids: string[]) => void
 }
+
+type MirrorPatch = { theme?: MirrorTheme; selection?: MirrorSelection; workspaceOrder?: string[] }
 
 const defaults: MirrorTheme = {
   name: "drift-dark",
@@ -41,14 +45,26 @@ const defaults: MirrorTheme = {
   codeFont: "",
   customCss: "",
 }
+const themeNames = new Set<MirrorThemeName>([
+  "drift-dark",
+  "drift-graphite",
+  "drift-midnight",
+  "drift-slate",
+  "drift-forest",
+  "drift-aubergine",
+  "drift-light",
+  "drift-paper",
+  "drift-custom",
+])
+const hexColor = /^#[\da-f]{6}$/i
 
 const clientId = globalThis.crypto?.randomUUID?.() ?? `client-${Date.now()}-${Math.random()}`
 let current: UiMirrorSnapshot | undefined
 let applier: MirrorApplier | undefined
-let queued: { theme?: MirrorTheme; selection?: MirrorSelection } | undefined
+let queued: MirrorPatch | undefined
 let retry: {
-  patch: { theme?: MirrorTheme; selection?: MirrorSelection }
-  mutation: { clientId: string; mutationId: string; theme?: MirrorTheme; selection?: MirrorSelection }
+  patch: MirrorPatch
+  mutation: MirrorPatch & { clientId: string; mutationId: string }
 } | undefined
 let publishing = false
 let retryTimer: ReturnType<typeof setTimeout> | undefined
@@ -65,21 +81,46 @@ function stored<T>(key: string, fallback: T): T {
   }
 }
 
+function boundedString(value: unknown, fallback: string, max: number) {
+  return typeof value === "string" ? [...value].slice(0, max).join("") : fallback
+}
+
+function identifier(value: unknown) {
+  return typeof value === "string" && [...value].length > 0 && [...value].length <= 256 && ![...value].some((char) => /\p{Cc}/u.test(char))
+    ? value
+    : null
+}
+
+function customTheme(value: unknown): MirrorTheme["custom"] {
+  const source = value && typeof value === "object" ? value as Record<string, unknown> : {}
+  return {
+    background: typeof source.background === "string" && hexColor.test(source.background) ? source.background : defaults.custom.background,
+    surface: typeof source.surface === "string" && hexColor.test(source.surface) ? source.surface : defaults.custom.surface,
+    text: typeof source.text === "string" && hexColor.test(source.text) ? source.text : defaults.custom.text,
+    accent: typeof source.accent === "string" && hexColor.test(source.accent) ? source.accent : defaults.custom.accent,
+  }
+}
+
 export function localMirrorSnapshot(): UiMirrorSnapshot {
+  const name = stored<unknown>("drift.theme", defaults.name)
+  const workspaceId = identifier(stored<unknown>("drift.workspace", null))
+  const sessionId = workspaceId ? identifier(stored<unknown>("drift.session", null)) : null
+  const order = stored<unknown>("drift.workspace.order", [])
+  const workspaceOrder = Array.isArray(order)
+    ? [...new Set(order.map(identifier).filter((id): id is string => !!id))].slice(0, 500)
+    : []
   return {
     schema: 1,
     revision: 0,
     theme: {
-      name: stored("drift.theme", defaults.name),
-      custom: stored("drift.theme.custom", defaults.custom),
-      uiFont: stored("drift.theme.uiFont", ""),
-      codeFont: stored("drift.theme.codeFont", ""),
-      customCss: stored("drift.theme.customCss", ""),
+      name: typeof name === "string" && themeNames.has(name as MirrorThemeName) ? name as MirrorThemeName : defaults.name,
+      custom: customTheme(stored<unknown>("drift.theme.custom", defaults.custom)),
+      uiFont: boundedString(stored<unknown>("drift.theme.uiFont", ""), "", 256),
+      codeFont: boundedString(stored<unknown>("drift.theme.codeFont", ""), "", 256),
+      customCss: boundedString(stored<unknown>("drift.theme.customCss", ""), "", 20_000),
     },
-    selection: {
-      workspaceId: stored<string | null>("drift.workspace", null),
-      sessionId: stored<string | null>("drift.session", null),
-    },
+    selection: { workspaceId, sessionId },
+    workspaceOrder,
   }
 }
 
@@ -92,6 +133,7 @@ function cache(snapshot: UiMirrorSnapshot) {
     ["drift.theme.customCss", snapshot.theme.customCss],
     ["drift.workspace", snapshot.selection.workspaceId],
     ["drift.session", snapshot.selection.sessionId],
+    ["drift.workspace.order", snapshot.workspaceOrder],
   ]
   for (const [key, value] of values) localStorage.setItem(key, JSON.stringify(value))
 }
@@ -101,6 +143,7 @@ export function acceptMirrorSnapshot(snapshot: UiMirrorSnapshot, force = false) 
   current = snapshot
   cache(snapshot)
   applier?.theme(snapshot.theme)
+  applier?.order(snapshot.workspaceOrder)
   applier?.selection(snapshot.selection)
   return true
 }
@@ -121,6 +164,7 @@ export function registerMirrorApplier(next: MirrorApplier) {
   applier = next
   if (current) {
     next.theme(current.theme)
+    next.order(current.workspaceOrder)
     next.selection(current.selection)
   }
 }
@@ -134,7 +178,10 @@ export async function bootstrapMirror() {
     : await invoke<UiMirrorSnapshot>(mirrorBootstrapCommand(false), { snapshot: localMirrorSnapshot() })
   acceptMirrorSnapshot(snapshot, true)
 
-  const localTimeout = stored<number | null>("drift.shell.timeout", null)
+  const savedTimeout = stored<unknown>("drift.shell.timeout", null)
+  const localTimeout = typeof savedTimeout === "number" && Number.isInteger(savedTimeout) && savedTimeout >= 60_000 && savedTimeout <= 86_400_000
+    ? savedTimeout
+    : null
   const policy = remote
     ? await invoke<{ timeoutMs: number | null }>(shellTimeoutBootstrapCommand(true))
     : await invoke<{ timeoutMs: number | null }>(shellTimeoutBootstrapCommand(false), { policy: { timeoutMs: localTimeout } })
@@ -151,7 +198,13 @@ export function publishMirrorSelection(selection: MirrorSelection) {
   queueMutation({ selection })
 }
 
-function queueMutation(patch: { theme?: MirrorTheme; selection?: MirrorSelection }) {
+export function publishMirrorWorkspaceOrder(ids: string[]) {
+  if (current && current.workspaceOrder.join("\u0000") === ids.join("\u0000")) return
+  if (current) current = { ...current, workspaceOrder: ids }
+  queueMutation({ workspaceOrder: ids })
+}
+
+function queueMutation(patch: MirrorPatch) {
   if (!current) return
   queued = { ...queued, ...patch }
   if (!publishing) void flushMutations()
@@ -160,6 +213,14 @@ function queueMutation(patch: { theme?: MirrorTheme; selection?: MirrorSelection
 async function flushMutations() {
   const invoke = backendInvoke()
   if (!invoke) return
+  if (retryTimer) {
+    clearTimeout(retryTimer)
+    retryTimer = undefined
+  }
+  if (retry && queued) {
+    queued = { ...retry.patch, ...queued }
+    retry = undefined
+  }
   publishing = true
   let failed = false
   try {
@@ -182,8 +243,14 @@ async function flushMutations() {
         acceptMirrorSnapshot(snapshot)
         setLiveError("")
       } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause)
+        if (message === "selected workspace does not exist") {
+          retry = undefined
+          setLiveError("")
+          continue
+        }
         failed = true
-        setLiveError(cause instanceof Error ? cause.message : String(cause))
+        setLiveError(message)
         break
       }
     }

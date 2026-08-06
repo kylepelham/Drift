@@ -18,29 +18,29 @@ http://192.168.1.20:41718/companion?token=<access-key>
 
 The query key is exchanged once for an HttpOnly, `SameSite=Strict`, `Path=/` cookie. Drift then redirects to the clean `/companion` URL. Use **Rotate access key** to invalidate every existing remote cookie and saved URL immediately. Disabling Remote Access stops both listeners and rejects access immediately; the enabled state and key are retained in Drift's native SQLite store.
 
-If Windows asks whether Drift may accept network connections, allow it on private networks only. A host firewall must permit inbound UDP `41717` and TCP `41718` for discovery and access.
+If Windows asks whether Drift may accept network connections, allow it on private networks only. A host firewall must permit inbound UDP `41717` for address discovery and TCP `41718` for access.
 
-## Deck
+## Discovery
 
-Drift is compatible with the existing Flutter Deck app without a Deck update. While Remote Access is enabled, Drift listens for the exact legacy UDP probe on port `41717`:
+While Remote Access is enabled, Drift listens for the existing UDP probe on port `41717`:
 
 ```text
 OPENCODE_COMPANION_DISCOVERY
 ```
 
-It replies with `kind: "opencode-companion"`, a reachable local IPv4 URL, and the access key expected by Deck. The descriptor also includes `brand: "Drift"`, `name: "Drift"`, `protocol: "drift-remote"`, and `version: 1` for a future dedicated client. Engine credentials are never present in discovery.
+It replies with `kind: "drift-companion"`, a reachable local IPv4 URL, `brand: "Drift"`, `name: "Drift"`, `protocol: "drift-remote"`, and `version: 1`. Discovery never includes the private access key or engine credentials. Open the private connection URL copied from the desktop app to authenticate.
 
 ## Architecture
 
 ```text
-mobile browser / Deck WebView
+mobile browser / WebView
         | authenticated HTTP :41718
         v
 Tauri-owned Remote Access gateway
         |-- /companion + /assets/*  embedded Vite dist
         |-- /engine/*               streaming reverse proxy + injected engine Basic auth
         |-- /api/invoke             explicit host-command allowlist
-        |-- UDP :41717              Deck discovery while enabled
+        |-- UDP :41717              credential-free address discovery
         v
 loopback-only OpenCode engine on a random port
 ```
@@ -91,8 +91,8 @@ LAN traffic is plain HTTP and is not encrypted. The token prevents unauthenticat
 3. Enable **Settings > Remote Access** and copy the private URL.
 4. From another LAN device, open the copied URL. Confirm the browser redirects to clean `/companion` and the full workspace/session UI hydrates.
 5. Start a prompt on one device and confirm transcript/tool/SSE updates appear on both. Exercise permission and question replies, attachments, undo/redo, model selection, settings, storage, prompts, and MCP management.
-6. Put the Deck app on the same LAN and confirm it discovers **Drift** and opens the same interface.
+6. Send the UDP discovery probe from another LAN device and confirm the response advertises Drift's address without a token.
 7. Rotate the key and confirm the old browser is rejected on its next request. Reconnect with the newly copied URL.
-8. Disable Remote Access and confirm HTTP access and Deck discovery stop immediately.
+8. Disable Remote Access and confirm HTTP access and LAN discovery stop immediately.
 
-Physical-device checks should cover Android Back behavior, display cutouts/safe areas, the software keyboard while composing, file selection, coarse-pointer menus, sleep/resume SSE recovery, and a `1280x800` Deck viewport.
+Physical-device checks should cover Android Back behavior, display cutouts/safe areas, the software keyboard while composing, file selection, coarse-pointer menus, sleep/resume SSE recovery, and a `1280x800` tablet viewport.

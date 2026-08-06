@@ -67,6 +67,7 @@ import {
   remoteAccessError,
   remoteAccessStatus,
   nextRemoteAccessEnabled,
+  remoteStatusTone,
   rotateRemoteAccessToken,
   setRemoteAccess,
 } from "../state/remote-access"
@@ -496,43 +497,29 @@ function RemoteAccessSection() {
     }
   }
 
+  const statusLabel = () =>
+    status()?.error
+      ? t("drift.remote.statusError")
+      : status()?.listening
+        ? t("drift.remote.listening")
+        : status()?.enabled
+          ? t("drift.remote.statusStarting")
+          : t("drift.remote.statusOff")
+
   return (
-    <div class="space-y-4">
+    <div class="space-y-5">
       <Show
         when={!remote}
         fallback={
-          <div class="flex items-center gap-2 border-y border-edge/80 px-1 py-3">
-            <div class="flex items-center gap-2 text-sm font-medium text-ink">
+          <SettingsGroup title={t("drift.remote.gateway")}>
+            <SettingsRow title={t("drift.remote.connected")} description={t("drift.remote.manageOnDesktop")}>
               <span class="size-2 rounded-full bg-ok" />
-              {t("drift.remote.connected")}
-            </div>
-          </div>
+            </SettingsRow>
+          </SettingsGroup>
         }
       >
-        <div class="flex items-center justify-between border-y border-edge/80 px-1 py-2.5">
-          <div class="flex items-center gap-2 text-[0.82rem] font-medium text-ink">
-            <span
-              class="size-2 rounded-full"
-              classList={{
-                "bg-ink-faint": !status()?.enabled,
-                "bg-warn": !!status()?.enabled && !status()?.listening && !status()?.error,
-                "bg-ok": !!status()?.listening,
-                "bg-danger": !!status()?.error,
-              }}
-            />
-            {status()?.error
-              ? t("drift.remote.statusError")
-              : status()?.listening
-                ? t("drift.remote.listening")
-                : status()?.enabled
-                  ? t("drift.remote.statusStarting")
-                  : t("drift.remote.statusOff")}
-          </div>
-          <span class="font-mono text-[0.68rem] text-ink-faint">{status()?.listeningAddress ?? ""}</span>
-        </div>
-
-        <SettingsGroup title={t("drift.remote.gateway") }>
-          <SettingsRow title={t("drift.remote.enable")} description={t("drift.remote.enableDescription") }>
+        <SettingsGroup title={t("drift.remote.gateway")}>
+          <SettingsRow title={t("drift.remote.enable")} description={t("drift.remote.enableDescription")}>
             <Toggle
               label={t("drift.remote.enable")}
               checked={!!status()?.enabled}
@@ -540,14 +527,31 @@ function RemoteAccessSection() {
               onChange={() => void setRemoteAccess(nextRemoteAccessEnabled(status()))}
             />
           </SettingsRow>
+          <SettingsRow title={t("drift.remote.address")} description={statusLabel()}>
+            <div class="flex items-center gap-2">
+              <span
+                class="size-2 rounded-full"
+                classList={{
+                  "bg-ink-faint": remoteStatusTone(status()) === "idle" || remoteStatusTone(status()) === "offline",
+                  "bg-warn": remoteStatusTone(status()) === "offline" && !!status()?.enabled,
+                  "bg-ok": remoteStatusTone(status()) === "online",
+                  "bg-danger": remoteStatusTone(status()) === "error",
+                }}
+              />
+              <span class="font-mono text-[0.75rem] text-ink-muted">{status()?.listeningAddress ?? "—"}</span>
+            </div>
+          </SettingsRow>
           <Show when={status()?.enabled && status()?.listening}>
             <SettingsRow title={t("drift.remote.connectionUrl")} description={status()?.urls[0] || t("drift.remote.noLanAddress")}>
               <div class="flex flex-wrap justify-end gap-2">
-                <button class="h-8 rounded-md bg-accent px-3 text-xs font-medium text-accent-ink" onClick={() => void copyConnectionUrl()}>
+                <button
+                  class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+                  onClick={() => void copyConnectionUrl()}
+                >
                   {copied() ? t("drift.remote.copied") : t("drift.remote.copy")}
                 </button>
                 <button
-                  class="h-8 rounded-md border border-edge px-3 text-xs text-ink-muted hover:border-edge-strong hover:text-ink disabled:opacity-40"
+                  class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
                   disabled={remoteAccessBusy()}
                   onClick={() => void rotate()}
                 >
@@ -562,23 +566,19 @@ function RemoteAccessSection() {
       </Show>
 
       <Show when={remoteAccessError() || status()?.error}>
-        <div class="rounded-lg border border-danger/35 bg-danger/10 px-3 py-2 text-xs text-danger">
-          {remoteAccessError() || status()?.error}
-        </div>
+        <div class="text-xs text-danger">{remoteAccessError() || status()?.error}</div>
       </Show>
-      <div class="flex items-start gap-2 text-xs leading-relaxed text-ink-faint">
-        <IconInfo class="mt-0.5 size-3.5 shrink-0" />
-        <span>{t("drift.remote.securityWarning")}</span>
-      </div>
-      <p class="text-xs leading-relaxed text-ink-faint">{t("drift.remote.deckHelp")}</p>
+      <p class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.remote.securityWarning")}</p>
+      <p class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.remote.deckHelp")}</p>
     </div>
   )
 }
 
 function ToolExecutionSection() {
-  const initial = shellTimeoutMs()
+  const isPreset = (value: number | null) => value === null || (shellTimeoutPresets as readonly number[]).includes(value)
+  const [customOpen, setCustomOpen] = createSignal(!isPreset(shellTimeoutMs()))
   const [customMinutes, setCustomMinutes] = createSignal(
-    String(initial !== null && !shellTimeoutPresets.includes(initial as never) ? initial / 60_000 : 10),
+    String(isPreset(shellTimeoutMs()) ? 10 : shellTimeoutMs()! / 60_000),
   )
   const [error, setError] = createSignal("")
   onMount(() => {
@@ -596,66 +596,69 @@ function ToolExecutionSection() {
     await setShellTimeoutMs(value).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
   }
 
+  const selected = () => (customOpen() || !isPreset(shellTimeoutMs()) ? "custom" : String(shellTimeoutMs()))
+
   return (
     <div class="space-y-5">
-      <div class="border-y border-edge/80 px-1 py-3">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <div class="text-[0.82rem] font-medium text-ink">{t("drift.settings.shellTimeout.title")}</div>
-            <div class="mt-0.5 text-[0.72rem] text-ink-faint">{t("drift.settings.shellTimeout.hostWide")}</div>
-          </div>
-          <div class="text-right">
-            <div class="text-sm font-semibold text-ink">{shellTimeoutMs() === null ? t("drift.settings.shellTimeout.noTimeout") : `${shellTimeoutMs()! / 60_000}m`}</div>
-            <div class="text-[0.68rem] text-ink-faint">{t("drift.settings.shellTimeout.appliesNew")}</div>
-          </div>
-        </div>
-      </div>
-      <SettingsGroup title={t("drift.settings.shellTimeout.presets")}>
-        <div class="flex flex-wrap gap-2 px-1 py-3">
-          <For each={[null, ...shellTimeoutPresets] as (number | null)[]}>
-            {(timeout) => (
-              <button
-                class="h-8 rounded-md border px-3 text-xs transition-colors"
-                classList={{
-                  "border-accent bg-accent/10 text-accent": shellTimeoutMs() === timeout,
-                  "border-edge text-ink-muted hover:border-edge-strong hover:text-ink": shellTimeoutMs() !== timeout,
-                }}
-                onClick={() => void applyTimeout(timeout)}
-              >
-                {timeout === null ? t("drift.settings.shellTimeout.noTimeout") : t(`drift.settings.shellTimeout.preset${timeout / 60_000}`)}
-              </button>
-            )}
-          </For>
-        </div>
+      <SettingsGroup title={t("drift.settings.toolExecution")}>
         <SettingsRow
-          title={t("drift.settings.shellTimeout.customMinutes")}
-          description={customValid() ? t("drift.settings.shellTimeout.customDescription") : t("drift.settings.shellTimeout.invalid")}
+          title={t("drift.settings.shellTimeout.title")}
+          description={t("drift.settings.shellTimeout.description")}
         >
-          <div class="flex items-center gap-2">
-            <input
-              type="number"
-              min={shellTimeoutMinMs / 60_000}
-              max={shellTimeoutMaxMs / 60_000}
-              step="1"
-              aria-label={t("drift.settings.shellTimeout.customMinutes")}
-              aria-invalid={!customValid()}
-              class="w-24 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-right font-mono text-xs text-ink outline-none focus:border-edge-strong"
-              value={customMinutes()}
-              onInput={(event) => {
-                setCustomMinutes(event.currentTarget.value)
-              }}
-            />
-            <button
-              class="h-8 rounded-md bg-accent px-3 text-xs font-medium text-accent-ink disabled:opacity-40"
-              disabled={!customValid()}
-              onClick={() => void applyTimeout(customValue())}
-            >
-              {t("common.apply")}
-            </button>
-          </div>
+          <Picker
+            label={t("drift.settings.shellTimeout.title")}
+            items={[
+              { id: "null", label: t("drift.settings.shellTimeout.noTimeout") },
+              ...shellTimeoutPresets.map((value) => ({
+                id: String(value),
+                label: t(`drift.settings.shellTimeout.preset${value / 60_000}`),
+              })),
+              { id: "custom", label: t("drift.settings.shellTimeout.custom") },
+            ]}
+            selected={selected()}
+            floating
+            bordered
+            chevronAtEnd
+            placement="below"
+            width="12rem"
+            onPick={(id) => {
+              if (id === "custom") return setCustomOpen(true)
+              setCustomOpen(false)
+              void applyTimeout(id === "null" ? null : Number(id))
+            }}
+          />
         </SettingsRow>
+        <Show when={customOpen()}>
+          <SettingsRow
+            title={t("drift.settings.shellTimeout.customMinutes")}
+            description={customValid() ? t("drift.settings.shellTimeout.customDescription") : t("drift.settings.shellTimeout.invalid")}
+          >
+            <div class="flex items-center gap-2">
+                   <input
+                type="number"
+                min={shellTimeoutMinMs / 60_000}
+                max={shellTimeoutMaxMs / 60_000}
+                step="1"
+                aria-label={t("drift.settings.shellTimeout.customMinutes")}
+                aria-invalid={!customValid()}
+                class="w-24 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-right font-mono text-xs text-ink outline-none focus:border-edge-strong"
+                value={customMinutes()}
+                onInput={(event) => {
+                  setCustomMinutes(event.currentTarget.value)
+                }}
+              />
+              <button
+                class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                disabled={!customValid()}
+                onClick={() => void applyTimeout(customValue())}
+              >
+                {t("common.save")}
+              </button>
+            </div>
+          </SettingsRow>
+        </Show>
       </SettingsGroup>
-      <p class="flex items-start gap-2 text-xs leading-relaxed text-ink-faint"><IconInfo class="mt-0.5 size-3.5 shrink-0" />{t("drift.settings.shellTimeout.scope")}</p>
+      <p class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.settings.shellTimeout.scope")}</p>
       <Show when={error()}><div class="text-xs text-danger">{error()}</div></Show>
     </div>
   )
@@ -1733,9 +1736,13 @@ function AppearanceSection() {
                   />
                   <input
                     aria-label={t("drift.settings.customPalette.hexValue", { color: t(color.label) })}
-                    class="h-8 w-24 rounded-md border border-edge bg-raised/45 px-2 font-mono text-xs text-ink outline-none focus:border-accent"
-                    value={customTheme()[color.id]}
-                    onInput={(event) => setCustomThemeColor(color.id, event.currentTarget.value)}
+                     class="h-8 w-24 rounded-md border border-edge bg-raised/45 px-2 font-mono text-xs text-ink outline-none focus:border-accent"
+                     maxLength={7}
+                     pattern="#[0-9a-fA-F]{6}"
+                     value={customTheme()[color.id]}
+                     onChange={(event) => {
+                       if (/^#[\da-f]{6}$/i.test(event.currentTarget.value)) setCustomThemeColor(color.id, event.currentTarget.value)
+                     }}
                   />
                 </div>
               </SettingsRow>
@@ -1919,6 +1926,7 @@ function FontField(props: { label: string; value: string; onInput: (value: strin
       class="h-8 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-accent sm:w-56"
       classList={{ "font-mono text-xs": props.mono }}
       placeholder={props.mono ? '"Cascadia Code", monospace' : '"Segoe UI", sans-serif'}
+      maxLength={256}
       value={props.value}
       onInput={(event) => props.onInput(event.currentTarget.value)}
     />

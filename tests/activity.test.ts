@@ -131,6 +131,7 @@ test("human-typed prose keeps pasted markup literal", async () => {
   const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text()
   expect(css).not.toMatch(/\.user-paste \{[^}]*max-height:/s)
   expect(css).toMatch(/\.transcript-scroll \{[^}]*overflow-anchor: none/s)
+  expect(css).not.toMatch(/\.timeline-thinking \{[^}]*padding-bottom:/s)
 })
 
 test("human-typed prose still renders deliberate fences and tables", async () => {
@@ -541,7 +542,7 @@ test("transcript follow revision tracks lengths and status without embedding lar
 })
 
 test("timeline omits hidden-only messages without dropping the active thinking row", async () => {
-  const { timelineEntries } = await import("../src/ui/chat")
+  const { estimatedTimelineRow, timelineEntries } = await import("../src/ui/chat")
   const entry = (id: string, parts: unknown[]) => ({
     info: { id, role: "assistant", time: { created: 1 }, tokens: { input: 0, output: 0, reasoning: 0 } },
     parts,
@@ -555,6 +556,20 @@ test("timeline omits hidden-only messages without dropping the active thinking r
     "hidden",
     "visible",
   ])
+  expect(estimatedTimelineRow(hidden as never, 13, hidden.parts as never, true)).toBe(32)
+  expect(estimatedTimelineRow(hidden as never, 13, hidden.parts as never, false, true)).toBe(44)
+  expect(await Bun.file("src/ui/chat.tsx").text()).toContain("max-w-3xl px-4 pt-14 pb-6")
+})
+
+test("virtualized rows use flow spacers so live activity cannot overlap them", async () => {
+  const chat = await Bun.file("src/ui/chat.tsx").text()
+  expect(chat).not.toContain("terminalThinking")
+  expect(chat).not.toContain("terminalRetry")
+  expect(chat).not.toContain("translateY(${offsets()[range().start]}px)")
+  expect(chat).toContain('height: `${offsets()[range().start]}px`')
+  expect(chat).toContain('(offsets().at(-1) ?? 0) - offsets()[range().end]')
+  expect(chat).toContain("thinking={thinking()?.messageID === entry.info.id && !retry()}")
+  expect(chat).toContain("retry={thinking()?.messageID === entry.info.id ? retry() : undefined}")
 })
 
 test("tall row measurement only compensates rows actually above the viewport", async () => {
@@ -603,20 +618,34 @@ test("assistant row estimates account for wrapping and fenced code", async () =>
   expect(estimatedTimelineRow(entry)).toBe(272)
 })
 
-test("thinking follows OpenCode's active user turn", async () => {
+test("thinking remains attached to an assistant while the session is active", async () => {
   const { thinkingAfterMessage } = await import("../src/ui/chat")
   const message = (id: string, role: "user" | "assistant", parentID?: string, completed?: number) =>
     ({ info: { id, role, parentID, time: { created: 1, completed } }, parts: [] }) as never
   const first = message("u1", "user")
   const response = message("a1", "assistant", "u1")
   const steer = message("u2", "user")
+  // A running assistant owns the indicator even when the user steers with a newer message.
   expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("a1")
+  // Once every assistant is complete, a newer user prompt anchors it under that prompt.
   response.info.time.completed = 2
   expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("u2")
   const steeredResponse = message("a2", "assistant", "u2")
   expect(thinkingAfterMessage([first, response, steer, steeredResponse], "busy")).toBe("a2")
   expect(thinkingAfterMessage([first, response, steer, steeredResponse], "retry")).toBe("a2")
   expect(thinkingAfterMessage([first, response, steer, steeredResponse], "idle")).toBeNull()
+  // The very first prompt of a session has no assistant yet.
+  expect(thinkingAfterMessage([first], "busy")).toBe("u1")
+
+  steeredResponse.info.time.completed = 3
+  const compacted = {
+    info: { id: "a3", role: "assistant", parentID: "u3", summary: true, time: { created: 4, completed: 5 } },
+    parts: [],
+  } as never
+  // A completed compaction summary never captures the indicator from a newer user prompt.
+  const afterCompaction = message("u4", "user")
+  expect(thinkingAfterMessage([first, response, steer, steeredResponse, compacted, afterCompaction], "busy")).toBe("u4")
+  expect(thinkingAfterMessage([first, response, steer, steeredResponse, compacted], "busy")).toBe("a3")
 })
 
 test("thinking derives the first provider reasoning heading for the active turn", async () => {

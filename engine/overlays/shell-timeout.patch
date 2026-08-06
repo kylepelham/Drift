@@ -80,6 +80,18 @@ index 0000000..8c3ef9c
 +  current,
 +  snapshot,
 +}
+diff --git a/packages/opencode/src/session/tools.ts b/packages/opencode/src/session/tools.ts
+--- a/packages/opencode/src/session/tools.ts
++++ b/packages/opencode/src/session/tools.ts
+@@ -74,7 +74,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
+             metadata: val.metadata,
+             status: "running",
+             input: args,
+-            time: { start: Date.now() },
++            time: { start: match.state.status === "running" ? match.state.time.start : Date.now() },
+           },
+         }
+       }),
 diff --git a/packages/opencode/src/tool/shell.ts b/packages/opencode/src/tool/shell.ts
 index c60ee49..42da276 100644
 --- a/packages/opencode/src/tool/shell.ts
@@ -101,12 +113,13 @@ index c60ee49..42da276 100644
 
      const cygpath = Effect.fn("ShellTool.cygpath")(function* (shell: string, text: string) {
        const lines = yield* spawner
-@@ -431,7 +432,7 @@ export const ShellTool = Tool.define(
+@@ -431,7 +432,8 @@ export const ShellTool = Tool.define(
          command: string
          cwd: string
          env: NodeJS.ProcessEnv
 -        timeout: number
 +        timeout?: number
++        displayTimeout?: number
        },
        ctx: Tool.Context,
      ) {
@@ -114,7 +127,7 @@ index c60ee49..42da276 100644
        yield* ctx.metadata({
          metadata: {
            output: "",
-+          shellTimeoutMs: input.timeout ?? null,
++          shellTimeoutMs: input.displayTimeout ?? null,
          },
        })
 
@@ -122,7 +135,7 @@ index c60ee49..42da276 100644
                        ctx.metadata({
                          metadata: {
                            output: last,
-+                          shellTimeoutMs: input.timeout ?? null,
++                          shellTimeoutMs: input.displayTimeout ?? null,
                          },
                        }),
                      ),
@@ -130,7 +143,7 @@ index c60ee49..42da276 100644
                return ctx.metadata({
                  metadata: {
                    output: last,
-+                  shellTimeoutMs: input.timeout ?? null,
++                  shellTimeoutMs: input.displayTimeout ?? null,
                  },
                })
              }),
@@ -183,7 +196,7 @@ index c60ee49..42da276 100644
          metadata: {
            output: last || preview(output),
            exit: code,
-+          shellTimeoutMs: input.timeout ?? null,
++          shellTimeoutMs: expired ? input.timeout ?? null : input.displayTimeout ?? null,
 +          timedOut: expired,
            truncated: cut,
            ...(cut && file ? { outputPath: file } : {}),
@@ -208,21 +221,31 @@ index c60ee49..42da276 100644
          yield* Effect.logInfo("shell tool using shell", { shell })
 
          return {
-@@ -615,7 +632,7 @@ export const ShellTool = Tool.define(
+@@ -615,7 +632,9 @@ export const ShellTool = Tool.define(
                if (params.timeout !== undefined && params.timeout < 0) {
                  throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
                }
 -              const timeout = params.timeout ?? defaultTimeoutMs
++              const configuredTimeout = ShellTimeout.current()
 +              const timeout = ShellTimeout.snapshot(params.timeout, runtimeDefaultTimeoutMs)
++              const displayTimeout = params.timeout === undefined ? configuredTimeout : undefined
                const ps = Shell.ps(shell)
                yield* Effect.scoped(
                  Effect.gen(function* () {
+@@ -634,6 +653,7 @@ export const ShellTool = Tool.define(
+                   cwd,
+                   env: yield* shellEnv(ctx, cwd),
+                   timeout,
++                  displayTimeout,
+                 },
+                 ctx,
+               )
 diff --git a/packages/opencode/test/tool/shell-timeout.test.ts b/packages/opencode/test/tool/shell-timeout.test.ts
 new file mode 100644
 index 0000000..ff37fab
 --- /dev/null
 +++ b/packages/opencode/test/tool/shell-timeout.test.ts
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,43 @@
 +import { afterEach, expect, test } from "bun:test"
 +import { ShellTimeout } from "../../src/tool/shell-timeout"
 +
@@ -242,6 +265,18 @@ index 0000000..ff37fab
 +  expect(next).toBe(60_000)
 +})
 +
++test("model-provided timeout overrides configured and runtime defaults", () => {
++  ShellTimeout.configure(300_000)
++  expect(ShellTimeout.snapshot(60_000, 120_000)).toBe(60_000)
++  ShellTimeout.configure(null)
++  expect(ShellTimeout.snapshot(60_000, 120_000)).toBe(60_000)
++})
++
++test("streamed metadata preserves the original tool start time", async () => {
++  const tools = await Bun.file(new URL("../../src/session/tools.ts", import.meta.url)).text()
++  expect(tools).toContain('match.state.status === "running" ? match.state.time.start : Date.now()')
++})
++
 +test("does not apply the shell timeout class to other tools", async () => {
 +  const files = ["../../src/tool/webfetch.ts", "../../src/mcp/index.ts"]
 +  for (const file of files) {
@@ -249,7 +284,8 @@ index 0000000..ff37fab
 +  }
 +  const shell = await Bun.file(new URL("../../src/tool/shell.ts", import.meta.url)).text()
 +  expect(shell).toContain("timedOut: expired")
-+  expect(shell).toContain("shellTimeoutMs: input.timeout ?? null")
++  expect(shell).toContain("shellTimeoutMs: input.displayTimeout ?? null")
++  expect(shell).toContain("displayTimeout = params.timeout === undefined ? configuredTimeout : undefined")
 +  const spawner = await Bun.file(new URL("../../../core/src/cross-spawn-spawner.ts", import.meta.url)).text()
 +  expect(spawner).toContain("taskkill /pid ${proc.pid} /T /F")
 +})
