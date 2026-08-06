@@ -1,0 +1,371 @@
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
+index 40540925..fd98e5c7 100644
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
+@@ -7,6 +7,7 @@ import { InstanceRef } from "@/effect/instance-ref"
+ import type { InstanceContext } from "@/project/instance-context"
+ import { Project } from "@/project/project"
+ import { Session } from "@/session/session"
++import { SessionRunState } from "@/session/run-state"
+ import { SessionStatus } from "@/session/status"
+ import { RootHttpApi } from "../api"
+ import { ApiMoveSessionError, MoveSessionPayload, ShellTimeoutPayload } from "../groups/control-plane"
+@@ -16,6 +17,7 @@ export const controlPlaneHandlers = HttpApiBuilder.group(RootHttpApi, "controlPl
+   Effect.gen(function* () {
+     const service = yield* MoveSession.Service
+     const sessions = yield* Session.Service
++    const runState = yield* SessionRunState.Service
+     const status = yield* SessionStatus.Service
+     const project = yield* Project.Service
+ 
+@@ -46,15 +48,19 @@ export const controlPlaneHandlers = HttpApiBuilder.group(RootHttpApi, "controlPl
+     const moveSession = Effect.fn("ControlPlaneHttpApi.moveSession")(function* (ctx: {
+       payload: typeof MoveSessionPayload.Type
+     }) {
+-      const current = yield* sessions.get(ctx.payload.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
+-      const destination = FSUtil.resolve(ctx.payload.destination.directory)
+-      if (current && FSUtil.resolve(current.directory) !== destination && (yield* busyInTree(current))) {
+-        return yield* new ApiMoveSessionError({
+-          name: "MoveSessionError",
+-          data: { message: `Session is busy: ${ctx.payload.sessionID}` },
+-        })
+-      }
+-      yield* service.moveSession(ctx.payload).pipe(
++      yield* runState.whileTreeIdle(
++        ctx.payload.sessionID,
++        Effect.gen(function* () {
++          const current = yield* sessions
++            .get(ctx.payload.sessionID)
++            .pipe(Effect.catch(() => Effect.succeed(undefined)))
++          const destination = FSUtil.resolve(ctx.payload.destination.directory)
++          if (current && FSUtil.resolve(current.directory) !== destination && (yield* busyInTree(current))) {
++            return yield* new Session.BusyError({ sessionID: ctx.payload.sessionID })
++          }
++          return yield* service.moveSession(ctx.payload)
++        }),
++      ).pipe(
+         Effect.mapError(
+           (error) =>
+             new ApiMoveSessionError({
+@@ -75,7 +81,8 @@ export const controlPlaneHandlers = HttpApiBuilder.group(RootHttpApi, "controlPl
+   }),
+ )
+ 
+-function message(error: MoveSession.Error) {
++function message(error: MoveSession.Error | Session.BusyError) {
++  if (error instanceof Session.BusyError) return `Session is busy: ${error.sessionID}`
+   if (error instanceof SessionV2.NotFoundError) return `Session not found: ${error.sessionID}`
+   if (error instanceof MoveSession.DestinationProjectMismatchError)
+     return "Destination directory belongs to another project"
+diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
+index eb116f6b..b2e8fb2b 100644
+--- a/packages/opencode/src/session/prompt.ts
++++ b/packages/opencode/src/session/prompt.ts
+@@ -1052,22 +1052,27 @@ const layer = Layer.effect(
+     const prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error> = Effect.fn(
+       "SessionPrompt.prompt",
+     )(function* (input: PromptInput) {
+-      const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+-      yield* revert.cleanup(session)
+-      const message = yield* createUserMessage(input)
+-      yield* sessions.touch(input.sessionID)
+-
+-      const permissions: PermissionV1.Rule[] = []
+-      for (const [t, enabled] of Object.entries(input.tools ?? {})) {
+-        permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
+-      }
+-      if (permissions.length > 0) {
+-        session.permission = permissions
+-        yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
+-      }
++      return yield* state.runTree(
++        input.sessionID,
++        Effect.gen(function* () {
++          const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
++          yield* revert.cleanup(session)
++          const message = yield* createUserMessage(input)
++          yield* sessions.touch(input.sessionID)
++
++          const permissions: PermissionV1.Rule[] = []
++          for (const [t, enabled] of Object.entries(input.tools ?? {})) {
++            permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
++          }
++          if (permissions.length > 0) {
++            session.permission = permissions
++            yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
++          }
+ 
+-      if (input.noReply === true) return message
+-      return yield* loop({ sessionID: input.sessionID })
++          if (input.noReply === true) return message
++          return yield* loop({ sessionID: input.sessionID })
++        }),
++      )
+     })
+ 
+     const lastAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
+diff --git a/packages/opencode/src/session/run-state.ts b/packages/opencode/src/session/run-state.ts
+index 5cefdd04..609a4910 100644
+--- a/packages/opencode/src/session/run-state.ts
++++ b/packages/opencode/src/session/run-state.ts
+@@ -1,4 +1,6 @@
+ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
++import { KeyedMutex } from "@opencode-ai/core/effect/keyed-mutex"
++import { FSUtil } from "@opencode-ai/core/fs-util"
+ import { InstanceState } from "@/effect/instance-state"
+ import { SessionV1 } from "@opencode-ai/core/v1/session"
+ import { Runner } from "@/effect/runner"
+@@ -10,6 +12,14 @@ import { SessionStatus } from "./status"
+ 
+ export interface Interface {
+   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void, Session.BusyError>
++  readonly runTree: <A, E, R>(
++    sessionID: SessionID,
++    effect: Effect.Effect<A, E, R>,
++  ) => Effect.Effect<A, E, R>
++  readonly whileTreeIdle: <A, E, R>(
++    sessionID: SessionID,
++    effect: Effect.Effect<A, E, R>,
++  ) => Effect.Effect<A, E | Session.BusyError, R>
+   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
+   readonly ensureRunning: (
+     sessionID: SessionID,
+@@ -26,11 +36,47 @@ export interface Interface {
+ 
+ export class Service extends Context.Service<Service, Interface>()("@opencode/SessionRunState") {}
+ 
++export function makeAdmissionGate() {
++  const locks = KeyedMutex.makeUnsafe<SessionID>()
++  const active = new Map<SessionID, number>()
++  const run = <A, E, R>(key: SessionID, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
++    Effect.uninterruptibleMask((restore) =>
++      restore(locks.withLock(key)(Effect.sync(() => active.set(key, (active.get(key) ?? 0) + 1)))).pipe(
++        Effect.andThen(
++          restore(effect).pipe(
++            Effect.ensuring(
++              locks.withLock(key)(
++                Effect.sync(() => {
++                  const remaining = (active.get(key) ?? 1) - 1
++                  if (remaining > 0) active.set(key, remaining)
++                  else active.delete(key)
++                }),
++              ),
++            ),
++          ),
++        ),
++      ),
++    )
++  const whileIdle = <A, E, R>(
++    key: SessionID,
++    effect: Effect.Effect<A, E, R>,
++  ): Effect.Effect<A, E | Session.BusyError, R> =>
++    locks.withLock(key)(
++      Effect.gen(function* () {
++        if ((active.get(key) ?? 0) > 0) return yield* busyError(key)
++        return yield* effect
++      }),
++    )
++  return { run, whileIdle }
++}
++
+ const layer = Layer.effect(
+   Service,
+   Effect.gen(function* () {
+     const background = yield* BackgroundJob.Service
+     const status = yield* SessionStatus.Service
++    const sessions = yield* Session.Service
++    const admission = makeAdmissionGate()
+ 
+     const state = yield* InstanceState.make(
+       Effect.fn("SessionRunState.state")(function* () {
+@@ -74,6 +120,40 @@ const layer = Layer.effect(
+       if (existing?.busy) yield* busyError(sessionID)
+     })
+ 
++    const treeKey = Effect.fn("SessionRunState.treeKey")(function* (sessionID: SessionID) {
++      const chain: SessionID[] = []
++      const positions = new Map<SessionID, number>()
++      let current = sessionID
++      for (;;) {
++        const cycle = positions.get(current)
++        if (cycle !== undefined) return chain.slice(cycle).sort()[0]!
++        positions.set(current, chain.length)
++        chain.push(current)
++        const parentID = yield* sessions.get(current).pipe(
++          Effect.map((info) => info.parentID),
++          Effect.catch(() => Effect.succeed(undefined)),
++        )
++        if (!parentID) return current
++        current = parentID
++      }
++    })
++
++    const runTree: Interface["runTree"] = Effect.fn("SessionRunState.runTree")(function* (sessionID, effect) {
++      return yield* admission.run(
++        yield* treeKey(sessionID),
++        Effect.gen(function* () {
++          yield* assertPersistedLocation(sessionID)
++          return yield* effect
++        }),
++      )
++    })
++
++    const whileTreeIdle: Interface["whileTreeIdle"] = Effect.fn("SessionRunState.whileTreeIdle")(
++      function* (sessionID, effect) {
++        return yield* admission.whileIdle(yield* treeKey(sessionID), effect)
++      },
++    )
++
+     const cancel = Effect.fn("SessionRunState.cancel")(function* (sessionID: SessionID) {
+       yield* cancelBackgroundJobs(background, sessionID)
+       const data = yield* InstanceState.get(state)
+@@ -90,7 +170,7 @@ const layer = Layer.effect(
+       onInterrupt: Effect.Effect<SessionV1.WithParts>,
+       work: Effect.Effect<SessionV1.WithParts>,
+     ) {
+-      return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(work)
++      return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(runTree(sessionID, work))
+     })
+ 
+     const startShell = Effect.fn("SessionRunState.startShell")(function* (
+@@ -100,11 +180,22 @@ const layer = Layer.effect(
+       ready?: Latch.Latch,
+     ) {
+       return yield* (yield* runner(sessionID, onInterrupt))
+-        .startShell(work, ready)
++        .startShell(runTree(sessionID, work), ready)
+         .pipe(Effect.catchTag("RunnerBusy", () => Effect.fail(busyError(sessionID))))
+     })
+ 
+-    return Service.of({ assertNotBusy, cancel, ensureRunning, startShell })
++    const assertPersistedLocation = Effect.fn("SessionRunState.assertPersistedLocation")(function* (
++      sessionID: SessionID,
++    ) {
++      const current = yield* sessions
++        .get(sessionID)
++        .pipe(Effect.catch(() => Effect.die(new Error(`Session moved before activity started: ${sessionID}`))))
++      if (FSUtil.resolve(current.directory) !== FSUtil.resolve(yield* InstanceState.directory)) {
++        return yield* Effect.die(new Error(`Session moved before activity started: ${sessionID}`))
++      }
++    })
++
++    return Service.of({ assertNotBusy, runTree, whileTreeIdle, cancel, ensureRunning, startShell })
+   }),
+ )
+ 
+@@ -146,6 +237,10 @@ function busyError(sessionID: SessionID) {
+   return new Session.BusyError({ sessionID })
+ }
+ 
+-export const node = LayerNode.make({ service: Service, layer: layer, deps: [BackgroundJob.node, SessionStatus.node] })
++export const node = LayerNode.make({
++  service: Service,
++  layer: layer,
++  deps: [BackgroundJob.node, SessionStatus.node, Session.node],
++})
+ 
+ export * as SessionRunState from "./run-state"
+diff --git a/packages/opencode/test/server/httpapi-control-plane.test.ts b/packages/opencode/test/server/httpapi-control-plane.test.ts
+index 8782f98f..239a8d7d 100644
+--- a/packages/opencode/test/server/httpapi-control-plane.test.ts
++++ b/packages/opencode/test/server/httpapi-control-plane.test.ts
+@@ -1,6 +1,6 @@
+ import { NodeHttpServer } from "@effect/platform-node"
+-import { describe, expect } from "bun:test"
+-import { Context, Effect, Layer, Option, Ref } from "effect"
++import { describe, expect, test } from "bun:test"
++import { Context, Deferred, Effect, Fiber, Layer, Option, Ref } from "effect"
+ import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/unstable/http"
+ import { HttpApiBuilder } from "effect/unstable/httpapi"
+ import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
+@@ -18,6 +18,7 @@ import { globalHandlers } from "../../src/server/routes/instance/httpapi/handler
+ import { authorizationLayer } from "../../src/server/routes/instance/httpapi/middleware/authorization"
+ import { schemaErrorLayer } from "../../src/server/routes/instance/httpapi/middleware/schema-error"
+ import { Session } from "../../src/session/session"
++import { SessionRunState } from "../../src/session/run-state"
+ import { SessionStatus } from "../../src/session/status"
+ import { NotFoundError } from "../../src/storage/storage"
+ import { testEffect } from "../lib/effect"
+@@ -92,6 +93,16 @@ const apiLayer = HttpRouter.serve(
+       },
+     }),
+   ),
++  Layer.provide(
++    Layer.mock(SessionRunState.Service)({
++      assertNotBusy: () => Effect.void,
++      cancel: () => Effect.void,
++      ensureRunning: (_sessionID, _onInterrupt, work) => work,
++      runTree: (_sessionID, effect) => effect,
++      startShell: (_sessionID, _onInterrupt, work) => work,
++      whileTreeIdle: (_sessionID, effect) => effect,
++    }),
++  ),
+   Layer.provide(
+     Layer.mock(SessionStatus.Service)({
+       get: (id) => Effect.succeed(id === "ses_busy_child" ? { type: "busy" as const } : { type: "idle" as const }),
+@@ -161,3 +172,45 @@ describe("control-plane HttpApi", () => {
+     }),
+   )
+ })
++
++test("tree admission blocks activity throughout the busy-check and move window", async () => {
++  await Effect.runPromise(
++    Effect.scoped(
++      Effect.gen(function* () {
++        const gate = SessionRunState.makeAdmissionGate()
++        const checking = yield* Deferred.make<void>()
++        const releaseCheck = yield* Deferred.make<void>()
++        const moving = yield* Deferred.make<void>()
++        const releaseMove = yield* Deferred.make<void>()
++        const activityEntered = yield* Deferred.make<void>()
++
++        const move = yield* gate
++          .whileIdle(
++            input.sessionID,
++            Deferred.succeed(checking, undefined).pipe(
++              Effect.andThen(Deferred.await(releaseCheck)),
++              Effect.andThen(Deferred.succeed(moving, undefined)),
++              Effect.andThen(Deferred.await(releaseMove)),
++            ),
++          )
++          .pipe(Effect.forkChild)
++        yield* Deferred.await(checking)
++
++        const activity = yield* gate
++          .run(input.sessionID, Deferred.succeed(activityEntered, undefined))
++          .pipe(Effect.forkChild)
++        yield* Effect.yieldNow
++        expect(yield* Deferred.isDone(activityEntered)).toBeFalse()
++
++        yield* Deferred.succeed(releaseCheck, undefined)
++        yield* Deferred.await(moving)
++        expect(yield* Deferred.isDone(activityEntered)).toBeFalse()
++
++        yield* Deferred.succeed(releaseMove, undefined)
++        yield* Fiber.join(move)
++        yield* Fiber.join(activity)
++        expect(yield* Deferred.isDone(activityEntered)).toBeTrue()
++      }),
++    ),
++  )
++})
+diff --git a/packages/opencode/test/server/httpapi-global.test.ts b/packages/opencode/test/server/httpapi-global.test.ts
+index e4ebf2f4..68ac2d5a 100644
+--- a/packages/opencode/test/server/httpapi-global.test.ts
++++ b/packages/opencode/test/server/httpapi-global.test.ts
+@@ -17,6 +17,7 @@ import { globalHandlers } from "../../src/server/routes/instance/httpapi/handler
+ import { authorizationLayer } from "../../src/server/routes/instance/httpapi/middleware/authorization"
+ import { schemaErrorLayer } from "../../src/server/routes/instance/httpapi/middleware/schema-error"
+ import { Session } from "../../src/session/session"
++import { SessionRunState } from "../../src/session/run-state"
+ import { SessionStatus } from "../../src/session/status"
+ import { testEffect } from "../lib/effect"
+ 
+@@ -35,6 +36,7 @@ const apiLayer = HttpRouter.serve(
+   Layer.provide(Layer.mock(Config.Service)({})),
+   Layer.provide(Layer.mock(MoveSession.Service)({})),
+   Layer.provide(Layer.mock(Session.Service)({})),
++  Layer.provide(Layer.mock(SessionRunState.Service)({})),
+   Layer.provide(Layer.mock(SessionStatus.Service)({})),
+   Layer.provide(Layer.mock(Project.Service)({})),
+   Layer.provide(
