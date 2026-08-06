@@ -219,6 +219,7 @@ test("shell transcript preserves a visible command-output gap and normalizes out
     initialToolOpenForPart,
     rememberToolOpen,
     shellAtBottom,
+    shellReplaceSegments,
     shellScrollTarget,
     shellTranscript,
     shellTimeoutStatus,
@@ -279,6 +280,15 @@ test("shell transcript preserves a visible command-output gap and normalizes out
   const whitespace = createShellTranscriptStream()
   expect(whitespace.update("wait", "\n ", false)).toEqual({ replace: true, text: "$ wait" })
   expect(whitespace.update("wait", "\n ready", false)).toEqual({ replace: true, text: "$ wait\n\n\n ready" })
+
+  // Replace frames split into a styled command line plus trailing output; unexpected frames fall
+  // back to verbatim output so no text is ever dropped.
+  expect(shellReplaceSegments("bun run build", "$ bun run build\n\nok\ndone")).toEqual({
+    command: "bun run build",
+    output: "\n\nok\ndone",
+  })
+  expect(shellReplaceSegments("wait", "$ wait")).toEqual({ command: "wait", output: "" })
+  expect(shellReplaceSegments("other", "$ mismatch\n\ntext")).toEqual({ command: null, output: "$ mismatch\n\ntext" })
 
   const frames = new Map<number, () => void>()
   const values: string[] = []

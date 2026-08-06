@@ -191,6 +191,9 @@ export function applySessionSnapshot(
       for (const session of Object.values(draft.sessions)) {
         if (ids.has(session.id) || advanced(session.id)) continue
         if (normalizeDir(session.directory) !== dir) continue
+        // Scoped listings exclude engine-archived sessions, so their absence is not a deletion.
+        // Purging them here would delete-and-reload archived transcripts on every hydration.
+        if ((session.time as { archived?: number }).archived) continue
         removed.push(session.id)
         purgeSession(draft, session.id)
       }

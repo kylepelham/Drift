@@ -64,6 +64,21 @@ test("a complete session snapshot removes sessions deleted during an event gap",
   expect(state.sessions.elsewhere).toBeDefined()
 })
 
+test("a complete session snapshot never purges engine-archived sessions it cannot list", async () => {
+  const kept = session("kept")
+  const archived = { ...session("archived"), time: { created: 1, updated: 1, archived: 2 } } as Session
+  const { state, set, actions } = listHarness(async () => ({ data: [kept] }))
+  putSession(set, kept)
+  putSession(set, archived)
+  set("transcripts", "archived", [entry("m1")])
+  set("loaded", "archived", true)
+
+  await actions.loadSessions("C:/work")
+  expect(state.sessions.archived).toBeDefined()
+  expect(state.transcripts.archived).toBeDefined()
+  expect(state.loaded.archived).toBeTrue()
+})
+
 test("an errored session snapshot does not remove sessions", async () => {
   const { state, set, actions } = listHarness(async () => ({ error: { message: "engine rejected the list" } }))
   putSession(set, session("kept"))
@@ -176,6 +191,28 @@ test("a message added by an event during hydration survives an older transcript 
 
   const merged = mergeTranscriptSnapshot(state.transcripts.session, [entry("m1")], "session", captured, state.revisions)
   expect(merged.map((item) => item.info.id)).toEqual(["m1", "m2"])
+})
+
+test("an unchanged transcript snapshot preserves live entry identity", () => {
+  const [state, set] = createEngineState()
+  const unchanged = entry("m1")
+  const rewritten = entry("m2", "old")
+  set("transcripts", "session", [unchanged, rewritten])
+  set("loaded", "session", true)
+  const captured = captureRevisions(state)
+
+  const merged = mergeTranscriptSnapshot(
+    state.transcripts.session,
+    [entry("m1"), entry("m2", "new")],
+    "session",
+    captured,
+    state.revisions,
+  )
+  // Same content keeps the same object so referentially-keyed rows do not remount on reconnect.
+  expect(merged[0]).toBe(state.transcripts.session![0]!)
+  // Changed content still takes the snapshot's newer entry.
+  expect(merged[1]).not.toBe(state.transcripts.session![1]!)
+  expect(merged[1]?.parts[0]).toMatchObject({ text: "new" })
 })
 
 test("a message removed by an event during hydration stays removed", () => {

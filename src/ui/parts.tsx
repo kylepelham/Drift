@@ -713,6 +713,17 @@ export function shellTranscript(command: string, output: string) {
 }
 
 /**
+ * Splits a replace-frame transcript into its command line and trailing output so the command can
+ * be rendered with the accent `$ ` indicator. Replace frames always start with `$ ${command}`;
+ * the fallback keeps unexpected frames rendering verbatim instead of dropping text.
+ */
+export function shellReplaceSegments(command: string, text: string) {
+  const head = `$ ${command}`
+  if (!text.startsWith(head)) return { command: null, output: text }
+  return { command, output: text.slice(head.length) }
+}
+
+/**
  * Renders streaming shell output incrementally.
  *
  * The engine re-sends the whole output on every update. Re-rendering all of it each time is too
@@ -859,6 +870,8 @@ function ShellOutput(props: { command: string; output: string; running: boolean 
   let mounted = false
   let savedTop = 0
   let following = true
+  /** The text node holding streamed output, so appends never disturb the styled command line. */
+  let outputNode: Text | undefined
   const stream = createShellTranscriptStream()
   const normalizer = createFrameCoalescer(
     requestAnimationFrame,
@@ -866,10 +879,25 @@ function ShellOutput(props: { command: string; output: string; running: boolean 
     ({ command, output, running }: { command: string; output: string; running: boolean }) => {
       const update = stream.update(command, output, !running)
       if (!mounted) return
-      if (update.replace) viewport.textContent = update.text
-      else if (update.text) {
-        const node = viewport.firstChild
-        if (node?.nodeType === Node.TEXT_NODE) (node as Text).appendData(update.text)
+      if (update.replace) {
+        const segments = shellReplaceSegments(command, update.text)
+        outputNode = document.createTextNode(segments.output)
+        if (segments.command === null) {
+          viewport.replaceChildren(outputNode)
+        } else {
+          const prompt = document.createElement("span")
+          prompt.className = "text-accent select-none"
+          prompt.textContent = "$ "
+          const name = document.createElement("span")
+          name.className = "font-medium text-ink"
+          name.textContent = segments.command
+          const trailing = document.createElement("span")
+          trailing.className = "text-ink-muted"
+          trailing.append(outputNode)
+          viewport.replaceChildren(prompt, name, trailing)
+        }
+      } else if (update.text) {
+        if (outputNode) outputNode.appendData(update.text)
         else viewport.append(update.text)
       }
       if (update.replace || update.text) setRenderRevision((value) => value + 1)

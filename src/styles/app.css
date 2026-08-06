@@ -457,6 +457,17 @@ textarea {
   box-shadow: 0 -14px 38px color-mix(in srgb, black 18%, transparent);
 }
 
+/* "in {thread}" attribution labels render above their card as bare text. Every stackable block
+   ends in a .composer-layer-card, whose skirt (negative bottom margin + painted padding) would
+   pull a following label underneath the card and paint over it. Stacked labels restore the skirt
+   height so they sit the normal stack gap below the previous card, and stay above its paint. */
+.composer-thread-label {
+  position: relative;
+}
+.composer-attention-stack > * + * > .composer-thread-label:first-child {
+  margin-top: 1.125rem;
+}
+
 .drift-wordmark {
   color: color-mix(in srgb, var(--ink) 72%, var(--accent));
   font-size: 0.66rem;

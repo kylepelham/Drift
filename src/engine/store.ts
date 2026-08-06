@@ -253,8 +253,13 @@ export function mergeTranscriptSnapshot(
   const liveById = new Map((live ?? []).map((entry) => [entry.info.id, entry]))
   const snapshotIds = new Set(snapshot.map((entry) => entry.info.id))
   const merged = snapshot.flatMap((entry) => {
-    if (!advanced(entry.info.id)) return [entry]
     const current = liveById.get(entry.info.id)
+    if (!advanced(entry.info.id)) {
+      // Reuse the live object when the content is unchanged: transcript rows are referentially
+      // keyed, so handing the UI a fresh-but-identical object would remount every visible row
+      // (a full-transcript flash on each reconnect hydration).
+      return [current && JSON.stringify(current) === JSON.stringify(entry) ? current : entry]
+    }
     return current ? [current] : []
   })
   for (const entry of live ?? []) if (advanced(entry.info.id) && !snapshotIds.has(entry.info.id)) merged.push(entry)

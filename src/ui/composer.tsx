@@ -518,7 +518,7 @@ export function Composer() {
             <div class="flow-root">
               <Show when={permission().sessionID !== selectedSession()}>
                 <button
-                  class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
+                  class="composer-thread-label mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
                   title={t("drift.composer.openThread")}
                   onClick={() =>
                     openAttentionSession(
@@ -545,7 +545,7 @@ export function Composer() {
                   <div class="flow-root">
                     <Show when={request().sessionID !== selectedSession()}>
                       <button
-                        class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
+                        class="composer-thread-label mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
                         title={t("drift.composer.openThread")}
                         onClick={() => openAttentionSession(request().sessionID, request().directory)}
                       >
