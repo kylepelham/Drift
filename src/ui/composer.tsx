@@ -117,6 +117,7 @@ export function Composer() {
     displayed: ComposerDraft
   } | null>(null)
   let area!: HTMLTextAreaElement
+  let areaFrame!: HTMLDivElement
   let filePicker!: HTMLInputElement
 
   const submissionGuard = createComposerSubmissionGuard(() => setSubmissionVersion((value) => value + 1))
@@ -454,8 +455,15 @@ export function Composer() {
   }
 
   function resize() {
+    // Keep the composer's outer height stable while the live textarea is temporarily `auto` for
+    // measurement. Otherwise every key collapses a capped draft to one row, lets the transcript
+    // viewport grow and clamp its scroll position, then snaps it back after the height is restored.
+    const current = area.offsetHeight
+    areaFrame.style.height = `${current}px`
     area.style.height = "auto"
-    area.style.height = `${Math.min(area.scrollHeight, maxComposerHeightPx)}px`
+    const next = Math.min(area.scrollHeight, maxComposerHeightPx)
+    area.style.height = `${next}px`
+    if (next !== current) areaFrame.style.height = `${next}px`
   }
 
   function republishComposerSelection(event: ClipboardEvent & { currentTarget: HTMLTextAreaElement }) {
@@ -516,23 +524,23 @@ export function Composer() {
         <Show when={pendingPermission()}>
           {(permission) => (
             <div class="flow-root">
-              <Show when={permission().sessionID !== selectedSession()}>
-                <button
-                  class="composer-thread-label mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
-                  title={t("drift.composer.openThread")}
-                  onClick={() =>
-                    openAttentionSession(
-                      permission().sessionID,
-                      permission().metadata?.directory as string | undefined,
-                    )
-                  }
-                >
-                  {t("drift.composer.pendingInThread", {
-                    thread: engine.state.sessions[permission().sessionID]?.title || t("drift.composer.anotherThread"),
-                  })}
-                </button>
-              </Show>
-              <PermissionCard permission={permission()} />
+              <PermissionCard
+                permission={permission()}
+                thread={
+                  permission().sessionID !== selectedSession()
+                    ? {
+                        label: t("drift.composer.pendingInThread", {
+                          thread: engine.state.sessions[permission().sessionID]?.title || t("drift.composer.anotherThread"),
+                        }),
+                        onOpen: () =>
+                          openAttentionSession(
+                            permission().sessionID,
+                            permission().metadata?.directory as string | undefined,
+                          ),
+                      }
+                    : undefined
+                }
+              />
             </div>
           )}
         </Show>
@@ -543,20 +551,19 @@ export function Composer() {
               <Show when={question()}>
                 {(request) => (
                   <div class="flow-root">
-                    <Show when={request().sessionID !== selectedSession()}>
-                      <button
-                        class="composer-thread-label mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
-                        title={t("drift.composer.openThread")}
-                        onClick={() => openAttentionSession(request().sessionID, request().directory)}
-                      >
-                        {t("drift.composer.pendingInThread", {
-                          thread: engine.state.sessions[request().sessionID]?.title || t("drift.composer.anotherThread"),
-                        })}
-                      </button>
-                    </Show>
                     <QuestionCard
                       requestID={questionID}
                       questions={[...request().questions]}
+                      thread={
+                        request().sessionID !== selectedSession()
+                          ? {
+                              label: t("drift.composer.pendingInThread", {
+                                thread: engine.state.sessions[request().sessionID]?.title || t("drift.composer.anotherThread"),
+                              }),
+                              onOpen: () => openAttentionSession(request().sessionID, request().directory),
+                            }
+                          : undefined
+                      }
                       onAnswer={(answers) => engine.actions.answerQuestion(request().sessionID, questionID, answers)}
                     />
                   </div>
@@ -691,30 +698,31 @@ export function Composer() {
             </Show>
           </div>
         </Show>
-        <textarea
-          ref={area}
-          rows={1}
-          class="max-h-50 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[0.925rem] outline-none placeholder:text-ink-faint"
-          placeholder={placeholder()}
-          disabled={!ready()}
-          value={draft()}
-          onInput={(event) => {
-            setDraft(event.currentTarget.value)
-            slash.setDismissed(false)
-            slash.setCursor(0)
-            mention.refresh()
-            resize()
-          }}
-          onClick={() => mention.refresh()}
-          onCopy={republishComposerSelection}
-          onCut={republishComposerSelection}
-          onPaste={(event) => {
-            if (!event.clipboardData?.files.length) return
-            event.preventDefault()
-            void addFiles(event.clipboardData.files)
-          }}
-          onKeyDown={onKey}
-        />
+        <div ref={areaFrame} class="w-full">
+          <textarea
+            ref={area}
+            rows={1}
+            class="max-h-50 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[0.925rem] outline-none placeholder:text-ink-faint"
+            placeholder={placeholder()}
+            disabled={!ready()}
+            value={draft()}
+            onInput={(event) => {
+              setDraft(event.currentTarget.value)
+              slash.setDismissed(false)
+              slash.setCursor(0)
+              mention.refresh()
+            }}
+            onClick={() => mention.refresh()}
+            onCopy={republishComposerSelection}
+            onCut={republishComposerSelection}
+            onPaste={(event) => {
+              if (!event.clipboardData?.files.length) return
+              event.preventDefault()
+              void addFiles(event.clipboardData.files)
+            }}
+            onKeyDown={onKey}
+          />
+        </div>
         <div class="composer-actions flex min-w-0 items-center gap-1 px-2.5 pb-2">
           <div class="composer-options relative flex min-w-0 flex-1 items-center gap-1">
             <Picker

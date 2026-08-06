@@ -25,12 +25,20 @@ use voice::VoiceDownload;
 #[cfg(windows)]
 pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+#[tauri::command]
+fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.show().map_err(|error| error.to_string())?;
+    let _ = window.set_focus();
+    Ok(())
+}
+
 fn main() {
     // Reqwest is built without a bundled provider so the release build needs no extra C toolchain.
     let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.webview_windows().values().next() {
+                let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
@@ -78,6 +86,7 @@ fn main() {
             commands::mcp_approve,
             commands::mcp_reject,
             commands::mcp_revoke,
+            show_main_window,
             commands::storage_stats,
             commands::storage_analyze,
             commands::storage_prune,
@@ -103,6 +112,13 @@ fn main() {
             ui_state::shell_timeout_update
         ])
         .setup(|app| {
+            // Creating a WebView with `visible: false` can break Tauri's outbound event channel
+            // on Windows. Create it normally, then hide it before setup yields to the event loop.
+            // This avoids the unpainted launch rectangle without using that unsafe code path.
+            let launch_window = app
+                .get_webview_window("main")
+                .ok_or_else(|| std::io::Error::other("main window was not created"))?;
+            let _ = launch_window.hide();
             let data_dir = app.path().app_data_dir().expect("no app data dir");
             let config_dir = app.path().app_config_dir().expect("no app config dir");
             std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
@@ -171,6 +187,14 @@ fn main() {
                     }
                 });
             }
+            // Once setup releases the event loop, recover from a preload script that failed to
+            // invoke `show_main_window`. Normal startup reveals much earlier, after its first paint.
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                if !launch_window.is_visible().unwrap_or(false) {
+                    let _ = launch_window.show();
+                }
+            });
             Ok(())
         })
         .build(tauri::generate_context!())

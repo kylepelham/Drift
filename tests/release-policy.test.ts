@@ -38,6 +38,8 @@ test("stable tags have exactly one v and three numeric components", () => {
 test("development builds use an exact clean tag or the next patch", () => {
   expect(developmentTag(["v1.1.0", "v1.2.4"], "v1.2.4", false)).toBe("v1.2.4")
   expect(developmentTag(["v1.1.0", "v1.2.4"], "v1.2.4", true)).toBe("v1.2.5")
+  expect(developmentTag(["v1.2.9"], undefined, true, "v1.3.0")).toBe("v1.3.0")
+  expect(developmentTag(["v1.2.9"], undefined, true, "v1.2.8")).toBe("v1.2.10")
   expect(developmentTag(["v1.2.4", "v1.3.0-beta.1"])).toBe("v1.2.5")
   expect(() => developmentTag(["v1.3.0-beta.1"])).toThrow("without a stable tag")
 })

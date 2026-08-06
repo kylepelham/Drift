@@ -88,20 +88,41 @@ function TodoStrip() {
   )
 }
 
-export function PermissionCard(props: { permission: Permission }) {
+type ThreadLink = { label: string; onOpen: () => void }
+
+function ThreadAttribution(props: { thread?: ThreadLink }) {
+  return (
+    <Show when={props.thread}>
+      {(thread) => (
+        <button
+          class="min-w-0 max-w-48 truncate text-xs text-ink-faint transition-colors hover:text-ink"
+          title={t("drift.composer.openThread")}
+          onClick={thread().onOpen}
+        >
+          {thread().label}
+        </button>
+      )}
+    </Show>
+  )
+}
+
+export function PermissionCard(props: { permission: Permission; thread?: ThreadLink }) {
   const engine = useEngine()
   const reply = (response: PermissionResponse) =>
     void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response)
   return (
     <div class="composer-layer-card fade-up rounded-lg border border-warn/40 bg-warn/10 px-3 py-2.5">
-      <div class="mb-2 text-sm">
-        <span class="text-warn">{t("notification.permission.title")}</span>{" "}
-        <span class="text-ink">{props.permission.title}</span>
-        <Show when={props.permission.pattern}>
-          <code class="ml-2 rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-ink-muted">
-            {[props.permission.pattern].flat().join(", ")}
-          </code>
-        </Show>
+      <div class="mb-2 flex items-start justify-between gap-3">
+        <div class="min-w-0 text-sm">
+          <span class="text-warn">{t("notification.permission.title")}</span>{" "}
+          <span class="text-ink">{props.permission.title}</span>
+          <Show when={props.permission.pattern}>
+            <code class="ml-2 rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-ink-muted">
+              {[props.permission.pattern].flat().join(", ")}
+            </code>
+          </Show>
+        </div>
+        <ThreadAttribution thread={props.thread} />
       </div>
       <div class="flex gap-2">
         <ActionButton label={t("settings.permissions.action.allow")} onClick={() => reply("once")} />
@@ -115,6 +136,7 @@ export function PermissionCard(props: { permission: Permission }) {
 export function QuestionCard(props: {
   requestID: string
   questions: QuestionInfo[]
+  thread?: ThreadLink
   onAnswer: (answers: string[][] | null) => boolean | void | Promise<boolean | void>
 }) {
   const state = () => questionDraftState(props.requestID, props.questions.length)
@@ -155,9 +177,12 @@ export function QuestionCard(props: {
         >
           <div class="border-b border-edge px-4 py-3.5">
             <div class="flex items-center justify-between gap-3 text-xs font-medium">
-              <span class="text-ink-muted">
-                {t("session.question.progress", { current: step() + 1, total: props.questions.length })}
-              </span>
+              <div class="flex min-w-0 items-center gap-2">
+                <span class="shrink-0 text-ink-muted">
+                  {t("session.question.progress", { current: step() + 1, total: props.questions.length })}
+                </span>
+                <ThreadAttribution thread={props.thread} />
+              </div>
               <span class="truncate text-accent">{question().header}</span>
             </div>
             <Show when={props.questions.length > 1}>

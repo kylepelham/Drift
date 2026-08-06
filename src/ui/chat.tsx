@@ -161,15 +161,16 @@ export function Chat() {
   onCleanup(() => observer.disconnect())
 
   const viewportObserver = new ResizeObserver(() => {
+    // Preserve the sticky bottom before publishing a resized viewport. Browser clamping can move
+    // scrollTop when the composer/attention dock grows; recording that transient position makes
+    // the virtual range jump before the queued follow correction runs.
+    if (untrack(stick)) scroller.scrollTop = scroller.scrollHeight
     const top = scroller.scrollTop
     batch(() => {
       setViewTop(top)
       setViewHeight(scroller.clientHeight)
     })
-    if (untrack(stick)) {
-      queueMicrotask(() => scroller.scrollTo({ top: scroller.scrollHeight }))
-      return
-    }
+    if (untrack(stick)) return
     const distance = scroller.scrollHeight - top - scroller.clientHeight
     setAwayFromBottom(shouldShowScrollToBottom(distance))
   })
