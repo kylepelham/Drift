@@ -46,10 +46,6 @@ export function activeWorkspace() {
   return rawWorkspaces().find((w) => w.id === activeWorkspaceId()) ?? null
 }
 
-export function workspaceDirectoryForSelection(items: Workspace[], id: string | null) {
-  return items.find((workspace) => workspace.id === id)?.path ?? null
-}
-
 export function workspaceCollapsed(id: string) {
   return collapsedWorkspaceIds().includes(id)
 }

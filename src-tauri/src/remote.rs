@@ -737,6 +737,30 @@ struct RpcRequest {
     args: Value,
 }
 
+macro_rules! remote_commands {
+    (
+        |$app:ident, $args:ident, $store:ident, $runtime:ident|;
+        $($name:literal => $handler:expr),+ $(,)?
+    ) => {
+        fn rpc_allowed(command: &str) -> bool {
+            matches!(command, $($name)|+)
+        }
+
+        async fn dispatch_rpc(
+            $app: &tauri::AppHandle,
+            command: &str,
+            $args: &Value,
+        ) -> Result<Value, String> {
+            let $store = || $app.state::<Store>();
+            let $runtime = || $app.state::<mcp::McpRuntime>();
+            match command {
+                $($name => $handler,)+
+                _ => Err("command is not available remotely".into()),
+            }
+        }
+    };
+}
+
 async fn invoke_rpc(
     State(app): State<tauri::AppHandle>,
     Extension(mut auth): Extension<watch::Receiver<u64>>,
@@ -762,64 +786,8 @@ async fn invoke_rpc(
     }
 }
 
-fn rpc_allowed(command: &str) -> bool {
-    matches!(
-        command,
-        "restart_engine"
-            | "config_read"
-            | "pick_folder"
-            | "open_file"
-            | "store_workspaces"
-            | "store_removed_workspaces"
-            | "store_add_workspace"
-            | "store_save_workspace"
-            | "store_touch_workspace"
-            | "store_remove_workspace"
-            | "store_expired_removed_workspaces"
-            | "store_forget_workspace"
-            | "store_archived"
-            | "store_archive_session"
-            | "store_unarchive_session"
-            | "store_expired_archived"
-            | "store_interruptions"
-            | "store_save_interruption"
-            | "store_dismiss_interruption"
-            | "store_clear_interruptions"
-            | "mcp_snapshot"
-            | "prompt_snapshot"
-            | "prompt_save"
-            | "prompt_reset"
-            | "mcp_save"
-            | "mcp_remove"
-            | "mcp_approve"
-            | "mcp_reject"
-            | "mcp_revoke"
-            | "storage_stats"
-            | "storage_analyze"
-            | "storage_prune"
-            | "storage_compact"
-            | "voice_supported"
-            | "voice_acceleration"
-            | "voice_models"
-            | "voice_model_download"
-            | "voice_model_remove"
-            | "voice_model_cancel"
-            | "voice_transcribe"
-            | "ui_state_snapshot"
-            | "ui_state_update"
-            | "shell_timeout_snapshot"
-            | "shell_timeout_update"
-    )
-}
-
-async fn dispatch_rpc(
-    app: &tauri::AppHandle,
-    command: &str,
-    args: &Value,
-) -> Result<Value, String> {
-    let store = || app.state::<Store>();
-    let runtime = || app.state::<mcp::McpRuntime>();
-    match command {
+remote_commands! {
+    |app, args, store, runtime|;
         "restart_engine" => value(engine::restart_engine(app.clone())?),
         "config_read" => value(config::config_read(app.state(), arg(args, "path")?)?),
         "pick_folder" => value(editor::pick_folder().await),
@@ -830,7 +798,9 @@ async fn dispatch_rpc(
             optional(args, "column")?,
         )?),
         "store_workspaces" => value(commands::store_workspaces(store())?),
-        "store_removed_workspaces" => value(commands::store_removed_workspaces(store())?),
+        "store_removed_workspaces" => {
+            value(commands::store_removed_workspaces(store())?)
+        },
         "store_add_workspace" => value(commands::store_add_workspace(
             store(),
             arg(args, "id")?,
@@ -847,17 +817,16 @@ async fn dispatch_rpc(
         )?),
         "store_touch_workspace" => {
             value(commands::store_touch_workspace(store(), arg(args, "id")?)?)
-        }
+        },
         "store_remove_workspace" => {
             value(commands::store_remove_workspace(store(), arg(args, "id")?)?)
-        }
-        "store_expired_removed_workspaces" => value(commands::store_expired_removed_workspaces(
-            store(),
-            arg(args, "before")?,
-        )?),
+        },
+        "store_expired_removed_workspaces" => value(
+            commands::store_expired_removed_workspaces(store(), arg(args, "before")?)?,
+        ),
         "store_forget_workspace" => {
             value(commands::store_forget_workspace(store(), arg(args, "id")?)?)
-        }
+        },
         "store_archived" => value(commands::store_archived(store())?),
         "store_archive_session" => value(commands::store_archive_session(
             store(),
@@ -950,19 +919,23 @@ async fn dispatch_rpc(
         )?),
         "storage_stats" => value(commands::storage_stats(store()).await?),
         "storage_analyze" => value(commands::storage_analyze(store()).await?),
-        "storage_prune" => value(commands::storage_prune(store(), arg(args, "rules")?).await?),
+        "storage_prune" => {
+            value(commands::storage_prune(store(), arg(args, "rules")?).await?)
+        },
         "storage_compact" => value(commands::storage_compact().await?),
         "voice_supported" => value(voice::voice_supported()),
         "voice_acceleration" => value(voice::voice_acceleration()),
         "voice_models" => value(voice::voice_models(app.clone())?),
         "voice_model_download" => {
             value(voice::voice_model_download(app.clone(), app.state(), arg(args, "id")?).await?)
-        }
-        "voice_model_remove" => value(voice::voice_model_remove(app.clone(), arg(args, "id")?)?),
+        },
+        "voice_model_remove" => {
+            value(voice::voice_model_remove(app.clone(), arg(args, "id")?)?)
+        },
         "voice_model_cancel" => {
             voice::voice_model_cancel(app.state());
             value(())
-        }
+        },
         "voice_transcribe" => value(
             voice::voice_transcribe(
                 app.clone(),
@@ -980,15 +953,15 @@ async fn dispatch_rpc(
             store(),
             arg(args, "mutation")?,
         )?),
-        "shell_timeout_snapshot" => value(ui_state::shell_timeout_snapshot(app.state())?),
+        "shell_timeout_snapshot" => {
+            value(ui_state::shell_timeout_snapshot(app.state())?)
+        },
         "shell_timeout_update" => value(ui_state::shell_timeout_update(
             app.clone(),
             app.state(),
             store(),
             arg(args, "policy")?,
         )?),
-        _ => Err("command is not available remotely".into()),
-    }
 }
 
 fn arg<T: DeserializeOwned>(args: &Value, key: &str) -> Result<T, String> {
@@ -1159,6 +1132,7 @@ mod tests {
         assert!(rpc_allowed("ui_state_update"));
         assert!(rpc_allowed("shell_timeout_snapshot"));
         assert!(rpc_allowed("shell_timeout_update"));
+        assert!(rpc_allowed("pick_folder"));
         assert!(!rpc_allowed("voice_dictation_set_enabled"));
         assert!(!rpc_allowed("remote_access_enable"));
         assert!(!rpc_allowed("ui_state_initialize"));

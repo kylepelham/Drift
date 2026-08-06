@@ -42,10 +42,6 @@ export const [shellTimeoutMs, setShellTimeoutValue] = persisted<number | null>(
 let shellTimeoutErrorValue = ""
 const timeoutErrorListeners = new Set<(error: string) => void>()
 
-export function shellTimeoutError() {
-  return shellTimeoutErrorValue
-}
-
 export function listenShellTimeoutError(listener: (error: string) => void) {
   timeoutErrorListeners.add(listener)
   listener(shellTimeoutErrorValue)

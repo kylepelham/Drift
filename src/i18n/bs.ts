@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "Predloženo",
   "command.category.view": "Prikaz",
@@ -1102,16 +1100,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "Isključeno",
   "drift.remote.statusStarting": "Pokretanje",
   "drift.remote.statusError": "Greška",
   "drift.remote.clipboardError": "Kopiranje nije uspjelo",
-  "drift.settings.shellTimeout.hostWide": "Pravila izvršavanja za cijeli host",
-  "drift.settings.shellTimeout.appliesNew": "Važi za nove pozive",
-  "drift.settings.shellTimeout.presets": "Postavke vremenskog ograničenja",
   "drift.settings.shellTimeout.scope": "Ograničenja ljuske prekidaju stabla procesa. Ne utiču na modele, MCP servere ili mrežne pozive.",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "Izvršavanje alata",
   "drift.settings.shellTimeout.title": "Vremensko ograničenje ljuske",
   "drift.settings.shellTimeout.description": "Zaustavlja naredbe ljuske i njihove podređene procese nakon ovog vremena. Promjene važe za nove pozive.",
@@ -1132,7 +1125,6 @@ export const drift = {
   "drift.agent.explore": "Istraživanje",
   "drift.settings.notifications": "Obavijesti",
   "drift.settings.about": "O aplikaciji",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Proširi greške alata prema zadanim postavkama",
   "drift.settings.responseAnimation.title": "Glatko otkrivanje odgovora",
   "drift.settings.responseAnimation.description": "Glatko prikaži velike nalete teksta aktivnog asistenta. Historijski odgovori ostaju trenutni.",
@@ -1167,7 +1159,6 @@ export const drift = {
   "drift.titlebar.restore": "Vrati",
   "drift.titlebar.maximize": "Maksimiziraj",
   "drift.about.description": "Drift, desktop agent s ugrađenim OpenCodeom.",
-  "drift.about.version": "Drift {{version}}",
   "drift.settings.sound.chooseCustom": "Odaberi prilagođeni zvuk",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(neuspjelo)",
@@ -1199,7 +1190,6 @@ export const drift = {
   "drift.attachment.kind.audio": "Zvuk",
   "drift.attachment.kind.csv": "Tabela",
   "drift.attachment.kind.image": "Slika",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "Tekst",
   "drift.attachment.kind.video": "Video",
   "drift.attachment.lines": "{{count}} redova",
@@ -1267,7 +1257,6 @@ export const drift = {
   "drift.message.tokenCounts": "{{input}} ulaz / {{output}} izlaz",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} od {{total}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "Razgovor je završio s radom",
   "drift.provider.browser": "preglednik",
   "drift.provider.connectFailed": "Nije moguće povezati {{provider}}. Provjerite pristupne podatke i pokušajte ponovo.",

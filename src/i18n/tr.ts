@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "Önerilen",
   "command.category.view": "Görünüm",
@@ -1104,16 +1102,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "Kapalı",
   "drift.remote.statusStarting": "Başlatılıyor",
   "drift.remote.statusError": "Hata",
   "drift.remote.clipboardError": "Kopyalanamadı",
-  "drift.settings.shellTimeout.hostWide": "Ana bilgisayar genelinde yürütme ilkesi",
-  "drift.settings.shellTimeout.appliesNew": "Yeni çağrılara uygulanır",
-  "drift.settings.shellTimeout.presets": "Zaman aşımı hazır ayarları",
   "drift.settings.shellTimeout.scope": "Kabuk zaman aşımları işlem ağaçlarını sonlandırır. Modelleri, MCP sunucularını veya ağ çağrılarını etkilemez.",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "Araç yürütme",
   "drift.settings.shellTimeout.title": "Kabuk zaman aşımı",
   "drift.settings.shellTimeout.description": "Kabuk komutlarını ve alt işlemlerini bu süreden sonra durdurur. Değişiklikler yeni çağrılara uygulanır.",
@@ -1134,7 +1127,6 @@ export const drift = {
   "drift.agent.explore": "Keşif",
   "drift.settings.notifications": "Bildirimler",
   "drift.settings.about": "Hakkında",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Araç hatalarını varsayılan olarak genişlet",
   "drift.settings.responseAnimation.title": "Yanıtları yumuşakça göster",
   "drift.settings.responseAnimation.description": "Etkin asistan yanıtındaki büyük metin bloklarını yumuşakça göster. Önceki yanıtlar anında görünür.",
@@ -1169,7 +1161,6 @@ export const drift = {
   "drift.titlebar.restore": "Geri yükle",
   "drift.titlebar.maximize": "Büyüt",
   "drift.about.description": "Drift, OpenCode'u içeren bir masaüstü aracıdır.",
-  "drift.about.version": "Drift {{version}}",
   "drift.settings.sound.chooseCustom": "Özel ses seç",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(başarısız)",
@@ -1201,7 +1192,6 @@ export const drift = {
   "drift.attachment.kind.audio": "Ses",
   "drift.attachment.kind.csv": "Tablo",
   "drift.attachment.kind.image": "Görsel",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "Metin",
   "drift.attachment.kind.video": "Video",
   "drift.attachment.lines": "{{count}} satır",
@@ -1269,7 +1259,6 @@ export const drift = {
   "drift.message.tokenCounts": "{{input}} giriş / {{output}} çıkış",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{total}} içinde {{enabled}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "Bir konu çalışmayı tamamladı",
   "drift.provider.browser": "tarayıcı",
   "drift.provider.connectFailed": "{{provider}} bağlanamadı. Kimlik bilgilerini kontrol edip yeniden deneyin.",

@@ -250,26 +250,12 @@ impl Store {
     }
 
     pub fn dictation_enabled(&self) -> rusqlite::Result<bool> {
-        let value: Option<String> = self
-            .0
-            .lock()
-            .unwrap()
-            .query_row(
-                "SELECT value FROM app_setting WHERE key = 'dictation_enabled'",
-                [],
-                |row| row.get(0),
-            )
-            .optional()?;
+        let value = self.app_setting("dictation_enabled")?;
         Ok(value.as_deref() == Some("true"))
     }
 
     pub fn save_dictation_enabled(&self, enabled: bool) -> rusqlite::Result<()> {
-        self.0.lock().unwrap().execute(
-            "INSERT INTO app_setting(key, value) VALUES('dictation_enabled', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = ?1",
-            [if enabled { "true" } else { "false" }],
-        )?;
-        Ok(())
+        self.save_app_setting("dictation_enabled", if enabled { "true" } else { "false" })
     }
 
     pub fn remote_access(&self) -> rusqlite::Result<Option<(bool, String)>> {

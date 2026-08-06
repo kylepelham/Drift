@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "Sugerido",
   "command.category.view": "Visualizar",
@@ -1026,16 +1024,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "Desativado",
   "drift.remote.statusStarting": "Iniciando",
   "drift.remote.statusError": "Erro",
   "drift.remote.clipboardError": "Não foi possível copiar",
-  "drift.settings.shellTimeout.hostWide": "Política de execução para todo o host",
-  "drift.settings.shellTimeout.appliesNew": "Aplica-se a novas chamadas",
-  "drift.settings.shellTimeout.presets": "Tempos predefinidos",
   "drift.settings.shellTimeout.scope": "Os limites do shell encerram árvores de processos. Não afetam modelos, servidores MCP ou chamadas de rede.",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "Execução de ferramentas",
   "drift.settings.shellTimeout.title": "Tempo limite do shell",
   "drift.settings.shellTimeout.description": "Interrompe comandos do shell e seus processos filhos após esta duração. As alterações valem para novas chamadas.",
@@ -1056,7 +1049,6 @@ export const drift = {
   "drift.agent.explore": "Exploração",
   "drift.settings.notifications": "Notificações",
   "drift.settings.about": "Sobre",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Expandir erros de ferramentas por padrão",
   "drift.settings.responseAnimation.title": "Revelação suave de respostas",
   "drift.settings.responseAnimation.description": "Revele suavemente grandes blocos de texto ao vivo do assistente. Respostas do histórico continuam instantâneas.",
@@ -1091,7 +1083,6 @@ export const drift = {
   "drift.titlebar.restore": "Restaurar",
   "drift.titlebar.maximize": "Maximizar",
   "drift.about.description": "Drift, um agente de desktop com OpenCode integrado.",
-  "drift.about.version": "Drift {{version}}",
   "drift.settings.sound.chooseCustom": "Escolher som personalizado",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(falhou)",
@@ -1123,7 +1114,6 @@ export const drift = {
   "drift.attachment.kind.audio": "Áudio",
   "drift.attachment.kind.csv": "Tabela",
   "drift.attachment.kind.image": "Imagem",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "Texto",
   "drift.attachment.kind.video": "Vídeo",
   "drift.attachment.lines": "{{count}} linhas",
@@ -1191,7 +1181,6 @@ export const drift = {
   "drift.message.tokenCounts": "{{input}} entrada / {{output}} saída",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} de {{total}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "Uma conversa terminou o trabalho",
   "drift.provider.browser": "navegador",
   "drift.provider.connectFailed": "Não foi possível conectar {{provider}}. Verifique a credencial e tente novamente.",

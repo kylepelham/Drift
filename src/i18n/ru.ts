@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "Предложено",
   "command.category.view": "Просмотр",
@@ -1105,16 +1103,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "Выключено",
   "drift.remote.statusStarting": "Запуск",
   "drift.remote.statusError": "Ошибка",
   "drift.remote.clipboardError": "Не удалось скопировать",
-  "drift.settings.shellTimeout.hostWide": "Политика выполнения для всего хоста",
-  "drift.settings.shellTimeout.appliesNew": "Для новых вызовов",
-  "drift.settings.shellTimeout.presets": "Предустановки тайм-аута",
   "drift.settings.shellTimeout.scope": "Тайм-ауты оболочки завершают деревья процессов. Они не влияют на модели, серверы MCP и сетевые вызовы.",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "Выполнение инструментов",
   "drift.settings.shellTimeout.title": "Тайм-аут оболочки",
   "drift.settings.shellTimeout.description": "Останавливает команды оболочки и их дочерние процессы по истечении этого времени. Изменения применяются к новым вызовам.",
@@ -1135,7 +1128,6 @@ export const drift = {
   "drift.agent.explore": "Исследование",
   "drift.settings.notifications": "Уведомления",
   "drift.settings.about": "О программе",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Разворачивать ошибки инструментов по умолчанию",
   "drift.settings.responseAnimation.title": "Плавное появление ответов",
   "drift.settings.responseAnimation.description": "Плавно показывать большие фрагменты текста в текущем ответе ассистента. Предыдущие ответы отображаются мгновенно.",
@@ -1173,7 +1165,6 @@ export const drift = {
   "drift.titlebar.restore": "Восстановить",
   "drift.titlebar.maximize": "Развернуть",
   "drift.about.description": "Drift, настольный агент со встроенным OpenCode.",
-  "drift.about.version": "Drift {{version}}",
   "drift.settings.sound.chooseCustom": "Выбрать свой звук",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(сбой)",
@@ -1205,7 +1196,6 @@ export const drift = {
   "drift.attachment.kind.audio": "Аудио",
   "drift.attachment.kind.csv": "Таблица",
   "drift.attachment.kind.image": "Изображение",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "Текст",
   "drift.attachment.kind.video": "Видео",
   "drift.attachment.lines": "{{count}} строк",
@@ -1273,7 +1263,6 @@ export const drift = {
   "drift.message.tokenCounts": "{{input}} вх. / {{output}} вых.",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} из {{total}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "Ветка завершила работу",
   "drift.provider.browser": "браузер",
   "drift.provider.connectFailed": "Не удалось подключить {{provider}}. Проверьте учётные данные и повторите попытку.",

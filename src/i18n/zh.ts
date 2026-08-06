@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "建议",
   "command.category.view": "视图",
@@ -1076,16 +1074,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "已关闭",
   "drift.remote.statusStarting": "正在启动",
   "drift.remote.statusError": "错误",
   "drift.remote.clipboardError": "无法复制",
-  "drift.settings.shellTimeout.hostWide": "主机级执行策略",
-  "drift.settings.shellTimeout.appliesNew": "应用于新调用",
-  "drift.settings.shellTimeout.presets": "超时预设",
   "drift.settings.shellTimeout.scope": "Shell 超时会终止进程树，但不会影响模型、MCP 服务器或网络调用。",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "工具执行",
   "drift.settings.shellTimeout.title": "Shell 超时",
   "drift.settings.shellTimeout.description": "超过此时长后停止 Shell 命令及其子进程。更改仅应用于新调用。",
@@ -1106,7 +1099,6 @@ export const drift = {
   "drift.agent.explore": "探索",
   "drift.settings.notifications": "通知",
   "drift.settings.about": "关于",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "默认展开工具错误",
   "drift.settings.responseAnimation.title": "平滑显示回复",
   "drift.settings.responseAnimation.description": "平滑显示助手实时回复中大段新增的文本。历史回复仍会立即显示。",
@@ -1141,7 +1133,6 @@ export const drift = {
   "drift.titlebar.restore": "还原",
   "drift.titlebar.maximize": "最大化",
   "drift.about.description": "Drift，一款内嵌 OpenCode 的桌面智能体。",
-  "drift.about.version": "Drift {{version}}",
   "drift.settings.sound.chooseCustom": "选择自定义声音",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "（失败）",
@@ -1173,7 +1164,6 @@ export const drift = {
   "drift.attachment.kind.audio": "音频",
   "drift.attachment.kind.csv": "表格",
   "drift.attachment.kind.image": "图像",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "文本",
   "drift.attachment.kind.video": "视频",
   "drift.attachment.lines": "{{count}} 行",
@@ -1241,7 +1231,6 @@ export const drift = {
   "drift.message.tokenCounts": "输入 {{input}} / 输出 {{output}}",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} / {{total}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "一个会话已完成工作",
   "drift.provider.browser": "浏览器",
   "drift.provider.connectFailed": "无法连接 {{provider}}。请检查凭据后重试。",

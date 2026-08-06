@@ -315,10 +315,6 @@ function setLiveError(error: string) {
   for (const listener of liveErrorListeners) listener(error)
 }
 
-export function mirrorLiveError() {
-  return liveError
-}
-
 export function listenMirrorLiveError(listener: (error: string) => void) {
   liveErrorListeners.add(listener)
   listener(liveError)

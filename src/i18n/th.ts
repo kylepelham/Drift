@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "แนะนำ",
   "command.category.view": "มุมมอง",
@@ -1089,16 +1087,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "ปิด",
   "drift.remote.statusStarting": "กำลังเริ่ม",
   "drift.remote.statusError": "ข้อผิดพลาด",
   "drift.remote.clipboardError": "คัดลอกไม่ได้",
-  "drift.settings.shellTimeout.hostWide": "นโยบายการทำงานทั้งโฮสต์",
-  "drift.settings.shellTimeout.appliesNew": "ใช้กับการเรียกใหม่",
-  "drift.settings.shellTimeout.presets": "ค่าล่วงหน้าการหมดเวลา",
   "drift.settings.shellTimeout.scope": "การหมดเวลาของเชลล์จะยุติผังกระบวนการ โดยไม่กระทบโมเดล เซิร์ฟเวอร์ MCP หรือการเรียกเครือข่าย",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "การเรียกใช้เครื่องมือ",
   "drift.settings.shellTimeout.title": "หมดเวลาของเชลล์",
   "drift.settings.shellTimeout.description": "หยุดคำสั่งเชลล์และโปรเซสลูกหลังจากระยะเวลานี้ การเปลี่ยนแปลงมีผลกับการเรียกใหม่",
@@ -1119,7 +1112,6 @@ export const drift = {
   "drift.agent.explore": "สำรวจ",
   "drift.settings.notifications": "การแจ้งเตือน",
   "drift.settings.about": "เกี่ยวกับ",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "ขยายข้อผิดพลาดของเครื่องมือโดยค่าเริ่มต้น",
   "drift.settings.responseAnimation.title": "แสดงคำตอบอย่างนุ่มนวล",
   "drift.settings.responseAnimation.description": "ค่อย ๆ แสดงข้อความก้อนใหญ่ในคำตอบสดของผู้ช่วย คำตอบก่อนหน้าจะแสดงทันที",
@@ -1154,7 +1146,6 @@ export const drift = {
   "drift.titlebar.restore": "คืนค่า",
   "drift.titlebar.maximize": "ขยายเต็มจอ",
   "drift.about.description": "Drift เอเจนต์เดสก์ท็อปที่ฝัง OpenCode ไว้ในตัว",
-  "drift.about.version": "Drift {{version}}",
   "drift.settings.sound.chooseCustom": "เลือกเสียงที่กำหนดเอง",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(ล้มเหลว)",
@@ -1186,7 +1177,6 @@ export const drift = {
   "drift.attachment.kind.audio": "เสียง",
   "drift.attachment.kind.csv": "ตาราง",
   "drift.attachment.kind.image": "รูปภาพ",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "ข้อความ",
   "drift.attachment.kind.video": "วิดีโอ",
   "drift.attachment.lines": "{{count}} บรรทัด",
@@ -1254,7 +1244,6 @@ export const drift = {
   "drift.message.tokenCounts": "เข้า {{input}} / ออก {{output}}",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} จาก {{total}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "เธรดทำงานเสร็จแล้ว",
   "drift.provider.browser": "เบราว์เซอร์",
   "drift.provider.connectFailed": "ไม่สามารถเชื่อมต่อ {{provider}} ตรวจสอบข้อมูลรับรองแล้วลองอีกครั้ง",

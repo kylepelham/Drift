@@ -10,9 +10,4 @@ export const recovery = {
   "drift.recovery.notification.body": "{{workspace}} - {{thread}} - {{model}} - {{reason}}",
   "drift.recovery.subagent": "Subagent",
   "drift.recovery.open": "Open and recover",
-  "drift.recovery.task.running": "Running",
-  "drift.recovery.task.interrupted": "Interrupted",
-  "drift.recovery.task.resumed": "Resumed",
-  "drift.recovery.task.completed": "Completed",
-  "drift.recovery.task.error": "Failed",
 }

@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "Рекомендовані",
   "command.category.view": "Вигляд",
@@ -1107,16 +1105,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "Вимкнено",
   "drift.remote.statusStarting": "Запуск",
   "drift.remote.statusError": "Помилка",
   "drift.remote.clipboardError": "Не вдалося скопіювати",
-  "drift.settings.shellTimeout.hostWide": "Політика виконання для всього хоста",
-  "drift.settings.shellTimeout.appliesNew": "Для нових викликів",
-  "drift.settings.shellTimeout.presets": "Шаблони часу очікування",
   "drift.settings.shellTimeout.scope": "Час очікування оболонки завершує дерева процесів. Він не впливає на моделі, сервери MCP чи мережеві виклики.",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "Виконання інструментів",
   "drift.settings.shellTimeout.title": "Тайм-аут оболонки",
   "drift.settings.shellTimeout.description": "Зупиняє команди оболонки та їхні дочірні процеси після цього часу. Зміни діють для нових викликів.",
@@ -1137,7 +1130,6 @@ export const drift = {
   "drift.agent.explore": "Дослідження",
   "drift.settings.notifications": "Сповіщення",
   "drift.settings.about": "Про програму",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Розгортати помилки інструментів за замовчуванням",
   "drift.settings.responseAnimation.title": "Плавна поява відповідей",
   "drift.settings.responseAnimation.description": "Плавно показувати великі фрагменти тексту в поточній відповіді асистента. Попередні відповіді відображаються миттєво.",
@@ -1172,7 +1164,6 @@ export const drift = {
   "drift.titlebar.restore": "Відновити",
   "drift.titlebar.maximize": "Розгорнути",
   "drift.about.description": "Drift, настільний агент із вбудованим OpenCode.",
-  "drift.about.version": "Drift {{version}}",
   "drift.settings.sound.chooseCustom": "Вибрати власний звук",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(помилка)",
@@ -1204,7 +1195,6 @@ export const drift = {
   "drift.attachment.kind.audio": "Аудіо",
   "drift.attachment.kind.csv": "Таблиця",
   "drift.attachment.kind.image": "Зображення",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "Текст",
   "drift.attachment.kind.video": "Відео",
   "drift.attachment.lines": "{{count}} рядків",
@@ -1272,7 +1262,6 @@ export const drift = {
   "drift.message.tokenCounts": "{{input}} вх. / {{output}} вих.",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} з {{total}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "Гілка завершила роботу",
   "drift.provider.browser": "браузер",
   "drift.provider.connectFailed": "Не вдалося підключити {{provider}}. Перевірте облікові дані й повторіть спробу.",

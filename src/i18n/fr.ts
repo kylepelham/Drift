@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "Suggéré",
   "command.category.view": "Affichage",
@@ -1039,16 +1037,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "Désactivé",
   "drift.remote.statusStarting": "Démarrage",
   "drift.remote.statusError": "Erreur",
   "drift.remote.clipboardError": "Copie impossible",
-  "drift.settings.shellTimeout.hostWide": "Politique d’exécution de l’hôte",
-  "drift.settings.shellTimeout.appliesNew": "S’applique aux nouveaux appels",
-  "drift.settings.shellTimeout.presets": "Délais prédéfinis",
   "drift.settings.shellTimeout.scope": "Les délais du shell arrêtent les arborescences de processus. Ils n’affectent pas les modèles, MCP ou appels réseau.",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "Exécution des outils",
   "drift.settings.shellTimeout.title": "Délai du shell",
   "drift.settings.shellTimeout.description": "Arrête les commandes shell et leurs processus enfants après cette durée. Les modifications s'appliquent aux nouveaux appels.",
@@ -1069,7 +1062,6 @@ export const drift = {
   "drift.agent.explore": "Exploration",
   "drift.settings.notifications": "Notifications",
   "drift.settings.about": "À propos",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Développer les erreurs d’outil par défaut",
   "drift.settings.responseAnimation.title": "Révélation fluide des réponses",
   "drift.settings.responseAnimation.description": "Révéler progressivement les grands blocs de texte de l’assistant en direct. Les réponses précédentes restent instantanées.",
@@ -1107,7 +1099,6 @@ export const drift = {
   "drift.titlebar.restore": "Restaurer",
   "drift.titlebar.maximize": "Agrandir",
   "drift.about.description": "Drift, agent de bureau OpenCode intégré.",
-  "drift.about.version": "Drift {{version}}",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(échec)",
   "drift.about.starting": "(démarrage...)",
@@ -1138,7 +1129,6 @@ export const drift = {
   "drift.attachment.kind.audio": "Audio",
   "drift.attachment.kind.csv": "Tableau",
   "drift.attachment.kind.image": "Image",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "Texte",
   "drift.attachment.kind.video": "Vidéo",
   "drift.attachment.lines": "{{count}} lignes",
@@ -1206,7 +1196,6 @@ export const drift = {
   "drift.message.tokenCounts": "{{input}} en entrée / {{output}} en sortie",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} sur {{total}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "Une discussion a terminé son travail",
   "drift.provider.browser": "navigateur",
   "drift.provider.connectFailed": "Impossible de connecter {{provider}}. Vérifiez l'identifiant et réessayez.",

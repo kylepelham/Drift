@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "Sugerowane",
   "command.category.view": "Widok",
@@ -1026,16 +1024,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "Wyłączony",
   "drift.remote.statusStarting": "Uruchamianie",
   "drift.remote.statusError": "Błąd",
   "drift.remote.clipboardError": "Nie udało się skopiować",
-  "drift.settings.shellTimeout.hostWide": "Zasada wykonywania dla całego hosta",
-  "drift.settings.shellTimeout.appliesNew": "Dotyczy nowych wywołań",
-  "drift.settings.shellTimeout.presets": "Ustawienia limitu czasu",
   "drift.settings.shellTimeout.scope": "Limity powłoki kończą drzewa procesów. Nie wpływają na modele, serwery MCP ani wywołania sieciowe.",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "Wykonywanie narzędzi",
   "drift.settings.shellTimeout.title": "Limit czasu powłoki",
   "drift.settings.shellTimeout.description": "Zatrzymuje polecenia powłoki i ich procesy potomne po tym czasie. Zmiany dotyczą nowych wywołań.",
@@ -1056,7 +1049,6 @@ export const drift = {
   "drift.agent.explore": "Eksploracja",
   "drift.settings.notifications": "Powiadomienia",
   "drift.settings.about": "O aplikacji",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Domyślnie rozwijaj błędy narzędzi",
   "drift.settings.responseAnimation.title": "Płynne wyświetlanie odpowiedzi",
   "drift.settings.responseAnimation.description": "Płynnie pokazuj duże fragmenty tekstu w aktywnej odpowiedzi asystenta. Poprzednie odpowiedzi pojawiają się natychmiast.",
@@ -1093,7 +1085,6 @@ export const drift = {
   "drift.titlebar.restore": "Przywróć",
   "drift.titlebar.maximize": "Maksymalizuj",
   "drift.about.description": "Drift to agent desktopowy z wbudowanym OpenCode.",
-  "drift.about.version": "Drift {{version}}",
   "drift.settings.sound.chooseCustom": "Wybierz niestandardowy dźwięk",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(niepowodzenie)",
@@ -1125,7 +1116,6 @@ export const drift = {
   "drift.attachment.kind.audio": "Audio",
   "drift.attachment.kind.csv": "Tabela",
   "drift.attachment.kind.image": "Obraz",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "Tekst",
   "drift.attachment.kind.video": "Wideo",
   "drift.attachment.lines": "{{count}} wierszy",
@@ -1193,7 +1183,6 @@ export const drift = {
   "drift.message.tokenCounts": "{{input}} wej. / {{output}} wyj.",
   "drift.message.tokensPerSecond": "{{rate}} tok./s",
   "drift.model.enabledCount": "{{enabled}} z {{total}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "Wątek zakończył pracę",
   "drift.provider.browser": "przeglądarka",
   "drift.provider.connectFailed": "Nie można połączyć z {{provider}}. Sprawdź dane logowania i spróbuj ponownie.",

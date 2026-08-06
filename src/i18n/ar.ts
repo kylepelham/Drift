@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "مقترح",
   "command.category.view": "عرض",
@@ -1010,16 +1008,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "متوقف",
   "drift.remote.statusStarting": "جارٍ البدء",
   "drift.remote.statusError": "خطأ",
   "drift.remote.clipboardError": "تعذر النسخ",
-  "drift.settings.shellTimeout.hostWide": "سياسة تنفيذ على مستوى المضيف",
-  "drift.settings.shellTimeout.appliesNew": "ينطبق على الاستدعاءات الجديدة",
-  "drift.settings.shellTimeout.presets": "إعدادات المهلة المسبقة",
   "drift.settings.shellTimeout.scope": "تنهي مهل الصدفة أشجار العمليات. ولا تؤثر على النماذج أو خوادم MCP أو اتصالات الشبكة.",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "تنفيذ الأدوات",
   "drift.settings.shellTimeout.title": "مهلة الصدفة",
   "drift.settings.shellTimeout.description": "يوقف أوامر الصدفة والعمليات التابعة لها بعد هذه المدة. تنطبق التغييرات على الاستدعاءات الجديدة.",
@@ -1040,7 +1033,6 @@ export const drift = {
   "drift.agent.explore": "استكشاف",
   "drift.settings.notifications": "الإشعارات",
   "drift.settings.about": "حول",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "توسيع أخطاء الأدوات افتراضيًا",
   "drift.settings.responseAnimation.title": "كشف الردود بسلاسة",
   "drift.settings.responseAnimation.description": "اعرض الدفعات الكبيرة من نص المساعد المباشر بسلاسة. تبقى الردود السابقة فورية.",
@@ -1075,7 +1067,6 @@ export const drift = {
   "drift.titlebar.restore": "استعادة",
   "drift.titlebar.maximize": "تكبير",
   "drift.about.description": "Drift، وكيل سطح مكتب يتضمن OpenCode.",
-  "drift.about.version": "Drift {{version}}",
   "drift.settings.sound.chooseCustom": "اختيار صوت مخصص",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(فشل)",
@@ -1107,7 +1098,6 @@ export const drift = {
   "drift.attachment.kind.audio": "صوت",
   "drift.attachment.kind.csv": "جدول",
   "drift.attachment.kind.image": "صورة",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "نص",
   "drift.attachment.kind.video": "فيديو",
   "drift.attachment.lines": "{{count}} سطرًا",
@@ -1175,7 +1165,6 @@ export const drift = {
   "drift.message.tokenCounts": "{{input}} إدخال / {{output}} إخراج",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} من {{total}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "أنهت محادثة عملها",
   "drift.provider.browser": "المتصفح",
   "drift.provider.connectFailed": "تعذر الاتصال بـ {{provider}}. تحقق من بيانات الاعتماد وحاول مجددًا.",

@@ -112,11 +112,9 @@ test("desktop initializes once while companion only snapshots host state and pol
   expect(shellTimeoutBootstrapCommand(true)).toBe("shell_timeout_snapshot")
 })
 
-test("mirrored workspace selection resolves the engine directory without requiring sessions", async () => {
-  const { hydratedWorkspaceSelection, workspaceDirectoryForSelection } = await import("../src/state/workspaces")
+test("mirrored workspace selection hydrates without requiring sessions", async () => {
+  const { hydratedWorkspaceSelection } = await import("../src/state/workspaces")
   const items = [{ id: "workspace-1", path: "C:/work/drift", name: "Drift", icon: "", lastUsed: 1 }]
-  expect(workspaceDirectoryForSelection(items, "workspace-1")).toBe("C:/work/drift")
-  expect(workspaceDirectoryForSelection(items, null)).toBeNull()
   expect(hydratedWorkspaceSelection(items, "workspace-1")).toBe("workspace-1")
   expect(hydratedWorkspaceSelection(items, "stale-workspace")).toBe("workspace-1")
   expect(hydratedWorkspaceSelection([], "stale-workspace")).toBeNull()

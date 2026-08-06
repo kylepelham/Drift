@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "おすすめ",
   "command.category.view": "表示",
@@ -1018,16 +1016,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "オフ",
   "drift.remote.statusStarting": "起動中",
   "drift.remote.statusError": "エラー",
   "drift.remote.clipboardError": "コピーできませんでした",
-  "drift.settings.shellTimeout.hostWide": "ホスト全体の実行ポリシー",
-  "drift.settings.shellTimeout.appliesNew": "新しい呼び出しに適用",
-  "drift.settings.shellTimeout.presets": "タイムアウトのプリセット",
   "drift.settings.shellTimeout.scope": "シェルのタイムアウトはプロセスツリーを終了します。モデル、MCP、ネットワーク呼び出しには影響しません。",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "ツール実行",
   "drift.settings.shellTimeout.title": "シェルのタイムアウト",
   "drift.settings.shellTimeout.description": "この時間を過ぎるとシェルコマンドと子プロセスを停止します。変更は新しい呼び出しに適用されます。",
@@ -1048,7 +1041,6 @@ export const drift = {
   "drift.agent.explore": "探索",
   "drift.settings.notifications": "通知",
   "drift.settings.about": "Driftについて",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "ツールエラーをデフォルトで展開",
   "drift.settings.responseAnimation.title": "応答を滑らかに表示",
   "drift.settings.responseAnimation.description": "進行中のアシスタント応答に追加された大量のテキストを滑らかに表示します。過去の応答は即座に表示されます。",
@@ -1085,7 +1077,6 @@ export const drift = {
   "drift.titlebar.restore": "元のサイズに戻す",
   "drift.titlebar.maximize": "最大化",
   "drift.about.description": "Driftは、OpenCodeを組み込んだデスクトップエージェントです。",
-  "drift.about.version": "Drift {{version}}",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(失敗)",
   "drift.about.starting": "(起動中...)",
@@ -1116,7 +1107,6 @@ export const drift = {
   "drift.attachment.kind.audio": "音声",
   "drift.attachment.kind.csv": "表",
   "drift.attachment.kind.image": "画像",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "テキスト",
   "drift.attachment.kind.video": "動画",
   "drift.attachment.lines": "{{count}} 行",
@@ -1184,7 +1174,6 @@ export const drift = {
   "drift.message.tokenCounts": "入力 {{input}} / 出力 {{output}}",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{total}}件中{{enabled}}件",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "スレッドの処理が完了しました",
   "drift.provider.browser": "ブラウザー",
   "drift.provider.connectFailed": "{{provider}}に接続できませんでした。認証情報を確認して、もう一度お試しください。",

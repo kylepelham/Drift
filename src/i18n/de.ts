@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "Vorgeschlagen",
   "command.category.view": "Ansicht",
@@ -1035,16 +1033,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "Aus",
   "drift.remote.statusStarting": "Wird gestartet",
   "drift.remote.statusError": "Fehler",
   "drift.remote.clipboardError": "Kopieren fehlgeschlagen",
-  "drift.settings.shellTimeout.hostWide": "Hostweite Ausführungsrichtlinie",
-  "drift.settings.shellTimeout.appliesNew": "Gilt für neue Aufrufe",
-  "drift.settings.shellTimeout.presets": "Zeitlimit-Voreinstellungen",
   "drift.settings.shellTimeout.scope": "Shell-Zeitlimits beenden Prozessbäume. Modelle, MCP-Server und Netzwerkaufrufe sind nicht betroffen.",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "Werkzeugausführung",
   "drift.settings.shellTimeout.title": "Shell-Zeitlimit",
   "drift.settings.shellTimeout.description": "Beendet Shell-Befehle und deren Unterprozesse nach dieser Dauer. Änderungen gelten für neue Aufrufe.",
@@ -1065,7 +1058,6 @@ export const drift = {
   "drift.agent.explore": "Erkunden",
   "drift.settings.notifications": "Benachrichtigungen",
   "drift.settings.about": "Über",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Toolfehler standardmäßig aufklappen",
   "drift.settings.responseAnimation.title": "Sanftes Einblenden von Antworten",
   "drift.settings.responseAnimation.description": "Große Textblöcke in laufenden Assistentenantworten sanft einblenden. Frühere Antworten erscheinen sofort.",
@@ -1100,7 +1092,6 @@ export const drift = {
   "drift.titlebar.restore": "Wiederherstellen",
   "drift.titlebar.maximize": "Maximieren",
   "drift.about.description": "Drift, ein Desktop-Agent mit eingebettetem OpenCode.",
-  "drift.about.version": "Drift {{version}}",
   "drift.settings.sound.chooseCustom": "Benutzerdefinierten Sound auswählen",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(fehlgeschlagen)",
@@ -1132,7 +1123,6 @@ export const drift = {
   "drift.attachment.kind.audio": "Audio",
   "drift.attachment.kind.csv": "Tabelle",
   "drift.attachment.kind.image": "Bild",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "Text",
   "drift.attachment.kind.video": "Video",
   "drift.attachment.lines": "{{count}} Zeilen",
@@ -1200,7 +1190,6 @@ export const drift = {
   "drift.message.tokenCounts": "{{input}} ein / {{output}} aus",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} von {{total}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "Ein Thread hat seine Arbeit beendet",
   "drift.provider.browser": "Browser",
   "drift.provider.connectFailed": "{{provider}} konnte nicht verbunden werden. Anmeldedaten prüfen und erneut versuchen.",

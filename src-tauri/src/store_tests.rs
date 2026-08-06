@@ -1,10 +1,15 @@
 use super::*;
 
-#[test]
-fn store_roundtrip() {
-    let dir = std::env::temp_dir().join(format!("drift-store-test-{}", std::process::id()));
+fn test_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("drift-{name}-test-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn store_roundtrip() {
+    let dir = test_dir("store");
     let store = open(&dir).unwrap();
 
     assert!(!store.dictation_enabled().unwrap());
@@ -49,7 +54,10 @@ fn store_roundtrip() {
     let expired = store.expired_removed_workspaces(now() + 1000).unwrap();
     assert_eq!(expired.len(), 1);
     assert_eq!(expired[0].path, "S:/moved");
-    assert!(store.expired_removed_workspaces(now() - 1000).unwrap().is_empty());
+    assert!(store
+        .expired_removed_workspaces(now() - 1000)
+        .unwrap()
+        .is_empty());
     store.forget_workspace(&expired[0].id).unwrap();
     assert!(store.workspaces().unwrap().is_empty());
     assert!(store.removed_workspaces().unwrap().is_empty());
@@ -76,9 +84,7 @@ fn store_roundtrip() {
 
 #[test]
 fn recoverable_interruptions_deduplicate_and_survive_reopen() {
-    let dir = std::env::temp_dir().join(format!("drift-interruption-test-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir("interruption");
     let file = dir.join("drift.db");
     let item = RecoverableInterruption {
         session_id: "child".into(),
@@ -126,12 +132,7 @@ fn recoverable_interruptions_deduplicate_and_survive_reopen() {
 
 #[test]
 fn failed_interruption_replacement_preserves_the_existing_row() {
-    let dir = std::env::temp_dir().join(format!(
-        "drift-interruption-transaction-test-{}",
-        std::process::id()
-    ));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir("interruption-transaction");
     let store = open(&dir).unwrap();
     let item = RecoverableInterruption {
         session_id: "child".into(),
@@ -162,9 +163,7 @@ fn failed_interruption_replacement_preserves_the_existing_row() {
 
 #[test]
 fn expired_duplicates_of_active_directories_are_collapsed_not_returned() {
-    let dir = std::env::temp_dir().join(format!("drift-dup-test-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir("dup");
     let file = dir.join("drift.db");
     let store = open_at(&file).unwrap();
     store
@@ -185,7 +184,10 @@ fn expired_duplicates_of_active_directories_are_collapsed_not_returned() {
     drop(raw);
 
     // The duplicate must never be offered for session deletion: its directory is on the sidebar.
-    assert!(store.expired_removed_workspaces(now() + 1000).unwrap().is_empty());
+    assert!(store
+        .expired_removed_workspaces(now() + 1000)
+        .unwrap()
+        .is_empty());
     assert_eq!(store.workspaces().unwrap().len(), 1);
     assert!(store.removed_workspaces().unwrap().is_empty());
     let archived = store.archived().unwrap();
@@ -196,9 +198,7 @@ fn expired_duplicates_of_active_directories_are_collapsed_not_returned() {
 
 #[test]
 fn saving_a_path_onto_another_workspace_merges_the_rows() {
-    let dir = std::env::temp_dir().join(format!("drift-save-merge-test-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir("save-merge");
     let store = open_at(&dir.join("drift.db")).unwrap();
     store.add_workspace("a", "S:/one", "One", "icon").unwrap();
     store.add_workspace("b", "S:/two", "Two", "").unwrap();
@@ -213,9 +213,7 @@ fn saving_a_path_onto_another_workspace_merges_the_rows() {
 
 #[test]
 fn open_collapses_duplicate_workspace_paths() {
-    let dir = std::env::temp_dir().join(format!("drift-collapse-test-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir("collapse");
     let file = dir.join("drift.db");
     {
         let store = open_at(&file).unwrap();
@@ -246,9 +244,7 @@ fn open_collapses_duplicate_workspace_paths() {
 
 #[test]
 fn imports_opencode_projects_without_overwriting_drift_metadata() {
-    let dir = std::env::temp_dir().join(format!("drift-import-test-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir("import");
     let source = dir.join("opencode.db");
     let conn = Connection::open(&source).unwrap();
     conn.execute_batch(
@@ -334,9 +330,7 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
 
 #[test]
 fn mcp_decisions_are_global_and_survive_definition_changes() {
-    let dir = std::env::temp_dir().join(format!("drift-mcp-store-test-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir("mcp-store");
     let store = open_at(&dir.join("drift.db")).unwrap();
     let first = serde_json::json!({ "type": "local", "command": ["one"] });
     let second = serde_json::json!({ "type": "local", "command": ["two"] });

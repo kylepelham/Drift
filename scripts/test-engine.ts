@@ -64,10 +64,11 @@ await withEngineOverlays(async () => {
   await run("packages/core", ["test/move-session.test.ts"])
   await run("packages/opencode", ["test/server/httpapi-control-plane.test.ts"])
   await verifyAuthCapture()
-  await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "InstanceStore|CLI bootstrap"])
-  await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "Drift requires"])
-  await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "mutable synthetic"])
-  await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "changed after sealing"])
+  await run("packages/opencode", [
+    "test/project/instance-bootstrap.test.ts",
+    "-t",
+    "InstanceStore|CLI bootstrap|Drift requires|mutable synthetic|changed after sealing",
+  ])
   await run("packages/opencode", ["test/provider/provider.test.ts", "-t", "LM Studio discovers"])
   await run("packages/opencode", ["test/server/httpapi-instance-route-auth.test.ts"])
   await run("packages/opencode", ["test/tool/shell.test.ts", "-t", "terminates command on timeout"])

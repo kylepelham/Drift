@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "Foreslået",
   "command.category.view": "Vis",
@@ -1094,16 +1092,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "Fra",
   "drift.remote.statusStarting": "Starter",
   "drift.remote.statusError": "Fejl",
   "drift.remote.clipboardError": "Kunne ikke kopiere",
-  "drift.settings.shellTimeout.hostWide": "Kørselspolitik for hele værten",
-  "drift.settings.shellTimeout.appliesNew": "Gælder nye kald",
-  "drift.settings.shellTimeout.presets": "Timeout-forvalg",
   "drift.settings.shellTimeout.scope": "Shell-timeouts afslutter procestræer. De påvirker ikke modeller, MCP-servere eller netværkskald.",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "Værktøjskørsel",
   "drift.settings.shellTimeout.title": "Shell-timeout",
   "drift.settings.shellTimeout.description": "Stop shellkommandoer og deres underprocesser efter denne varighed. Ændringer gælder nye kald.",
@@ -1124,7 +1117,6 @@ export const drift = {
   "drift.agent.explore": "Udforsk",
   "drift.settings.notifications": "Notifikationer",
   "drift.settings.about": "Om",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Udvid værktøjsfejl som standard",
   "drift.settings.responseAnimation.title": "Jævn visning af svar",
   "drift.settings.responseAnimation.description": "Vis store tekstblokke fra aktive assistentsvar jævnt. Historiske svar vises med det samme.",
@@ -1159,7 +1151,6 @@ export const drift = {
   "drift.titlebar.restore": "Gendan",
   "drift.titlebar.maximize": "Maksimer",
   "drift.about.description": "Drift, en desktopagent med indbygget OpenCode.",
-  "drift.about.version": "Drift {{version}}",
   "drift.settings.sound.chooseCustom": "Vælg brugerdefineret lyd",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(mislykkedes)",
@@ -1191,7 +1182,6 @@ export const drift = {
   "drift.attachment.kind.audio": "Lyd",
   "drift.attachment.kind.csv": "Tabel",
   "drift.attachment.kind.image": "Billede",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "Tekst",
   "drift.attachment.kind.video": "Video",
   "drift.attachment.lines": "{{count}} linjer",
@@ -1259,7 +1249,6 @@ export const drift = {
   "drift.message.tokenCounts": "{{input}} ind / {{output}} ud",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} af {{total}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "En tråd er færdig med arbejdet",
   "drift.provider.browser": "browser",
   "drift.provider.connectFailed": "Kunne ikke forbinde {{provider}}. Kontrollér legitimationsoplysningerne, og prøv igen.",

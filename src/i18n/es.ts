@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "Sugerido",
   "command.category.view": "Ver",
@@ -1110,16 +1108,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "Desactivado",
   "drift.remote.statusStarting": "Iniciando",
   "drift.remote.statusError": "Error",
   "drift.remote.clipboardError": "No se pudo copiar",
-  "drift.settings.shellTimeout.hostWide": "Política de ejecución para todo el host",
-  "drift.settings.shellTimeout.appliesNew": "Se aplica a llamadas nuevas",
-  "drift.settings.shellTimeout.presets": "Tiempos predefinidos",
   "drift.settings.shellTimeout.scope": "Los límites del shell terminan árboles de procesos. No afectan a modelos, servidores MCP ni llamadas de red.",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "Ejecución de herramientas",
   "drift.settings.shellTimeout.title": "Tiempo límite del shell",
   "drift.settings.shellTimeout.description": "Detén los comandos del shell y sus procesos secundarios después de este tiempo. Los cambios se aplican a llamadas nuevas.",
@@ -1140,7 +1133,6 @@ export const drift = {
   "drift.agent.explore": "Exploración",
   "drift.settings.notifications": "Notificaciones",
   "drift.settings.about": "Acerca de",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "Expandir errores de herramientas de forma predeterminada",
   "drift.settings.responseAnimation.title": "Revelado suave de respuestas",
   "drift.settings.responseAnimation.description": "Revela suavemente los bloques grandes de texto del asistente en vivo. Las respuestas anteriores aparecen al instante.",
@@ -1175,7 +1167,6 @@ export const drift = {
   "drift.titlebar.restore": "Restaurar",
   "drift.titlebar.maximize": "Maximizar",
   "drift.about.description": "Drift, un agente de escritorio con OpenCode integrado.",
-  "drift.about.version": "Drift {{version}}",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(fallido)",
   "drift.about.starting": "(iniciando...)",
@@ -1206,7 +1197,6 @@ export const drift = {
   "drift.attachment.kind.audio": "Audio",
   "drift.attachment.kind.csv": "Tabla",
   "drift.attachment.kind.image": "Imagen",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "Texto",
   "drift.attachment.kind.video": "Vídeo",
   "drift.attachment.lines": "{{count}} líneas",
@@ -1274,7 +1264,6 @@ export const drift = {
   "drift.message.tokenCounts": "{{input}} entrada / {{output}} salida",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} de {{total}}",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "Un hilo terminó de trabajar",
   "drift.provider.browser": "navegador",
   "drift.provider.connectFailed": "No se pudo conectar {{provider}}. Comprueba la credencial e inténtalo de nuevo.",

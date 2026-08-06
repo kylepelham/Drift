@@ -1,5 +1,3 @@
-import { promptAndSpawn } from "./prompt-and-spawn"
-
 export const dict = {
   "command.category.suggested": "추천",
   "command.category.view": "보기",
@@ -1017,16 +1015,11 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.remote.title": "Remote Access",
   "drift.remote.statusOff": "꺼짐",
   "drift.remote.statusStarting": "시작 중",
   "drift.remote.statusError": "오류",
   "drift.remote.clipboardError": "복사할 수 없음",
-  "drift.settings.shellTimeout.hostWide": "호스트 전체 실행 정책",
-  "drift.settings.shellTimeout.appliesNew": "새 호출에 적용",
-  "drift.settings.shellTimeout.presets": "시간 제한 사전 설정",
   "drift.settings.shellTimeout.scope": "셸 시간 제한은 프로세스 트리를 종료합니다. 모델, MCP 서버 또는 네트워크 호출에는 영향을 주지 않습니다.",
-  ...promptAndSpawn,
   "drift.settings.toolExecution": "도구 실행",
   "drift.settings.shellTimeout.title": "셸 시간 제한",
   "drift.settings.shellTimeout.description": "이 시간이 지나면 셸 명령과 하위 프로세스를 중지합니다. 변경 사항은 새 호출에 적용됩니다.",
@@ -1047,7 +1040,6 @@ export const drift = {
   "drift.agent.explore": "탐색",
   "drift.settings.notifications": "알림",
   "drift.settings.about": "정보",
-  "drift.settings.section": "Drift",
   "drift.settings.toolErrors.title": "도구 오류를 기본으로 펼치기",
   "drift.settings.responseAnimation.title": "응답을 부드럽게 표시",
   "drift.settings.responseAnimation.description": "진행 중인 어시스턴트 응답에 추가된 큰 텍스트 블록을 부드럽게 표시합니다. 이전 응답은 즉시 표시됩니다.",
@@ -1082,7 +1074,6 @@ export const drift = {
   "drift.titlebar.restore": "복원",
   "drift.titlebar.maximize": "최대화",
   "drift.about.description": "OpenCode가 내장된 데스크톱 에이전트 Drift입니다.",
-  "drift.about.version": "Drift {{version}}",
   "drift.settings.sound.chooseCustom": "사용자 지정 사운드 선택",
   "drift.about.engine": "OpenCode {{version}}",
   "drift.about.failed": "(실패)",
@@ -1114,7 +1105,6 @@ export const drift = {
   "drift.attachment.kind.audio": "오디오",
   "drift.attachment.kind.csv": "표",
   "drift.attachment.kind.image": "이미지",
-  "drift.attachment.kind.pdf": "PDF",
   "drift.attachment.kind.text": "텍스트",
   "drift.attachment.kind.video": "비디오",
   "drift.attachment.lines": "{{count}}줄",
@@ -1182,7 +1172,6 @@ export const drift = {
   "drift.message.tokenCounts": "입력 {{input}} / 출력 {{output}}",
   "drift.message.tokensPerSecond": "{{rate}} 토큰/초",
   "drift.model.enabledCount": "{{total}}개 중 {{enabled}}개",
-  "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "스레드가 작업을 마쳤습니다",
   "drift.provider.browser": "브라우저",
   "drift.provider.connectFailed": "{{provider}}에 연결할 수 없습니다. 자격 증명을 확인하고 다시 시도하세요.",
