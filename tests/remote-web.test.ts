@@ -64,6 +64,8 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
   // The drawer must not add safe-area padding: the wrapper webview already sits below the
   // status bar, so env(safe-area-inset-top) doubles into a large blank band at the top.
   expect(css).not.toMatch(/\.app-sidebar\s*\{[^}]*safe-area-inset-top/s)
+  expect(css).toMatch(/\.app-sidebar\s*\{[^}]*visibility: hidden;[^}]*visibility 0s linear 180ms/s)
+  expect(css).toMatch(/\.app-sidebar\.mobile-sidebar-open\s*\{[^}]*visibility: visible/s)
   expect(css).toMatch(/\.app-sidebar-scroll\s*\{[^}]*touch-action: pan-y/s)
   expect(sidebar).toContain('event.target.closest("[data-sidebar-navigation]")')
   expect(workspaces).toContain('class="group sticky top-0')

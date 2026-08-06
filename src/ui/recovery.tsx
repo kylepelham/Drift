@@ -57,12 +57,18 @@ export function RecoveryCard(props: { interruption: RecoverableInterruption }) {
     const prefs = prefsFor(props.interruption.sessionId)
     const variants = Object.keys(modelInfo(engine.state, model)?.variants ?? {})
     const sessionAgent = (engine.state.sessions[props.interruption.sessionId] as { agent?: string } | undefined)?.agent
-    await engine.actions.recover(props.interruption.sessionId, {
-      model,
-      agent: sessionAgent ?? prefs.agent,
-      variant: prefs.variant && variants.includes(prefs.variant) ? prefs.variant : undefined,
-    })
-    setSubmitting(false)
+    try {
+      await engine.actions.recover(props.interruption.sessionId, {
+        model,
+        agent: sessionAgent ?? prefs.agent,
+        variant: prefs.variant && variants.includes(prefs.variant) ? prefs.variant : undefined,
+        directory: props.interruption.directory,
+      })
+    } catch (cause) {
+      engine.actions.notice({ message: cause instanceof Error ? cause.message : String(cause), variant: "error" })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (

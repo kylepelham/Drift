@@ -135,7 +135,13 @@ function cache(snapshot: UiMirrorSnapshot) {
     ["drift.session", snapshot.selection.sessionId],
     ["drift.workspace.order", snapshot.workspaceOrder],
   ]
-  for (const [key, value] of values) localStorage.setItem(key, JSON.stringify(value))
+  for (const [key, value] of values) cacheValue(key, value)
+}
+
+function cacheValue(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {}
 }
 
 export function acceptMirrorSnapshot(snapshot: UiMirrorSnapshot, force = false) {
@@ -185,7 +191,7 @@ export async function bootstrapMirror() {
   const policy = remote
     ? await invoke<{ timeoutMs: number | null }>(shellTimeoutBootstrapCommand(true))
     : await invoke<{ timeoutMs: number | null }>(shellTimeoutBootstrapCommand(false), { policy: { timeoutMs: localTimeout } })
-  localStorage.setItem("drift.shell.timeout", JSON.stringify(policy.timeoutMs))
+  cacheValue("drift.shell.timeout", policy.timeoutMs)
 }
 
 export function publishMirrorTheme(theme: MirrorTheme) {

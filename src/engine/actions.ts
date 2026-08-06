@@ -40,7 +40,7 @@ export type PromptFile = {
   url: string
   source?: { type: "file"; path: string; text: { value: string; start: number; end: number } }
 }
-export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string; files?: PromptFile[] }
+export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string; files?: PromptFile[]; directory?: string }
 export type PromptSendResult = { ok: true } | { ok: false; error: string }
 export type PermissionResponse = "once" | "always" | "reject"
 export type ProviderAuthResult = { ok: boolean; connected: boolean }
@@ -437,7 +437,7 @@ export function createActions(
     }
     try {
       const base = target()
-      const directory = state.sessions[id]?.directory
+      const directory = options.directory ?? state.sessions[id]?.directory
       const client = base && directory
         ? createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
         : requireClient()
@@ -465,7 +465,12 @@ export function createActions(
       ...(options.variant ? { variant: options.variant } : {}),
     }
     try {
-      const result = await requireClient().session.promptAsync({ path: { id }, body })
+      const base = target()
+      const directory = options.directory ?? state.sessions[id]?.directory
+      const client = base && directory
+        ? createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
+        : requireClient()
+      const result = await client.session.promptAsync({ path: { id }, body })
       if (result.error === undefined) return { ok: true }
       const error = `Recovery failed: ${sdkErrorMessage(result.error, "engine rejected the request")}`
       set("errors", id, error)

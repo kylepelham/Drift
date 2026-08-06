@@ -49,7 +49,7 @@ test("redo with no next user message unreverts and clears the draft", async () =
   const engine = fakeEngine(transcript)
   engine.setMarker("05")
   setComposerDraft(composerScope("s1"), { text: "third", staged: [], mentions: [] })
-  await restoreReverted(engine, "s1", "05")
+  expect(await restoreReverted(engine, "s1", "05")).toBeTrue()
   expect(engine.calls).toEqual(["unrevert:s1"])
   expect(engine.getMarker()).toBeUndefined()
   expect(composerDraft(composerScope("s1")).text).toBe("")
@@ -77,7 +77,17 @@ test("failed revert leaves the composer draft untouched", async () => {
   const engine = fakeEngine(transcript)
   engine.actions.revert = () => Promise.resolve(false)
   setComposerDraft(composerScope("s1"), { text: "kept", staged: [], mentions: [] })
-  await restoreReverted(engine, "s1", "03")
+  expect(await restoreReverted(engine, "s1", "03")).toBeFalse()
+  expect(composerDraft(composerScope("s1")).text).toBe("kept")
+})
+
+test("failed unrevert leaves the composer draft untouched", async () => {
+  const { restoreReverted } = await import("../src/ui/revert")
+  const { composerDraft, composerScope, setComposerDraft } = await import("../src/state/composer")
+  const engine = fakeEngine(transcript)
+  engine.actions.unrevert = () => Promise.resolve(false)
+  setComposerDraft(composerScope("s1"), { text: "kept", staged: [], mentions: [] })
+  expect(await restoreReverted(engine, "s1", "05")).toBeFalse()
   expect(composerDraft(composerScope("s1")).text).toBe("kept")
 })
 

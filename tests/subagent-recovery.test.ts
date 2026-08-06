@@ -122,6 +122,39 @@ test("recovery prompts the same session with the explicitly selected model and d
   expect(RECOVERY_INSTRUCTION).toContain("Do not blindly repeat tools")
 })
 
+test("recovery targets the interrupted session directory instead of the active workspace client", async () => {
+  const { createActions } = await import("../src/engine/actions")
+  const [state, set] = createEngineState()
+  const originalFetch = globalThis.fetch
+  let request: Request | undefined
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    request = input instanceof Request ? input : new Request(input, init)
+    return new Response(null, { status: 204 })
+  }) as typeof fetch
+  try {
+    const actions = createActions(
+      () => {
+        throw new Error("active workspace client should not be used")
+      },
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+    )
+    expect(
+      await actions.recover("child", {
+        model: { providerID: "openai", modelID: "gpt-5" },
+        agent: "explore",
+        directory: "D:/work/beta",
+      }),
+    ).toEqual({ ok: true })
+    const url = new URL(request!.url)
+    expect(url.pathname).toBe("/session/child/prompt_async")
+    expect(decodeURIComponent(request!.headers.get("x-opencode-directory")!)).toBe("D:/work/beta")
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test("parent delegated status follows interruption, resumed work, and completion", async () => {
   const { delegatedTaskStatus } = await import("../src/ui/parts")
   const [state, set] = createEngineState()

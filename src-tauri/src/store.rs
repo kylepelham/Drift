@@ -241,6 +241,14 @@ impl Store {
         Ok(())
     }
 
+    pub fn delete_app_setting(&self, key: &str) -> rusqlite::Result<()> {
+        self.0
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM app_setting WHERE key = ?1", [key])?;
+        Ok(())
+    }
+
     pub fn dictation_enabled(&self) -> rusqlite::Result<bool> {
         let value: Option<String> = self
             .0
@@ -619,12 +627,14 @@ impl Store {
     }
 
     pub fn save_interruption(&self, item: &RecoverableInterruption) -> rusqlite::Result<()> {
-        let conn = self.0.lock().unwrap();
-        conn.prepare_cached(
-            "DELETE FROM recoverable_interruption WHERE session_id = ?1 AND identity <> ?2",
-        )?
-        .execute((&item.session_id, &item.identity))?;
-        conn.prepare_cached(
+        let mut conn = self.0.lock().unwrap();
+        let transaction = conn.transaction()?;
+        transaction
+            .prepare_cached(
+                "DELETE FROM recoverable_interruption WHERE session_id = ?1 AND identity <> ?2",
+            )?
+            .execute((&item.session_id, &item.identity))?;
+        transaction.prepare_cached(
             "INSERT INTO recoverable_interruption(
                 session_id, identity, workspace_id, directory, thread_title, parent_session_id,
                 provider_id, model_id, kind, reason, error_name, created_at, updated_at, dismissed_at
@@ -649,6 +659,7 @@ impl Store {
             item.updated_at,
             item.dismissed_at,
         ])?;
+        transaction.commit()?;
         Ok(())
     }
 

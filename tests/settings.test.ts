@@ -99,6 +99,40 @@ test("agent overrides retain only values changed from upstream", async () => {
  * needs it.
  */
 const pendingTranslation = new Set([
+  "drift.mobile.openNavigation",
+  "drift.recovery.chooseModel",
+  "drift.recovery.continue",
+  "drift.recovery.durableHint",
+  "drift.recovery.explanation",
+  "drift.recovery.failedModel",
+  "drift.recovery.notification.body",
+  "drift.recovery.notification.title",
+  "drift.recovery.open",
+  "drift.recovery.starting",
+  "drift.recovery.subagent",
+  "drift.recovery.task.completed",
+  "drift.recovery.task.error",
+  "drift.recovery.task.interrupted",
+  "drift.recovery.task.resumed",
+  "drift.recovery.task.running",
+  "drift.recovery.title",
+  "drift.remote.address",
+  "drift.remote.connected",
+  "drift.remote.connectionDescription",
+  "drift.remote.connectionUrl",
+  "drift.remote.copied",
+  "drift.remote.copy",
+  "drift.remote.deckHelp",
+  "drift.remote.enable",
+  "drift.remote.enableDescription",
+  "drift.remote.gateway",
+  "drift.remote.listening",
+  "drift.remote.manageOnDesktop",
+  "drift.remote.noLanAddress",
+  "drift.remote.rotate",
+  "drift.remote.rotated",
+  "drift.remote.securityTitle",
+  "drift.remote.securityWarning",
   "drift.lmStudio.apiToken",
   "drift.lmStudio.contextTooSmall",
   "drift.lmStudio.description",
@@ -204,13 +238,17 @@ test("Drift owns complete app-specific translations for every locale", async () 
   }
   // Every pending key must exist in English, and must still be missing somewhere. Otherwise the
   // list has gone stale and is silently excusing a key that should now be enforced.
-  const spanish = await import("../src/i18n/es")
   const englishKeys = new Set(Object.keys(english.drift))
-  const spanishKeys = new Set(Object.keys(spanish.drift))
+  const localized = await Promise.all(
+    languages.filter((language) => language.id !== "en").map((language) => import(`../src/i18n/${language.id}.ts`)),
+  )
   const unknown = [...pendingTranslation].filter((key) => !englishKeys.has(key))
-  const stale = [...pendingTranslation].filter((key) => spanishKeys.has(key))
+  const stale = [...pendingTranslation].filter((key) => localized.every((catalog) => key in catalog.drift))
   expect(unknown, "pendingTranslation names keys that do not exist in en.ts").toEqual([])
   expect(stale, "pendingTranslation names keys that are translated now; remove them").toEqual([])
+  for (const language of languages.filter((language) => language.id !== "en")) {
+    expect(await Bun.file(`src/i18n/${language.id}.ts`).text()).not.toContain('from "./recovery"')
+  }
   expect(await Bun.file("src/state/i18n.ts").text()).not.toContain("engine/upstream")
 })
 

@@ -27,8 +27,11 @@ export async function restoreReverted(engine: RevertHost, sessionID: string, mes
   const next = nextUserMessage(engine.state.transcripts[sessionID] ?? [], messageID)
   if (next) {
     const restored = draftFromMessage(next)
-    if (await engine.actions.revert(sessionID, next.info.id)) setComposerDraft(composerScope(sessionID), restored)
-    return
+    const success = await engine.actions.revert(sessionID, next.info.id)
+    if (success) setComposerDraft(composerScope(sessionID), restored)
+    return success
   }
-  if (await engine.actions.unrevert(sessionID)) clearComposerDraft(composerScope(sessionID))
+  const success = await engine.actions.unrevert(sessionID)
+  if (success) clearComposerDraft(composerScope(sessionID))
+  return success
 }

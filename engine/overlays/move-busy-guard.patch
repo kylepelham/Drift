@@ -2,7 +2,7 @@ diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/contr
 index 4c13afdb..77a97441 100644
 --- a/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
 +++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
-@@ -1,17 +1,55 @@
+@@ -1,17 +1,58 @@
  import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
 +import { FSUtil } from "@opencode-ai/core/fs-util"
  import { SessionV2 } from "@opencode-ai/core/session"
@@ -27,9 +27,12 @@ index 4c13afdb..77a97441 100644
 +    // directory, so the whole session tree must be confirmed idle before the move proceeds.
 +    const busyInTree = Effect.fn("ControlPlaneHttpApi.busyInTree")(function* (root: Session.Info) {
 +      const pending = [root]
++      const seen = new Set<string>()
 +      const contexts = new Map<string, InstanceContext>()
 +      for (let index = 0; index < pending.length; index++) {
 +        const info = pending[index]
++        if (seen.has(info.id)) continue
++        seen.add(info.id)
 +        const directory = FSUtil.resolve(info.directory)
 +        let ctx = contexts.get(directory)
 +        if (!ctx) {
@@ -62,7 +65,7 @@ diff --git a/packages/opencode/test/server/httpapi-control-plane.test.ts b/packa
 index b837bf75..4db074ee 100644
 --- a/packages/opencode/test/server/httpapi-control-plane.test.ts
 +++ b/packages/opencode/test/server/httpapi-control-plane.test.ts
-@@ -1,63 +1,139 @@
+@@ -1,63 +1,163 @@
 -import { NodeHttpServer } from "@effect/platform-node"
 -import { describe, expect } from "bun:test"
 -import { Context, Effect, Layer, Option, Ref } from "effect"
@@ -165,6 +168,11 @@ index b837bf75..4db074ee 100644
 +  destination: { directory: AbsolutePath.make("/destination") },
 +  moveChanges: false,
 +})
++const cycleInput = MoveSession.Input.make({
++  sessionID: SessionV2.ID.make("ses_cycle"),
++  destination: { directory: AbsolutePath.make("/destination") },
++  moveChanges: false,
++})
 +const called = Ref.makeUnsafe<MoveSession.Input | undefined>(undefined)
 +
 +function info(id: string, directory: string) {
@@ -176,6 +184,8 @@ index b837bf75..4db074ee 100644
 +  ["ses_busy", info("ses_busy", "/source")],
 +  ["ses_busy_child", info("ses_busy_child", "/source")],
 +  ["ses_idle", info("ses_idle", "/source")],
++  ["ses_cycle", info("ses_cycle", "/source")],
++  ["ses_cycle_child", info("ses_cycle_child", "/source")],
 +])
 +
 +const apiLayer = HttpRouter.serve(
@@ -205,8 +215,12 @@ index b837bf75..4db074ee 100644
 +          ? Effect.succeed(found)
 +          : Effect.fail(new NotFoundError({ message: `Session not found: ${id}` }))
 +      },
-+      children: (parentID) =>
-+        Effect.succeed(parentID === "ses_busy" ? [sessionInfos.get("ses_busy_child")!] : []),
++      children: (parentID) => {
++        if (parentID === "ses_busy") return Effect.succeed([sessionInfos.get("ses_busy_child")!])
++        if (parentID === "ses_cycle") return Effect.succeed([sessionInfos.get("ses_cycle_child")!])
++        if (parentID === "ses_cycle_child") return Effect.succeed([sessionInfos.get("ses_cycle")!])
++        return Effect.succeed([])
++      },
 +    }),
 +  ),
 +  Layer.provide(
@@ -262,6 +276,19 @@ index b837bf75..4db074ee 100644
 +
 +      expect(response.status).toBe(204)
 +      expect(yield* Ref.get(called)).toEqual(idleInput)
++    }),
++  )
++
++  it.live("moves an idle session tree with a cyclic parent relationship", () =>
++    Effect.gen(function* () {
++      yield* Ref.set(called, undefined)
++      const response = yield* HttpClientRequest.post("/experimental/control-plane/move-session").pipe(
++        HttpClientRequest.setBody(HttpBody.jsonUnsafe(cycleInput)),
++        HttpClient.execute,
++      )
++
++      expect(response.status).toBe(204)
++      expect(yield* Ref.get(called)).toEqual(cycleInput)
 +    }),
 +  )
 +})

@@ -56,6 +56,39 @@ fn snapshot_initialization_is_insert_only_and_survives_reopen() {
 }
 
 #[test]
+fn invalid_persisted_settings_are_discarded_before_initialization() {
+    let (dir, store) = test_store("invalid-persisted");
+    store.save_app_setting(UI_STATE_KEY, "not json").unwrap();
+    store
+        .save_app_setting(SHELL_TIMEOUT_KEY, r#"{"timeoutMs":1}"#)
+        .unwrap();
+
+    let ui = UiStateAuthority::load(&store).unwrap();
+    let timeout = ShellTimeoutAuthority::load(&store).unwrap();
+    assert!(ui.snapshot().is_err());
+    assert!(timeout.snapshot().is_err());
+    assert_eq!(ui.initialize(&store, snapshot(None)).unwrap().revision, 0);
+    assert_eq!(
+        timeout
+            .initialize(
+                &store,
+                ShellTimeoutPolicy {
+                    timeout_ms: Some(60_000),
+                },
+            )
+            .unwrap()
+            .timeout_ms,
+        Some(60_000)
+    );
+    assert!(UiStateAuthority::load(&store).unwrap().snapshot().is_ok());
+    assert!(ShellTimeoutAuthority::load(&store)
+        .unwrap()
+        .snapshot()
+        .is_ok());
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
 fn mutations_increment_once_and_deduplicate_retries() {
     let (dir, store) = test_store("dedupe");
     let authority = UiStateAuthority::load(&store).unwrap();

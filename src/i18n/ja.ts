@@ -1,5 +1,4 @@
 import { promptAndSpawn } from "./prompt-and-spawn"
-import { recovery } from "./recovery"
 
 export const dict = {
   "command.category.suggested": "おすすめ",
@@ -1028,26 +1027,7 @@ export const drift = {
   "drift.settings.shellTimeout.appliesNew": "新しい呼び出しに適用",
   "drift.settings.shellTimeout.presets": "タイムアウトのプリセット",
   "drift.settings.shellTimeout.scope": "シェルのタイムアウトはプロセスツリーを終了します。モデル、MCP、ネットワーク呼び出しには影響しません。",
-  "drift.remote.connected": "Connected to Drift",
-  "drift.remote.manageOnDesktop": "This device is using the host gateway. Enable, disable, or rotate access from Drift on the host computer.",
-  "drift.remote.gateway": "Gateway",
-  "drift.remote.enable": "Enable Remote Access",
-  "drift.remote.enableDescription": "Share the complete Drift interface with trusted devices on this LAN.",
-  "drift.remote.address": "Listening address",
-  "drift.remote.listening": "Listening",
-  "drift.remote.connectionUrl": "Private connection URL",
-  "drift.remote.connectionDescription": "The access key is hidden here and included only when you copy the URL.",
-  "drift.remote.noLanAddress": "No reachable LAN address found",
-  "drift.remote.copied": "Copied",
-  "drift.remote.copy": "Copy connection URL",
-  "drift.remote.rotate": "Rotate access key",
-  "drift.remote.rotated": "Access key rotated. Existing remote devices have been signed out.",
-  "drift.remote.securityTitle": "Trusted LAN only",
-  "drift.remote.securityWarning": "Traffic uses HTTP and is not encrypted. Anyone with the connection URL and network access can control Drift and access host workspace data.",
-  "drift.remote.deckHelp": "LAN discovery advertises Drift's address without sharing the private access key.",
-  "drift.mobile.openNavigation": "Open workspace navigation",
   ...promptAndSpawn,
-  ...recovery,
   "drift.settings.toolExecution": "ツール実行",
   "drift.settings.shellTimeout.title": "シェルのタイムアウト",
   "drift.settings.shellTimeout.description": "この時間を過ぎるとシェルコマンドと子プロセスを停止します。変更は新しい呼び出しに適用されます。",

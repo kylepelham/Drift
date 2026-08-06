@@ -1,5 +1,4 @@
 import { promptAndSpawn } from "./prompt-and-spawn"
-import { recovery } from "./recovery"
 
 export const dict = {
   "command.category.suggested": "Предложено",
@@ -1115,26 +1114,7 @@ export const drift = {
   "drift.settings.shellTimeout.appliesNew": "Для новых вызовов",
   "drift.settings.shellTimeout.presets": "Предустановки тайм-аута",
   "drift.settings.shellTimeout.scope": "Тайм-ауты оболочки завершают деревья процессов. Они не влияют на модели, серверы MCP и сетевые вызовы.",
-  "drift.remote.connected": "Connected to Drift",
-  "drift.remote.manageOnDesktop": "This device is using the host gateway. Enable, disable, or rotate access from Drift on the host computer.",
-  "drift.remote.gateway": "Gateway",
-  "drift.remote.enable": "Enable Remote Access",
-  "drift.remote.enableDescription": "Share the complete Drift interface with trusted devices on this LAN.",
-  "drift.remote.address": "Listening address",
-  "drift.remote.listening": "Listening",
-  "drift.remote.connectionUrl": "Private connection URL",
-  "drift.remote.connectionDescription": "The access key is hidden here and included only when you copy the URL.",
-  "drift.remote.noLanAddress": "No reachable LAN address found",
-  "drift.remote.copied": "Copied",
-  "drift.remote.copy": "Copy connection URL",
-  "drift.remote.rotate": "Rotate access key",
-  "drift.remote.rotated": "Access key rotated. Existing remote devices have been signed out.",
-  "drift.remote.securityTitle": "Trusted LAN only",
-  "drift.remote.securityWarning": "Traffic uses HTTP and is not encrypted. Anyone with the connection URL and network access can control Drift and access host workspace data.",
-  "drift.remote.deckHelp": "LAN discovery advertises Drift's address without sharing the private access key.",
-  "drift.mobile.openNavigation": "Open workspace navigation",
   ...promptAndSpawn,
-  ...recovery,
   "drift.settings.toolExecution": "Выполнение инструментов",
   "drift.settings.shellTimeout.title": "Тайм-аут оболочки",
   "drift.settings.shellTimeout.description": "Останавливает команды оболочки и их дочерние процессы по истечении этого времени. Изменения применяются к новым вызовам.",

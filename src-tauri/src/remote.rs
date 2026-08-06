@@ -1,6 +1,6 @@
 use crate::{commands, config, editor, engine, mcp, store::Store, ui_state, voice};
 use axum::body::{Body, Bytes};
-use axum::extract::{DefaultBodyLimit, Request, State};
+use axum::extract::{DefaultBodyLimit, Extension, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Component, Path};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use tauri::Manager;
 use tokio::sync::{broadcast, watch, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
@@ -47,6 +47,7 @@ struct Running {
 pub(crate) struct RemoteAccess {
     config: Mutex<RemoteConfig>,
     running: AsyncMutex<Option<Running>>,
+    transition: AsyncMutex<()>,
     auth_revision: watch::Sender<u64>,
 }
 
@@ -87,6 +88,7 @@ impl RemoteAccess {
                 error: None,
             }),
             running: AsyncMutex::new(None),
+            transition: AsyncMutex::new(()),
             auth_revision,
         })
     }
@@ -96,10 +98,10 @@ impl RemoteAccess {
     }
 
     pub(crate) async fn start(&self, app: tauri::AppHandle) -> Result<(), String> {
+        let mut running = self.running.lock().await;
         if !self.config.lock().unwrap().enabled {
             return Err("remote access is disabled".into());
         }
-        let mut running = self.running.lock().await;
         if running.is_some() {
             return Ok(());
         }
@@ -174,6 +176,13 @@ impl RemoteAccess {
         config.enabled.then(|| config.token.clone())
     }
 
+    fn authorize(&self, headers: &HeaderMap) -> Option<watch::Receiver<u64>> {
+        let config = self.config.lock().unwrap();
+        let supplied = supplied_bearer(headers).or_else(|| supplied_cookie(headers))?;
+        (config.enabled && constant_time_eq(supplied.as_bytes(), config.token.as_bytes()))
+            .then(|| self.auth_changes())
+    }
+
     pub(crate) fn set_error(&self, error: String) {
         self.config.lock().unwrap().error = Some(error);
     }
@@ -231,18 +240,22 @@ pub(crate) async fn remote_access_enable(
     access: tauri::State<'_, RemoteAccess>,
     store: tauri::State<'_, Store>,
 ) -> Result<RemoteStatus, String> {
+    let _transition = access.transition.lock().await;
     let token = {
-        let mut config = access.config.lock().unwrap();
-        if config.token.is_empty() {
-            config.token = random_token();
-        }
-        config.enabled = true;
-        config.error = None;
-        config.token.clone()
+        let config = access.config.lock().unwrap();
+        (!config.token.is_empty())
+            .then(|| config.token.clone())
+            .unwrap_or_else(random_token)
     };
     store
         .save_remote_access(true, &token)
         .map_err(|error| error.to_string())?;
+    {
+        let mut config = access.config.lock().unwrap();
+        config.enabled = true;
+        config.token = token.clone();
+        config.error = None;
+    }
     if let Err(error) = access.start(app).await {
         {
             let mut config = access.config.lock().unwrap();
@@ -260,15 +273,16 @@ pub(crate) async fn remote_access_disable(
     access: tauri::State<'_, RemoteAccess>,
     store: tauri::State<'_, Store>,
 ) -> Result<RemoteStatus, String> {
-    let token = {
-        let mut config = access.config.lock().unwrap();
-        config.enabled = false;
-        config.error = None;
-        config.token.clone()
-    };
+    let _transition = access.transition.lock().await;
+    let token = access.config.lock().unwrap().token.clone();
     store
         .save_remote_access(false, &token)
         .map_err(|error| error.to_string())?;
+    {
+        let mut config = access.config.lock().unwrap();
+        config.enabled = false;
+        config.error = None;
+    }
     access.invalidate_streams();
     access.stop().await;
     Ok(access.status().await)
@@ -279,16 +293,18 @@ pub(crate) async fn remote_access_rotate_token(
     access: tauri::State<'_, RemoteAccess>,
     store: tauri::State<'_, Store>,
 ) -> Result<RemoteStatus, String> {
-    let (enabled, token) = {
-        let mut config = access.config.lock().unwrap();
-        config.token = random_token();
-        config.error = None;
-        (config.enabled, config.token.clone())
-    };
+    let _transition = access.transition.lock().await;
+    let enabled = access.config.lock().unwrap().enabled;
+    let token = random_token();
     store
         .save_remote_access(enabled, &token)
         .map_err(|error| error.to_string())?;
-    access.invalidate_streams();
+    {
+        let mut config = access.config.lock().unwrap();
+        config.token = token;
+        config.error = None;
+        access.invalidate_streams();
+    }
     Ok(access.status().await)
 }
 
@@ -316,7 +332,10 @@ fn router(app: tauri::AppHandle) -> Router {
         .with_state(app)
 }
 
-async fn ui_state_events(State(app): State<tauri::AppHandle>) -> Response {
+async fn ui_state_events(
+    State(app): State<tauri::AppHandle>,
+    Extension(auth): Extension<watch::Receiver<u64>>,
+) -> Response {
     let authority = app.state::<ui_state::UiStateAuthority>();
     let Ok(initial) = authority.snapshot() else {
         return (
@@ -326,7 +345,6 @@ async fn ui_state_events(State(app): State<tauri::AppHandle>) -> Response {
             .into_response();
     };
     let receiver = authority.subscribe();
-    let auth = app.state::<RemoteAccess>().auth_changes();
     let stream = futures_util::stream::unfold(
         (Some(initial), receiver, auth),
         |(initial, mut receiver, mut auth)| async move {
@@ -362,21 +380,22 @@ async fn ui_state_events(State(app): State<tauri::AppHandle>) -> Response {
 
 async fn gateway_middleware(
     State(app): State<tauri::AppHandle>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let response = if !valid_host_origin(request.headers()) {
         (StatusCode::FORBIDDEN, "invalid host or origin").into_response()
     } else if let Some(response) = cookie_exchange(&app, request.uri()) {
         response
-    } else if !authorized(&app, request.headers()) {
+    } else if let Some(auth) = app.state::<RemoteAccess>().authorize(request.headers()) {
+        request.extensions_mut().insert(auth);
+        next.run(request).await
+    } else {
         (
             StatusCode::UNAUTHORIZED,
             "remote access authentication required",
         )
             .into_response()
-    } else {
-        next.run(request).await
     };
     secure(response)
 }
@@ -407,15 +426,6 @@ fn cookie_exchange_with_token(uri: &Uri, token: Option<&str>) -> Option<Response
         .unwrap(),
     );
     Some(response)
-}
-
-fn authorized(app: &tauri::AppHandle, headers: &HeaderMap) -> bool {
-    let Some(token) = app.state::<RemoteAccess>().token_if_enabled() else {
-        return false;
-    };
-    supplied_bearer(headers)
-        .or_else(|| supplied_cookie(headers))
-        .is_some_and(|supplied| constant_time_eq(supplied.as_bytes(), token.as_bytes()))
 }
 
 fn supplied_bearer(headers: &HeaderMap) -> Option<&str> {
@@ -539,7 +549,11 @@ fn static_path(path: &str) -> Option<&str> {
     Some(raw)
 }
 
-async fn proxy_engine(State(app): State<tauri::AppHandle>, request: Request) -> Response {
+async fn proxy_engine(
+    State(app): State<tauri::AppHandle>,
+    Extension(mut auth): Extension<watch::Receiver<u64>>,
+    request: Request,
+) -> Response {
     let (parts, body) = request.into_parts();
     if parts
         .headers
@@ -592,9 +606,9 @@ async fn proxy_engine(State(app): State<tauri::AppHandle>, request: Request) -> 
         }
         Ok(chunk)
     });
-    let client = match reqwest::Client::builder().redirect(Policy::none()).build() {
+    let client = match proxy_client() {
         Ok(client) => client,
-        Err(error) => return (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
+        Err(error) => return (StatusCode::BAD_GATEWAY, error).into_response(),
     };
     let mut outgoing = client
         .request(method, target)
@@ -611,15 +625,20 @@ async fn proxy_engine(State(app): State<tauri::AppHandle>, request: Request) -> 
             outgoing = outgoing.header(name.as_str(), value.as_bytes());
         }
     }
-    let response = match outgoing.send().await {
-        Ok(response) => response,
-        Err(error) => return (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
+    let response = tokio::select! {
+        changed = auth.changed() => {
+            let _ = changed;
+            return (StatusCode::UNAUTHORIZED, "remote access credentials changed").into_response();
+        }
+        response = outgoing.send() => match response {
+            Ok(response) => response,
+            Err(error) => return (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
+        }
     };
     let status =
         StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let response_headers = response.headers().clone();
-    let stream = response
-        .bytes_stream()
+    let stream = revoke_on_auth_change(response.bytes_stream(), auth)
         .map(|chunk| chunk.map(Bytes::from).map_err(std::io::Error::other));
     let mut proxied = Response::new(Body::from_stream(stream));
     *proxied.status_mut() = status;
@@ -633,6 +652,31 @@ async fn proxy_engine(State(app): State<tauri::AppHandle>, request: Request) -> 
         HeaderValue::from_static("no"),
     );
     proxied
+}
+
+static PROXY_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn proxy_client() -> Result<&'static reqwest::Client, String> {
+    if let Some(client) = PROXY_CLIENT.get() {
+        return Ok(client);
+    }
+    let client = reqwest::Client::builder()
+        .redirect(Policy::none())
+        .build()
+        .map_err(|error| error.to_string())?;
+    Ok(PROXY_CLIENT.get_or_init(|| client))
+}
+
+fn revoke_on_auth_change<S>(
+    stream: S,
+    mut auth: watch::Receiver<u64>,
+) -> impl futures_util::Stream<Item = S::Item>
+where
+    S: futures_util::Stream,
+{
+    stream.take_until(async move {
+        let _ = auth.changed().await;
+    })
 }
 
 fn request_header_allowed(name: &HeaderName, headers: &HeaderMap) -> bool {
@@ -695,6 +739,7 @@ struct RpcRequest {
 
 async fn invoke_rpc(
     State(app): State<tauri::AppHandle>,
+    Extension(mut auth): Extension<watch::Receiver<u64>>,
     Json(request): Json<RpcRequest>,
 ) -> Response {
     if !rpc_allowed(&request.command) {
@@ -704,7 +749,14 @@ async fn invoke_rpc(
         )
             .into_response();
     }
-    match dispatch_rpc(&app, &request.command, &request.args).await {
+    let result = tokio::select! {
+        changed = auth.changed() => {
+            let _ = changed;
+            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "remote access credentials changed" }))).into_response();
+        }
+        result = dispatch_rpc(&app, &request.command, &request.args) => result,
+    };
+    match result {
         Ok(value) => Json(value).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response(),
     }
@@ -1079,6 +1131,22 @@ mod tests {
         let second = random_token();
         assert_eq!(first.len(), 64);
         assert_ne!(first, second);
+    }
+
+    #[tokio::test]
+    async fn auth_changes_terminate_existing_streams() {
+        let (revision, auth) = watch::channel(0u64);
+        let source = futures_util::stream::unfold(0, |index| async move {
+            if index == 0 {
+                Some(("first", 1))
+            } else {
+                futures_util::future::pending().await
+            }
+        });
+        let mut stream = Box::pin(revoke_on_auth_change(source, auth));
+        assert_eq!(stream.next().await, Some("first"));
+        revision.send(1).unwrap();
+        assert_eq!(stream.next().await, None);
     }
 
     #[test]

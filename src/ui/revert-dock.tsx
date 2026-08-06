@@ -22,7 +22,11 @@ export function RevertDock() {
     if (!id || busy()) return
     setBusy(true)
     try {
-      await restoreReverted(engine, id, entry.info.id)
+      if (!(await restoreReverted(engine, id, entry.info.id))) {
+        engine.actions.notice({ message: t("common.requestFailed"), variant: "error" })
+      }
+    } catch (cause) {
+      engine.actions.notice({ message: cause instanceof Error ? cause.message : String(cause), variant: "error" })
     } finally {
       setBusy(false)
     }

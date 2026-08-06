@@ -1,4 +1,5 @@
 use crate::store::Store;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -69,14 +70,7 @@ pub(crate) struct UiStateAuthority {
 
 impl UiStateAuthority {
     pub(crate) fn load(store: &Store) -> Result<Self, String> {
-        let snapshot = store
-            .app_setting(UI_STATE_KEY)
-            .map_err(|error| error.to_string())?
-            .map(|value| serde_json::from_str(&value).map_err(|error| error.to_string()))
-            .transpose()?;
-        if let Some(snapshot) = snapshot.as_ref() {
-            validate_snapshot(snapshot)?;
-        }
+        let snapshot = load_valid_setting(store, UI_STATE_KEY, validate_snapshot)?;
         let (events, _) = broadcast::channel(32);
         Ok(Self {
             inner: Mutex::new(UiStateInner {
@@ -127,7 +121,10 @@ impl UiStateAuthority {
     ) -> Result<(UiMirrorSnapshot, bool), String> {
         validate_identifier("clientId", &mutation.client_id)?;
         validate_identifier("mutationId", &mutation.mutation_id)?;
-        if mutation.theme.is_none() && mutation.selection.is_none() && mutation.workspace_order.is_none() {
+        if mutation.theme.is_none()
+            && mutation.selection.is_none()
+            && mutation.workspace_order.is_none()
+        {
             return Err("UI state mutation is empty".into());
         }
         let key = (mutation.client_id, mutation.mutation_id);
@@ -216,14 +213,10 @@ pub(crate) struct ShellTimeoutAuthority(Mutex<Option<ShellTimeoutPolicy>>);
 
 impl ShellTimeoutAuthority {
     pub(crate) fn load(store: &Store) -> Result<Self, String> {
-        let policy: Option<ShellTimeoutPolicy> = store
-            .app_setting(SHELL_TIMEOUT_KEY)
-            .map_err(|error| error.to_string())?
-            .map(|value| serde_json::from_str(&value).map_err(|error| error.to_string()))
-            .transpose()?;
-        if let Some(policy) = policy.as_ref() {
-            validate_timeout(policy.timeout_ms)?;
-        }
+        let policy =
+            load_valid_setting(store, SHELL_TIMEOUT_KEY, |policy: &ShellTimeoutPolicy| {
+                validate_timeout(policy.timeout_ms)
+            })?;
         Ok(Self(Mutex::new(policy)))
     }
 
@@ -267,6 +260,28 @@ impl ShellTimeoutAuthority {
             .map_err(|error| error.to_string())?;
         *self.0.lock().unwrap() = Some(policy.clone());
         Ok(policy)
+    }
+}
+
+fn load_valid_setting<T: DeserializeOwned>(
+    store: &Store,
+    key: &str,
+    validate: impl FnOnce(&T) -> Result<(), String>,
+) -> Result<Option<T>, String> {
+    let Some(value) = store.app_setting(key).map_err(|error| error.to_string())? else {
+        return Ok(None);
+    };
+    let parsed = serde_json::from_str(&value)
+        .map_err(|error| error.to_string())
+        .and_then(|value| validate(&value).map(|()| value));
+    match parsed {
+        Ok(value) => Ok(Some(value)),
+        Err(_) => {
+            store
+                .delete_app_setting(key)
+                .map_err(|error| error.to_string())?;
+            Ok(None)
+        }
     }
 }
 

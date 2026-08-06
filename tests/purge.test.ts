@@ -2,7 +2,9 @@ import { afterAll, expect, mock, test } from "bun:test"
 import type { Session } from "@opencode-ai/sdk/client"
 import { createActions } from "../src/engine/actions"
 import { createEngineState } from "../src/engine/store"
-import { driftStore as realStore, type ArchivedSession, type DriftStore, type Workspace } from "../src/state/store"
+import { driftStore, type ArchivedSession, type DriftStore, type Workspace } from "../src/state/store"
+
+const realStore = driftStore
 
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
@@ -53,6 +55,10 @@ const memoryStore: DriftStore = {
     storedArchived = storedArchived.filter((a) => a.sessionId !== sessionId)
   },
   expiredArchived: async (before) => storedArchived.filter((a) => a.archivedAt < before).map((a) => a.sessionId),
+  interruptions: async () => [],
+  saveInterruption: unsupported,
+  dismissInterruption: unsupported,
+  clearInterruptions: async () => undefined,
   mcpSnapshot: unsupported,
   saveMcp: unsupported,
   removeMcp: unsupported,

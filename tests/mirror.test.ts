@@ -43,6 +43,28 @@ test("remote bootstrap cache applies host theme, order, and atomic selection bef
   expect(applied).toContainEqual(host.workspaceOrder)
 })
 
+test("storage failures do not prevent mirrored state from applying", async () => {
+  const { acceptMirrorSnapshot, registerMirrorApplier } = await import("../src/state/mirror")
+  const applied: unknown[] = []
+  const original = localStorage.setItem
+  localStorage.setItem = () => {
+    throw new Error("quota exceeded")
+  }
+  try {
+    registerMirrorApplier({
+      theme: (theme) => applied.push(theme),
+      order: (ids) => applied.push(ids),
+      selection: (selection) => applied.push(selection),
+    })
+    expect(acceptMirrorSnapshot({ ...host, revision: 5 }, true)).toBeTrue()
+    expect(applied).toContainEqual(host.theme)
+    expect(applied).toContainEqual(host.workspaceOrder)
+    expect(applied).toContainEqual(host.selection)
+  } finally {
+    localStorage.setItem = original
+  }
+})
+
 test("desktop bootstrap normalizes malformed legacy appearance and selection values", async () => {
   const { acceptMirrorSnapshot, localMirrorSnapshot } = await import("../src/state/mirror")
   mirrorStorage.set("drift.theme", JSON.stringify("legacy-theme"))
@@ -99,6 +121,19 @@ test("mirrored workspace selection resolves the engine directory without requiri
   expect(hydratedWorkspaceSelection(items, "stale-workspace")).toBe("workspace-1")
   expect(hydratedWorkspaceSelection([], "stale-workspace")).toBeNull()
   expect(hydratedWorkspaceSelection(items, null)).toBeNull()
+})
+
+test("reselecting the active workspace preserves its mirrored session", async () => {
+  const { acceptMirrorSnapshot, currentMirrorSnapshot } = await import("../src/state/mirror")
+  const { applyMirroredSession, selectedSession } = await import("../src/state/selection")
+  const { activeWorkspaceId, applyMirroredWorkspace, selectWorkspace } = await import("../src/state/workspaces")
+  acceptMirrorSnapshot(host, true)
+  applyMirroredWorkspace("workspace-1")
+  applyMirroredSession("session-1")
+  expect(activeWorkspaceId()).toBe("workspace-1")
+  selectWorkspace("workspace-1")
+  expect(selectedSession()).toBe("session-1")
+  expect(currentMirrorSnapshot()?.selection).toEqual(host.selection)
 })
 
 test("stale workspace mirror failures are not retried forever", async () => {

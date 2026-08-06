@@ -106,7 +106,11 @@ async function refreshArchives() {
 }
 
 export function selectWorkspace(id: string) {
-  if (activeWorkspaceId() !== id) applyMirroredSession(null)
+  if (activeWorkspaceId() === id) {
+    void driftStore.touchWorkspace(id)
+    return
+  }
+  applyMirroredSession(null)
   setActiveWorkspaceId(id)
   publishMirrorSelection({ workspaceId: id, sessionId: null })
   pushRemoteSelection({ workspace: id, session: undefined })

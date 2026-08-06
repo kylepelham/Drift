@@ -1,5 +1,4 @@
 import { promptAndSpawn } from "./prompt-and-spawn"
-import { recovery } from "./recovery"
 
 export const dict = {
   "command.category.suggested": "Vorgeschlagen",
@@ -1045,26 +1044,7 @@ export const drift = {
   "drift.settings.shellTimeout.appliesNew": "Gilt für neue Aufrufe",
   "drift.settings.shellTimeout.presets": "Zeitlimit-Voreinstellungen",
   "drift.settings.shellTimeout.scope": "Shell-Zeitlimits beenden Prozessbäume. Modelle, MCP-Server und Netzwerkaufrufe sind nicht betroffen.",
-  "drift.remote.connected": "Connected to Drift",
-  "drift.remote.manageOnDesktop": "This device is using the host gateway. Enable, disable, or rotate access from Drift on the host computer.",
-  "drift.remote.gateway": "Gateway",
-  "drift.remote.enable": "Enable Remote Access",
-  "drift.remote.enableDescription": "Share the complete Drift interface with trusted devices on this LAN.",
-  "drift.remote.address": "Listening address",
-  "drift.remote.listening": "Listening",
-  "drift.remote.connectionUrl": "Private connection URL",
-  "drift.remote.connectionDescription": "The access key is hidden here and included only when you copy the URL.",
-  "drift.remote.noLanAddress": "No reachable LAN address found",
-  "drift.remote.copied": "Copied",
-  "drift.remote.copy": "Copy connection URL",
-  "drift.remote.rotate": "Rotate access key",
-  "drift.remote.rotated": "Access key rotated. Existing remote devices have been signed out.",
-  "drift.remote.securityTitle": "Trusted LAN only",
-  "drift.remote.securityWarning": "Traffic uses HTTP and is not encrypted. Anyone with the connection URL and network access can control Drift and access host workspace data.",
-  "drift.remote.deckHelp": "LAN discovery advertises Drift's address without sharing the private access key.",
-  "drift.mobile.openNavigation": "Open workspace navigation",
   ...promptAndSpawn,
-  ...recovery,
   "drift.settings.toolExecution": "Werkzeugausführung",
   "drift.settings.shellTimeout.title": "Shell-Zeitlimit",
   "drift.settings.shellTimeout.description": "Beendet Shell-Befehle und deren Unterprozesse nach dieser Dauer. Änderungen gelten für neue Aufrufe.",

@@ -125,6 +125,42 @@ fn recoverable_interruptions_deduplicate_and_survive_reopen() {
 }
 
 #[test]
+fn failed_interruption_replacement_preserves_the_existing_row() {
+    let dir = std::env::temp_dir().join(format!(
+        "drift-interruption-transaction-test-{}",
+        std::process::id()
+    ));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = open(&dir).unwrap();
+    let item = RecoverableInterruption {
+        session_id: "child".into(),
+        identity: "message-1".into(),
+        workspace_id: None,
+        directory: "S:/repo".into(),
+        thread_title: "Research".into(),
+        parent_session_id: None,
+        provider_id: "anthropic".into(),
+        model_id: "claude".into(),
+        kind: "usage".into(),
+        reason: "usage limit".into(),
+        error_name: "APIError".into(),
+        created_at: 10,
+        updated_at: 10,
+        dismissed_at: None,
+    };
+    store.save_interruption(&item).unwrap();
+    let mut invalid = item.clone();
+    invalid.identity = "message-2".into();
+    invalid.kind = "invalid".into();
+    assert!(store.save_interruption(&invalid).is_err());
+    let rows = store.interruptions().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].identity, "message-1");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
 fn expired_duplicates_of_active_directories_are_collapsed_not_returned() {
     let dir = std::env::temp_dir().join(format!("drift-dup-test-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
