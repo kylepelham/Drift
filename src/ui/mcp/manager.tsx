@@ -11,7 +11,7 @@ import {
   type McpStoredExpectation,
 } from "../../state/mcp"
 import { t } from "../../state/i18n"
-import { shellInvoke } from "../../shell"
+import { backendInvoke } from "../../backend"
 import type { McpConfig, ObservedMcpServer, StoredMcpServer } from "../../state/store"
 import { IconCheck, IconPlus, IconShieldCheck, IconSquarePen } from "../icons"
 import { McpEditor } from "./editor"
@@ -50,7 +50,7 @@ export function McpManagement(props: { embedded?: boolean }) {
   const [message, setMessage] = createSignal("")
   const [selected, setSelected] = createSignal("")
   const rowElements = new Map<string, HTMLDivElement>()
-  const native = !!shellInvoke()
+  const native = !!backendInvoke()
   const locked = () => !native || !!coordinator.state.mutation || !mcpSnapshotActionable(coordinator.state)
   const rows = createMemo<Row[]>(() => {
     const result = new Map<string, Row>()

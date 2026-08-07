@@ -1,5 +1,5 @@
 import type { ToolPart } from "@opencode-ai/sdk/client"
-import { shellInvoke } from "./shell"
+import { backendInvoke } from "./backend"
 import { activeWorkspace } from "./state/workspaces"
 
 export type FileLocation = { line?: number; column?: number }
@@ -47,8 +47,8 @@ export function toolContextActions(part: ToolPart) {
 }
 
 export function openFile(path: string, location?: FileLocation) {
-  const invoke = shellInvoke()
-  if (!invoke) return Promise.reject(new Error("Opening files is only available in the desktop app"))
+  const invoke = backendInvoke()
+  if (!invoke) return Promise.reject(new Error("Opening files requires the Drift host backend"))
   return invoke<OpenFileResult>("open_file", {
     path,
     line: location?.line,

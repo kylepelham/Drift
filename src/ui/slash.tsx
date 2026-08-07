@@ -1,13 +1,14 @@
 import type { Engine } from "../engine"
-import { nextUserMessage, previousUserMessage, resolveModel } from "../engine/store"
+import { previousUserMessage, resolveModel } from "../engine/store"
 import { emitThreadArchived } from "../plugins"
-import { clearComposerDraft, composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
+import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
 import { prefsFor } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { setTheme, theme, themes } from "../state/theme"
 import { activeWorkspace, archiveSession } from "../state/workspaces"
 import { t } from "../state/i18n"
 import { openMcpServers } from "./mcp"
+import { restoreReverted } from "./revert"
 
 export type SlashPreset = { value: string; label: string; description: string; execute?: boolean }
 export type SlashItem = {
@@ -145,14 +146,7 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
   if (item.name === "redo" && current) {
     const marker = engine.state.sessions[current]?.revert?.messageID
     if (!marker) return
-    const next = nextUserMessage(engine.state.transcripts[current] ?? [], marker)
-    if (next) {
-      const restored = draftFromMessage(next)
-      if (await engine.actions.revert(current, next.info.id)) setComposerDraft(composerScope(current), restored)
-      return
-    }
-    if (await engine.actions.unrevert(current)) clearComposerDraft(composerScope(current))
-    return
+    return restoreReverted(engine, current, marker)
   }
   if (item.name === "theme") setTheme(themes[(themes.indexOf(theme()) + 1) % themes.length])
   if (item.name === "mcp") openMcpServers()

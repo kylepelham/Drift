@@ -1,8 +1,12 @@
 import { expect, test } from "bun:test"
 
+const settingsStorage = new Map<string, string>()
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
-    value: { getItem: () => null, setItem: () => undefined },
+    value: {
+      getItem: (key: string) => settingsStorage.get(key) ?? null,
+      setItem: (key: string, value: string) => settingsStorage.set(key, value),
+    },
   })
 
 test("settings expose the OpenCode language and sound catalogs", async () => {
@@ -52,6 +56,10 @@ test("selected language dictionaries translate settings without loading every lo
   expect(t("settings.tab.general")).toBe("General")
   expect(t("settings.general.row.language.title")).toBe("Idioma")
   expect(t("common.reset")).toBe("Restablecer")
+  expect(t("drift.remote.title")).toBe("Remote Access")
+  expect(t("drift.settings.prompts")).toBe("Prompts")
+  expect(t("drift.slash.spawn.review")).toBe("Review")
+  expect(t("drift.attachment.kind.pdf")).toBe("PDF")
   expect(reasoningLevelLabel("xhigh")).toBe("Muy alto")
   expect(reasoningLevelLabel("custom")).toBe("Custom")
   await loadDictionary("en")
@@ -61,7 +69,7 @@ test("selected language dictionaries translate settings without loading every lo
 
 test("prompt and agent editors are separate Server settings with inherited-value styling", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
-  expect(source).toContain('items: ["Providers", "MCP", "Prompts", "Agents"]')
+  expect(source).toContain('items: ["Tools", "Providers", "MCP", "Prompts", "Agents"]')
   expect(source).toContain('<PromptEditorSection view="prompts" />')
   expect(source).toContain('<PromptEditorSection view="agents" />')
   expect(source).toContain('"text-ink-faint": !familyModified()')
@@ -85,128 +93,156 @@ test("agent overrides retain only values changed from upstream", async () => {
   ).toEqual({ prompt: "Custom", mode: "subagent" })
 })
 
-/**
- * Keys that ship before their translations.
- *
- * `t()` falls back to English for a key a locale lacks, so an untranslated key renders in English
- * rather than breaking. Listing them here keeps the locale files honest - pasting the English string
- * into all 17 would be indistinguishable from a real translation and would hide the work. Delete an
- * entry once every locale carries it; the test below fails if this list names a key that no longer
- * needs it.
- */
+const pendingKeys = (prefix: string, suffixes: string) =>
+  suffixes
+    .trim()
+    .split(/\s+/)
+    .map((suffix) => `${prefix}.${suffix}`)
+
+/** Keys that deliberately fall back to English until locale-specific translations ship. */
 const pendingTranslation = new Set([
-  "drift.lmStudio.apiToken",
-  "drift.lmStudio.contextTooSmall",
-  "drift.lmStudio.description",
-  "drift.lmStudio.discovered",
-  "drift.lmStudio.modelReady",
-  "drift.lmStudio.noReady",
-  "drift.lmStudio.notLoaded",
-  "drift.lmStudio.ready",
-  "drift.lmStudio.refresh",
-  "drift.lmStudio.refreshed",
-  "drift.lmStudio.refreshFailed",
-  "drift.lmStudio.unavailable",
+  "drift.mobile.openNavigation",
+  "drift.settings.code",
+  ...pendingKeys(
+    "drift.code",
+    `
+      syntax layout diffs spaces
+      syntaxTheme.title syntaxTheme.description
+      theme.automatic theme.github theme.vitesse theme.one theme.dracula theme.nord
+      fontSize.title fontSize.description tabWidth.title tabWidth.description
+      wordWrap.title wordWrap.description diffWordWrap.title diffWordWrap.description
+      lineNumbers.title lineNumbers.description diffIndicator.title diffIndicator.description
+      diffIndicators.symbols diffIndicators.bars diffIndicators.background
+    `,
+  ),
+  ...pendingKeys("drift.engine", "restart restarting stopped.title"),
+  ...pendingKeys(
+    "drift.lmStudio",
+    `
+      apiToken contextTooSmall description discovered modelReady noReady notLoaded ready refresh
+      refreshed refreshFailed unavailable
+    `,
+  ),
+  ...pendingKeys(
+    "drift.mcp",
+    `
+      servers registry add edit remove confirmRemove approve reject revoke authenticate pendingApproval
+      invalidStatus rejectedStatus awaitingReport selectWorkspace saved removed approved rejected revoked
+      name nameRequired registrySearch registrySource registryLoadFailed registryUnavailable install
+      installedLabel installed
+      form.nameInvalid form.type form.local form.remote form.enabled form.timeout form.command
+      form.executable form.argument form.addArgument form.removeArgument form.cwd form.environment
+      form.url form.headers form.oauth form.oauth.auto form.oauth.disabled form.oauth.configured
+      form.clientId form.clientSecret form.scope form.callbackPort form.redirectUri form.key form.value
+      form.addPair form.removePair form.commandRequired form.urlRequired form.urlInvalid
+      form.timeoutInvalid form.pairInvalid form.callbackPortInvalid form.redirectUriInvalid
+      toast.pending.title toast.pending.message toast.exact toast.openSettings toast.failed
+    `,
+  ),
+  ...pendingKeys(
+    "drift.recovery",
+    `
+      chooseModel continue durableHint explanation failedModel notification.body notification.title
+      open starting subagent title
+    `,
+  ),
+  ...pendingKeys(
+    "drift.remote",
+    `
+      address connected connectionUrl copied copy deckHelp enable
+      enableDescription gateway listening manageOnDesktop noLanAddress rotate rotated
+      securityWarning title
+    `,
+  ),
+  ...pendingKeys(
+    "drift.settings.prompts",
+    `
+      agentDescription agentPrompt agents behavior familyDescription inheritsFamily invalidJson
+      modelFamilies restart saveBeforeSwitch systemPrompt upstreamOriginal
+    `,
+  ),
+  "drift.settings.prompts",
+  ...pendingKeys(
+    "drift.slash",
+    `
+      fork fork.active fork.active.description fork.all fork.all.description fork.invalid
+      spawn spawn.implement spawn.implement.description spawn.investigate spawn.investigate.description
+      spawn.required spawn.review spawn.review.description
+    `,
+  ),
+  ...pendingKeys(
+    "drift.storage",
+    `
+      actions analyze analyze.action analyze.description analyzing auto auto.description cleanup compact
+      compact.action compact.description compacting estimated free prune prune.action prune.available
+      prune.description pruning refresh subtitle
+      rule.archived rule.archived.description rule.orphan rule.orphan.description rule.subagent
+      rule.subagent.description rule.superseded rule.superseded.description
+      sessions sessions.archived sessions.archived.description sessions.subagent
+      sessions.subagent.description sessions.total sessions.total.description
+      table.event table.event.hint table.message table.message.hint table.part table.part.hint
+    `,
+  ),
   "drift.storage",
-  "drift.storage.actions",
-  "drift.storage.analyze",
-  "drift.storage.analyze.action",
-  "drift.storage.analyze.description",
-  "drift.storage.analyzing",
-  "drift.storage.auto",
-  "drift.storage.auto.description",
-  "drift.storage.cleanup",
-  "drift.storage.compact",
-  "drift.storage.compact.action",
-  "drift.storage.compact.description",
-  "drift.storage.compacting",
-  "drift.storage.estimated",
-  "drift.storage.free",
-  "drift.storage.prune",
-  "drift.storage.prune.action",
-  "drift.storage.prune.available",
-  "drift.storage.prune.description",
-  "drift.storage.pruning",
-  "drift.storage.refresh",
-  "drift.storage.rule.archived",
-  "drift.storage.rule.archived.description",
-  "drift.storage.rule.orphan",
-  "drift.storage.rule.orphan.description",
-  "drift.storage.rule.subagent",
-  "drift.storage.rule.subagent.description",
-  "drift.storage.rule.superseded",
-  "drift.storage.rule.superseded.description",
-  "drift.storage.sessions",
-  "drift.storage.sessions.archived",
-  "drift.storage.sessions.archived.description",
-  "drift.storage.sessions.subagent",
-  "drift.storage.sessions.subagent.description",
-  "drift.storage.sessions.total",
-  "drift.storage.sessions.total.description",
-  "drift.storage.subtitle",
-  "drift.storage.table.event",
-  "drift.storage.table.event.hint",
-  "drift.storage.table.message",
-  "drift.storage.table.message.hint",
-  "drift.storage.table.part",
-  "drift.storage.table.part.hint",
+  ...pendingKeys(
+    "drift.voice",
+    `
+      acceleration.cpu acceleration.gpu acceleration.off acceleration.on acceleration.title dictation
+      dictation.enabled.description dictation.enabled.title dictation.keyterms.description
+      dictation.keyterms.placeholder dictation.keyterms.title dictation.language.auto
+      dictation.language.description dictation.language.title dictation.privacy error.download
+      error.microphone error.noMicrophone error.permission error.unsupported listening model.balanced
+      model.best model.description model.download model.downloading model.fastest model.remove
+      model.storage.missing model.storage.ready model.storage.title model.title start starting stop transcribing
+    `,
+  ),
   "drift.voice",
-  "drift.voice.acceleration.cpu",
-  "drift.voice.acceleration.gpu",
-  "drift.voice.acceleration.off",
-  "drift.voice.acceleration.on",
-  "drift.voice.acceleration.title",
-  "drift.voice.dictation",
-  "drift.voice.dictation.enabled.description",
-  "drift.voice.dictation.enabled.title",
-  "drift.voice.dictation.keyterms.description",
-  "drift.voice.dictation.keyterms.placeholder",
-  "drift.voice.dictation.keyterms.title",
-  "drift.voice.dictation.language.auto",
-  "drift.voice.dictation.language.description",
-  "drift.voice.dictation.language.title",
-  "drift.voice.dictation.privacy",
-  "drift.voice.error.download",
-  "drift.voice.error.microphone",
-  "drift.voice.error.noMicrophone",
-  "drift.voice.error.permission",
-  "drift.voice.error.unsupported",
-  "drift.voice.listening",
-  "drift.voice.model.balanced",
-  "drift.voice.model.best",
-  "drift.voice.model.description",
-  "drift.voice.model.download",
-  "drift.voice.model.downloading",
-  "drift.voice.model.fastest",
-  "drift.voice.model.remove",
-  "drift.voice.model.storage.missing",
-  "drift.voice.model.storage.ready",
-  "drift.voice.model.storage.title",
-  "drift.voice.model.title",
-  "drift.voice.start",
-  "drift.voice.starting",
-  "drift.voice.stop",
-  "drift.voice.transcribing",
 ])
 
-test("Drift owns complete app-specific translations for every locale", async () => {
+/** Values that intentionally remain identical in every language. */
+const invariantTranslation = new Set([
+  "drift.about.version",
+  "drift.attachment.kind.pdf",
+  "drift.notification.threadError",
+  "drift.settings.section",
+])
+
+type Catalog = { dict: Record<string, string>; drift: Record<string, string> }
+const featureTranslations = (catalog: Catalog) =>
+  Object.fromEntries(
+    Object.entries({ ...catalog.dict, ...catalog.drift }).filter(([key]) => key.startsWith("drift.")),
+  ) as Record<string, string>
+
+test("Drift owns explicit app-specific translations for every locale", async () => {
   const { languages } = await import("../src/state/language")
-  const english = await import("../src/i18n/en")
-  const translated = (keys: string[]) => keys.filter((key) => !pendingTranslation.has(key)).sort()
-  const keys = translated(Object.keys(english.drift))
-  for (const language of languages) {
-    const catalog = await import(`../src/i18n/${language.id}.ts`)
-    expect(translated(Object.keys(catalog.drift))).toEqual(keys)
-  }
-  // Every pending key must exist in English, and must still be missing somewhere. Otherwise the
-  // list has gone stale and is silently excusing a key that should now be enforced.
-  const spanish = await import("../src/i18n/es")
-  const englishKeys = new Set(Object.keys(english.drift))
-  const spanishKeys = new Set(Object.keys(spanish.drift))
-  const unknown = [...pendingTranslation].filter((key) => !englishKeys.has(key))
-  const stale = [...pendingTranslation].filter((key) => spanishKeys.has(key))
+  const english = featureTranslations(await import("../src/i18n/en"))
+  const nonEnglish = languages.filter((language) => language.id !== "en")
+  const localized = await Promise.all(
+    nonEnglish.map(async (language) => featureTranslations(await import(`../src/i18n/${language.id}.ts`))),
+  )
+  const translated = (keys: string[]) =>
+    keys.filter((key) => !pendingTranslation.has(key) && !invariantTranslation.has(key)).sort()
+  const keys = translated(Object.keys(english))
+
+  for (const catalog of localized) expect(translated(Object.keys(catalog))).toEqual(keys)
+
+  const unknown = [...pendingTranslation].filter((key) => !(key in english))
+  const stale = [...pendingTranslation].filter((key) => localized.every((catalog) => key in catalog))
+  const unknownInvariant = [...invariantTranslation].filter((key) => !(key in english))
+  const copiedInvariant = [...invariantTranslation].filter((key) => localized.some((catalog) => key in catalog))
+  const copiedEnglish = keys.filter((key) => localized.every((catalog) => catalog[key] === english[key]))
+
   expect(unknown, "pendingTranslation names keys that do not exist in en.ts").toEqual([])
   expect(stale, "pendingTranslation names keys that are translated now; remove them").toEqual([])
+  expect(unknownInvariant, "invariantTranslation names keys that do not exist in en.ts").toEqual([])
+  expect(copiedInvariant, "invariant translations must use the English fallback").toEqual([])
+  expect(copiedEnglish, "English copies must be pending fallbacks or explicit invariants").toEqual([])
+
+  for (const language of nonEnglish) {
+    const source = await Bun.file(`src/i18n/${language.id}.ts`).text()
+    expect(source).not.toMatch(/^import\s/m)
+    expect(source).not.toMatch(/\.\.\.[A-Za-z_$]/)
+  }
   expect(await Bun.file("src/state/i18n.ts").text()).not.toContain("engine/upstream")
 })
 
@@ -295,6 +331,32 @@ test("notification migration and global auto-accept stay explicit", async () => 
   expect(autoAcceptAllowed(false, ["parent"], "child", "parent")).toBeTrue()
   expect(autoAcceptAllowed(false, ["linked"], "child", undefined, "linked")).toBeTrue()
   expect(autoAcceptAllowed(false, ["other"], "child", "parent", "linked")).toBeFalse()
+})
+
+test("shell timeout preferences normalize and persist explicit no-timeout", async () => {
+  const { normalizeShellTimeout, setShellTimeoutMs, shellTimeoutMs, shellTimeoutPresets } = await import(
+    "../src/state/prefs"
+  )
+  expect(shellTimeoutPresets).toEqual([60_000, 300_000, 900_000, 1_800_000])
+  expect(normalizeShellTimeout(null)).toBeNull()
+  expect(normalizeShellTimeout(60_000)).toBe(60_000)
+  expect(normalizeShellTimeout(59_999)).toBeNull()
+  expect(normalizeShellTimeout(86_400_001)).toBeNull()
+  expect(normalizeShellTimeout("300000")).toBeNull()
+
+  const setItem = localStorage.setItem
+  const writes = new Map<string, string>()
+  localStorage.setItem = (key, value) => writes.set(key, value)
+  try {
+    setShellTimeoutMs(900_000)
+    expect(shellTimeoutMs()).toBe(900_000)
+    expect(writes.get("drift.shell.timeout")).toBe("900000")
+    setShellTimeoutMs(null)
+    expect(shellTimeoutMs()).toBeNull()
+    expect(writes.get("drift.shell.timeout")).toBe("null")
+  } finally {
+    localStorage.setItem = setItem
+  }
 })
 
 test("the About mascot always disposes its scene, including when it loads after unmount", async () => {

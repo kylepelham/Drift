@@ -1,6 +1,10 @@
 import { createSignal } from "solid-js"
-import { selectSession } from "./selection"
+import { isRemoteRuntime } from "../runtime"
+import { parseNavigationHash, pushRemoteSelection } from "./navigation"
+import { applyMirroredSession } from "./selection"
 import { persisted } from "./persist"
+import { publishMirrorSelection, publishMirrorWorkspaceOrder } from "./mirror"
+import { forgetCachedSessions } from "./session-cache"
 import { driftStore, type ArchivedSession, type Workspace } from "./store"
 
 const [rawWorkspaces, setWorkspaces] = createSignal<Workspace[]>([])
@@ -9,7 +13,7 @@ const [archivedIds, setArchivedIds] = createSignal<ReadonlySet<string>>(new Set(
 const [archivedSessions, setArchivedSessions] = createSignal<ArchivedSession[]>([])
 const [removedWorkspaces, setRemovedWorkspaces] = createSignal<Workspace[]>([])
 const [activeWorkspaceId, setActiveWorkspaceId] = persisted<string | null>("drift.workspace", null)
-const [workspaceOrder, setWorkspaceOrder] = persisted<string[]>("drift.workspace.order", [])
+const [workspaceOrder, setWorkspaceOrderValue] = persisted<string[]>("drift.workspace.order", [])
 const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = persisted<string[]>("drift.workspace.collapsed", [])
 
 export { archivedIds, archivedSessions, removedWorkspaces, activeWorkspaceId, workspacesReady }
@@ -21,6 +25,15 @@ export function workspaces() {
     return index < 0 ? order.length : index
   }
   return [...rawWorkspaces()].sort((a, b) => rank(a) - rank(b))
+}
+
+function setWorkspaceOrder(ids: string[]) {
+  setWorkspaceOrderValue(ids)
+  publishMirrorWorkspaceOrder(ids)
+}
+
+export function applyMirroredWorkspaceOrder(ids: string[]) {
+  setWorkspaceOrderValue(ids)
 }
 
 export function moveWorkspace(id: string, beforeId: string | null) {
@@ -46,20 +59,38 @@ export function toggleWorkspaceCollapsed(id: string) {
   setCollapsedWorkspaceIds(nextCollapsedWorkspaceIds(collapsedWorkspaceIds(), id))
 }
 
-export async function initWorkspaces() {
+let initialization: Promise<void> | undefined
+
+export function initWorkspaces() {
+  return (initialization ??= loadWorkspaces())
+}
+
+async function loadWorkspaces() {
   try {
-    await refreshWorkspaces()
+    await refreshWorkspaces(true)
   } finally {
     setWorkspacesReady(true)
   }
   await refreshArchives()
 }
 
-async function refreshWorkspaces() {
+export function hydratedWorkspaceSelection(items: Workspace[], selected: string | null) {
+  if (!selected || items.some((workspace) => workspace.id === selected)) return selected
+  return items[0]?.id ?? null
+}
+
+async function refreshWorkspaces(repairSelection = false) {
   const [active, removed] = await Promise.all([driftStore.workspaces(), driftStore.removedWorkspaces()])
   setWorkspaces(active)
   setRemovedWorkspaces(removed)
   const ids = active.map((w) => w.id)
+  const selected = activeWorkspaceId()
+  const hydrated = repairSelection ? hydratedWorkspaceSelection(active, selected) : selected
+  if (hydrated !== selected) {
+    setActiveWorkspaceId(hydrated)
+    applyMirroredSession(null)
+    publishMirrorSelection({ workspaceId: hydrated, sessionId: null })
+  }
   const kept = workspaceOrder().filter((id) => ids.includes(id))
   const merged = [...kept, ...ids.filter((id) => !kept.includes(id))]
   if (merged.join(",") !== workspaceOrder().join(",")) setWorkspaceOrder(merged)
@@ -72,9 +103,19 @@ async function refreshArchives() {
 }
 
 export function selectWorkspace(id: string) {
-  if (activeWorkspaceId() !== id) selectSession(null)
+  if (activeWorkspaceId() === id) {
+    void driftStore.touchWorkspace(id)
+    return
+  }
+  applyMirroredSession(null)
   setActiveWorkspaceId(id)
+  publishMirrorSelection({ workspaceId: id, sessionId: null })
+  pushRemoteSelection({ workspace: id, session: undefined })
   void driftStore.touchWorkspace(id)
+}
+
+export function applyMirroredWorkspace(id: string | null) {
+  setActiveWorkspaceId(id)
 }
 
 export async function addWorkspace(path: string) {
@@ -82,6 +123,13 @@ export async function addWorkspace(path: string) {
   const workspace = await driftStore.addWorkspace({ id: crypto.randomUUID(), path, name, icon: "" })
   await refreshWorkspaces()
   selectWorkspace(workspace.id)
+}
+
+if (typeof window !== "undefined" && isRemoteRuntime()) {
+  window.addEventListener("popstate", () => {
+    const workspace = parseNavigationHash(window.location.hash).workspace
+    if (workspace) setActiveWorkspaceId(workspace)
+  })
 }
 
 export async function updateWorkspace(id: string, patch: { path?: string; name?: string; icon?: string }) {
@@ -101,7 +149,8 @@ export async function removeWorkspace(id: string) {
   await refreshWorkspaces()
   if (activeWorkspaceId() === id) {
     setActiveWorkspaceId(null)
-    selectSession(null)
+    applyMirroredSession(null)
+    publishMirrorSelection({ workspaceId: null, sessionId: null })
   }
 }
 
@@ -128,10 +177,18 @@ export async function unarchiveSession(sessionId: string) {
 
 const purgeAge = 7 * 24 * 60 * 60 * 1000
 
-export async function purgeArchived() {
-  const ids = await driftStore.purgeArchived(Date.now() - purgeAge)
+// Both purges are two-phase: the Drift record is the deletion tombstone and is only dropped once
+// the engine confirms every session is gone. A failed engine deletion keeps the tombstone, so the
+// purge resumes on the next startup, reconnect, or timer tick. `true` means nothing is pending.
+export async function purgeArchived(removeSession: (sessionId: string) => Promise<boolean>) {
+  const expired = await driftStore.expiredArchived(Date.now() - purgeAge)
+  let complete = true
+  for (const sessionId of expired) {
+    if (await removeSession(sessionId)) await driftStore.unarchiveSession(sessionId)
+    else complete = false
+  }
   await refreshArchives()
-  return ids
+  return complete
 }
 
 export async function purgeRemovedWorkspaces(
@@ -139,6 +196,7 @@ export async function purgeRemovedWorkspaces(
 ) {
   const expired = await driftStore.expiredRemovedWorkspaces(Date.now() - purgeAge)
   const canonical = (path: string) => path.replaceAll("\\", "/").toLowerCase()
+  let complete = true
   for (const workspace of expired) {
     // Never delete sessions in a directory that is on the sidebar or restored mid-drain.
     const eligible = () =>
@@ -146,8 +204,24 @@ export async function purgeRemovedWorkspaces(
       !removedWorkspaces().some(
         (current) => current.id === workspace.id && (current.removedAt ?? 0) > (workspace.removedAt ?? 0),
       )
-    if (!(await removeSessions(workspace.path, eligible))) continue
+    if (!(await removeSessions(workspace.path, eligible))) {
+      complete = false
+      continue
+    }
+    forgetCachedSessions(workspace.path)
     await driftStore.forgetWorkspace(workspace.id)
   }
   await refreshWorkspaces()
+  return complete
+}
+
+export async function purgeAll(engine: {
+  purgeSession: (sessionId: string) => Promise<boolean>
+  removeAllSessions: (directory: string, eligible: () => boolean) => Promise<boolean>
+}) {
+  const [archived, removed] = await Promise.all([
+    purgeArchived(engine.purgeSession).catch(() => false),
+    purgeRemovedWorkspaces(engine.removeAllSessions).catch(() => false),
+  ])
+  return archived && removed
 }

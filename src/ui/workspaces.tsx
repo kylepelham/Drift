@@ -1,5 +1,7 @@
-import { createMemo, createSignal, Match, onCleanup, onMount, Show, Switch, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, Match, onCleanup, onMount, Show, Switch, For, type JSX } from "solid-js"
 import { useEngine } from "../engine"
+import { cachedSessions, rememberSessions, type CachedSession } from "../state/session-cache"
+import { TextShimmer } from "./text-shimmer"
 import { createDismissOnOutside } from "./dismiss"
 import { emitThreadArchived } from "../plugins"
 import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
@@ -11,6 +13,7 @@ import { t } from "../state/i18n"
 import { Chevron } from "./controls"
 import { permissionRequiresAttention } from "../state/permission-attention"
 import { dragReorder } from "./drag-reorder"
+import { recoverableForSession, recoverableInterruptions } from "../state/recovery"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import {
   activeWorkspaceId,
@@ -27,11 +30,13 @@ import {
 export type WorkspaceMenuState = { x: number; y: number; workspaceId: string }
 export type SessionMenuState = { x: number; y: number; sessionId: string; workspaceId: string }
 
-type SessionList = ReturnType<typeof sessionsFor>
 const sessionPageSize = 5
 
-// ponytail: last-known lists mask the engine store reset while switching workspaces
-const sessionListCache = new Map<string, SessionList>()
+const threadRow = (session: { id: string; title: string; time: { updated: number } }): CachedSession => ({
+  id: session.id,
+  title: session.title,
+  updated: session.time.updated,
+})
 
 export function WorkspaceGroup(props: {
   workspace: Workspace
@@ -45,14 +50,29 @@ export function WorkspaceGroup(props: {
   const collapsed = () => workspaceCollapsed(props.workspace.id)
   const [visibleCount, setVisibleCount] = createSignal(sessionPageSize)
   const active = () => activeWorkspaceId() === props.workspace.id
-  const all = createMemo(() => {
-    const live = sessionsFor(engine.state, props.workspace.path)
-    if (live.length) sessionListCache.set(props.workspace.path, live)
-    if (engine.state.connection === "online" && !live.length) sessionListCache.delete(props.workspace.path)
-    return live.length || engine.state.connection === "online" ? live : (sessionListCache.get(props.workspace.path) ?? live)
+  const online = () => engine.state.connection === "online"
+  const live = createMemo(() => sessionsFor(engine.state, props.workspace.path).map(threadRow))
+  const authoritative = () =>
+    online() &&
+    (engine.state.sessionSnapshotAll || normalizeDir(engine.state.sessionSnapshotDirectory) === normalizeDir(props.workspace.path))
+  // Non-empty live results are always safe to remember. Only a complete scoped snapshot may clear
+  // the cache, because the event stream reports online before initial hydration has finished.
+  createEffect(() => {
+    const current = live()
+    if (current.length || authoritative()) rememberSessions(props.workspace.path, current)
   })
-  const children = (parentId: string) =>
-    childrenOf(engine.state, parentId).filter((child) => sessionBusy(engine.state, child.id))
+  // Cold engine startup takes seconds; the last known threads stand in until it answers.
+  const all = createMemo(() => {
+    const current = live()
+    if (current.length || authoritative()) return current
+    return cachedSessions(props.workspace.path)
+  })
+  const children = (parentId: string) => {
+    recoverableInterruptions()
+    return childrenOf(engine.state, parentId).filter(
+      (child) => sessionBusy(engine.state, child.id) || !!recoverableForSession(child.id),
+    )
+  }
   const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
   const visibleSessions = createMemo(() => sessions().slice(0, visibleCount()))
   const remaining = createMemo(() => Math.max(0, sessions().length - visibleSessions().length))
@@ -60,8 +80,8 @@ export function WorkspaceGroup(props: {
   return (
     <div ref={root} data-workspace={props.workspace.id}>
       <div
-        class="group flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
-        classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
+        class="group sticky top-0 z-[1] flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
+        classList={{ "bg-raised": active(), "bg-surface hover:bg-raised/60": !active() }}
         onPointerDown={(event) => {
           cancelDrag()
           cancelDrag = dragReorder(event, root, {
@@ -109,6 +129,7 @@ export function WorkspaceGroup(props: {
           </RowButton>
           <RowButton
             title={t("drift.thread.new")}
+            navigation
             onClick={() => {
               selectWorkspace(props.workspace.id)
               selectSession(null)
@@ -126,7 +147,7 @@ export function WorkspaceGroup(props: {
                 <ThreadItem
                   sessionId={session.id}
                   title={session.title}
-                  updated={session.time.updated}
+                  updated={session.updated}
                   workspace={props.workspace}
                   onMenu={props.onSessionMenu}
                 />
@@ -151,7 +172,12 @@ export function WorkspaceGroup(props: {
               {t("drift.thread.loadMore", { count: Math.min(sessionPageSize, remaining()) })}
             </button>
           </Show>
-          <Show when={sessions().length === 0 && active()}>
+          <Show when={sessions().length === 0 && active() && !authoritative()}>
+            <div class="px-2 py-1.5 text-xs text-ink-faint" role="status" aria-live="polite">
+              <TextShimmer text={t("common.loading")} />
+            </div>
+          </Show>
+          <Show when={sessions().length === 0 && active() && authoritative()}>
             <div class="px-2 py-1.5 text-xs text-ink-faint">{t("drift.thread.empty")}</div>
           </Show>
         </div>
@@ -167,10 +193,11 @@ function markWorkspaceDragged() {
   setTimeout(() => (dragged = false), 0)
 }
 
-function RowButton(props: { title: string; onClick: (event: MouseEvent) => void; children: JSX.Element }) {
+function RowButton(props: { title: string; navigation?: boolean; onClick: (event: MouseEvent) => void; children: JSX.Element }) {
   return (
     <button
       title={props.title}
+      data-sidebar-navigation={props.navigation ? "" : undefined}
       class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
@@ -194,6 +221,7 @@ function ThreadItem(props: {
   const active = () => selectedSession() === props.sessionId
   return (
     <div
+      data-sidebar-navigation
       class="group flex h-8 cursor-pointer items-center gap-2 rounded-md py-1 pr-1 pl-2 transition-colors"
       classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
       onClick={() => {
@@ -258,6 +286,9 @@ function StatusDot(props: { sessionId: string }) {
       : t("drift.thread.waitingForAnswer")
   return (
     <Switch>
+      <Match when={(recoverableInterruptions(), recoverableForSession(props.sessionId))}>
+        <span class="size-1.5 shrink-0 rounded-full bg-warn" title={t("drift.recovery.title")} />
+      </Match>
       <Match when={attention()}>
         <span class="size-1.5 shrink-0 rounded-full bg-warn" title={attentionTitle()} />
       </Match>
@@ -280,6 +311,7 @@ function ChildThreadItem(props: {
   const active = () => selectedSession() === props.sessionId
   return (
     <div
+      data-sidebar-navigation
       class="flex h-7 cursor-pointer items-center gap-1.5 rounded-md py-0.5 pr-2 pl-5 transition-colors"
       classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
       onClick={() => {

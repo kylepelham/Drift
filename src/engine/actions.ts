@@ -2,27 +2,29 @@ import { createOpencodeClient, type OpencodeClient, type Permission, type Sessio
 import { createOpencodeClient as createControlClient } from "@opencode-ai/sdk/v2/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
+import { clearRecoverableInterruption, updateRecoverableFailure } from "../state/recovery"
 import {
   beginPermissionReply,
   clearPermissionAttention,
-  clearPermissionAttentionFor,
   failPermissionReply,
   observePermission,
   prunePermissionAttention,
   type DriftPermission,
 } from "../state/permission-attention"
 import { sleep, type EngineTarget } from "./connection"
-import { pushNotice } from "./events"
+import { applySessionSnapshot, purgeSession as purgeSessionState, pushNotice } from "./events"
 import type { MessageEntry } from "./store"
 import {
   askRevision,
   bumpAskRevision,
+  captureRevisions,
   interruptStaleTools,
+  mergeTranscriptSnapshot,
   normalizeDir,
   putSession,
-  putSessions,
   recordLink,
   sessionBusy,
+  sessionSnapshotLimit,
   spawnLink,
   type EngineState,
   type ModelRef,
@@ -37,11 +39,17 @@ export type PromptFile = {
   url: string
   source?: { type: "file"; path: string; text: { value: string; start: number; end: number } }
 }
-export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string; files?: PromptFile[] }
+export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string; files?: PromptFile[]; directory?: string }
 export type PromptSendResult = { ok: true } | { ok: false; error: string }
 export type PermissionResponse = "once" | "always" | "reject"
 export type ProviderAuthResult = { ok: boolean; connected: boolean }
 export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
+
+export const RECOVERY_INSTRUCTION = [
+  "A recoverable model or provider failure interrupted this session.",
+  "Reassess the durable transcript, completed tool results, current todos, and workspace state before continuing.",
+  "Continue the existing task from the latest durable state. Do not blindly repeat tools or work that already succeeded.",
+].join(" ")
 
 type PermissionRequest = {
   id: string
@@ -67,11 +75,14 @@ function toPermission(request: PermissionRequest, directory: string): Permission
   }
 }
 
+const defaultAbortWait = { waitMs: 5000, pollMs: 100 }
+
 export function createActions(
   requireClient: () => OpencodeClient,
   state: EngineState,
   set: SetStoreFunction<EngineState>,
   target: () => EngineTarget | undefined,
+  abortWait: { waitMs: number; pollMs: number } = defaultAbortWait,
 ) {
   const pageSize = 100
   // The archive listing has no cursor, so it is fetched in one page with a ceiling high enough that
@@ -80,17 +91,10 @@ export function createActions(
   // A spawned thread is titled from the first few words of its task.
   const titleWordCount = 6
   const maxTitleChars = 64
-  // Disposing an instance is asynchronous on the engine side; this pause lets the old process release
-  // its port and lock before a caller reconnects.
-  const disposeSettleMs = 50
-  // Aborting is best-effort: the engine may already be mid-turn. Poll until it reports idle, then give
-  // up so the caller is never blocked indefinitely.
-  const abortWaitMs = 5000
-  const abortPollMs = 100
   const moveNoticeDurationMs = 8000
   const askPollTimeoutMs = 8000
   const permissionReplyTimeoutMs = 8000
-  let allSessionsRequest: Promise<void> | undefined
+  let allSessionsRequest: { epoch: number; promise: Promise<void> } | undefined
   const transcriptRequests = new Map<string, Promise<boolean>>()
   const permissionReplies = new Map<string, Promise<boolean>>()
   const queuedAskDirectories = new Map<string, string>()
@@ -115,16 +119,23 @@ export function createActions(
   }
 
   async function reloadSession(id: string) {
+    const captured = captureRevisions(state)
+    const existed = id in state.sessions
     const result = await requireClient().session.messages({ path: { id }, query: { limit: pageSize } })
     const entries = interruptStaleTools(
       [...requireSdkData(result, "Could not load transcript")].sort((a, b) => a.info.id.localeCompare(b.info.id)),
       state.liveTools,
       t("drift.message.interrupted"),
     )
-    set("transcripts", id, entries)
+    // The session vanished while the transcript was in flight; applying would resurrect it.
+    if (existed && !state.sessions[id]) return
+    set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], entries, id, captured, state.revisions))
     set("loaded", id, true)
     set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
     recordLinks(entries)
+    const latest = [...entries].reverse().find((entry) => entry.info.role === "assistant")?.info
+    if (latest?.role === "assistant" && latest.time.completed && !latest.error)
+      clearRecoverableInterruption(id, true)
   }
 
   function reportTranscriptFailure(id: string, cause: unknown) {
@@ -183,16 +194,23 @@ export function createActions(
   }
 
   async function loadSessions(directory: string) {
+    const captured = captureRevisions(state)
     const result = await requireClient().session.list({ query: { directory } })
-    putSessions(set, result.data ?? [])
+    const sessions = result.data
+    if (result.error !== undefined || !sessions) return
+    const complete = sessions.length < sessionSnapshotLimit
+    applySessionSnapshot(set, { sessions, captured, ...(complete ? { scope: { directory } } : {}) })
   }
 
   // One DB query for every workspace. Avoids booting an OpenCode instance per project.
   async function loadAllSessions() {
     const base = target()
     if (!base) return
-    if (allSessionsRequest) return allSessionsRequest
-    allSessionsRequest = (async () => {
+    const epoch = state.sessionSnapshotEpoch
+    if (allSessionsRequest?.epoch === epoch) return allSessionsRequest.promise
+    const request = { epoch, promise: Promise.resolve() }
+    request.promise = (async () => {
+      const captured = captureRevisions(state)
       const query = new URLSearchParams({ archived: "true", limit: archiveListLimit })
       const headers = {
         ...base.headers,
@@ -200,12 +218,17 @@ export function createActions(
       }
       const response = await engineFetch(`${base.url}/experimental/session?${query}`, { headers })
       if (!response) return
-      putSessions(set, await readJson<Session[]>(response, []))
+      const sessions = await readJson<Session[] | null>(response, null)
+      if (!sessions || state.sessionSnapshotEpoch !== epoch) return
+      const complete = sessions.length < Number(archiveListLimit)
+      applySessionSnapshot(set, { sessions, captured, ...(complete ? { scope: { all: true as const } } : {}) })
+      if (complete) set("sessionSnapshotAll", true)
     })()
+    allSessionsRequest = request
     try {
-      await allSessionsRequest
+      await request.promise
     } finally {
-      allSessionsRequest = undefined
+      if (allSessionsRequest === request) allSessionsRequest = undefined
     }
   }
 
@@ -350,16 +373,30 @@ export function createActions(
   async function moveSessions(entries: Session[], destination: string): Promise<SessionMoveResult> {
     const moving = entries.filter((session) => normalizeDir(session.directory) !== normalizeDir(destination))
     if (!moving.length) return { ok: true, moved: [] }
-    for (const session of moving) await interrupt(session.id)
+    for (const session of moving) {
+      if (!(await interrupt(session.id))) return { ok: false, moved: [], error: t("drift.move.sessionBusy") }
+    }
 
     const completed: Session[] = []
     for (const session of moving) {
       const error = await rebindSession(session.id, destination)
       if (error) {
-        for (const rollback of completed.reverse()) await rebindSession(rollback.id, rollback.directory)
-        const restored = await sessionsAt(moving[0].directory)
-        for (const info of restored ?? []) putSession(set, info)
-        return { ok: false, moved: [], error }
+        const stillMoved: string[] = []
+        let rollbackError: string | undefined
+        for (const rollback of completed.reverse()) {
+          const failure = await rebindSession(rollback.id, rollback.directory)
+          if (failure) {
+            rollbackError ??= failure
+            stillMoved.push(rollback.id)
+            continue
+          }
+          putSession(set, rollback)
+        }
+        return {
+          ok: false,
+          moved: stillMoved,
+          error: rollbackError ? `${error}; rollback failed: ${rollbackError}` : error,
+        }
       }
       completed.push(session)
       putSession(set, { ...session, directory: destination })
@@ -402,7 +439,12 @@ export function createActions(
       return { ok: false, error }
     }
     try {
-      const result = await requireClient().session.promptAsync({ path: { id }, body })
+      const base = target()
+      const directory = options.directory ?? state.sessions[id]?.directory
+      const client = base && directory
+        ? createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
+        : requireClient()
+      const result = await client.session.promptAsync({ path: { id }, body })
       if (result.error !== undefined) {
         const error = `Prompt failed: ${sdkErrorMessage(result.error, "engine rejected the request")}`
         set("errors", id, error)
@@ -412,6 +454,35 @@ export function createActions(
     } catch (cause) {
       const error = `Prompt failed: ${sdkErrorMessage(cause, "could not reach the engine")}`
       set("errors", id, error)
+      return { ok: false, error }
+    }
+  }
+
+  async function recover(id: string, options: PromptOptions): Promise<PromptSendResult> {
+    if (!options.model) return { ok: false, error: "Recovery requires a model" }
+    clearSessionError(id)
+    const body = {
+      parts: [{ type: "text" as const, text: RECOVERY_INSTRUCTION, metadata: { generated: true } }],
+      model: options.model,
+      agent: options.agent,
+      ...(options.variant ? { variant: options.variant } : {}),
+    }
+    try {
+      const base = target()
+      const directory = options.directory ?? state.sessions[id]?.directory
+      const client = base && directory
+        ? createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
+        : requireClient()
+      const result = await client.session.promptAsync({ path: { id }, body })
+      if (result.error === undefined) return { ok: true }
+      const error = `Recovery failed: ${sdkErrorMessage(result.error, "engine rejected the request")}`
+      set("errors", id, error)
+      updateRecoverableFailure(id, error, options.model)
+      return { ok: false, error }
+    } catch (cause) {
+      const error = `Recovery failed: ${sdkErrorMessage(cause, "could not reach the engine")}`
+      set("errors", id, error)
+      updateRecoverableFailure(id, error, options.model)
       return { ok: false, error }
     }
   }
@@ -436,13 +507,30 @@ export function createActions(
     if (result.data) putSession(set, { ...result.data, share: undefined })
   }
 
-  async function refreshProviders() {
-    const result = await requireClient().provider.list().catch(() => null)
+  function beginProviderSnapshot() {
+    const epoch = state.providerSnapshotEpoch + 1
+    set("providerSnapshotEpoch", epoch)
+    return epoch
+  }
+
+  async function refreshProvidersFor(client: OpencodeClient, directory: string, epoch: number) {
+    if (normalizeDir(state.directory) !== normalizeDir(directory) || requireClient() !== client) return null
+    const result = await client.provider.list().catch(() => null)
     if (!result?.data) return null
+    if (
+      state.providerSnapshotEpoch !== epoch ||
+      normalizeDir(state.directory) !== normalizeDir(directory) ||
+      requireClient() !== client
+    )
+      return null
     set("providers", (result.data.all ?? []) as unknown as ProviderInfo[])
     set("connected", result.data.connected ?? [])
     set("defaultModels", result.data.default ?? {})
     return result.data.connected ?? []
+  }
+
+  async function refreshProviders() {
+    return refreshProvidersFor(requireClient(), state.directory, beginProviderSnapshot())
   }
 
   async function refreshAgents() {
@@ -452,41 +540,39 @@ export function createActions(
     return true
   }
 
-  function controlClient() {
+  function controlClient(directory = state.directory) {
     const endpoint = target()
     if (!endpoint) return null
-    return createControlClient({ baseUrl: endpoint.url, headers: endpoint.headers, directory: state.directory })
+    return createControlClient({ baseUrl: endpoint.url, headers: endpoint.headers, directory })
   }
 
-  // Reloads are serialized: two overlapping disposes would race to restart the same instance.
-  let reloadQueue = Promise.resolve(true)
-
-  function reloadInstances() {
-    const reload = async () => {
-      const control = controlClient()
-      if (!control) return false
-      const result = await control.global.dispose().catch(() => null)
-      if (result?.data !== true) return false
-      clearPermissionAttentionFor(Object.values(state.permissions).flat())
-      set("liveTools", {})
-      await sleep(disposeSettleMs)
-      return true
-    }
-    // `reload` is passed as both handlers so it runs whether the previous reload resolved or
-    // rejected - a failed reload must not block every reload after it.
-    reloadQueue = reloadQueue.then(reload, reload)
-    return reloadQueue
+  async function reloadProviderInstances(directory = state.directory) {
+    const endpoint = target()
+    if (!endpoint) return false
+    const response = await engineFetch(withDirectory(`${endpoint.url}/provider/reload`, directory), {
+      method: "POST",
+      headers: endpoint.headers,
+    })
+    return response ? await readJson(response, false) : false
   }
 
   async function reloadProviders() {
-    if (!(await reloadInstances())) return false
-    return (await refreshProviders()) !== null
+    const directory = state.directory
+    const client = requireClient()
+    const epoch = beginProviderSnapshot()
+    if (!(await reloadProviderInstances(directory))) return false
+    return (await refreshProvidersFor(client, directory, epoch)) !== null
   }
 
-  async function syncProvider(id: string, changed: boolean): Promise<ProviderAuthResult> {
+  async function syncProvider(
+    id: string,
+    changed: boolean,
+    client: OpencodeClient,
+    directory: string,
+    epoch: number,
+  ): Promise<ProviderAuthResult> {
     if (!changed) return { ok: false, connected: state.connected.includes(id) }
-    if (!(await reloadInstances())) return { ok: false, connected: state.connected.includes(id) }
-    const connected = await refreshProviders()
+    const connected = await refreshProvidersFor(client, directory, epoch)
     return { ok: connected !== null, connected: connected?.includes(id) ?? false }
   }
 
@@ -501,24 +587,33 @@ export function createActions(
   }
 
   async function providerCallback(id: string, method: number, code?: string) {
-    const result = await requireClient()
+    const directory = state.directory
+    const client = requireClient()
+    const epoch = beginProviderSnapshot()
+    const result = await client
       .provider.oauth.callback({ path: { id }, body: { method, ...(code ? { code } : {}) } })
       .catch(() => null)
-    return syncProvider(id, result?.data === true)
+    return syncProvider(id, result?.data === true, client, directory, epoch)
   }
 
   async function setProviderKey(id: string, key: string) {
-    const result = await requireClient()
+    const directory = state.directory
+    const client = requireClient()
+    const epoch = beginProviderSnapshot()
+    const result = await client
       .auth.set({ path: { id }, body: { type: "api", key } })
       .catch(() => null)
-    return syncProvider(id, result?.data === true)
+    return syncProvider(id, result?.data === true, client, directory, epoch)
   }
 
   async function disconnectProvider(id: string) {
-    const control = controlClient()
+    const directory = state.directory
+    const client = requireClient()
+    const epoch = beginProviderSnapshot()
+    const control = controlClient(directory)
     if (!control) return { ok: false, connected: state.connected.includes(id) }
     const result = await control.auth.remove({ providerID: id }).catch(() => null)
-    return syncProvider(id, result?.data === true)
+    return syncProvider(id, result?.data === true, client, directory, epoch)
   }
 
   async function mcpStatus(directory = state.directory) {
@@ -564,24 +659,23 @@ export function createActions(
     forgetSession(id)
   }
 
+  // Purge deletions must be confirmed before Drift drops its tombstone, so unlike `remove` this
+  // validates the SDK result. A 404 means the engine already lost the session (e.g. a previous
+  // purge deleted it before the tombstone was cleared), which counts as removed.
+  async function purgeSession(id: string): Promise<boolean> {
+    try {
+      const result = await requireClient().session.delete({ path: { id } })
+      if (result.error !== undefined && result.response.status !== 404) return false
+      forgetSession(id)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   function forgetSession(id: string) {
-    clearPermissionAttentionFor(state.permissions[id] ?? [])
-    set(
-      produce((draft) => {
-        delete draft.sessions[id]
-        delete draft.transcripts[id]
-        delete draft.loaded[id]
-        delete draft.permissions[id]
-        delete draft.questions[id]
-        delete draft.todos[id]
-        delete draft.status[id]
-        delete draft.activity[id]
-        delete draft.errors[id]
-        delete draft.cursors[id]
-        for (const [partID, owner] of Object.entries(draft.liveTools))
-          if (owner === id) delete draft.liveTools[partID]
-      }),
-    )
+    set(produce((draft) => purgeSessionState(draft, id)))
+    clearRecoverableInterruption(id)
   }
 
   // Replied ids are filtered out of poll snapshots that raced the reply.
@@ -800,13 +894,16 @@ export function createActions(
     }
   }
 
-  async function interrupt(id: string) {
+  // Resolves true only when the session is confirmed idle after the abort settled.
+  async function interrupt(id: string): Promise<boolean> {
     for (const permission of state.permissions[id] ?? [])
       await replyPermission(id, permission.id, "reject").catch(() => {})
     for (const question of state.questions[id] ?? []) await answerQuestion(id, question.id, null)
-    if (!sessionBusy(state, id)) return
+    if (!sessionBusy(state, id)) return true
     await requireClient().session.abort({ path: { id } }).catch(() => {})
-    for (let waited = 0; waited < abortWaitMs && sessionBusy(state, id); waited += abortPollMs) await sleep(abortPollMs)
+    for (let waited = 0; waited < abortWait.waitMs && sessionBusy(state, id); waited += abortWait.pollMs)
+      await sleep(abortWait.pollMs)
+    return !sessionBusy(state, id)
   }
 
   async function revert(id: string, messageID: string) {
@@ -854,6 +951,7 @@ export function createActions(
     moveSession,
     moveWorkspaceSessions,
     send,
+    recover,
     abort,
     summarize,
     share,
@@ -867,7 +965,7 @@ export function createActions(
     providerCallback,
     setProviderKey,
     disconnectProvider,
-    reloadInstances,
+    reloadProviderInstances,
     mcpStatus,
     mcpConnect,
     mcpDisconnect,
@@ -876,6 +974,7 @@ export function createActions(
     runCommand,
     rename,
     remove,
+    purgeSession,
     refreshPermissions,
     replyPermission,
     answerQuestion,
@@ -938,15 +1037,23 @@ function sdkErrorMessage(error: unknown, fallback: string): string {
 }
 
 export function sessionTree(sessions: Session[], rootId: string) {
-  const ids = new Set([rootId])
-  let changed = true
-  while (changed) {
-    changed = false
-    for (const session of sessions) {
-      if (!session.parentID || !ids.has(session.parentID) || ids.has(session.id)) continue
-      ids.add(session.id)
-      changed = true
+  const byParent = new Map<string, Session[]>()
+  for (const session of sessions) {
+    if (!session.parentID) continue
+    const children = byParent.get(session.parentID) ?? []
+    children.push(session)
+    byParent.set(session.parentID, children)
+  }
+  const root = sessions.find((session) => session.id === rootId)
+  if (!root) return []
+  const result = [root]
+  const seen = new Set([root.id])
+  for (let index = 0; index < result.length; index++) {
+    for (const child of byParent.get(result[index].id) ?? []) {
+      if (seen.has(child.id)) continue
+      seen.add(child.id)
+      result.push(child)
     }
   }
-  return sessions.filter((session) => ids.has(session.id))
+  return result
 }

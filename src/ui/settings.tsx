@@ -30,6 +30,7 @@ import { language, languages, setLanguage, type LanguageId } from "../state/lang
 import { formatModelContext, lmStudioMinimumContext, lmStudioModelReady } from "../state/lm-studio"
 import {
   alertSounds,
+  animateResponses,
   attentionKinds,
   autoAcceptGlobal,
   autoUpdate,
@@ -37,20 +38,39 @@ import {
   compactionCollapsed,
   customSound,
   setAlertSound,
+  setAnimateResponses,
   setAutoAcceptGlobal,
   setAutoUpdate,
   setCollapseCompaction,
   setCompactionCollapsed,
   setCustomSound,
   setShowReasoning,
+  setShellTimeoutMs,
+  listenShellTimeoutError,
   setSystemNotification,
   setToolErrorsExpanded,
+  shellTimeoutMaxMs,
+  shellTimeoutMinMs,
+  shellTimeoutMs,
+  shellTimeoutPresets,
   showReasoning,
   systemNotifications,
   toolErrorsExpanded,
   type AttentionKind,
 } from "../state/prefs"
 import { shellInvoke } from "../shell"
+import { isRemoteRuntime } from "../runtime"
+import { parseNavigationHash, pushRemoteOverlay } from "../state/navigation"
+import {
+  refreshRemoteAccess,
+  remoteAccessBusy,
+  remoteAccessError,
+  remoteAccessStatus,
+  nextRemoteAccessEnabled,
+  remoteStatusTone,
+  rotateRemoteAccessToken,
+  setRemoteAccess,
+} from "../state/remote-access"
 import {
   setSplashDuration,
   setSplashEnabled,
@@ -134,7 +154,7 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Providers", "MCP", "Prompts", "Agents", "Storage", "About"] as const
+const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "MCP", "Prompts", "Agents", "Storage", "Remote Access", "About"] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
@@ -143,17 +163,19 @@ const sectionLabels: Record<Section, string> = {
   Notifications: "drift.settings.notifications",
   Voice: "drift.voice",
   Shortcuts: "settings.tab.shortcuts",
+  Tools: "drift.settings.toolExecution",
   Providers: "settings.providers.title",
   MCP: "dialog.mcp.title",
   Prompts: "drift.settings.prompts",
   Agents: "settings.agents.title",
   Storage: "drift.storage",
+  "Remote Access": "drift.remote.title",
   About: "drift.settings.about",
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
   { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts"] },
-  { label: "settings.section.server", items: ["Providers", "MCP", "Prompts", "Agents"] },
-  { label: "drift.settings.section", items: ["Storage", "About"] },
+  { label: "settings.section.server", items: ["Tools", "Providers", "MCP", "Prompts", "Agents"] },
+  { label: "drift.settings.section", items: ["Storage", "Remote Access", "About"] },
 ]
 
 const keybindLabels: Record<KeybindAction, string> = {
@@ -185,15 +207,27 @@ function preloadUpdateSupport() {
 
 export function openSettings(section?: Section) {
   setSettingsSection(section && sections.includes(section) ? section : "General")
+  if (!settingsOpen()) pushRemoteOverlay("settings")
   setSettingsOpen(true)
 }
 
 export function SettingsHost() {
   onMount(preloadUpdateSupport)
+  onMount(() => {
+    const sync = () => {
+      if (isRemoteRuntime() && parseNavigationHash(window.location.hash).overlay !== "settings") setSettingsOpen(false)
+    }
+    window.addEventListener("popstate", sync)
+    onCleanup(() => window.removeEventListener("popstate", sync))
+  })
+  const close = () => {
+    setSettingsOpen(false)
+    if (isRemoteRuntime() && parseNavigationHash(window.location.hash).overlay === "settings") history.back()
+  }
   return (
     <Show when={settingsOpen()}>
       <Portal>
-        <SettingsModal onClose={() => setSettingsOpen(false)} />
+        <SettingsModal onClose={close} />
       </Portal>
     </Show>
   )
@@ -220,7 +254,7 @@ function SettingsModal(props: { onClose: () => void }) {
         class="fade-up flex h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40 sm:h-[min(42rem,calc(100vh-3rem))] sm:w-[min(54rem,calc(100vw-3rem))]"
         onClick={(event) => event.stopPropagation()}
       >
-        <nav class="flex w-13 shrink-0 flex-col overflow-hidden border-r border-edge px-1.5 py-3 sm:w-44 sm:px-3">
+        <nav class="flex w-13 shrink-0 flex-col overflow-y-auto border-r border-edge px-1.5 py-3 sm:w-44 sm:px-3">
           <For each={sectionGroups}>
             {(group) => (
               <div class="mb-3 last:mb-0">
@@ -283,6 +317,9 @@ function SettingsModal(props: { onClose: () => void }) {
               <Match when={section() === "Voice"}>
                 <VoiceSection />
               </Match>
+              <Match when={section() === "Tools"}>
+                <ToolExecutionSection />
+              </Match>
               <Match when={section() === "Providers"}>
                 <ProvidersSection />
               </Match>
@@ -300,6 +337,9 @@ function SettingsModal(props: { onClose: () => void }) {
               </Match>
               <Match when={section() === "Storage"}>
                 <StorageSection />
+              </Match>
+              <Match when={section() === "Remote Access"}>
+                <RemoteAccessSection />
               </Match>
               <Match when={section() === "About"}>
                 <AboutSection />
@@ -330,6 +370,17 @@ function GeneralSection() {
             placement="below"
             width="12rem"
             onPick={(value) => setLanguage(value as LanguageId)}
+          />
+        </SettingsRow>
+        <SettingsRow
+          title={t("drift.settings.responseAnimation.title")}
+          description={t("drift.settings.responseAnimation.description")}
+          onClick={() => setAnimateResponses(!animateResponses())}
+        >
+          <Toggle
+            label={t("drift.settings.responseAnimation.title")}
+            checked={animateResponses()}
+            onChange={() => setAnimateResponses(!animateResponses())}
           />
         </SettingsRow>
       </SettingsGroup>
@@ -397,19 +448,218 @@ function GeneralSection() {
         </SettingsRow>
       </SettingsGroup>
 
-      <SettingsGroup title={t("settings.general.section.updates")}>
+      <Show when={!isRemoteRuntime()}>
+        <SettingsGroup title={t("settings.general.section.updates")}>
+          <SettingsRow
+            title={t("settings.updates.row.startup.title")}
+            description={t("settings.updates.row.startup.description")}
+            onClick={() => setAutoUpdate(!autoUpdate())}
+          >
+            <Toggle
+              label={t("settings.updates.row.startup.title")}
+              checked={autoUpdate()}
+              onChange={() => setAutoUpdate(!autoUpdate())}
+            />
+          </SettingsRow>
+        </SettingsGroup>
+      </Show>
+    </div>
+  )
+}
+
+function RemoteAccessSection() {
+  const remote = isRemoteRuntime()
+  const status = remoteAccessStatus
+  const [copied, setCopied] = createSignal(false)
+  const [rotated, setRotated] = createSignal(false)
+  const [clipboardError, setClipboardError] = createSignal("")
+  onMount(() => !remote && void refreshRemoteAccess())
+
+  async function copyConnectionUrl() {
+    const url = status()?.connectionUrls[0]
+    if (!url) return
+    setClipboardError("")
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    } catch (cause) {
+      setClipboardError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  async function rotate() {
+    setRotated(false)
+    await rotateRemoteAccessToken()
+    if (!remoteAccessError()) {
+      setRotated(true)
+      setTimeout(() => setRotated(false), 2400)
+    }
+  }
+
+  const statusLabel = () =>
+    status()?.error
+      ? t("drift.remote.statusError")
+      : status()?.listening
+        ? t("drift.remote.listening")
+        : status()?.enabled
+          ? t("drift.remote.statusStarting")
+          : t("drift.remote.statusOff")
+
+  return (
+    <div class="space-y-5">
+      <Show
+        when={!remote}
+        fallback={
+          <SettingsGroup title={t("drift.remote.gateway")}>
+            <SettingsRow title={t("drift.remote.connected")} description={t("drift.remote.manageOnDesktop")}>
+              <span class="size-2 rounded-full bg-ok" />
+            </SettingsRow>
+          </SettingsGroup>
+        }
+      >
+        <SettingsGroup title={t("drift.remote.gateway")}>
+          <SettingsRow title={t("drift.remote.enable")} description={t("drift.remote.enableDescription")}>
+            <Toggle
+              label={t("drift.remote.enable")}
+              checked={!!status()?.enabled}
+              disabled={remoteAccessBusy()}
+              onChange={() => void setRemoteAccess(nextRemoteAccessEnabled(status()))}
+            />
+          </SettingsRow>
+          <SettingsRow title={t("drift.remote.address")} description={statusLabel()}>
+            <div class="flex items-center gap-2">
+              <span
+                class="size-2 rounded-full"
+                classList={{
+                  "bg-ink-faint": remoteStatusTone(status()) === "idle" || remoteStatusTone(status()) === "offline",
+                  "bg-warn": remoteStatusTone(status()) === "offline" && !!status()?.enabled,
+                  "bg-ok": remoteStatusTone(status()) === "online",
+                  "bg-danger": remoteStatusTone(status()) === "error",
+                }}
+              />
+              <span class="font-mono text-[0.75rem] text-ink-muted">{status()?.listeningAddress ?? "—"}</span>
+            </div>
+          </SettingsRow>
+          <Show when={status()?.enabled && status()?.listening}>
+            <SettingsRow title={t("drift.remote.connectionUrl")} description={status()?.urls[0] || t("drift.remote.noLanAddress")}>
+              <div class="flex flex-wrap justify-end gap-2">
+                <button
+                  class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+                  onClick={() => void copyConnectionUrl()}
+                >
+                  {copied() ? t("drift.remote.copied") : t("drift.remote.copy")}
+                </button>
+                <button
+                  class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
+                  disabled={remoteAccessBusy()}
+                  onClick={() => void rotate()}
+                >
+                  {t("drift.remote.rotate")}
+                </button>
+              </div>
+            </SettingsRow>
+          </Show>
+        </SettingsGroup>
+        <Show when={rotated()}><div class="text-xs text-ok">{t("drift.remote.rotated")}</div></Show>
+        <Show when={clipboardError()}><div class="text-xs text-danger">{t("drift.remote.clipboardError")}: {clipboardError()}</div></Show>
+      </Show>
+
+      <Show when={remoteAccessError() || status()?.error}>
+        <div class="text-xs text-danger">{remoteAccessError() || status()?.error}</div>
+      </Show>
+      <p class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.remote.securityWarning")}</p>
+      <p class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.remote.deckHelp")}</p>
+    </div>
+  )
+}
+
+function ToolExecutionSection() {
+  const isPreset = (value: number | null) => value === null || (shellTimeoutPresets as readonly number[]).includes(value)
+  const [customOpen, setCustomOpen] = createSignal(!isPreset(shellTimeoutMs()))
+  const [customMinutes, setCustomMinutes] = createSignal(
+    String(isPreset(shellTimeoutMs()) ? 10 : shellTimeoutMs()! / 60_000),
+  )
+  const [error, setError] = createSignal("")
+  onMount(() => {
+    const stop = listenShellTimeoutError(setError)
+    onCleanup(stop)
+  })
+  const customValue = () => Number(customMinutes()) * 60_000
+  const customValid = () =>
+    Number.isInteger(Number(customMinutes())) &&
+    customValue() >= shellTimeoutMinMs &&
+    customValue() <= shellTimeoutMaxMs
+
+  async function applyTimeout(value: number | null) {
+    setError("")
+    await setShellTimeoutMs(value).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
+  }
+
+  const selected = () => (customOpen() || !isPreset(shellTimeoutMs()) ? "custom" : String(shellTimeoutMs()))
+
+  return (
+    <div class="space-y-5">
+      <SettingsGroup title={t("drift.settings.toolExecution")}>
         <SettingsRow
-          title={t("settings.updates.row.startup.title")}
-          description={t("settings.updates.row.startup.description")}
-          onClick={() => setAutoUpdate(!autoUpdate())}
+          title={t("drift.settings.shellTimeout.title")}
+          description={t("drift.settings.shellTimeout.description")}
         >
-          <Toggle
-            label={t("settings.updates.row.startup.title")}
-            checked={autoUpdate()}
-            onChange={() => setAutoUpdate(!autoUpdate())}
+          <Picker
+            label={t("drift.settings.shellTimeout.title")}
+            items={[
+              { id: "null", label: t("drift.settings.shellTimeout.noTimeout") },
+              ...shellTimeoutPresets.map((value) => ({
+                id: String(value),
+                label: t(`drift.settings.shellTimeout.preset${value / 60_000}`),
+              })),
+              { id: "custom", label: t("drift.settings.shellTimeout.custom") },
+            ]}
+            selected={selected()}
+            floating
+            bordered
+            chevronAtEnd
+            placement="below"
+            width="12rem"
+            onPick={(id) => {
+              if (id === "custom") return setCustomOpen(true)
+              setCustomOpen(false)
+              void applyTimeout(id === "null" ? null : Number(id))
+            }}
           />
         </SettingsRow>
+        <Show when={customOpen()}>
+          <SettingsRow
+            title={t("drift.settings.shellTimeout.customMinutes")}
+            description={customValid() ? t("drift.settings.shellTimeout.customDescription") : t("drift.settings.shellTimeout.invalid")}
+          >
+            <div class="flex items-center gap-2">
+                   <input
+                type="number"
+                min={shellTimeoutMinMs / 60_000}
+                max={shellTimeoutMaxMs / 60_000}
+                step="1"
+                aria-label={t("drift.settings.shellTimeout.customMinutes")}
+                aria-invalid={!customValid()}
+                class="w-24 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-right font-mono text-xs text-ink outline-none focus:border-edge-strong"
+                value={customMinutes()}
+                onInput={(event) => {
+                  setCustomMinutes(event.currentTarget.value)
+                }}
+              />
+              <button
+                class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                disabled={!customValid()}
+                onClick={() => void applyTimeout(customValue())}
+              >
+                {t("common.save")}
+              </button>
+            </div>
+          </SettingsRow>
+        </Show>
       </SettingsGroup>
+      <p class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.settings.shellTimeout.scope")}</p>
+      <Show when={error()}><div class="text-xs text-danger">{error()}</div></Show>
     </div>
   )
 }
@@ -1486,9 +1736,13 @@ function AppearanceSection() {
                   />
                   <input
                     aria-label={t("drift.settings.customPalette.hexValue", { color: t(color.label) })}
-                    class="h-8 w-24 rounded-md border border-edge bg-raised/45 px-2 font-mono text-xs text-ink outline-none focus:border-accent"
-                    value={customTheme()[color.id]}
-                    onInput={(event) => setCustomThemeColor(color.id, event.currentTarget.value)}
+                     class="h-8 w-24 rounded-md border border-edge bg-raised/45 px-2 font-mono text-xs text-ink outline-none focus:border-accent"
+                     maxLength={7}
+                     pattern="#[0-9a-fA-F]{6}"
+                     value={customTheme()[color.id]}
+                     onChange={(event) => {
+                       if (/^#[\da-f]{6}$/i.test(event.currentTarget.value)) setCustomThemeColor(color.id, event.currentTarget.value)
+                     }}
                   />
                 </div>
               </SettingsRow>
@@ -1672,6 +1926,7 @@ function FontField(props: { label: string; value: string; onInput: (value: strin
       class="h-8 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-accent sm:w-56"
       classList={{ "font-mono text-xs": props.mono }}
       placeholder={props.mono ? '"Cascadia Code", monospace' : '"Segoe UI", sans-serif'}
+      maxLength={256}
       value={props.value}
       onInput={(event) => props.onInput(event.currentTarget.value)}
     />
@@ -1686,11 +1941,13 @@ function SectionIcon(props: { section: Section }) {
     if (props.section === "Notifications") return <IconBell />
     if (props.section === "Voice") return <IconMic />
     if (props.section === "Shortcuts") return <IconKeyboard />
+    if (props.section === "Tools") return <IconSliders />
     if (props.section === "Providers") return <IconChip />
     if (props.section === "MCP") return <IconShieldCheck />
     if (props.section === "Prompts") return <IconCode />
     if (props.section === "Agents") return <IconSliders />
     if (props.section === "Storage") return <IconArchive />
+    if (props.section === "Remote Access") return <IconShieldCheck />
     return <IconInfo />
   }
   return <span class="flex size-5 shrink-0 items-center justify-center text-ink-faint">{icon()}</span>

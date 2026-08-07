@@ -49,7 +49,7 @@ important boundaries are:
 - `src/state/` owns Drift application state and native-store facades.
 - Drift-specific persistence belongs in the Tauri-owned SQLite store, not OpenCode's
   storage.
-- `engine/upstream/` is a pristine git subtree. Never edit it directly.
+- `engine/upstream/` is a pristine OpenCode snapshot. Never edit it directly.
 - Internal OpenCode adaptations belong in small patches under `engine/overlays/` only
   when a public engine API or plugin cannot express the behavior.
 
@@ -93,28 +93,31 @@ A local update uses:
 git fetch --no-tags https://github.com/sst/opencode.git +dev:refs/remotes/opencode-update/dev
 current="$(tr -d '\r\n' < engine/upstream.commit)"
 latest="$(git rev-parse refs/remotes/opencode-update/dev)"
+git rm -r --quiet engine/upstream
+git read-tree --prefix=engine/upstream/ -u "refs/remotes/opencode-update/dev^{tree}"
 printf '%s\n' "$latest" > engine/upstream.commit
 git add engine/upstream.commit
-git commit -m "Prepare vendored OpenCode update" -m "git-subtree-dir: engine/upstream" -m "git-subtree-split: $current"
-git subtree merge --prefix engine/upstream refs/remotes/opencode-update/dev --squash
+git commit -m "chore: update vendored OpenCode to ${latest:0:10}"
+git update-ref -d refs/remotes/opencode-update/dev
 bun install --ignore-scripts --cwd engine/upstream
 bun run test:engine
 bun run build:engine
 ```
 
-Do not use a plain `git subtree pull`. OpenCode has many `v*` release tags, and importing
-them can trigger Drift's own tag-based release workflow. If an overlay no longer applies,
-refresh that isolated patch against the updated source instead of resolving the change
-inside `engine/upstream/`. The full runbook is in [docs/engine.md](docs/engine.md).
+Do not merge, subtree-merge, or retain the temporary upstream ref: doing so makes OpenCode's
+history reachable from Drift's commit graph. OpenCode also has many `v*` release tags, so
+always fetch with `--no-tags`. If an overlay no longer applies, refresh that isolated patch
+against the updated source instead of resolving the change inside `engine/upstream/`. The
+full runbook is in [docs/engine.md](docs/engine.md).
 
 ## Releases
 
 Releases are maintainer-only. A release tag must match `vMAJOR.MINOR.PATCH` exactly, point
 to a commit contained in `origin/master`, and be strictly newer than every other stable
 GitHub release or repository tag. Prerelease and build suffixes are not supported. Before
-signing, the workflow checks the tag policy and runs frozen installs, typechecking, root
+building release artifacts, the workflow checks the tag policy and runs frozen installs, typechecking, root
 and engine tests, the engine build, Rust tests, and an unsigned production package build
-on the exact tag commit. The signing job has read-only repository access, and only the
+on the exact tag commit. The release build job has read-only repository access, and only the
 separate publication job has contents write access.
 
 Stable releases are serialized across all tags. Published notes and assets are immutable:

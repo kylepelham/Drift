@@ -34,6 +34,25 @@ pub struct ArchivedSession {
     pub archived_at: i64,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoverableInterruption {
+    pub session_id: String,
+    pub identity: String,
+    pub workspace_id: Option<String>,
+    pub directory: String,
+    pub thread_title: String,
+    pub parent_session_id: Option<String>,
+    pub provider_id: String,
+    pub model_id: String,
+    pub kind: String,
+    pub reason: String,
+    pub error_name: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub dismissed_at: Option<i64>,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServer {
@@ -115,6 +134,32 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
             value_json TEXT NOT NULL,
             original_json TEXT,
             updated_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS recoverable_interruption(
+            session_id TEXT NOT NULL,
+            identity TEXT NOT NULL,
+            workspace_id TEXT,
+            directory TEXT NOT NULL,
+            thread_title TEXT NOT NULL,
+            parent_session_id TEXT,
+            provider_id TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK(kind IN ('usage', 'rate_limit', 'unavailable', 'provider_auth', 'transient')),
+            reason TEXT NOT NULL,
+            error_name TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            dismissed_at INTEGER,
+            PRIMARY KEY(session_id, identity)
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS app_setting(
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS remote_access(
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
+            token TEXT NOT NULL
         ) STRICT;",
     )?;
     // Migration for databases created before `removed_at` existed. On any database created by the
@@ -159,6 +204,81 @@ fn now() -> i64 {
 }
 
 impl Store {
+    pub fn app_setting(&self, key: &str) -> rusqlite::Result<Option<String>> {
+        self.0
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT value FROM app_setting WHERE key = ?1",
+                [key],
+                |row| row.get(0),
+            )
+            .optional()
+    }
+
+    pub fn initialize_app_setting(&self, key: &str, value: &str) -> rusqlite::Result<String> {
+        let mut conn = self.0.lock().unwrap();
+        let transaction = conn.transaction()?;
+        transaction.execute(
+            "INSERT OR IGNORE INTO app_setting(key, value) VALUES(?1, ?2)",
+            params![key, value],
+        )?;
+        let stored = transaction.query_row(
+            "SELECT value FROM app_setting WHERE key = ?1",
+            [key],
+            |row| row.get(0),
+        )?;
+        transaction.commit()?;
+        Ok(stored)
+    }
+
+    pub fn save_app_setting(&self, key: &str, value: &str) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().execute(
+            "INSERT INTO app_setting(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_app_setting(&self, key: &str) -> rusqlite::Result<()> {
+        self.0
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM app_setting WHERE key = ?1", [key])?;
+        Ok(())
+    }
+
+    pub fn dictation_enabled(&self) -> rusqlite::Result<bool> {
+        let value = self.app_setting("dictation_enabled")?;
+        Ok(value.as_deref() == Some("true"))
+    }
+
+    pub fn save_dictation_enabled(&self, enabled: bool) -> rusqlite::Result<()> {
+        self.save_app_setting("dictation_enabled", if enabled { "true" } else { "false" })
+    }
+
+    pub fn remote_access(&self) -> rusqlite::Result<Option<(bool, String)>> {
+        self.0
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT enabled, token FROM remote_access WHERE id = 1",
+                [],
+                |row| Ok((row.get::<_, i64>(0)? != 0, row.get(1)?)),
+            )
+            .optional()
+    }
+
+    pub fn save_remote_access(&self, enabled: bool, token: &str) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().execute(
+            "INSERT INTO remote_access(id, enabled, token) VALUES(1, ?1, ?2)
+                 ON CONFLICT(id) DO UPDATE SET enabled = ?1, token = ?2",
+            params![enabled as i64, token],
+        )?;
+        Ok(())
+    }
+
     pub fn prompt_overrides(&self) -> rusqlite::Result<Vec<PromptOverride>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare_cached(
@@ -283,8 +403,9 @@ impl Store {
 
     fn query_workspaces(&self, filter: &str) -> rusqlite::Result<Vec<Workspace>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt =
-            conn.prepare_cached(&format!("SELECT {WORKSPACE_COLUMNS} FROM workspace {filter}"))?;
+        let mut stmt = conn.prepare_cached(&format!(
+            "SELECT {WORKSPACE_COLUMNS} FROM workspace {filter}"
+        ))?;
         let rows = stmt.query_map([], map_workspace)?;
         rows.collect()
     }
@@ -451,17 +572,102 @@ impl Store {
         Ok(())
     }
 
-    pub fn purge_archived(&self, before: i64) -> rusqlite::Result<Vec<String>> {
+    /// Archived sessions whose retention window has lapsed. Non-destructive: each row is the
+    /// deletion tombstone and is only dropped via `unarchive_session` once the engine confirms
+    /// the session is gone, so a failed engine deletion is retried on a later purge.
+    pub fn expired_archived(&self, before: i64) -> rusqlite::Result<Vec<String>> {
         let conn = self.0.lock().unwrap();
-        let ids: Vec<String> = conn
-            .prepare_cached("SELECT session_id FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1")?
-            .query_map([before], |row| row.get(0))?
-            .collect::<Result<_, _>>()?;
-        conn.prepare_cached(
-            "DELETE FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1",
-        )?
-        .execute([before])?;
-        Ok(ids)
+        let mut stmt = conn.prepare_cached(
+            "SELECT session_id FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1",
+        )?;
+        let rows = stmt.query_map([before], |row| row.get(0))?;
+        rows.collect()
+    }
+
+    pub fn interruptions(&self) -> rusqlite::Result<Vec<RecoverableInterruption>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT session_id, identity, workspace_id, directory, thread_title, parent_session_id,
+                    provider_id, model_id, kind, reason, error_name, created_at, updated_at, dismissed_at
+             FROM recoverable_interruption ORDER BY updated_at",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(RecoverableInterruption {
+                session_id: row.get(0)?,
+                identity: row.get(1)?,
+                workspace_id: row.get(2)?,
+                directory: row.get(3)?,
+                thread_title: row.get(4)?,
+                parent_session_id: row.get(5)?,
+                provider_id: row.get(6)?,
+                model_id: row.get(7)?,
+                kind: row.get(8)?,
+                reason: row.get(9)?,
+                error_name: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
+                dismissed_at: row.get(13)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn save_interruption(&self, item: &RecoverableInterruption) -> rusqlite::Result<()> {
+        let mut conn = self.0.lock().unwrap();
+        let transaction = conn.transaction()?;
+        transaction
+            .prepare_cached(
+                "DELETE FROM recoverable_interruption WHERE session_id = ?1 AND identity <> ?2",
+            )?
+            .execute((&item.session_id, &item.identity))?;
+        transaction.prepare_cached(
+            "INSERT INTO recoverable_interruption(
+                session_id, identity, workspace_id, directory, thread_title, parent_session_id,
+                provider_id, model_id, kind, reason, error_name, created_at, updated_at, dismissed_at
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+             ON CONFLICT(session_id, identity) DO UPDATE SET
+                workspace_id = ?3, directory = ?4, thread_title = ?5, parent_session_id = ?6,
+                provider_id = ?7, model_id = ?8, kind = ?9, reason = ?10, error_name = ?11,
+                updated_at = ?13, dismissed_at = COALESCE(recoverable_interruption.dismissed_at, ?14)",
+        )?.execute(params![
+            item.session_id,
+            item.identity,
+            item.workspace_id,
+            item.directory,
+            item.thread_title,
+            item.parent_session_id,
+            item.provider_id,
+            item.model_id,
+            item.kind,
+            item.reason,
+            item.error_name,
+            item.created_at,
+            item.updated_at,
+            item.dismissed_at,
+        ])?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn dismiss_interruption(
+        &self,
+        session_id: &str,
+        identity: &str,
+        dismissed_at: i64,
+    ) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().prepare_cached(
+            "UPDATE recoverable_interruption SET dismissed_at = ?3 WHERE session_id = ?1 AND identity = ?2",
+        )?.execute((session_id, identity, dismissed_at))?;
+        Ok(())
+    }
+
+    pub fn clear_interruptions(&self, session_id: &str) -> rusqlite::Result<()> {
+        self.0
+            .lock()
+            .unwrap()
+            .prepare_cached("DELETE FROM recoverable_interruption WHERE session_id = ?1")?
+            .execute([session_id])?;
+        Ok(())
     }
 
     pub fn mcp_state(&self) -> rusqlite::Result<McpState> {

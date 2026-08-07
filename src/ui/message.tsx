@@ -3,7 +3,7 @@ import { createRenderEffect, createSignal, For, Match, onMount, Show, Switch } f
 import { createStore, reconcile } from "solid-js/store"
 import { useEngine } from "../engine"
 import { errorText } from "../engine/error"
-import { messageText, modelInfo, type MessageEntry } from "../engine/store"
+import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store"
 import { emitMessageRendered } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
 import { agentLabel, t } from "../state/i18n"
@@ -13,7 +13,7 @@ import { Markdown } from "./markdown"
 import { Chevron } from "./controls"
 import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
 
-export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
+export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[] }) {
   onMount(() =>
     emitMessageRendered({
       sessionId: props.entry.info.sessionID,
@@ -24,7 +24,7 @@ export function MessageView(props: { entry: MessageEntry; footer?: boolean }) {
   const summary = () => (props.entry.info as AssistantMessage).summary && collapseCompaction()
   return (
     <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} />}>
-      <Show when={summary()} fallback={<AssistantFlow entry={props.entry} footer={props.footer} />}>
+      <Show when={summary()} fallback={<AssistantFlow entry={props.entry} footer={props.footer} groups={props.groups} />}>
         <CompactionSummary entry={props.entry} footer={props.footer} />
       </Show>
     </Show>
@@ -145,6 +145,43 @@ export function groupParts(parts: Part[]): PartGroup[] {
   return groups
 }
 
+function assistantBoundary(entry: MessageEntry) {
+  if (entry.info.role !== "assistant") return true
+  const info = entry.info as AssistantMessage
+  return !!info.summary || !!info.error || entry.parts.some((part) => part.type === "compaction")
+}
+
+export function assistantFlowContinues(previous: MessageEntry, next: MessageEntry) {
+  return previous.info.role === "assistant" && next.info.role === "assistant" &&
+    !assistantBoundary(previous) && !assistantBoundary(next)
+}
+
+export function groupAssistantEntries(entries: MessageEntry[]) {
+  const result = new Map<string, PartGroup[]>()
+  let previous: MessageEntry | undefined
+  let trailing: Extract<PartGroup, { explored: ToolPart[] }> | undefined
+  for (const entry of entries) {
+    if (entry.info.role !== "assistant") {
+      previous = entry
+      trailing = undefined
+      continue
+    }
+    if (!previous || !assistantFlowContinues(previous, entry)) trailing = undefined
+    const groups: PartGroup[] = []
+    for (const group of groupParts(entry.parts)) {
+      if ("explored" in group && trailing) {
+        trailing.explored.push(...group.explored)
+        continue
+      }
+      groups.push(group)
+      trailing = "explored" in group ? group : undefined
+    }
+    result.set(entry.info.id, groups)
+    previous = entry
+  }
+  return result
+}
+
 function createPartGroupSlot(group: PartGroup): PartGroupSlot {
   const [value, setValue] = createStore(group)
   return { id: group.id, value, update: (updated) => setValue(reconcile(updated)) }
@@ -203,12 +240,19 @@ export function updatePartGroupSlots(
   return next
 }
 
-function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
+function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[] }) {
+  const engine = useEngine()
   const info = () => props.entry.info as AssistantMessage
   const slots = new Map<string, PartGroupSlot>()
   const [groups, setGroups] = createSignal<PartGroupSlot[]>([])
-  createRenderEffect(() => setGroups(updatePartGroupSlots(groupParts(props.entry.parts), slots)))
-  const visible = () => props.entry.parts.some(partVisible) || !!info().error
+  createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)))
+  const visible = () => groups().length > 0 || !!info().error || (!!props.footer && !!info().time.completed)
+  const liveTextPartID = () => {
+    if (info().time.completed || !sessionBusy(engine.state, info().sessionID)) return undefined
+    return [...props.entry.parts]
+      .reverse()
+      .find((part) => part.type === "text" && !part.time?.end)?.id
+  }
   return (
     <Show when={visible()}>
       <div class="group flex min-w-0 max-w-full flex-col gap-3">
@@ -218,7 +262,15 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
               <Match when={"explored" in group.value && group.value}>
                 {(explored) => <ExploredGroup parts={explored().explored} />}
               </Match>
-              <Match when={"part" in group.value && group.value}>{(single) => <PartView part={single().part} />}</Match>
+              <Match when={"part" in group.value && group.value}>
+                {(single) => (
+                  <PartView
+                    part={single().part}
+                    responseID={`${info().id}:${single().part.id}`}
+                    live={single().part.id === liveTextPartID()}
+                  />
+                )}
+              </Match>
             </Switch>
           )}
         </For>
@@ -244,7 +296,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean }) {
           <div class="flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
             <span>{info().modelID}</span>
             <span>{formatTokens(info())}</span>
-            <Show when={tokensPerSecond(info())}>
+            <Show when={tokensPerSecond(props.entry)}>
               {(rate) => <span>{t("drift.message.tokensPerSecond", { rate: rate() })}</span>}
             </Show>
             <Show when={info().cost > 0}>
@@ -273,11 +325,27 @@ function formatDuration(ms: number) {
   return t("drift.message.duration.hours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 })
 }
 
-function tokensPerSecond(info: AssistantMessage) {
-  const seconds = ((info.time.completed ?? 0) - info.time.created) / 1000
+// Only the spans the model spent generating text or reasoning count toward the rate; wall time
+// also covers tool runs and subagent waits, which made the shown rate meaningless.
+export function generationMs(entry: MessageEntry) {
+  const info = entry.info as AssistantMessage
+  let total = 0
+  for (const part of entry.parts) {
+    if (part.type !== "text" && part.type !== "reasoning") continue
+    const time = (part as { time?: { start?: number; end?: number } }).time
+    if (time?.start === undefined) continue
+    const end = time.end ?? info.time.completed
+    if (end) total += Math.max(0, end - time.start)
+  }
+  return total
+}
+
+export function tokensPerSecond(entry: MessageEntry) {
+  const info = entry.info as AssistantMessage
+  const elapsed = generationMs(entry) || (info.time.completed ?? 0) - info.time.created
   const tokens = info.tokens.output + info.tokens.reasoning
-  if (seconds <= 0 || tokens <= 0) return null
-  return (tokens / seconds).toFixed(1)
+  if (elapsed <= 0 || tokens <= 0) return null
+  return (tokens / (elapsed / 1000)).toFixed(1)
 }
 
 function formatTokens(info: AssistantMessage) {

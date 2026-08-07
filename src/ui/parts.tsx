@@ -14,6 +14,9 @@ import { TextShimmer } from "./text-shimmer"
 import { openToolContextMenu } from "./tool-context-menu"
 import { permissionRequiresAttention } from "../state/permission-attention"
 import type { EngineState } from "../engine/store"
+import { recoverableForSession, recoverableInterruptions, resumedSessions } from "../state/recovery"
+import { ToolDuration } from "./tool-duration"
+import { resolveAttachmentKind } from "../attachments"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -35,13 +38,22 @@ const fontStyleItalic = 1
 const fontStyleBold = 2
 const fontStyleUnderline = 4
 
-export function PartView(props: { part: Part }) {
+export function PartView(props: { part: Part; responseID?: string; live?: boolean }) {
   return (
     <Switch>
       <Match when={props.part.type !== "tool" && hasPartRenderer(props.part.type) && props.part}>
         {(part) => <PluginPartView part={part()} />}
       </Match>
-      <Match when={visibleText(props.part)}>{(part) => <Markdown text={part().text} done={!!part().time?.end} />}</Match>
+      <Match when={visibleText(props.part)}>
+        {(part) => (
+          <Markdown
+            text={part().text}
+            done={!!part().time?.end}
+            responseID={props.responseID}
+            live={props.live}
+          />
+        )}
+      </Match>
       <Match when={showReasoning() && props.part.type === "reasoning" && (props.part as ReasoningPart)}>
         {(part) => <ReasoningView part={part()} />}
       </Match>
@@ -117,6 +129,8 @@ export function partVisible(part: Part) {
 
 export function FilePartView(props: { part: Pick<FilePart, "mime" | "filename" | "url"> }) {
   const linkable = () => props.part.url.startsWith("data:") || props.part.url.startsWith("http")
+  const resolved = () => resolveAttachmentKind(props.part)
+  const kind = () => resolved().kind
   return (
     <Switch
       fallback={
@@ -139,16 +153,47 @@ export function FilePartView(props: { part: Pick<FilePart, "mime" | "filename" |
         </Show>
       }
     >
-      <Match when={props.part.mime.startsWith("image/") && linkable()}>
+      <Match when={kind() === "image" && linkable()}>
         <ImageThumb url={props.part.url} filename={props.part.filename} mime={props.part.mime} />
       </Match>
-      <Match when={props.part.mime.startsWith("audio/") && linkable()}>
+      <Match when={kind() === "audio" && linkable()}>
         <audio controls src={props.part.url} class="max-w-full" />
       </Match>
-      <Match when={props.part.mime.startsWith("video/") && linkable()}>
+      <Match when={kind() === "video" && linkable()}>
         <video controls src={props.part.url} class="max-h-64 max-w-full rounded-lg border border-edge" />
       </Match>
+      <Match when={(kind() === "pdf" || kind() === "text" || kind() === "csv") && kind()}>
+        {(attachmentKind) => (
+          <Show
+            when={linkable()}
+            fallback={<AttachmentFileLabel filename={props.part.filename} kind={attachmentKind()} />}
+          >
+            <a
+              href={props.part.url}
+              download={props.part.filename ?? "attachment"}
+              title={t("drift.attachment.download")}
+              class="inline-flex max-w-full items-center gap-2 rounded-md border border-edge bg-raised py-1 pr-2 pl-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+            >
+              <AttachmentFileLabel filename={props.part.filename} kind={attachmentKind()} bare />
+            </a>
+          </Show>
+        )}
+      </Match>
     </Switch>
+  )
+}
+
+function AttachmentFileLabel(props: { filename?: string; kind: string; bare?: boolean }) {
+  return (
+    <span
+      class="inline-flex min-w-0 max-w-full items-center gap-2"
+      classList={{ "rounded-md border border-edge bg-raised py-1 pr-2 pl-1.5 text-xs text-ink-muted": !props.bare }}
+    >
+      <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[0.6rem] font-semibold text-accent uppercase">
+        {t(`drift.attachment.kind.${props.kind}`)}
+      </span>
+      <span class="truncate">{props.filename ?? t("common.attachment")}</span>
+    </span>
   )
 }
 
@@ -301,6 +346,29 @@ function toolMeta(part: ToolPart) {
   return (("metadata" in state ? state.metadata : undefined) ?? part.metadata) as Record<string, unknown> | undefined
 }
 
+export function formatShellTimeout(ms: number) {
+  if (ms % 60_000 === 0) return `${ms / 60_000}m`
+  if (ms % 1_000 === 0) return `${ms / 1_000}s`
+  return `${ms}ms`
+}
+
+export function shellTimeoutStatus(part: ToolPart) {
+  if (part.tool !== "bash") return null
+  const metadata = toolMeta(part)
+  if (!metadata || !("shellTimeoutMs" in metadata)) return null
+  const timeout = metadata.shellTimeoutMs
+  const timedOut = metadata.timedOut === true
+  if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) return null
+  if (!timedOut && part.state.status !== "running" && part.state.status !== "pending") return null
+  const duration = formatShellTimeout(timeout)
+  return {
+    timedOut,
+    text: timedOut
+      ? t("drift.shell.timeout.expired", { duration })
+      : t("drift.shell.timeout.limit", { duration }),
+  }
+}
+
 export function patchFiles(part: ToolPart) {
   const files = toolMeta(part)?.files
   if (!Array.isArray(files)) return []
@@ -372,6 +440,10 @@ export function toolChevronVisible(active: boolean, delegated: boolean) {
   return !active || delegated
 }
 
+export function delegatedTaskClickPolicy(status: DelegatedTaskStatus | null, childId: string | null) {
+  return childId && (status === "running" || status === "resumed") ? "navigate" : "expand"
+}
+
 function diffStats(diff: string) {
   let additions = 0
   let deletions = 0
@@ -387,12 +459,21 @@ export function ToolView(props: { part: ToolPart }) {
   const state = () => props.part.state
   const info = () => toolInfo(props.part)
   const delegated = () => props.part.tool === "task" || props.part.tool === "spawn_thread"
-  const active = () =>
-    !awaitingPermission(engine.state, props.part) && (state().status === "running" || state().status === "pending")
+  const delegatedStatus = () => {
+    recoverableInterruptions()
+    resumedSessions()
+    const childId = spawnedId()
+    return childId ? delegatedTaskStatus(engine.state, props.part, childId) : null
+  }
+  const active = () => {
+    if (awaitingPermission(engine.state, props.part)) return false
+    if (delegated()) return delegatedStatus() === "running" || delegatedStatus() === "resumed"
+    return state().status === "running" || state().status === "pending"
+  }
   const title = () => (info().called ? `${t("drift.tool.called")} ${info().called}` : (info().title ?? props.part.tool))
   const progress = () => {
     const childId = spawnedId()
-    if (!childId || state().status !== "running") return null
+    if (!childId || (delegatedStatus() !== "running" && delegatedStatus() !== "resumed")) return null
     const activity = engine.state.activity[childId]
     if (!activity) return null
     const count = t(activity.tools === 1 ? "drift.count.tool.one" : "drift.count.tool.other", { count: activity.tools })
@@ -417,16 +498,25 @@ export function ToolView(props: { part: ToolPart }) {
     const patch = diff()
     return patch ? diffStats(patch) : null
   }
+  const timeout = () => shellTimeoutStatus(props.part)
   const spawnedId = () => {
     if (props.part.tool !== "task" && props.part.tool !== "spawn_thread") return null
     return (toolMeta(props.part) as { sessionId?: string } | undefined)?.sessionId ?? null
   }
+  const activate = () => {
+    if (delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "navigate") {
+      selectSession(spawnedId()!)
+      return
+    }
+    activateToolHeader(toggleOpen)
+  }
+  const inlineExpanded = () => expanded() && delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "expand"
   return (
     <div class="flex min-w-0 max-w-full flex-col gap-1 text-sm">
       <button
         class="flex min-h-8 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md px-1.5 text-left transition-colors hover:bg-raised/40"
         classList={{ "delegate-tool border-accent/35": delegated() }}
-        onClick={() => activateToolHeader(toggleOpen)}
+        onClick={activate}
       >
         <Show when={error()}>
           <span class="size-3.5 shrink-0 text-danger">
@@ -474,9 +564,20 @@ export function ToolView(props: { part: ToolPart }) {
         <Show when={progress()}>
           {(text) => <span class="shrink-0 font-mono text-xs text-accent/80">{text()}</span>}
         </Show>
+        <Show when={timeout()}>
+          {(status) => (
+            <span
+              class="shrink-0 font-mono text-xs"
+              classList={{ "text-danger": status().timedOut, "text-ink-faint": !status().timedOut }}
+            >
+              {status().text}
+            </span>
+          )}
+        </Show>
         <Show when={awaitingPermission(engine.state, props.part)}>
           <span class="shrink-0 text-xs text-warn/90">{t("drift.status.waitingForPermission")}</span>
         </Show>
+        <ToolDuration state={state()} />
         <Show when={spawnedId()}>
           {(childId) => (
             <span
@@ -489,17 +590,60 @@ export function ToolView(props: { part: ToolPart }) {
             </span>
           )}
         </Show>
-        <Show when={toolChevronVisible(active(), delegated())}>
-          <Chevron open={expanded()} />
+        <Show when={toolChevronVisible(active(), delegated()) && delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "expand"}>
+          <Chevron open={inlineExpanded()} />
         </Show>
       </button>
-      <Show when={expanded()}>
+      <Show when={inlineExpanded()}>
         <div class="min-w-0 max-w-full">
           <ToolBody part={props.part} diff={diff()} error={error()} />
         </div>
       </Show>
     </div>
   )
+}
+
+export type DelegatedTaskStatus = "running" | "interrupted" | "resumed" | "completed" | "error"
+
+export function delegatedTaskStatus(
+  state: EngineState,
+  part: Pick<ToolPart, "sessionID" | "state">,
+  childId: string,
+): DelegatedTaskStatus {
+  if (recoverableForSession(childId)) return "interrupted"
+  const resumed = resumedSessions().has(childId)
+  if (sessionRunning(state, childId)) return resumed ? "resumed" : "running"
+  // A live task part is newer authority than terminal markers elsewhere in the parent transcript.
+  // The same child can be resumed, leaving an older completion marker behind while work continues.
+  if (part.state.status === "pending" || part.state.status === "running") return resumed ? "resumed" : "running"
+  if (resumed) return "completed"
+  const terminal = delegatedTerminalState(state, part, childId)
+  if (terminal) return terminal
+  return part.state.status === "error" ? "error" : "running"
+}
+
+function sessionRunning(state: EngineState, sessionId: string) {
+  const status = state.status[sessionId]?.type
+  return status === "busy" || status === "retry"
+}
+
+function delegatedTerminalState(
+  state: EngineState,
+  part: Pick<ToolPart, "sessionID" | "state">,
+  childId: string,
+): "completed" | "error" | undefined {
+  const pattern = new RegExp(`<task\\s+id=["']${escapeRegExp(childId)}["']\\s+state=["'](completed|error)["']`)
+  for (const entry of state.transcripts[part.sessionID] ?? []) {
+    for (const item of entry.parts) {
+      const value = item.type === "text" ? item.text : item.type === "tool" && item.state.status === "completed" ? item.state.output : ""
+      const match = value.match(pattern)?.[1]
+      if (match === "completed" || match === "error") return match
+    }
+  }
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 function ToolBody(props: { part: ToolPart; diff: string | null; error: string | null }) {
@@ -528,12 +672,12 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
           {(task) => (
             <div class="space-y-2 border-l-2 border-edge pl-3">
               <Show when={task().prompt}>
-                <div class="max-h-40 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-faint">
+                <div class="transcript-tool-output max-h-40 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-faint">
                   {clip(task().prompt)}
                 </div>
               </Show>
               <Show when={task().result}>
-                <div class="max-h-80 overflow-auto text-ink-muted">
+                <div class="transcript-tool-output max-h-80 overflow-auto text-ink-muted">
                   <Markdown text={task().result} done />
                 </div>
               </Show>
@@ -569,6 +713,17 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
 export function shellTranscript(command: string, output: string) {
   const normalized = stripAnsi(output).replace(/\r\n?/g, "\n")
   return `$ ${command}${normalized.trim() ? `\n\n${normalized}` : ""}`
+}
+
+/**
+ * Splits a replace-frame transcript into its command line and trailing output so the command can
+ * be rendered with the accent `$ ` indicator. Replace frames always start with `$ ${command}`;
+ * the fallback keeps unexpected frames rendering verbatim instead of dropping text.
+ */
+export function shellReplaceSegments(command: string, text: string) {
+  const head = `$ ${command}`
+  if (!text.startsWith(head)) return { command: null, output: text }
+  return { command, output: text.slice(head.length) }
 }
 
 /**
@@ -718,6 +873,8 @@ function ShellOutput(props: { command: string; output: string; running: boolean 
   let mounted = false
   let savedTop = 0
   let following = true
+  /** The text node holding streamed output, so appends never disturb the styled command line. */
+  let outputNode: Text | undefined
   const stream = createShellTranscriptStream()
   const normalizer = createFrameCoalescer(
     requestAnimationFrame,
@@ -725,10 +882,25 @@ function ShellOutput(props: { command: string; output: string; running: boolean 
     ({ command, output, running }: { command: string; output: string; running: boolean }) => {
       const update = stream.update(command, output, !running)
       if (!mounted) return
-      if (update.replace) viewport.textContent = update.text
-      else if (update.text) {
-        const node = viewport.firstChild
-        if (node?.nodeType === Node.TEXT_NODE) (node as Text).appendData(update.text)
+      if (update.replace) {
+        const segments = shellReplaceSegments(command, update.text)
+        outputNode = document.createTextNode(segments.output)
+        if (segments.command === null) {
+          viewport.replaceChildren(outputNode)
+        } else {
+          const prompt = document.createElement("span")
+          prompt.className = "text-accent select-none"
+          prompt.textContent = "$ "
+          const name = document.createElement("span")
+          name.className = "font-medium text-ink"
+          name.textContent = segments.command
+          const trailing = document.createElement("span")
+          trailing.className = "text-ink-muted"
+          trailing.append(outputNode)
+          viewport.replaceChildren(prompt, name, trailing)
+        }
+      } else if (update.text) {
+        if (outputNode) outputNode.appendData(update.text)
         else viewport.append(update.text)
       }
       if (update.replace || update.text) setRenderRevision((value) => value + 1)
@@ -778,7 +950,7 @@ function ShellOutput(props: { command: string; output: string; running: boolean 
       </button>
       <pre
         ref={viewport}
-        class="shell-output code-display max-h-60 overflow-x-hidden overflow-y-auto p-3 pr-10 font-mono leading-[1.5] text-ink"
+        class="shell-output transcript-tool-output code-display max-h-60 overflow-x-hidden overflow-y-auto p-3 pr-10 font-mono leading-[1.5] text-ink"
         role="region"
         aria-label={t("drift.shell.output")}
         tabIndex={0}
@@ -820,7 +992,7 @@ function GenericBody(props: { part: ToolPart }) {
         </div>
       </Show>
       <Show when={output().trim()}>
-        <div class="max-h-64 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-muted">
+        <div class="transcript-tool-output max-h-64 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-muted">
           {clip(stripAnsi(output()))}
         </div>
       </Show>
@@ -894,7 +1066,7 @@ function DiffPanel(props: { diff: string; lang: string; bare?: boolean }) {
   const visibleTokens = () => (highlighted === source() ? tokens() : [])
   return (
     <div class="diff-view overflow-hidden" classList={{ "rounded-lg border border-edge": !props.bare }}>
-      <div class="max-h-80 overflow-auto py-1 font-mono leading-relaxed">
+      <div class="transcript-tool-output max-h-80 overflow-auto py-1 font-mono leading-relaxed">
         <div classList={{ "w-full": diffWordWrap(), "w-max min-w-full": !diffWordWrap() }}>
           <For each={rows()}>
             {(row, index) => (
@@ -1008,6 +1180,12 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
   const waiting = () => props.parts.some((part) => awaitingPermission(engine.state, part))
   const running = () =>
     props.parts.some((part) => part.state.status === "running" || part.state.status === "pending")
+  const activePart = () => {
+    for (let index = props.parts.length - 1; index >= 0; index--) {
+      const part = props.parts[index]
+      if (part.state.status === "running" || part.state.status === "pending") return part
+    }
+  }
   const expanded = () => open() || waiting()
   return (
     <div class="flex flex-col gap-1.5 text-sm">
@@ -1028,6 +1206,7 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
         <Show when={waiting()}>
           <span class="text-xs text-warn/90">{t("notification.permission.title")}</span>
         </Show>
+        <Show when={activePart()}>{(part) => <ToolDuration state={part().state} />}</Show>
         <Chevron open={expanded()} />
       </button>
       <Show when={expanded()}>

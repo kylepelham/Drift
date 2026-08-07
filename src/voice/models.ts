@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js"
-import { shellEvents, shellInvoke } from "../shell"
+import { backendInvoke } from "../backend"
+import { shellEvents, type ShellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import type { DictationModel } from "../state/voice"
 
@@ -32,7 +33,7 @@ export function modelInfo(id: DictationModel) {
 }
 
 export async function refreshVoiceModels() {
-  const invoke = shellInvoke()
+  const invoke = backendInvoke()
   if (!invoke) return setSupported(false)
   watchProgress()
   setBusy("loading")
@@ -48,7 +49,7 @@ export async function refreshVoiceModels() {
 }
 
 export async function downloadVoiceModel(id: DictationModel) {
-  const invoke = shellInvoke()
+  const invoke = backendInvoke()
   if (!invoke || busy()) return
   watchProgress()
   setError("")
@@ -66,7 +67,7 @@ export async function downloadVoiceModel(id: DictationModel) {
 }
 
 export async function removeVoiceModel(id: DictationModel) {
-  const invoke = shellInvoke()
+  const invoke = backendInvoke()
   if (!invoke || busy()) return
   setError("")
   setBusy("removing")
@@ -81,7 +82,7 @@ export async function removeVoiceModel(id: DictationModel) {
 }
 
 export function cancelVoiceModelDownload() {
-  void shellInvoke()?.("voice_model_cancel").catch(() => undefined)
+  void backendInvoke()?.("voice_model_cancel").catch(() => undefined)
 }
 
 export function dismissVoiceModelError() {
@@ -99,7 +100,7 @@ export function formatBytes(bytes: number) {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
-async function reload(invoke: NonNullable<ReturnType<typeof shellInvoke>>) {
+async function reload(invoke: ShellInvoke) {
   await invoke<VoiceModelInfo[]>("voice_models")
     .then(setModels)
     .catch(() => undefined)

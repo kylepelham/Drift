@@ -4,10 +4,11 @@ import type { Engine } from "./engine"
 import type { QuestionInfo } from "./engine/store"
 import { pushAsk } from "./state/asks"
 import { selectedSession, selectSession } from "./state/selection"
-import { shellInvoke } from "./shell"
+import { backendInvoke } from "./backend"
 import { theme } from "./state/theme"
 import { activeWorkspace } from "./state/workspaces"
 import type { Workspace } from "./state/store"
+import { ToolDuration } from "./ui/tool-duration"
 import {
   openFile,
   registerToolContextActions,
@@ -144,7 +145,12 @@ export function PluginToolView(props: { part: ToolPart }) {
     if (typeof output === "string") root.textContent = output
     else if (output) root.append(output)
   })
-  return <div ref={root} class="text-sm" />
+  return (
+    <div class="flex min-w-0 items-start gap-2 text-sm">
+      <div ref={root} class="min-w-0 flex-1" />
+      <ToolDuration state={props.part.state} />
+    </div>
+  )
 }
 
 function registerToolRenderer(tool: string, renderer: ToolRenderer) {
@@ -215,7 +221,7 @@ async function importPlugin(source: string) {
 }
 
 async function readConfigFile(path: string) {
-  const invoke = shellInvoke()
+  const invoke = backendInvoke()
   if (invoke) return invoke<string | null>("config_read", { path })
   return localStorage.getItem(`drift.config:${path}`)
 }

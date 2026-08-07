@@ -101,13 +101,16 @@ test("composer history navigation restores the draft and attachments", async () 
 })
 
 test("drag reorder ignores released pointers and converts zoomed geometry", async () => {
-  const { dragLayoutScale, dragPointerPressed } = await import("../src/ui/drag-reorder")
+  const { dragLayoutScale, dragPointerPressed, dragReorderAllowed } = await import("../src/ui/drag-reorder")
   expect(dragPointerPressed(4, { pointerId: 4, buttons: 1 })).toBeTrue()
   expect(dragPointerPressed(4, { pointerId: 4, buttons: 0 })).toBeFalse()
   expect(dragPointerPressed(4, { pointerId: 5, buttons: 1 })).toBeFalse()
   expect(dragLayoutScale(52, 40)).toBe(1.3)
   expect(dragLayoutScale(32, 40)).toBe(0.8)
   expect(dragLayoutScale(0, 0)).toBe(1)
+  expect(dragReorderAllowed({ button: 0, isPrimary: true, pointerType: "mouse" })).toBeTrue()
+  expect(dragReorderAllowed({ button: 0, isPrimary: true, pointerType: "touch" })).toBeFalse()
+  expect(dragReorderAllowed({ button: 0, isPrimary: false, pointerType: "pen" })).toBeFalse()
 })
 
 test("reverted messages restore uploads and file mentions", async () => {
@@ -216,8 +219,10 @@ test("shell transcript preserves a visible command-output gap and normalizes out
     initialToolOpenForPart,
     rememberToolOpen,
     shellAtBottom,
+    shellReplaceSegments,
     shellScrollTarget,
     shellTranscript,
+    shellTimeoutStatus,
   } = await import("../src/ui/parts")
   expect(shellTranscript("bun run build", "\u001b[32mok\u001b[0m\r\ndone")).toBe("$ bun run build\n\nok\ndone")
   const output = Array.from({ length: 10_000 }, (_, index) => `line ${index}`).join("\r\n")
@@ -239,6 +244,17 @@ test("shell transcript preserves a visible command-output gap and normalizes out
   expect(shellAtBottom(250, 200, 501)).toBe(false)
   expect(shellScrollTarget(250, false, 700)).toBe(250)
   expect(shellScrollTarget(300, true, 700)).toBe(700)
+  const shellPart = (status: "running" | "completed", metadata: Record<string, unknown>) =>
+    ({ tool: "bash", state: { status, input: {}, metadata } }) as never
+  expect(shellTimeoutStatus(shellPart("running", { shellTimeoutMs: 300_000 }))).toEqual({
+    timedOut: false,
+    text: "Limit 5m",
+  })
+  expect(shellTimeoutStatus(shellPart("running", { shellTimeoutMs: null }))).toBeNull()
+  expect(shellTimeoutStatus(shellPart("completed", { shellTimeoutMs: 60_000, timedOut: true }))).toEqual({
+    timedOut: true,
+    text: "Timed out after 1m",
+  })
 
   const stream = createShellTranscriptStream()
   expect(stream.update("generate", "\u001b[3", false)).toEqual({ replace: true, text: "$ generate" })
@@ -264,6 +280,15 @@ test("shell transcript preserves a visible command-output gap and normalizes out
   const whitespace = createShellTranscriptStream()
   expect(whitespace.update("wait", "\n ", false)).toEqual({ replace: true, text: "$ wait" })
   expect(whitespace.update("wait", "\n ready", false)).toEqual({ replace: true, text: "$ wait\n\n\n ready" })
+
+  // Replace frames split into a styled command line plus trailing output; unexpected frames fall
+  // back to verbatim output so no text is ever dropped.
+  expect(shellReplaceSegments("bun run build", "$ bun run build\n\nok\ndone")).toEqual({
+    command: "bun run build",
+    output: "\n\nok\ndone",
+  })
+  expect(shellReplaceSegments("wait", "$ wait")).toEqual({ command: "wait", output: "" })
+  expect(shellReplaceSegments("other", "$ mismatch\n\ntext")).toEqual({ command: null, output: "$ mismatch\n\ntext" })
 
   const frames = new Map<number, () => void>()
   const values: string[] = []
@@ -352,6 +377,27 @@ test("queued questions retain focus while other requests arrive or reorder", asy
   expect(focusedQuestion([first, second])?.id).toBe("q1")
   expect(focusedQuestion([second, first], "q1")?.id).toBe("q1")
   expect(focusedQuestion([second], "q1")?.id).toBe("q2")
+})
+
+test("composer attention cards share one stack without suppressing concurrent requests", async () => {
+  const app = await Bun.file("src/app.tsx").text()
+  const composer = await Bun.file("src/ui/composer.tsx").text()
+  const attention = await Bun.file("src/ui/attention.tsx").text()
+  const revert = await Bun.file("src/ui/revert-dock.tsx").text()
+  const css = await Bun.file("src/styles/app.css").text()
+
+  expect(app).not.toContain("<AttentionStrip />")
+  expect(composer).toContain('class="composer-attention-stack')
+  expect(composer).toContain("<AttentionStrip />")
+  expect(composer).toContain("<Show keyed when={pendingQuestion()?.id}>")
+  expect(composer).toContain("<Show when={pendingAsk()}>")
+  expect(composer.match(/class="flow-root"/g)).toHaveLength(3)
+  expect(composer).not.toContain("pendingPermission() ? undefined : pendingQuestion()")
+  expect(composer).not.toContain("pendingPermission() || pendingQuestion() ? undefined : pendingAsk()")
+  expect(attention.match(/composer-layer-card/g)).toHaveLength(3)
+  expect(revert).toContain("composer-layer-card")
+  expect(css).not.toContain(".composer-attention-stack:has(> :nth-child(2))")
+  expect(css).not.toMatch(/\.composer-attention-stack[^}]*overflow/s)
 })
 
 test("question steps and answers persist independently by request id", async () => {

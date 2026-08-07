@@ -1,15 +1,33 @@
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client"
-import { createContext, onCleanup, useContext, type ParentProps } from "solid-js"
+import { createContext, createEffect, onCleanup, useContext, type ParentProps } from "solid-js"
 import { produce } from "solid-js/store"
 import { shellEvents } from "../shell"
 import { t } from "../state/i18n"
+import { selectedSession } from "../state/selection"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
+import { clearRecoverableInterruption } from "../state/recovery"
+import { reportShellTimeoutError, shellTimeoutMs } from "../state/prefs"
 import { createActions, type EngineActions } from "./actions"
-import { inspectShellEngine, resolveEngine, restartShellEngine, sleep, type EngineTarget } from "./connection"
-import { reduce } from "./events"
+import {
+  configureShellTimeout,
+  inspectShellEngine,
+  resolveEngine,
+  restartShellEngine,
+  sleep,
+  type EngineTarget,
+} from "./connection"
+import { applySessionSnapshot, applyStatusSnapshot, reduce } from "./events"
 import { streamEvents } from "./sse"
 import { seedBench } from "./bench"
-import { createEngineState, interruptStaleTools, putSessions, type EngineState, type ProviderInfo } from "./store"
+import {
+  captureRevisions,
+  createEngineState,
+  interruptStaleTools,
+  mergeTranscriptSnapshot,
+  sessionSnapshotLimit,
+  type EngineState,
+  type ProviderInfo,
+} from "./store"
 
 export type Engine = {
   state: EngineState
@@ -19,6 +37,9 @@ export type Engine = {
 }
 
 const EngineContext = createContext<Engine>()
+
+// Reconnect transcript refreshes run in small batches so they cannot starve the visible session.
+const transcriptRefreshBatch = 3
 
 /** Reads the engine version, or null if the engine is unreachable or does not answer with it. */
 function fetchEngineVersion(target: EngineTarget) {
@@ -43,6 +64,7 @@ export function EngineProvider(props: ParentProps) {
   let engineEpoch = 0
   let restartRequest: Promise<boolean> | undefined
   let unlistenEngineExit: (() => void) | undefined
+  let timeoutSync = Promise.resolve()
 
   const requireClient = () => {
     if (!client) throw new Error("engine offline")
@@ -50,44 +72,83 @@ export function EngineProvider(props: ParentProps) {
   }
   const actions = createActions(requireClient, state, set, () => base)
 
+  function syncShellTimeout(target = base) {
+    if (!target) return
+    const timeout = shellTimeoutMs()
+    timeoutSync = timeoutSync
+      .then(() => {
+        if (disposed || base !== target || shellTimeoutMs() !== timeout) return
+        return configureShellTimeout(target, timeout)
+      })
+      .then(() => reportShellTimeoutError(""))
+      .catch((cause) => reportShellTimeoutError(cause instanceof Error ? cause.message : String(cause)))
+  }
+
+  createEffect(() => {
+    shellTimeoutMs()
+    syncShellTimeout()
+  })
+
   async function hydrate() {
     const bootDirectory = directory ?? ""
     const api = requireClient()
+    const providerEpoch = state.providerSnapshotEpoch + 1
+    set("providerSnapshotEpoch", providerEpoch)
     const current = () => client === api && directory === bootDirectory
     try {
       const stale = Object.keys(state.loaded)
+      const captured = captureRevisions(state)
       const [sessions, [statuses, providers, agents, commands]] = await Promise.all([
         api.session.list(),
         Promise.all([api.session.status(), api.provider.list(), api.app.agents(), api.command.list()]),
       ])
       if (!current()) return
-      putSessions(set, sessions.data ?? [])
-      set(
-        produce((draft) => {
-          const live = statuses.data ?? {}
-          for (const session of sessions.data ?? []) {
-            const status = live[session.id] ?? { type: "idle" as const }
-            draft.status[session.id] = status
-            if (status.type === "idle")
-              for (const [partID, owner] of Object.entries(draft.liveTools))
-                if (owner === session.id) delete draft.liveTools[partID]
-          }
-        }),
-      )
-      set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
-      set("connected", providers.data?.connected ?? [])
-      set("defaultModels", providers.data?.default ?? {})
+      const list = sessions.data ?? []
+      // Only a successful, untruncated listing is authoritative for the workspace.
+      const complete = sessions.error === undefined && sessions.data !== undefined && list.length < sessionSnapshotLimit
+      applySessionSnapshot(set, {
+        sessions: list,
+        captured,
+        ...(complete && bootDirectory ? { scope: { directory: bootDirectory } } : {}),
+      })
+      if (complete) set("sessionSnapshotDirectory", bootDirectory)
+      applyStatusSnapshot(set, { sessions: list, statuses: statuses.data ?? {}, captured })
+      for (const [sessionID, status] of Object.entries(statuses.data ?? {}))
+        if (status.type !== "idle") clearRecoverableInterruption(sessionID, true)
+      if (state.providerSnapshotEpoch === providerEpoch) {
+        set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
+        set("connected", providers.data?.connected ?? [])
+        set("defaultModels", providers.data?.default ?? {})
+      }
       set("agents", agents.data ?? [])
       set("commands", commands.data ?? [])
-      const transcripts = await Promise.all(
-        stale.map(async (id) => [id, await api.session.messages({ path: { id }, query: { limit: 100 } })] as const),
-      )
-      if (!current()) return
-      for (const [id, result] of transcripts) {
-        if (!result.data) continue
-        const entries = [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id))
-        set("transcripts", id, interruptStaleTools(entries, state.liveTools, t("drift.message.interrupted")))
-        set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
+      // The visible session refreshes first so a reconnect never leaves the open transcript
+      // waiting behind bulk refetches; the rest trickle in small batches to avoid saturating
+      // the handful of HTTP connections a remote browser gives the proxy.
+      const selected = selectedSession()
+      const ordered = [...stale].sort((a, b) => Number(b === selected) - Number(a === selected))
+      for (let index = 0; index < ordered.length; index += transcriptRefreshBatch) {
+        const transcripts = await Promise.all(
+          ordered
+            .slice(index, index + transcriptRefreshBatch)
+            .map(async (id) => [id, await api.session.messages({ path: { id }, query: { limit: 100 } })] as const),
+        )
+        if (!current()) return
+        for (const [id, result] of transcripts) {
+          if (!result.data) continue
+          // Reconciliation or a deletion event removed the session; do not resurrect its transcript.
+          if (!state.sessions[id]) continue
+          const entries = interruptStaleTools(
+            [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id)),
+            state.liveTools,
+            t("drift.message.interrupted"),
+          )
+          set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], entries, id, captured, state.revisions))
+          set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
+          const latest = [...entries].reverse().find((entry) => entry.info.role === "assistant")?.info
+          if (latest?.role === "assistant" && latest.time.completed && !latest.error)
+            clearRecoverableInterruption(id, true)
+        }
       }
       if (!state.version && base) {
         const target = base
@@ -141,6 +202,9 @@ export function EngineProvider(props: ParentProps) {
       try {
         await streamEvents(target, signal, (event, eventDirectory) => {
           if (event.type === "server.connected") {
+            set("sessionSnapshotDirectory", "")
+            set("sessionSnapshotAll", false)
+            set("sessionSnapshotEpoch", state.sessionSnapshotEpoch + 1)
             set("connection", "online")
             void hydrate().catch(() => undefined)
             return
@@ -198,6 +262,7 @@ export function EngineProvider(props: ParentProps) {
       .then((target) => {
         if (disposed || epoch !== engineEpoch) return false
         base = target
+        syncShellTimeout(target)
         set(
           produce((draft) => {
             draft.engineError = ""
@@ -255,6 +320,7 @@ export function EngineProvider(props: ParentProps) {
     .then(async (target) => {
       if (disposed || startupEpoch !== engineEpoch) return
       base = target
+      syncShellTimeout(target)
       set("engineError", "")
       const health = await fetchEngineVersion(target)
       if (disposed || startupEpoch !== engineEpoch) return

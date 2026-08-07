@@ -107,9 +107,10 @@ diff --git a/packages/opencode/src/session/session.ts b/packages/opencode/src/se
 +        : undefined
 +      const msgs = completed ? bounded.filter((msg) => msg.info.id <= completed.info.id) : bounded
        const idMap = new Map<string, MessageID>()
+-      const target = input.messageID ? msgs.findIndex((msg) => msg.info.id === input.messageID) : msgs.length
  
-       for (const msg of msgs) {
--        if (input.messageID && msg.info.id >= input.messageID) break
+-      for (const msg of msgs.slice(0, target < 0 ? msgs.length : target)) {
++      for (const msg of msgs) {
          const newID = MessageID.ascending()
          idMap.set(msg.info.id, newID)
  

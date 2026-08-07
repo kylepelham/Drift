@@ -31,6 +31,17 @@ async function run(directory: string, args: string[], env?: Record<string, strin
   if (exitCode !== 0) throw new Error(`Engine tests failed in ${directory}`)
 }
 
+async function typecheck(directory: string) {
+  const child = Bun.spawn([process.execPath, "run", "typecheck"], {
+    cwd: path.join(engineUpstream, directory),
+    env: engineEnvironment(),
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  })
+  if ((await child.exited) !== 0) throw new Error(`Engine typecheck failed in ${directory}`)
+}
+
 async function verifyAuthCapture() {
   const script = [
     'import { Effect } from "effect"',
@@ -49,14 +60,23 @@ async function verifyAuthCapture() {
 }
 
 await withEngineOverlays(async () => {
+  await typecheck("packages/opencode")
   await run("packages/core", ["test/move-session.test.ts"])
+  await run("packages/opencode", ["test/server/httpapi-control-plane.test.ts"])
   await verifyAuthCapture()
-  await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "InstanceStore|CLI bootstrap"])
-  await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "Drift requires"])
-  await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "mutable synthetic"])
-  await run("packages/opencode", ["test/project/instance-bootstrap.test.ts", "-t", "changed after sealing"])
-  await run("packages/opencode", ["test/provider/provider.test.ts", "-t", "LM Studio discovers"])
+  await run("packages/opencode", [
+    "test/project/instance-bootstrap.test.ts",
+    "-t",
+    "InstanceStore|CLI bootstrap|Drift requires|mutable synthetic|changed after sealing",
+  ])
+  await run("packages/opencode", [
+    "test/provider/provider.test.ts",
+    "-t",
+    "LM Studio discovers|provider reload invalidates",
+  ])
   await run("packages/opencode", ["test/server/httpapi-instance-route-auth.test.ts"])
+  await run("packages/opencode", ["test/tool/shell.test.ts", "-t", "terminates command on timeout"])
+  await run("packages/opencode", ["test/tool/shell-timeout.test.ts"])
   await run("packages/opencode", ["test/mcp/lifecycle.test.ts", "-t", "required Drift mode"], {
     DRIFT_MCP_APPROVAL_REQUIRED: "1",
   })

@@ -1,7 +1,8 @@
-import { createSignal, onMount, Show } from "solid-js"
+import { createSignal, onCleanup, onMount, Show } from "solid-js"
 import { t } from "../state/i18n"
 import {
   dictationEnabled,
+  dictationInputDeviceId,
   dictationKeyterms,
   dictationLanguage,
   dictationLanguages,
@@ -9,13 +10,19 @@ import {
   dictationModels,
   formatKeyterms,
   parseKeyterms,
-  setDictationEnabled,
+  setDictationInputDeviceId,
   setDictationKeyterms,
   setDictationLanguage,
   setDictationModel,
   type DictationLanguage,
   type DictationModel,
 } from "../state/voice"
+import { setDictationEnabled, syncDictationConsent } from "../voice/dictation"
+import {
+  audioInputDevices,
+  selectedDeviceMissing,
+  watchAudioInputDevices,
+} from "../voice/devices"
 import {
   cancelVoiceModelDownload,
   downloadPercent,
@@ -64,7 +71,11 @@ function storageDescription(model: VoiceModelInfo | undefined) {
 
 export function VoiceSection() {
   const [keyterms, setKeyterms] = createSignal(formatKeyterms(dictationKeyterms()))
-  onMount(() => void refreshVoiceModels())
+  onMount(() => {
+    void refreshVoiceModels()
+    void syncDictationConsent().catch(() => undefined)
+    onCleanup(watchAudioInputDevices())
+  })
 
   const selected = () => modelInfo(dictationModel())
   const downloading = () => voiceModelBusy() === "downloading"
@@ -81,15 +92,41 @@ export function VoiceSection() {
         <SettingsRow
           title={t("drift.voice.dictation.enabled.title")}
           description={t("drift.voice.dictation.enabled.description")}
-          onClick={() => setDictationEnabled(!dictationEnabled())}
+          onClick={() => void setDictationEnabled(!dictationEnabled())}
         >
           <Toggle
             label={t("drift.voice.dictation.enabled.title")}
             checked={dictationEnabled()}
-            onChange={() => setDictationEnabled(!dictationEnabled())}
+            onChange={() => void setDictationEnabled(!dictationEnabled())}
           />
         </SettingsRow>
         <Show when={dictationEnabled()}>
+          <SettingsRow
+            title={t("drift.voice.input.title")}
+            description={
+              selectedDeviceMissing()
+                ? t("drift.voice.input.missing")
+                : t("drift.voice.input.description")
+            }
+          >
+            <Picker
+              label={t("drift.voice.input.title")}
+              items={[
+                { id: "", label: t("drift.voice.input.systemDefault") },
+                ...audioInputDevices().map((device, index) => ({
+                  id: device.deviceId,
+                  label: device.label || t("drift.voice.input.unnamed", { index: index + 1 }),
+                })),
+              ]}
+              selected={selectedDeviceMissing() ? "" : (dictationInputDeviceId() ?? "")}
+              floating
+              bordered
+              chevronAtEnd
+              placement="below"
+              width="14rem"
+              onPick={(value) => setDictationInputDeviceId(value || null)}
+            />
+          </SettingsRow>
           <SettingsRow title={t("drift.voice.model.title")} description={t("drift.voice.model.description")}>
             <Picker
               label={t("drift.voice.model.title")}

@@ -375,7 +375,7 @@ export async function runWithEngineOverlays<T>(run: () => Promise<T>, operations
   if (operationFailed && cleanupError) {
     throw new AggregateError(
       [operationError, cleanupError],
-      "Engine command failed and the upstream subtree was not fully restored",
+      "Engine command failed and the upstream snapshot was not fully restored",
     )
   }
   if (operationFailed) throw operationError

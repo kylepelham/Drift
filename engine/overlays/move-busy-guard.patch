@@ -1,0 +1,325 @@
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
+index 4c13afdb..77a97441 100644
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
+@@ -1,17 +1,58 @@
+ import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
++import { FSUtil } from "@opencode-ai/core/fs-util"
+ import { SessionV2 } from "@opencode-ai/core/session"
+ import { Effect } from "effect"
+ import { HttpApiBuilder } from "effect/unstable/httpapi"
++import { InstanceRef } from "@/effect/instance-ref"
++import type { InstanceContext } from "@/project/instance-context"
++import { Project } from "@/project/project"
++import { Session } from "@/session/session"
++import { SessionStatus } from "@/session/status"
+ import { RootHttpApi } from "../api"
+ import { ApiMoveSessionError, MoveSessionPayload } from "../groups/control-plane"
+
+ export const controlPlaneHandlers = HttpApiBuilder.group(RootHttpApi, "controlPlane", (handlers) =>
+   Effect.gen(function* () {
+     const service = yield* MoveSession.Service
++    const sessions = yield* Session.Service
++    const status = yield* SessionStatus.Service
++    const project = yield* Project.Service
++
++    // A move rebinds the session record while any still-running tool keeps writing in the source
++    // directory, so the whole session tree must be confirmed idle before the move proceeds.
++    const busyInTree = Effect.fn("ControlPlaneHttpApi.busyInTree")(function* (root: Session.Info) {
++      const pending = [root]
++      const seen = new Set<string>()
++      const contexts = new Map<string, InstanceContext>()
++      for (let index = 0; index < pending.length; index++) {
++        const info = pending[index]
++        if (seen.has(info.id)) continue
++        seen.add(info.id)
++        const directory = FSUtil.resolve(info.directory)
++        let ctx = contexts.get(directory)
++        if (!ctx) {
++          const resolved = yield* project.fromDirectory(directory)
++          ctx = { directory, worktree: resolved.sandbox, project: resolved.project }
++          contexts.set(directory, ctx)
++        }
++        const current = yield* status.get(info.id).pipe(Effect.provideService(InstanceRef, ctx))
++        if (current.type !== "idle") return true
++        pending.push(...(yield* sessions.children(info.id)))
++      }
++      return false
++    })
+
+     const moveSession = Effect.fn("ControlPlaneHttpApi.moveSession")(function* (ctx: {
+       payload: typeof MoveSessionPayload.Type
+     }) {
++      const current = yield* sessions.get(ctx.payload.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
++      const destination = FSUtil.resolve(ctx.payload.destination.directory)
++      if (current && FSUtil.resolve(current.directory) !== destination && (yield* busyInTree(current))) {
++        return yield* new ApiMoveSessionError({
++          name: "MoveSessionError",
++          data: { message: `Session is busy: ${ctx.payload.sessionID}` },
++        })
++      }
+       yield* service.moveSession(ctx.payload).pipe(
+         Effect.mapError(
+           (error) =>
+diff --git a/packages/opencode/test/server/httpapi-control-plane.test.ts b/packages/opencode/test/server/httpapi-control-plane.test.ts
+index b837bf75..4db074ee 100644
+--- a/packages/opencode/test/server/httpapi-control-plane.test.ts
++++ b/packages/opencode/test/server/httpapi-control-plane.test.ts
+@@ -1,63 +1,163 @@
+-import { NodeHttpServer } from "@effect/platform-node"
+-import { describe, expect } from "bun:test"
+-import { Context, Effect, Layer, Option, Ref } from "effect"
+-import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/unstable/http"
+-import { HttpApiBuilder } from "effect/unstable/httpapi"
+-import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
+-import { AbsolutePath } from "@opencode-ai/core/schema"
+-import { SessionV2 } from "@opencode-ai/core/session"
+-import { Auth } from "../../src/auth"
+-import { Config } from "../../src/config/config"
+-import { Installation } from "../../src/installation"
+-import { ServerAuth } from "../../src/server/auth"
+-import { RootHttpApi } from "../../src/server/routes/instance/httpapi/api"
+-import { controlHandlers } from "../../src/server/routes/instance/httpapi/handlers/control"
+-import { controlPlaneHandlers } from "../../src/server/routes/instance/httpapi/handlers/control-plane"
+-import { globalHandlers } from "../../src/server/routes/instance/httpapi/handlers/global"
+-import { authorizationLayer } from "../../src/server/routes/instance/httpapi/middleware/authorization"
+-import { schemaErrorLayer } from "../../src/server/routes/instance/httpapi/middleware/schema-error"
+-import { testEffect } from "../lib/effect"
+-
+-const input = MoveSession.Input.make({
+-  sessionID: SessionV2.ID.make("ses_move"),
+-  destination: { directory: AbsolutePath.make("/destination") },
+-  moveChanges: true,
+-})
+-const called = Ref.makeUnsafe<MoveSession.Input | undefined>(undefined)
+-
+-const apiLayer = HttpRouter.serve(
+-  HttpApiBuilder.layer(RootHttpApi).pipe(
+-    Layer.provide([controlHandlers, controlPlaneHandlers, globalHandlers]),
+-    Layer.provide([authorizationLayer, schemaErrorLayer]),
+-    // Raw HttpApi routes expose an opaque handler context at the request boundary.
+-    // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion
+-    HttpRouter.provideRequest(Layer.succeedContext(Context.empty() as Context.Context<unknown>)),
+-  ),
+-  { disableListenLog: true, disableLogger: true },
+-).pipe(
+-  Layer.provideMerge(NodeHttpServer.layerTest),
+-  Layer.provide(Layer.mock(Auth.Service)({})),
+-  Layer.provide(Layer.mock(Config.Service)({})),
+-  Layer.provide(Layer.mock(Installation.Service)({})),
+-  Layer.provide(
+-    Layer.mock(MoveSession.Service)({
+-      moveSession: (value) => Ref.set(called, value),
+-    }),
+-  ),
+-  Layer.provide(ServerAuth.Config.configLayer({ password: Option.none(), username: "opencode" })),
+-)
+-const it = testEffect(apiLayer)
+-
+-describe("control-plane HttpApi", () => {
+-  it.live("moves a session through the root control-plane route", () =>
+-    Effect.gen(function* () {
+-      const response = yield* HttpClientRequest.post("/experimental/control-plane/move-session").pipe(
+-        HttpClientRequest.setBody(HttpBody.jsonUnsafe(input)),
+-        HttpClient.execute,
+-      )
+-
+-      expect(response.status).toBe(204)
+-      expect(yield* Ref.get(called)).toEqual(input)
+-    }),
+-  )
+-})
++import { NodeHttpServer } from "@effect/platform-node"
++import { describe, expect } from "bun:test"
++import { Context, Effect, Layer, Option, Ref } from "effect"
++import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/unstable/http"
++import { HttpApiBuilder } from "effect/unstable/httpapi"
++import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
++import { AbsolutePath } from "@opencode-ai/core/schema"
++import { SessionV2 } from "@opencode-ai/core/session"
++import { Auth } from "../../src/auth"
++import { Config } from "../../src/config/config"
++import { Installation } from "../../src/installation"
++import { Project } from "../../src/project/project"
++import { ServerAuth } from "../../src/server/auth"
++import { RootHttpApi } from "../../src/server/routes/instance/httpapi/api"
++import { controlHandlers } from "../../src/server/routes/instance/httpapi/handlers/control"
++import { controlPlaneHandlers } from "../../src/server/routes/instance/httpapi/handlers/control-plane"
++import { globalHandlers } from "../../src/server/routes/instance/httpapi/handlers/global"
++import { authorizationLayer } from "../../src/server/routes/instance/httpapi/middleware/authorization"
++import { schemaErrorLayer } from "../../src/server/routes/instance/httpapi/middleware/schema-error"
++import { Session } from "../../src/session/session"
++import { SessionStatus } from "../../src/session/status"
++import { NotFoundError } from "../../src/storage/storage"
++import { testEffect } from "../lib/effect"
++
++const input = MoveSession.Input.make({
++  sessionID: SessionV2.ID.make("ses_move"),
++  destination: { directory: AbsolutePath.make("/destination") },
++  moveChanges: true,
++})
++const busyInput = MoveSession.Input.make({
++  sessionID: SessionV2.ID.make("ses_busy"),
++  destination: { directory: AbsolutePath.make("/destination") },
++  moveChanges: false,
++})
++const idleInput = MoveSession.Input.make({
++  sessionID: SessionV2.ID.make("ses_idle"),
++  destination: { directory: AbsolutePath.make("/destination") },
++  moveChanges: false,
++})
++const cycleInput = MoveSession.Input.make({
++  sessionID: SessionV2.ID.make("ses_cycle"),
++  destination: { directory: AbsolutePath.make("/destination") },
++  moveChanges: false,
++})
++const called = Ref.makeUnsafe<MoveSession.Input | undefined>(undefined)
++
++function info(id: string, directory: string) {
++  return { id, directory } as unknown as Session.Info
++}
++
++const sessionInfos = new Map<string, Session.Info>([
++  ["ses_move", info("ses_move", "/destination")],
++  ["ses_busy", info("ses_busy", "/source")],
++  ["ses_busy_child", info("ses_busy_child", "/source")],
++  ["ses_idle", info("ses_idle", "/source")],
++  ["ses_cycle", info("ses_cycle", "/source")],
++  ["ses_cycle_child", info("ses_cycle_child", "/source")],
++])
++
++const apiLayer = HttpRouter.serve(
++  HttpApiBuilder.layer(RootHttpApi).pipe(
++    Layer.provide([controlHandlers, controlPlaneHandlers, globalHandlers]),
++    Layer.provide([authorizationLayer, schemaErrorLayer]),
++    // Raw HttpApi routes expose an opaque handler context at the request boundary.
++    // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion
++    HttpRouter.provideRequest(Layer.succeedContext(Context.empty() as Context.Context<unknown>)),
++  ),
++  { disableListenLog: true, disableLogger: true },
++).pipe(
++  Layer.provideMerge(NodeHttpServer.layerTest),
++  Layer.provide(Layer.mock(Auth.Service)({})),
++  Layer.provide(Layer.mock(Config.Service)({})),
++  Layer.provide(Layer.mock(Installation.Service)({})),
++  Layer.provide(
++    Layer.mock(MoveSession.Service)({
++      moveSession: (value) => Ref.set(called, value),
++    }),
++  ),
++  Layer.provide(
++    Layer.mock(Session.Service)({
++      get: (id) => {
++        const found = sessionInfos.get(id)
++        return found
++          ? Effect.succeed(found)
++          : Effect.fail(new NotFoundError({ message: `Session not found: ${id}` }))
++      },
++      children: (parentID) => {
++        if (parentID === "ses_busy") return Effect.succeed([sessionInfos.get("ses_busy_child")!])
++        if (parentID === "ses_cycle") return Effect.succeed([sessionInfos.get("ses_cycle_child")!])
++        if (parentID === "ses_cycle_child") return Effect.succeed([sessionInfos.get("ses_cycle")!])
++        return Effect.succeed([])
++      },
++    }),
++  ),
++  Layer.provide(
++    Layer.mock(SessionStatus.Service)({
++      get: (id) => Effect.succeed(id === "ses_busy_child" ? { type: "busy" as const } : { type: "idle" as const }),
++    }),
++  ),
++  Layer.provide(
++    Layer.mock(Project.Service)({
++      fromDirectory: (directory) =>
++        Effect.succeed({ project: { id: "prj_test" } as unknown as Project.Info, sandbox: directory }),
++    }),
++  ),
++  Layer.provide(ServerAuth.Config.configLayer({ password: Option.none(), username: "opencode" })),
++)
++const it = testEffect(apiLayer)
++
++describe("control-plane HttpApi", () => {
++  it.live("moves a session through the root control-plane route", () =>
++    Effect.gen(function* () {
++      const response = yield* HttpClientRequest.post("/experimental/control-plane/move-session").pipe(
++        HttpClientRequest.setBody(HttpBody.jsonUnsafe(input)),
++        HttpClient.execute,
++      )
++
++      expect(response.status).toBe(204)
++      expect(yield* Ref.get(called)).toEqual(input)
++    }),
++  )
++
++  it.live("rejects a move while any session in the tree is busy", () =>
++    Effect.gen(function* () {
++      yield* Ref.set(called, undefined)
++      const response = yield* HttpClientRequest.post("/experimental/control-plane/move-session").pipe(
++        HttpClientRequest.setBody(HttpBody.jsonUnsafe(busyInput)),
++        HttpClient.execute,
++      )
++
++      expect(response.status).toBe(400)
++      const body = (yield* response.json) as { data: { message: string } }
++      expect(body.data.message).toContain("busy")
++      expect(yield* Ref.get(called)).toBeUndefined()
++    }),
++  )
++
++  it.live("moves a session whose tree is confirmed idle", () =>
++    Effect.gen(function* () {
++      yield* Ref.set(called, undefined)
++      const response = yield* HttpClientRequest.post("/experimental/control-plane/move-session").pipe(
++        HttpClientRequest.setBody(HttpBody.jsonUnsafe(idleInput)),
++        HttpClient.execute,
++      )
++
++      expect(response.status).toBe(204)
++      expect(yield* Ref.get(called)).toEqual(idleInput)
++    }),
++  )
++
++  it.live("moves an idle session tree with a cyclic parent relationship", () =>
++    Effect.gen(function* () {
++      yield* Ref.set(called, undefined)
++      const response = yield* HttpClientRequest.post("/experimental/control-plane/move-session").pipe(
++        HttpClientRequest.setBody(HttpBody.jsonUnsafe(cycleInput)),
++        HttpClient.execute,
++      )
++
++      expect(response.status).toBe(204)
++      expect(yield* Ref.get(called)).toEqual(cycleInput)
++    }),
++  )
++})
+diff --git a/packages/opencode/test/server/httpapi-global.test.ts b/packages/opencode/test/server/httpapi-global.test.ts
+index bcbe7aec..e4ebf2f4 100644
+--- a/packages/opencode/test/server/httpapi-global.test.ts
++++ b/packages/opencode/test/server/httpapi-global.test.ts
+@@ -7,6 +7,7 @@ import { Auth } from "../../src/auth"
+ import { Config } from "../../src/config/config"
+ import { Installation } from "../../src/installation"
+ import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
++import { Project } from "../../src/project/project"
+ import { ServerAuth } from "../../src/server/auth"
+ import { RootHttpApi } from "../../src/server/routes/instance/httpapi/api"
+ import { GlobalPaths } from "../../src/server/routes/instance/httpapi/groups/global"
+@@ -15,6 +16,8 @@ import { controlPlaneHandlers } from "../../src/server/routes/instance/httpapi/h
+ import { globalHandlers } from "../../src/server/routes/instance/httpapi/handlers/global"
+ import { authorizationLayer } from "../../src/server/routes/instance/httpapi/middleware/authorization"
+ import { schemaErrorLayer } from "../../src/server/routes/instance/httpapi/middleware/schema-error"
++import { Session } from "../../src/session/session"
++import { SessionStatus } from "../../src/session/status"
+ import { testEffect } from "../lib/effect"
+
+ const apiLayer = HttpRouter.serve(
+@@ -31,6 +34,9 @@ const apiLayer = HttpRouter.serve(
+   Layer.provide(Layer.mock(Auth.Service)({})),
+   Layer.provide(Layer.mock(Config.Service)({})),
+   Layer.provide(Layer.mock(MoveSession.Service)({})),
++  Layer.provide(Layer.mock(Session.Service)({})),
++  Layer.provide(Layer.mock(SessionStatus.Service)({})),
++  Layer.provide(Layer.mock(Project.Service)({})),
+   Layer.provide(
+     Layer.mock(Installation.Service)({
+       method: () => Effect.succeed("npm"),

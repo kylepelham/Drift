@@ -3,7 +3,7 @@
 Drift is three layers with strict one-way flow:
 
 ```
-engine/upstream (pristine opencode git subtree)
+engine/upstream (pristine opencode source snapshot)
         | temporary engine/overlays during build/test
         | bun run build:engine
 drift-engine.exe (embedded sidecar, HTTP + SSE)
@@ -100,6 +100,11 @@ bottom follow zone. Virtual row resize correction uses the measured row's real v
 position so a tall row cannot be mistaken for a short row above the viewport. Range
 selection clamps stale browser scroll offsets to the current measured transcript height,
 preventing blank space when a tall row collapses.
+
+General settings can opt live assistant text into a smooth burst reveal. Markdown still
+parses the complete update immediately, preserves unchanged top-level blocks, and animates
+only the changed suffix for at most one second. Initial and historical renders stay instant;
+reduced motion, another update, Stop, or a user scroll completes any active reveal.
 
 Busy turns derive an optional topic beside `Thinking` from the first heading in streamed
 reasoning text. The provider/model supplies that text; Drift recognizes the same HTML,
