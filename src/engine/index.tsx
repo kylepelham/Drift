@@ -92,6 +92,8 @@ export function EngineProvider(props: ParentProps) {
   async function hydrate() {
     const bootDirectory = directory ?? ""
     const api = requireClient()
+    const providerEpoch = state.providerSnapshotEpoch + 1
+    set("providerSnapshotEpoch", providerEpoch)
     const current = () => client === api && directory === bootDirectory
     try {
       const stale = Object.keys(state.loaded)
@@ -109,12 +111,15 @@ export function EngineProvider(props: ParentProps) {
         captured,
         ...(complete && bootDirectory ? { scope: { directory: bootDirectory } } : {}),
       })
+      if (complete) set("sessionSnapshotDirectory", bootDirectory)
       applyStatusSnapshot(set, { sessions: list, statuses: statuses.data ?? {}, captured })
       for (const [sessionID, status] of Object.entries(statuses.data ?? {}))
         if (status.type !== "idle") clearRecoverableInterruption(sessionID, true)
-      set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
-      set("connected", providers.data?.connected ?? [])
-      set("defaultModels", providers.data?.default ?? {})
+      if (state.providerSnapshotEpoch === providerEpoch) {
+        set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
+        set("connected", providers.data?.connected ?? [])
+        set("defaultModels", providers.data?.default ?? {})
+      }
       set("agents", agents.data ?? [])
       set("commands", commands.data ?? [])
       // The visible session refreshes first so a reconnect never leaves the open transcript
@@ -197,6 +202,9 @@ export function EngineProvider(props: ParentProps) {
       try {
         await streamEvents(target, signal, (event, eventDirectory) => {
           if (event.type === "server.connected") {
+            set("sessionSnapshotDirectory", "")
+            set("sessionSnapshotAll", false)
+            set("sessionSnapshotEpoch", state.sessionSnapshotEpoch + 1)
             set("connection", "online")
             void hydrate().catch(() => undefined)
             return

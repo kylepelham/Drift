@@ -93,6 +93,10 @@ export type EngineState = {
   connection: Connection
   directory: string
   bootstrappedDirectory: string
+  sessionSnapshotDirectory: string
+  sessionSnapshotAll: boolean
+  sessionSnapshotEpoch: number
+  providerSnapshotEpoch: number
   sessions: Record<string, Session>
   status: Record<string, SessionStatus>
   transcripts: Record<string, MessageEntry[]>
@@ -144,6 +148,10 @@ export function createEngineState() {
     connection: "idle",
     directory: "",
     bootstrappedDirectory: "",
+    sessionSnapshotDirectory: "",
+    sessionSnapshotAll: false,
+    sessionSnapshotEpoch: 0,
+    providerSnapshotEpoch: 0,
     sessions: {},
     status: {},
     transcripts: {},

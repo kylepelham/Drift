@@ -76,7 +76,7 @@ jobs:
           echo "Timed out waiting for master CI for $COMMIT" >&2
           exit 1
 
-  signed-artifacts:
+  release-artifacts:
     needs: tag-policy
     if: needs.tag-policy.outputs.published != 'true'
     runs-on: windows-latest
@@ -112,8 +112,8 @@ jobs:
       - name: Build engine
         run: bun run build:engine
 
-      # Provides glslc for the GPU sidecar's shaders. Installed directly so the signing job gains
-      # no third-party action, and deliberately uncached: a signed release builds its binaries from
+      # Provides glslc for the GPU sidecar's shaders. Installed directly so the release build gains
+      # no third-party action, and deliberately uncached: a release builds its binaries from
       # source rather than restoring an artifact a branch build could have written.
       - name: Install Vulkan SDK
         shell: pwsh
@@ -130,7 +130,7 @@ jobs:
       - name: Build speech recognizer
         run: bun run build:whisper
 
-      - name: Build signed installer
+      - name: Build installer and updater artifacts
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -179,7 +179,7 @@ jobs:
           bun scripts/release-policy.ts seal release-artifacts/release-notes.md "$env:GITHUB_RUN_ID"
           "${{ needs.tag-policy.outputs.commit }}" "release-artifacts"
 
-      - name: Upload signed release artifacts
+      - name: Upload release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.tag-policy.outputs.commit }}
@@ -188,7 +188,7 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: [tag-policy, validation, signed-artifacts]
+    needs: [tag-policy, validation, release-artifacts]
     if: needs.tag-policy.outputs.published != 'true'
     runs-on: windows-latest
     permissions:
@@ -204,7 +204,7 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      - name: Download signed release artifacts
+      - name: Download release artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.tag-policy.outputs.commit }}

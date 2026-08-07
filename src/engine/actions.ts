@@ -6,7 +6,6 @@ import { clearRecoverableInterruption, updateRecoverableFailure } from "../state
 import {
   beginPermissionReply,
   clearPermissionAttention,
-  clearPermissionAttentionFor,
   failPermissionReply,
   observePermission,
   prunePermissionAttention,
@@ -92,13 +91,10 @@ export function createActions(
   // A spawned thread is titled from the first few words of its task.
   const titleWordCount = 6
   const maxTitleChars = 64
-  // Disposing an instance is asynchronous on the engine side; this pause lets the old process release
-  // its port and lock before a caller reconnects.
-  const disposeSettleMs = 50
   const moveNoticeDurationMs = 8000
   const askPollTimeoutMs = 8000
   const permissionReplyTimeoutMs = 8000
-  let allSessionsRequest: Promise<void> | undefined
+  let allSessionsRequest: { epoch: number; promise: Promise<void> } | undefined
   const transcriptRequests = new Map<string, Promise<boolean>>()
   const permissionReplies = new Map<string, Promise<boolean>>()
   const queuedAskDirectories = new Map<string, string>()
@@ -210,8 +206,10 @@ export function createActions(
   async function loadAllSessions() {
     const base = target()
     if (!base) return
-    if (allSessionsRequest) return allSessionsRequest
-    allSessionsRequest = (async () => {
+    const epoch = state.sessionSnapshotEpoch
+    if (allSessionsRequest?.epoch === epoch) return allSessionsRequest.promise
+    const request = { epoch, promise: Promise.resolve() }
+    request.promise = (async () => {
       const captured = captureRevisions(state)
       const query = new URLSearchParams({ archived: "true", limit: archiveListLimit })
       const headers = {
@@ -220,12 +218,17 @@ export function createActions(
       }
       const response = await engineFetch(`${base.url}/experimental/session?${query}`, { headers })
       if (!response) return
-      applySessionSnapshot(set, { sessions: await readJson<Session[]>(response, []), captured })
+      const sessions = await readJson<Session[] | null>(response, null)
+      if (!sessions || state.sessionSnapshotEpoch !== epoch) return
+      const complete = sessions.length < Number(archiveListLimit)
+      applySessionSnapshot(set, { sessions, captured, ...(complete ? { scope: { all: true as const } } : {}) })
+      if (complete) set("sessionSnapshotAll", true)
     })()
+    allSessionsRequest = request
     try {
-      await allSessionsRequest
+      await request.promise
     } finally {
-      allSessionsRequest = undefined
+      if (allSessionsRequest === request) allSessionsRequest = undefined
     }
   }
 
@@ -504,13 +507,30 @@ export function createActions(
     if (result.data) putSession(set, { ...result.data, share: undefined })
   }
 
-  async function refreshProviders() {
-    const result = await requireClient().provider.list().catch(() => null)
+  function beginProviderSnapshot() {
+    const epoch = state.providerSnapshotEpoch + 1
+    set("providerSnapshotEpoch", epoch)
+    return epoch
+  }
+
+  async function refreshProvidersFor(client: OpencodeClient, directory: string, epoch: number) {
+    if (normalizeDir(state.directory) !== normalizeDir(directory) || requireClient() !== client) return null
+    const result = await client.provider.list().catch(() => null)
     if (!result?.data) return null
+    if (
+      state.providerSnapshotEpoch !== epoch ||
+      normalizeDir(state.directory) !== normalizeDir(directory) ||
+      requireClient() !== client
+    )
+      return null
     set("providers", (result.data.all ?? []) as unknown as ProviderInfo[])
     set("connected", result.data.connected ?? [])
     set("defaultModels", result.data.default ?? {})
     return result.data.connected ?? []
+  }
+
+  async function refreshProviders() {
+    return refreshProvidersFor(requireClient(), state.directory, beginProviderSnapshot())
   }
 
   async function refreshAgents() {
@@ -520,41 +540,39 @@ export function createActions(
     return true
   }
 
-  function controlClient() {
+  function controlClient(directory = state.directory) {
     const endpoint = target()
     if (!endpoint) return null
-    return createControlClient({ baseUrl: endpoint.url, headers: endpoint.headers, directory: state.directory })
+    return createControlClient({ baseUrl: endpoint.url, headers: endpoint.headers, directory })
   }
 
-  // Reloads are serialized: two overlapping disposes would race to restart the same instance.
-  let reloadQueue = Promise.resolve(true)
-
-  function reloadInstances() {
-    const reload = async () => {
-      const control = controlClient()
-      if (!control) return false
-      const result = await control.global.dispose().catch(() => null)
-      if (result?.data !== true) return false
-      clearPermissionAttentionFor(Object.values(state.permissions).flat())
-      set("liveTools", {})
-      await sleep(disposeSettleMs)
-      return true
-    }
-    // `reload` is passed as both handlers so it runs whether the previous reload resolved or
-    // rejected - a failed reload must not block every reload after it.
-    reloadQueue = reloadQueue.then(reload, reload)
-    return reloadQueue
+  async function reloadProviderInstances(directory = state.directory) {
+    const endpoint = target()
+    if (!endpoint) return false
+    const response = await engineFetch(withDirectory(`${endpoint.url}/provider/reload`, directory), {
+      method: "POST",
+      headers: endpoint.headers,
+    })
+    return response ? await readJson(response, false) : false
   }
 
   async function reloadProviders() {
-    if (!(await reloadInstances())) return false
-    return (await refreshProviders()) !== null
+    const directory = state.directory
+    const client = requireClient()
+    const epoch = beginProviderSnapshot()
+    if (!(await reloadProviderInstances(directory))) return false
+    return (await refreshProvidersFor(client, directory, epoch)) !== null
   }
 
-  async function syncProvider(id: string, changed: boolean): Promise<ProviderAuthResult> {
+  async function syncProvider(
+    id: string,
+    changed: boolean,
+    client: OpencodeClient,
+    directory: string,
+    epoch: number,
+  ): Promise<ProviderAuthResult> {
     if (!changed) return { ok: false, connected: state.connected.includes(id) }
-    if (!(await reloadInstances())) return { ok: false, connected: state.connected.includes(id) }
-    const connected = await refreshProviders()
+    const connected = await refreshProvidersFor(client, directory, epoch)
     return { ok: connected !== null, connected: connected?.includes(id) ?? false }
   }
 
@@ -569,24 +587,33 @@ export function createActions(
   }
 
   async function providerCallback(id: string, method: number, code?: string) {
-    const result = await requireClient()
+    const directory = state.directory
+    const client = requireClient()
+    const epoch = beginProviderSnapshot()
+    const result = await client
       .provider.oauth.callback({ path: { id }, body: { method, ...(code ? { code } : {}) } })
       .catch(() => null)
-    return syncProvider(id, result?.data === true)
+    return syncProvider(id, result?.data === true, client, directory, epoch)
   }
 
   async function setProviderKey(id: string, key: string) {
-    const result = await requireClient()
+    const directory = state.directory
+    const client = requireClient()
+    const epoch = beginProviderSnapshot()
+    const result = await client
       .auth.set({ path: { id }, body: { type: "api", key } })
       .catch(() => null)
-    return syncProvider(id, result?.data === true)
+    return syncProvider(id, result?.data === true, client, directory, epoch)
   }
 
   async function disconnectProvider(id: string) {
-    const control = controlClient()
+    const directory = state.directory
+    const client = requireClient()
+    const epoch = beginProviderSnapshot()
+    const control = controlClient(directory)
     if (!control) return { ok: false, connected: state.connected.includes(id) }
     const result = await control.auth.remove({ providerID: id }).catch(() => null)
-    return syncProvider(id, result?.data === true)
+    return syncProvider(id, result?.data === true, client, directory, epoch)
   }
 
   async function mcpStatus(directory = state.directory) {
@@ -938,7 +965,7 @@ export function createActions(
     providerCallback,
     setProviderKey,
     disconnectProvider,
-    reloadInstances,
+    reloadProviderInstances,
     mcpStatus,
     mcpConnect,
     mcpDisconnect,

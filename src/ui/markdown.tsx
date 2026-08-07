@@ -6,12 +6,7 @@ import { shellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import { syntaxTheme } from "../state/code"
 import { animateResponses } from "../state/prefs"
-import {
-  responseAnimationInterruptEvent,
-  responseBurstSize,
-  responseRevealDuration,
-  revealResponseNodes,
-} from "./response-animation"
+import { createRevealPacer, responseAnimationInterruptEvent } from "./response-animation"
 
 marked.use({ gfm: true, breaks: true })
 
@@ -161,9 +156,50 @@ function highlightedCode(code: string, lang: string, theme: BundledTheme) {
   return highlightCache.set(key, shikiSourceSize(key, code), result)
 }
 
-async function highlightBlocks(root: HTMLElement, theme: BundledTheme, current: () => boolean) {
+/**
+ * Reports whether `text` ends inside an unterminated fenced block.
+ *
+ * Fence rules match `mapProseChunks`: an opener starts a line with up to three spaces of
+ * indentation and at least three markers, and a closer repeats the marker at least as many times
+ * with nothing but whitespace after it.
+ */
+export function endsInsideFence(text: string) {
+  let marker = ""
+  let markerLength = 0
+  for (const line of text.split("\n")) {
+    let start = 0
+    while (start < 3 && line[start] === " ") start++
+    const character = line[start]
+    if (character !== "`" && character !== "~") continue
+    let end = start
+    while (line[end] === character) end++
+    const run = end - start
+    if (marker) {
+      if (character === marker && run >= markerLength && line.slice(end).trim() === "") {
+        marker = ""
+        markerLength = 0
+      }
+      continue
+    }
+    if (run < 3) continue
+    if (character === "`" && line.slice(end).includes("`")) continue
+    marker = character
+    markerLength = run
+  }
+  return marker !== ""
+}
+
+/**
+ * Highlights every fenced block currently in the DOM.
+ *
+ * `skipLast` leaves the trailing block alone while its fence is still open, so the one block whose
+ * text changes on every delta is not re-tokenized until it closes.
+ */
+async function highlightBlocks(root: HTMLElement, theme: BundledTheme, current: () => boolean, skipLast = false) {
+  const blocks = [...root.querySelectorAll<HTMLElement>("pre > code[class*='language-']")]
+  if (skipLast) blocks.pop()
   await Promise.all(
-    [...root.querySelectorAll<HTMLElement>("pre > code[class*='language-']")].map(async (code) => {
+    blocks.map(async (code) => {
       const lang = code.className.match(/language-([\w-]+)/)?.[1] ?? "text"
       const pre = code.parentElement
       if (!pre) return
@@ -545,69 +581,66 @@ export function Markdown(props: {
 }) {
   let root!: HTMLDivElement
   let request = 0
-  let mounted = false
-  let previousLength = 0
-  let previousIdentity: string | undefined
+  let identity = props.responseID
   let sourceSignatures: string[] = []
-  let finishReveal = () => {}
+  let renderedTheme: BundledTheme | undefined
+  const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+  const shouldPace = () => animateResponses() && !!props.responseID && !!props.live && !props.done && !reducedMotion()
+  const [revealed, setRevealed] = createSignal(shouldPace() ? "" : props.text)
+  const pacer = createRevealPacer({
+    schedule: (callback) => requestAnimationFrame(callback),
+    cancel: cancelAnimationFrame,
+    now: () => performance.now(),
+    emit: setRevealed,
+  })
   const html = createMemo(() =>
-    DOMPurify.sanitize(marked.parse(prepareMarkdown(props.text, props.humanAuthored), { async: false })),
+    DOMPurify.sanitize(marked.parse(prepareMarkdown(revealed(), props.humanAuthored), { async: false })),
   )
   onMount(() => window.addEventListener(responseAnimationInterruptEvent, finishActiveReveal))
   onCleanup(() => {
     request++
-    finishReveal()
+    pacer.dispose()
     window.removeEventListener(responseAnimationInterruptEvent, finishActiveReveal)
   })
 
   function finishActiveReveal() {
-    finishReveal()
+    pacer.flush(props.text)
   }
+
+  // Paces live text into the DOM at a steady rate so the reveal reflects reading speed rather than
+  // whatever chunk size the provider happens to stream. Everything else renders immediately.
+  createEffect(() => {
+    const text = props.text
+    const responseID = props.responseID
+    if (responseID !== identity) {
+      identity = responseID
+      pacer.reset()
+      if (shouldPace()) setRevealed("")
+    }
+    if (shouldPace()) pacer.push(text)
+    else pacer.flush(text)
+  })
 
   createEffect(() => {
     const source = html()
-    const textLength = props.text.length
-    const responseID = props.responseID
-    const animationEnabled = animateResponses()
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
-    const burst = responseID
-      ? responseBurstSize({
-          previousLength,
-          nextLength: textLength,
-          previousIdentity,
-          identity: responseID,
-          mounted,
-          live: !!props.live && !props.done,
-          enabled: animationEnabled,
-          reducedMotion,
-        })
-      : 0
     const theme = syntaxTheme() as BundledTheme
     const current = ++request
-    finishReveal()
-    let changedFrom = 0
-    if (responseID && animationEnabled) {
-      const update = replaceMarkdownSuffix(root, source, sourceSignatures)
-      sourceSignatures = update.signatures
-      changedFrom = update.changedFrom
+    const themeChanged = renderedTheme !== theme
+    renderedTheme = theme
+    // Patching only the changed tail keeps already-highlighted blocks in the DOM, so streaming
+    // never flashes them back to plain text.
+    if (props.responseID && !themeChanged) {
+      sourceSignatures = replaceMarkdownSuffix(root, source, sourceSignatures).signatures
     } else {
       root.innerHTML = source
-      sourceSignatures = []
+      sourceSignatures = props.responseID ? [...root.childNodes].map(markdownNodeSignature) : []
     }
     decorateCodeBlocks(root)
-    if (burst) {
-      const nodes = [...root.childNodes]
-        .slice(changedFrom)
-        .filter((node): node is HTMLElement => node.nodeType === Node.ELEMENT_NODE)
-      finishReveal = revealResponseNodes(nodes, responseRevealDuration(burst))
-    }
-    mounted = true
-    previousLength = textLength
-    previousIdentity = responseID
-    if (props.done)
-      void highlightBlocks(root, theme, () => current === request).then(() => {
+    void highlightBlocks(root, theme, () => current === request, !props.done && endsInsideFence(revealed())).then(
+      () => {
         if (current === request) decorateCodeBlocks(root)
-      })
+      },
+    )
   })
   return <div ref={root} class="md" classList={{ "md-user": props.humanAuthored }} onClick={markdownClick} />
 }

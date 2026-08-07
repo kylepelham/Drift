@@ -1,13 +1,14 @@
 # Engine integration
 
-Drift embeds the opencode engine. Upstream source is vendored at `engine/upstream` via
-git subtree and remains byte-for-byte upstream; all opencode config (agents, MCP
+Drift embeds the opencode engine. Upstream source is vendored as a graph-clean snapshot at
+`engine/upstream` and remains byte-for-byte upstream; all opencode config (agents, MCP
 servers, plugins, providers) applies unchanged. Users do not install opencode.
 
 ## Embedded engine lifecycle
 
-- Vendoring: a `--no-tags` fetch plus `git subtree merge --squash` pulls a new engine
-  drop (see the runbook below). One-time setup after a pull: `bun install
+- Vendoring: a temporary `--no-tags` fetch plus `git read-tree` replaces the engine
+  snapshot without linking OpenCode's commit history into Drift (see the runbook below).
+  One-time setup after an update: `bun install
   --ignore-scripts` inside `engine/upstream` (native tree-sitter grammars are optional,
   wasm is used at runtime).
 - Building: `bun run build:engine` calls upstream's own build
@@ -15,19 +16,19 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   `src-tauri/binaries/drift-engine[-<triple>].exe`. We never maintain our own bundling
   of their code; their build script is the contract.
 - Drift-specific engine adaptations live as named patches in `engine/overlays`, outside
-  the subtree. Build and engine-test commands apply them under a process lock and reverse
+  the snapshot. Build and engine-test commands apply them under a process lock and reverse
   every applied patch after the command, including recovery after an interrupted prior
   command. Restoration failures fail the command, preserve callback and cleanup errors,
-  and retain `engine/.overlay-lock` until a later run proves the subtree is pristine. Lock
+  and retain `engine/.overlay-lock` until a later run proves the snapshot is pristine. Lock
   ownership is initialized in an ignored same-volume candidate and atomically published
   without replacement. Dead generations are atomically moved to UUID tombstones before a new
   owner can claim the lock; retaining those tombstones prevents delayed stale contenders from
   moving a newer live lock. An empty legacy ownerless lock is quarantined only after the
-  upstream subtree is proven clean; dirty or malformed ownerless locks fail closed. On startup,
+  upstream snapshot is proven clean; dirty or malformed ownerless locks fail closed. On startup,
   only a fully applied patch is recovered automatically; an
   indeterminate patch state fails with a manual-recovery error instead of being silently
   skipped. A patch that no longer applies fails with an explicit refresh message instead of
-  creating a subtree merge conflict.
+  modifying the vendored snapshot.
 - Dev: `bun run dev` creates an ephemeral fail-closed MCP policy, spawns
   `drift-engine.exe serve --hostname 127.0.0.1 --port 4096` (cwd = repo root), and
   gives the engine and Vite a random shared password.
@@ -66,27 +67,31 @@ the dedicated `refs/remotes/opencode-update/dev` ref, creates or refreshes
 CI for that branch. It never merges the pull request. The repository Actions setting
 must allow GitHub Actions to create and approve pull requests.
 
-`engine/upstream.commit` records the imported upstream SHA outside the pristine subtree.
-Before each merge, automation updates that marker and writes the previous SHA into the
-subtree metadata commit. The marker survives normal, rebase, and squash PR merges, so the
-next update never depends on GitHub preserving intermediate subtree commits. The initial
-`5542415b6` baseline and merge process were validated against the existing vendored fixture
-adjustment; the resulting tree matches upstream exactly.
+`engine/upstream.commit` records the imported upstream SHA outside the pristine snapshot.
+Automation validates that the next revision descends from that marker, stages the upstream
+tree under `engine/upstream`, and records both changes in one ordinary Drift commit. It then
+deletes the temporary upstream ref so OpenCode commits do not remain reachable in Drift's
+graph. The initial `5542415b6` baseline and snapshot process were validated against the
+existing vendored fixture adjustment; the resulting tree matches upstream exactly.
 
 For a manual update, reproduce the workflow's marker and metadata sequence:
 
 ```bash
 git fetch --no-tags https://github.com/sst/opencode.git +dev:refs/remotes/opencode-update/dev
-current="$(tr -d '\r\n' < engine/upstream.commit)"
 latest="$(git rev-parse refs/remotes/opencode-update/dev)"
+current="$(tr -d '\r\n' < engine/upstream.commit)"
+git merge-base --is-ancestor "$current" "$latest"
+git rm -r --quiet engine/upstream
+git read-tree --prefix=engine/upstream/ -u "refs/remotes/opencode-update/dev^{tree}"
 printf '%s\n' "$latest" > engine/upstream.commit
 git add engine/upstream.commit
-git commit -m "Prepare vendored OpenCode update" -m "git-subtree-dir: engine/upstream" -m "git-subtree-split: $current"
-git subtree merge --prefix engine/upstream refs/remotes/opencode-update/dev --squash
+git commit -m "chore: update vendored OpenCode to ${latest:0:10}"
+git update-ref -d refs/remotes/opencode-update/dev
 ```
 
-Never use plain `git subtree pull`: it follows upstream's release tags into the local
-repo, and pushing those tags could trigger Drift's own `v*` release workflow.
+Never merge, subtree-merge, or retain the temporary upstream ref. Any of those choices can
+make OpenCode's history reachable in Drift's graph. Keep `--no-tags` as well: OpenCode's
+release tags could otherwise trigger Drift's own `v*` release workflow if pushed.
 
 1. `bun install --ignore-scripts` inside `engine/upstream` (skips optional native grammars).
 2. `bun run test:engine` from the repo root. If an overlay no longer applies, refresh
@@ -109,6 +114,7 @@ repo, and pushing those tags could trigger Drift's own `v*` release workflow.
 | Abort | `POST /session/{id}/abort` |
 | Permissions | `POST /session/{id}/permissions/{permissionID}` (once/always/reject) |
 | Models | `GET /provider` (all + connected + per-provider defaults) |
+| Provider refresh | `POST /provider/reload` (invalidates provider catalogs without disposing active instances; auth changes reload automatically) |
 | Agents | `GET /agent` |
 | Directory | `GET /path` |
 | File search | `GET /find/file` (fuzzy paths for composer @-mentions; mention parts use `file://` URLs + `source.text`, content read engine-side) |

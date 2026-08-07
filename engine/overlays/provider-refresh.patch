@@ -1,0 +1,224 @@
+diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
+--- a/packages/opencode/src/provider/provider.ts
++++ b/packages/opencode/src/provider/provider.ts
+@@ -18,7 +18,7 @@ import { iife } from "@/util/iife"
+ import { Global } from "@opencode-ai/core/global"
+ import path from "path"
+ import { pathToFileURL } from "url"
+-import { Effect, Layer, Context, Schema, Types } from "effect"
++import { Effect, Layer, Context, Schema, ScopedCache, Types } from "effect"
+ import { EffectBridge } from "@/effect/bridge"
+ import { InstanceState } from "@/effect/instance-state"
+ import { EffectPromise } from "@/effect/promise"
+@@ -1147,6 +1147,7 @@ export type Error = ModelNotFoundError | InitError | NoProvidersError | NoModels
+ 
+ export interface Interface {
+   readonly list: () => Effect.Effect<Record<ProviderV2.ID, Info>>
++  readonly reload: () => Effect.Effect<void>
+   readonly getProvider: (providerID: ProviderV2.ID) => Effect.Effect<Info>
+   readonly getModel: (providerID: ProviderV2.ID, modelID: ModelV2.ID) => Effect.Effect<Model, ModelNotFoundError>
+   readonly getLanguage: (model: Model) => Effect.Effect<LanguageModelV3, ModelNotFoundError>
+@@ -1664,6 +1665,7 @@ const layer = Layer.effect(
+     )
+ 
+     const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
++    const reload = Effect.fn("Provider.reload")(() => ScopedCache.invalidateAll(state.cache))
+ 
+     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
+       try {
+@@ -1975,7 +1977,7 @@ const layer = Layer.effect(
+       }
+     })
+ 
+-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
++    return Service.of({ list, reload, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
+   }),
+ )
+ 
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/groups/provider.ts b/packages/opencode/src/server/routes/instance/httpapi/groups/provider.ts
+--- a/packages/opencode/src/server/routes/instance/httpapi/groups/provider.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/groups/provider.ts
+@@ -45,6 +45,16 @@ export const ProviderApi = HttpApi.make("provider")
+             description: "Get a list of all available AI providers, including both available and connected ones.",
+           }),
+         ),
++        HttpApiEndpoint.post("reload", `${root}/reload`, {
++          query: WorkspaceRoutingQuery,
++          success: described(Schema.Boolean, "Successfully invalidated cached provider state"),
++        }).annotateMerge(
++          OpenApi.annotations({
++            identifier: "provider.reload",
++            summary: "Reload providers",
++            description: "Invalidate provider catalogs without disposing active session instances",
++          }),
++        ),
+         HttpApiEndpoint.get("auth", `${root}/auth`, {
+           query: WorkspaceRoutingQuery,
+           success: described(ProviderAuth.Methods, "Provider auth methods"),
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/control.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/control.ts
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/control.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/control.ts
+@@ -1,4 +1,5 @@
+ import { Auth } from "@/auth"
++import { Provider } from "@/provider/provider"
+ 
+ import { Effect } from "effect"
+ import { HttpApiBuilder } from "effect/unstable/httpapi"
+@@ -9,12 +10,14 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
+ export const controlHandlers = HttpApiBuilder.group(RootHttpApi, "control", (handlers) =>
+   Effect.gen(function* () {
+     const auth = yield* Auth.Service
++    const provider = yield* Provider.Service
+ 
+     const authSet = Effect.fn("ControlHttpApi.authSet")(function* (ctx: {
+       params: { providerID: ProviderV2.ID }
+       payload: Auth.Info
+     }) {
+       yield* auth.set(ctx.params.providerID, ctx.payload).pipe(Effect.orDie)
++      yield* provider.reload()
+       return true
+     })
+ 
+@@ -22,6 +25,7 @@ export const controlHandlers = HttpApiBuilder.group(RootHttpApi, "control", (
+       params: { providerID: ProviderV2.ID }
+     }) {
+       yield* auth.remove(ctx.params.providerID).pipe(Effect.orDie)
++      yield* provider.reload()
+       return true
+     })
+ 
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/provider.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/provider.ts
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/provider.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/provider.ts
+@@ -58,6 +58,11 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider
+       }
+     })
+ 
++    const reload = Effect.fn("ProviderHttpApi.reload")(function* () {
++      yield* provider.reload()
++      return true
++    })
++
+     const auth = Effect.fn("ProviderHttpApi.auth")(function* () {
+       return yield* svc.methods()
+     })
+@@ -100,6 +100,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider
+           code: ctx.payload.code,
+         }),
+       )
++      yield* provider.reload()
+       return true
+     })
+ 
+@@ -107,5 +113,6 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider
+     return handlers
+       .handle("list", list)
++      .handle("reload", reload)
+       .handle("auth", auth)
+       .handleRaw("authorize", authorizeRaw)
+       .handle("callback", callback)
+diff --git a/packages/opencode/test/fake/provider.ts b/packages/opencode/test/fake/provider.ts
+--- a/packages/opencode/test/fake/provider.ts
++++ b/packages/opencode/test/fake/provider.ts
+@@ -53,7 +53,8 @@ export namespace ProviderTest {
+       layer: Layer.succeed(
+         Provider.Service,
+         Provider.Service.of({
+           list: Effect.fn("TestProvider.list")(() => Effect.succeed({ [row.id]: row })),
++          reload: Effect.fn("TestProvider.reload")(() => Effect.void),
+           getProvider: Effect.fn("TestProvider.getProvider")((providerID) => {
+             if (providerID === row.id) return Effect.succeed(row)
+             return Effect.die(new Error(`Unknown test provider: ${providerID}`))
+diff --git a/packages/opencode/test/provider/provider.test.ts b/packages/opencode/test/provider/provider.test.ts
+--- a/packages/opencode/test/provider/provider.test.ts
++++ b/packages/opencode/test/provider/provider.test.ts
+@@ -75,6 +75,7 @@ const providerLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
+   )
+ 
+ const list = Provider.use.list()
++const reload = Provider.use.reload()
+ 
+ const paid = (providers: Record<string, { models: Record<string, { cost: { input: number } }> }>) => {
+   const item = providers[ProviderV2.ID.make("opencode")]
+@@ -165,4 +166,42 @@ it.instance("LM Studio discovers local models and their loaded context without
+   }),
+ )
+ 
++it.instance("provider reload invalidates cached catalogs without disposing the instance", () =>
++  Effect.gen(function* () {
++    let model = "local/first"
++    const server = yield* Effect.acquireRelease(
++      Effect.sync(() =>
++        Bun.serve({
++          hostname: "127.0.0.1",
++          port: 0,
++          fetch(request) {
++            if (new URL(request.url).pathname !== "/api/v1/models") return new Response(null, { status: 404 })
++            return Response.json({
++              models: [{
++                type: "llm",
++                key: model,
++                display_name: model,
++                architecture: "qwen35",
++                max_context_length: 65536,
++                capabilities: { trained_for_tool_use: true },
++                loaded_instances: [],
++              }],
++            })
++          },
++        }),
++      ),
++      (server) => Effect.promise(() => server.stop(true)),
++    )
++    yield* remove("LMSTUDIO_API_KEY")
++    yield* set("LMSTUDIO_BASE_URL", `http://127.0.0.1:${server.port}`)
++
++    const providerID = ProviderV2.ID.make("lmstudio")
++    expect(Object.keys((yield* list)[providerID].models)).toEqual(["local/first"])
++    model = "local/second"
++    expect(Object.keys((yield* list)[providerID].models)).toEqual(["local/first"])
++    yield* reload
++    expect(Object.keys((yield* list)[providerID].models)).toEqual(["local/second"])
++  }),
++)
++
+ it.instance("provider loaded from env variable", () =>
+diff --git a/packages/opencode/test/server/httpapi-control-plane.test.ts b/packages/opencode/test/server/httpapi-control-plane.test.ts
+--- a/packages/opencode/test/server/httpapi-control-plane.test.ts
++++ b/packages/opencode/test/server/httpapi-control-plane.test.ts
+@@ -9,6 +9,7 @@
+ import { Auth } from "../../src/auth"
+ import { Config } from "../../src/config/config"
+ import { Installation } from "../../src/installation"
++import { Provider } from "../../src/provider/provider"
+ import { Project } from "../../src/project/project"
+ import { ServerAuth } from "../../src/server/auth"
+ import { RootHttpApi } from "../../src/server/routes/instance/httpapi/api"
+@@ -69,6 +70,7 @@ const apiLayer = HttpRouter.serve(
+ ).pipe(
+   Layer.provideMerge(NodeHttpServer.layerTest),
+   Layer.provide(Layer.mock(Auth.Service)({})),
++  Layer.provide(Layer.mock(Provider.Service)({ reload: () => Effect.void })),
+   Layer.provide(Layer.mock(Config.Service)({})),
+   Layer.provide(Layer.mock(Installation.Service)({})),
+   Layer.provide(
+diff --git a/packages/opencode/test/server/httpapi-global.test.ts b/packages/opencode/test/server/httpapi-global.test.ts
+--- a/packages/opencode/test/server/httpapi-global.test.ts
++++ b/packages/opencode/test/server/httpapi-global.test.ts
+@@ -6,6 +6,7 @@
+ import { Auth } from "../../src/auth"
+ import { Config } from "../../src/config/config"
+ import { Installation } from "../../src/installation"
++import { Provider } from "../../src/provider/provider"
+ import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
+ import { Project } from "../../src/project/project"
+ import { ServerAuth } from "../../src/server/auth"
+@@ -33,7 +34,8 @@ const apiLayer = HttpRouter.serve(
+   Layer.provideMerge(NodeHttpServer.layerTest),
+   Layer.provide(Layer.mock(Auth.Service)({})),
++  Layer.provide(Layer.mock(Provider.Service)({ reload: () => Effect.void })),
+   Layer.provide(Layer.mock(Config.Service)({})),
+   Layer.provide(Layer.mock(MoveSession.Service)({})),
+   Layer.provide(Layer.mock(Session.Service)({})),
+   Layer.provide(Layer.mock(SessionStatus.Service)({})),
+   Layer.provide(Layer.mock(Project.Service)({})),

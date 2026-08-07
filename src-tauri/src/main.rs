@@ -25,11 +25,45 @@ use voice::VoiceDownload;
 #[cfg(windows)]
 pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-#[tauri::command]
-fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    window.show().map_err(|error| error.to_string())?;
+/// Set once the launch window has been placed on screen, so it is only centered once.
+static WINDOW_REVEALED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Brings the launch window on screen.
+///
+/// Tauri creates configured windows before `setup` runs, so hiding there still flashes an
+/// unpainted rectangle. The window is instead configured off-screen and hidden, then centered
+/// here on its first reveal. Creating it with `visible: false` would be the obvious alternative,
+/// but that path can break Tauri's outbound event channel on Windows.
+fn position_main_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    let Some(monitor) = window.primary_monitor()? else {
+        return window.center();
+    };
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    let window_size = window.outer_size()?;
+    let x = monitor_position.x as i64 + (monitor_size.width as i64 - window_size.width as i64) / 2;
+    let y =
+        monitor_position.y as i64 + (monitor_size.height as i64 - window_size.height as i64) / 2;
+    window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32))
+}
+
+fn reveal_main_window(window: &tauri::WebviewWindow) {
+    if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst)
+        && position_main_window(window).is_err()
+    {
+        return;
+    }
+    if window.show().is_err() {
+        return;
+    }
+    WINDOW_REVEALED.store(true, std::sync::atomic::Ordering::SeqCst);
+    let _ = window.unminimize();
     let _ = window.set_focus();
-    Ok(())
+}
+
+#[tauri::command]
+fn show_main_window(window: tauri::WebviewWindow) {
+    reveal_main_window(&window);
 }
 
 fn main() {
@@ -38,9 +72,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.webview_windows().values().next() {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
+                reveal_main_window(window);
             }
         }))
         .plugin(tauri_plugin_notification::init())
@@ -112,9 +144,6 @@ fn main() {
             ui_state::shell_timeout_update
         ])
         .setup(|app| {
-            // Creating a WebView with `visible: false` can break Tauri's outbound event channel
-            // on Windows. Create it normally, then hide it before setup yields to the event loop.
-            // This avoids the unpainted launch rectangle without using that unsafe code path.
             let launch_window = app
                 .get_webview_window("main")
                 .ok_or_else(|| std::io::Error::other("main window was not created"))?;
@@ -191,8 +220,8 @@ fn main() {
             // invoke `show_main_window`. Normal startup reveals much earlier, after its first paint.
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                if !launch_window.is_visible().unwrap_or(false) {
-                    let _ = launch_window.show();
+                if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst) {
+                    reveal_main_window(&launch_window);
                 }
             });
             Ok(())

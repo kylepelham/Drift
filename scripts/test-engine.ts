@@ -69,7 +69,11 @@ await withEngineOverlays(async () => {
     "-t",
     "InstanceStore|CLI bootstrap|Drift requires|mutable synthetic|changed after sealing",
   ])
-  await run("packages/opencode", ["test/provider/provider.test.ts", "-t", "LM Studio discovers"])
+  await run("packages/opencode", [
+    "test/provider/provider.test.ts",
+    "-t",
+    "LM Studio discovers|provider reload invalidates",
+  ])
   await run("packages/opencode", ["test/server/httpapi-instance-route-auth.test.ts"])
   await run("packages/opencode", ["test/tool/shell.test.ts", "-t", "terminates command on timeout"])
   await run("packages/opencode", ["test/tool/shell-timeout.test.ts"])

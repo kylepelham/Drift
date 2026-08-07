@@ -49,7 +49,7 @@ plugins, and configuration.
 | **Deep configuration** | Inspect and override model-family system prompts, built-in agent behavior, permissions, and project instructions. |
 | **Guarded MCP management** | Review exact MCP server definitions before enabling them. Changed definitions require a new decision and invalid policy state fails closed. |
 | **A workspace you can tune** | Use the command palette, rebind shortcuts, select from eight themes, customize fonts and CSS, and choose from 18 interface languages. |
-| **Desktop behavior** | Open files in your editor, receive configurable notifications, use native folder dialogs, and install signed updates from GitHub Releases. |
+| **Desktop behavior** | Open files in your editor, receive configurable notifications, use native folder dialogs, and install authenticated updates from GitHub Releases. |
 | **Trusted-LAN remote control** | Opt in to the complete Drift interface from a phone or browser while the engine remains private on loopback. |
 
 Drift and the OpenCode CLI can use the same projects and canonical engine storage at the
@@ -65,11 +65,10 @@ decisions stay in Drift's own SQLite database.
 4. Start a thread and send a prompt.
 
 Drift does not include paid model access. Provider accounts, terms, and usage charges
-still apply. Installed copies check the signed update manifest on startup; automatic
+still apply. Installed copies check the authenticated update manifest on startup; automatic
 checks can be disabled under **Settings > General**.
 
-See Drift's [privacy policy](PRIVACY.md) and [code signing policy](CODE_SIGNING.md) for
-details about network connections, local data, and official Windows releases.
+See Drift's [privacy policy](PRIVACY.md) for details about network connections and local data.
 
 ## How it works
 
@@ -149,7 +148,7 @@ bun run package       # Windows NSIS installer
 | --- | --- |
 | `src/` | SolidJS frontend, engine client/store, application state, and UI |
 | `src-tauri/` | Tauri shell, sidecar lifecycle, native commands, and Drift SQLite store |
-| `engine/upstream/` | Pristine OpenCode git subtree; never edit directly |
+| `engine/upstream/` | Pristine OpenCode source snapshot; never edit directly |
 | `engine/overlays/` | Minimal, reversible patches for internal engine integration points |
 | `engine/opencode/` | Drift-shipped OpenCode plugins and configuration |
 | `scripts/` | Development, extension, and engine build tooling |
@@ -172,7 +171,6 @@ substantial pull request.
 | [Voice](docs/voice.md) | Dictation engine choice, capture and socket lifecycle, and settings |
 | [Remote Access](docs/remote.md) | Full web UI, safe LAN discovery, authentication, threat model, and device testing |
 | [Privacy policy](PRIVACY.md) | Local data, network connections, and user control |
-| [Code signing policy](CODE_SIGNING.md) | Release signing process and responsible roles |
 
 ## Contributing
 

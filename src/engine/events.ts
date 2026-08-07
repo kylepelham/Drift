@@ -173,10 +173,11 @@ export function purgeSession(draft: EngineState, id: string) {
 // snapshots must never pass a scope.
 export function applySessionSnapshot(
   set: SetEngineState,
-  input: { sessions: Session[]; captured: Record<string, number>; scope?: { directory: string } },
+  input: { sessions: Session[]; captured: Record<string, number>; scope?: { directory: string } | { all: true } },
 ) {
   const ids = new Set(input.sessions.map((info) => info.id))
-  const dir = input.scope ? normalizeDir(input.scope.directory) : undefined
+  const all = input.scope && "all" in input.scope
+  const dir = input.scope && "directory" in input.scope ? normalizeDir(input.scope.directory) : undefined
   const removed: string[] = []
   set(
     produce((draft) => {
@@ -187,13 +188,13 @@ export function applySessionSnapshot(
         const model = (info as Session & { model?: { id: string; providerID: string } }).model
         if (model) draft.sessionModels[info.id] = { providerID: model.providerID, modelID: model.id }
       }
-      if (dir === undefined) return
+      if (!input.scope) return
       for (const session of Object.values(draft.sessions)) {
         if (ids.has(session.id) || advanced(session.id)) continue
-        if (normalizeDir(session.directory) !== dir) continue
+        if (!all && normalizeDir(session.directory) !== dir) continue
         // Scoped listings exclude engine-archived sessions, so their absence is not a deletion.
         // Purging them here would delete-and-reload archived transcripts on every hydration.
-        if ((session.time as { archived?: number }).archived) continue
+        if (!all && (session.time as { archived?: number }).archived) continue
         removed.push(session.id)
         purgeSession(draft, session.id)
       }

@@ -1,5 +1,7 @@
-import { createMemo, createSignal, Match, onCleanup, onMount, Show, Switch, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, Match, onCleanup, onMount, Show, Switch, For, type JSX } from "solid-js"
 import { useEngine } from "../engine"
+import { cachedSessions, rememberSessions, type CachedSession } from "../state/session-cache"
+import { TextShimmer } from "./text-shimmer"
 import { createDismissOnOutside } from "./dismiss"
 import { emitThreadArchived } from "../plugins"
 import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
@@ -28,11 +30,13 @@ import {
 export type WorkspaceMenuState = { x: number; y: number; workspaceId: string }
 export type SessionMenuState = { x: number; y: number; sessionId: string; workspaceId: string }
 
-type SessionList = ReturnType<typeof sessionsFor>
 const sessionPageSize = 5
 
-// ponytail: last-known lists mask the engine store reset while switching workspaces
-const sessionListCache = new Map<string, SessionList>()
+const threadRow = (session: { id: string; title: string; time: { updated: number } }): CachedSession => ({
+  id: session.id,
+  title: session.title,
+  updated: session.time.updated,
+})
 
 export function WorkspaceGroup(props: {
   workspace: Workspace
@@ -46,11 +50,22 @@ export function WorkspaceGroup(props: {
   const collapsed = () => workspaceCollapsed(props.workspace.id)
   const [visibleCount, setVisibleCount] = createSignal(sessionPageSize)
   const active = () => activeWorkspaceId() === props.workspace.id
+  const online = () => engine.state.connection === "online"
+  const live = createMemo(() => sessionsFor(engine.state, props.workspace.path).map(threadRow))
+  const authoritative = () =>
+    online() &&
+    (engine.state.sessionSnapshotAll || normalizeDir(engine.state.sessionSnapshotDirectory) === normalizeDir(props.workspace.path))
+  // Non-empty live results are always safe to remember. Only a complete scoped snapshot may clear
+  // the cache, because the event stream reports online before initial hydration has finished.
+  createEffect(() => {
+    const current = live()
+    if (current.length || authoritative()) rememberSessions(props.workspace.path, current)
+  })
+  // Cold engine startup takes seconds; the last known threads stand in until it answers.
   const all = createMemo(() => {
-    const live = sessionsFor(engine.state, props.workspace.path)
-    if (live.length) sessionListCache.set(props.workspace.path, live)
-    if (engine.state.connection === "online" && !live.length) sessionListCache.delete(props.workspace.path)
-    return live.length || engine.state.connection === "online" ? live : (sessionListCache.get(props.workspace.path) ?? live)
+    const current = live()
+    if (current.length || authoritative()) return current
+    return cachedSessions(props.workspace.path)
   })
   const children = (parentId: string) => {
     recoverableInterruptions()
@@ -132,7 +147,7 @@ export function WorkspaceGroup(props: {
                 <ThreadItem
                   sessionId={session.id}
                   title={session.title}
-                  updated={session.time.updated}
+                  updated={session.updated}
                   workspace={props.workspace}
                   onMenu={props.onSessionMenu}
                 />
@@ -157,7 +172,12 @@ export function WorkspaceGroup(props: {
               {t("drift.thread.loadMore", { count: Math.min(sessionPageSize, remaining()) })}
             </button>
           </Show>
-          <Show when={sessions().length === 0 && active()}>
+          <Show when={sessions().length === 0 && active() && !authoritative()}>
+            <div class="px-2 py-1.5 text-xs text-ink-faint" role="status" aria-live="polite">
+              <TextShimmer text={t("common.loading")} />
+            </div>
+          </Show>
+          <Show when={sessions().length === 0 && active() && authoritative()}>
             <div class="px-2 py-1.5 text-xs text-ink-faint">{t("drift.thread.empty")}</div>
           </Show>
         </div>

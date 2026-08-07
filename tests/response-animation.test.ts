@@ -1,67 +1,105 @@
 import { expect, test } from "bun:test"
 import {
-  responseBurstSize,
-  responseBurstThreshold,
-  responseRevealClass,
-  responseRevealDuration,
-  responseRevealMaximumMs,
-  revealResponseNodes,
-  type ResponseBurstUpdate,
+  createRevealPacer,
+  responseRevealCharsPerSecond,
+  responseRevealMaxBacklogChars,
+  revealBoundary,
+  revealStep,
 } from "../src/ui/response-animation"
 
-const liveUpdate: ResponseBurstUpdate = {
-  previousLength: 20,
-  nextLength: 20 + responseBurstThreshold,
-  previousIdentity: "message:part",
-  identity: "message:part",
-  mounted: true,
-  live: true,
-  enabled: true,
-  reducedMotion: false,
+const frameMs = 16
+
+/** Drives a pacer with a fake clock and scheduler, returning the text emitted per frame. */
+function runPacer(chunks: string[], options: { framesPerChunk?: number } = {}) {
+  const framesPerChunk = options.framesPerChunk ?? 40
+  let pending: (() => void) | undefined
+  let clock = 0
+  const emitted: string[] = []
+  const pacer = createRevealPacer({
+    schedule: (callback) => {
+      pending = callback
+      return 1
+    },
+    cancel: () => (pending = undefined),
+    now: () => clock,
+    emit: (text) => emitted.push(text),
+  })
+  for (const chunk of chunks) {
+    pacer.push(chunk)
+    for (let frame = 0; frame < framesPerChunk && pending; frame++) {
+      const callback = pending
+      pending = undefined
+      clock += frameMs
+      callback()
+    }
+  }
+  return { emitted, pacer, remaining: () => !!pending }
 }
 
-test("response bursts animate only for an already-mounted live part", () => {
-  expect(responseBurstSize(liveUpdate)).toBe(responseBurstThreshold)
-  expect(responseBurstSize({ ...liveUpdate, mounted: false })).toBe(0)
-  expect(responseBurstSize({ ...liveUpdate, live: false })).toBe(0)
-  expect(responseBurstSize({ ...liveUpdate, previousIdentity: "historical:part" })).toBe(0)
-  expect(responseBurstSize({ ...liveUpdate, nextLength: liveUpdate.nextLength - 1 })).toBe(0)
+test("reveal releases on whitespace boundaries and always advances", () => {
+  expect(revealBoundary("hello world again", 0, 11)).toBe(11)
+  expect(revealBoundary("hello world again", 0, 8)).toBe(5)
+  // A word longer than the budget still advances rather than stalling forever.
+  expect(revealBoundary("supercalifragilistic", 0, 6)).toBe(6)
+  expect(revealBoundary("short", 0, 99)).toBe(5)
+  expect(revealBoundary("😀😀", 0, 1)).toBe(2)
 })
 
-test("response bursts stay instant when disabled or reduced motion is requested", () => {
-  expect(responseBurstSize({ ...liveUpdate, enabled: false })).toBe(0)
-  expect(responseBurstSize({ ...liveUpdate, reducedMotion: true })).toBe(0)
+test("reveal speed follows elapsed time, not how much text arrived", () => {
+  const small = revealStep({ revealed: 0, target: "x".repeat(5000), elapsedMs: frameMs })
+  const large = revealStep({ revealed: 0, target: "x".repeat(5000), elapsedMs: frameMs })
+  expect(small).toBe(large)
+  // Twice the frame time releases roughly twice the characters.
+  const doubled = revealStep({ revealed: 0, target: "x".repeat(5000), elapsedMs: frameMs * 2 })
+  expect(doubled).toBeGreaterThan(small)
+  expect(revealStep({ revealed: 10, target: "0123456789", elapsedMs: frameMs })).toBe(10)
 })
 
-test("response reveal duration scales with a hard one-second cap", () => {
-  expect(responseRevealDuration(responseBurstThreshold)).toBeGreaterThan(0)
-  expect(responseRevealDuration(responseBurstThreshold * 4)).toBeGreaterThan(
-    responseRevealDuration(responseBurstThreshold),
+test("a large backlog accelerates but still spans multiple frames", () => {
+  const backlog = responseRevealMaxBacklogChars * 4
+  const target = "x".repeat(backlog)
+  const burst = revealStep({ revealed: 0, target, elapsedMs: frameMs })
+  const steady = revealStep({ revealed: 0, target: "x".repeat(100), elapsedMs: frameMs })
+  expect(burst).toBeGreaterThan(steady)
+  expect(burst).toBeLessThan(backlog)
+})
+
+test("one large chunk and many small chunks reveal at the same pace", () => {
+  const full = "word ".repeat(400).trim()
+  const single = runPacer([full])
+  const incremental = runPacer(
+    Array.from({ length: 40 }, (_, index) => full.slice(0, Math.round((full.length * (index + 1)) / 40))),
+    { framesPerChunk: 1 },
   )
-  expect(responseRevealDuration(10_000_000)).toBe(responseRevealMaximumMs)
+  const lengthsAfter = (emitted: string[], frames: number) => emitted[Math.min(frames, emitted.length) - 1]?.length ?? 0
+  // Both transports converge on the same revealed length after the same number of frames, which is
+  // what makes the reveal look identical for websocket deltas and coarse REST blocks.
+  expect(Math.abs(lengthsAfter(single.emitted, 10) - lengthsAfter(incremental.emitted, 10))).toBeLessThan(
+    responseRevealCharsPerSecond,
+  )
+  expect(single.emitted.length).toBeGreaterThan(3)
+  expect(incremental.emitted.length).toBeGreaterThan(3)
 })
 
-test("response reveal keeps full text present and can be interrupted", () => {
-  const classes = new Set<string>()
-  const styles = new Map<string, string>()
-  const node = {
-    textContent: "The complete response is already in the DOM.",
-    classList: {
-      add: (name: string) => classes.add(name),
-      remove: (name: string) => classes.delete(name),
-    },
-    style: {
-      setProperty: (name: string, value: string) => styles.set(name, value),
-      removeProperty: (name: string) => styles.delete(name),
-    },
-  } as unknown as HTMLElement
+test("the first chunk after mount animates instead of appearing at once", () => {
+  const { emitted } = runPacer(["a long first response that arrives as one complete block"], { framesPerChunk: 3 })
+  expect(emitted.length).toBeGreaterThan(1)
+  expect(emitted[0]!.length).toBeLessThan("a long first response that arrives as one complete block".length)
+})
 
-  const finish = revealResponseNodes([node], 500)
-  expect(node.textContent).toBe("The complete response is already in the DOM.")
-  expect(classes.has(responseRevealClass)).toBeTrue()
-  finish()
-  expect(classes.has(responseRevealClass)).toBeFalse()
-  expect(styles.size).toBe(0)
+test("rewritten text snaps instead of rewinding the reveal", () => {
+  // A revert or compaction replaces the text rather than extending it, so pacing from the old
+  // offset would rewind visible content. Those updates appear immediately instead.
+  const { emitted } = runPacer(["the original streamed answer", "completely different text"], { framesPerChunk: 2 })
+  expect(emitted.at(-1)).toBe("completely different text")
+  expect(emitted.length).toBeGreaterThan(1)
+})
+
+test("flush reveals everything and stops scheduling frames", () => {
+  const run = runPacer(["a streamed response that is still being revealed"], { framesPerChunk: 1 })
+  run.pacer.flush()
+  expect(run.emitted.at(-1)).toBe("a streamed response that is still being revealed")
+  run.pacer.dispose()
 })
 
 test("response animation preference defaults off", async () => {

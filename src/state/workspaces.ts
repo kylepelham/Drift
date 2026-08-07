@@ -4,6 +4,7 @@ import { parseNavigationHash, pushRemoteSelection } from "./navigation"
 import { applyMirroredSession } from "./selection"
 import { persisted } from "./persist"
 import { publishMirrorSelection, publishMirrorWorkspaceOrder } from "./mirror"
+import { forgetCachedSessions } from "./session-cache"
 import { driftStore, type ArchivedSession, type Workspace } from "./store"
 
 const [rawWorkspaces, setWorkspaces] = createSignal<Workspace[]>([])
@@ -207,6 +208,7 @@ export async function purgeRemovedWorkspaces(
       complete = false
       continue
     }
+    forgetCachedSessions(workspace.path)
     await driftStore.forgetWorkspace(workspace.id)
   }
   await refreshWorkspaces()

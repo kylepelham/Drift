@@ -63,6 +63,59 @@ test("concurrent global session loads share one request", async () => {
   }
 })
 
+test("a complete global session load removes stale sessions and marks every workspace authoritative", async () => {
+  const [state, set] = createEngineState()
+  putSessions(set, [session("stale"), session("kept", { directory: "C:/other" })])
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => Response.json([session("kept", { directory: "C:/other" })])) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => ({}) as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+    )
+    await actions.loadAllSessions()
+
+    expect(state.sessions.stale).toBeUndefined()
+    expect(state.sessions.kept).toBeDefined()
+    expect(state.sessionSnapshotAll).toBeTrue()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("a global session load from an older connection cannot publish after reconnect", async () => {
+  const [state, set] = createEngineState()
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => (release = resolve))
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => {
+    await pending
+    return Response.json([])
+  }) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => ({}) as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+    )
+    const load = actions.loadAllSessions()
+    putSessions(set, [session("fresh")])
+    set("sessionSnapshotEpoch", state.sessionSnapshotEpoch + 1)
+    release()
+    await load
+
+    expect(state.sessions.fresh).toBeDefined()
+    expect(state.sessionSnapshotAll).toBeFalse()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test("engine startup does not replace an active global event pump", async () => {
   const source = await Bun.file("src/engine/index.tsx").text()
   expect(source).toContain("if (!base || disposed || pumpAbort) return")

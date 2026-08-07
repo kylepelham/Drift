@@ -178,6 +178,21 @@ test("parent delegated status follows interruption, resumed work, and completion
   expect(delegatedTaskStatus(state, part, "child")).toBe("completed")
 })
 
+test("a live delegated part overrides an older completion marker", async () => {
+  const { delegatedTaskClickPolicy, delegatedTaskStatus } = await import("../src/ui/parts")
+  const [state, set] = createEngineState()
+  set("transcripts", "parent", [
+    {
+      info: { id: "old", sessionID: "parent", role: "assistant", time: { created: 1 } },
+      parts: [{ id: "result", type: "text", text: '<task id="child" state="completed">', sessionID: "parent", messageID: "old" }],
+    },
+  ] as never)
+  const live = { sessionID: "parent", state: { status: "running", input: {}, time: { start: 1 } } } as never
+  const status = delegatedTaskStatus(state, live, "child")
+  expect(status).toBe("running")
+  expect(delegatedTaskClickPolicy(status, "child")).toBe("navigate")
+})
+
 test("running delegated rows navigate while terminal rows expand without lifecycle badges", async () => {
   const { delegatedTaskClickPolicy } = await import("../src/ui/parts")
   expect(delegatedTaskClickPolicy("running", "child")).toBe("navigate")

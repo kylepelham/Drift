@@ -267,14 +267,14 @@ test("release stamping updates every package version and is idempotent", () => {
 
 test("release workflow gates publication on policy and successful master CI", () => {
   const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
-  const validation = workflow.slice(workflow.indexOf("  validation:"), workflow.indexOf("  signed-artifacts:"))
-  const signing = workflow.slice(workflow.indexOf("  signed-artifacts:"), workflow.indexOf("  publish:"))
+  const validation = workflow.slice(workflow.indexOf("  validation:"), workflow.indexOf("  release-artifacts:"))
+  const releaseBuild = workflow.slice(workflow.indexOf("  release-artifacts:"), workflow.indexOf("  publish:"))
   const publish = workflow.slice(workflow.indexOf("  publish:"))
 
   expect(workflow).toContain("needs: tag-policy")
   expect(workflow).toContain("if: needs.tag-policy.outputs.published != 'true'")
-  expect(signing).toContain("needs: tag-policy")
-  expect(publish).toContain("needs: [tag-policy, validation, signed-artifacts]")
+  expect(releaseBuild).toContain("needs: tag-policy")
+  expect(publish).toContain("needs: [tag-policy, validation, release-artifacts]")
   expect(validation).not.toContain("secrets.")
   expect(validation).toContain("actions: read")
   expect(validation).toContain("actions/workflows/ci.yml/runs?head_sha=$COMMIT&event=push")
@@ -284,11 +284,11 @@ test("release workflow gates publication on policy and successful master CI", ()
   for (const command of ["bun run test:engine", "cargo test", "bun run build:native"]) {
     expect(validation).not.toContain(command)
   }
-  expect(signing).toContain("contents: read")
-  expect(signing).not.toContain("contents: write")
-  expect(signing).toContain("persist-credentials: false")
-  expect(signing).toContain("TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}")
-  expect(signing).toContain("uses: actions/upload-artifact@")
+  expect(releaseBuild).toContain("contents: read")
+  expect(releaseBuild).not.toContain("contents: write")
+  expect(releaseBuild).toContain("persist-credentials: false")
+  expect(releaseBuild).toContain("TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}")
+  expect(releaseBuild).toContain("uses: actions/upload-artifact@")
   expect(publish).toContain("contents: write")
   expect(publish).not.toContain("secrets.")
   expect(publish).toContain("uses: actions/download-artifact@")
@@ -334,13 +334,13 @@ test("release workflow serializes tags globally and rechecks full policy immedia
 
 test("release assets are staged flat so publication globs resolve", () => {
   const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
-  const signing = workflow.slice(workflow.indexOf("  signed-artifacts:"), workflow.indexOf("  publish:"))
+  const releaseBuild = workflow.slice(workflow.indexOf("  release-artifacts:"), workflow.indexOf("  publish:"))
   const publish = workflow.slice(workflow.indexOf("  publish:"))
 
   // A multi-path upload roots the artifact at the common ancestor, which breaks the publication globs.
-  const upload = signing.slice(signing.indexOf("- name: Upload signed release artifacts"))
+  const upload = releaseBuild.slice(releaseBuild.indexOf("- name: Upload release artifacts"))
   expect(upload.match(/^\s+path:\s*(.*)$/m)?.[1].trim()).toBe("release-artifacts")
-  expect(signing).toContain('"${{ needs.tag-policy.outputs.commit }}" "release-artifacts"')
+  expect(releaseBuild).toContain('"${{ needs.tag-policy.outputs.commit }}" "release-artifacts"')
   expect(publish).toContain("path: release-artifacts")
   expect(publish).toContain("body_path: release-artifacts/release-notes.md")
   for (const asset of ["release-artifacts/*-setup.exe", "release-artifacts/*.sig", "release-artifacts/latest.json"]) {

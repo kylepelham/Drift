@@ -32,8 +32,6 @@ const stickyThresholdPx = 80
 // A wheel gesture is treated as still in progress for this long after the last event, so momentum
 // scrolling does not get mistaken for the user settling on a position.
 const gestureWindowMs = 250
-// Wheel events forwarded from a nested scroller stop being redirected once the source goes quiet.
-const forwardedWheelSettleMs = 180
 // Messages younger than this are treated as newly arrived rather than restored history.
 const freshMessageMs = 2000
 const maxRetryMessageChars = 80
@@ -213,14 +211,10 @@ export function Chat() {
   // measurement churn fire scroll events too and used to unstick mid-settle.
   let gestureAt = 0
   let dragging = false
-  let forwardedTarget: number | null = null
-  let forwardedReset: ReturnType<typeof setTimeout> | undefined
   let scrollLatchReset: ReturnType<typeof setTimeout> | undefined
   const gesture = () => (gestureAt = Date.now())
   const nativeWheel = () => {
     interruptResponseAnimations()
-    forwardedTarget = null
-    clearTimeout(forwardedReset)
     gesture()
   }
   const releaseDrag = () => (dragging = false)
@@ -230,15 +224,11 @@ export function Chat() {
     gesture()
     const delta = normalizedWheelDelta(detail.deltaY, detail.deltaMode, scroller.clientHeight)
     const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
-    forwardedTarget = accumulatedWheelTarget(scroller.scrollTop, forwardedTarget, delta, max)
-    scroller.scrollTo({ top: forwardedTarget, behavior: "smooth" })
-    clearTimeout(forwardedReset)
-    forwardedReset = setTimeout(() => (forwardedTarget = null), forwardedWheelSettleMs)
+    scroller.scrollTop = accumulatedWheelTarget(scroller.scrollTop, null, delta, max)
   }
   window.addEventListener("pointerup", releaseDrag)
   window.addEventListener(chatWheelEvent, forwardedWheel)
   onCleanup(() => {
-    clearTimeout(forwardedReset)
     clearTimeout(scrollLatchReset)
     window.removeEventListener("pointerup", releaseDrag)
     window.removeEventListener(chatWheelEvent, forwardedWheel)

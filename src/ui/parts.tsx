@@ -613,6 +613,9 @@ export function delegatedTaskStatus(
   if (recoverableForSession(childId)) return "interrupted"
   const resumed = resumedSessions().has(childId)
   if (sessionRunning(state, childId)) return resumed ? "resumed" : "running"
+  // A live task part is newer authority than terminal markers elsewhere in the parent transcript.
+  // The same child can be resumed, leaving an older completion marker behind while work continues.
+  if (part.state.status === "pending" || part.state.status === "running") return resumed ? "resumed" : "running"
   if (resumed) return "completed"
   const terminal = delegatedTerminalState(state, part, childId)
   if (terminal) return terminal
