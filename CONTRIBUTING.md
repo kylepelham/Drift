@@ -1,157 +1,272 @@
-# Contributing to Drift
+# Contributing to OpenCode
 
-Thanks for helping improve Drift. Focused bug fixes, tests, documentation, and small UI
-improvements are the easiest contributions to review and ship.
+We want to make it easy for you to contribute to OpenCode. Here are the most common type of changes that get merged:
 
-## Before you start
+- Bug fixes
+- Additional LSPs / Formatters
+- Improvements to LLM performance
+- Support for new providers
+- Fixes for environment-specific quirks
+- Missing standard behavior
+- Documentation improvements
 
-- Search the existing issues before opening a new one.
-- Use the bug report form for reproducible defects.
-- Open a feature request before investing in a substantial behavior or architecture
-  change. This avoids work on a direction that may not fit the project.
-- Report security vulnerabilities privately according to [SECURITY.md](SECURITY.md).
-- Follow the [Code of Conduct](CODE_OF_CONDUCT.md) in every project space.
+However, any UI or core product feature must go through a design review with the core team before implementation.
 
-## Development setup
+If you are unsure if a PR would be accepted, feel free to ask a maintainer or look for issues with any of the following labels:
 
-Drift's native target is Windows x64. You need [Bun](https://bun.sh), a
-[stable Rust toolchain](https://rustup.rs/) with the MSVC target,
-[Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
-with the **Desktop development with C++** workload, and the
-[Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+- [`help wanted`](https://github.com/anomalyco/opencode/issues?q=is%3Aissue%20state%3Aopen%20label%3Ahelp-wanted)
+- [`good first issue`](https://github.com/anomalyco/opencode/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22)
+- [`bug`](https://github.com/anomalyco/opencode/issues?q=is%3Aissue%20state%3Aopen%20label%3Abug)
+- [`perf`](https://github.com/anomalyco/opencode/issues?q=is%3Aopen%20is%3Aissue%20label%3A%22perf%22)
 
-```bash
-git clone https://github.com/kylepelham/Drift.git
-cd Drift
-bun install
-bun install --ignore-scripts --cwd engine/upstream
-bun install --cwd engine/opencode
-bun run build:engine
-```
+> [!NOTE]
+> PRs that ignore these guardrails will likely be closed.
 
-Start the engine and Vite UI with:
+Want to take on an issue? Leave a comment and a maintainer may assign it to you unless it is something we are already working on.
 
-```bash
-bun run dev
-```
+## Adding New Providers
 
-For the native development window, leave `bun run dev` running and execute
-`bunx tauri dev` in a second terminal.
+New providers shouldn't require many if ANY code changes, but if you want to add support for a new provider first make a PR to:
+https://github.com/anomalyco/models.dev
 
-## Architecture boundaries
+## Developing OpenCode
 
-Read [docs/architecture.md](docs/architecture.md) before making structural changes. The
-important boundaries are:
+- Requirements: Bun 1.3+
+- Install dependencies and start the dev server from the repo root:
 
-- UI components read the engine store and call engine actions; they do not fetch engine
-  endpoints directly.
-- `src/engine/` owns engine transport, hydration, events, and engine-derived state.
-- `src/state/` owns Drift application state and native-store facades.
-- Drift-specific persistence belongs in the Tauri-owned SQLite store, not OpenCode's
-  storage.
-- `engine/upstream/` is a pristine git subtree. Never edit it directly.
-- Internal OpenCode adaptations belong in small patches under `engine/overlays/` only
-  when a public engine API or plugin cannot express the behavior.
+  ```bash
+  bun install
+  bun dev
+  ```
 
-Prefer the smallest correct change. Match established UI patterns, keep unrelated
-cleanup out of the pull request, and add comments only where the reason is not evident
-from the code.
+### Running against a different directory
 
-## Testing
-
-Run the checks relevant to your change before opening a pull request. The standard suite
-is:
+By default, `bun dev` runs OpenCode in the `packages/opencode` directory. To run it against a different directory or repository:
 
 ```bash
-bun run typecheck
-bun run test
-cargo test --manifest-path src-tauri/Cargo.toml
+bun dev <directory>
 ```
 
-Also run:
-
-- `bun run test:engine` for engine overlays or Drift-shipped OpenCode extensions.
-- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` for Rust changes.
-- `bun run build:native` when changing packaging, native integration, generated
-  extensions, or release behavior.
-
-Tests should cover observable behavior and regressions rather than implementation
-details. Keep fixtures free of real API keys, tokens, personal data, and proprietary
-source.
-
-## Updating OpenCode
-
-The scheduled `OpenCode update` workflow opens one review pull request when upstream
-`dev` advances and can also be run manually. It uses a dedicated remote ref, records the
-imported SHA in `engine/upstream.commit`, dispatches CI for the generated branch, and never
-merges automatically. The marker keeps later updates reliable regardless of the PR merge
-strategy.
-
-A local update uses:
+To run OpenCode in the root of the opencode repo itself:
 
 ```bash
-git fetch --no-tags https://github.com/sst/opencode.git +dev:refs/remotes/opencode-update/dev
-current="$(tr -d '\r\n' < engine/upstream.commit)"
-latest="$(git rev-parse refs/remotes/opencode-update/dev)"
-printf '%s\n' "$latest" > engine/upstream.commit
-git add engine/upstream.commit
-git commit -m "Prepare vendored OpenCode update" -m "git-subtree-dir: engine/upstream" -m "git-subtree-split: $current"
-git subtree merge --prefix engine/upstream refs/remotes/opencode-update/dev --squash
-bun install --ignore-scripts --cwd engine/upstream
-bun run test:engine
-bun run build:engine
+bun dev .
 ```
 
-Do not use a plain `git subtree pull`. OpenCode has many `v*` release tags, and importing
-them can trigger Drift's own tag-based release workflow. If an overlay no longer applies,
-refresh that isolated patch against the updated source instead of resolving the change
-inside `engine/upstream/`. The full runbook is in [docs/engine.md](docs/engine.md).
+### Building a "localcode"
 
-## Releases
-
-Releases are maintainer-only. A release tag must match `vMAJOR.MINOR.PATCH` exactly, point
-to a commit contained in `origin/master`, and be strictly newer than every other stable
-GitHub release or repository tag. Prerelease and build suffixes are not supported. Before
-signing, the workflow checks the tag policy and runs frozen installs, typechecking, root
-and engine tests, the engine build, Rust tests, and an unsigned production package build
-on the exact tag commit. The signing job has read-only repository access, and only the
-separate publication job has contents write access.
-
-Stable releases are serialized across all tags. Published notes and assets are immutable:
-a rerun verifies the original workflow marker and asset SHA-256 manifest, then exits
-without rebuilding or publishing. Any mismatch requires investigation rather than an
-overwrite.
-
-The repository must provide these GitHub Actions secrets:
-
-- `TAURI_SIGNING_PRIVATE_KEY`: the path or complete content of the updater private key.
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the private key password.
-
-The private key must match the public key in `src-tauri/tauri.conf.json`. It is required
-for every future update and must never be committed or included in workflow logs. Do not
-rotate the updater key without a migration plan for already-installed copies.
-
-After the tagged commit is merged to `master` and the standard checks pass, choose a
-version newer than the latest stable release/tag and push the release tag:
+To compile a standalone executable:
 
 ```bash
-git tag v1.2.3
-git push origin v1.2.3
+./packages/opencode/script/build.ts --single
 ```
 
-## Pull requests
+Then run it with:
 
-- Keep each pull request focused on one problem.
-- Explain the user-visible behavior and why the chosen change is appropriate.
-- Include validation commands and their results.
-- Include before/after images for visible UI changes when practical.
-- Update documentation when behavior, configuration, or architecture changes.
-- Do not commit build output, local databases, credentials, or generated sidecar
-  binaries.
+```bash
+./packages/opencode/dist/opencode-<platform>/bin/opencode
+```
 
-Use concise, imperative commit subjects. Maintainers may squash commits when merging.
+Replace `<platform>` with your platform (e.g., `darwin-arm64`, `linux-x64`).
 
-## License
+- Core pieces:
+  - `packages/opencode`: OpenCode core business logic & server.
+  - `packages/opencode/src/cli/cmd/tui/`: The TUI code, written in SolidJS with [opentui](https://github.com/sst/opentui)
+  - `packages/app`: The shared web UI components, written in SolidJS
+  - `packages/desktop`: The native desktop app, built with Electron (wraps `packages/app`)
+  - `packages/plugin`: Source for `@opencode-ai/plugin`
 
-By contributing, you agree that your contribution is licensed under the project's
-[MIT License](LICENSE).
+### Understanding bun dev vs opencode
+
+During development, `bun dev` is the local equivalent of the built `opencode` command. Both run the same CLI interface:
+
+```bash
+# Development (from project root)
+bun dev --help           # Show all available commands
+bun dev serve            # Start headless API server
+bun dev web              # Start server + open web interface
+bun dev <directory>      # Start TUI in specific directory
+
+# Production
+opencode --help          # Show all available commands
+opencode serve           # Start headless API server
+opencode web             # Start server + open web interface
+opencode <directory>     # Start TUI in specific directory
+```
+
+### Running the API Server
+
+To start the OpenCode headless API server:
+
+```bash
+bun dev serve
+```
+
+This starts the headless server on port 4096 by default. You can specify a different port:
+
+```bash
+bun dev serve --port 8080
+```
+
+### Running the Web App
+
+To test UI changes during development:
+
+1. **First, start the OpenCode server** (see [Running the API Server](#running-the-api-server) section above)
+2. **Then run the web app:**
+
+```bash
+bun run --cwd packages/app dev
+```
+
+This starts a local dev server at http://localhost:5173 (or similar port shown in output). Most UI changes can be tested here, but the server must be running for full functionality.
+
+### Running the Desktop App
+
+The desktop app is an Electron application that wraps the web UI.
+
+To run the desktop app in development:
+
+```bash
+bun run --cwd packages/desktop dev
+```
+
+To create a production build and package the app:
+
+```bash
+bun run --cwd packages/desktop build
+bun run --cwd packages/desktop package
+```
+
+> [!NOTE]
+> If you make changes to the API or SDK (e.g. `packages/opencode/src/server/server.ts`), run `./script/generate.ts` to regenerate the SDK and related files.
+
+Please try to follow the [style guide](./AGENTS.md)
+
+### Setting up a Debugger
+
+Bun debugging is currently rough around the edges. We hope this guide helps you get set up and avoid some pain points.
+
+The most reliable way to debug OpenCode is to run it manually in a terminal via `bun run --inspect=<url> dev ...` and attach
+your debugger via that URL. Other methods can result in breakpoints being mapped incorrectly, at least in VSCode (YMMV).
+
+Caveats:
+
+- If you want to run the OpenCode TUI and have breakpoints triggered in the server code, you might need to run `bun dev spawn` instead of
+  the usual `bun dev`. This is because `bun dev` runs the server in a worker thread and breakpoints might not work there.
+- If `spawn` does not work for you, you can debug the server separately:
+  - Debug server: `bun run --inspect=ws://localhost:6499/ --cwd packages/opencode ./src/index.ts serve --port 4096`,
+    then attach TUI with `opencode attach http://localhost:4096`
+  - Debug TUI: `bun run --inspect=ws://localhost:6499/ --cwd packages/opencode --conditions=browser ./src/index.ts`
+
+Other tips and tricks:
+
+- You might want to use `--inspect-wait` or `--inspect-brk` instead of `--inspect`, depending on your workflow
+- Specifying `--inspect=ws://localhost:6499/` on every invocation can be tiresome, you may want to `export BUN_OPTIONS=--inspect=ws://localhost:6499/` instead
+
+#### VSCode Setup
+
+If you use VSCode, you can use our example configurations [.vscode/settings.example.json](.vscode/settings.example.json) and [.vscode/launch.example.json](.vscode/launch.example.json).
+
+Some debug methods that can be problematic:
+
+- Debug configurations with `"request": "launch"` can have breakpoints incorrectly mapped and thus unusable
+- The same problem arises when running OpenCode in the VSCode `JavaScript Debug Terminal`
+
+With that said, you may want to try these methods, as they might work for you.
+
+## Pull Request Expectations
+
+### Issue First Policy
+
+**All PRs must reference an existing issue.** Before opening a PR, open an issue describing the bug or feature. This helps maintainers triage and prevents duplicate work. PRs without a linked issue may be closed without review.
+
+- Use `Fixes #123` or `Closes #123` in your PR description to link the issue
+- For small fixes, a brief issue is fine - just enough context for maintainers to understand the problem
+
+### General Requirements
+
+- Keep pull requests small and focused
+- Explain the issue and why your change fixes it
+- Before adding new functionality, ensure it doesn't already exist elsewhere in the codebase
+
+### UI Changes
+
+If your PR includes UI changes, please include screenshots or videos showing the before and after. This helps maintainers review faster and gives you quicker feedback.
+
+### Logic Changes
+
+For non-UI changes (bug fixes, new features, refactors), explain **how you verified it works**:
+
+- What did you test?
+- How can a reviewer reproduce/confirm the fix?
+
+### No AI-Generated Walls of Text
+
+Long, AI-generated PR descriptions and issues are not acceptable and may be ignored. Respect the maintainers' time:
+
+- Write short, focused descriptions
+- Explain what changed and why in your own words
+- If you can't explain it briefly, your PR might be too large
+
+### PR Titles
+
+PR titles should follow conventional commit standards:
+
+- `feat:` new feature or functionality
+- `fix:` bug fix
+- `docs:` documentation or README changes
+- `chore:` maintenance tasks, dependency updates, etc.
+- `refactor:` code refactoring without changing behavior
+- `test:` adding or updating tests
+
+You can optionally include a scope to indicate which package is affected:
+
+- `feat(app):` feature in the app package
+- `fix(desktop):` bug fix in the desktop package
+- `chore(opencode):` maintenance in the opencode package
+
+Examples:
+
+- `docs: update contributing guidelines`
+- `fix: resolve crash on startup`
+- `feat: add dark mode support`
+- `feat(app): add dark mode support`
+- `fix(desktop): resolve crash on startup`
+- `chore: bump dependency versions`
+
+### Style Preferences
+
+These are not strictly enforced, they are just general guidelines:
+
+- **Functions:** Keep logic within a single function unless breaking it out adds clear reuse or composition benefits.
+- **Destructuring:** Do not do unnecessary destructuring of variables.
+- **Control flow:** Avoid `else` statements.
+- **Error handling:** Prefer `.catch(...)` instead of `try`/`catch` when possible.
+- **Types:** Reach for precise types and avoid `any`.
+- **Variables:** Stick to immutable patterns and avoid `let`.
+- **Naming:** Choose concise single-word identifiers when they remain descriptive.
+- **Runtime APIs:** Use Bun helpers such as `Bun.file()` when they fit the use case.
+
+## Feature Requests
+
+For net-new functionality, start with a design conversation. Open an issue describing the problem, your proposed approach (optional), and why it belongs in OpenCode. The core team will help decide whether it should move forward; please wait for that approval instead of opening a feature PR directly.
+
+## Issue Requirements
+
+All issues **must** use one of our issue templates:
+
+- **Bug report** — for reporting bugs (requires a description)
+- **Feature request** — for suggesting enhancements (requires verification checkbox and description)
+- **Question** — for asking questions (requires the question)
+
+Blank issues are not allowed. When a new issue is opened, an automated check verifies that it follows a template and meets our contributing guidelines. If an issue doesn't meet the requirements, you'll receive a comment explaining what needs to be fixed and have **2 hours** to edit the issue. After that, it will be automatically closed.
+
+Issues may be flagged for:
+
+- Not using a template
+- Required fields left empty or filled with placeholder text
+- AI-generated walls of text
+- Missing meaningful content
+
+If you believe your issue was incorrectly flagged, let a maintainer know.

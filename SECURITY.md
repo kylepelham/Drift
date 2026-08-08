@@ -1,51 +1,47 @@
-# Security Policy
+# Security
 
-## Supported versions
+## IMPORTANT
 
-Security fixes are applied to the current development branch and the newest published
-release. Older releases are not maintained as separate security branches.
+We do not accept AI generated security reports. We receive a large number of
+these and we absolutely do not have the resources to review them all. If you
+submit one that will be an automatic ban from the project.
 
-| Channel | Supported |
-| --- | --- |
-| Current `master` | Yes |
-| Latest release | Yes |
-| Older releases | No |
+## Threat Model
 
-## Report a vulnerability
+### Overview
 
-Use GitHub's
-[private vulnerability reporting](https://github.com/kylepelham/Drift/security/advisories/new)
-to report a suspected vulnerability. Do not open a public issue, discussion, or pull
-request before the report has been reviewed.
+OpenCode is an AI-powered coding assistant that runs locally on your machine. It provides an agent system with access to powerful tools including shell execution, file operations, and web access.
 
-Include as much of the following as is safe to share:
+### No Sandbox
 
-- The affected Drift version or commit.
-- The security impact and the boundary that was crossed.
-- Minimal reproduction steps or a proof of concept.
-- Relevant configuration with secrets removed.
-- Any mitigation you have already identified.
+OpenCode does **not** sandbox the agent. The permission system exists as a UX feature to help users stay aware of what actions the agent is taking - it prompts for confirmation before executing commands, writing files, etc. However, it is not designed to provide security isolation.
 
-Never include live provider keys, OAuth tokens, private prompts, proprietary source code,
-or unredacted logs. The maintainer will investigate the report, coordinate a fix and
-release when necessary, and credit reporters who want attribution.
+If you need true isolation, run OpenCode inside a Docker container or VM.
 
-## Scope
+### Server Mode
 
-Useful reports include, but are not limited to:
+Server mode is opt-in only. When enabled, set `OPENCODE_SERVER_PASSWORD` to require HTTP Basic Auth. Without this, the server runs unauthenticated (with a warning). It is the end user's responsibility to secure the server - any functionality it provides is not a vulnerability.
 
-- Exposure or bypass of the authenticated loopback sidecar.
-- Bypass of permission, MCP approval, or exact-definition checks.
-- Arbitrary code execution outside behavior explicitly authorized by the user.
-- Leakage of credentials or sensitive workspace data across trust boundaries.
-- Update signature verification or release-channel vulnerabilities.
-- Unsafe path handling that escapes a documented workspace or configuration boundary.
+### Out of Scope
 
-Drift is a coding agent and intentionally runs approved tools with the current user's
-permissions. A model editing files or running commands after authorization is not by
-itself a vulnerability. Prompt injection and unsafe model output are relevant when they
-bypass a Drift-enforced boundary.
+| Category                        | Rationale                                                               |
+| ------------------------------- | ----------------------------------------------------------------------- |
+| **Server access when opted-in** | If you enable server mode, API access is expected behavior              |
+| **Sandbox escapes**             | The permission system is not a sandbox (see above)                      |
+| **LLM provider data handling**  | Data sent to your configured LLM provider is governed by their policies |
+| **MCP server behavior**         | External MCP servers you configure are outside our trust boundary       |
+| **Malicious config files**      | Users control their own config; modifying it is not an attack vector    |
 
-If an issue exists entirely in the upstream OpenCode engine and is reproducible without
-Drift, report it through [OpenCode's security policy](https://github.com/sst/opencode/security/policy).
-You may still report it here when Drift changes the impact or exposes a separate boundary.
+---
+
+# Reporting Security Issues
+
+We appreciate your efforts to responsibly disclose your findings, and will make every effort to acknowledge your contributions.
+
+To report a security issue, please use the GitHub Security Advisory ["Report a Vulnerability"](https://github.com/anomalyco/opencode/security/advisories/new) tab.
+
+The team will send a response indicating the next steps in handling your report. After the initial reply to your report, the security team will keep you informed of the progress towards a fix and full announcement, and may ask for additional information or guidance.
+
+## Escalation
+
+If you do not receive an acknowledgement of your report within 6 business days, you may send an email to security@anoma.ly

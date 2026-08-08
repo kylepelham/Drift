@@ -1,7 +1,0 @@
-{
-  "name": "drift-engine-extensions",
-  "private": true,
-  "dependencies": {
-    "@opencode-ai/plugin": "*"
-  }
-}
