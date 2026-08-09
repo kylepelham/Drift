@@ -1,0 +1,176 @@
+diff --git a/packages/opencode/src/session/message-v2.ts b/packages/opencode/src/session/message-v2.ts
+index 9b3f2c46f..10e5af08e 100644
+--- a/packages/opencode/src/session/message-v2.ts
++++ b/packages/opencode/src/session/message-v2.ts
+@@ -518,29 +518,53 @@ export const get = Effect.fn("MessageV2.get")(function* (input: { sessionID: Ses
+   }
+ })
+ 
+-export function filterCompacted(msgs: Iterable<WithParts>) {
++export type CompactionScanner = {
++  /** Consumes one newest-first message; returns true once the compaction boundary is reached. */
++  push: (msg: WithParts) => boolean
++  finish: () => WithParts[]
++}
++
++// Incremental form of the newest-first compaction boundary scan. Paged callers can stop loading
++// history as soon as `push` reports the boundary instead of hydrating the whole session first.
++export function compactionScanner(): CompactionScanner {
+   const result = [] as WithParts[]
+   const completed = new Set<string>()
+   let retain: MessageID | undefined
+-  for (const msg of msgs) {
+-    result.push(msg)
+-    if (retain) {
+-      if (msg.info.id === retain) break
+-      continue
+-    }
+-    if (msg.info.role === "user" && completed.has(msg.info.id)) {
+-      const part = msg.parts.find((item): item is CompactionPart => item.type === "compaction")
+-      if (!part) continue
+-      if (!part.tail_start_id) break
+-      retain = part.tail_start_id
+-      if (msg.info.id === retain) break
+-      continue
+-    }
+-    if (msg.info.role === "user" && completed.has(msg.info.id) && msg.parts.some((part) => part.type === "compaction"))
+-      break
+-    if (msg.info.role === "assistant" && msg.info.summary && msg.info.finish && !msg.info.error)
+-      completed.add(msg.info.parentID)
++  let done = false
++  return {
++    push(msg) {
++      if (done) return true
++      result.push(msg)
++      if (retain) {
++        if (msg.info.id === retain) done = true
++        return done
++      }
++      if (msg.info.role === "user" && completed.has(msg.info.id)) {
++        const part = msg.parts.find((item): item is CompactionPart => item.type === "compaction")
++        if (!part) return false
++        if (!part.tail_start_id) {
++          done = true
++          return done
++        }
++        retain = part.tail_start_id
++        if (msg.info.id === retain) done = true
++        return done
++      }
++      if (msg.info.role === "assistant" && msg.info.summary && msg.info.finish && !msg.info.error)
++        completed.add(msg.info.parentID)
++      return false
++    },
++    finish: () => finalize(result),
+   }
++}
++
++export function filterCompacted(msgs: Iterable<WithParts>) {
++  const scanner = compactionScanner()
++  for (const msg of msgs) if (scanner.push(msg)) break
++  return scanner.finish()
++}
++
++function finalize(result: WithParts[]) {
+   result.reverse()
+   const compactionIndex = result.findLastIndex(
+     (msg) =>
+@@ -571,8 +595,31 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
+   return result
+ }
+ 
++// Pages newest-first and stops at the compaction boundary, so a long session hydrates only its
++// post-compaction tail instead of the entire message history on every agent step.
+ export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: SessionID) {
+-  return filterCompacted(yield* stream(sessionID))
++  const size = 50
++  const scanner = compactionScanner()
++  let before: string | undefined
++  let done = false
++  while (!done) {
++    const next = yield* page({ sessionID, limit: size, before }).pipe(
++      Effect.catchIf(NotFoundError.isInstance, () =>
++        Effect.succeed({ items: [] as WithParts[], more: false, cursor: undefined }),
++      ),
++    )
++    if (next.items.length === 0) break
++    for (let i = next.items.length - 1; i >= 0; i--) {
++      const item = next.items[i]
++      if (item && scanner.push(item)) {
++        done = true
++        break
++      }
++    }
++    if (!next.more || !next.cursor) break
++    before = next.cursor
++  }
++  return scanner.finish()
+ })
+ 
+ // filterCompacted reorders messages for model consumption
+diff --git a/packages/opencode/test/session/compaction-scan.test.ts b/packages/opencode/test/session/compaction-scan.test.ts
+new file mode 100644
+index 000000000..e8ee5f9cb
+--- /dev/null
++++ b/packages/opencode/test/session/compaction-scan.test.ts
+@@ -0,0 +1,60 @@
++import { expect, test } from "bun:test"
++import { compactionScanner, filterCompacted } from "../../src/session/message-v2"
++
++type Loose = Parameters<ReturnType<typeof compactionScanner>["push"]>[0]
++
++function user(id: string, parts: object[] = []): Loose {
++  return { info: { id, role: "user", time: { created: 1 } }, parts } as Loose
++}
++
++function assistant(id: string, parentID: string, options: { summary?: boolean } = {}): Loose {
++  return {
++    info: {
++      id,
++      role: "assistant",
++      parentID,
++      time: { created: 1 },
++      summary: options.summary ?? false,
++      finish: options.summary ? "stop" : undefined,
++    },
++    parts: [],
++  } as unknown as Loose
++}
++
++const compaction = (tail: string) => ({ type: "compaction", tail_start_id: tail })
++
++// Chronological: u1 a1 u2(compaction tail=u1) a2(summary of u2) u3 a3
++const tail = [assistant("a3", "u3"), user("u3"), assistant("a2", "u2", { summary: true })]
++const boundary = [user("u2", [compaction("u1")]), assistant("a1", "u1"), user("u1")]
++const ancient = [assistant("a0", "u0"), user("u0")]
++
++test("filterCompacted reorders the compacted session for model consumption", () => {
++  const result = filterCompacted([...tail, ...boundary, ...ancient])
++  expect(result.map((m) => m.info.id as string)).toEqual(["u2", "a2", "u1", "a1", "u3", "a3"])
++})
++
++test("the scanner reports the boundary so paged callers stop loading history", () => {
++  const scanner = compactionScanner()
++  const consumed: string[] = []
++  for (const msg of [...tail, ...boundary, ...ancient]) {
++    consumed.push(msg.info.id as string)
++    if (scanner.push(msg)) break
++  }
++  // Stops at u1 (the compaction tail start); the ancient messages are never consumed.
++  expect(consumed).toEqual(["a3", "u3", "a2", "u2", "a1", "u1"])
++  expect(scanner.push(ancient[0]!)).toBeTrue()
++  expect(scanner.finish().map((m) => m.info.id as string)).toEqual(["u2", "a2", "u1", "a1", "u3", "a3"])
++})
++
++test("sessions without compaction keep their full chronological history", () => {
++  const msgs = [assistant("a1", "u1"), user("u1")]
++  expect(filterCompacted(msgs).map((m) => m.info.id as string)).toEqual(["u1", "a1"])
++})
++
++test("the effect pages instead of streaming the whole session", async () => {
++  const source = await Bun.file(new URL("../../src/session/message-v2.ts", import.meta.url)).text()
++  const effect = source.slice(source.indexOf("export const filterCompactedEffect"))
++  expect(effect).toContain("compactionScanner()")
++  expect(effect).toContain("page({ sessionID, limit: size, before })")
++  expect(effect).not.toContain("yield* stream(")
++})

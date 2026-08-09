@@ -77,6 +77,9 @@ await withEngineOverlays(async () => {
   await run("packages/opencode", ["test/server/httpapi-instance-route-auth.test.ts"])
   await run("packages/opencode", ["test/tool/shell.test.ts", "-t", "terminates command on timeout"])
   await run("packages/opencode", ["test/tool/shell-timeout.test.ts"])
+  await run("packages/opencode", ["test/tool/shell-output-throttle.test.ts"])
+  await run("packages/opencode", ["test/server/sse-backpressure.test.ts"])
+  await run("packages/opencode", ["test/session/compaction-scan.test.ts"])
   await run("packages/opencode", ["test/mcp/lifecycle.test.ts", "-t", "required Drift mode"], {
     DRIFT_MCP_APPROVAL_REQUIRED: "1",
   })

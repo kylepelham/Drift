@@ -1,0 +1,91 @@
+diff --git a/packages/opencode/src/tool/shell.ts b/packages/opencode/src/tool/shell.ts
+index 4a9c02571..f06f3b089 100644
+--- a/packages/opencode/src/tool/shell.ts
++++ b/packages/opencode/src/tool/shell.ts
+@@ -26,6 +26,9 @@ import { ShellTimeout } from "./shell-timeout"
+ export { Parameters } from "./shell/prompt"
+ 
+ const MAX_METADATA_LENGTH = 30_000
++// Every streaming metadata update publishes a durable part-updated event carrying the whole
++// retained output tail, so per-chunk publishing floods the event log and every SSE subscriber.
++const STREAM_METADATA_INTERVAL_MS = 250
+ const CWD = new Set(["cd", "chdir", "popd", "pushd", "push-location", "set-location"])
+ const FILES = new Set([
+   ...CWD,
+@@ -448,6 +451,21 @@ export const ShellTool = Tool.define(
+       let cut = false
+       let expired = false
+       let aborted = false
++      let metadataAt = 0
++
++      // Throttled streaming metadata. Skipped updates are safe: the timeout path and the final
++      // result both publish the retained tail unconditionally, so nothing is lost at the end.
++      const streamMetadata = Effect.suspend(() => {
++        const now = Date.now()
++        if (now - metadataAt < STREAM_METADATA_INTERVAL_MS) return Effect.void
++        metadataAt = now
++        return ctx.metadata({
++          metadata: {
++            output: last,
++            shellTimeoutMs: input.displayTimeout ?? null,
++          },
++        })
++      })
+ 
+       const closeSink = Effect.fnUntraced(function* () {
+         const stream = sink
+@@ -514,24 +532,12 @@ export const ShellTool = Tool.define(
+                         full = ""
+                       }),
+                     ),
+-                    Effect.andThen(
+-                      ctx.metadata({
+-                        metadata: {
+-                          output: last,
+-                          shellTimeoutMs: input.displayTimeout ?? null,
+-                        },
+-                      }),
+-                    ),
++                    Effect.andThen(streamMetadata),
+                   )
+                 }
+               }
+ 
+-              return ctx.metadata({
+-                metadata: {
+-                  output: last,
+-                  shellTimeoutMs: input.displayTimeout ?? null,
+-                },
+-              })
++              return streamMetadata
+             }),
+           )
+ 
+diff --git a/packages/opencode/test/tool/shell-output-throttle.test.ts b/packages/opencode/test/tool/shell-output-throttle.test.ts
+new file mode 100644
+index 000000000..4dd8e711e
+--- /dev/null
++++ b/packages/opencode/test/tool/shell-output-throttle.test.ts
+@@ -0,0 +1,22 @@
++import { expect, test } from "bun:test"
++
++const shell = await Bun.file(new URL("../../src/tool/shell.ts", import.meta.url)).text()
++
++test("streaming shell metadata is throttled instead of published per chunk", () => {
++  expect(shell).toContain("const STREAM_METADATA_INTERVAL_MS = 250")
++  expect(shell).toContain("if (now - metadataAt < STREAM_METADATA_INTERVAL_MS) return Effect.void")
++  // The chunk callback must route every streaming update through the throttle.
++  expect(shell).toContain("return streamMetadata")
++  expect(shell).toContain("Effect.andThen(streamMetadata)")
++  // No unthrottled streaming publish remains inside the chunk callback: the only direct
++  // ctx.metadata calls left are the initial, timeout, and permission-time updates.
++  const streaming = shell.slice(shell.indexOf("Stream.runForEach"), shell.indexOf("const abort"))
++  expect(streaming).not.toContain("ctx.metadata")
++})
++
++test("the throttle cannot suppress terminal output states", () => {
++  // Timeout publishes unconditionally so the UI always shows the final tail and timedOut flag.
++  expect(shell).toContain("timedOut: true")
++  // The tool result carries the full retained tail regardless of throttle timing.
++  expect(shell).toContain("output: last || preview(output)")
++})
