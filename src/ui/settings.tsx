@@ -37,6 +37,9 @@ import {
   collapseCompaction,
   compactionCollapsed,
   customSound,
+  responseAnimationSpeed,
+  responseAnimationSpeedMax,
+  responseAnimationSpeedMin,
   setAlertSound,
   setAnimateResponses,
   setAutoAcceptGlobal,
@@ -44,6 +47,7 @@ import {
   setCollapseCompaction,
   setCompactionCollapsed,
   setCustomSound,
+  setResponseAnimationSpeed,
   setShowReasoning,
   setShellTimeoutMs,
   listenShellTimeoutError,
@@ -383,6 +387,34 @@ function GeneralSection() {
             onChange={() => setAnimateResponses(!animateResponses())}
           />
         </SettingsRow>
+        <Show when={animateResponses()}>
+          <SettingsRow
+            title={t("drift.settings.responseAnimation.speed.title")}
+            description={t("drift.settings.responseAnimation.speed.description")}
+          >
+            <div class="flex items-center gap-2.5">
+              <input
+                id="response-reveal-speed"
+                type="range"
+                class="response-speed-slider"
+                min={responseAnimationSpeedMin}
+                max={responseAnimationSpeedMax}
+                step="12"
+                value={responseAnimationSpeed()}
+                aria-label={t("drift.settings.responseAnimation.speed.title")}
+                aria-valuetext={t("drift.settings.responseAnimation.speed.value", { speed: responseAnimationSpeed() })}
+                onInput={(event) => setResponseAnimationSpeed(event.currentTarget.valueAsNumber)}
+              />
+              <output
+                for="response-reveal-speed"
+                class="w-7 text-right text-[0.68rem] tabular-nums text-ink-faint"
+                title={t("drift.settings.responseAnimation.speed.value", { speed: responseAnimationSpeed() })}
+              >
+                {responseAnimationSpeed()}
+              </output>
+            </div>
+          </SettingsRow>
+        </Show>
       </SettingsGroup>
 
       <SettingsGroup title={t("settings.agents.title")}>

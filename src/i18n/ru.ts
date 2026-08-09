@@ -1131,6 +1131,9 @@ export const drift = {
   "drift.settings.toolErrors.title": "Разворачивать ошибки инструментов по умолчанию",
   "drift.settings.responseAnimation.title": "Плавное появление ответов",
   "drift.settings.responseAnimation.description": "Плавно показывать большие фрагменты текста в текущем ответе ассистента. Предыдущие ответы отображаются мгновенно.",
+  "drift.settings.responseAnimation.speed.title": "Скорость появления",
+  "drift.settings.responseAnimation.speed.description": "Выберите скорость появления текста текущего ответа ассистента.",
+  "drift.settings.responseAnimation.speed.value": "{{speed}} симв./с",
   "drift.settings.toolErrors.description":
     "Выберите начальное состояние. Строки с ошибками в любом случае останутся кликабельными.",
   "drift.settings.summaries": "Сводки",

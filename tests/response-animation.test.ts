@@ -6,6 +6,12 @@ import {
   revealBoundary,
   revealStep,
 } from "../src/ui/response-animation"
+import {
+  normalizeResponseAnimationSpeed,
+  responseAnimationSpeedDefault,
+  responseAnimationSpeedMax,
+  responseAnimationSpeedMin,
+} from "../src/state/prefs"
 
 const frameMs = 16
 
@@ -36,10 +42,9 @@ function runPacer(chunks: string[], options: { framesPerChunk?: number } = {}) {
   return { emitted, pacer, remaining: () => !!pending }
 }
 
-test("reveal releases on whitespace boundaries and always advances", () => {
+test("reveal advances by characters instead of jumping between words", () => {
   expect(revealBoundary("hello world again", 0, 11)).toBe(11)
-  expect(revealBoundary("hello world again", 0, 8)).toBe(5)
-  // A word longer than the budget still advances rather than stalling forever.
+  expect(revealBoundary("hello world again", 0, 8)).toBe(8)
   expect(revealBoundary("supercalifragilistic", 0, 6)).toBe(6)
   expect(revealBoundary("short", 0, 99)).toBe(5)
   expect(revealBoundary("😀😀", 0, 1)).toBe(2)
@@ -61,7 +66,23 @@ test("a large backlog accelerates but still spans multiple frames", () => {
   const burst = revealStep({ revealed: 0, target, elapsedMs: frameMs })
   const steady = revealStep({ revealed: 0, target: "x".repeat(100), elapsedMs: frameMs })
   expect(burst).toBeGreaterThan(steady)
+  expect(burst).toBeLessThanOrEqual(steady * 2)
   expect(burst).toBeLessThan(backlog)
+})
+
+test("normal streaming types roughly one character per display frame", () => {
+  const target = "a response long enough to animate smoothly"
+  const first = revealStep({ revealed: 0, target, elapsedMs: frameMs })
+  const second = revealStep({ revealed: first, target, elapsedMs: frameMs })
+  expect(first).toBe(2)
+  expect(second).toBe(4)
+})
+
+test("response animation speed is bounded and defaults safely", () => {
+  expect(normalizeResponseAnimationSpeed(undefined)).toBe(responseAnimationSpeedDefault)
+  expect(normalizeResponseAnimationSpeed(responseAnimationSpeedMin - 1)).toBe(responseAnimationSpeedMin)
+  expect(normalizeResponseAnimationSpeed(responseAnimationSpeedMax + 1)).toBe(responseAnimationSpeedMax)
+  expect(normalizeResponseAnimationSpeed(211.6)).toBe(212)
 })
 
 test("one large chunk and many small chunks reveal at the same pace", () => {
@@ -107,6 +128,7 @@ test("response animation preference defaults off", async () => {
     Object.defineProperty(globalThis, "localStorage", {
       value: { getItem: () => null, setItem: () => undefined },
     })
-  const { animateResponses } = await import("../src/state/prefs")
+  const { animateResponses, responseAnimationSpeed } = await import("../src/state/prefs")
   expect(animateResponses()).toBeFalse()
+  expect(responseAnimationSpeed()).toBe(responseAnimationSpeedDefault)
 })

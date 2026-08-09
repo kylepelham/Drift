@@ -449,6 +449,57 @@ textarea {
   background: linear-gradient(to bottom, color-mix(in srgb, black 11%, transparent), transparent 72%);
 }
 
+.response-speed-slider {
+  width: 7rem;
+  height: 1rem;
+  appearance: none;
+  cursor: pointer;
+  background: transparent;
+}
+
+.response-speed-slider::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 999px;
+  background: var(--edge-strong);
+}
+
+.response-speed-slider::-webkit-slider-thumb {
+  width: 10px;
+  height: 10px;
+  margin-top: -4px;
+  appearance: none;
+  border: 1px solid var(--edge-strong);
+  border-radius: 999px;
+  background: var(--ink-muted);
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.response-speed-slider:hover::-webkit-slider-thumb {
+  background: var(--ink);
+}
+
+.response-speed-slider:focus-visible {
+  outline: none;
+}
+
+.response-speed-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.response-speed-slider::-moz-range-track {
+  height: 2px;
+  border-radius: 999px;
+  background: var(--edge-strong);
+}
+
+.response-speed-slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--edge-strong);
+  border-radius: 999px;
+  background: var(--ink-muted);
+}
+
 .dock-card {
   box-shadow: 0 -12px 32px color-mix(in srgb, black 13%, transparent);
 }

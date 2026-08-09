@@ -1052,6 +1052,9 @@ export const drift = {
   "drift.settings.toolErrors.title": "Domyślnie rozwijaj błędy narzędzi",
   "drift.settings.responseAnimation.title": "Płynne wyświetlanie odpowiedzi",
   "drift.settings.responseAnimation.description": "Płynnie pokazuj duże fragmenty tekstu w aktywnej odpowiedzi asystenta. Poprzednie odpowiedzi pojawiają się natychmiast.",
+  "drift.settings.responseAnimation.speed.title": "Szybkość wyświetlania",
+  "drift.settings.responseAnimation.speed.description": "Wybierz szybkość wyświetlania tekstu aktywnej odpowiedzi asystenta.",
+  "drift.settings.responseAnimation.speed.value": "{{speed}} znaków/s",
   "drift.settings.toolErrors.description":
     "Wybierz stan początkowy. Wiersze błędów pozostaną klikalne w obu przypadkach.",
   "drift.settings.summaries": "Podsumowania",

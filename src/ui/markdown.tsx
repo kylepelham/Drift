@@ -5,7 +5,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 import { shellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import { syntaxTheme } from "../state/code"
-import { animateResponses } from "../state/prefs"
+import { animateResponses, responseAnimationSpeed } from "../state/prefs"
 import { createRevealPacer, responseAnimationInterruptEvent } from "./response-animation"
 
 marked.use({ gfm: true, breaks: true })
@@ -582,16 +582,19 @@ export function Markdown(props: {
   let root!: HTMLDivElement
   let request = 0
   let identity = props.responseID
+  const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+  const animationAllowed = () => animateResponses() && !!props.responseID && !reducedMotion()
+  const shouldStartPacing = () => animationAllowed() && !!props.live && !props.done
+  let pacing = shouldStartPacing()
   let sourceSignatures: string[] = []
   let renderedTheme: BundledTheme | undefined
-  const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
-  const shouldPace = () => animateResponses() && !!props.responseID && !!props.live && !props.done && !reducedMotion()
-  const [revealed, setRevealed] = createSignal(shouldPace() ? "" : props.text)
+  const [revealed, setRevealed] = createSignal(pacing ? "" : props.text)
   const pacer = createRevealPacer({
     schedule: (callback) => requestAnimationFrame(callback),
     cancel: cancelAnimationFrame,
     now: () => performance.now(),
     emit: setRevealed,
+    charsPerSecond: responseAnimationSpeed,
   })
   const html = createMemo(() =>
     DOMPurify.sanitize(marked.parse(prepareMarkdown(revealed(), props.humanAuthored), { async: false })),
@@ -604,21 +607,26 @@ export function Markdown(props: {
   })
 
   function finishActiveReveal() {
+    pacing = false
     pacer.flush(props.text)
   }
 
-  // Paces live text into the DOM at a steady rate so the reveal reflects reading speed rather than
-  // whatever chunk size the provider happens to stream. Everything else renders immediately.
+  // A response that started live keeps typing its remaining buffered text after completion. Responses
+  // that mount already complete render immediately, so opening an old thread never replays animations.
   createEffect(() => {
     const text = props.text
     const responseID = props.responseID
     if (responseID !== identity) {
       identity = responseID
       pacer.reset()
-      if (shouldPace()) setRevealed("")
+      pacing = shouldStartPacing()
+      if (pacing) setRevealed("")
     }
-    if (shouldPace()) pacer.push(text)
-    else pacer.flush(text)
+    if (pacing && animationAllowed()) pacer.push(text)
+    else {
+      pacing = false
+      pacer.flush(text)
+    }
   })
 
   createEffect(() => {

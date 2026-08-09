@@ -10,6 +10,14 @@ export type CustomSound = { name: string; dataUrl: string }
 export const shellTimeoutPresets = [60_000, 300_000, 900_000, 1_800_000] as const
 export const shellTimeoutMinMs = 60_000
 export const shellTimeoutMaxMs = 86_400_000
+export const responseAnimationSpeedMin = 60
+export const responseAnimationSpeedMax = 600
+export const responseAnimationSpeedDefault = 144
+
+export function normalizeResponseAnimationSpeed(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return responseAnimationSpeedDefault
+  return Math.min(responseAnimationSpeedMax, Math.max(responseAnimationSpeedMin, Math.round(value)))
+}
 
 export function normalizeShellTimeout(value: unknown): number | null {
   if (value === null) return null
@@ -34,6 +42,11 @@ export const [modelProviderOrder, setModelProviderOrder] = persisted<string[]>("
 export const [showReasoning, setShowReasoning] = persisted<boolean>("drift.reasoning", false)
 export const [toolErrorsExpanded, setToolErrorsExpanded] = persisted<boolean>("drift.toolErrors.expanded", false)
 export const [animateResponses, setAnimateResponses] = persisted<boolean>("drift.responses.animate", false)
+export const [responseAnimationSpeed, setResponseAnimationSpeed] = persisted<number>(
+  "drift.responses.speed",
+  responseAnimationSpeedDefault,
+  normalizeResponseAnimationSpeed,
+)
 export const [shellTimeoutMs, setShellTimeoutValue] = persisted<number | null>(
   "drift.shell.timeout",
   null,

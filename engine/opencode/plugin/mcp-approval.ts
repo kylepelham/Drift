@@ -26,7 +26,10 @@ export const McpApproval: Plugin = async (input, options) => {
       const definitions = Object.entries(mcp).filter(
         (entry): entry is [string, McpDefinition] => isDefinition(entry[1]),
       )
-      for (const name of Object.keys(mcp)) mcp[name] = { enabled: false }
+      // Config merges can retain this source object's identity in OpenCode's global cache. Filter
+      // into a new map so approval never replaces the definitions needed by a later config reload.
+      const filtered = Object.fromEntries(Object.keys(mcp).map((name) => [name, { enabled: false }]))
+      config.mcp = filtered
       if (!definitions.length) return seal(config)
 
       const settings = readOptions(options)
@@ -57,7 +60,7 @@ export const McpApproval: Plugin = async (input, options) => {
       if (!reported) return seal(config)
 
       for (let index = 0; index < definitions.length; index++) {
-        if (observed[index].decision === "approved") mcp[definitions[index][0]] = definitions[index][1]
+        if (observed[index].decision === "approved") filtered[definitions[index][0]] = definitions[index][1]
       }
       seal(config)
     },

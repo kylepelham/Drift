@@ -1,19 +1,15 @@
 export const responseAnimationInterruptEvent = "drift:response-animation-interrupt"
-/** Steady release rate. Fast enough to stay ahead of reading, slow enough to read as motion. */
-export const responseRevealCharsPerSecond = 900
-/** Backlog past which the reveal accelerates, so a large burst cannot trail by seconds. */
-export const responseRevealMaxBacklogChars = 1200
+/** A restrained typewriter pace that normally reveals about one character per display frame. */
+export const responseRevealCharsPerSecond = 144
+/** Backlog past which typing gradually accelerates, capped at twice the normal pace. */
+export const responseRevealMaxBacklogChars = 600
 
 /**
- * Picks how far to reveal, preferring the last whitespace at or before `limit`.
- *
- * Releasing on word boundaries keeps partially rendered markdown from flickering between tokens.
- * When a single word is longer than the budget the limit is used directly, so progress is
- * guaranteed and the reveal can never stall.
+ * Keeps a character reveal from splitting a UTF-16 surrogate pair.
  */
 export function revealBoundary(text: string, from: number, limit: number) {
   if (limit >= text.length) return text.length
-  for (let index = limit; index > from; index--) if (/\s/.test(text[index]!)) return index
+  if (limit <= from) return from
   const previous = text.charCodeAt(limit - 1)
   const current = text.charCodeAt(limit)
   const splitsSurrogate = previous >= 0xd800 && previous <= 0xdbff && current >= 0xdc00 && current <= 0xdfff
@@ -40,8 +36,8 @@ export function revealStep(step: RevealStep) {
   if (backlog <= 0) return step.target.length
   const base = step.charsPerSecond ?? responseRevealCharsPerSecond
   const maxBacklog = step.maxBacklogChars ?? responseRevealMaxBacklogChars
-  const rate = backlog > maxBacklog ? (base * backlog) / maxBacklog : base
-  const budget = Math.max(1, Math.round((rate * Math.max(0, step.elapsedMs)) / 1000))
+  const rate = base * Math.min(2, Math.max(1, backlog / maxBacklog))
+  const budget = Math.floor((rate * Math.max(0, step.elapsedMs)) / 1000)
   return revealBoundary(step.target, step.revealed, Math.min(step.target.length, step.revealed + budget))
 }
 
@@ -50,7 +46,7 @@ export type RevealPacerOptions = {
   cancel: (handle: number) => void
   now: () => number
   emit: (text: string) => void
-  charsPerSecond?: number
+  charsPerSecond?: number | (() => number)
   maxBacklogChars?: number
 }
 
@@ -79,15 +75,17 @@ export function createRevealPacer(options: RevealPacerOptions) {
   function tick() {
     frame = undefined
     const now = options.now()
+    const charsPerSecond =
+      typeof options.charsPerSecond === "function" ? options.charsPerSecond() : options.charsPerSecond
     const next = revealStep({
       revealed,
       target,
       elapsedMs: now - last,
-      charsPerSecond: options.charsPerSecond,
+      charsPerSecond,
       maxBacklogChars: options.maxBacklogChars,
     })
-    last = now
     if (next !== revealed) {
+      last = now
       revealed = next
       options.emit(target.slice(0, revealed))
     }
