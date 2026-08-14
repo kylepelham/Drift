@@ -18,6 +18,7 @@ import {
   askRevision,
   bumpAskRevision,
   captureRevisions,
+  compareMessages,
   interruptStaleTools,
   mergeTranscriptSnapshot,
   normalizeDir,
@@ -123,7 +124,7 @@ export function createActions(
     const existed = id in state.sessions
     const result = await requireClient().session.messages({ path: { id }, query: { limit: pageSize } })
     const entries = interruptStaleTools(
-      [...requireSdkData(result, "Could not load transcript")].sort((a, b) => a.info.id.localeCompare(b.info.id)),
+      [...requireSdkData(result, "Could not load transcript")].sort(compareMessages),
       state.liveTools,
       t("drift.message.interrupted"),
     )
@@ -159,7 +160,7 @@ export function createActions(
     if (!response) return false
     const older = await readJson<MessageEntry[]>(response, [])
     const sorted = interruptStaleTools(
-      [...older].sort((a, b) => a.info.id.localeCompare(b.info.id)),
+      [...older].sort(compareMessages),
       state.liveTools,
       t("drift.message.interrupted"),
     )

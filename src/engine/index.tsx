@@ -21,6 +21,7 @@ import { streamEvents } from "./sse"
 import { seedBench } from "./bench"
 import {
   captureRevisions,
+  compareMessages,
   createEngineState,
   interruptStaleTools,
   mergeTranscriptSnapshot,
@@ -139,7 +140,7 @@ export function EngineProvider(props: ParentProps) {
           // Reconciliation or a deletion event removed the session; do not resurrect its transcript.
           if (!state.sessions[id]) continue
           const entries = interruptStaleTools(
-            [...result.data].sort((a, b) => a.info.id.localeCompare(b.info.id)),
+            [...result.data].sort(compareMessages),
             state.liveTools,
             t("drift.message.interrupted"),
           )

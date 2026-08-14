@@ -49,16 +49,28 @@ export function messageText(entry: MessageEntry) {
     .join("\n")
 }
 
+// Engine IDs are not chronologically sortable (the embedded timestamp wraps), so order by time first.
+export function compareMessages(a: MessageEntry, b: MessageEntry) {
+  return a.info.time.created - b.info.time.created || a.info.id.localeCompare(b.info.id)
+}
+
+function messageBoundary(entries: MessageEntry[], id: string | undefined, entry: MessageEntry) {
+  const boundary = id ? entries.find((candidate) => candidate.info.id === id) : undefined
+  if (!boundary) return id ? entry.info.id.localeCompare(id) : undefined
+  return compareMessages(entry, boundary)
+}
+
 export function previousUserMessage(entries: MessageEntry[], before?: string) {
   return entries
-    .filter((entry) => entry.info.role === "user" && (!before || entry.info.id < before))
-    .sort((a, b) => b.info.id.localeCompare(a.info.id))[0]
+    .filter((entry) => entry.info.role === "user" && (messageBoundary(entries, before, entry) ?? -1) < 0)
+    .sort(compareMessages)
+    .at(-1)
 }
 
 export function nextUserMessage(entries: MessageEntry[], after: string) {
   return entries
-    .filter((entry) => entry.info.role === "user" && entry.info.id > after)
-    .sort((a, b) => a.info.id.localeCompare(b.info.id))[0]
+    .filter((entry) => entry.info.role === "user" && (messageBoundary(entries, after, entry) ?? 1) > 0)
+    .sort(compareMessages)[0]
 }
 
 export type SessionActivity = { tools: number; lastPartId: string; current?: string }
@@ -271,7 +283,7 @@ export function mergeTranscriptSnapshot(
     return current ? [current] : []
   })
   for (const entry of live ?? []) if (advanced(entry.info.id) && !snapshotIds.has(entry.info.id)) merged.push(entry)
-  return merged.sort((a, b) => a.info.id.localeCompare(b.info.id))
+  return merged.sort(compareMessages)
 }
 
 export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo | undefined {

@@ -1,4 +1,4 @@
-import { messageText, nextUserMessage, type MessageEntry } from "../engine/store"
+import { compareMessages, messageText, nextUserMessage, type MessageEntry } from "../engine/store"
 import { clearComposerDraft, composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
 
 export type RevertHost = {
@@ -11,9 +11,14 @@ export type RevertHost = {
 
 export function revertDockEntries(entries: MessageEntry[], marker?: string) {
   if (!marker) return []
+  const boundary = entries.find((entry) => entry.info.id === marker)
   return entries
-    .filter((entry) => entry.info.role === "user" && entry.info.id >= marker)
-    .sort((a, b) => b.info.id.localeCompare(a.info.id))
+    .filter((entry) => {
+      if (entry.info.role !== "user") return false
+      if (boundary) return compareMessages(entry, boundary) >= 0
+      return entry.info.id >= marker
+    })
+    .sort((a, b) => compareMessages(b, a))
 }
 
 export function revertPreview(entry?: MessageEntry) {

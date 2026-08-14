@@ -1,7 +1,7 @@
 import type { AssistantMessage, Part, SessionStatus } from "@opencode-ai/sdk/client"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
-import { messageText, type MessageEntry } from "../engine/store"
+import { compareMessages, messageText, type MessageEntry } from "../engine/store"
 import { codeFontSize } from "../state/code"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
@@ -42,9 +42,15 @@ export function Chat() {
     const id = selectedSession()
     if (!id) return []
     const revertedAt = engine.state.sessions[id]?.revert?.messageID
-    const sorted = [...(engine.state.transcripts[id] ?? [])]
-      .filter((entry) => !revertedAt || entry.info.id < revertedAt)
-      .sort((a, b) => a.info.id.localeCompare(b.info.id))
+    const transcript = engine.state.transcripts[id] ?? []
+    const boundary = revertedAt ? transcript.find((entry) => entry.info.id === revertedAt) : undefined
+    const sorted = [...transcript]
+      .filter((entry) => {
+        if (!revertedAt) return true
+        if (boundary) return compareMessages(entry, boundary) < 0
+        return entry.info.id < revertedAt
+      })
+      .sort(compareMessages)
     return mergeCompactionEntries(sorted)
   })
   const sessionError = createMemo(() => {
