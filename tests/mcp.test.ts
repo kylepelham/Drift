@@ -116,6 +116,22 @@ describe("global MCP approval gate", () => {
     expect(JSON.stringify(invalid)).not.toContain("secret")
   })
 
+  test("does not corrupt cached source definitions while filtering MCPs", async () => {
+    const setup = await fixture()
+    const source = {
+      docs: { type: "remote" as const, url: "https://example.com/mcp" },
+      malformed: { command: ["unsafe"] },
+    }
+    const config = { mcp: source }
+    await run("S:/repo", config, setup)
+    expect(config.mcp).not.toBe(source)
+    expect(config.mcp).toEqual({ docs: { enabled: false }, malformed: { enabled: false } })
+    expect(source).toEqual({
+      docs: { type: "remote", url: "https://example.com/mcp" },
+      malformed: { command: ["unsafe"] },
+    })
+  })
+
   test("fail-closed sentinel overrides an otherwise approved policy", async () => {
     const setup = await fixture(3)
     const definition = { type: "remote" as const, url: "https://example.com" }

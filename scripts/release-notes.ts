@@ -30,7 +30,7 @@ function escapePromptBlock(value: string) {
 }
 
 function policyLinks(repository: string) {
-  return `[Code signing policy](https://github.com/${repository}/blob/master/CODE_SIGNING.md) | [Privacy policy](https://github.com/${repository}/blob/master/PRIVACY.md)`
+  return `[Privacy policy](https://github.com/${repository}/blob/master/PRIVACY.md)`
 }
 
 export function cleanModelNotes(value: string) {

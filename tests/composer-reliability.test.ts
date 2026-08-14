@@ -443,19 +443,35 @@ test("engine send reports admission, SDK rejection, and thrown transport failure
   const { createEngineState } = await import("../src/engine/store")
   const [state, set] = createEngineState()
   let result: { data?: unknown; error?: unknown } | Error = { data: {} }
+  let request: unknown
   const client = {
     session: {
-      promptAsync: async () => {
+      promptAsync: async (input: unknown) => {
+        request = input
         if (result instanceof Error) throw result
         return result
       },
     },
   }
   const actions = createActions(() => client as never, state, set, () => undefined)
-  const options = { model: null, agent: "build", files: [attachment] }
+  const options = {
+    model: { providerID: "anthropic", modelID: "claude-opus-5" },
+    agent: "build",
+    variant: "high",
+    files: [attachment],
+  }
 
   expect(await actions.send("send-session", "", options)).toEqual({ ok: true })
   expect(state.errors["send-session"]).toBeUndefined()
+  expect(request).toMatchObject({
+    path: { id: "send-session" },
+    body: {
+      model: { providerID: "anthropic", modelID: "claude-opus-5" },
+      agent: "build",
+      variant: "high",
+      parts: [{ type: "file" }],
+    },
+  })
 
   result = { error: { data: { message: "quota exceeded" } } }
   expect(await actions.send("send-session", "retry", options)).toEqual({

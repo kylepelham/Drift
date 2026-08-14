@@ -38,14 +38,17 @@ export function compareStableTags(left: string, right: string) {
   return 0
 }
 
-export function developmentTag(tags: string[], exactTag?: string, dirty = true) {
+export function developmentTag(tags: string[], exactTag?: string, dirty = true, declaredTag?: string) {
   if (!dirty && exactTag && stableTagPattern.test(exactTag)) return exactTag
   const latest = tags.filter((tag) => stableTagPattern.test(tag)).reduce<string | undefined>((current, tag) => {
     return !current || compareStableTags(tag, current) > 0 ? tag : current
   }, undefined)
   if (!latest) throw new Error("Cannot derive development version without a stable tag")
   const [major, minor, patch] = versionParts(latest)
-  return `v${major}.${minor}.${patch + 1n}`
+  const next = `v${major}.${minor}.${patch + 1n}`
+  return declaredTag && stableTagPattern.test(declaredTag) && compareStableTags(declaredTag, next) > 0
+    ? declaredTag
+    : next
 }
 
 export function latestStableTag(tags: string[], releases: GitHubRelease[], currentTag: string) {
@@ -243,7 +246,8 @@ export function stampDevelopmentVersion(root = path.resolve(import.meta.dirname,
   const tags = git(["tag", "--list"]).output.split("\n").filter(Boolean)
   const exactTag = git(["describe", "--tags", "--exact-match", "HEAD"], true).output || undefined
   const dirty = git(["status", "--porcelain"]).output.length > 0
-  return stampReleaseVersion(developmentTag(tags, exactTag, dirty), root)
+  const manifest = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as { version: string }
+  return stampReleaseVersion(developmentTag(tags, exactTag, dirty, `v${manifest.version}`), root)
 }
 
 export function sealReleaseNotes(notesFile: string, runId: string, commit: string, assetsDirectory: string) {

@@ -1,4 +1,4 @@
-import { shellInvoke } from "../shell"
+import { backendInvoke } from "../backend"
 
 export type PromptFamily = { id: string; original: string; default: string }
 export type PromptCatalogAgent = { name: string; prompt: string }
@@ -7,19 +7,19 @@ export type PromptOverride = { key: string; value: unknown; original?: unknown; 
 export type PromptSnapshot = { catalog: PromptCatalog; overrides: PromptOverride[] }
 
 export function loadPromptSnapshot() {
-  const invoke = shellInvoke()
+  const invoke = backendInvoke()
   return invoke ? invoke<PromptSnapshot>("prompt_snapshot") : Promise.resolve<PromptSnapshot | null>(null)
 }
 
 export async function savePromptOverride(key: string, value: unknown, original?: unknown) {
-  const invoke = shellInvoke()
-  if (!invoke) throw new Error("Prompt editing requires the Drift desktop backend")
+  const invoke = backendInvoke()
+  if (!invoke) throw new Error("Prompt editing requires the Drift host backend")
   await invoke("prompt_save", { key, value, original })
 }
 
 export async function resetPromptOverride(key: string) {
-  const invoke = shellInvoke()
-  if (!invoke) throw new Error("Prompt editing requires the Drift desktop backend")
+  const invoke = backendInvoke()
+  if (!invoke) throw new Error("Prompt editing requires the Drift host backend")
   await invoke("prompt_reset", { key })
 }
 

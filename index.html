@@ -2,7 +2,7 @@
 <html lang="en" data-theme="drift-dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <link rel="icon" href="/src/assets/logo.svg" />
     <title>Drift</title>
     <script>
@@ -120,6 +120,20 @@
         <span>Opening Drift...</span>
       </div>
     </div>
+    <script>
+      // Native setup hides the window before the event loop can paint its empty webview. Reveal it
+      // after the preload splash's first committed frame: the second animation frame only fires
+      // once the first has painted. Browser and remote-mirror runtimes have no window to show.
+      ;(function () {
+        var tauri = window.__TAURI__
+        if (!tauri) return
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            tauri.core.invoke("show_main_window").catch(function () {})
+          })
+        })
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

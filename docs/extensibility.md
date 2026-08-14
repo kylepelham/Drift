@@ -11,7 +11,7 @@
     User plugins in `.opencode/` and global config work unchanged, but execute arbitrary
     engine-process code and are therefore outside the MCP approval trust boundary. Prefer
     a plugin for engine behavior. If an internal semantic cannot be expressed through the plugin API,
-    keep its minimal adaptation in `engine/overlays`; never edit the subtree directly.
+    keep its minimal adaptation in `engine/overlays`; never edit the snapshot directly.
     Drift's shipped `mcp-approval` plugin is configured by the native shell and must run
     last over the merged MCP config. A minimal bootstrap overlay verifies its final-config
     seal; this is intentionally separate from the vendored upstream tree.
@@ -110,7 +110,7 @@ Manual forks use the same stable active-context projection by default: completed
 compaction summary, retained tail, and completed turns after it. The in-flight turn and
 task/spawn session links are excluded. `/fork all` is the explicit slower operation that
 copies all completed history. The behavior is implemented by the isolated
-`engine/overlays/active-fork.patch`; the upstream subtree remains untouched.
+`engine/overlays/active-fork.patch`; the upstream snapshot remains untouched.
 
 ## Prompt and agent editing
 

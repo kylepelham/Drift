@@ -17,7 +17,7 @@ export function DebugPanel() {
   }
   return (
     <Show when={debugPanelOpen() && selectedSession()}>
-      <div class="flex w-[26rem] shrink-0 flex-col border-l border-edge bg-surface">
+      <div class="debug-panel flex min-h-0 min-w-0 w-[26rem] shrink-0 flex-col overflow-hidden border-l border-edge bg-surface">
         <div class="flex items-center justify-between border-b border-edge px-3 py-2.5">
           <span class="text-sm font-semibold text-ink">{t("drift.debug.context")}</span>
           <button
@@ -28,33 +28,33 @@ export function DebugPanel() {
             <IconX />
           </button>
         </div>
-        <Show when={stats()}>
-          {(usage) => (
-            <div class="space-y-1 border-b border-edge px-3 py-2.5 text-xs text-ink-muted select-text">
-              <div class="flex justify-between">
-                <span>{t("context.usage.usage")}</span>
-                <span class="text-ink">{usage().percent}%</span>
-              </div>
-              <div class="flex justify-between">
-                <span>{t("context.usage.tokens")}</span>
-                <span class="text-ink">
-                  {usage().count.toLocaleString()} / {usage().context.toLocaleString()}
-                </span>
-              </div>
-              <div class="flex justify-between">
-                <span>{t("drift.context.untilCompaction")}</span>
-                <span class="text-ink">{usage().untilCompaction.toLocaleString()}</span>
-              </div>
-              <Show when={usage().cost > 0}>
+        <div class="debug-panel-scroll min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
+          <Show when={stats()}>
+            {(usage) => (
+              <div class="space-y-1 border-b border-edge px-3 py-2.5 text-xs text-ink-muted select-text">
                 <div class="flex justify-between">
-                  <span>{t("context.usage.cost")}</span>
-                  <span class="text-ink">${usage().cost.toFixed(2)}</span>
+                  <span>{t("context.usage.usage")}</span>
+                  <span class="text-ink">{usage().percent}%</span>
                 </div>
-              </Show>
-            </div>
-          )}
-        </Show>
-        <div class="min-h-0 flex-1 overflow-y-auto">
+                <div class="flex justify-between">
+                  <span>{t("context.usage.tokens")}</span>
+                  <span class="text-ink">
+                    {usage().count.toLocaleString()} / {usage().context.toLocaleString()}
+                  </span>
+                </div>
+                <div class="flex justify-between">
+                  <span>{t("drift.context.untilCompaction")}</span>
+                  <span class="text-ink">{usage().untilCompaction.toLocaleString()}</span>
+                </div>
+                <Show when={usage().cost > 0}>
+                  <div class="flex justify-between">
+                    <span>{t("context.usage.cost")}</span>
+                    <span class="text-ink">${usage().cost.toFixed(2)}</span>
+                  </div>
+                </Show>
+              </div>
+            )}
+          </Show>
           <For each={entries()}>{(entry) => <DebugRow entry={entry} />}</For>
         </div>
       </div>

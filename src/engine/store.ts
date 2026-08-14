@@ -26,7 +26,7 @@ export function interruptStaleTools(entries: MessageEntry[], liveTools: Readonly
       if (liveTools[part.id] === part.sessionID) return part
       changed = true
       const completed = (entry.info as { time: { completed?: number } }).time.completed
-      const start = "time" in part.state ? part.state.time.start : entry.info.time.created
+      const start = "time" in part.state ? part.state.time.start : undefined
       const metadata = "metadata" in part.state ? part.state.metadata : undefined
       return {
         ...part,
@@ -35,7 +35,7 @@ export function interruptStaleTools(entries: MessageEntry[], liveTools: Readonly
           input: part.state.input,
           error,
           metadata,
-          time: { start, end: Math.max(start, completed ?? start) },
+          ...(start === undefined ? {} : { time: { start, end: Math.max(start, completed ?? start) } }),
         },
       } as ToolPart
     })
@@ -49,16 +49,28 @@ export function messageText(entry: MessageEntry) {
     .join("\n")
 }
 
+// Engine IDs are not chronologically sortable (the embedded timestamp wraps), so order by time first.
+export function compareMessages(a: MessageEntry, b: MessageEntry) {
+  return (a.info.time?.created ?? 0) - (b.info.time?.created ?? 0) || a.info.id.localeCompare(b.info.id)
+}
+
+function messageBoundary(entries: MessageEntry[], id: string | undefined, entry: MessageEntry) {
+  const boundary = id ? entries.find((candidate) => candidate.info.id === id) : undefined
+  if (!boundary) return id ? entry.info.id.localeCompare(id) : undefined
+  return compareMessages(entry, boundary)
+}
+
 export function previousUserMessage(entries: MessageEntry[], before?: string) {
   return entries
-    .filter((entry) => entry.info.role === "user" && (!before || entry.info.id < before))
-    .sort((a, b) => b.info.id.localeCompare(a.info.id))[0]
+    .filter((entry) => entry.info.role === "user" && (messageBoundary(entries, before, entry) ?? -1) < 0)
+    .sort(compareMessages)
+    .at(-1)
 }
 
 export function nextUserMessage(entries: MessageEntry[], after: string) {
   return entries
-    .filter((entry) => entry.info.role === "user" && entry.info.id > after)
-    .sort((a, b) => a.info.id.localeCompare(b.info.id))[0]
+    .filter((entry) => entry.info.role === "user" && (messageBoundary(entries, after, entry) ?? 1) > 0)
+    .sort(compareMessages)[0]
 }
 
 export type SessionActivity = { tools: number; lastPartId: string; current?: string }
@@ -93,6 +105,10 @@ export type EngineState = {
   connection: Connection
   directory: string
   bootstrappedDirectory: string
+  sessionSnapshotDirectory: string
+  sessionSnapshotAll: boolean
+  sessionSnapshotEpoch: number
+  providerSnapshotEpoch: number
   sessions: Record<string, Session>
   status: Record<string, SessionStatus>
   transcripts: Record<string, MessageEntry[]>
@@ -107,11 +123,13 @@ export type EngineState = {
   agents: Agent[]
   commands: Command[]
   errors: Record<string, string>
+  sessionModels: Record<string, ModelRef & { messageId?: string }>
   notices: Notice[]
   links: Record<string, string>
   activity: Record<string, SessionActivity>
   liveTools: Record<string, string>
   cursors: Record<string, string | null>
+  revisions: Record<string, number>
   version: string
   startupError: string
   engineError: string
@@ -142,6 +160,10 @@ export function createEngineState() {
     connection: "idle",
     directory: "",
     bootstrappedDirectory: "",
+    sessionSnapshotDirectory: "",
+    sessionSnapshotAll: false,
+    sessionSnapshotEpoch: 0,
+    providerSnapshotEpoch: 0,
     sessions: {},
     status: {},
     transcripts: {},
@@ -156,6 +178,7 @@ export function createEngineState() {
     agents: [],
     commands: [],
     errors: {},
+    sessionModels: {},
     notices: [],
     links: { ...loadLinks() },
     activity: {},
@@ -164,13 +187,21 @@ export function createEngineState() {
     engineError: "",
     engineRestarting: false,
     cursors: {},
+    revisions: {},
     version: "",
   })
 }
 
 // Store sets merge; optional keys the engine dropped (revert, share) must clear explicitly.
 export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
-  set("sessions", info.id, { revert: undefined, share: undefined, ...info })
+  set(
+    produce((draft) => {
+      draft.sessions[info.id] = { revert: undefined, share: undefined, ...info }
+      const model = (info as Session & { model?: { id: string; providerID: string } }).model
+      if (model) draft.sessionModels[info.id] = { providerID: model.providerID, modelID: model.id }
+      bumpRevision(draft, sessionRevisionKey(info.id))
+    }),
+  )
 }
 
 export function putSessions(set: SetStoreFunction<EngineState>, infos: Session[]) {
@@ -180,6 +211,79 @@ export function putSessions(set: SetStoreFunction<EngineState>, infos: Session[]
       for (const info of infos) sessions[info.id] = { revert: undefined, share: undefined, ...info }
     }),
   )
+  set(
+    "sessionModels",
+    produce((models) => {
+      for (const info of infos) {
+        const model = (info as Session & { model?: { id: string; providerID: string } }).model
+        if (model) models[info.id] = { providerID: model.providerID, modelID: model.id }
+      }
+    }),
+  )
+}
+
+// The engine caps session listings at this size; a shorter page means the snapshot covered its
+// entire scope, so sessions absent from it can be reconciled away.
+export const sessionSnapshotLimit = 100
+
+// Monotonic counters bumped by every live reduction that touches the keyed slice. Snapshot writes
+// compare them against a capture taken before the HTTP request started, so state that raced ahead
+// of the snapshot is never overwritten by it.
+export function sessionRevisionKey(sessionID: string) {
+  return `session\0${sessionID}`
+}
+
+export function statusRevisionKey(sessionID: string) {
+  return `status\0${sessionID}`
+}
+
+export function messageRevisionKey(sessionID: string, messageID: string) {
+  return `message\0${sessionID}\0${messageID}`
+}
+
+export function bumpRevision(draft: EngineState, key: string) {
+  draft.revisions[key] = (draft.revisions[key] ?? 0) + 1
+}
+
+export function captureRevisions(state: EngineState): Record<string, number> {
+  return { ...state.revisions }
+}
+
+export function revisionAdvanced(current: Record<string, number>, captured: Record<string, number>, key: string) {
+  return (current[key] ?? 0) !== (captured[key] ?? 0)
+}
+
+// The session revision survives so an in-flight snapshot cannot resurrect a purged session.
+export function pruneSessionRevisions(draft: EngineState, sessionID: string) {
+  delete draft.revisions[statusRevisionKey(sessionID)]
+  const prefix = `message\0${sessionID}\0`
+  for (const key of Object.keys(draft.revisions)) if (key.startsWith(prefix)) delete draft.revisions[key]
+}
+
+// Merges a transcript snapshot with what the event stream did while the request was in flight:
+// the snapshot is authoritative for untouched messages, live state wins for touched ones.
+export function mergeTranscriptSnapshot(
+  live: MessageEntry[] | undefined,
+  snapshot: MessageEntry[],
+  sessionID: string,
+  captured: Record<string, number>,
+  revisions: Record<string, number>,
+) {
+  const advanced = (messageID: string) => revisionAdvanced(revisions, captured, messageRevisionKey(sessionID, messageID))
+  const liveById = new Map((live ?? []).map((entry) => [entry.info.id, entry]))
+  const snapshotIds = new Set(snapshot.map((entry) => entry.info.id))
+  const merged = snapshot.flatMap((entry) => {
+    const current = liveById.get(entry.info.id)
+    if (!advanced(entry.info.id)) {
+      // Reuse the live object when the content is unchanged: transcript rows are referentially
+      // keyed, so handing the UI a fresh-but-identical object would remount every visible row
+      // (a full-transcript flash on each reconnect hydration).
+      return [current && JSON.stringify(current) === JSON.stringify(entry) ? current : entry]
+    }
+    return current ? [current] : []
+  })
+  for (const entry of live ?? []) if (advanced(entry.info.id) && !snapshotIds.has(entry.info.id)) merged.push(entry)
+  return merged.sort(compareMessages)
 }
 
 export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo | undefined {

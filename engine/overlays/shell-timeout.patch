@@ -1,0 +1,291 @@
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/groups/control-plane.ts b/packages/opencode/src/server/routes/instance/httpapi/groups/control-plane.ts
+index d2ee99a..a9d9f86 100644
+--- a/packages/opencode/src/server/routes/instance/httpapi/groups/control-plane.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/groups/control-plane.ts
+@@ -1,9 +1,11 @@
+ import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
++import { PositiveInt } from "@opencode-ai/core/schema"
+ import { Schema } from "effect"
+ import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
+ import { described } from "./metadata"
+
+ const root = "/experimental/control-plane"
+ export const MoveSessionPayload = Schema.Struct({ ...MoveSession.Input.fields })
++export const ShellTimeoutPayload = Schema.Struct({ timeout: Schema.NullOr(PositiveInt) })
+
+ export class ApiMoveSessionError extends Schema.ErrorClass<ApiMoveSessionError>("MoveSessionError")(
+@@ -31,5 +33,17 @@ export const ControlPlaneApi = HttpApi.make("controlPlane").add(
+         }),
+       ),
+     )
++    .add(
++      HttpApiEndpoint.put("shellTimeout", `${root}/shell-timeout`, {
++        payload: ShellTimeoutPayload,
++        success: described(HttpApiSchema.NoContent, "Shell timeout updated"),
++      }).annotateMerge(
++        OpenApi.annotations({
++          identifier: "experimental.controlPlane.shellTimeout",
++          summary: "Set shell timeout",
++          description: "Set Drift's default timeout for newly started shell calls, or null for no timeout.",
++        }),
++      ),
++    )
+     .annotateMerge(OpenApi.annotations({ title: "controlPlane", description: "Control-plane orchestration routes." })),
+ )
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/control-plane.ts
+@@ -10,6 +10,7 @@ import { Session } from "@/session/session"
+ import { SessionStatus } from "@/session/status"
+ import { RootHttpApi } from "../api"
+-import { ApiMoveSessionError, MoveSessionPayload } from "../groups/control-plane"
++import { ApiMoveSessionError, MoveSessionPayload, ShellTimeoutPayload } from "../groups/control-plane"
++import { ShellTimeout } from "@/tool/shell-timeout"
+
+ export const controlPlaneHandlers = HttpApiBuilder.group(RootHttpApi, "controlPlane", (handlers) =>
+   Effect.gen(function* () {
+@@ -64,3 +65,9 @@
+-    return handlers.handle("moveSession", moveSession)
++    const shellTimeout = Effect.fn("ControlPlaneHttpApi.shellTimeout")(function* (ctx: {
++      payload: typeof ShellTimeoutPayload.Type
++    }) {
++      ShellTimeout.configure(ctx.payload.timeout)
++    })
++
++    return handlers.handle("moveSession", moveSession).handle("shellTimeout", shellTimeout)
+   }),
+ )
+diff --git a/packages/opencode/src/tool/shell-timeout.ts b/packages/opencode/src/tool/shell-timeout.ts
+new file mode 100644
+index 0000000..8c3ef9c
+--- /dev/null
++++ b/packages/opencode/src/tool/shell-timeout.ts
+@@ -0,0 +1,19 @@
++let timeoutMs: number | undefined
++
++export function configure(value: number | null) {
++  timeoutMs = value ?? undefined
++}
++
++export function snapshot(explicit?: number, fallback?: number) {
++  return explicit ?? timeoutMs ?? fallback
++}
++
++export function current() {
++  return timeoutMs
++}
++
++export const ShellTimeout = {
++  configure,
++  current,
++  snapshot,
++}
+diff --git a/packages/opencode/src/session/tools.ts b/packages/opencode/src/session/tools.ts
+--- a/packages/opencode/src/session/tools.ts
++++ b/packages/opencode/src/session/tools.ts
+@@ -74,7 +74,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
+             metadata: val.metadata,
+             status: "running",
+             input: args,
+-            time: { start: Date.now() },
++            time: { start: match.state.status === "running" ? match.state.time.start : Date.now() },
+           },
+         }
+       }),
+diff --git a/packages/opencode/src/tool/shell.ts b/packages/opencode/src/tool/shell.ts
+index c60ee49..42da276 100644
+--- a/packages/opencode/src/tool/shell.ts
++++ b/packages/opencode/src/tool/shell.ts
+@@ -21,6 +21,7 @@ import { ChildProcess } from "effect/unstable/process"
+ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
+ import { ShellPrompt, type Parameters } from "./shell/prompt"
+ import { BashArity } from "@/permission/arity"
++import { ShellTimeout } from "./shell-timeout"
+
+ export { Parameters } from "./shell/prompt"
+
+@@ -344,7 +345,7 @@ export const ShellTool = Tool.define(
+     const trunc = yield* Truncate.Service
+     const plugin = yield* Plugin.Service
+     const flags = yield* RuntimeFlags.Service
+-    const defaultTimeoutMs = flags.bashDefaultTimeoutMs ?? 2 * 60 * 1000
++    const runtimeDefaultTimeoutMs = flags.bashDefaultTimeoutMs
+
+     const cygpath = Effect.fn("ShellTool.cygpath")(function* (shell: string, text: string) {
+       const lines = yield* spawner
+@@ -431,7 +432,8 @@ export const ShellTool = Tool.define(
+         command: string
+         cwd: string
+         env: NodeJS.ProcessEnv
+-        timeout: number
++        timeout?: number
++        displayTimeout?: number
+       },
+       ctx: Tool.Context,
+     ) {
+@@ -475,6 +476,7 @@ export const ShellTool = Tool.define(
+       yield* ctx.metadata({
+         metadata: {
+           output: "",
++          shellTimeoutMs: input.displayTimeout ?? null,
+         },
+       })
+
+@@ -515,6 +517,7 @@ export const ShellTool = Tool.define(
+                       ctx.metadata({
+                         metadata: {
+                           output: last,
++                          shellTimeoutMs: input.displayTimeout ?? null,
+                         },
+                       }),
+                     ),
+@@ -525,6 +528,7 @@ export const ShellTool = Tool.define(
+               return ctx.metadata({
+                 metadata: {
+                   output: last,
++                  shellTimeoutMs: input.displayTimeout ?? null,
+                 },
+               })
+             }),
+@@ -537,12 +541,17 @@ export const ShellTool = Tool.define(
+             return Effect.sync(() => ctx.abort.removeEventListener("abort", handler))
+           })
+
+-          const timeout = Effect.sleep(`${input.timeout + 100} millis`)
++          const timeout =
++            input.timeout === undefined
++              ? Effect.never
++              : Effect.sleep(`${input.timeout + 100} millis`).pipe(
++                  Effect.map(() => ({ kind: "timeout" as const, code: null })),
++                )
+
+           const exit = yield* Effect.raceAll([
+             handle.exitCode.pipe(Effect.map((code) => ({ kind: "exit" as const, code }))),
+             abort.pipe(Effect.map(() => ({ kind: "abort" as const, code: null }))),
+-            timeout.pipe(Effect.map(() => ({ kind: "timeout" as const, code: null }))),
++            timeout,
+           ])
+
+           if (exit.kind === "abort") {
+@@ -550,6 +557,13 @@ export const ShellTool = Tool.define(
+           }
+           if (exit.kind === "timeout") {
+             expired = true
++            yield* ctx.metadata({
++              metadata: {
++                output: last,
++                shellTimeoutMs: input.timeout ?? null,
++                timedOut: true,
++              },
++            })
+             yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.orDie)
+           }
+
+@@ -560,8 +574,9 @@ export const ShellTool = Tool.define(
+
+       const meta: string[] = []
+       if (expired) {
++        const duration = `${input.timeout} ms`
+         meta.push(
+-          `shell tool terminated command after exceeding timeout ${input.timeout} ms. If this command is expected to take longer and is not waiting for interactive input, retry with a larger timeout value in milliseconds.`,
++          `ShellTimeoutError: command timed out after ${duration}; shell tool terminated command after exceeding timeout ${duration}. The shell command and its child process tree were terminated. If this command is expected to take longer, retry with a larger timeout value in milliseconds.`,
+         )
+       }
+       if (aborted) meta.push("User aborted the command")
+@@ -587,6 +602,8 @@ export const ShellTool = Tool.define(
+         metadata: {
+           output: last || preview(output),
+           exit: code,
++          shellTimeoutMs: expired ? input.timeout ?? null : input.displayTimeout ?? null,
++          timedOut: expired,
+           truncated: cut,
+           ...(cut && file ? { outputPath: file } : {}),
+         },
+@@ -600,7 +618,18 @@ export const ShellTool = Tool.define(
+         const shell = Shell.acceptable(cfg.shell)
+         const name = Shell.name(shell)
+         const limits = yield* trunc.limits()
+-        const prompt = ShellPrompt.render(name, process.platform, limits, defaultTimeoutMs)
++        const configuredTimeoutMs = ShellTimeout.snapshot(undefined, runtimeDefaultTimeoutMs)
++        const rendered = ShellPrompt.render(name, process.platform, limits, configuredTimeoutMs ?? 0)
++        const prompt =
++          configuredTimeoutMs === undefined
++            ? {
++                ...rendered,
++                description: rendered.description.replace(
++                  "commands will time out after 0ms",
++                  "commands have no timeout",
++                ),
++              }
++            : rendered
+         yield* Effect.logInfo("shell tool using shell", { shell })
+
+         return {
+@@ -615,7 +632,9 @@ export const ShellTool = Tool.define(
+               if (params.timeout !== undefined && params.timeout < 0) {
+                 throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
+               }
+-              const timeout = params.timeout ?? defaultTimeoutMs
++              const configuredTimeout = ShellTimeout.current()
++              const timeout = ShellTimeout.snapshot(params.timeout, runtimeDefaultTimeoutMs)
++              const displayTimeout = params.timeout === undefined ? configuredTimeout : undefined
+               const ps = Shell.ps(shell)
+               yield* Effect.scoped(
+                 Effect.gen(function* () {
+@@ -634,6 +653,7 @@ export const ShellTool = Tool.define(
+                   cwd,
+                   env: yield* shellEnv(ctx, cwd),
+                   timeout,
++                  displayTimeout,
+                 },
+                 ctx,
+               )
+diff --git a/packages/opencode/test/tool/shell-timeout.test.ts b/packages/opencode/test/tool/shell-timeout.test.ts
+new file mode 100644
+index 0000000..ff37fab
+--- /dev/null
++++ b/packages/opencode/test/tool/shell-timeout.test.ts
+@@ -0,0 +1,43 @@
++import { afterEach, expect, test } from "bun:test"
++import { ShellTimeout } from "../../src/tool/shell-timeout"
++
++afterEach(() => ShellTimeout.configure(null))
++
++test("preserves no-timeout behavior by default", () => {
++  ShellTimeout.configure(null)
++  expect(ShellTimeout.snapshot()).toBeUndefined()
++})
++
++test("snapshots changed defaults for newly started shell calls", () => {
++  ShellTimeout.configure(300_000)
++  const running = ShellTimeout.snapshot()
++  ShellTimeout.configure(60_000)
++  const next = ShellTimeout.snapshot()
++  expect(running).toBe(300_000)
++  expect(next).toBe(60_000)
++})
++
++test("model-provided timeout overrides configured and runtime defaults", () => {
++  ShellTimeout.configure(300_000)
++  expect(ShellTimeout.snapshot(60_000, 120_000)).toBe(60_000)
++  ShellTimeout.configure(null)
++  expect(ShellTimeout.snapshot(60_000, 120_000)).toBe(60_000)
++})
++
++test("streamed metadata preserves the original tool start time", async () => {
++  const tools = await Bun.file(new URL("../../src/session/tools.ts", import.meta.url)).text()
++  expect(tools).toContain('match.state.status === "running" ? match.state.time.start : Date.now()')
++})
++
++test("does not apply the shell timeout class to other tools", async () => {
++  const files = ["../../src/tool/webfetch.ts", "../../src/mcp/index.ts"]
++  for (const file of files) {
++    expect(await Bun.file(new URL(file, import.meta.url)).text()).not.toContain("ShellTimeout")
++  }
++  const shell = await Bun.file(new URL("../../src/tool/shell.ts", import.meta.url)).text()
++  expect(shell).toContain("timedOut: expired")
++  expect(shell).toContain("shellTimeoutMs: input.displayTimeout ?? null")
++  expect(shell).toContain("displayTimeout = params.timeout === undefined ? configuredTimeout : undefined")
++  const spawner = await Bun.file(new URL("../../../core/src/cross-spawn-spawner.ts", import.meta.url)).text()
++  expect(spawner).toContain("taskkill /pid ${proc.pid} /T /F")
++})

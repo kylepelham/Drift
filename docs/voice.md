@@ -14,7 +14,7 @@ for dictation specifically, because speech output belongs beside speech input wh
 
 The obvious way to embed whisper.cpp is `whisper-rs`, but on Windows it requires LLVM and
 `LIBCLANG_PATH` because it generates bindings with `bindgen`. That would have landed in the
-local build, the Windows CI job, and the signed release job, and bindgen with libclang on
+local build, the Windows CI job, and the release build job, and bindgen with libclang on
 `windows-latest` has a documented history of breaking builds.
 
 Calling whisper.cpp as a subprocess removes bindgen entirely. `scripts/build-whisper.ts`
@@ -24,7 +24,7 @@ declared in `externalBin` and resolved the same way `engine_binary` resolves the
 beside the executable once bundled, from `binaries` during development.
 
 Each binary is statically linked, so it is a single file with no DLLs beside it, and it is
-signed as part of the installer like everything else.
+bundled in the authenticated installer like the other runtime components.
 
 ## Why two sidecars
 

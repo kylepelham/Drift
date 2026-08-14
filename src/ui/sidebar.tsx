@@ -3,6 +3,7 @@ import { useEngine } from "../engine"
 import { normalizeDir } from "../engine/store"
 import { pickFolder } from "../state/dialog"
 import { persisted } from "../state/persist"
+import { closeMobileDrawer, isNarrowWidth, mobileDrawerOpen } from "../state/navigation"
 import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
 import { addWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, workspaces } from "../state/workspaces"
@@ -110,8 +111,19 @@ export function Sidebar() {
   onCleanup(finishResize)
 
   return (
-    <aside class="relative flex shrink-0 flex-col border-r border-edge bg-surface" style={{ width: `${width()}px` }}>
-      <div class="flex items-center justify-between pt-2.5 pb-1.5 pr-3.5 pl-4">
+    <aside
+      class="app-sidebar relative flex shrink-0 flex-col border-r border-edge bg-surface"
+      classList={{ "mobile-sidebar-open": mobileDrawerOpen() }}
+      style={{ width: `${width()}px` }}
+      onClick={(event) => {
+        if (
+          isNarrowWidth(window.innerWidth) &&
+          event.target instanceof Element &&
+          event.target.closest("[data-sidebar-navigation]")
+        ) queueMicrotask(() => closeMobileDrawer())
+      }}
+    >
+      <div class="flex shrink-0 items-center justify-between pt-2.5 pb-1.5 pr-3.5 pl-4">
         <span class="min-w-0 truncate text-[0.68rem] tracking-wider text-ink-faint uppercase">
           {t("drift.sidebar.workspaces")}
         </span>
@@ -132,7 +144,7 @@ export function Sidebar() {
           </button>
         </div>
       </div>
-      <nav class="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
+      <nav class="app-sidebar-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-2 pb-2">
         <For each={workspaces()}>
           {(workspace) => <WorkspaceGroup workspace={workspace} onMenu={setMenu} onSessionMenu={setSessionMenu} />}
         </For>
@@ -187,7 +199,7 @@ export function Sidebar() {
         aria-valuemax={maxSidebarWidth}
         aria-valuenow={Math.round(width())}
         tabIndex={0}
-        class="absolute inset-y-0 right-0 z-20 w-1 translate-x-1/2 cursor-col-resize transition-colors hover:bg-accent/50 focus:bg-accent/50 focus:outline-none"
+        class="sidebar-resizer absolute inset-y-0 right-0 z-20 w-1 translate-x-1/2 cursor-col-resize transition-colors hover:bg-accent/50 focus:bg-accent/50 focus:outline-none"
         onPointerDown={(event) => {
           event.preventDefault()
           const aside = event.currentTarget.parentElement
@@ -236,8 +248,9 @@ function SidebarFooter(props: { onSettings: () => void }) {
     return engine.state.connection === "connecting" ? t("common.loading") : t("drift.sidebar.offline")
   }
   return (
-    <div class="px-2 py-2">
+    <div class="shrink-0 px-2 py-2">
       <button
+        data-sidebar-navigation
         class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-ink-muted transition-colors hover:bg-raised hover:text-ink"
         onClick={props.onSettings}
       >

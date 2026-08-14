@@ -1,0 +1,146 @@
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/event.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/event.ts
+index 4f24fbb4b..5d291000e 100644
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/event.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/event.ts
+@@ -4,6 +4,10 @@ import { GlobalBus } from "@/bus/global"
+ import { EventV2 } from "@opencode-ai/core/event"
+ import { Effect, Queue } from "effect"
+ import * as Stream from "effect/Stream"
++
++// Bounds each subscriber's queue so a slow or half-open SSE consumer cannot retain events without
++// limit. Overflow disconnects the subscriber; clients already reconnect and re-hydrate.
++const subscriberCapacity = 256
+ import { HttpServerResponse } from "effect/unstable/http"
+ import { HttpApiBuilder } from "effect/unstable/httpapi"
+ import * as Sse from "effect/unstable/encoding/Sse"
+@@ -28,10 +32,7 @@ function eventResponse(events: EventV2.Interface) {
+     const workspaceID = yield* InstanceState.workspaceID
+     // Listener registration is eager, so events published after this point cannot
+     // be lost while the HTTP body fiber is starting or emitting server.connected.
+-    const queue = yield* Queue.unbounded<EventV2.Payload>()
+-    const unsubscribe = yield* events.listen((event) => Effect.sync(() => Queue.offerUnsafe(queue, event)))
+-    yield* Effect.addFinalizer(() => unsubscribe)
+-    const stream = Stream.fromQueue(queue).pipe(
++    const stream = (yield* EventV2.allBounded(events, subscriberCapacity)).pipe(
+       Stream.filter(
+         (event) =>
+           event.location?.directory === instance.directory &&
+@@ -59,6 +60,12 @@ function eventResponse(events: EventV2.Interface) {
+     const output = stream.pipe(
+       Stream.merge(disposed, { haltStrategy: "left" }),
+       Stream.takeUntil((event) => event.type === "server.instance.disposed"),
++      // Overflow ends the response instead of failing the HTTP body; the client reconnects.
++      Stream.catchCause(() =>
++        Stream.fromEffect(Effect.logWarning("event subscriber overflowed; disconnecting slow consumer")).pipe(
++          Stream.drain,
++        ),
++      ),
+     )
+     const heartbeat = Stream.tick("10 seconds").pipe(
+       Stream.drop(1),
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts
+index c1f588d5a..054c62e94 100644
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts
+@@ -5,7 +5,7 @@ import { EventV2 } from "@opencode-ai/core/event"
+ import { Installation } from "@/installation"
+ import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
+ import { InstallationVersion } from "@opencode-ai/core/installation/version"
+-import { Effect, Queue, Schema } from "effect"
++import { Cause, Effect, Queue, Schema } from "effect"
+ import * as Stream from "effect/Stream"
+ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+ import { HttpApiBuilder } from "effect/unstable/httpapi"
+@@ -30,16 +30,33 @@ function parseBody(body: string) {
+   }
+ }
+ 
++// Bounds each subscriber's buffer so a slow or half-open SSE consumer cannot retain events without
++// limit. Overflow disconnects the subscriber; clients already reconnect and re-hydrate.
++const subscriberCapacity = 256
++
+ function eventResponse() {
+   return Effect.gen(function* () {
+     yield* Effect.logInfo("global event connected")
+-    const events = Stream.callback<GlobalBusEvent>((queue) => {
+-      const handler = (event: GlobalBusEvent) => Queue.offerUnsafe(queue, event)
+-      return Effect.acquireRelease(
+-        Effect.sync(() => GlobalBus.on("event", handler)),
+-        () => Effect.sync(() => GlobalBus.off("event", handler)),
+-      )
+-    })
++    const events = Stream.callback<GlobalBusEvent, EventV2.SubscriberOverflowError>(
++      (queue) => {
++        const handler = (event: GlobalBusEvent) => {
++          if (Queue.offerUnsafe(queue, event)) return
++          Queue.failCauseUnsafe(queue, Cause.fail(new EventV2.SubscriberOverflowError({ capacity: subscriberCapacity })))
++        }
++        return Effect.acquireRelease(
++          Effect.sync(() => GlobalBus.on("event", handler)),
++          () => Effect.sync(() => GlobalBus.off("event", handler)),
++        )
++      },
++      { bufferSize: subscriberCapacity, strategy: "dropping" },
++    ).pipe(
++      // Overflow ends the response instead of failing the HTTP body; the client reconnects.
++      Stream.catchCause(() =>
++        Stream.fromEffect(Effect.logWarning("global event subscriber overflowed; disconnecting slow consumer")).pipe(
++          Stream.drain,
++        ),
++      ),
++    )
+     const heartbeat = Stream.tick("10 seconds").pipe(
+       Stream.drop(1),
+       Stream.map(() => ({ payload: { id: EventV2.ID.create(), type: "server.heartbeat", properties: {} } })),
+diff --git a/packages/opencode/test/server/sse-backpressure.test.ts b/packages/opencode/test/server/sse-backpressure.test.ts
+new file mode 100644
+index 000000000..82c3a165f
+--- /dev/null
++++ b/packages/opencode/test/server/sse-backpressure.test.ts
+@@ -0,0 +1,46 @@
++import { expect, test } from "bun:test"
++import { Cause, Effect, Queue } from "effect"
++import * as Stream from "effect/Stream"
++import { EventV2 } from "@opencode-ai/core/event"
++
++const instance = await Bun.file(
++  new URL("../../src/server/routes/instance/httpapi/handlers/event.ts", import.meta.url),
++).text()
++const global = await Bun.file(
++  new URL("../../src/server/routes/instance/httpapi/handlers/global.ts", import.meta.url),
++).text()
++
++test("the instance event stream uses a bounded subscriber queue", () => {
++  expect(instance).toContain("EventV2.allBounded(events, subscriberCapacity)")
++  expect(instance).not.toContain("Queue.unbounded")
++  expect(instance).toContain("Stream.catchCause")
++})
++
++test("the global event stream bounds its buffer and disconnects on overflow", () => {
++  expect(global).toContain("{ bufferSize: subscriberCapacity, strategy: \"dropping\" }")
++  expect(global).toContain("Queue.failCauseUnsafe")
++  expect(global).toContain("EventV2.SubscriberOverflowError({ capacity: subscriberCapacity })")
++  expect(global).toContain("Stream.catchCause")
++})
++
++test("a stalled bounded subscriber fails with overflow instead of retaining events", async () => {
++  const capacity = 4
++  const consumed = await Effect.runPromise(
++    Effect.gen(function* () {
++      const queue = yield* Queue.dropping<number, EventV2.SubscriberOverflowError>(capacity)
++      for (let index = 0; index < capacity + 8; index++) {
++        const accepted = yield* Queue.offer(queue, index)
++        if (!accepted) {
++          yield* Queue.failCause(queue, Cause.fail(new EventV2.SubscriberOverflowError({ capacity })))
++          break
++        }
++      }
++      // The stream ends with the overflow failure after draining what was retained.
++      return yield* Stream.fromQueue(queue).pipe(
++        Stream.catchCause(() => Stream.empty),
++        Stream.runCollect,
++      )
++    }),
++  )
++  expect(consumed.length).toBeLessThanOrEqual(capacity)
++})

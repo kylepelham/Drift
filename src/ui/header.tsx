@@ -4,7 +4,8 @@ import { contextStats, resolveModel } from "../engine/store"
 import { prefsFor } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { toggleDebugPanel } from "../state/panels"
-import { IconArrowUp } from "./icons"
+import { openMobileDrawer } from "../state/navigation"
+import { IconArrowUp, IconMenu } from "./icons"
 import { t } from "../state/i18n"
 
 const chatColumnWidth = 768
@@ -36,31 +37,44 @@ export function ChatHeader() {
     return current.parentID ?? engine.state.links[current.id]
   }
   return (
-    <Show when={session()}>
-      {(current) => (
-        <div
-          ref={observe}
-          class="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-11 items-center gap-2 border-b px-4 transition-colors"
-          classList={{
-            "border-edge bg-bg": !transparent(),
-            "border-transparent bg-transparent": transparent(),
-          }}
+    <div
+      ref={observe}
+      class="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-11 items-center gap-2 border-b px-4 transition-colors"
+      classList={{
+        "border-edge bg-bg": !transparent(),
+        "border-transparent bg-transparent": transparent(),
+      }}
+    >
+      <div class="pointer-events-auto flex min-w-0 max-w-[60%] items-center gap-2">
+        <button
+          class="mobile-menu-button hidden size-11 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-raised hover:text-ink"
+          title={t("drift.mobile.openNavigation")}
+          onClick={openMobileDrawer}
         >
-          <div class="pointer-events-auto flex min-w-0 max-w-[45%] items-center gap-2">
-            <Show when={backTarget()}>
-              {(target) => (
-                <button
-                  class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-                  title={t("drift.thread.backToParent")}
-                  onClick={() => selectSession(target())}
-                >
-                  <IconArrowUp />
-                </button>
-              )}
-            </Show>
-            <Title id={current().id} title={current().title} />
-          </div>
-          <div class="pointer-events-none min-w-4 flex-1" />
+          <IconMenu />
+        </button>
+        <Show when={session()}>
+          {(current) => (
+            <>
+              <Show when={backTarget()}>
+                {(target) => (
+                  <button
+                    class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+                    title={t("drift.thread.backToParent")}
+                    onClick={() => selectSession(target())}
+                  >
+                    <IconArrowUp />
+                  </button>
+                )}
+              </Show>
+              <Title id={current().id} title={current().title} />
+            </>
+          )}
+        </Show>
+      </div>
+      <div class="pointer-events-none min-w-4 flex-1" />
+      <Show when={session()}>
+        {(current) => (
           <div class="pointer-events-auto flex shrink-0 items-center gap-2">
             <ContextMeter sessionId={current().id} />
             <Show when={current().share?.url}>
@@ -75,9 +89,9 @@ export function ChatHeader() {
               )}
             </Show>
           </div>
-        </div>
-      )}
-    </Show>
+        )}
+      </Show>
+    </div>
   )
 }
 

@@ -10,7 +10,12 @@ export const maxKeyterms = 50
 const maxKeytermChars = 80
 
 // Off by default: dictation needs a model download, and most people never dictate.
-export const [dictationEnabled, setDictationEnabled] = persisted("drift.voice.dictation.enabled", false)
+export const [dictationEnabled, persistDictationEnabled] = persisted("drift.voice.dictation.enabled", false)
+export const [dictationInputDeviceId, setDictationInputDeviceId] = persisted<string | null>(
+  "drift.voice.dictation.inputDeviceId",
+  null,
+  normalizeInputDeviceId,
+)
 export const [dictationLanguage, setDictationLanguage] = persisted<DictationLanguage>(
   "drift.voice.dictation.language",
   "en",
@@ -33,6 +38,12 @@ export function normalizeLanguage(value: unknown): DictationLanguage {
 
 export function normalizeModel(value: unknown): DictationModel {
   return dictationModels.includes(value as DictationModel) ? (value as DictationModel) : "large-v3-turbo-q5_0"
+}
+
+export function normalizeInputDeviceId(value: unknown) {
+  if (typeof value !== "string") return null
+  const deviceId = value.trim()
+  return deviceId && deviceId !== "default" ? deviceId : null
 }
 
 export function normalizeKeyterms(value: unknown) {

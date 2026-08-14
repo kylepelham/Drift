@@ -1,11 +1,22 @@
 use super::*;
 
-#[test]
-fn store_roundtrip() {
-    let dir = std::env::temp_dir().join(format!("drift-store-test-{}", std::process::id()));
+fn test_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("drift-{name}-test-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn store_roundtrip() {
+    let dir = test_dir("store");
     let store = open(&dir).unwrap();
+
+    assert!(!store.dictation_enabled().unwrap());
+    store.save_dictation_enabled(true).unwrap();
+    assert!(store.dictation_enabled().unwrap());
+    store.save_dictation_enabled(false).unwrap();
+    assert!(!store.dictation_enabled().unwrap());
 
     let created = store.add_workspace("w1", "S:/proj", "Proj", "").unwrap();
     assert_eq!(created.id, "w1");
@@ -20,8 +31,12 @@ fn store_roundtrip() {
     assert_eq!(store.archived().unwrap().len(), 2);
     store.unarchive_session("s1").unwrap();
     assert_eq!(store.archived().unwrap().len(), 1);
-    let purged = store.purge_archived(now() + 1000).unwrap();
-    assert_eq!(purged.len(), 1);
+    // Listing expired tombstones must not drop them: only the confirmed unarchive does.
+    let expired_sessions = store.expired_archived(now() + 1000).unwrap();
+    assert_eq!(expired_sessions, vec!["s2".to_string()]);
+    assert_eq!(store.archived().unwrap().len(), 1);
+    assert!(store.expired_archived(now() - 1000).unwrap().is_empty());
+    store.unarchive_session("s2").unwrap();
     assert!(store.archived().unwrap().is_empty());
 
     store.remove_workspace("w1").unwrap();
@@ -39,7 +54,10 @@ fn store_roundtrip() {
     let expired = store.expired_removed_workspaces(now() + 1000).unwrap();
     assert_eq!(expired.len(), 1);
     assert_eq!(expired[0].path, "S:/moved");
-    assert!(store.expired_removed_workspaces(now() - 1000).unwrap().is_empty());
+    assert!(store
+        .expired_removed_workspaces(now() - 1000)
+        .unwrap()
+        .is_empty());
     store.forget_workspace(&expired[0].id).unwrap();
     assert!(store.workspaces().unwrap().is_empty());
     assert!(store.removed_workspaces().unwrap().is_empty());
@@ -65,10 +83,87 @@ fn store_roundtrip() {
 }
 
 #[test]
+fn recoverable_interruptions_deduplicate_and_survive_reopen() {
+    let dir = test_dir("interruption");
+    let file = dir.join("drift.db");
+    let item = RecoverableInterruption {
+        session_id: "child".into(),
+        identity: "message-1".into(),
+        workspace_id: Some("workspace".into()),
+        directory: "S:/repo".into(),
+        thread_title: "Research".into(),
+        parent_session_id: Some("parent".into()),
+        provider_id: "anthropic".into(),
+        model_id: "claude".into(),
+        kind: "usage".into(),
+        reason: "usage limit".into(),
+        error_name: "APIError".into(),
+        created_at: 10,
+        updated_at: 10,
+        dismissed_at: None,
+    };
+    {
+        let store = open_at(&file).unwrap();
+        store.save_interruption(&item).unwrap();
+        let mut updated = item.clone();
+        updated.reason = "new detail".into();
+        updated.updated_at = 20;
+        store.save_interruption(&updated).unwrap();
+        assert_eq!(store.interruptions().unwrap().len(), 1);
+        assert_eq!(store.interruptions().unwrap()[0].reason, "new detail");
+        store
+            .dismiss_interruption("child", "message-1", 30)
+            .unwrap();
+    }
+    let reopened = open_at(&file).unwrap();
+    let rows = reopened.interruptions().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].dismissed_at, Some(30));
+    let mut replacement = item.clone();
+    replacement.identity = "message-2".into();
+    reopened.save_interruption(&replacement).unwrap();
+    let rows = reopened.interruptions().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].identity, "message-2");
+    reopened.clear_interruptions("child").unwrap();
+    assert!(reopened.interruptions().unwrap().is_empty());
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn failed_interruption_replacement_preserves_the_existing_row() {
+    let dir = test_dir("interruption-transaction");
+    let store = open(&dir).unwrap();
+    let item = RecoverableInterruption {
+        session_id: "child".into(),
+        identity: "message-1".into(),
+        workspace_id: None,
+        directory: "S:/repo".into(),
+        thread_title: "Research".into(),
+        parent_session_id: None,
+        provider_id: "anthropic".into(),
+        model_id: "claude".into(),
+        kind: "usage".into(),
+        reason: "usage limit".into(),
+        error_name: "APIError".into(),
+        created_at: 10,
+        updated_at: 10,
+        dismissed_at: None,
+    };
+    store.save_interruption(&item).unwrap();
+    let mut invalid = item.clone();
+    invalid.identity = "message-2".into();
+    invalid.kind = "invalid".into();
+    assert!(store.save_interruption(&invalid).is_err());
+    let rows = store.interruptions().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].identity, "message-1");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
 fn expired_duplicates_of_active_directories_are_collapsed_not_returned() {
-    let dir = std::env::temp_dir().join(format!("drift-dup-test-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir("dup");
     let file = dir.join("drift.db");
     let store = open_at(&file).unwrap();
     store
@@ -89,7 +184,10 @@ fn expired_duplicates_of_active_directories_are_collapsed_not_returned() {
     drop(raw);
 
     // The duplicate must never be offered for session deletion: its directory is on the sidebar.
-    assert!(store.expired_removed_workspaces(now() + 1000).unwrap().is_empty());
+    assert!(store
+        .expired_removed_workspaces(now() + 1000)
+        .unwrap()
+        .is_empty());
     assert_eq!(store.workspaces().unwrap().len(), 1);
     assert!(store.removed_workspaces().unwrap().is_empty());
     let archived = store.archived().unwrap();
@@ -100,9 +198,7 @@ fn expired_duplicates_of_active_directories_are_collapsed_not_returned() {
 
 #[test]
 fn saving_a_path_onto_another_workspace_merges_the_rows() {
-    let dir = std::env::temp_dir().join(format!("drift-save-merge-test-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir("save-merge");
     let store = open_at(&dir.join("drift.db")).unwrap();
     store.add_workspace("a", "S:/one", "One", "icon").unwrap();
     store.add_workspace("b", "S:/two", "Two", "").unwrap();
@@ -117,9 +213,7 @@ fn saving_a_path_onto_another_workspace_merges_the_rows() {
 
 #[test]
 fn open_collapses_duplicate_workspace_paths() {
-    let dir = std::env::temp_dir().join(format!("drift-collapse-test-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir("collapse");
     let file = dir.join("drift.db");
     {
         let store = open_at(&file).unwrap();
@@ -150,9 +244,7 @@ fn open_collapses_duplicate_workspace_paths() {
 
 #[test]
 fn imports_opencode_projects_without_overwriting_drift_metadata() {
-    let dir = std::env::temp_dir().join(format!("drift-import-test-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir("import");
     let source = dir.join("opencode.db");
     let conn = Connection::open(&source).unwrap();
     conn.execute_batch(
@@ -238,9 +330,7 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
 
 #[test]
 fn mcp_decisions_are_global_and_survive_definition_changes() {
-    let dir = std::env::temp_dir().join(format!("drift-mcp-store-test-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir("mcp-store");
     let store = open_at(&dir.join("drift.db")).unwrap();
     let first = serde_json::json!({ "type": "local", "command": ["one"] });
     let second = serde_json::json!({ "type": "local", "command": ["two"] });

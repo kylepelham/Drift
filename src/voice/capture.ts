@@ -1,4 +1,5 @@
 import { blockSamples, sampleRate } from "./audio"
+import { refreshAudioInputDevices } from "./devices"
 
 const processorName = "drift-capture"
 // Loaded from a blob so the worklet needs no separate build output.
@@ -19,38 +20,74 @@ export function captureUnsupported() {
   return Object.assign(new Error("capture unsupported"), { name: "NotSupportedError" })
 }
 
-export async function startCapture(onBlock: (block: Float32Array) => void): Promise<Capture> {
+export function captureConstraints(deviceId?: string): MediaStreamConstraints {
+  return {
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    },
+  }
+}
+
+export async function startCapture(onBlock: (block: Float32Array) => void, deviceId?: string): Promise<Capture> {
   const media = globalThis.navigator?.mediaDevices
   if (!media?.getUserMedia || typeof AudioContext === "undefined") throw captureUnsupported()
-  const stream = await media.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-  })
-  // Whisper wants 16 kHz, so the graph runs at that rate instead of resampling afterwards.
-  const context = new AudioContext({ sampleRate })
-  const url = URL.createObjectURL(new Blob([processorSource], { type: "application/javascript" }))
+  let stream: MediaStream
   try {
+    stream = await media.getUserMedia(captureConstraints(deviceId))
+  } catch (cause) {
+    if (!deviceId || !deviceUnavailable(cause)) throw cause
+    void refreshAudioInputDevices(media)
+    stream = await media.getUserMedia(captureConstraints())
+  }
+  let context: AudioContext
+  try {
+    // Whisper wants 16 kHz, so the graph runs at that rate instead of resampling afterwards.
+    context = new AudioContext({ sampleRate })
+  } catch (cause) {
+    stopStreamTracks(stream)
+    throw cause
+  }
+  let url = ""
+  try {
+    url = URL.createObjectURL(new Blob([processorSource], { type: "application/javascript" }))
     await context.audioWorklet.addModule(url)
   } catch (cause) {
     await release(context, stream)
     throw cause
   } finally {
-    URL.revokeObjectURL(url)
+    if (url) URL.revokeObjectURL(url)
   }
 
-  const source = context.createMediaStreamSource(stream)
-  const node = new AudioWorkletNode(context, processorName)
-  node.port.onmessage = accumulate(onBlock)
-  source.connect(node)
-  // The graph is only pulled when it reaches the destination; the node writes no output, so it is silent.
-  node.connect(context.destination)
-  if (context.state === "suspended") await context.resume()
+  let source: MediaStreamAudioSourceNode
+  let node: AudioWorkletNode
+  try {
+    source = context.createMediaStreamSource(stream)
+    node = new AudioWorkletNode(context, processorName)
+    node.port.onmessage = accumulate(onBlock)
+    source.connect(node)
+    // The graph is only pulled when it reaches the destination; the node writes no output, so it is silent.
+    node.connect(context.destination)
+    if (context.state === "suspended") await context.resume()
+  } catch (cause) {
+    await release(context, stream)
+    throw cause
+  }
 
   return {
     async stop() {
       node.port.onmessage = null
-      source.disconnect()
-      node.disconnect()
-      await release(context, stream)
+      try {
+        source.disconnect()
+      } finally {
+        try {
+          node.disconnect()
+        } finally {
+          await release(context, stream)
+        }
+      }
     },
   }
 }
@@ -76,6 +113,15 @@ function accumulate(onBlock: (block: Float32Array) => void) {
 }
 
 async function release(context: AudioContext, stream: MediaStream) {
-  for (const track of stream.getTracks()) track.stop()
+  stopStreamTracks(stream)
   if (context.state !== "closed") await context.close().catch(() => undefined)
+}
+
+export function stopStreamTracks(stream: Pick<MediaStream, "getTracks">) {
+  for (const track of stream.getTracks()) track.stop()
+}
+
+export function deviceUnavailable(cause: unknown) {
+  const name = cause instanceof Error ? cause.name : ""
+  return name === "NotFoundError" || name === "OverconstrainedError"
 }

@@ -61,6 +61,20 @@ test("markdown preserves tilde fences and multi-backtick code spans", async () =
   expect(prepareMarkdown("Use ``<h1>`literal`</h1>`` here")).toBe("Use ``<h1>`literal`</h1>`` here")
 })
 
+test("streaming highlights closed fences and defers only the open one", async () => {
+  const { endsInsideFence } = await import("../src/ui/markdown")
+  // A closed block earlier in a still-streaming answer is highlightable immediately.
+  expect(endsInsideFence("```ts\nconst value = 1\n```\n\nprose after")).toBeFalse()
+  expect(endsInsideFence("```ts\nconst value = 1\n```\n\n```rust\nfn main() {")).toBeTrue()
+  expect(endsInsideFence("```ts\nconst value = 1\n")).toBeTrue()
+  expect(endsInsideFence("~~~py\nvalue = 1\n~~~")).toBeFalse()
+  // A longer opener needs an equally long closer, and inline spans never open a block.
+  expect(endsInsideFence("````md\n```\ninner\n```\n")).toBeTrue()
+  expect(endsInsideFence("````md\n```\ninner\n```\n````")).toBeFalse()
+  expect(endsInsideFence("text with `inline` code")).toBeFalse()
+  expect(endsInsideFence("```ts something ` odd\ncode")).toBeFalse()
+})
+
 test("streaming tables bound incomplete links and preserve completed anchors", async () => {
   const { prepareMarkdown } = await import("../src/ui/markdown")
   const { marked } = await import("marked")
@@ -131,6 +145,7 @@ test("human-typed prose keeps pasted markup literal", async () => {
   const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text()
   expect(css).not.toMatch(/\.user-paste \{[^}]*max-height:/s)
   expect(css).toMatch(/\.transcript-scroll \{[^}]*overflow-anchor: none/s)
+  expect(css).not.toMatch(/\.timeline-thinking \{[^}]*padding-bottom:/s)
 })
 
 test("human-typed prose still renders deliberate fences and tables", async () => {
@@ -269,6 +284,11 @@ test("loaded stale tool states become interrupted without mutating live or compl
   expect((interrupted.parts[1] as { state: { status: string; error: string } }).state).toMatchObject({
     status: "error",
     error: "Interrupted",
+  })
+  expect((interrupted.parts[1] as { state: Record<string, unknown> }).state).not.toHaveProperty("time")
+  expect((interrupted.parts[0] as { state: { time: { start: number; end: number } } }).state.time).toEqual({
+    start: 2,
+    end: 2,
   })
   expect((interrupted.parts[2] as { state: { status: string } }).state.status).toBe("completed")
   expect((entry.parts[0] as { state: { status: string } }).state.status).toBe("running")
@@ -422,7 +442,7 @@ test("fixed menus convert visual coordinates and viewport bounds through CSS zoo
   expect(fixedMenuPosition(1170, 870, 200, 100, metrics)).toEqual({ left: 592, top: 492, viewportHeight: 600 })
 })
 
-test("provider credentials dispose cached instances and refresh connection state", async () => {
+test("provider credentials refresh provider state without disposing active instances", async () => {
   const { createActions } = await import("../src/engine/actions")
   const [state, set] = createEngineState()
   set("directory", "C:\\repo")
@@ -441,7 +461,8 @@ test("provider credentials dispose cached instances and refresh connection state
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init)
-    requests.push(`${request.method} ${new URL(request.url).pathname}`)
+    const url = new URL(request.url)
+    requests.push(`${request.method} ${url.pathname}${url.search}`)
     return new Response("true", { status: 200, headers: { "content-type": "application/json" } })
   }) as typeof fetch
 
@@ -458,14 +479,85 @@ test("provider credentials dispose cached instances and refresh connection state
     expect(state.connected).toEqual([])
     expect(await actions.reloadProviders()).toBe(true)
     expect(requests).toEqual([
-      "POST /global/dispose",
       "DELETE /auth/opencode",
-      "POST /global/dispose",
-      "POST /global/dispose",
+      "POST /provider/reload?directory=C%3A%5Crepo",
     ])
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test("provider refresh does not publish a stale workspace result after switching directories", async () => {
+  const { createActions } = await import("../src/engine/actions")
+  const [state, set] = createEngineState()
+  set("directory", "C:\\first")
+  set("connected", ["existing"])
+  let release!: () => void
+  let started!: () => void
+  const pending = new Promise<void>((resolve) => (release = resolve))
+  const requested = new Promise<void>((resolve) => (started = resolve))
+  const client = {
+    provider: {
+      list: async () => ({ data: { all: [], connected: ["stale"], default: {} } }),
+    },
+  }
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => {
+    started()
+    await pending
+    return new Response("true", { status: 200, headers: { "content-type": "application/json" } })
+  }) as typeof fetch
+
+  try {
+    const actions = createActions(
+      () => client as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+    )
+    const refresh = actions.reloadProviders()
+    await requested
+    set("directory", "C:\\second")
+    release()
+
+    expect(await refresh).toBeFalse()
+    expect(state.connected).toEqual(["existing"])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("a newer provider refresh supersedes an older request in the same workspace", async () => {
+  const { createActions } = await import("../src/engine/actions")
+  const [state, set] = createEngineState()
+  set("directory", "C:\\repo")
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => (release = resolve))
+  let calls = 0
+  const client = {
+    provider: {
+      list: async () => {
+        calls += 1
+        if (calls === 1) {
+          await pending
+          return { data: { all: [], connected: ["old"], default: {} } }
+        }
+        return { data: { all: [], connected: ["new"], default: {} } }
+      },
+    },
+  }
+  const actions = createActions(
+    () => client as never,
+    state,
+    set,
+    () => ({ url: "http://engine.test" }),
+  )
+
+  const older = actions.refreshProviders()
+  expect(await actions.refreshProviders()).toEqual(["new"])
+  release()
+  expect(await older).toBeNull()
+  expect(state.connected).toEqual(["new"])
 })
 
 test("embedded engine connections use the shell password with the opencode user", async () => {
@@ -536,7 +628,7 @@ test("transcript follow revision tracks lengths and status without embedding lar
 })
 
 test("timeline omits hidden-only messages without dropping the active thinking row", async () => {
-  const { timelineEntries } = await import("../src/ui/chat")
+  const { estimatedTimelineRow, timelineEntries } = await import("../src/ui/chat")
   const entry = (id: string, parts: unknown[]) => ({
     info: { id, role: "assistant", time: { created: 1 }, tokens: { input: 0, output: 0, reasoning: 0 } },
     parts,
@@ -550,6 +642,20 @@ test("timeline omits hidden-only messages without dropping the active thinking r
     "hidden",
     "visible",
   ])
+  expect(estimatedTimelineRow(hidden as never, 13, hidden.parts as never, true)).toBe(32)
+  expect(estimatedTimelineRow(hidden as never, 13, hidden.parts as never, false, true)).toBe(44)
+  expect(await Bun.file("src/ui/chat.tsx").text()).toContain("max-w-3xl px-4 pt-14 pb-6")
+})
+
+test("virtualized rows use flow spacers so live activity cannot overlap them", async () => {
+  const chat = await Bun.file("src/ui/chat.tsx").text()
+  expect(chat).not.toContain("terminalThinking")
+  expect(chat).not.toContain("terminalRetry")
+  expect(chat).not.toContain("translateY(${offsets()[range().start]}px)")
+  expect(chat).toContain('height: `${offsets()[range().start]}px`')
+  expect(chat).toContain('(offsets().at(-1) ?? 0) - offsets()[range().end]')
+  expect(chat).toContain("thinking={thinking()?.messageID === entry.info.id && !retry()}")
+  expect(chat).toContain("retry={thinking()?.messageID === entry.info.id ? retry() : undefined}")
 })
 
 test("tall row measurement only compensates rows actually above the viewport", async () => {
@@ -598,20 +704,34 @@ test("assistant row estimates account for wrapping and fenced code", async () =>
   expect(estimatedTimelineRow(entry)).toBe(272)
 })
 
-test("thinking follows OpenCode's active user turn", async () => {
+test("thinking remains attached to an assistant while the session is active", async () => {
   const { thinkingAfterMessage } = await import("../src/ui/chat")
   const message = (id: string, role: "user" | "assistant", parentID?: string, completed?: number) =>
     ({ info: { id, role, parentID, time: { created: 1, completed } }, parts: [] }) as never
   const first = message("u1", "user")
   const response = message("a1", "assistant", "u1")
   const steer = message("u2", "user")
+  // A running assistant owns the indicator even when the user steers with a newer message.
   expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("a1")
+  // Once every assistant is complete, a newer user prompt anchors it under that prompt.
   response.info.time.completed = 2
   expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("u2")
   const steeredResponse = message("a2", "assistant", "u2")
   expect(thinkingAfterMessage([first, response, steer, steeredResponse], "busy")).toBe("a2")
   expect(thinkingAfterMessage([first, response, steer, steeredResponse], "retry")).toBe("a2")
   expect(thinkingAfterMessage([first, response, steer, steeredResponse], "idle")).toBeNull()
+  // The very first prompt of a session has no assistant yet.
+  expect(thinkingAfterMessage([first], "busy")).toBe("u1")
+
+  steeredResponse.info.time.completed = 3
+  const compacted = {
+    info: { id: "a3", role: "assistant", parentID: "u3", summary: true, time: { created: 4, completed: 5 } },
+    parts: [],
+  } as never
+  // A completed compaction summary never captures the indicator from a newer user prompt.
+  const afterCompaction = message("u4", "user")
+  expect(thinkingAfterMessage([first, response, steer, steeredResponse, compacted, afterCompaction], "busy")).toBe("u4")
+  expect(thinkingAfterMessage([first, response, steer, steeredResponse, compacted], "busy")).toBe("a3")
 })
 
 test("thinking derives the first provider reasoning heading for the active turn", async () => {

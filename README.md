@@ -49,7 +49,8 @@ plugins, and configuration.
 | **Deep configuration** | Inspect and override model-family system prompts, built-in agent behavior, permissions, and project instructions. |
 | **Guarded MCP management** | Review exact MCP server definitions before enabling them. Changed definitions require a new decision and invalid policy state fails closed. |
 | **A workspace you can tune** | Use the command palette, rebind shortcuts, select from eight themes, customize fonts and CSS, and choose from 18 interface languages. |
-| **Desktop behavior** | Open files in your editor, receive configurable notifications, use native folder dialogs, and install signed updates from GitHub Releases. |
+| **Desktop behavior** | Open files in your editor, receive configurable notifications, use native folder dialogs, and install authenticated updates from GitHub Releases. |
+| **Trusted-LAN remote control** | Opt in to the complete Drift interface from a phone or browser while the engine remains private on loopback. |
 
 Drift and the OpenCode CLI can use the same projects and canonical engine storage at the
 same time. Drift-specific workspace names, icons, archive state, preferences, and MCP
@@ -64,11 +65,10 @@ decisions stay in Drift's own SQLite database.
 4. Start a thread and send a prompt.
 
 Drift does not include paid model access. Provider accounts, terms, and usage charges
-still apply. Installed copies check the signed update manifest on startup; automatic
+still apply. Installed copies check the authenticated update manifest on startup; automatic
 checks can be disabled under **Settings > General**.
 
-See Drift's [privacy policy](PRIVACY.md) and [code signing policy](CODE_SIGNING.md) for
-details about network connections, local data, and official Windows releases.
+See Drift's [privacy policy](PRIVACY.md) for details about network connections and local data.
 
 ## How it works
 
@@ -89,6 +89,10 @@ configure. OpenCode and Drift plugins execute code in the engine process, so ins
 third-party plugins only when you trust their source. See the
 [architecture](docs/architecture.md), [MCP trust boundary](docs/mcp.md), and
 [security policy](SECURITY.md) for details.
+
+Optional [Remote Access](docs/remote.md) adds a Tauri-owned authenticated LAN gateway on
+port `41718` and credential-free address discovery on UDP `41717`. It is disabled by default; LAN
+HTTP is not encrypted and must be used only on a trusted private network.
 
 ## Development
 
@@ -144,7 +148,7 @@ bun run package       # Windows NSIS installer
 | --- | --- |
 | `src/` | SolidJS frontend, engine client/store, application state, and UI |
 | `src-tauri/` | Tauri shell, sidecar lifecycle, native commands, and Drift SQLite store |
-| `engine/upstream/` | Pristine OpenCode git subtree; never edit directly |
+| `engine/upstream/` | Pristine OpenCode source snapshot; never edit directly |
 | `engine/overlays/` | Minimal, reversible patches for internal engine integration points |
 | `engine/opencode/` | Drift-shipped OpenCode plugins and configuration |
 | `scripts/` | Development, extension, and engine build tooling |
@@ -165,8 +169,8 @@ substantial pull request.
 | [Drift store](docs/store.md) | SQLite schema, persistence, archive behavior, and workspace lifecycle |
 | [Theming](docs/theming.md) | Design tokens, built-in themes, fonts, and custom CSS |
 | [Voice](docs/voice.md) | Dictation engine choice, capture and socket lifecycle, and settings |
+| [Remote Access](docs/remote.md) | Full web UI, safe LAN discovery, authentication, threat model, and device testing |
 | [Privacy policy](PRIVACY.md) | Local data, network connections, and user control |
-| [Code signing policy](CODE_SIGNING.md) | Release signing process and responsible roles |
 
 ## Contributing
 

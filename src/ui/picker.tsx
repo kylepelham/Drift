@@ -156,16 +156,16 @@ export function Picker(props: {
   )
 
   return (
-    <div ref={root} class="relative">
+    <div ref={root} class="picker-control relative">
       <button
-        class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-raised hover:text-ink"
+        class="picker-trigger flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-raised hover:text-ink"
         classList={{ "border border-edge bg-overlay hover:border-edge-strong": !!props.bordered }}
         style={{ width: props.width }}
         title={props.label}
         onClick={() => setOpen(!open())}
       >
         {props.icon}
-        <span class="min-w-0 max-w-40 truncate" classList={{ "flex-1": !!props.chevronAtEnd }}>
+        <span class="picker-label min-w-0 max-w-40 truncate" classList={{ "flex-1": !!props.chevronAtEnd }}>
           {props.items.find((item) => item.id === props.selected)?.label ?? props.fallbackLabel ?? t("common.default")}
         </span>
         <svg

@@ -36,7 +36,7 @@ import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspace
 import { normalizeDir } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"
 import { permissionRequiresAttention, permissionShouldAutoReply } from "../state/permission-attention"
-import { PermissionCard, QuestionCard } from "./attention"
+import { AttentionStrip, PermissionCard, QuestionCard } from "./attention"
 import { IconMic, IconPaperclip, IconShieldCheck, IconX } from "./icons"
 import { dictationEnabled, dictationModel } from "../state/voice"
 import {
@@ -54,15 +54,23 @@ import { appendDictation, formatDictationElapsed } from "../voice/transcript"
 import { openSettings } from "./settings"
 import { createMentionAutocomplete, mentionFiles } from "./composer-mentions"
 import { createSlashMenu } from "./composer-slash"
-import { readDataUrl } from "./files"
 import { openLightbox } from "./lightbox"
 import { Picker, type PickerItem } from "./picker"
 import { defaultVisibleModelIds, ModelManager } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit"
+import {
+  formatAttachmentBytes,
+  prepareAttachment,
+  prepareAttachmentsForSend,
+  resolveAttachmentKind,
+  unsupportedModelAttachment,
+  type AttachmentFailure,
+  type AttachmentKind,
+} from "../attachments"
+import { interruptResponseAnimations } from "./response-animation"
 
 
-const maxFileBytes = 10 * 1024 * 1024
 // Autosize ceiling for the textarea. Must stay in sync with the `max-h-50` class on the textarea
 // (Tailwind spacing 50 = 12.5rem = 200px); otherwise the element and its inline height disagree.
 const maxComposerHeightPx = 200
@@ -109,6 +117,7 @@ export function Composer() {
     displayed: ComposerDraft
   } | null>(null)
   let area!: HTMLTextAreaElement
+  let areaFrame!: HTMLDivElement
   let filePicker!: HTMLInputElement
 
   const submissionGuard = createComposerSubmissionGuard(() => setSubmissionVersion((value) => value + 1))
@@ -152,29 +161,59 @@ export function Composer() {
     const key = scope()
     setHistoryNavigation(null)
     setFileError("")
-    for (const file of files) {
-      if (file.size > maxFileBytes) {
-        setFileError(t("drift.composer.fileTooLarge", { filename: file.name }))
-        continue
-      }
-      const dataUrl = await readDataUrl(file).catch(() => null)
-      if (!dataUrl) {
-        setFileError(t("drift.composer.fileReadFailed", { filename: file.name }))
-        continue
-      }
-      patchComposerDraft(key, {
-        staged: [
-          ...composerDraft(key).staged,
-          {
-            id: crypto.randomUUID(),
-            filename: file.name,
-            mime: file.type || "application/octet-stream",
-            dataUrl,
-            size: file.size,
-          },
-        ],
-      })
+    await Promise.all([...files].map((file) => addFile(file, key)))
+  }
+
+  async function addFile(file: File, key: string) {
+    const resolved = resolveAttachmentKind({ filename: file.name, mime: file.type })
+    const id = crypto.randomUUID()
+    patchComposerDraft(key, {
+      staged: [
+        ...composerDraft(key).staged,
+        { id, filename: file.name, mime: resolved.mime, size: file.size, status: "processing", meta: {} },
+      ],
+    })
+    const prepared = await prepareAttachment(file, id)
+    if (!prepared.ok) {
+      patchComposerDraft(key, { staged: composerDraft(key).staged.filter((item) => item.id !== id) })
+      showFileFailure(key, file.name, prepared.reason, prepared.kind, prepared.limit)
+      return
     }
+    const unsupported = unsupportedModelAttachment(
+      [{ filename: prepared.attachment.filename, mime: prepared.attachment.mime }],
+      modelInfo(engine.state, resolveModel(engine.state, prefs().model)),
+    )
+    if (unsupported) {
+      patchComposerDraft(key, { staged: composerDraft(key).staged.filter((item) => item.id !== id) })
+      const selected = modelInfo(engine.state, resolveModel(engine.state, prefs().model))
+      setFileError(
+        t("drift.composer.modelUnsupported", {
+          filename: file.name,
+          kind: t(`drift.attachment.kind.${unsupported.kind}`),
+          model: selected?.name ?? t("command.category.model"),
+        }),
+      )
+      return
+    }
+    patchComposerDraft(key, {
+      staged: composerDraft(key).staged.map((item) => (item.id === id ? prepared.attachment : item)),
+    })
+  }
+
+  function showFileFailure(key: string, filename: string, reason: AttachmentFailure, kind?: AttachmentKind, limit?: number) {
+    if (scope() !== key) return
+    if (reason === "archive" || reason === "binary")
+      return setFileError(t("drift.composer.fileUnsupported", { filename }))
+    if (reason === "invalid-utf8") return setFileError(t("drift.composer.fileInvalidUtf8", { filename }))
+    if (reason === "too-large")
+      return setFileError(
+        t("drift.composer.fileTooLarge", {
+          filename,
+          kind: t(`drift.attachment.kind.${kind}`),
+          limit: formatAttachmentBytes(limit ?? 0),
+        }),
+      )
+    setFileError(t("drift.composer.fileReadFailed", { filename }))
   }
 
   let previousScope = scope()
@@ -313,12 +352,24 @@ export function Composer() {
         seedPrefs(id)
         emitThreadCreated(id)
       },
-      send(id, text, snapshot, workspace, prepared) {
+      async send(id, text, snapshot, workspace, prepared) {
+        const unsupported = unsupportedModelAttachment(snapshot.staged, modelInfo(engine.state, prepared.selectedModel))
+        if (unsupported) {
+          const message = t("drift.composer.modelUnsupported", {
+            filename: unsupported.attachment.filename,
+            kind: t(`drift.attachment.kind.${unsupported.kind}`),
+            model: modelInfo(engine.state, prepared.selectedModel)?.name ?? t("command.category.model"),
+          })
+          setFileError(message)
+          return { ok: false as const, error: message }
+        }
+        const attachments = await prepareAttachmentsForSend(snapshot.staged)
         const files = [
           ...mentionFiles(text, snapshot.mentions, workspace.path),
-          ...snapshot.staged.map((file) => ({ filename: file.filename, mime: file.mime, url: file.dataUrl })),
+          ...attachments.files,
         ]
-        return engine.actions.send(id, text, {
+        const prompt = [text, attachments.text].filter(Boolean).join("\n\n")
+        return engine.actions.send(id, prompt, {
           model: prepared.selectedModel,
           agent: prepared.selectedPrefs.agent,
           variant: prepared.selectedVariant,
@@ -404,8 +455,15 @@ export function Composer() {
   }
 
   function resize() {
+    // Keep the composer's outer height stable while the live textarea is temporarily `auto` for
+    // measurement. Otherwise every key collapses a capped draft to one row, lets the transcript
+    // viewport grow and clamp its scroll position, then snaps it back after the height is restored.
+    const current = area.offsetHeight
+    areaFrame.style.height = `${current}px`
     area.style.height = "auto"
-    area.style.height = `${Math.min(area.scrollHeight, maxComposerHeightPx)}px`
+    const next = Math.min(area.scrollHeight, maxComposerHeightPx)
+    area.style.height = `${next}px`
+    if (next !== current) areaFrame.style.height = `${next}px`
   }
 
   function republishComposerSelection(event: ClipboardEvent & { currentTarget: HTMLTextAreaElement }) {
@@ -461,72 +519,74 @@ export function Composer() {
 
   return (
     <div class="composer-shell relative z-10">
-      <Show when={pendingPermission()}>
-        {(permission) => (
-          <div class="mx-auto max-w-3xl">
-            <Show when={permission().sessionID !== selectedSession()}>
-              <button
-                class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
-                title={t("drift.composer.openThread")}
-                onClick={() =>
-                  openAttentionSession(
-                    permission().sessionID,
-                    permission().metadata?.directory as string | undefined,
-                  )
+      <div class="composer-attention-stack mx-auto flex w-full max-w-3xl flex-col gap-2">
+        <AttentionStrip />
+        <Show when={pendingPermission()}>
+          {(permission) => (
+            <div class="flow-root">
+              <PermissionCard
+                permission={permission()}
+                thread={
+                  permission().sessionID !== selectedSession()
+                    ? {
+                        label: t("drift.composer.pendingInThread", {
+                          thread: engine.state.sessions[permission().sessionID]?.title || t("drift.composer.anotherThread"),
+                        }),
+                        onOpen: () =>
+                          openAttentionSession(
+                            permission().sessionID,
+                            permission().metadata?.directory as string | undefined,
+                          ),
+                      }
+                    : undefined
                 }
-              >
-                {t("drift.composer.pendingInThread", {
-                  thread: engine.state.sessions[permission().sessionID]?.title || t("drift.composer.anotherThread"),
-                })}
-              </button>
-            </Show>
-            <PermissionCard permission={permission()} />
-          </div>
-        )}
-      </Show>
-      <Show keyed when={pendingPermission() ? undefined : pendingQuestion()?.id}>
-        {(questionID) => {
-          const question = () => questions().find((item) => item.id === questionID)
-          return (
-            <Show when={question()}>
-              {(request) => (
-                <div class="mx-auto max-w-3xl">
-                  <Show when={request().sessionID !== selectedSession()}>
-                    <button
-                      class="mb-1 text-xs text-ink-faint transition-colors hover:text-ink"
-                      title={t("drift.composer.openThread")}
-                      onClick={() => openAttentionSession(request().sessionID, request().directory)}
-                    >
-                      {t("drift.composer.pendingInThread", {
-                        thread: engine.state.sessions[request().sessionID]?.title || t("drift.composer.anotherThread"),
-                      })}
-                    </button>
-                  </Show>
-                  <QuestionCard
-                    requestID={questionID}
-                    questions={[...request().questions]}
-                    onAnswer={(answers) => engine.actions.answerQuestion(request().sessionID, questionID, answers)}
-                  />
-                </div>
-              )}
-            </Show>
-          )
-        }}
-      </Show>
-      <Show when={pendingPermission() || pendingQuestion() ? undefined : pendingAsk()}>
-        {(ask) => (
-          <div class="mx-auto max-w-3xl">
-            <QuestionCard
-              requestID={ask().id}
-              questions={ask().questions}
-              onAnswer={(answers) => {
-                resolveAsk(ask().id, answers)
-                return true
-              }}
-            />
-          </div>
-        )}
-      </Show>
+              />
+            </div>
+          )}
+        </Show>
+        <Show keyed when={pendingQuestion()?.id}>
+          {(questionID) => {
+            const question = () => questions().find((item) => item.id === questionID)
+            return (
+              <Show when={question()}>
+                {(request) => (
+                  <div class="flow-root">
+                    <QuestionCard
+                      requestID={questionID}
+                      questions={[...request().questions]}
+                      thread={
+                        request().sessionID !== selectedSession()
+                          ? {
+                              label: t("drift.composer.pendingInThread", {
+                                thread: engine.state.sessions[request().sessionID]?.title || t("drift.composer.anotherThread"),
+                              }),
+                              onOpen: () => openAttentionSession(request().sessionID, request().directory),
+                            }
+                          : undefined
+                      }
+                      onAnswer={(answers) => engine.actions.answerQuestion(request().sessionID, questionID, answers)}
+                    />
+                  </div>
+                )}
+              </Show>
+            )
+          }}
+        </Show>
+        <Show when={pendingAsk()}>
+          {(ask) => (
+            <div class="flow-root">
+              <QuestionCard
+                requestID={ask().id}
+                questions={ask().questions}
+                onAnswer={(answers) => {
+                  resolveAsk(ask().id, answers)
+                  return true
+                }}
+              />
+            </div>
+          )}
+        </Show>
+      </div>
       <div
         class="relative mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong"
         onDragOver={(event) => {
@@ -608,43 +668,7 @@ export function Composer() {
             <For each={staged()}>
               {(file) => {
                 const remove = () => setStaged(staged().filter((item) => item.id !== file.id))
-                return (
-                  <Show
-                    when={file.mime.startsWith("image/")}
-                    fallback={
-                      <span class="group/chip flex items-center gap-1.5 rounded-md border border-edge bg-raised py-1 pr-1 pl-1.5 text-xs text-ink-muted">
-                        <span class="max-w-40 truncate">{file.filename}</span>
-                        <button
-                          title={t("prompt.attachment.remove")}
-                          class="flex size-4 items-center justify-center rounded text-ink-faint hover:bg-overlay hover:text-ink"
-                          onClick={remove}
-                        >
-                          <IconX class="size-3" />
-                        </button>
-                      </span>
-                    }
-                  >
-                    <div class="group/chip relative">
-                      <img
-                        src={file.dataUrl}
-                        alt={file.filename}
-                        title={file.filename}
-                        class="size-16 cursor-pointer rounded-md border border-edge object-cover transition-colors hover:border-edge-strong"
-                        onClick={() => openLightbox({ url: file.dataUrl, filename: file.filename, mime: file.mime })}
-                      />
-                      <div class="pointer-events-none absolute right-0 bottom-0 left-0 rounded-b-md bg-black/50 px-1 py-0.5">
-                        <span class="block truncate text-[0.6rem] text-white">{file.filename}</span>
-                      </div>
-                      <button
-                        title={t("prompt.attachment.remove")}
-                        class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-edge bg-overlay text-ink-muted opacity-0 transition-opacity group-hover/chip:opacity-100 hover:bg-raised hover:text-ink"
-                        onClick={remove}
-                      >
-                        <IconX class="size-3" />
-                      </button>
-                    </div>
-                  </Show>
-                )
+                return <AttachmentChip file={file} remove={remove} />
               }}
             </For>
             <Show when={fileError()}>
@@ -674,126 +698,209 @@ export function Composer() {
             </Show>
           </div>
         </Show>
-        <textarea
-          ref={area}
-          rows={1}
-          class="max-h-50 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[0.925rem] outline-none placeholder:text-ink-faint"
-          placeholder={placeholder()}
-          disabled={!ready()}
-          value={draft()}
-          onInput={(event) => {
-            setDraft(event.currentTarget.value)
-            slash.setDismissed(false)
-            slash.setCursor(0)
-            mention.refresh()
-            resize()
-          }}
-          onClick={() => mention.refresh()}
-          onCopy={republishComposerSelection}
-          onCut={republishComposerSelection}
-          onPaste={(event) => {
-            if (!event.clipboardData?.files.length) return
-            event.preventDefault()
-            void addFiles(event.clipboardData.files)
-          }}
-          onKeyDown={onKey}
-        />
-        <div class="flex items-center gap-1 px-2.5 pb-2">
-          <Picker
-            label={t("command.category.agent")}
-            items={agentItems()}
-            selected={prefs().agent}
-            fallbackLabel={agentLabel(prefs().agent)}
-            onPick={(id) => updatePrefs(selectedSession(), { agent: id })}
-          />
-          <Picker
-            label={t("command.category.model")}
-            items={modelItems()}
-            selected={modelId()}
-            icon={<ProviderIcon id={model()?.providerID} class="size-3.5 shrink-0" />}
-            fallbackLabel={modelInfo(engine.state, model())?.name}
-            onManage={() => setManageModels(true)}
-            onPick={(id) => {
-              const [providerID, ...rest] = id.split("/")
-              updatePrefs(selectedSession(), { model: { providerID, modelID: rest.join("/") } })
-            }}
-          />
-          <Show when={variants().length > 0}>
-            <Picker
-              label={t("drift.composer.thinkingLevel")}
-              items={variantItems()}
-              selected={variant() ?? "default"}
-              onPick={(id) => updatePrefs(selectedSession(), { variant: id === "default" ? null : id })}
-            />
-          </Show>
-          <div class="flex-1" />
-          <Show when={autoAcceptOn()}>
-            <button
-              class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
-              title={autoAcceptGlobal() ? t("drift.permissions.autoGlobal") : t("drift.permissions.autoThread")}
-              aria-label={t("command.permissions.autoaccept.disable")}
-              disabled={autoAcceptGlobal()}
-              onClick={() => toggleAutoAccept(selectedSession()!)}
-            >
-              <IconShieldCheck class="size-3.5" />
-            </button>
-          </Show>
-          <input
-            ref={filePicker}
-            type="file"
-            multiple
-            class="hidden"
-            onChange={(event) => {
-              if (event.currentTarget.files) void addFiles(event.currentTarget.files)
-              event.currentTarget.value = ""
-            }}
-          />
-          <Show when={dictationEnabled()}>
-            <button
-              title={dictationActive() ? t("drift.voice.stop") : t("drift.voice.start")}
-              aria-label={dictationActive() ? t("drift.voice.stop") : t("drift.voice.start")}
-              aria-pressed={dictationActive()}
-              class="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-raised disabled:cursor-default disabled:opacity-60"
-              classList={{
-                "text-ink-faint hover:text-ink": !dictationActive(),
-                "text-danger": dictationActive(),
-              }}
-              disabled={!ready()}
-              onClick={toggleVoice}
-            >
-              <IconMic class="size-4" />
-            </button>
-          </Show>
-          <button
-            title={t("prompt.action.attachFile")}
-            class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+        <div ref={areaFrame} class="w-full">
+          <textarea
+            ref={area}
+            rows={1}
+            class="max-h-50 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[0.925rem] outline-none placeholder:text-ink-faint"
+            placeholder={placeholder()}
             disabled={!ready()}
-            onClick={() => filePicker.click()}
-          >
-            <IconPaperclip class="size-4" />
-          </button>
-          <Show when={busy()}>
+            value={draft()}
+            onInput={(event) => {
+              setDraft(event.currentTarget.value)
+              slash.setDismissed(false)
+              slash.setCursor(0)
+              mention.refresh()
+            }}
+            onClick={() => mention.refresh()}
+            onCopy={republishComposerSelection}
+            onCut={republishComposerSelection}
+            onPaste={(event) => {
+              if (!event.clipboardData?.files.length) return
+              event.preventDefault()
+              void addFiles(event.clipboardData.files)
+            }}
+            onKeyDown={onKey}
+          />
+        </div>
+        <div class="composer-actions flex min-w-0 items-center gap-1 px-2.5 pb-2">
+          <div class="composer-options relative flex min-w-0 flex-1 items-center gap-1">
+            <Picker
+              label={t("command.category.agent")}
+              items={agentItems()}
+              selected={prefs().agent}
+              fallbackLabel={agentLabel(prefs().agent)}
+              onPick={(id) => updatePrefs(selectedSession(), { agent: id })}
+            />
+            <Picker
+              label={t("command.category.model")}
+              items={modelItems()}
+              selected={modelId()}
+              icon={<ProviderIcon id={model()?.providerID} class="size-3.5 shrink-0" />}
+              fallbackLabel={modelInfo(engine.state, model())?.name}
+              onManage={() => setManageModels(true)}
+              onPick={(id) => {
+                const [providerID, ...rest] = id.split("/")
+                updatePrefs(selectedSession(), { model: { providerID, modelID: rest.join("/") } })
+              }}
+            />
+            <Show when={variants().length > 0}>
+              <Picker
+                label={t("drift.composer.thinkingLevel")}
+                items={variantItems()}
+                selected={variant() ?? "default"}
+                onPick={(id) => updatePrefs(selectedSession(), { variant: id === "default" ? null : id })}
+              />
+            </Show>
+          </div>
+          <div class="composer-action-buttons ml-auto flex shrink-0 items-center gap-1">
+            <Show when={autoAcceptOn()}>
+              <button
+                class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
+                title={autoAcceptGlobal() ? t("drift.permissions.autoGlobal") : t("drift.permissions.autoThread")}
+                aria-label={t("command.permissions.autoaccept.disable")}
+                disabled={autoAcceptGlobal()}
+                onClick={() => toggleAutoAccept(selectedSession()!)}
+              >
+                <IconShieldCheck class="size-3.5" />
+              </button>
+            </Show>
+            <input
+              ref={filePicker}
+              type="file"
+              multiple
+              class="hidden"
+              onChange={(event) => {
+                if (event.currentTarget.files) void addFiles(event.currentTarget.files)
+                event.currentTarget.value = ""
+              }}
+            />
+            <Show when={dictationEnabled()}>
+              <button
+                title={dictationActive() ? t("drift.voice.stop") : t("drift.voice.start")}
+                aria-label={dictationActive() ? t("drift.voice.stop") : t("drift.voice.start")}
+                aria-pressed={dictationActive()}
+                class="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-raised disabled:cursor-default disabled:opacity-60"
+                classList={{
+                  "text-ink-faint hover:text-ink": !dictationActive(),
+                  "text-danger": dictationActive(),
+                }}
+                disabled={!ready()}
+                onClick={toggleVoice}
+              >
+                <IconMic class="size-4" />
+              </button>
+            </Show>
             <button
-              class="rounded-md border border-edge px-3 py-1 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
-              title={t("prompt.action.stop")}
-              onClick={() => void engine.actions.abort(selectedSession()!)}
+              title={t("prompt.action.attachFile")}
+              class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+              disabled={!ready()}
+              onClick={() => filePicker.click()}
             >
-              {t("prompt.action.stop")}
+              <IconPaperclip class="size-4" />
             </button>
-          </Show>
-          <button
-            class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
-            title={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
-            disabled={(!draft().trim() && staged().length === 0) || !ready() || submitting()}
-            onClick={() => void submit()}
-          >
-            {busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
-          </button>
+            <Show when={busy()}>
+              <button
+                class="rounded-md border border-edge px-3 py-1 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
+                title={t("prompt.action.stop")}
+                onClick={() => {
+                  interruptResponseAnimations()
+                  void engine.actions.abort(selectedSession()!)
+                }}
+              >
+                {t("prompt.action.stop")}
+              </button>
+            </Show>
+            <button
+              class="composer-submit rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
+              title={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
+              disabled={
+                (!draft().trim() && staged().length === 0) ||
+                staged().some((file) => file.status === "processing") ||
+                !ready() ||
+                submitting()
+              }
+              onClick={() => void submit()}
+            >
+              {busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
+            </button>
+          </div>
         </div>
       </div>
       <Show when={manageModels()}>
         <ModelManager items={availableModelItems()} onClose={() => setManageModels(false)} />
       </Show>
     </div>
+  )
+}
+
+function AttachmentChip(props: { file: StagedFile; remove: () => void }) {
+  const kind = () => resolveAttachmentKind(props.file).kind
+  const label = () => t(`drift.attachment.kind.${kind()}`)
+  const detail = () => {
+    if (props.file.status === "processing") return t("drift.attachment.processing")
+    if (kind() === "text" && props.file.meta.lines !== undefined)
+      return t("drift.attachment.lines", { count: props.file.meta.lines })
+    if (kind() === "csv" && props.file.meta.rows !== undefined)
+      return t("drift.attachment.table", { rows: props.file.meta.rows, columns: props.file.meta.columns ?? 0 })
+    if (kind() === "pdf" && props.file.meta.pages !== undefined)
+      return t("drift.attachment.pages", { count: props.file.meta.pages })
+    return formatAttachmentBytes(props.file.size)
+  }
+  const title = () => [props.file.filename, props.file.meta.preview].filter(Boolean).join("\n\n")
+  const remove = (
+    <button
+      title={t("prompt.attachment.remove")}
+      class="flex size-4 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-overlay hover:text-ink"
+      onClick={props.remove}
+    >
+      <IconX class="size-3" />
+    </button>
+  )
+
+  return (
+    <Show
+      when={kind() === "image" && props.file.dataUrl}
+      fallback={
+        <span
+          class="group/chip flex max-w-64 items-center gap-2 rounded-md border border-edge bg-raised py-1 pr-1 pl-1.5 text-xs text-ink-muted"
+          title={title()}
+        >
+          <Show when={kind() === "pdf" && props.file.meta.thumbnail}>
+            {(thumbnail) => <img src={thumbnail()} alt="" class="h-10 w-8 rounded-sm border border-edge object-cover" />}
+          </Show>
+          <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[0.6rem] font-semibold text-accent uppercase">
+            {label()}
+          </span>
+          <span class="min-w-0">
+            <span class="block truncate">{props.file.filename}</span>
+            <span class="block truncate text-[0.65rem] text-ink-faint">{detail()}</span>
+          </span>
+          {remove}
+        </span>
+      }
+    >
+      {(url) => (
+        <div class="group/chip relative">
+          <img
+            src={url()}
+            alt={props.file.filename}
+            title={props.file.filename}
+            class="size-16 cursor-pointer rounded-md border border-edge object-cover transition-colors hover:border-edge-strong"
+            onClick={() => openLightbox({ url: url(), filename: props.file.filename, mime: props.file.mime })}
+          />
+          <div class="pointer-events-none absolute right-0 bottom-0 left-0 rounded-b-md bg-black/50 px-1 py-0.5">
+            <span class="block truncate text-[0.6rem] text-white">{props.file.filename}</span>
+          </div>
+          <button
+            title={t("prompt.attachment.remove")}
+            class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-edge bg-overlay text-ink-muted opacity-0 transition-opacity group-hover/chip:opacity-100 hover:bg-raised hover:text-ink"
+            onClick={props.remove}
+          >
+            <IconX class="size-3" />
+          </button>
+        </div>
+      )}
+    </Show>
   )
 }

@@ -15,6 +15,11 @@ export function openLightbox(next: LightboxImage) {
 const minZoom = 0.1
 const maxZoom = 8
 
+export function clampLightboxZoom(next: number, fitScale: number) {
+  const actualSize = fitScale > 0 ? 1 / fitScale : 1
+  return Math.min(Math.max(maxZoom, actualSize), Math.max(minZoom, next))
+}
+
 function dataSize(url: string) {
   if (!url.startsWith("data:")) return null
   const bytes = Math.round(((url.length - url.indexOf(",") - 1) * 3) / 4)
@@ -42,8 +47,22 @@ function LightboxDialog(props: { image: LightboxImage; onClose: () => void }) {
   let viewport!: HTMLDivElement
   onMount(() => onCleanup(activateModal(dialog, props.onClose)))
 
-  const clampZoom = (next: number) => Math.min(maxZoom, Math.max(minZoom, next))
-  const step = (direction: number) => setZoom(clampZoom(zoom() * (direction > 0 ? 1.25 : 0.8)))
+  const clampZoom = (next: number) => clampLightboxZoom(next, fitScale())
+  const changeZoom = (next: number, clientX?: number, clientY?: number) => {
+    const value = clampZoom(next)
+    if (value === zoom()) return
+    const rect = viewport.getBoundingClientRect()
+    const offsetX = (clientX ?? rect.left + rect.width / 2) - rect.left
+    const offsetY = (clientY ?? rect.top + rect.height / 2) - rect.top
+    const anchorX = (viewport.scrollLeft + offsetX) / Math.max(1, viewport.scrollWidth)
+    const anchorY = (viewport.scrollTop + offsetY) / Math.max(1, viewport.scrollHeight)
+    setZoom(value)
+    requestAnimationFrame(() => {
+      viewport.scrollLeft = anchorX * viewport.scrollWidth - offsetX
+      viewport.scrollTop = anchorY * viewport.scrollHeight - offsetY
+    })
+  }
+  const step = (direction: number) => changeZoom(zoom() * (direction > 0 ? 1.25 : 0.8))
   const percent = () => Math.round(fitScale() * zoom() * 100)
   const width = () => {
     const size = natural()
@@ -82,7 +101,7 @@ function LightboxDialog(props: { image: LightboxImage; onClose: () => void }) {
         <button
           class="w-14 rounded px-2 py-0.5 text-center hover:bg-white/10 hover:text-white"
           title={t("drift.lightbox.resetZoom")}
-          onClick={() => setZoom(1)}
+          onClick={() => changeZoom(1)}
         >
           {percent()}%
         </button>
@@ -92,7 +111,7 @@ function LightboxDialog(props: { image: LightboxImage; onClose: () => void }) {
         <button
           class="rounded px-2 py-0.5 hover:bg-white/10 hover:text-white"
           title={t("drift.lightbox.actualSize")}
-          onClick={() => setZoom(clampZoom(1 / fitScale()))}
+          onClick={() => changeZoom(1 / fitScale())}
         >
           1:1
         </button>
@@ -110,8 +129,9 @@ function LightboxDialog(props: { image: LightboxImage; onClose: () => void }) {
           element.addEventListener(
             "wheel",
             (event) => {
+              if (!event.ctrlKey && !event.metaKey) return
               event.preventDefault()
-              step(event.deltaY < 0 ? 1 : -1)
+              changeZoom(zoom() * (event.deltaY < 0 ? 1.25 : 0.8), event.clientX, event.clientY)
             },
             { passive: false },
           )
@@ -119,7 +139,7 @@ function LightboxDialog(props: { image: LightboxImage; onClose: () => void }) {
         class="min-h-0 flex-1 overflow-auto"
       >
         <div
-          class="flex min-h-full min-w-fit items-center justify-center p-8"
+          class="grid h-max min-h-full w-max min-w-full place-items-center p-8"
           onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
         >
           <img
@@ -128,7 +148,7 @@ function LightboxDialog(props: { image: LightboxImage; onClose: () => void }) {
             class="select-none"
             style={{ width: width(), "max-width": natural() ? undefined : "90vw" }}
             onLoad={(event) => measure(event.currentTarget)}
-            onDblClick={() => setZoom(zoom() === 1 ? clampZoom(1 / fitScale()) : 1)}
+            onDblClick={(event) => changeZoom(zoom() === 1 ? 1 / fitScale() : 1, event.clientX, event.clientY)}
           />
         </div>
       </div>

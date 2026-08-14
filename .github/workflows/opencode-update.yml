@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SPLIT_FILE: engine/upstream.commit
+  REVISION_FILE: engine/upstream.commit
   UPDATE_BRANCH: automation/opencode-update
   UPSTREAM_REF: refs/remotes/opencode-update/dev
   UPSTREAM_URL: https://github.com/sst/opencode.git
@@ -27,6 +27,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+          ref: master
 
       - name: Check for an open update
         id: existing
@@ -44,9 +45,9 @@ jobs:
         if: steps.existing.outputs.number == ''
         id: upstream
         run: |
-          current="$(tr -d '\r\n' < "$SPLIT_FILE")"
+          current="$(tr -d '\r\n' < "$REVISION_FILE")"
           if [[ ! "$current" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Invalid OpenCode subtree split: $current" >&2
+            echo "Invalid OpenCode revision: $current" >&2
             exit 1
           fi
           latest="$(git rev-parse "$UPSTREAM_REF")"
@@ -58,7 +59,7 @@ jobs:
           echo "has_update=$([[ "$current" != "$latest" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
 
-      - name: Merge OpenCode update
+      - name: Import OpenCode snapshot
         if: steps.existing.outputs.number == '' && steps.upstream.outputs.has_update == 'true'
         env:
           CURRENT: ${{ steps.upstream.outputs.current }}
@@ -67,10 +68,12 @@ jobs:
           git config user.name "Drift Automation"
           git config user.email "actions@users.noreply.github.com"
           git switch --create "$UPDATE_BRANCH"
-          printf '%s\n' "$LATEST" > "$SPLIT_FILE"
-          git add "$SPLIT_FILE"
-          git commit -m "Prepare vendored OpenCode update" -m "git-subtree-dir: engine/upstream" -m "git-subtree-split: $CURRENT"
-          git subtree merge --prefix engine/upstream "$UPSTREAM_REF" --squash -m "Update vendored OpenCode to ${LATEST:0:10}"
+          git rm -r --quiet engine/upstream
+          git read-tree --prefix=engine/upstream/ -u "$UPSTREAM_REF^{tree}"
+          printf '%s\n' "$LATEST" > "$REVISION_FILE"
+          git add "$REVISION_FILE"
+          git commit -m "chore: update vendored OpenCode to ${LATEST:0:10}"
+          git update-ref -d "$UPSTREAM_REF"
 
       - name: Push update branch
         if: steps.existing.outputs.number == '' && steps.upstream.outputs.has_update == 'true'
@@ -93,10 +96,10 @@ jobs:
           body="$(printf '%s\n' \
             '## Summary' \
             '' \
-            'Update the vendored OpenCode subtree from dev.' \
+            'Update the vendored OpenCode snapshot from dev.' \
             '' \
-            "Previous split: $CURRENT" \
-            "New split: $LATEST" \
+            "Previous revision: $CURRENT" \
+            "New revision: $LATEST" \
             '' \
             '## Validation' \
             '' \

@@ -39,6 +39,17 @@ export function IconDots(props: IconProps) {
   )
 }
 
+export function IconMenu(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="M4 7h16" />
+      <path d="M4 12h16" />
+      <path d="M4 17h16" />
+    </>,
+  )
+}
+
 export function IconArchive(props: IconProps) {
   return frame(
     props,
