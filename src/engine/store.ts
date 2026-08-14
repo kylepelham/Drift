@@ -51,7 +51,7 @@ export function messageText(entry: MessageEntry) {
 
 // Engine IDs are not chronologically sortable (the embedded timestamp wraps), so order by time first.
 export function compareMessages(a: MessageEntry, b: MessageEntry) {
-  return a.info.time.created - b.info.time.created || a.info.id.localeCompare(b.info.id)
+  return (a.info.time?.created ?? 0) - (b.info.time?.created ?? 0) || a.info.id.localeCompare(b.info.id)
 }
 
 function messageBoundary(entries: MessageEntry[], id: string | undefined, entry: MessageEntry) {
