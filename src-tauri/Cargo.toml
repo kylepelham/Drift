@@ -7,7 +7,8 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `devtools` keeps the inspector available in release builds behind the Ctrl+Shift+I shortcut.
+tauri = { version = "2", features = ["devtools"] }
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"

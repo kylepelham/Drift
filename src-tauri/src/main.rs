@@ -67,6 +67,11 @@ fn show_main_window(window: tauri::WebviewWindow) {
     reveal_main_window(&window);
 }
 
+#[tauri::command]
+fn open_webview_devtools(window: tauri::WebviewWindow) {
+    window.open_devtools();
+}
+
 fn main() {
     // Reqwest is built without a bundled provider so the release build needs no extra C toolchain.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -124,6 +129,7 @@ fn main() {
             commands::mcp_external_save,
             commands::mcp_external_remove,
             show_main_window,
+            open_webview_devtools,
             commands::storage_stats,
             commands::storage_analyze,
             commands::storage_prune,

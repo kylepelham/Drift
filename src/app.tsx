@@ -14,6 +14,7 @@ import { bindTheme } from "./state/theme"
 import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation"
 import { initZoom } from "./state/zoom"
 import { bindShellTimeoutPolicy } from "./state/prefs"
+import { initDevtoolsShortcut } from "./state/devtools"
 import { listenMirrorLiveError } from "./state/mirror"
 import { activeWorkspace, initWorkspaces, purgeAll, workspaces } from "./state/workspaces"
 import { debugPanelOpen } from "./state/panels"
@@ -40,6 +41,7 @@ export function App() {
   initKeybinds()
   initZoom()
   bindShellTimeoutPolicy()
+  onCleanup(initDevtoolsShortcut())
   onMount(() => void syncDictationConsent().catch(() => undefined))
   return (
     <EngineProvider>
