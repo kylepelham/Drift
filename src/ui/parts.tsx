@@ -38,7 +38,7 @@ const fontStyleItalic = 1
 const fontStyleBold = 2
 const fontStyleUnderline = 4
 
-export function PartView(props: { part: Part; responseID?: string; live?: boolean }) {
+export function PartView(props: { part: Part; responseID?: string; live?: boolean; revision?: number }) {
   return (
     <Switch>
       <Match when={props.part.type !== "tool" && hasPartRenderer(props.part.type) && props.part}>
@@ -51,11 +51,12 @@ export function PartView(props: { part: Part; responseID?: string; live?: boolea
             done={!!part().time?.end}
             responseID={props.responseID}
             live={props.live}
+            revision={props.revision}
           />
         )}
       </Match>
       <Match when={showReasoning() && props.part.type === "reasoning" && (props.part as ReasoningPart)}>
-        {(part) => <ReasoningView part={part()} />}
+        {(part) => <ReasoningView part={part()} revision={props.revision} />}
       </Match>
       <Match
         when={
@@ -209,7 +210,7 @@ function ImageThumb(props: { url: string; filename?: string; mime?: string }) {
   )
 }
 
-function ReasoningView(props: { part: ReasoningPart }) {
+function ReasoningView(props: { part: ReasoningPart; revision?: number }) {
   const [open, setOpen] = createSignal(false)
   const thinking = () => !props.part.time.end
   return (
@@ -223,7 +224,7 @@ function ReasoningView(props: { part: ReasoningPart }) {
       </button>
       <Show when={open()}>
         <div class="mt-1.5 border-l-2 border-edge pl-3 text-ink-muted">
-          <Markdown text={props.part.text} done={!thinking()} />
+          <Markdown text={props.part.text} done={!thinking()} revision={props.revision} />
         </div>
       </Show>
     </div>
@@ -459,12 +460,22 @@ export function ToolView(props: { part: ToolPart }) {
   const state = () => props.part.state
   const info = () => toolInfo(props.part)
   const delegated = () => props.part.tool === "task" || props.part.tool === "spawn_thread"
-  const delegatedStatus = () => {
+  // A hoisted declaration: delegatedStatus below is an eager memo, and a `const` accessor here
+  // would still be in its temporal dead zone during the first evaluation, crashing every
+  // transcript that contains a delegated task row.
+  function spawnedId() {
+    if (props.part.tool !== "task" && props.part.tool !== "spawn_thread") return null
+    return (toolMeta(props.part) as { sessionId?: string } | undefined)?.sessionId ?? null
+  }
+  // Memoized: this scans the parent transcript for terminal markers and is read from half a dozen
+  // reactive positions per tool row; unmemoized it re-ran the scan for each of them per delta.
+  const delegatedStatus = createMemo(() => {
+    if (!delegated()) return null
     recoverableInterruptions()
     resumedSessions()
     const childId = spawnedId()
     return childId ? delegatedTaskStatus(engine.state, props.part, childId) : null
-  }
+  })
   const active = () => {
     if (awaitingPermission(engine.state, props.part)) return false
     if (delegated()) return delegatedStatus() === "running" || delegatedStatus() === "resumed"
@@ -499,10 +510,6 @@ export function ToolView(props: { part: ToolPart }) {
     return patch ? diffStats(patch) : null
   }
   const timeout = () => shellTimeoutStatus(props.part)
-  const spawnedId = () => {
-    if (props.part.tool !== "task" && props.part.tool !== "spawn_thread") return null
-    return (toolMeta(props.part) as { sessionId?: string } | undefined)?.sessionId ?? null
-  }
   const activate = () => {
     if (delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "navigate") {
       selectSession(spawnedId()!)

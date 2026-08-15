@@ -202,6 +202,10 @@ test("running delegated rows navigate while terminal rows expand without lifecyc
   const source = await Bun.file("src/ui/parts.tsx").text()
   expect(source).not.toContain("drift.recovery.task.")
   expect(source).toContain("selectSession(spawnedId()!)")
+  // The eager delegated-status memo runs during setup; a `const` accessor would still be in its
+  // temporal dead zone there and crash every transcript containing a delegated task row.
+  expect(source).toContain("function spawnedId()")
+  expect(source).not.toContain("const spawnedId =")
 })
 
 test("failed recovery keeps the interruption actionable and updates its model and reason", async () => {

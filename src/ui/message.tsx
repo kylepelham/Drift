@@ -1,6 +1,6 @@
 import type { AssistantMessage, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/client"
 import { createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
-import { createStore, reconcile } from "solid-js/store"
+import { createStore, reconcile, unwrap } from "solid-js/store"
 import { useEngine } from "../engine"
 import { errorText } from "../engine/error"
 import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store"
@@ -128,7 +128,7 @@ export function largeUserText(text: string) {
 
 export type PartGroup = { id: string; key: string; explored: ToolPart[] } | { id: string; key: string; part: Part }
 
-export type PartGroupSlot = { id: string; value: PartGroup; update: (value: PartGroup) => void }
+export type PartGroupSlot = { id: string; value: PartGroup; revision?: () => number; update: (value: PartGroup) => void }
 
 export function groupParts(parts: Part[]): PartGroup[] {
   const groups: PartGroup[] = []
@@ -184,7 +184,18 @@ export function groupAssistantEntries(entries: MessageEntry[]) {
 
 function createPartGroupSlot(group: PartGroup): PartGroupSlot {
   const [value, setValue] = createStore(group)
-  return { id: group.id, value, update: (updated) => setValue(reconcile(updated)) }
+  const [revision, setRevision] = createSignal(0)
+  return {
+    id: group.id,
+    value,
+    revision,
+    update: (updated) => {
+      setValue(reconcile(unwrap(updated)))
+      // reconcile can update a nested source proxy without invalidating consumers of part.text.
+      // An explicit revision preserves the mounted slot while guaranteeing those consumers rerun.
+      setRevision((value) => value + 1)
+    },
+  }
 }
 
 export function updatePartGroupSlots(
@@ -266,6 +277,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                 {(single) => (
                   <PartView
                     part={single().part}
+                    revision={group.revision?.()}
                     responseID={`${info().id}:${single().part.id}`}
                     live={single().part.id === liveTextPartID()}
                   />

@@ -1,7 +1,7 @@
 import type { AssistantMessage, Part, SessionStatus } from "@opencode-ai/sdk/client"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
-import { compareMessages, messageText, type MessageEntry } from "../engine/store"
+import { compareMessages, messageRevisionKey, messageText, type MessageEntry } from "../engine/store"
 import { codeFontSize } from "../state/code"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
@@ -42,6 +42,10 @@ export function Chat() {
     if (!id) return []
     const revertedAt = engine.state.sessions[id]?.revert?.messageID
     const transcript = engine.state.transcripts[id] ?? []
+    // Nested part replacement does not invalidate every memo that iterates the transcript proxy.
+    // Event reducers already bump this key for every message/part update, so consume it at the
+    // transcript derivation boundary before persistent assistant slots reconcile their source.
+    for (const entry of transcript) engine.state.revisions[messageRevisionKey(id, entry.info.id)]
     const boundary = revertedAt ? transcript.find((entry) => entry.info.id === revertedAt) : undefined
     const sorted = [...transcript]
       .filter((entry) => {
@@ -105,8 +109,21 @@ export function Chat() {
   const [viewTop, setViewTop] = createSignal(0)
   const [viewHeight, setViewHeight] = createSignal(800)
   const heights = new Map<string, number>()
+  // Every part delta rebuilds offsets; re-estimating the text of hundreds of unmounted rows per
+  // delta would burn a visible slice of a core, so estimates are cached per message revision.
+  const estimates = new Map<string, { rev?: number; fontSize: number; thinking: boolean; collapsed: boolean; value: number }>()
   const [measured, setMeasured] = createSignal(0)
   let loadingOlder = false
+
+  function rowEstimate(entry: MessageEntry, parts: Part[], fontSize: number, thinking: boolean, collapsed: boolean) {
+    const rev = engine.state.revisions[messageRevisionKey(entry.info.sessionID, entry.info.id)]
+    const cached = estimates.get(entry.info.id)
+    if (cached && cached.rev === rev && cached.fontSize === fontSize && cached.thinking === thinking && cached.collapsed === collapsed)
+      return cached.value
+    const value = estimatedTimelineRow(entry, fontSize, parts, thinking, collapsed)
+    estimates.set(entry.info.id, { rev, fontSize, thinking, collapsed, value })
+    return value
+  }
 
   const offsets = createMemo(() => {
     measured()
@@ -119,7 +136,7 @@ export function Chat() {
       const entry = list[index]
       const parts = timelineParts(entry, groups.get(entry.info.id))
       result[index + 1] = result[index] +
-        (heights.get(entry.info.id) ?? estimatedTimelineRow(entry, fontSize, parts, thinkingOnly(entry), collapsedSummary(entry)))
+        (heights.get(entry.info.id) ?? rowEstimate(entry, parts, fontSize, thinkingOnly(entry), collapsedSummary(entry)))
     }
     return result
   })
@@ -167,12 +184,9 @@ export function Chat() {
     // Preserve the sticky bottom before publishing a resized viewport. Browser clamping can move
     // scrollTop when the composer/attention dock grows; recording that transient position makes
     // the virtual range jump before the queued follow correction runs.
-    if (untrack(stick)) scroller.scrollTop = scroller.scrollHeight
+    if (untrack(stick)) snapViewportToBottom()
+    else publishViewport()
     const top = scroller.scrollTop
-    batch(() => {
-      setViewTop(top)
-      setViewHeight(scroller.clientHeight)
-    })
     if (untrack(stick)) return
     const distance = scroller.scrollHeight - top - scroller.clientHeight
     setAwayFromBottom(shouldShowScrollToBottom(distance))
@@ -184,14 +198,36 @@ export function Chat() {
     observer.observe(element)
   }
 
+  function publishViewport() {
+    batch(() => {
+      setViewTop(scroller.scrollTop)
+      setViewHeight(scroller.clientHeight)
+    })
+  }
+
+  function snapViewportToBottom() {
+    snapVirtualViewport(scroller, (top, height) => {
+      batch(() => {
+        setViewTop(top)
+        setViewHeight(height)
+      })
+    })
+  }
+
   createEffect(on(selectedSession, () => {
     heights.clear()
+    estimates.clear()
+    scroller.scrollTop = 0
     batch(() => {
       setMeasured((value) => value + 1)
       setStick(true)
       setAwayFromBottom(false)
       setViewTop(0)
+      setViewHeight(scroller.clientHeight)
     })
+    // Wait for keyed transcript content and browser layout before snapping the DOM and virtual
+    // viewport together. The immediate top reset keeps the interim frame valid rather than blank.
+    requestAnimationFrame(snapViewportToBottom)
   }))
 
   // Untracked stick: content growth follows the bottom, but flipping stick on its own
@@ -202,8 +238,10 @@ export function Chat() {
     offsets()
     sessionError()
     thinking()
+    // A recovery card appearing below the last row must also pull a stuck-to-bottom view down.
+    recoverable()
     if (untrack(stick)) {
-      queueMicrotask(() => scroller.scrollTo({ top: scroller.scrollHeight }))
+      queueMicrotask(snapViewportToBottom)
       return
     }
     queueMicrotask(() => {
@@ -258,7 +296,11 @@ export function Chat() {
 
   function maybeLoadOlder(top: number) {
     const id = selectedSession()
-    if (!id || loadingOlder || top > loadOlderAt || !engine.state.cursors[id]) return
+    // A stuck view is auto-following the bottom, so any top position it reports is synthetic:
+    // the session-switch reset assigns scrollTop = 0 and measurement churn can pass through the
+    // top zone before the bottom snap lands. Paging in history for those would fight the snap
+    // with competing scroll corrections. Only a user scroll can unstick, so real reads still page.
+    if (!id || loadingOlder || untrack(stick) || top > loadOlderAt || !engine.state.cursors[id]) return
     loadingOlder = true
     const before = scroller.scrollHeight - scroller.scrollTop
     void engine.actions.loadOlder(id).finally(() => {
@@ -442,6 +484,16 @@ export function virtualRange(offsets: number[], viewTop: number, viewHeight: num
   return { start, end }
 }
 
+export function snapVirtualViewport(
+  scroller: { scrollTop: number; readonly scrollHeight: number; readonly clientHeight: number },
+  publish: (top: number, height: number) => void,
+) {
+  scroller.scrollTop = scroller.scrollHeight
+  // Read back the browser-clamped value and publish it synchronously. A no-op assignment does not
+  // have to dispatch a scroll event, which previously left the virtual range at a stale position.
+  publish(scroller.scrollTop, scroller.clientHeight)
+}
+
 export function scrollGestureSticks(previousTop: number, nextTop: number, distanceFromBottom: number) {
   if (nextTop < previousTop) return false
   return distanceFromBottom < stickyThresholdPx
@@ -592,13 +644,16 @@ function Row(props: {
   measure: (element: HTMLDivElement) => void
 }) {
   const fresh = Date.now() - props.entry.info.time.created < freshMessageMs
+  // Assistant rows remount during virtualization and session switches; replaying an entrance
+  // animation on those makes streamed output flicker, so only fresh user rows fade in.
+  const fadeIn = fresh && props.entry.info.role === "user"
   const pitch = () => props.nextThinking ? "none" : props.next ? timelinePitch(props.entry, props.next) : props.terminalError ? "turn" : "none"
   return (
     <div
       ref={props.measure}
       data-mid={props.entry.info.id}
       class="min-w-0 max-w-full"
-      classList={{ "fade-up": fresh, "pb-3": pitch() === "part", "pb-6": pitch() === "turn" }}
+      classList={{ "fade-up": fadeIn, "pb-3": pitch() === "part", "pb-6": pitch() === "turn" }}
     >
       <MessageView entry={props.entry} footer={props.next?.info.role !== "assistant"} groups={props.groups} />
       <Show when={props.thinking}>

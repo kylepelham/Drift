@@ -672,6 +672,7 @@ export function Markdown(props: {
   humanAuthored?: boolean
   responseID?: string
   live?: boolean
+  revision?: number
 }) {
   let root!: HTMLDivElement
   let request = 0

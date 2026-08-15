@@ -112,6 +112,11 @@ test("markdown reveal never drives rendering from animation frames", async () =>
   expect(css).toContain("display: revert")
 })
 
+test("history paging never fires from synthetic scroll positions while stuck to the bottom", async () => {
+  const source = await Bun.file("src/ui/chat.tsx").text()
+  expect(source).toMatch(/loadingOlder \|\| untrack\(stick\)/)
+})
+
 test("response animation speed is bounded and defaults safely", () => {
   expect(normalizeResponseAnimationSpeed(undefined)).toBe(responseAnimationSpeedDefault)
   expect(normalizeResponseAnimationSpeed(responseAnimationSpeedMin - 1)).toBe(responseAnimationSpeedMin)
