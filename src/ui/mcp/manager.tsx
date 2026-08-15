@@ -13,7 +13,7 @@ import {
 import { t } from "../../state/i18n"
 import { backendInvoke } from "../../backend"
 import type { McpConfig, ObservedMcpServer, StoredMcpServer } from "../../state/store"
-import { IconCheck, IconPlus, IconShieldCheck, IconSquarePen } from "../icons"
+import { IconCheck, IconKey, IconPlug, IconPlugOff, IconPlus, IconShieldCheck, IconSquarePen, IconTrash } from "../icons"
 import { McpEditor } from "./editor"
 
 type Row = { name: string; stored?: StoredMcpServer; observed?: ObservedMcpServer; status?: McpStatus }
@@ -346,7 +346,9 @@ function ServerRow(props: {
             <span class={status().tone}>{status().text}</span>
           </div>
         </div>
-        <div class="flex shrink-0 flex-wrap justify-end gap-1.5">
+        {/* Approval decisions lead and stay textual - they are the security-relevant choice.
+            Everything after them is a routine action, compacted to an icon with a tooltip. */}
+        <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
           <Show when={props.target?.decision === "pending" && props.target}>
             {(target) => (
               <>
@@ -365,17 +367,17 @@ function ServerRow(props: {
               {t("drift.mcp.revoke")}
             </Action>
           </Show>
+          <Show when={props.row.stored || props.target}>
+            <Action disabled={props.disabled} tone="danger" title={t("drift.mcp.remove")} onClick={props.onRemove}>
+              {/* The confirm step keeps its text: an icon cannot ask "are you sure". */}
+              {props.confirming ? t("drift.mcp.confirmRemove") : <IconTrash class="size-3.5" />}
+            </Action>
+            <Action disabled={props.disabled} title={t("common.edit")} onClick={props.onEdit}>
+              <IconSquarePen class="size-3.5" />
+            </Action>
+          </Show>
           <Show when={props.target?.decision === "approved" && props.row.status}>
             <Runtime status={props.row.status!} disabled={props.disabled} onRun={props.onRuntime} />
-          </Show>
-          <Show when={props.row.stored || props.target}>
-            <Action disabled={props.disabled} onClick={props.onEdit}>
-              <IconSquarePen class="size-3" />
-              {t("common.edit")}
-            </Action>
-            <Action disabled={props.disabled} tone="danger" onClick={props.onRemove}>
-              {props.confirming ? t("drift.mcp.confirmRemove") : t("drift.mcp.remove")}
-            </Action>
           </Show>
         </div>
       </div>
@@ -389,9 +391,16 @@ function Runtime(props: {
   onRun: (action: RuntimeAction) => void
 }) {
   const action = () => mcpRuntimeAction(props.status)
+  const label = () => t(action() === "authenticate" ? "drift.mcp.authenticate" : `common.${action()}`)
   return (
-    <Action disabled={props.disabled} onClick={() => props.onRun(action())}>
-      {t(action() === "authenticate" ? "drift.mcp.authenticate" : `common.${action()}`)}
+    <Action disabled={props.disabled} title={label()} onClick={() => props.onRun(action())}>
+      {action() === "disconnect" ? (
+        <IconPlugOff class="size-3.5" />
+      ) : action() === "authenticate" ? (
+        <IconKey class="size-3.5" />
+      ) : (
+        <IconPlug class="size-3.5" />
+      )}
     </Action>
   )
 }
@@ -535,11 +544,19 @@ function TextInput(props: { value: string; onInput: (value: string) => void; lab
   )
 }
 
-function Action(props: { disabled?: boolean; tone?: "warn" | "danger"; onClick: () => void; children: JSX.Element }) {
+function Action(props: {
+  disabled?: boolean
+  tone?: "warn" | "danger"
+  title?: string
+  onClick: () => void
+  children: JSX.Element
+}) {
   return (
     <button
       type="button"
       disabled={props.disabled}
+      title={props.title}
+      aria-label={props.title}
       class="flex items-center gap-1 rounded-md border px-2 py-1 text-xs disabled:opacity-40"
       classList={{
         "border-edge text-ink-muted hover:text-ink": !props.tone,

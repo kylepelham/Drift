@@ -28,6 +28,57 @@ export function IconSquarePen(props: IconProps) {
   )
 }
 
+export function IconTrash(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="M3 6h18" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </>,
+  )
+}
+
+export function IconPlug(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="M12 22v-5" />
+      <path d="M9 8V2" />
+      <path d="M15 8V2" />
+      <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
+    </>,
+  )
+}
+
+export function IconPlugOff(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="M12 22v-5" />
+      <path d="M9 8V5" />
+      <path d="M15 8V5" />
+      <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
+      <path d="M4 2l16 20" />
+    </>,
+  )
+}
+
+export function IconKey(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="M21 2l-2 2" />
+      <path d="M15.5 8.5 19 5" />
+      <path d="m19 5 2 2" />
+      <circle cx="9" cy="15" r="5.5" />
+      <path d="M12.9 11.1 15.5 8.5" />
+    </>,
+  )
+}
+
 export function IconDots(props: IconProps) {
   return frame(
     props,
