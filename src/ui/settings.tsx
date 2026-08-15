@@ -848,16 +848,13 @@ function ProvidersSection() {
             <ProviderIcon id={provider.id} class="size-4.5" />
           </span>
           <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{provider.name}</span>
-          <span
-            class="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[0.68rem]"
-            classList={{
-              "border-ok/25 bg-ok/10 text-ok": connected(),
-              "border-edge bg-surface/60 text-ink-faint": !connected(),
-            }}
-          >
-            <span class="size-1.5 rounded-full" classList={{ "bg-ok": connected(), "bg-ink-faint": !connected() }} />
-            {connected() ? t("mcp.status.connected") : t("drift.settings.providers.notConnected")}
-          </span>
+          {/* Disconnected rows carry no pill: the section header already says "Not connected". */}
+          <Show when={connected()}>
+            <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-ok/30 bg-ok/10 px-2 py-0.5 text-[0.68rem] font-medium text-ok">
+              <span class="size-1.5 rounded-full bg-ok" />
+              {t("mcp.status.connected")}
+            </span>
+          </Show>
           <span class="text-ink-faint transition-colors group-hover:text-ink-muted">
             <Chevron open={open()} />
           </span>
