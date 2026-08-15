@@ -493,6 +493,31 @@ export function createActions(
     }
   }
 
+  /**
+   * Switches the model of an assistant attempt parked in retry backoff. The engine validates the
+   * exact session/message pairing and rejects attempts that resumed or finished, so a stale card
+   * can never restart a turn that moved on.
+   */
+  async function switchRetryModel(
+    id: string,
+    messageID: string,
+    model: ModelRef,
+    variant?: string,
+  ): Promise<PromptSendResult> {
+    const base = target()
+    const directory = state.sessions[id]?.directory
+    if (!base || !directory) return { ok: false, error: "The retrying session is no longer available" }
+    const response = await fetch(withDirectory(`${base.url}/experimental/session/${id}/retry-model`, directory), {
+      method: "PUT",
+      headers: jsonHeaders(base),
+      body: JSON.stringify({ messageID, ...model, ...(variant ? { variant } : {}) }),
+    }).catch(() => null)
+    if (!response) return { ok: false, error: "Could not reach the engine" }
+    if (response.ok) return { ok: true }
+    const body = (await response.json().catch(() => null)) as { data?: { message?: string } } | null
+    return { ok: false, error: body?.data?.message ?? `Engine rejected the model switch (${response.status})` }
+  }
+
   async function abort(id: string) {
     await requireClient().session.abort({ path: { id } })
   }
@@ -958,6 +983,7 @@ export function createActions(
     moveWorkspaceSessions,
     send,
     recover,
+    switchRetryModel,
     abort,
     summarize,
     share,

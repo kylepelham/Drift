@@ -1,7 +1,7 @@
 import type { AssistantMessage, Part, SessionStatus } from "@opencode-ai/sdk/client"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
-import { compareMessages, messageRevisionKey, messageText, type MessageEntry } from "../engine/store"
+import { compareMessages, messageRevisionKey, messageText, modelInfo, type MessageEntry, type ModelRef } from "../engine/store"
 import { codeFontSize } from "../state/code"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
@@ -18,8 +18,11 @@ import {
 import { TextShimmer } from "./text-shimmer"
 import { DriftLogo } from "./logo"
 import { recoverableForSession, recoverableInterruptions } from "../state/recovery"
-import { RecoveryCard } from "./recovery"
-import { collapseCompaction, compactionCollapsed } from "../state/prefs"
+import { RecoveryCard, retryModelItems } from "./recovery"
+import { interruptResponseAnimations } from "./response-animation"
+import { collapseCompaction, compactionCollapsed, prefsFor, updatePrefs } from "../state/prefs"
+import { Picker } from "./picker"
+import { ProviderIcon } from "./provider-icon"
 
 const estimatedRow = 96
 const overscan = 800
@@ -662,26 +665,92 @@ function Row(props: {
           <Show when={props.thinkingHeading}>{(heading) => <span class="timeline-thinking-heading">{heading()}</span>}</Show>
         </div>
       </Show>
-      <Show when={props.retry}>{(status) => <SessionRetry status={status()} />}</Show>
+      <Show when={props.retry}>
+        {(status) => (
+          <SessionRetry
+            status={status()}
+            sessionID={props.entry.info.sessionID}
+            messageID={props.entry.info.id}
+            model={
+              props.entry.info.role === "assistant"
+                ? { providerID: props.entry.info.providerID, modelID: props.entry.info.modelID }
+                : undefined
+            }
+          />
+        )}
+      </Show>
     </div>
   )
 }
 
-function SessionRetry(props: { status: Extract<SessionStatus, { type: "retry" }> }) {
+function SessionRetry(props: {
+  status: Extract<SessionStatus, { type: "retry" }>
+  sessionID: string
+  messageID: string
+  model?: ModelRef
+}) {
+  const engine = useEngine()
   const [now, setNow] = createSignal(Date.now())
+  // Message updates carrying the pre-switch model would snap a plain mirror of props back to the
+  // old selection; a local accepted choice wins until the engine converges on it.
+  const [chosen, setChosen] = createSignal<ModelRef>()
+  const [submitting, setSubmitting] = createSignal(false)
   const timer = setInterval(() => setNow(Date.now()), 1000)
   onCleanup(() => clearInterval(timer))
+  const selected = () => chosen() ?? props.model
   const display = createMemo(() => retryPresentation(props.status, now()))
+  const items = createMemo(() => retryModelItems(engine.state))
+  const selectedID = () => {
+    const model = selected()
+    return model ? `${model.providerID}/${model.modelID}` : undefined
+  }
+
+  async function switchModel(id: string) {
+    if (submitting()) return
+    const [providerID, ...rest] = id.split("/")
+    const model = { providerID, modelID: rest.join("/") }
+    const preferredVariant = prefsFor(props.sessionID).variant
+    const variants = Object.keys(modelInfo(engine.state, model)?.variants ?? {})
+    const variant = preferredVariant && variants.includes(preferredVariant) ? preferredVariant : undefined
+    setSubmitting(true)
+    const result = await engine.actions.switchRetryModel(props.sessionID, props.messageID, model, variant)
+    setSubmitting(false)
+    if (!result.ok) {
+      engine.actions.notice({
+        message: result.error,
+        variant: "error",
+      })
+      return
+    }
+    setChosen(model)
+    updatePrefs(props.sessionID, { model, variant: variant ?? null })
+  }
+
   return (
     <div class="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger" role="status" aria-live="polite">
-      <div class="flex items-start gap-2">
-        <span class="pulse-soft mt-1.5 size-2 shrink-0 rounded-full bg-danger" aria-hidden="true" />
-        <div class="min-w-0">
-          <div class="break-words" classList={{ "cursor-help": display().truncated }} title={display().truncated ? props.status.message : undefined}>
-            {display().message}
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="flex min-w-0 flex-1 items-start gap-2">
+          <span class="pulse-soft mt-1.5 size-2 shrink-0 rounded-full bg-danger" aria-hidden="true" />
+          <div class="min-w-0">
+            <div class="break-words" classList={{ "cursor-help": display().truncated }} title={display().truncated ? props.status.message : undefined}>
+              {display().message}
+            </div>
+            <div class="mt-0.5 text-xs text-danger/75">{display().info}</div>
           </div>
-          <div class="mt-0.5 text-xs text-danger/75">{display().info}</div>
         </div>
+        <Show when={props.model}>
+          <Picker
+            label={submitting() ? t("drift.recovery.starting") : t("drift.recovery.chooseModel")}
+            items={items()}
+            selected={selectedID()}
+            fallbackLabel={selectedID()}
+            icon={<ProviderIcon id={selected()?.providerID} class="size-3.5 shrink-0" />}
+            bordered
+            floating
+            placement="above"
+            onPick={(id) => void switchModel(id)}
+          />
+        </Show>
       </div>
     </div>
   )

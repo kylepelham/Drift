@@ -101,4 +101,5 @@ await withEngineOverlays(async () => {
     "-t",
     "compact on structured context overflow",
   ])
+  await run("packages/opencode", ["test/session/retry-model-switch.test.ts"])
 })

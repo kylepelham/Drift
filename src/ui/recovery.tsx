@@ -8,7 +8,7 @@ import type { RecoverableInterruption } from "../state/store"
 import { Picker, type PickerItem } from "./picker"
 import { ProviderIcon } from "./provider-icon"
 
-export function recoveryModelItems(state: EngineState): PickerItem[] {
+export function retryModelItems(state: EngineState): PickerItem[] {
   const providers = state.providers.filter((provider) => {
     if (provider.id === "lmstudio") return state.connected.includes(provider.id)
     return state.connected.includes(provider.id) || state.connected.length === 0
@@ -37,7 +37,7 @@ export function RecoveryCard(props: { interruption: RecoverableInterruption }) {
     modelInfo(engine.state, failedModel()) ? failedModel() : resolveModel(engine.state, prefsFor(props.interruption.sessionId).model)
   const [selected, setSelected] = createSignal<ModelRef | null>(initial())
   const [submitting, setSubmitting] = createSignal(false)
-  const items = createMemo(() => recoveryModelItems(engine.state))
+  const items = createMemo(() => retryModelItems(engine.state))
   createEffect(() => {
     items()
     if (!selected()) setSelected(initial())

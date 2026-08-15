@@ -155,6 +155,55 @@ test("recovery targets the interrupted session directory instead of the active w
   }
 })
 
+test("retry model switching targets the exact parked attempt through the experimental endpoint", async () => {
+  const { createActions } = await import("../src/engine/actions")
+  const [state, set] = createEngineState()
+  set("sessions", "ses", { id: "ses", directory: "D:/work/beta" } as never)
+  const originalFetch = globalThis.fetch
+  let request: Request | undefined
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    request = input instanceof Request ? input : new Request(input, init)
+    return new Response(null, { status: 204 })
+  }) as typeof fetch
+  try {
+    const actions = createActions(
+      () => {
+        throw new Error("the SDK client is not involved in retry switching")
+      },
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+    )
+    expect(
+      await actions.switchRetryModel("ses", "msg_1", { providerID: "openai", modelID: "gpt-5" }, "high"),
+    ).toEqual({ ok: true })
+    expect(request!.method).toBe("PUT")
+    expect(new URL(request!.url).pathname).toBe("/experimental/session/ses/retry-model")
+    expect(await request!.json()).toEqual({
+      messageID: "msg_1",
+      providerID: "openai",
+      modelID: "gpt-5",
+      variant: "high",
+    })
+
+    // Exact-target rejections surface the engine's reason instead of a generic failure.
+    globalThis.fetch = (async () =>
+      Response.json({ data: { message: "Session is not waiting to retry" } }, { status: 409 })) as typeof fetch
+    expect(await actions.switchRetryModel("ses", "msg_1", { providerID: "openai", modelID: "gpt-5" })).toEqual({
+      ok: false,
+      error: "Session is not waiting to retry",
+    })
+
+    // Unknown sessions never produce a request.
+    expect(await actions.switchRetryModel("gone", "msg_1", { providerID: "openai", modelID: "gpt-5" })).toEqual({
+      ok: false,
+      error: "The retrying session is no longer available",
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test("parent delegated status follows interruption, resumed work, and completion", async () => {
   const { delegatedTaskStatus } = await import("../src/ui/parts")
   const [state, set] = createEngineState()
