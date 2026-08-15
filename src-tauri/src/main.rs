@@ -7,6 +7,7 @@ mod editor;
 mod engine;
 mod engine_db;
 mod mcp;
+mod mcp_external;
 mod permissions;
 mod remote;
 mod storage;
@@ -119,6 +120,9 @@ fn main() {
             commands::mcp_reject,
             commands::mcp_revoke,
             watcher::watcher_set_skill_paths,
+            commands::mcp_external_config,
+            commands::mcp_external_save,
+            commands::mcp_external_remove,
             show_main_window,
             commands::storage_stats,
             commands::storage_analyze,

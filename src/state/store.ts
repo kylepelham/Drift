@@ -18,6 +18,8 @@ export type McpSnapshot = {
   servers: StoredMcpServer[]
   observed: ObservedMcpServer[]
 }
+/** A config-file-defined MCP server resolved for editing: its defining files and definition. */
+export type ExternalMcpConfig = { paths: string[]; config: McpConfig }
 export type RecoverableInterruption = {
   sessionId: string
   identity: string
@@ -55,6 +57,15 @@ export interface DriftStore {
   mcpSnapshot(directory: string): Promise<McpSnapshot>
   saveMcp(name: string, config: McpConfig, generation: number, previousName?: string): Promise<void>
   removeMcp(name: string, generation: number): Promise<void>
+  externalMcp(name: string, fingerprint: string, generation: number): Promise<ExternalMcpConfig>
+  saveExternalMcp(
+    name: string,
+    previousName: string,
+    fingerprint: string,
+    config: McpConfig,
+    generation: number,
+  ): Promise<void>
+  removeExternalMcp(name: string, fingerprint: string, generation: number): Promise<void>
   approveMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
   rejectMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
   revokeMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
@@ -85,6 +96,12 @@ function shellStore(invoke: Invoke): DriftStore {
     saveMcp: (name, config, generation, previousName) =>
       invoke("mcp_save", { name, config, generation, previousName }),
     removeMcp: (name, generation) => invoke("mcp_remove", { name, generation }),
+    externalMcp: (name, fingerprint, generation) =>
+      invoke("mcp_external_config", { name, fingerprint, generation }),
+    saveExternalMcp: (name, previousName, fingerprint, config, generation) =>
+      invoke("mcp_external_save", { name, previousName, fingerprint, config, generation }),
+    removeExternalMcp: (name, fingerprint, generation) =>
+      invoke("mcp_external_remove", { name, fingerprint, generation }),
     approveMcp: (directory, name, fingerprint, generation) =>
       invoke("mcp_approve", { directory, name, fingerprint, generation }),
     rejectMcp: (directory, name, fingerprint, generation) =>
@@ -194,6 +211,9 @@ function browserStore(): DriftStore {
     mcpSnapshot: desktopMcpOnly,
     saveMcp: desktopMcpOnly,
     removeMcp: desktopMcpOnly,
+    externalMcp: desktopMcpOnly,
+    saveExternalMcp: desktopMcpOnly,
+    removeExternalMcp: desktopMcpOnly,
     approveMcp: desktopMcpOnly,
     rejectMcp: desktopMcpOnly,
     revokeMcp: desktopMcpOnly,

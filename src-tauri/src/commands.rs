@@ -240,6 +240,41 @@ pub(crate) fn mcp_remove(
 }
 
 #[tauri::command]
+pub(crate) fn mcp_external_config(
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    name: String,
+    fingerprint: String,
+    generation: i64,
+) -> Result<mcp::ExternalMcpConfig, String> {
+    runtime.external_config(&store, &name, &fingerprint, generation)
+}
+
+#[tauri::command]
+pub(crate) fn mcp_external_save(
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    name: String,
+    previous_name: String,
+    fingerprint: String,
+    config: Value,
+    generation: i64,
+) -> Result<(), String> {
+    runtime.external_save(&store, &name, &previous_name, &fingerprint, config, generation)
+}
+
+#[tauri::command]
+pub(crate) fn mcp_external_remove(
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    name: String,
+    fingerprint: String,
+    generation: i64,
+) -> Result<(), String> {
+    runtime.external_remove(&store, &name, &fingerprint, generation)
+}
+
+#[tauri::command]
 pub(crate) fn mcp_approve(
     app: tauri::AppHandle,
     runtime: State<mcp::McpRuntime>,

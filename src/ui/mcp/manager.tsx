@@ -17,7 +17,8 @@ import { IconCheck, IconPlus, IconShieldCheck, IconSquarePen } from "../icons"
 import { McpEditor } from "./editor"
 
 type Row = { name: string; stored?: StoredMcpServer; observed?: ObservedMcpServer; status?: McpStatus }
-type EditorEntry = { server?: StoredMcpServer; expected: McpStoredExpectation }
+/** `external` marks a server defined in the user's own config files rather than Drift's registry. */
+type EditorEntry = { server?: StoredMcpServer; expected: McpStoredExpectation; external?: McpExactTarget }
 type RuntimeAction = "connect" | "disconnect" | "authenticate"
 type RowKey = "ArrowUp" | "ArrowDown" | "Home" | "End"
 
@@ -48,6 +49,8 @@ export function McpManagement(props: { embedded?: boolean }) {
   const [view, setView] = createSignal<"servers" | "registry">("servers")
   const [confirmRemove, setConfirmRemove] = createSignal("")
   const [message, setMessage] = createSignal("")
+  // Failures outside the coordinator's mutation path (external config lookup) surface here.
+  const [failure, setFailure] = createSignal("")
   const [selected, setSelected] = createSignal("")
   const rowElements = new Map<string, HTMLDivElement>()
   const native = !!backendInvoke()
@@ -91,6 +94,7 @@ export function McpManagement(props: { embedded?: boolean }) {
   })
   const run = async (action: () => Promise<void>, success?: string) => {
     setMessage("")
+    setFailure("")
     try {
       await action()
       if (success) setMessage(success)
@@ -101,7 +105,10 @@ export function McpManagement(props: { embedded?: boolean }) {
   }
   const save = async (name: string, config: McpConfig, expected: McpStoredExpectation) => {
     setMessage("")
-    await coordinator.save(name, config, expected)
+    setFailure("")
+    const external = editor()?.external
+    if (external) await coordinator.saveExternal(external, name, config)
+    else await coordinator.save(name, config, expected)
     setMessage(t("drift.mcp.saved", { name }))
     setEditor(null)
   }
@@ -113,6 +120,25 @@ export function McpManagement(props: { embedded?: boolean }) {
       updatedAt: server.updatedAt,
     }
     if (await run(() => coordinator.remove(server.name, expected), t("drift.mcp.removed", { name: server.name })))
+      setConfirmRemove("")
+  }
+  const editExternal = async (target: McpExactTarget) => {
+    setMessage("")
+    setFailure("")
+    try {
+      const found = await coordinator.externalConfig(target)
+      setEditor({
+        server: { name: target.name, config: found.config, updatedAt: 0 },
+        expected: { generation: coordinator.state.snapshot.generation },
+        external: target,
+      })
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : String(error))
+    }
+  }
+  const removeExternal = async (target: McpExactTarget) => {
+    if (confirmRemove() !== target.name) return setConfirmRemove(target.name)
+    if (await run(() => coordinator.removeExternal(target), t("drift.mcp.removed", { name: target.name })))
       setConfirmRemove("")
   }
   const decide = (action: "approve" | "reject" | "revoke", target: McpExactTarget) =>
@@ -156,16 +182,16 @@ export function McpManagement(props: { embedded?: boolean }) {
           </button>
         </Show>
       </div>
-      <Show when={coordinator.state.error || message()}>
+      <Show when={coordinator.state.error || failure() || message()}>
         <div
-          role={coordinator.state.error ? "alert" : "status"}
+          role={coordinator.state.error || failure() ? "alert" : "status"}
           class="rounded-md border px-3 py-2 text-xs"
           classList={{
-            "border-danger/35 bg-danger/10 text-danger": !!coordinator.state.error,
-            "border-ok/35 bg-ok/10 text-ok": !coordinator.state.error,
+            "border-danger/35 bg-danger/10 text-danger": !!(coordinator.state.error || failure()),
+            "border-ok/35 bg-ok/10 text-ok": !coordinator.state.error && !failure(),
           }}
         >
-          {coordinator.state.error || message()}
+          {coordinator.state.error || failure() || message()}
         </div>
       </Show>
       <Show when={!coordinator.state.directory}>
@@ -190,19 +216,28 @@ export function McpManagement(props: { embedded?: boolean }) {
                   onNavigate={(key) => moveRow(key, name)}
                   onEdit={() => {
                     const stored = row().stored
-                    if (!stored) return
-                    setEditor({
-                      server: stored,
-                      expected: {
-                        generation: coordinator.state.snapshot.generation,
-                        previousName: stored.name,
-                        updatedAt: stored.updatedAt,
-                      },
-                    })
+                    if (stored) {
+                      setEditor({
+                        server: stored,
+                        expected: {
+                          generation: coordinator.state.snapshot.generation,
+                          previousName: stored.name,
+                          updatedAt: stored.updatedAt,
+                        },
+                      })
+                      return
+                    }
+                    const observed = row().observed
+                    if (observed) void editExternal(exact(observed))
                   }}
                   onRemove={() => {
                     const stored = row().stored
-                    if (stored) void remove(stored)
+                    if (stored) {
+                      void remove(stored)
+                      return
+                    }
+                    const observed = row().observed
+                    if (observed) void removeExternal(exact(observed))
                   }}
                   onDecision={decide}
                   onRuntime={(action) => {
@@ -333,7 +368,7 @@ function ServerRow(props: {
           <Show when={props.target?.decision === "approved" && props.row.status}>
             <Runtime status={props.row.status!} disabled={props.disabled} onRun={props.onRuntime} />
           </Show>
-          <Show when={props.row.stored}>
+          <Show when={props.row.stored || props.target}>
             <Action disabled={props.disabled} onClick={props.onEdit}>
               <IconSquarePen class="size-3" />
               {t("common.edit")}

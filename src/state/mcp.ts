@@ -1,6 +1,6 @@
 import type { McpStatus } from "@opencode-ai/sdk/client"
 import { createStore, reconcile } from "solid-js/store"
-import type { DriftStore, McpConfig, McpSnapshot, ObservedMcpServer } from "./store"
+import type { DriftStore, ExternalMcpConfig, McpConfig, McpSnapshot, ObservedMcpServer } from "./store"
 
 export type McpExactTarget = ObservedMcpServer & {
   directory: string
@@ -290,6 +290,47 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     })
   }
 
+  /**
+   * Resolves the on-disk definition of a config-file-defined server for the editor. Serialized
+   * behind the operation queue so it never races a mutation over the same files, and guarded by
+   * the exact observed target so a changed definition is refused rather than misread.
+   */
+  function externalConfig(target: McpExactTarget): Promise<ExternalMcpConfig> {
+    try {
+      assertExact(target)
+    } catch (error) {
+      return Promise.reject(error)
+    }
+    return serialize(async () => {
+      assertExact(target)
+      return requireDependencies().store.externalMcp(target.name, target.fingerprint, target.generation)
+    })
+  }
+
+  function saveExternal(target: McpExactTarget, name: string, config: McpConfig) {
+    try {
+      assertExact(target)
+    } catch (error) {
+      return Promise.reject(error)
+    }
+    return mutation(target.name, async (api) => {
+      assertExact(target)
+      await api.store.saveExternalMcp(name, target.name, target.fingerprint, config, target.generation)
+    })
+  }
+
+  function removeExternal(target: McpExactTarget) {
+    try {
+      assertExact(target)
+    } catch (error) {
+      return Promise.reject(error)
+    }
+    return mutation(target.name, async (api) => {
+      assertExact(target)
+      await api.store.removeExternalMcp(target.name, target.fingerprint, target.generation)
+    })
+  }
+
   function decide(action: "approve" | "reject" | "revoke", target: McpExactTarget) {
     try {
       assertExact(target)
@@ -363,7 +404,21 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     }
   }
 
-  return { state, start, setActive, refresh, refreshStatus, save, remove, decide, runtime, settled: () => tail }
+  return {
+    state,
+    start,
+    setActive,
+    refresh,
+    refreshStatus,
+    save,
+    remove,
+    externalConfig,
+    saveExternal,
+    removeExternal,
+    decide,
+    runtime,
+    settled: () => tail,
+  }
 }
 
 function conciseMcpError(error: unknown) {
