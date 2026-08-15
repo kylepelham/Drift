@@ -152,7 +152,11 @@ export function recordLink(link: { child: string; parent: string }) {
   const links = loadLinks()
   if (links[link.child] === link.parent) return
   links[link.child] = link.parent
-  localStorage.setItem("drift.links", JSON.stringify(links))
+  try {
+    localStorage.setItem("drift.links", JSON.stringify(links))
+  } catch {
+    // Storage failure must not terminate the global engine event pump.
+  }
 }
 
 export function createEngineState() {

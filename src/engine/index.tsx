@@ -42,6 +42,7 @@ const EngineContext = createContext<Engine>()
 
 // Reconnect transcript refreshes run in small batches so they cannot starve the visible session.
 const transcriptRefreshBatch = 3
+const engineInspectionTimeoutMs = 5_000
 
 /** Reads the engine version, or null if the engine is unreachable or does not answer with it. */
 function fetchEngineVersion(target: EngineTarget) {
@@ -101,7 +102,11 @@ export function EngineProvider(props: ParentProps) {
     const metadataEpoch = runtimeMetadataEpoch + 1
     runtimeMetadataEpoch = metadataEpoch
     set("providerSnapshotEpoch", providerEpoch)
-    const current = () => client === api && directory === bootDirectory
+    // A reconnect flap can overlap two hydrates against the same client and directory; the epoch
+    // (bumped by every server.connected) keeps the stale one from purging what the fresh one wrote.
+    const epoch = state.sessionSnapshotEpoch
+    const current = () =>
+      client === api && directory === bootDirectory && state.sessionSnapshotEpoch === epoch
     try {
       const stale = Object.keys(state.loaded)
       const captured = captureRevisions(state)
@@ -122,6 +127,9 @@ export function EngineProvider(props: ParentProps) {
       applyStatusSnapshot(set, { sessions: list, statuses: statuses.data ?? {}, captured })
       for (const [sessionID, status] of Object.entries(statuses.data ?? {}))
         if (status.type !== "idle") clearRecoverableInterruption(sessionID, true)
+      // Pending permissions/questions exist only as events; a bounded SSE buffer can drop the ask
+      // frame under load, which would strand the session busy forever without this refetch.
+      if (bootDirectory) void actions.refreshPermissions([bootDirectory])
       if (state.providerSnapshotEpoch === providerEpoch) {
         set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
         set("connected", providers.data?.connected ?? [])
@@ -232,7 +240,10 @@ export function EngineProvider(props: ParentProps) {
 
   async function inspectRuntimeEngine() {
     const epoch = engineEpoch
-    const status = await inspectShellEngine().catch(() => undefined)
+    const status = await Promise.race([
+      inspectShellEngine().catch(() => undefined),
+      sleep(engineInspectionTimeoutMs).then(() => undefined),
+    ])
     if (!status || disposed || epoch !== engineEpoch) return false
     if (status.error) {
       recordEngineFailure(status.error)
@@ -250,6 +261,7 @@ export function EngineProvider(props: ParentProps) {
     while (!signal.aborted) {
       const target = base
       if (!target) return
+      let streamError: unknown
       try {
         await streamEvents(target, signal, (event, eventDirectory) => {
           if (event.type === "server.connected") {
@@ -260,13 +272,25 @@ export function EngineProvider(props: ParentProps) {
             void hydrate().catch(() => undefined)
             return
           }
-          reduce(set, event, eventDirectory, state)
+          try {
+            reduce(set, event, eventDirectory, state)
+          } catch (cause) {
+            // One malformed or locally unpersistable event must not kill all future updates.
+            console.error("Drift could not reduce engine event", {
+              type: event.type,
+              directory: eventDirectory,
+              cause,
+            })
+          }
         })
-      } catch {}
-      if (signal.aborted) return
-      if (await inspectRuntimeEngine()) return
+      } catch (cause) {
+        streamError = cause
+      }
       if (signal.aborted) return
       set("connection", "offline")
+      if (streamError) console.warn("Drift engine event stream disconnected", streamError)
+      if (await inspectRuntimeEngine()) return
+      if (signal.aborted) return
       await sleep(1500)
       if (signal.aborted) return
       set("connection", "connecting")
@@ -291,8 +315,17 @@ export function EngineProvider(props: ParentProps) {
       }),
     )
     if (import.meta.env.DEV) seedBench(set, path)
-    pumpAbort = new AbortController()
-    void pump(pumpAbort.signal)
+    const controller = new AbortController()
+    pumpAbort = controller
+    void pump(controller.signal)
+      .catch((cause) => {
+        if (!controller.signal.aborted) console.error("Drift engine event pump stopped unexpectedly", cause)
+      })
+      .finally(() => {
+        if (pumpAbort !== controller) return
+        pumpAbort = undefined
+        if (!disposed && !controller.signal.aborted && base && directory) startPump(directory)
+      })
   }
 
   function restartEngine() {

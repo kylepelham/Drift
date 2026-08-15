@@ -185,6 +185,9 @@ export function applySessionSnapshot(
       for (const info of input.sessions) {
         if (advanced(info.id)) continue
         draft.sessions[info.id] = { revert: undefined, share: undefined, ...info }
+        // Applying a snapshot advances the session so an older overlapping snapshot (a reconnect
+        // flap fires two hydrates) can neither downgrade nor purge what this one established.
+        bumpRevision(draft, sessionRevisionKey(info.id))
         const model = (info as Session & { model?: { id: string; providerID: string } }).model
         if (model) draft.sessionModels[info.id] = { providerID: model.providerID, modelID: model.id }
       }
@@ -362,10 +365,28 @@ function upsertPart(set: SetEngineState, part: Part) {
       if (!entry) return
       bumpRevision(draft, messageRevisionKey(part.sessionID, part.messageID))
       const index = entry.parts.findIndex((existing) => existing.id === part.id)
-      if (index >= 0) entry.parts[index] = part
+      if (index >= 0) entry.parts[index] = reconcilePart(entry.parts[index]!, part)
       else entry.parts.push(part)
     }),
   )
+}
+
+function reconcilePart(existing: Part, incoming: Part) {
+  if (existing.type !== incoming.type || (incoming.type !== "text" && incoming.type !== "reasoning")) return incoming
+  if (existing.type !== "text" && existing.type !== "reasoning") return incoming
+  // REST hydration can race an older initial part.updated frame whose text is still empty. Keep
+  // the hydrated prefix so following deltas append to it; completed/non-empty updates remain
+  // authoritative and can still replace the part normally. This relies on the engine allocating a
+  // fresh part ID per streamed attempt (PartID.ascending on every text-start): a same-ID reset to
+  // a shorter prefix is therefore always the stale frame, never a legitimate rewrite.
+  if (
+    incoming.time?.end === undefined &&
+    existing.text.length > incoming.text.length &&
+    existing.text.startsWith(incoming.text)
+  ) {
+    return { ...incoming, text: existing.text }
+  }
+  return incoming
 }
 
 function sessionModel(state: EngineState, sessionID: string, error?: { data?: unknown }): ModelRef | undefined {
@@ -396,12 +417,17 @@ function appendPartDelta(
   set(
     produce((draft) => {
       const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
-      const part = entry?.parts.find((item) => item.id === ref.partID)
-      if (!part) return
+      const index = entry?.parts.findIndex((item) => item.id === ref.partID) ?? -1
+      if (!entry || index < 0) return
       bumpRevision(draft, messageRevisionKey(ref.sessionID, ref.messageID))
+      const part = entry.parts[index]!
       const record = part as unknown as Record<string, unknown>
       const current = record[ref.field]
-      if (typeof current === "string") record[ref.field] = current + ref.delta
+      if (typeof current === "string") {
+        // AssistantFlow mirrors parts into a persistent secondary store. Replacing the part gives
+        // that store a new source identity so streamed fields invalidate its Markdown consumer.
+        entry.parts[index] = { ...part, [ref.field]: current + ref.delta } as Part
+      }
     }),
   )
 }

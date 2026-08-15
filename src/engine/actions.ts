@@ -196,9 +196,12 @@ export function createActions(
 
   async function loadSessions(directory: string) {
     const captured = captureRevisions(state)
+    const epoch = state.sessionSnapshotEpoch
     const result = await requireClient().session.list({ query: { directory } })
     const sessions = result.data
     if (result.error !== undefined || !sessions) return
+    // A reconnect while the request was in flight makes this listing stale; the fresh hydrate owns it.
+    if (state.sessionSnapshotEpoch !== epoch) return
     const complete = sessions.length < sessionSnapshotLimit
     applySessionSnapshot(set, { sessions, captured, ...(complete ? { scope: { directory } } : {}) })
   }
@@ -262,7 +265,9 @@ export function createActions(
     const result = await client.session.create({ body: {} })
     const session = result.data
     if (!session) return
-    set("sessions", session.id, session)
+    // putSession bumps the session revision so an in-flight snapshot listing that predates this
+    // creation cannot purge the new thread before its session.created event lands.
+    putSession(set, session)
     return {
       ...session,
       async discard() {
