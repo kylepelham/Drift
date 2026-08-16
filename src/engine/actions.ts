@@ -494,6 +494,29 @@ export function createActions(
   }
 
   /**
+   * Sends a Drift-generated steering prompt into a session without user involvement. Used by the
+   * orchestrator driver; the generated marker keeps these turns from counting as fresh goals.
+   */
+  async function steer(id: string, text: string, options: PromptOptions): Promise<PromptSendResult> {
+    clearSessionError(id)
+    const body = {
+      parts: [{ type: "text" as const, text, metadata: { generated: true } }],
+      model: options.model ?? undefined,
+      agent: options.agent,
+      ...(options.variant ? { variant: options.variant } : {}),
+    }
+    try {
+      const result = await requireClient().session.promptAsync({ path: { id }, body })
+      if (result.error !== undefined) {
+        return { ok: false, error: sdkErrorMessage(result.error, "engine rejected the request") }
+      }
+      return { ok: true }
+    } catch (cause) {
+      return { ok: false, error: sdkErrorMessage(cause, "could not reach the engine") }
+    }
+  }
+
+  /**
    * Switches the model of an assistant attempt parked in retry backoff. The engine validates the
    * exact session/message pairing and rejects attempts that resumed or finished, so a stale card
    * can never restart a turn that moved on.
@@ -983,6 +1006,7 @@ export function createActions(
     moveWorkspaceSessions,
     send,
     recover,
+    steer,
     switchRetryModel,
     abort,
     summarize,
