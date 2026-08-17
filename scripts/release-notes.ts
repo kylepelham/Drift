@@ -69,13 +69,13 @@ async function github<T>(repository: string, token: string, path: string, init?:
   return response.json() as Promise<T>
 }
 
-// GitHub Models is retired, so Anthropic is the primary editor and Models only a legacy fallback.
+// GitHub Models is retired, so OpenAI is the primary editor and Models only a legacy fallback.
 async function modelNotes(prompt: string, token: string) {
   try {
-    const anthropic = await anthropicNotes(prompt)
-    if (anthropic?.trim()) return anthropic
+    const openai = await openaiNotes(prompt)
+    if (openai?.trim()) return openai
   } catch (error) {
-    console.warn("Could not generate Anthropic release notes", error)
+    console.warn("Could not generate OpenAI release notes", error)
   }
   try {
     return await githubModelsNotes(prompt, token)
@@ -84,23 +84,25 @@ async function modelNotes(prompt: string, token: string) {
   }
 }
 
-async function anthropicNotes(prompt: string) {
-  const key = process.env.ANTHROPIC_API_KEY
+async function openaiNotes(prompt: string) {
+  const key = process.env.OPENAI_API_KEY
   if (!key) return
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
-    headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: process.env.RELEASE_NOTES_MODEL || "claude-sonnet-4-6",
-      max_tokens: 2200,
+      model: process.env.RELEASE_NOTES_MODEL || "gpt-5.6-luna",
       temperature: 0.2,
-      system: "You are a precise release-note editor. Never invent changes.",
-      messages: [{ role: "user", content: prompt }],
+      max_tokens: 2200,
+      messages: [
+        { role: "system", content: "You are a precise release-note editor. Never invent changes." },
+        { role: "user", content: prompt },
+      ],
     }),
   })
-  if (!response.ok) throw new Error(`Anthropic ${response.status}: ${await response.text()}`)
-  const data = (await response.json()) as { content?: { type: string; text?: string }[] }
-  return data.content?.find((block) => block.type === "text")?.text
+  if (!response.ok) throw new Error(`OpenAI ${response.status}: ${await response.text()}`)
+  const model = (await response.json()) as ModelResponse
+  return model.choices?.[0]?.message?.content
 }
 
 async function githubModelsNotes(prompt: string, token: string) {
