@@ -162,7 +162,7 @@ jobs:
       - name: Generate release notes
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: bun scripts/release-notes.ts release-notes.md
 
       # Uploading a single directory keeps the artifact flat; multiple paths root it at their common ancestor.
