@@ -996,7 +996,9 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   tab-size: var(--code-tab-size);
 }
 
-/* Large literal messages stay full-height; the transcript remains the only vertical scroller. */
+/* Large literal messages stay full-height; the transcript remains the only vertical scroller.
+   Wraps long lines (pasted prose is common here) so the bubble never scrolls horizontally,
+   while line breaks and the literal, unparsed rendering are preserved. */
 .user-paste {
   margin: 0;
   max-width: 100%;
@@ -1005,7 +1007,8 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   font-family: var(--font-mono);
   font-size: var(--code-size);
   line-height: 1.6;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   tab-size: var(--code-tab-size);
 }
 
