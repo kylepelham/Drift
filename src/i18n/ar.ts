@@ -1128,6 +1128,7 @@ export const drift = {
   "drift.composer.openThread": "فتح تلك المحادثة",
   "drift.composer.pendingInThread": "في {{thread}}",
   "drift.context.compacted": "تم ضغط السياق",
+  "drift.context.compacting": "جارٍ ضغط السياق",
   "drift.context.pending": "يظهر الاستخدام بعد الاستجابة الأولى.",
   "drift.context.untilCompaction": "حتى الضغط",
   "drift.count.entry.one": "{{count}} إدخال",

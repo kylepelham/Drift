@@ -1222,6 +1222,7 @@ export const drift = {
   "drift.composer.openThread": "O konuyu aç",
   "drift.composer.pendingInThread": "{{thread}} içinde",
   "drift.context.compacted": "Bağlam sıkıştırıldı",
+  "drift.context.compacting": "Bağlam sıkıştırılıyor",
   "drift.context.pending": "Kullanım ilk yanıttan sonra görünür.",
   "drift.context.untilCompaction": "Sıkıştırmaya kadar",
   "drift.count.entry.one": "{{count}} kayıt",

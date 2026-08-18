@@ -1137,6 +1137,7 @@ export const drift = {
   "drift.composer.openThread": "そのスレッドを開く",
   "drift.composer.pendingInThread": "{{thread}}内",
   "drift.context.compacted": "コンテキストを圧縮しました",
+  "drift.context.compacting": "コンテキストを圧縮中",
   "drift.context.pending": "使用量は最初の応答後に表示されます。",
   "drift.context.untilCompaction": "圧縮まで",
   "drift.count.entry.one": "{{count}}件のエントリ",

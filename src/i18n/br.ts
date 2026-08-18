@@ -1144,6 +1144,7 @@ export const drift = {
   "drift.composer.openThread": "Abrir essa conversa",
   "drift.composer.pendingInThread": "em {{thread}}",
   "drift.context.compacted": "Contexto compactado",
+  "drift.context.compacting": "Compactando o contexto",
   "drift.context.pending": "O uso aparece após a primeira resposta.",
   "drift.context.untilCompaction": "Até a compactação",
   "drift.count.entry.one": "{{count}} entrada",

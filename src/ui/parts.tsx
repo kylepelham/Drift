@@ -38,7 +38,7 @@ const fontStyleItalic = 1
 const fontStyleBold = 2
 const fontStyleUnderline = 4
 
-export function PartView(props: { part: Part; responseID?: string; live?: boolean; revision?: number }) {
+export function PartView(props: { part: Part; responseID?: string; live?: boolean; revision?: number; thinking?: boolean }) {
   return (
     <Switch>
       <Match when={props.part.type !== "tool" && hasPartRenderer(props.part.type) && props.part}>
@@ -81,7 +81,10 @@ export function PartView(props: { part: Part; responseID?: string; live?: boolea
       <Match when={props.part.type === "compaction"}>
         <div class="my-2 flex items-center gap-3 text-xs text-ink-faint">
           <div class="h-px flex-1 bg-edge" />
-          {t("drift.context.compacted")}
+          <TextShimmer
+            text={props.thinking ? t("drift.context.compacting") : t("drift.context.compacted")}
+            active={!!props.thinking}
+          />
           <div class="h-px flex-1 bg-edge" />
         </div>
       </Match>

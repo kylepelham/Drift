@@ -1229,6 +1229,7 @@ export const drift = {
   "drift.composer.openThread": "Åpne den tråden",
   "drift.composer.pendingInThread": "i {{thread}}",
   "drift.context.compacted": "Kontekst komprimert",
+  "drift.context.compacting": "Komprimerer kontekst",
   "drift.context.pending": "Forbruk vises etter det første svaret.",
   "drift.context.untilCompaction": "Til komprimering",
   "drift.count.entry.one": "{{count}} oppføring",

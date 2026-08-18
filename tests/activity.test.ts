@@ -762,7 +762,40 @@ test("thinking derives the first provider reasoning heading for the active turn"
   expect(thinkingState([user, assistant] as never, "busy")).toEqual({
     messageID: "a1",
     heading: "Tracing session state",
+    compaction: false,
   })
+})
+
+test("compaction turns carry the shimmer on the compaction row instead of the generic indicator", async () => {
+  const { compactionThinkingRow, thinkingState } = await import("../src/ui/chat")
+  const boundary = {
+    info: { id: "u1", role: "user", sessionID: "s1", time: { created: 1 } },
+    parts: [{ id: "p1", messageID: "u1", sessionID: "s1", type: "compaction", auto: true }],
+  }
+  const summary = {
+    info: { id: "a1", role: "assistant", sessionID: "s1", parentID: "u1", summary: true, time: { created: 2 } },
+    parts: [{ id: "p2", messageID: "a1", sessionID: "s1", type: "text", text: "summary", time: { start: 2 } }],
+  }
+  // The brief window before the summary message arrives anchors on the boundary's compaction part.
+  expect(thinkingState([boundary] as never, "busy")).toMatchObject({ messageID: "u1", compaction: true })
+  // Once the streaming summary exists it owns the shimmer.
+  expect(thinkingState([boundary, summary] as never, "busy")).toMatchObject({ messageID: "a1", compaction: true })
+  const user = { info: { id: "u2", role: "user", time: { created: 1 } }, parts: [] }
+  const reply = { info: { id: "a2", role: "assistant", parentID: "u2", time: { created: 2 } }, parts: [] }
+  // Ordinary turns keep the separate indicator.
+  expect(thinkingState([user, reply] as never, "busy")).toMatchObject({ messageID: "a2", compaction: false })
+
+  // Boundary rows always render the divider; summary rows only do behind the collapsible pref.
+  expect(compactionThinkingRow(boundary as never, true)).toBeTrue()
+  expect(compactionThinkingRow(boundary as never, false)).toBeTrue()
+  expect(compactionThinkingRow(summary as never, true)).toBeTrue()
+  expect(compactionThinkingRow(summary as never, false)).toBeFalse()
+  expect(compactionThinkingRow(reply as never, true)).toBeFalse()
+
+  // The row must suppress the generic indicator only when the divider itself shimmers.
+  const chat = await Bun.file("src/ui/chat.tsx").text()
+  expect(chat).toContain("props.thinking && !compactionShimmer()")
+  expect(chat).toContain("thinkingCompaction={thinking()?.compaction}")
 })
 
 test("retry presentation follows OpenCode countdown and truncation", async () => {

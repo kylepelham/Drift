@@ -1226,6 +1226,7 @@ export const drift = {
   "drift.composer.openThread": "Открыть эту ветку",
   "drift.composer.pendingInThread": "в ветке {{thread}}",
   "drift.context.compacted": "Контекст сжат",
+  "drift.context.compacting": "Сжатие контекста",
   "drift.context.pending": "Данные об использовании появятся после первого ответа.",
   "drift.context.untilCompaction": "До сжатия",
   "drift.count.entry.one": "{{count}} запись",

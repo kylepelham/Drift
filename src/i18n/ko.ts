@@ -1135,6 +1135,7 @@ export const drift = {
   "drift.composer.openThread": "해당 스레드 열기",
   "drift.composer.pendingInThread": "{{thread}}에서",
   "drift.context.compacted": "컨텍스트 압축됨",
+  "drift.context.compacting": "컨텍스트 압축 중",
   "drift.context.pending": "사용량은 첫 응답 후 표시됩니다.",
   "drift.context.untilCompaction": "압축까지",
   "drift.count.entry.one": "항목 {{count}}개",

@@ -441,6 +441,7 @@ export const drift = {
   "drift.composer.selectWorkspace": "Select a workspace to start",
   "drift.composer.thinkingLevel": "Thinking level",
   "drift.context.compacted": "Context compacted",
+  "drift.context.compacting": "Compacting context",
   "drift.context.pending": "Usage appears after the first response.",
   "drift.context.untilCompaction": "Until compaction",
   "drift.count.entry.one": "{{count}} entry",

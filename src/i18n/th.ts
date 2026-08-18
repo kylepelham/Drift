@@ -1207,6 +1207,7 @@ export const drift = {
   "drift.composer.openThread": "เปิดเธรดนั้น",
   "drift.composer.pendingInThread": "ใน {{thread}}",
   "drift.context.compacted": "ย่อบริบทแล้ว",
+  "drift.context.compacting": "กำลังย่อบริบท",
   "drift.context.pending": "ข้อมูลการใช้งานจะปรากฏหลังการตอบครั้งแรก",
   "drift.context.untilCompaction": "จนกว่าจะย่อบริบท",
   "drift.count.entry.one": "{{count}} รายการ",

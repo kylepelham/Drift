@@ -1220,6 +1220,7 @@ export const drift = {
   "drift.composer.openThread": "Otvori taj razgovor",
   "drift.composer.pendingInThread": "u razgovoru {{thread}}",
   "drift.context.compacted": "Kontekst sažet",
+  "drift.context.compacting": "Sažimanje konteksta",
   "drift.context.pending": "Korištenje se prikazuje nakon prvog odgovora.",
   "drift.context.untilCompaction": "Do sažimanja",
   "drift.count.entry.one": "{{count}} stavka",

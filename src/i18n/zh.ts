@@ -1194,6 +1194,7 @@ export const drift = {
   "drift.composer.openThread": "打开该会话",
   "drift.composer.pendingInThread": "位于 {{thread}}",
   "drift.context.compacted": "上下文已压缩",
+  "drift.context.compacting": "正在压缩上下文",
   "drift.context.pending": "首次回复后显示用量。",
   "drift.context.untilCompaction": "距离压缩",
   "drift.count.entry.one": "{{count}} 个条目",

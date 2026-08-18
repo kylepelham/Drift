@@ -1225,6 +1225,7 @@ export const drift = {
   "drift.composer.openThread": "Відкрити цю гілку",
   "drift.composer.pendingInThread": "у {{thread}}",
   "drift.context.compacted": "Контекст стиснено",
+  "drift.context.compacting": "Стиснення контексту",
   "drift.context.pending": "Дані про використання з'являться після першої відповіді.",
   "drift.context.untilCompaction": "До стиснення",
   "drift.count.entry.one": "{{count}} запис",

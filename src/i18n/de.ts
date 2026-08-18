@@ -1153,6 +1153,7 @@ export const drift = {
   "drift.composer.openThread": "Diesen Thread öffnen",
   "drift.composer.pendingInThread": "in {{thread}}",
   "drift.context.compacted": "Kontext komprimiert",
+  "drift.context.compacting": "Kontext wird komprimiert",
   "drift.context.pending": "Die Nutzung wird nach der ersten Antwort angezeigt.",
   "drift.context.untilCompaction": "Bis zur Komprimierung",
   "drift.count.entry.one": "{{count}} Eintrag",

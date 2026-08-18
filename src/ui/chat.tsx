@@ -351,6 +351,7 @@ export function Chat() {
                   nextThinking={thinkingOnly(nextEntries().get(entry.info.id))}
                   groups={assistantGroups().get(entry.info.id)}
                   thinking={thinking()?.messageID === entry.info.id && !retry()}
+                  thinkingCompaction={thinking()?.compaction}
                   thinkingHeading={thinking()?.heading}
                   retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
                   terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
@@ -602,7 +603,22 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
     .flatMap((entry) => entry.parts)
     .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
     .find((value): value is string => !!value)
-  return { messageID: unfinished?.info.id ?? assistants.at(-1)?.info.id ?? anchor.info.id, heading }
+  const owner = unfinished ?? assistants.at(-1) ?? anchor
+  // Compaction turns are the assistant summary message or, in the brief window before it arrives,
+  // the user boundary carrying the compaction part. Rows use this to pull the shimmer onto the
+  // compaction divider instead of the generic indicator.
+  const compaction = owner.info.role === "assistant"
+    ? !!(owner.info as { summary?: boolean }).summary
+    : owner.parts.some((part) => part.type === "compaction")
+  return { messageID: owner.info.id, heading, compaction }
+}
+
+// Whether this timeline row renders a compaction divider that can carry the shimmer itself.
+// Summary rows only show the divider when the collapsible presentation is enabled; with it off,
+// the summary streams as a plain assistant flow and the generic indicator stays.
+export function compactionThinkingRow(entry: MessageEntry, collapsible: boolean) {
+  if (entry.info.role === "user") return entry.parts.some((part) => part.type === "compaction")
+  return collapsible && !!(entry.info as AssistantMessage).summary
 }
 
 export function reasoningHeading(text: string) {
@@ -641,6 +657,7 @@ function Row(props: {
   nextThinking: boolean
   groups?: PartGroup[]
   thinking: boolean
+  thinkingCompaction?: boolean
   thinkingHeading?: string
   retry?: Extract<SessionStatus, { type: "retry" }>
   terminalError: boolean
@@ -651,6 +668,9 @@ function Row(props: {
   // animation on those makes streamed output flicker, so only fresh user rows fade in.
   const fadeIn = fresh && props.entry.info.role === "user"
   const pitch = () => props.nextThinking ? "none" : props.next ? timelinePitch(props.entry, props.next) : props.terminalError ? "turn" : "none"
+  // A running compaction animates its own divider label, so the generic indicator would double up.
+  const compactionShimmer = () =>
+    props.thinking && !!props.thinkingCompaction && compactionThinkingRow(props.entry, collapseCompaction())
   return (
     <div
       ref={props.measure}
@@ -658,8 +678,13 @@ function Row(props: {
       class="min-w-0 max-w-full"
       classList={{ "fade-up": fadeIn, "pb-3": pitch() === "part", "pb-6": pitch() === "turn" }}
     >
-      <MessageView entry={props.entry} footer={props.next?.info.role !== "assistant"} groups={props.groups} />
-      <Show when={props.thinking}>
+      <MessageView
+        entry={props.entry}
+        footer={props.next?.info.role !== "assistant"}
+        groups={props.groups}
+        thinking={compactionShimmer()}
+      />
+      <Show when={props.thinking && !compactionShimmer()}>
         <div class="timeline-thinking select-none" role="status" aria-live="polite">
           <TextShimmer text={t("drift.chat.thinking")} />
           <Show when={props.thinkingHeading}>{(heading) => <span class="timeline-thinking-heading">{heading()}</span>}</Show>
