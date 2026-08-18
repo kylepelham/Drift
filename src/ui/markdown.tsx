@@ -306,6 +306,35 @@ export function fixEscapedEmphasis(text: string) {
   )
 }
 
+const numberedLinePattern = /^\s{0,3}(\d{1,9})\.(?=\s|$)/
+
+/**
+ * Escapes the marker dot of a lone line-leading number so figures like `20456. it` render as
+ * prose. CommonMark treats any `N.` line (N up to 9 digits) as an ordered list, but a larger
+ * start number is only plausibly a list when a sibling line continues the sequence, e.g. `13.`
+ * after `12.`. Start numbers 0 and 1 always open a list.
+ */
+function escapeLoneNumberedLines(text: string) {
+  return mapProseChunks(text, (chunk) => {
+    const lines = chunk.split("\n")
+    const numbers = lines.map((line) => numberedLinePattern.exec(line)?.[1])
+    const numbered = numbers.flatMap((value, index) => (value === undefined ? [] : [index]))
+    return lines
+      .map((line, index) => {
+        const value = numbers[index]
+        if (value === undefined) return line
+        const start = Number(value)
+        if (start <= 1) return line
+        const position = numbered.indexOf(index)
+        const previous = position > 0 ? Number(numbers[numbered[position - 1]]) : undefined
+        const next = position < numbered.length - 1 ? Number(numbers[numbered[position + 1]]) : undefined
+        if (previous === start - 1 || next === start + 1) return line
+        return line.replace(".", "\\.")
+      })
+      .join("\n")
+  })
+}
+
 const urlPattern = /https?:\/\/[^\s<>"')\]]+/g
 const accidentalEntities: Record<string, string> = { "-": "&#45;", "=": "&#61;", "*": "&#42;", _: "&#95;" }
 
@@ -419,7 +448,7 @@ function escapeUnbalancedHtmlChunk(text: string) {
 }
 
 export function prepareMarkdown(text: string, humanAuthored = false) {
-  return escapeUnbalancedHtml(humanAuthored ? humanizeProse(text) : fixEscapedEmphasis(text))
+  return escapeUnbalancedHtml(escapeLoneNumberedLines(humanAuthored ? humanizeProse(text) : fixEscapedEmphasis(text)))
 }
 
 function openExternalLink(event: MouseEvent) {

@@ -158,6 +158,19 @@ test("human-typed prose still renders deliberate fences and tables", async () =>
   expect(table).toContain("<td>a&#95;b</td>")
 })
 
+test("standalone large numbers stay prose while numbered runs remain lists", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  const { marked } = await import("marked")
+  expect(prepareMarkdown("20456. it")).toBe("20456\\. it")
+  expect(prepareMarkdown("3500000.")).toBe("3500000\\.")
+  expect(prepareMarkdown("1234567. and then text", true)).toBe("1234567\\. and then text")
+  expect(prepareMarkdown("1. first\n2. second\n3. third")).toBe("1. first\n2. second\n3. third")
+  expect(prepareMarkdown("12. step one\n13. step two")).toBe("12. step one\n13. step two")
+  expect(prepareMarkdown("```\n20456. case\n```")).toBe("```\n20456. case\n```")
+  expect(marked.parse(prepareMarkdown("Pasted id:\n\n20456. it"), { async: false })).not.toContain("<ol")
+  expect(marked.parse(prepareMarkdown("12. step one\n13. step two"), { async: false })).toContain('<ol start="12"')
+})
+
 test("generated user-role seed prompts keep full markdown", async () => {
   const { prepareMarkdown } = await import("../src/ui/markdown")
   const seed = "## Carried context\nUse the *active* summary."
