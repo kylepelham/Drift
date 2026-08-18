@@ -1173,6 +1173,24 @@ pre.code-display {
   border-bottom: none;
 }
 
+/* Clip cell backgrounds to the table's 10px radius (9px = 10px minus the 1px
+   table border). Logical properties keep the corners correct in RTL. */
+.md :where(table > :first-child > tr:first-child > :is(th, td):first-child) {
+  border-start-start-radius: 9px;
+}
+
+.md :where(table > :first-child > tr:first-child > :is(th, td):last-child) {
+  border-start-end-radius: 9px;
+}
+
+.md :where(table > :last-child > tr:last-child > :is(th, td):first-child) {
+  border-end-start-radius: 9px;
+}
+
+.md :where(table > :last-child > tr:last-child > :is(th, td):last-child) {
+  border-end-end-radius: 9px;
+}
+
 .md :where(hr) {
   border-color: var(--edge);
   margin-block: 1em;
