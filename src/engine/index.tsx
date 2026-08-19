@@ -7,6 +7,7 @@ import { selectedSession } from "../state/selection"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
 import { clearRecoverableInterruption } from "../state/recovery"
 import { reportShellTimeoutError, shellTimeoutMs } from "../state/prefs"
+import { rememberProviderCatalog, seedProviderCatalog } from "../state/provider-cache"
 import { createActions, type EngineActions } from "./actions"
 import {
   configureShellTimeout,
@@ -59,6 +60,9 @@ export function useEngine() {
 
 export function EngineProvider(props: ParentProps) {
   const [state, set] = createEngineState()
+  // Cold engine startup can take seconds; the last known catalog keeps the model picker populated
+  // (and the saved model preference resolvable) until the first hydrate delivers fresh providers.
+  seedProviderCatalog(state, set)
   let base: EngineTarget | undefined
   let client: OpencodeClient | undefined
   let pumpAbort: AbortController | undefined
@@ -131,9 +135,13 @@ export function EngineProvider(props: ParentProps) {
       // frame under load, which would strand the session busy forever without this refetch.
       if (bootDirectory) void actions.refreshPermissions([bootDirectory])
       if (state.providerSnapshotEpoch === providerEpoch) {
-        set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
-        set("connected", providers.data?.connected ?? [])
-        set("defaultModels", providers.data?.default ?? {})
+        const catalog = (providers.data?.all ?? []) as unknown as ProviderInfo[]
+        const connected = providers.data?.connected ?? []
+        const defaults = providers.data?.default ?? {}
+        set("providers", catalog)
+        set("connected", connected)
+        set("defaultModels", defaults)
+        rememberProviderCatalog(catalog, connected, defaults)
       }
       set("agents", agents.data ?? [])
       if (runtimeMetadataEpoch === metadataEpoch) {
