@@ -6,8 +6,11 @@ use crate::config::config_path;
 use crate::editor::{editor_arguments, editor_kind, EditorKind};
 use crate::engine::{basic_authorization, Engine};
 use crate::updater::installed_alongside_uninstaller;
-use crate::watcher::{file_signatures, watched_mcp_paths};
-use std::path::Path;
+use crate::watcher::{
+    file_signatures, resolve_skill_path, watched_mcp_paths, watched_skill_paths, SkillWatchRoots,
+};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 #[test]
 fn config_paths_stay_under_the_config_directory() {
@@ -121,4 +124,57 @@ fn mcp_watch_paths_include_plugins_and_external_file_references() {
     ));
     assert_ne!(before_plugin, after_plugin);
     std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn skill_watch_paths_detect_additions_removals_and_content_changes() {
+    let root = std::env::temp_dir().join(format!("drift-skill-watch-test-{}", std::process::id()));
+    std::fs::remove_dir_all(&root).ok();
+    let skills = root.join(".agents/skills");
+    let first = skills.join("unslop/SKILL.md");
+    let unrelated = skills.join("unslop/reference.md");
+    std::fs::create_dir_all(first.parent().unwrap()).unwrap();
+    std::fs::write(&first, "---\nname: unslop\ndescription: old\n---\nOld\n").unwrap();
+    std::fs::write(&unrelated, "ignored").unwrap();
+
+    let paths = watched_skill_paths(vec![skills.clone()]);
+    assert_eq!(paths, vec![first.clone()]);
+    let before = file_signatures(paths);
+
+    std::fs::write(&first, "---\nname: unslop\ndescription: new\n---\nNew\n").unwrap();
+    let changed = file_signatures(watched_skill_paths(vec![skills.clone()]));
+    assert_ne!(before, changed);
+
+    let second = skills.join("review/SKILL.md");
+    std::fs::create_dir_all(second.parent().unwrap()).unwrap();
+    std::fs::write(&second, "---\nname: review\n---\nReview\n").unwrap();
+    let added = file_signatures(watched_skill_paths(vec![skills.clone()]));
+    assert_ne!(changed, added);
+
+    std::fs::remove_file(&first).unwrap();
+    let removed = file_signatures(watched_skill_paths(vec![skills]));
+    assert_ne!(added, removed);
+    assert_eq!(removed.len(), 1);
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn configured_skill_paths_resolve_relative_to_the_workspace() {
+    let workspace = if cfg!(windows) { r"S:\repo" } else { "/repo" };
+    assert_eq!(
+        resolve_skill_path(workspace, "shared/skills").unwrap(),
+        Path::new(workspace).join("shared/skills")
+    );
+    assert!(resolve_skill_path(workspace, "").is_err());
+}
+
+#[test]
+fn configured_skill_paths_drop_removed_workspaces() {
+    let roots = SkillWatchRoots::default();
+    roots.replace(PathBuf::from("first"), vec![PathBuf::from("first-skills")]);
+    roots.replace(PathBuf::from("second"), vec![PathBuf::from("second-skills")]);
+    let active = HashSet::from([PathBuf::from("second")]);
+    assert_eq!(roots.paths(&active), vec![PathBuf::from("second-skills")]);
+    let both = HashSet::from([PathBuf::from("first"), PathBuf::from("second")]);
+    assert_eq!(roots.paths(&both), vec![PathBuf::from("second-skills")]);
 }

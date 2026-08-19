@@ -57,6 +57,14 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   database; that database is retained as rollback data. Existing OpenCode project paths
   are inserted into Drift's workspace list without overwriting Drift names, icons, or
   removals. Development builds keep their channel database isolated.
+- Skill reload: the shell polls conventional global and workspace skill roots once per
+  second and hashes a bounded set of `SKILL.md` contents, so ordinary additions, removals, renames, and in-place edits
+  under `.agents/skills`, `.claude/skills`, OpenCode `skill`/`skills` directories, and
+  configured local `skills.paths` (up to 4,096 skill files, 16 directory levels, and
+  the first 1 MiB of each file)
+  invalidate directory-scoped engine caches without restarting the sidecar. The resulting
+  `skill-config-changed` event refreshes Drift's slash-command snapshot after disposal has
+  completed. Remote clients also refresh command/config metadata whenever the slash menu opens.
 
 ## Engine update runbook
 
@@ -126,8 +134,9 @@ release tags could otherwise trigger Drift's own `v*` release workflow if pushed
 `message.updated`, `message.removed`, `message.part.updated`, `message.part.removed`,
 `session.created/updated/deleted`, `session.status`, `session.idle`, `session.error`,
 `permission.updated`, `permission.replied`, `todo.updated`. `server.connected` triggers
-(re)hydration; `sync` and `server.heartbeat` frames are dropped in the SSE parser;
-everything else is ignored on purpose.
+(re)hydration; `sync` and `server.heartbeat` frames are dropped in the SSE parser; everything
+else is ignored on purpose. Native `skill-config-changed` and `mcp-config-changed` events refresh
+runtime metadata only after their file transactions and instance disposal complete.
 
 ## Gotchas learned the hard way
 

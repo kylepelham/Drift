@@ -1,13 +1,14 @@
-//! Polls MCP-relevant config files and notifies the frontend when any of them change.
+//! Polls engine configuration and skill files, then invalidates cached instances on change.
 
 use crate::engine::stop_engine_instances;
 use crate::mcp;
 use crate::store::Store;
-use std::collections::hash_map::DefaultHasher;
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use tauri::{Emitter, Manager};
+use std::sync::Mutex;
+use tauri::{Emitter, Manager, State};
 
 /// Config files are polled rather than watched, so the interval bounds how stale a change can be.
 const CONFIG_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
@@ -17,30 +18,168 @@ const MAX_WATCHED_FILE_BYTES: u64 = 1_048_576;
 const MAX_FILE_REFERENCES: usize = 256;
 const FILE_REFERENCE_PREFIX: &str = "{file:";
 const MAX_REFERENCE_PATH_CHARS: usize = 4096;
-/// Plugin directories are scanned recursively; this stops a symlink loop from running forever.
-const MAX_PLUGIN_SCAN_DEPTH: usize = 16;
+/// Plugin and skill directories are scanned recursively; this bounds symlink loops.
+const MAX_RECURSIVE_SCAN_DEPTH: usize = 16;
+const MAX_RECURSIVE_SCAN_DIRECTORIES: usize = 4096;
+const MAX_CONFIGURED_SKILL_PATHS: usize = 256;
 
-pub(crate) fn watch_mcp_configs(app: tauri::AppHandle) {
+#[derive(Default)]
+pub(crate) struct SkillWatchRoots(Mutex<HashMap<PathBuf, Vec<PathBuf>>>);
+
+impl SkillWatchRoots {
+    pub(crate) fn replace(&self, directory: PathBuf, paths: Vec<PathBuf>) {
+        self.0.lock().unwrap().insert(directory, paths);
+    }
+
+    pub(crate) fn paths(&self, workspaces: &HashSet<PathBuf>) -> Vec<PathBuf> {
+        let mut configured = self.0.lock().unwrap();
+        configured.retain(|directory, _| workspaces.contains(directory));
+        configured.values().flatten().cloned().collect()
+    }
+}
+
+#[tauri::command]
+pub(crate) fn watcher_set_skill_paths(
+    state: State<SkillWatchRoots>,
+    directory: String,
+    paths: Vec<String>,
+) -> Result<(), String> {
+    if paths.len() > MAX_CONFIGURED_SKILL_PATHS {
+        return Err("Too many configured skill paths".into());
+    }
+    let roots = paths
+        .into_iter()
+        .map(|path| resolve_skill_path(&directory, &path))
+        .collect::<Result<Vec<_>, _>>()?;
+    state.replace(PathBuf::from(directory), roots);
+    Ok(())
+}
+
+pub(crate) fn resolve_skill_path(directory: &str, value: &str) -> Result<PathBuf, String> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > MAX_REFERENCE_PATH_CHARS {
+        return Err("Configured skill path is invalid".into());
+    }
+    if let Some(relative) = value.strip_prefix("~/") {
+        return std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map(PathBuf::from)
+            .ok_or("Home directory is unavailable".into())
+            .map(|home| home.join(relative));
+    }
+    let path = PathBuf::from(value);
+    Ok(if path.is_absolute() {
+        path
+    } else {
+        Path::new(directory).join(path)
+    })
+}
+
+pub(crate) fn watch_engine_configs(app: tauri::AppHandle) {
     std::thread::spawn(move || {
-        let mut previous = external_mcp_signature(&app.state::<Store>());
+        let mut previous_mcp = external_mcp_signature(&app.state::<Store>());
+        let mut previous_skills = external_skill_signature(
+            &app.state::<Store>(),
+            &app.state::<SkillWatchRoots>(),
+        );
         loop {
             std::thread::sleep(CONFIG_POLL_INTERVAL);
-            let current = external_mcp_signature(&app.state::<Store>());
-            if current == previous {
+            let current_mcp = external_mcp_signature(&app.state::<Store>());
+            let current_skills = external_skill_signature(
+                &app.state::<Store>(),
+                &app.state::<SkillWatchRoots>(),
+            );
+            let mcp_changed = current_mcp != previous_mcp;
+            let skills_changed = current_skills != previous_skills;
+            if !mcp_changed && !skills_changed {
                 continue;
             }
-            let reloaded = app
-                .state::<mcp::McpRuntime>()
-                .reload(&app.state::<Store>(), || stop_engine_instances(&app));
-            match reloaded {
-                Ok(()) => {
-                    previous = current;
-                    let _ = app.emit("mcp-config-changed", ());
+
+            let mut disposed = false;
+            if mcp_changed {
+                let reloaded = app
+                    .state::<mcp::McpRuntime>()
+                    .reload(&app.state::<Store>(), || stop_engine_instances(&app));
+                match reloaded {
+                    Ok(()) => {
+                        disposed = true;
+                        previous_mcp = current_mcp;
+                        let _ = app.emit("mcp-config-changed", ());
+                    }
+                    Err(error) => {
+                        eprintln!("failed to reload changed MCP configuration: {error}");
+                    }
                 }
-                Err(error) => eprintln!("failed to reload changed MCP configuration: {error}"),
+            }
+
+            if skills_changed {
+                if !disposed {
+                    if let Err(error) = stop_engine_instances(&app) {
+                        eprintln!("failed to reload changed skills: {error}");
+                        continue;
+                    }
+                }
+                previous_skills = current_skills;
+                let _ = app.emit("skill-config-changed", ());
             }
         }
     });
+}
+
+fn external_skill_signature(
+    store: &Store,
+    configured: &SkillWatchRoots,
+) -> Vec<(PathBuf, u64, u128, u64)> {
+    let workspaces = store.workspaces().unwrap_or_default();
+    let workspace_paths = workspaces
+        .iter()
+        .map(|workspace| PathBuf::from(&workspace.path))
+        .collect::<HashSet<_>>();
+    let mut roots = configured.paths(&workspace_paths);
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        let home = PathBuf::from(home);
+        roots.push(home.join(".claude/skills"));
+        roots.push(home.join(".agents/skills"));
+        add_config_skill_roots(&home.join(".config/opencode"), &mut roots);
+        add_config_skill_roots(&home.join(".opencode"), &mut roots);
+    }
+    if let Some(root) = std::env::var_os("XDG_CONFIG_HOME") {
+        add_config_skill_roots(&PathBuf::from(root).join("opencode"), &mut roots);
+    }
+    if let Some(root) = std::env::var_os("APPDATA") {
+        add_config_skill_roots(&PathBuf::from(root).join("opencode"), &mut roots);
+    }
+    add_config_skill_roots(&managed_config_root(), &mut roots);
+    for workspace in workspaces {
+        for ancestor in Path::new(&workspace.path).ancestors() {
+            roots.push(ancestor.join(".claude/skills"));
+            roots.push(ancestor.join(".agents/skills"));
+            add_config_skill_roots(&ancestor.join(".opencode"), &mut roots);
+        }
+    }
+    file_signatures(watched_skill_paths(roots))
+}
+
+fn add_config_skill_roots(config: &Path, roots: &mut Vec<PathBuf>) {
+    roots.push(config.join("skill"));
+    roots.push(config.join("skills"));
+}
+
+pub(crate) fn watched_skill_paths(mut roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    roots.sort();
+    roots.dedup();
+    roots.truncate(MAX_WATCHED_MCP_FILES);
+    let mut paths = Vec::new();
+    for root in roots {
+        collect_skill_files(&root, &mut paths);
+        if paths.len() >= MAX_WATCHED_MCP_FILES {
+            break;
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    paths.truncate(MAX_WATCHED_MCP_FILES);
+    paths
 }
 
 fn external_mcp_signature(store: &Store) -> Vec<(PathBuf, u64, u128, u64)> {
@@ -170,7 +309,7 @@ fn collect_plugin_files(root: &Path, paths: &mut Vec<PathBuf>) {
         if paths.len() >= MAX_WATCHED_MCP_FILES {
             break;
         }
-        if depth > MAX_PLUGIN_SCAN_DEPTH {
+        if depth > MAX_RECURSIVE_SCAN_DEPTH {
             continue;
         }
         let Ok(entries) = std::fs::read_dir(directory) else {
@@ -186,6 +325,44 @@ fn collect_plugin_files(root: &Path, paths: &mut Vec<PathBuf>) {
                 pending.push((path, depth + 1));
             } else if path.is_file() {
                 paths.push(path);
+            }
+        }
+    }
+}
+
+fn collect_skill_files(root: &Path, paths: &mut Vec<PathBuf>) {
+    let mut pending = vec![(root.to_path_buf(), 0usize)];
+    let mut visited = HashSet::new();
+    while let Some((directory, depth)) = pending.pop() {
+        if paths.len() >= MAX_WATCHED_MCP_FILES {
+            break;
+        }
+        if depth > MAX_RECURSIVE_SCAN_DEPTH || visited.len() >= MAX_RECURSIVE_SCAN_DIRECTORIES {
+            continue;
+        }
+        let identity = directory.canonicalize().unwrap_or_else(|_| directory.clone());
+        if !visited.insert(identity) {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            continue;
+        };
+        let mut entries = entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .collect::<Vec<_>>();
+        entries.sort_by(|left, right| right.cmp(left));
+        entries.truncate(MAX_RECURSIVE_SCAN_DIRECTORIES + MAX_WATCHED_MCP_FILES);
+        for path in entries {
+            if path.is_dir() {
+                if visited.len() + pending.len() < MAX_RECURSIVE_SCAN_DIRECTORIES {
+                    pending.push((path, depth + 1));
+                }
+            } else if path.is_file() && path.file_name().is_some_and(|name| name == "SKILL.md") {
+                paths.push(path);
+                if paths.len() >= MAX_WATCHED_MCP_FILES {
+                    break;
+                }
             }
         }
     }

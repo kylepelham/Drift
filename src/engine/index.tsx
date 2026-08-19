@@ -1,7 +1,7 @@
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client"
 import { createContext, createEffect, onCleanup, useContext, type ParentProps } from "solid-js"
 import { produce } from "solid-js/store"
-import { shellEvents } from "../shell"
+import { shellEvents, shellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
@@ -35,6 +35,7 @@ export type Engine = {
   actions: EngineActions
   setDirectory: (path: string | null) => void
   restartEngine: () => Promise<boolean>
+  refreshRuntimeMetadata: () => Promise<void>
 }
 
 const EngineContext = createContext<Engine>()
@@ -65,6 +66,9 @@ export function EngineProvider(props: ParentProps) {
   let engineEpoch = 0
   let restartRequest: Promise<boolean> | undefined
   let unlistenEngineExit: (() => void) | undefined
+  let unlistenSkillConfig: (() => void) | undefined
+  let unlistenMcpConfig: (() => void) | undefined
+  let runtimeMetadataEpoch = 0
   let timeoutSync = Promise.resolve()
 
   const requireClient = () => {
@@ -94,14 +98,16 @@ export function EngineProvider(props: ParentProps) {
     const bootDirectory = directory ?? ""
     const api = requireClient()
     const providerEpoch = state.providerSnapshotEpoch + 1
+    const metadataEpoch = runtimeMetadataEpoch + 1
+    runtimeMetadataEpoch = metadataEpoch
     set("providerSnapshotEpoch", providerEpoch)
     const current = () => client === api && directory === bootDirectory
     try {
       const stale = Object.keys(state.loaded)
       const captured = captureRevisions(state)
-      const [sessions, [statuses, providers, agents, commands]] = await Promise.all([
+      const [sessions, [statuses, providers, agents, commands, config]] = await Promise.all([
         api.session.list(),
-        Promise.all([api.session.status(), api.provider.list(), api.app.agents(), api.command.list()]),
+        Promise.all([api.session.status(), api.provider.list(), api.app.agents(), api.command.list(), api.config.get()]),
       ])
       if (!current()) return
       const list = sessions.data ?? []
@@ -122,7 +128,10 @@ export function EngineProvider(props: ParentProps) {
         set("defaultModels", providers.data?.default ?? {})
       }
       set("agents", agents.data ?? [])
-      set("commands", commands.data ?? [])
+      if (runtimeMetadataEpoch === metadataEpoch) {
+        set("commands", commands.data ?? [])
+        if (config.data !== undefined) syncSkillWatchPaths(bootDirectory, config.data)
+      }
       // The visible session refreshes first so a reconnect never leaves the open transcript
       // waiting behind bulk refetches; the rest trickle in small batches to avoid saturating
       // the handful of HTTP connections a remote browser gives the proxy.
@@ -160,6 +169,47 @@ export function EngineProvider(props: ParentProps) {
     } finally {
       if (client === api && directory === bootDirectory) set("bootstrappedDirectory", bootDirectory)
     }
+  }
+
+  function syncSkillWatchPaths(bootDirectory: string, config: unknown) {
+    const invoke = shellInvoke()
+    if (!invoke || !bootDirectory) return
+    const paths = (config as { skills?: { paths?: unknown } } | undefined)?.skills?.paths
+    void invoke("watcher_set_skill_paths", {
+      directory: bootDirectory,
+      paths: Array.isArray(paths) ? paths.filter((path): path is string => typeof path === "string") : [],
+    }).catch(() => undefined)
+  }
+
+  async function refreshRuntimeMetadata() {
+    const api = client
+    const bootDirectory = directory ?? ""
+    if (!api || !bootDirectory || disposed) return
+    const metadataEpoch = runtimeMetadataEpoch + 1
+    runtimeMetadataEpoch = metadataEpoch
+    const load = async () => {
+      let commands: Awaited<ReturnType<typeof api.command.list>> | undefined
+      let config: Awaited<ReturnType<typeof api.config.get>> | undefined
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const result = await Promise.all([api.command.list(), api.config.get()]).catch(() => undefined)
+        if (result) {
+          commands = result[0]
+          config = result[1]
+          if (commands.data !== undefined) break
+        }
+        await sleep(150 * (attempt + 1))
+      }
+      return { commands, config }
+    }
+    let result = await load()
+    if (result.commands?.data === undefined) {
+      await sleep(1000)
+      if (disposed || client !== api || directory !== bootDirectory || runtimeMetadataEpoch !== metadataEpoch) return
+      result = await load()
+    }
+    if (disposed || client !== api || directory !== bootDirectory || runtimeMetadataEpoch !== metadataEpoch) return
+    if (result.commands?.data !== undefined) set("commands", result.commands.data)
+    if (result.config?.data !== undefined) syncSkillWatchPaths(bootDirectory, result.config.data)
   }
 
   function sameTarget(left: EngineTarget | undefined, right: EngineTarget) {
@@ -337,19 +387,32 @@ export function EngineProvider(props: ParentProps) {
     })
   const events = shellEvents()
   if (events)
-    void events
-      .listen("engine-exited", () => void inspectRuntimeEngine())
-      .then((unlisten) => {
+    void Promise.all([
+      events.listen("engine-exited", () => void inspectRuntimeEngine()).then((unlisten) => {
         if (disposed) unlisten()
         else unlistenEngineExit = unlisten
-      })
-      .catch(() => undefined)
+      }),
+      events.listen("skill-config-changed", () => void refreshRuntimeMetadata().catch(() => undefined)).then((unlisten) => {
+        if (disposed) unlisten()
+        else unlistenSkillConfig = unlisten
+      }),
+      events.listen("mcp-config-changed", () => void refreshRuntimeMetadata().catch(() => undefined)).then((unlisten) => {
+        if (disposed) unlisten()
+        else unlistenMcpConfig = unlisten
+      }),
+    ]).catch(() => undefined)
   onCleanup(() => {
     disposed = true
     pumpAbort?.abort()
     unlistenEngineExit?.()
+    unlistenSkillConfig?.()
+    unlistenMcpConfig?.()
     clearPermissionAttentionFor(Object.values(state.permissions).flat())
   })
 
-  return <EngineContext.Provider value={{ state, actions, setDirectory, restartEngine }}>{props.children}</EngineContext.Provider>
+  return (
+    <EngineContext.Provider value={{ state, actions, setDirectory, restartEngine, refreshRuntimeMetadata }}>
+      {props.children}
+    </EngineContext.Provider>
+  )
 }
