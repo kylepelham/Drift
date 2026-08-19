@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
 import { modelInfo, resolveModel, sessionBusy, type QuestionRequest } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
@@ -69,6 +69,7 @@ import {
   type AttachmentKind,
 } from "../attachments"
 import { interruptResponseAnimations } from "./response-animation"
+import { dragHasFiles, dropTargetActive, nextDragDepth, splitDroppedFiles } from "./drag-drop"
 
 
 // Autosize ceiling for the textarea. Must stay in sync with the `max-h-50` class on the textarea
@@ -108,6 +109,7 @@ export function Composer() {
   const engine = useEngine()
   const [manageModels, setManageModels] = createSignal(false)
   const [fileError, setFileError] = createSignal("")
+  const [dropActive, setDropActive] = createSignal(false)
   const [focusedQuestionID, setFocusedQuestionID] = createSignal<string>()
   const [submissionVersion, setSubmissionVersion] = createSignal(0)
   const [historyNavigation, setHistoryNavigation] = createSignal<{
@@ -215,6 +217,56 @@ export function Composer() {
       )
     setFileError(t("drift.composer.fileReadFailed", { filename }))
   }
+
+  // Window-level so a drop anywhere over the chat/composer area attaches instead of navigating.
+  // The desktop shell sets `dragDropEnabled: false` (tauri.conf.json) so WebView2 delivers these
+  // HTML5 events with real File objects; the remote-browser runtime gets them natively.
+  onMount(() => {
+    let depth = 0
+    const update = (transition: Parameters<typeof nextDragDepth>[1]) => {
+      depth = nextDragDepth(depth, transition)
+      setDropActive(dropTargetActive(depth))
+    }
+    const onDragEnter = (event: DragEvent) => {
+      if (!dragHasFiles(event.dataTransfer?.types)) return
+      event.preventDefault()
+      update("enter")
+    }
+    const onDragOver = (event: DragEvent) => {
+      if (!dragHasFiles(event.dataTransfer?.types)) return
+      // preventDefault is required for the drop event to fire at all in WebView2.
+      event.preventDefault()
+      if (event.dataTransfer) event.dataTransfer.dropEffect = ready() ? "copy" : "none"
+    }
+    const onDragLeave = (event: DragEvent) => {
+      if (!dragHasFiles(event.dataTransfer?.types)) return
+      update("leave")
+    }
+    const onDragEnd = () => update("end")
+    const onDrop = (event: DragEvent) => {
+      update("drop")
+      if (!dragHasFiles(event.dataTransfer?.types)) return
+      // A missed drop must never make the browser navigate to the dropped file.
+      event.preventDefault()
+      if (!ready() || !event.dataTransfer) return
+      const dropped = splitDroppedFiles(Array.from(event.dataTransfer.items ?? []), Array.from(event.dataTransfer.files ?? []))
+      if (dropped.files.length) void addFiles(dropped.files)
+      // After addFiles' synchronous error reset, so the notice survives staging kicking off.
+      if (dropped.directories) setFileError(t("drift.composer.folderUnsupported"))
+    }
+    window.addEventListener("dragenter", onDragEnter)
+    window.addEventListener("dragover", onDragOver)
+    window.addEventListener("dragleave", onDragLeave)
+    window.addEventListener("dragend", onDragEnd)
+    window.addEventListener("drop", onDrop)
+    onCleanup(() => {
+      window.removeEventListener("dragenter", onDragEnter)
+      window.removeEventListener("dragover", onDragOver)
+      window.removeEventListener("dragleave", onDragLeave)
+      window.removeEventListener("dragend", onDragEnd)
+      window.removeEventListener("drop", onDrop)
+    })
+  })
 
   let previousScope = scope()
   createEffect(() => {
@@ -587,17 +639,12 @@ export function Composer() {
           )}
         </Show>
       </div>
-      <div
-        class="relative mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong"
-        onDragOver={(event) => {
-          if (event.dataTransfer?.types.includes("Files")) event.preventDefault()
-        }}
-        onDrop={(event) => {
-          if (!event.dataTransfer?.files.length) return
-          event.preventDefault()
-          void addFiles(event.dataTransfer.files)
-        }}
-      >
+      <div class="relative mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong">
+        <Show when={dropActive() && ready()}>
+          <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-surface/85">
+            <span class="text-sm font-medium text-accent">{t("drift.composer.dropFiles")}</span>
+          </div>
+        </Show>
         <Show when={mention.open()}>
           <div class="pop-in absolute bottom-full left-3 z-20 mb-2 w-96 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
             <For each={mention.hits()}>
