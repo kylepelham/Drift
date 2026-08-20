@@ -536,7 +536,7 @@ function TextInput(props: { value: string; onInput: (value: string) => void; lab
   return (
     <input
       aria-label={props.label}
-      class="w-full rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-strong"
+      class="h-9 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
       placeholder={props.label}
       value={props.value}
       onInput={(event) => props.onInput(event.currentTarget.value)}

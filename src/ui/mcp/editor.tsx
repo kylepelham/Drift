@@ -68,19 +68,19 @@ export function McpEditor(props: {
             <div class="text-sm font-semibold text-ink">{props.server ? t("drift.mcp.edit") : t("drift.mcp.add")}</div>
             <button
               title={t("common.close")}
-              class="flex size-7 items-center justify-center rounded-md text-ink-faint hover:bg-raised hover:text-ink"
+              class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
               onClick={props.onClose}
             >
               <IconX />
             </button>
           </div>
-          <div class="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
+          <div class="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
             <Field label={t("drift.mcp.name")} required>
               <TextInput autofocus value={name()} onInput={setName} label={t("drift.mcp.name")} mono />
             </Field>
             <div class="grid gap-4 sm:grid-cols-2">
               <Field label={t("drift.mcp.form.type")} required>
-                <div class="flex rounded-md border border-edge bg-surface p-0.5">
+                <div class="flex rounded-lg border border-edge bg-overlay/50 p-1">
                   <Choice
                     active={form().type === "local"}
                     onClick={() => setForm((value) => ({ ...value, type: "local" }))}
@@ -107,8 +107,9 @@ export function McpEditor(props: {
                 />
               </Field>
             </div>
-            <div class="flex items-center justify-between gap-4 border-y border-edge/70 py-3 text-xs text-ink">
-              <span>{t("drift.mcp.form.enabled")}</span>
+            {/* Mirrors SettingsRow: label left, control right, hairline separators. */}
+            <div class="flex min-h-13 items-center justify-between gap-4 border-y border-edge/70 px-1 py-2.5">
+              <span class="text-[0.82rem] font-medium text-ink">{t("drift.mcp.form.enabled")}</span>
               <Toggle
                 label={t("drift.mcp.form.enabled")}
                 checked={form().enabled}
@@ -134,7 +135,7 @@ export function McpEditor(props: {
           <div class="flex justify-end gap-2 border-t border-edge px-4 py-3">
             <Button onClick={props.onClose}>{t("common.cancel")}</Button>
             <button
-              class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40"
+              class="h-8 rounded-md bg-accent px-3 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
               disabled={props.pending || submitting()}
               onClick={() => void save()}
             >
@@ -149,7 +150,7 @@ export function McpEditor(props: {
 
 function LocalFields(props: { form: McpFormState; setForm: Setter<McpFormState> }) {
   return (
-    <div class="space-y-5">
+    <div class="space-y-4">
       <Field label={t("drift.mcp.form.command")} required>
         <div class="space-y-2">
           <Index each={props.form.command}>
@@ -168,7 +169,7 @@ function LocalFields(props: { form: McpFormState; setForm: Setter<McpFormState> 
                 />
                 <Show when={index > 0}>
                   <button
-                    class="flex size-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-raised hover:text-ink"
+                    class="flex size-8 shrink-0 items-center justify-center rounded-md border border-edge text-ink-muted transition-colors hover:border-danger hover:text-danger"
                     title={t("drift.mcp.form.removeArgument")}
                     onClick={() =>
                       props.setForm((value) => ({
@@ -211,7 +212,7 @@ function LocalFields(props: { form: McpFormState; setForm: Setter<McpFormState> 
 
 function RemoteFields(props: { form: McpFormState; setForm: Setter<McpFormState> }) {
   return (
-    <div class="space-y-5">
+    <div class="space-y-4">
       <Field label={t("drift.mcp.form.url")} required>
         <TextInput
           type="url"
@@ -228,7 +229,7 @@ function RemoteFields(props: { form: McpFormState; setForm: Setter<McpFormState>
         onChange={(headers) => props.setForm((value) => withMcpPresence({ ...value, headers }, "headers", true))}
       />
       <Field label={t("drift.mcp.form.oauth")}>
-        <div class="flex rounded-md border border-edge bg-surface p-0.5">
+        <div class="flex rounded-lg border border-edge bg-overlay/50 p-1">
           <Choice
             active={props.form.oauthMode === "auto"}
             onClick={() => props.setForm((value) => ({ ...value, oauthMode: "auto" }))}
@@ -325,7 +326,7 @@ function PairFields(props: { label: string; pairs: McpPair[]; onChange: (pairs: 
                 mono
               />
               <button
-                class="flex size-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-raised hover:text-ink"
+                class="flex size-8 shrink-0 items-center justify-center rounded-md border border-edge text-ink-muted transition-colors hover:border-danger hover:text-danger"
                 title={t("drift.mcp.form.removePair")}
                 onClick={() => props.onChange(props.pairs.filter((_, item) => item !== index))}
               >
@@ -350,9 +351,10 @@ function updatePair(pairs: McpPair[], index: number, patch: Partial<McpPair>) {
 function Field(props: { label: string; required?: boolean; children: JSX.Element }) {
   return (
     <div class="text-xs text-ink-muted">
-      <div class="font-medium text-ink">
+      <div class="text-[0.78rem] font-medium text-ink">
         {props.label}
-        {props.required ? <span class="text-danger"> *</span> : null}
+        {/* Settings never uses danger red for anything but errors, so required reads as a hint. */}
+        {props.required ? <span class="text-ink-faint"> *</span> : null}
       </div>
       <div class="mt-1.5">{props.children}</div>
     </div>
@@ -373,7 +375,7 @@ function TextInput(props: {
       autofocus={props.autofocus}
       type={props.type ?? "text"}
       aria-label={props.label}
-      class="w-full min-w-0 rounded-md border border-edge bg-surface px-2.5 py-2 text-sm text-ink outline-none focus:border-edge-strong"
+      class="h-8 w-full min-w-0 rounded-md border border-edge bg-raised/45 px-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
       classList={{ "font-mono text-xs": props.mono }}
       placeholder={props.placeholder}
       value={props.value}
@@ -387,7 +389,7 @@ function Choice(props: { active: boolean; onClick: () => void; children: JSX.Ele
     <button
       type="button"
       aria-pressed={props.active}
-      class="min-w-0 flex-1 rounded-md px-2.5 py-1.5 text-xs"
+      class="min-w-0 flex-1 rounded-md px-2.5 py-1 text-xs transition-colors"
       classList={{ "bg-raised text-ink": props.active, "text-ink-faint hover:text-ink": !props.active }}
       onClick={props.onClick}
     >
@@ -400,7 +402,7 @@ function Button(props: { onClick: () => void; children: JSX.Element }) {
   return (
     <button
       type="button"
-      class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted hover:text-ink"
+      class="h-8 rounded-md border border-edge px-3 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
       onClick={props.onClick}
     >
       {props.children}
@@ -410,7 +412,11 @@ function Button(props: { onClick: () => void; children: JSX.Element }) {
 
 function AddButton(props: { label: string; onClick: () => void }) {
   return (
-    <button type="button" class="flex items-center gap-1 text-xs text-ink-faint hover:text-ink" onClick={props.onClick}>
+    <button
+      type="button"
+      class="flex h-8 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+      onClick={props.onClick}
+    >
       <IconPlus class="size-3.5" />
       {props.label}
     </button>
