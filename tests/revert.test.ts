@@ -124,3 +124,25 @@ test("dock previews collapse whitespace to a single line", async () => {
   expect(revertPreview(user("01", "  line one\nline two  "))).toBe("line one line two")
   expect(revertPreview(undefined)).toBe("")
 })
+
+test("a revert older than the loaded page backfills instead of blanking the transcript", async () => {
+  const { revertBackfillNeeded } = await import("../src/ui/chat")
+  // Real shape from a 35k-message session: the marker sat 325 messages back while only the
+  // newest 100 were loaded, so every loaded row was inside the reverted range and the timeline
+  // rendered empty. Backfill must run until a pre-revert row survives the filter.
+  expect(revertBackfillNeeded({ revertedAt: "msg_marker", visible: 0, loaded: true, cursor: "older" })).toBeTrue()
+  // Stops as soon as anything is visible.
+  expect(revertBackfillNeeded({ revertedAt: "msg_marker", visible: 1, loaded: true, cursor: "older" })).toBeFalse()
+  // Never fires for a session without a revert, mid-load, or with history exhausted.
+  expect(revertBackfillNeeded({ visible: 0, loaded: true, cursor: "older" })).toBeFalse()
+  expect(revertBackfillNeeded({ revertedAt: "msg_marker", visible: 0, cursor: "older" })).toBeFalse()
+  expect(revertBackfillNeeded({ revertedAt: "msg_marker", visible: 0, loaded: true, cursor: null })).toBeFalse()
+})
+
+test("the transcript shows a loading row while reverted history backfills", async () => {
+  const source = await Bun.file("src/ui/chat.tsx").text()
+  // The empty-state loading row must also cover backfill, otherwise the view is blank mid-page.
+  expect(source).toContain("timeline().length === 0 && (revertBackfill() ||")
+  // Each finished page re-runs the effect, so paging continues past a fully reverted page.
+  expect(source).toContain(".finally(() => setRevertBackfill(false))")
+})

@@ -106,6 +106,31 @@ export function Chat() {
     if (known && engine.state.connection === "online") void engine.actions.openSession(id)
   })
 
+  // A revert that spans more than one transcript page can put every loaded message inside the
+  // reverted range, leaving the timeline empty (the marker itself may not even be loaded). Page
+  // older history in until something pre-revert is visible or the history is exhausted. The
+  // in-flight signal re-runs this effect when each page lands, so the loop advances one page at
+  // a time and stops the moment an entry survives the revert filter.
+  const [revertBackfill, setRevertBackfill] = createSignal(false)
+  createEffect(() => {
+    const id = selectedSession()
+    if (!id || revertBackfill()) return
+    if (
+      !revertBackfillNeeded({
+        revertedAt: engine.state.sessions[id]?.revert?.messageID,
+        visible: entries().length,
+        loaded: engine.state.loaded[id],
+        cursor: engine.state.cursors[id],
+      })
+    )
+      return
+    setRevertBackfill(true)
+    void engine.actions
+      .loadOlder(id)
+      .catch(() => undefined)
+      .finally(() => setRevertBackfill(false))
+  })
+
   let scroller!: HTMLDivElement
   const [stick, setStick] = createSignal(true)
   const [awayFromBottom, setAwayFromBottom] = createSignal(false)
@@ -337,7 +362,7 @@ export function Chat() {
       >
         <Show when={selectedSession()} keyed fallback={<EmptyState />}>
           <div class="fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
-            <Show when={timeline().length === 0 && !engine.state.loaded[selectedSession()!] && engine.state.connection === "online" && !sessionError()}>
+            <Show when={timeline().length === 0 && (revertBackfill() || (!engine.state.loaded[selectedSession()!] && engine.state.connection === "online")) && !sessionError()}>
               <div class="flex justify-center pt-8 text-sm select-none" role="status" aria-live="polite">
                 <TextShimmer text={t("common.loading")} />
               </div>
@@ -486,6 +511,16 @@ export function virtualRange(offsets: number[], viewTop: number, viewHeight: num
   let end = start
   while (end < offsets.length - 1 && offsets[end] < bottom) end++
   return { start, end }
+}
+
+/** Whether an empty reverted timeline still has older pages that could reveal pre-revert rows. */
+export function revertBackfillNeeded(input: {
+  revertedAt?: string
+  visible: number
+  loaded?: boolean
+  cursor?: string | null
+}) {
+  return !!input.revertedAt && input.visible === 0 && !!input.loaded && !!input.cursor
 }
 
 export function snapVirtualViewport(
