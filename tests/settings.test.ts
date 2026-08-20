@@ -437,4 +437,11 @@ test("the mascot takes the theme accent and the logo mark never flashes as a blo
   expect(jelly).toContain("themeObserver.observe(document.documentElement")
   expect(jelly).toContain("themeObserver.disconnect()")
   expect(jelly).toContain("renderer.setClearColor(0x000000, 0)")
+
+  // The canvas mounts hidden and is revealed only from inside render(), after a frame it drew.
+  // Revealing at append time let WebView2 composite one opaque white frame first.
+  expect(jelly).toContain('canvas.style.opacity = "0"')
+  expect(jelly).toMatch(/renderer\.render\(scene, camera\)\s*\n[\s\S]*?if \(!revealed\) \{\s*\n\s*revealed = true\s*\n\s*canvas\.style\.opacity = "1"\s*\n\s*ready\(\)/)
+  // No reveal may happen next to the append, before any frame exists.
+  expect(jelly).not.toMatch(/host\.append\(canvas\)\s*\n\s*ready\(\)/)
 })

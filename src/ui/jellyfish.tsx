@@ -78,6 +78,8 @@ async function createScene(host: HTMLElement, ready: () => void) {
   renderer.setClearColor(0x000000, 0)
   canvas.style.display = "block"
   canvas.style.background = "transparent"
+  canvas.style.opacity = "0"
+  canvas.style.transition = "opacity 140ms ease-out"
 
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 40)
@@ -111,6 +113,7 @@ async function createScene(host: HTMLElement, ready: () => void) {
 
   let frame = 0
   let running = false
+  let revealed = false
   const started = performance.now()
   const start = () => {
     if (running || document.hidden) return
@@ -132,6 +135,14 @@ async function createScene(host: HTMLElement, ready: () => void) {
     jelly.group.rotation.x = -pointerSmooth.y * 0.12
     jelly.update(time, pointerSmooth)
     renderer.render(scene, camera)
+    // A freshly attached accelerated canvas composites one frame before this callback runs, and
+    // that frame is opaque white in WebView2. The canvas therefore mounts hidden and is only
+    // revealed here, after a frame it actually drew, with the fallback logo covering the gap.
+    if (!revealed) {
+      revealed = true
+      canvas.style.opacity = "1"
+      ready()
+    }
     frame = requestAnimationFrame(render)
   }
   const dispose = () => {
@@ -174,7 +185,8 @@ async function createScene(host: HTMLElement, ready: () => void) {
     themeObserver.observe(document.documentElement, { attributeFilter: ["data-theme", "style", "class"] })
     document.addEventListener("visibilitychange", visibility)
     host.append(canvas)
-    ready()
+    // `ready()` is deliberately not called here: the fallback logo stays until render() confirms
+    // a painted frame, so the canvas is never visible while it is still blank.
     start()
     return dispose
   } catch (error) {
