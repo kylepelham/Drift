@@ -848,12 +848,15 @@ function ProvidersSection() {
             <ProviderIcon id={provider.id} class="size-4.5" />
           </span>
           <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{provider.name}</span>
-          {/* Disconnected rows carry no pill: the section header already says "Not connected". */}
+          {/* The section headers already say connected / not connected, so the row only needs a
+              quiet dot rather than a bordered pill repeating the group it sits in. */}
           <Show when={connected()}>
-            <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-ok/30 bg-ok/10 px-2 py-0.5 text-[0.68rem] font-medium text-ok">
-              <span class="size-1.5 rounded-full bg-ok" />
-              {t("mcp.status.connected")}
-            </span>
+            <span
+              role="img"
+              aria-label={t("mcp.status.connected")}
+              title={t("mcp.status.connected")}
+              class="size-1.5 shrink-0 rounded-full bg-ok"
+            />
           </Show>
           <span class="text-ink-faint transition-colors group-hover:text-ink-muted">
             <Chevron open={open()} />
@@ -879,7 +882,7 @@ function ProvidersSection() {
   return (
     <div class="space-y-1">
       <input
-        class="mb-2 w-full rounded-lg border border-edge bg-surface px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-edge-strong"
+        class="mb-2 h-9 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
         placeholder={t("dialog.provider.search.placeholder")}
         value={query()}
         onInput={(event) => setQuery(event.currentTarget.value)}

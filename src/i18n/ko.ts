@@ -1162,7 +1162,7 @@ export const drift = {
   "drift.markdown.codeCopied": "코드 복사됨",
   "drift.markdown.copied": "복사됨",
   "drift.markdown.copyCode": "코드 복사",
-  "drift.mcp.description": "이 작업 공간의 엔진 인스턴스 연결입니다. opencode 구성에서 서버를 설정하세요.",
+  "drift.mcp.description": "전역 Drift 서버와 활성 작업 공간이 보고한 정확한 유효 정의입니다.",
   "drift.mcp.enable": "{{name}} 활성화",
   "drift.mcp.status.connecting": "연결 중...",
   "drift.mcp.status.disconnecting": "연결 해제 중...",

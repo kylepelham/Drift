@@ -1256,7 +1256,7 @@ export const drift = {
   "drift.markdown.codeCopied": "Kode kopiert",
   "drift.markdown.copied": "Kopiert",
   "drift.markdown.copyCode": "Kopier kode",
-  "drift.mcp.description": "Tilkoblinger for motorinstansen i dette arbeidsområdet. Konfigurer servere i opencode-konfigurasjonen.",
+  "drift.mcp.description": "Globale Drift-servere og de nøyaktige effektive definisjonene som det aktive arbeidsområdet rapporterer.",
   "drift.mcp.enable": "Aktiver {{name}}",
   "drift.mcp.status.connecting": "kobler til...",
   "drift.mcp.status.disconnecting": "kobler fra...",

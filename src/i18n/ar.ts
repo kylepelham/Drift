@@ -1155,7 +1155,7 @@ export const drift = {
   "drift.markdown.codeCopied": "تم نسخ الكود",
   "drift.markdown.copied": "تم النسخ",
   "drift.markdown.copyCode": "نسخ الكود",
-  "drift.mcp.description": "اتصالات نسخة المحرك لمساحة العمل هذه. اضبط الخوادم في تكوين opencode.",
+  "drift.mcp.description": "خوادم Drift العامة والتعريفات الفعّالة الدقيقة التي تُبلّغ عنها مساحة العمل النشطة.",
   "drift.mcp.enable": "تمكين {{name}}",
   "drift.mcp.status.connecting": "جارٍ الاتصال...",
   "drift.mcp.status.disconnecting": "جارٍ قطع الاتصال...",

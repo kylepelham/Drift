@@ -1234,7 +1234,7 @@ export const drift = {
   "drift.markdown.codeCopied": "คัดลอกโค้ดแล้ว",
   "drift.markdown.copied": "คัดลอกแล้ว",
   "drift.markdown.copyCode": "คัดลอกโค้ด",
-  "drift.mcp.description": "การเชื่อมต่อสำหรับอินสแตนซ์เอนจินของพื้นที่ทำงานนี้ กำหนดค่าเซิร์ฟเวอร์ในการตั้งค่า OpenCode",
+  "drift.mcp.description": "เซิร์ฟเวอร์ Drift ส่วนกลาง และคำนิยามที่มีผลจริงอย่างแม่นยำที่รายงานโดยพื้นที่ทำงานที่ใช้งานอยู่",
   "drift.mcp.enable": "เปิดใช้ {{name}}",
   "drift.mcp.status.connecting": "กำลังเชื่อมต่อ...",
   "drift.mcp.status.disconnecting": "กำลังตัดการเชื่อมต่อ...",

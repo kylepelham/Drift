@@ -1253,7 +1253,7 @@ export const drift = {
   "drift.markdown.codeCopied": "Код скопирован",
   "drift.markdown.copied": "Скопировано",
   "drift.markdown.copyCode": "Копировать код",
-  "drift.mcp.description": "Подключения для экземпляра движка этого рабочего пространства. Настройте серверы в конфигурации OpenCode.",
+  "drift.mcp.description": "Глобальные серверы Drift и точные действующие определения, о которых сообщает активное рабочее пространство.",
   "drift.mcp.enable": "Включить {{name}}",
   "drift.mcp.status.connecting": "подключение...",
   "drift.mcp.status.disconnecting": "отключение...",

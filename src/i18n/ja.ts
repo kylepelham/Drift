@@ -1164,7 +1164,7 @@ export const drift = {
   "drift.markdown.codeCopied": "コードをコピーしました",
   "drift.markdown.copied": "コピーしました",
   "drift.markdown.copyCode": "コードをコピー",
-  "drift.mcp.description": "このワークスペースのエンジンインスタンスへの接続です。サーバーはopencodeの設定で構成してください。",
+  "drift.mcp.description": "グローバルなDriftサーバーと、アクティブなワークスペースが報告する正確な実効定義です。",
   "drift.mcp.enable": "{{name}}を有効化",
   "drift.mcp.status.connecting": "接続中...",
   "drift.mcp.status.disconnecting": "切断中...",

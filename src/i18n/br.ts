@@ -1171,7 +1171,7 @@ export const drift = {
   "drift.markdown.codeCopied": "Código copiado",
   "drift.markdown.copied": "Copiado",
   "drift.markdown.copyCode": "Copiar código",
-  "drift.mcp.description": "Conexões da instância do mecanismo deste espaço de trabalho. Configure os servidores na configuração do opencode.",
+  "drift.mcp.description": "Servidores globais do Drift e as definições efetivas exatas informadas pelo espaço de trabalho ativo.",
   "drift.mcp.enable": "Habilitar {{name}}",
   "drift.mcp.status.connecting": "conectando...",
   "drift.mcp.status.disconnecting": "desconectando...",

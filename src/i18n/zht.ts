@@ -1217,7 +1217,7 @@ export const drift = {
   "drift.markdown.codeCopied": "程式碼已複製",
   "drift.markdown.copied": "已複製",
   "drift.markdown.copyCode": "複製程式碼",
-  "drift.mcp.description": "此工作區引擎執行個體的連線。在 opencode 設定中設定伺服器。",
+  "drift.mcp.description": "全域 Drift 伺服器，以及目前工作區回報的精確生效定義。",
   "drift.mcp.enable": "啟用 {{name}}",
   "drift.mcp.status.connecting": "正在連線...",
   "drift.mcp.status.disconnecting": "正在中斷連線...",

@@ -1247,7 +1247,7 @@ export const drift = {
   "drift.markdown.codeCopied": "Kod kopiran",
   "drift.markdown.copied": "Kopirano",
   "drift.markdown.copyCode": "Kopiraj kod",
-  "drift.mcp.description": "Veze za instancu mehanizma ovog radnog prostora. Konfigurišite servere u opencode konfiguraciji.",
+  "drift.mcp.description": "Globalni Drift serveri i tačne efektivne definicije koje prijavljuje aktivni radni prostor.",
   "drift.mcp.enable": "Omogući {{name}}",
   "drift.mcp.status.connecting": "povezivanje...",
   "drift.mcp.status.disconnecting": "prekidanje veze...",

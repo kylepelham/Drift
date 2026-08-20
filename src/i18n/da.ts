@@ -1239,7 +1239,7 @@ export const drift = {
   "drift.markdown.codeCopied": "Kode kopieret",
   "drift.markdown.copied": "Kopieret",
   "drift.markdown.copyCode": "Kopier kode",
-  "drift.mcp.description": "Forbindelser til dette arbejdsområdes motorinstans. Konfigurer servere i opencode-konfigurationen.",
+  "drift.mcp.description": "Globale Drift-servere og de nøjagtige effektive definitioner, som det aktive arbejdsområde rapporterer.",
   "drift.mcp.enable": "Aktivér {{name}}",
   "drift.mcp.status.connecting": "forbinder...",
   "drift.mcp.status.disconnecting": "afbryder forbindelsen...",

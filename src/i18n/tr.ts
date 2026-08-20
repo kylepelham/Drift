@@ -1249,7 +1249,7 @@ export const drift = {
   "drift.markdown.codeCopied": "Kod kopyalandı",
   "drift.markdown.copied": "Kopyalandı",
   "drift.markdown.copyCode": "Kodu kopyala",
-  "drift.mcp.description": "Bu çalışma alanının motor örneğine ait bağlantılar. Sunucuları OpenCode yapılandırmasında ayarlayın.",
+  "drift.mcp.description": "Genel Drift sunucuları ve etkin çalışma alanının bildirdiği tam geçerli tanımlar.",
   "drift.mcp.enable": "{{name}} etkinleştir",
   "drift.mcp.status.connecting": "bağlanıyor...",
   "drift.mcp.status.disconnecting": "bağlantı kesiliyor...",

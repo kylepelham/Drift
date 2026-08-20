@@ -1180,7 +1180,7 @@ export const drift = {
   "drift.markdown.codeCopied": "Code kopiert",
   "drift.markdown.copied": "Kopiert",
   "drift.markdown.copyCode": "Code kopieren",
-  "drift.mcp.description": "Verbindungen für die Engine-Instanz dieses Arbeitsbereichs. Server in der opencode-Konfiguration einrichten.",
+  "drift.mcp.description": "Globale Drift-Server und die exakten effektiven Definitionen, die der aktive Arbeitsbereich meldet.",
   "drift.mcp.enable": "{{name}} aktivieren",
   "drift.mcp.status.connecting": "Verbindung wird hergestellt...",
   "drift.mcp.status.disconnecting": "Verbindung wird getrennt...",
