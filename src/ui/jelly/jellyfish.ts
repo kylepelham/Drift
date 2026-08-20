@@ -10,13 +10,29 @@ import {
   blushFragment,
 } from "./shaders"
 
+// The bell palette. Every material uniform holds a reference to one of these instances, so
+// `applyAccent` retints the live scene by mutating them in place - the mascot is a singleton, and
+// this keeps a theme switch from having to rebuild geometry.
 const AQUA = new THREE.Color("#8fd9fb")
 const AQUA_LIGHT = new THREE.Color("#d4f2ff")
 const AQUA_DEEP = new THREE.Color("#4f93cc")
 const RIM = new THREE.Color("#b8ecff")
+// Face colours stay fixed: the eyes and blush read as features, not as themed surfaces.
 const INK = new THREE.Color("#0f1626")
 const BLUSH = new THREE.Color("#ffa9b8")
 const FACE_RADIUS = 1.06
+
+const WHITE = new THREE.Color("#ffffff")
+const BLACK = new THREE.Color("#000000")
+
+/** Derives the bell palette from the UI accent, preserving the original light/deep/rim spread. */
+export function applyAccent(accent: THREE.ColorRepresentation) {
+  const base = new THREE.Color(accent)
+  AQUA.copy(base)
+  AQUA_LIGHT.copy(base).lerp(WHITE, 0.55)
+  AQUA_DEEP.copy(base).lerp(BLACK, 0.32)
+  RIM.copy(base).lerp(WHITE, 0.68)
+}
 
 export interface Jellyfish {
   group: THREE.Group
