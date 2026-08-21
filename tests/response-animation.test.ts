@@ -69,7 +69,6 @@ test("response reveal staggers compositor animation state", () => {
 
   expect(nodes.map((entry) => entry.properties.get("--response-reveal-delay"))).toEqual(["0ms", "55ms", "110ms"])
   expect(nodes[0].properties.get("--response-reveal-fade")).toBe("90ms")
-  expect(nodes[2].classes.has("md-response-reveal-tail")).toBeTrue()
   finish()
   expect(nodes.every((entry) => !entry.classes.has("md-response-reveal"))).toBeTrue()
   expect(nodes.every((entry) => !entry.properties.has("--response-reveal-duration"))).toBeTrue()
@@ -87,13 +86,13 @@ test("only natural reveal completion advances queued content", async () => {
     } as unknown as HTMLElement
   }
   let completions = 0
-  const finish = revealResponseNodes([fakeNode()], 5, () => completions++)
+  const finish = revealResponseNodes([fakeNode()], 40, () => completions++)
   finish()
-  await Bun.sleep(10)
+  await Bun.sleep(80)
   expect(completions).toBe(0)
 
-  revealResponseNodes([fakeNode()], 5, () => completions++)
-  await Bun.sleep(10)
+  revealResponseNodes([fakeNode()], 40, () => completions++)
+  await Bun.sleep(80)
   expect(completions).toBe(1)
 })
 

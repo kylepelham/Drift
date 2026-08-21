@@ -40,7 +40,6 @@ export function revealResponseNodes(nodes: HTMLElement[], duration: number, onCo
     node.style.setProperty("--response-reveal-delay", `${delay}ms`)
     node.classList.add("md-response-reveal")
   }
-  nodes.at(-1)?.classList.add("md-response-reveal-tail")
   let timer: ReturnType<typeof setTimeout> | undefined
   let finished = false
   const finish = (completed = false) => {
@@ -49,7 +48,7 @@ export function revealResponseNodes(nodes: HTMLElement[], duration: number, onCo
     if (timer !== undefined) clearTimeout(timer)
     timer = undefined
     for (const node of nodes) {
-      node.classList.remove("md-response-reveal", "md-response-reveal-tail")
+      node.classList.remove("md-response-reveal")
       node.style.removeProperty("--response-reveal-duration")
       node.style.removeProperty("--response-reveal-fade")
       node.style.removeProperty("--response-reveal-delay")

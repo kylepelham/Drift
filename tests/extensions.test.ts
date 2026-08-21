@@ -180,6 +180,23 @@ test("release extensions load without workspace node_modules", async () => {
     expect(identity).toStartWith("You are Drift")
     expect(identity).toContain("You are OpenCode")
     expect(anthropicSystem.system[0]).toEndWith("workspace context")
+
+    const customAnthropic = "You are Drift for this workspace.\n\nKeep this custom first paragraph."
+    await Bun.write(
+      settingsPath,
+      JSON.stringify({ version: 1, families: { anthropic: customAnthropic } }),
+    )
+    const customHooks = await prompt.PromptOverrides({} as never, {
+      catalogPath: path.join(output, "prompt-catalog.json"),
+      settingsPath,
+    })
+    const customSystem = { system: [`${anthropic.original}\nworkspace context`] }
+    await customHooks["experimental.chat.system.transform"]?.(
+      { model: { api: { id: "claude-opus-5" } } } as never,
+      customSystem,
+    )
+    expect(customSystem.system[0]).toContain(customAnthropic)
+    expect(customSystem.system[0]).toEndWith("workspace context")
   } finally {
     rmSync(output, { recursive: true, force: true })
   }

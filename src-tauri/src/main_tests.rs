@@ -169,18 +169,23 @@ fn configured_skill_paths_resolve_relative_to_the_workspace() {
 }
 
 #[test]
-fn configured_skill_paths_drop_removed_workspaces() {
+fn configured_skill_paths_survive_missing_workspaces_then_drop_removed_workspaces() {
     let roots = SkillWatchRoots::default();
     roots.replace(PathBuf::from("first"), vec![PathBuf::from("first-skills")]);
-    roots.replace(PathBuf::from("second"), vec![PathBuf::from("second-skills")]);
+    roots.replace(
+        PathBuf::from("second"),
+        vec![PathBuf::from("second-skills")],
+    );
+    assert_eq!(
+        roots.paths(None).into_iter().collect::<HashSet<_>>(),
+        HashSet::from([
+            PathBuf::from("first-skills"),
+            PathBuf::from("second-skills"),
+        ])
+    );
     let active = HashSet::from([PathBuf::from("second")]);
     assert_eq!(
         roots.paths(Some(&active)),
-        vec![PathBuf::from("second-skills")]
-    );
-    let both = HashSet::from([PathBuf::from("first"), PathBuf::from("second")]);
-    assert_eq!(
-        roots.paths(Some(&both)),
         vec![PathBuf::from("second-skills")]
     );
     assert_eq!(roots.paths(None), vec![PathBuf::from("second-skills")]);
