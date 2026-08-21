@@ -6,7 +6,14 @@ import { shellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import { syntaxTheme } from "../state/code"
 import { animateResponses, responseAnimationSpeed } from "../state/prefs"
-import { createRevealPacer, responseAnimationInterruptEvent } from "./response-animation"
+import {
+  responseAnimationInterruptEvent,
+  responseBurstSize,
+  responseRevealDuration,
+  responseRevealSegmentSize,
+  revealResponseNodes,
+  shouldPreserveResponseReveal,
+} from "./response-animation"
 
 marked.use({ gfm: true, breaks: true })
 
@@ -559,17 +566,104 @@ function markdownNodeSignature(node: Node) {
   return node.nodeType === Node.ELEMENT_NODE ? (node as Element).outerHTML : `${node.nodeType}:${node.textContent ?? ""}`
 }
 
-function replaceMarkdownSuffix(root: HTMLElement, source: string, previous: string[]) {
+type MarkdownAddition = Text | HTMLElement
+
+function collectWholeAddition(node: Node, additions: MarkdownAddition[]) {
+  if (node.nodeType === Node.TEXT_NODE) {
+    if (node.textContent) additions.push(node as Text)
+    return
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return
+  if (!node.textContent) {
+    additions.push(node as HTMLElement)
+    return
+  }
+  for (const child of [...node.childNodes]) collectWholeAddition(child, additions)
+}
+
+function markMarkdownAddition(previous: Node | undefined, next: Node, additions: MarkdownAddition[]) {
+  if (!previous || previous.nodeType !== next.nodeType) return collectWholeAddition(next, additions)
+  if (next.nodeType === Node.TEXT_NODE) {
+    const priorText = previous.textContent ?? ""
+    const nextText = next.textContent ?? ""
+    if (nextText === priorText || !nextText.startsWith(priorText) || !next.parentNode) return
+    const suffix = document.createTextNode(nextText.slice(priorText.length))
+    next.parentNode.insertBefore(document.createTextNode(priorText), next)
+    next.parentNode.replaceChild(suffix, next)
+    additions.push(suffix)
+    return
+  }
+  if (
+    next.nodeType !== Node.ELEMENT_NODE ||
+    (previous as Element).tagName !== (next as Element).tagName
+  )
+    return
+  const previousChildren = [...previous.childNodes]
+  const nextChildren = [...next.childNodes]
+  for (let index = 0; index < nextChildren.length; index++) {
+    markMarkdownAddition(previousChildren[index], nextChildren[index], additions)
+  }
+}
+
+function createTypingRevealNodes(additions: MarkdownAddition[]) {
+  const revealedCharacters = additions.reduce(
+    (total, addition) =>
+      total + (addition.nodeType === Node.TEXT_NODE ? Array.from((addition as Text).data).length : 1),
+    0,
+  )
+  const segmentSize = responseRevealSegmentSize(revealedCharacters)
+  const revealNodes: HTMLElement[] = []
+  for (const addition of additions) {
+    if (addition.nodeType === Node.ELEMENT_NODE) {
+      revealNodes.push(addition as HTMLElement)
+      continue
+    }
+    if (!addition.parentNode) continue
+    const characters = Array.from((addition as Text).data)
+    const fragment = document.createDocumentFragment()
+    for (let index = 0; index < characters.length; index += segmentSize) {
+      const span = document.createElement("span")
+      span.textContent = characters.slice(index, index + segmentSize).join("")
+      fragment.append(span)
+      revealNodes.push(span)
+    }
+    addition.parentNode.replaceChild(fragment, addition)
+  }
+  return { revealNodes, revealedCharacters }
+}
+
+function replaceMarkdownSuffix(
+  root: HTMLElement,
+  source: string,
+  previousSignatures: string[],
+  previousNodes: ChildNode[],
+  reveal: boolean,
+) {
   const template = document.createElement("template")
   template.innerHTML = source
   const nodes = [...template.content.childNodes]
   const signatures = nodes.map(markdownNodeSignature)
-  let unchanged = root.childNodes.length === previous.length ? 0 : -1
-  while (unchanged >= 0 && unchanged < previous.length && previous[unchanged] === signatures[unchanged]) unchanged++
+  let unchanged = root.childNodes.length === previousSignatures.length ? 0 : -1
+  while (
+    unchanged >= 0 &&
+    unchanged < previousSignatures.length &&
+    previousSignatures[unchanged] === signatures[unchanged]
+  )
+    unchanged++
   if (unchanged < 0) unchanged = 0
   while (root.childNodes.length > unchanged) root.lastChild?.remove()
-  root.append(...nodes.slice(unchanged))
-  return { signatures, changedFrom: unchanged }
+  const fragment = document.createDocumentFragment()
+  const renderedNodes = nodes.slice(unchanged).map((node) => node.cloneNode(true))
+  fragment.append(...renderedNodes)
+  const additions: MarkdownAddition[] = []
+  if (reveal) {
+    for (let index = 0; index < renderedNodes.length; index++) {
+      markMarkdownAddition(previousNodes[unchanged + index], renderedNodes[index], additions)
+    }
+  }
+  const typing = createTypingRevealNodes(additions)
+  root.append(fragment)
+  return { signatures, nodes, ...typing }
 }
 
 export function Markdown(props: {
@@ -584,67 +678,112 @@ export function Markdown(props: {
   let identity = props.responseID
   const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
   const animationAllowed = () => animateResponses() && !!props.responseID && !reducedMotion()
-  const shouldStartPacing = () => animationAllowed() && !!props.live && !props.done
-  let pacing = shouldStartPacing()
   let sourceSignatures: string[] = []
+  let sourceNodes: ChildNode[] = []
   let renderedTheme: BundledTheme | undefined
-  const [revealed, setRevealed] = createSignal(pacing ? "" : props.text)
-  const pacer = createRevealPacer({
-    schedule: (callback) => requestAnimationFrame(callback),
-    cancel: cancelAnimationFrame,
-    now: () => performance.now(),
-    emit: setRevealed,
-    charsPerSecond: responseAnimationSpeed,
-  })
+  let previousLength = 0
+  let mounted = false
+  let revealActive = false
+  let revealQueued = false
+  let revealDone = false
+  let flushReveal = false
+  let finishReveal = () => {}
+  const [revealRevision, setRevealRevision] = createSignal(0)
   const html = createMemo(() =>
-    DOMPurify.sanitize(marked.parse(prepareMarkdown(revealed(), props.humanAuthored), { async: false })),
+    DOMPurify.sanitize(marked.parse(prepareMarkdown(props.text, props.humanAuthored), { async: false })),
   )
   onMount(() => window.addEventListener(responseAnimationInterruptEvent, finishActiveReveal))
   onCleanup(() => {
     request++
-    pacer.dispose()
+    revealActive = false
+    revealQueued = false
+    revealDone = false
+    finishReveal()
     window.removeEventListener(responseAnimationInterruptEvent, finishActiveReveal)
   })
 
   function finishActiveReveal() {
-    pacing = false
-    pacer.flush(props.text)
+    if (!revealActive) return
+    const queued = revealQueued
+    revealActive = false
+    revealQueued = false
+    revealDone = false
+    const finish = finishReveal
+    finishReveal = () => {}
+    finish()
+    if (!queued) return
+    flushReveal = true
+    setRevealRevision((value) => value + 1)
   }
 
-  // A response that started live keeps typing its remaining buffered text after completion. Responses
-  // that mount already complete render immediately, so opening an old thread never replays animations.
   createEffect(() => {
-    const text = props.text
-    const responseID = props.responseID
-    if (responseID !== identity) {
-      identity = responseID
-      pacer.reset()
-      pacing = shouldStartPacing()
-      if (pacing) setRevealed("")
-    }
-    if (pacing && animationAllowed()) pacer.push(text)
-    else {
-      pacing = false
-      pacer.flush(text)
-    }
-  })
-
-  createEffect(() => {
-    const source = html()
+    revealRevision()
     const theme = syntaxTheme() as BundledTheme
-    const current = ++request
+    const responseID = props.responseID
+    const identityChanged = responseID !== identity
+    const textLength = props.text.length
+    const live = !!props.live
+    const done = !!props.done
+    const canAnimate = animationAllowed()
     const themeChanged = renderedTheme !== theme
+    const burst =
+      mounted && !identityChanged && canAnimate
+        ? revealDone
+          ? Math.max(0, textLength - previousLength)
+          : responseBurstSize(previousLength, textLength, live, done)
+        : 0
+    if (
+      !flushReveal &&
+      !themeChanged &&
+      !identityChanged &&
+      canAnimate &&
+      shouldPreserveResponseReveal(revealActive, previousLength, textLength, live, done)
+    ) {
+      revealQueued ||= textLength > previousLength
+      revealDone ||= done && textLength > previousLength
+      return
+    }
+    const source = html()
+    const current = ++request
     renderedTheme = theme
-    // Patching only the changed tail keeps already-highlighted blocks in the DOM, so streaming
-    // never flashes them back to plain text.
-    if (props.responseID && !themeChanged) {
-      sourceSignatures = replaceMarkdownSuffix(root, source, sourceSignatures).signatures
+    const finish = finishReveal
+    finishReveal = () => {}
+    revealActive = false
+    revealQueued = false
+    revealDone = false
+    finish()
+    const revealBurst = flushReveal ? 0 : burst
+    flushReveal = false
+    if (responseID && !themeChanged && !identityChanged) {
+      const update = replaceMarkdownSuffix(root, source, sourceSignatures, sourceNodes, revealBurst > 0)
+      sourceSignatures = update.signatures
+      sourceNodes = update.nodes
+      if (update.revealNodes.length) {
+        const complete = revealResponseNodes(
+          update.revealNodes,
+          responseRevealDuration(update.revealedCharacters, responseAnimationSpeed()),
+          () => {
+            if (finishReveal !== complete) return
+            finishReveal = () => {}
+            revealActive = false
+            if (!revealQueued) return
+            revealQueued = false
+            setRevealRevision((value) => value + 1)
+          },
+        )
+        finishReveal = complete
+        revealActive = true
+      }
     } else {
       root.innerHTML = source
-      sourceSignatures = props.responseID ? [...root.childNodes].map(markdownNodeSignature) : []
+      sourceNodes = responseID ? [...root.childNodes].map((node) => node.cloneNode(true) as ChildNode) : []
+      sourceSignatures = sourceNodes.map(markdownNodeSignature)
     }
+    identity = responseID
+    previousLength = textLength
+    mounted = true
     decorateCodeBlocks(root)
-    void highlightBlocks(root, theme, () => current === request, !props.done && endsInsideFence(revealed())).then(
+    void highlightBlocks(root, theme, () => current === request, !props.done && endsInsideFence(props.text)).then(
       () => {
         if (current === request) decorateCodeBlocks(root)
       },

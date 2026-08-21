@@ -101,10 +101,15 @@ position so a tall row cannot be mistaken for a short row above the viewport. Ra
 selection clamps stale browser scroll offsets to the current measured transcript height,
 preventing blank space when a tall row collapses.
 
-General settings can opt live assistant text into a smooth burst reveal. Markdown still
-parses the complete update immediately, preserves unchanged top-level blocks, and animates
-only the changed suffix for at most one second. Initial and historical renders stay instant;
-reduced motion, another update, Stop, or a user scroll completes any active reveal.
+General settings can opt live assistant text into a smooth burst reveal. Markdown preserves unchanged
+top-level blocks, and engine updates queue behind an active reveal instead of replacing its animated
+DOM. The latest appended rendered text is split into bounded inline segments and receives staggered
+CSS opacity animation at the chosen typing speed. Small updates reveal per character, while large
+updates group characters into at most 240 segments. Delayed segments stay out of layout until their
+fade begins, so invisible backlog cannot expand the message. JavaScript never mutates text or reparses
+Markdown from an animation frame. Initial, mounted buffered, and historical renders stay instant. A
+live reveal drains normally after provider completion; reduced motion, loss of live status, or Stop
+completes it immediately. Transcript scrolling never changes reveal progress.
 
 Busy turns derive an optional topic beside `Thinking` from the first heading in streamed
 reasoning text. The provider/model supplies that text; Drift recognizes the same HTML,
@@ -119,6 +124,11 @@ An adjacent compaction-only user boundary and its assistant summary become one
 collapsible transcript row. Session-level engine errors defensively end busy activity
 and render after the virtualized transcript unless the assistant message already owns
 the same visible error state.
+
+Compaction retains complete recent turns within a 15,000-token ceiling instead of
+splitting messages or keeping only two turns. Its structured update prompt carries
+forward unresolved objectives, constraints, decisions, and parallel work while Drift's
+overflow recovery continues from that summary without duplicating the failed request.
 
 User prompts carry a hover-only footer with their agent, friendly model name, time,
 copy, and revert action. Revert state comes from the engine session record; the chat
