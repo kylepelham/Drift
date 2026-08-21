@@ -187,29 +187,29 @@ export function EngineProvider(props: ParentProps) {
     if (!api || !bootDirectory || disposed) return
     const metadataEpoch = runtimeMetadataEpoch + 1
     runtimeMetadataEpoch = metadataEpoch
+    let commands: NonNullable<Awaited<ReturnType<typeof api.command.list>>["data"]> | undefined
+    let config: NonNullable<Awaited<ReturnType<typeof api.config.get>>["data"]> | undefined
     const load = async () => {
-      let commands: Awaited<ReturnType<typeof api.command.list>> | undefined
-      let config: Awaited<ReturnType<typeof api.config.get>> | undefined
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        const result = await Promise.all([api.command.list(), api.config.get()]).catch(() => undefined)
-        if (result) {
-          commands = result[0]
-          config = result[1]
-          if (commands.data !== undefined) break
-        }
+        const [nextCommands, nextConfig] = await Promise.all([
+          api.command.list().catch(() => undefined),
+          api.config.get().catch(() => undefined),
+        ])
+        if (nextCommands?.data !== undefined) commands = nextCommands.data
+        if (nextConfig?.data !== undefined) config = nextConfig.data
+        if (commands && config) break
         await sleep(150 * (attempt + 1))
       }
-      return { commands, config }
     }
-    let result = await load()
-    if (result.commands?.data === undefined) {
+    await load()
+    if (!commands || !config) {
       await sleep(1000)
       if (disposed || client !== api || directory !== bootDirectory || runtimeMetadataEpoch !== metadataEpoch) return
-      result = await load()
+      await load()
     }
     if (disposed || client !== api || directory !== bootDirectory || runtimeMetadataEpoch !== metadataEpoch) return
-    if (result.commands?.data !== undefined) set("commands", result.commands.data)
-    if (result.config?.data !== undefined) syncSkillWatchPaths(bootDirectory, result.config.data)
+    if (commands) set("commands", commands)
+    if (config) syncSkillWatchPaths(bootDirectory, config)
   }
 
   function sameTarget(left: EngineTarget | undefined, right: EngineTarget) {

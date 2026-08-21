@@ -174,7 +174,14 @@ fn configured_skill_paths_drop_removed_workspaces() {
     roots.replace(PathBuf::from("first"), vec![PathBuf::from("first-skills")]);
     roots.replace(PathBuf::from("second"), vec![PathBuf::from("second-skills")]);
     let active = HashSet::from([PathBuf::from("second")]);
-    assert_eq!(roots.paths(&active), vec![PathBuf::from("second-skills")]);
+    assert_eq!(
+        roots.paths(Some(&active)),
+        vec![PathBuf::from("second-skills")]
+    );
     let both = HashSet::from([PathBuf::from("first"), PathBuf::from("second")]);
-    assert_eq!(roots.paths(&both), vec![PathBuf::from("second-skills")]);
+    assert_eq!(
+        roots.paths(Some(&both)),
+        vec![PathBuf::from("second-skills")]
+    );
+    assert_eq!(roots.paths(None), vec![PathBuf::from("second-skills")]);
 }

@@ -31,9 +31,11 @@ impl SkillWatchRoots {
         self.0.lock().unwrap().insert(directory, paths);
     }
 
-    pub(crate) fn paths(&self, workspaces: &HashSet<PathBuf>) -> Vec<PathBuf> {
+    pub(crate) fn paths(&self, workspaces: Option<&HashSet<PathBuf>>) -> Vec<PathBuf> {
         let mut configured = self.0.lock().unwrap();
-        configured.retain(|directory, _| workspaces.contains(directory));
+        if let Some(workspaces) = workspaces {
+            configured.retain(|directory, _| workspaces.contains(directory));
+        }
         configured.values().flatten().cloned().collect()
     }
 }
@@ -130,12 +132,14 @@ fn external_skill_signature(
     store: &Store,
     configured: &SkillWatchRoots,
 ) -> Vec<(PathBuf, u64, u128, u64)> {
-    let workspaces = store.workspaces().unwrap_or_default();
-    let workspace_paths = workspaces
-        .iter()
-        .map(|workspace| PathBuf::from(&workspace.path))
-        .collect::<HashSet<_>>();
-    let mut roots = configured.paths(&workspace_paths);
+    let workspaces = store.workspaces().ok();
+    let workspace_paths = workspaces.as_ref().map(|workspaces| {
+        workspaces
+            .iter()
+            .map(|workspace| PathBuf::from(&workspace.path))
+            .collect::<HashSet<_>>()
+    });
+    let mut roots = configured.paths(workspace_paths.as_ref());
     if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
         let home = PathBuf::from(home);
         roots.push(home.join(".claude/skills"));
@@ -150,7 +154,7 @@ fn external_skill_signature(
         add_config_skill_roots(&PathBuf::from(root).join("opencode"), &mut roots);
     }
     add_config_skill_roots(&managed_config_root(), &mut roots);
-    for workspace in workspaces {
+    for workspace in workspaces.into_iter().flatten() {
         for ancestor in Path::new(&workspace.path).ancestors() {
             roots.push(ancestor.join(".claude/skills"));
             roots.push(ancestor.join(".agents/skills"));
@@ -350,9 +354,9 @@ fn collect_skill_files(root: &Path, paths: &mut Vec<PathBuf>) {
         let mut entries = entries
             .filter_map(Result::ok)
             .map(|entry| entry.path())
+            .take(MAX_RECURSIVE_SCAN_DIRECTORIES + MAX_WATCHED_MCP_FILES)
             .collect::<Vec<_>>();
         entries.sort_by(|left, right| right.cmp(left));
-        entries.truncate(MAX_RECURSIVE_SCAN_DIRECTORIES + MAX_WATCHED_MCP_FILES);
         for path in entries {
             if path.is_dir() {
                 if visited.len() + pending.len() < MAX_RECURSIVE_SCAN_DIRECTORIES {
