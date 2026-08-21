@@ -1,5 +1,6 @@
-import { createMemo, createSignal } from "solid-js"
+import { createEffect, createMemo, createSignal } from "solid-js"
 import type { Engine } from "../engine"
+import { isDesktopShell } from "../shell"
 import { parseSlash, runSlash, slashItem, slashItems, slashPresets, type SlashItem, type SlashPreset } from "./slash"
 
 export type SlashMenuOptions = {
@@ -26,6 +27,12 @@ export function createSlashMenu(options: SlashMenuOptions) {
   const [cursor, setCursor] = createSignal(0)
 
   const parsed = () => (dismissed() ? null : parseSlash(options.draft()))
+  let slashOpen = false
+  createEffect(() => {
+    const open = parsed() !== null
+    if (open && !slashOpen && !isDesktopShell()) void options.engine.refreshRuntimeMetadata().catch(() => undefined)
+    slashOpen = open
+  })
 
   const matches = createMemo<SlashItem[]>(() => {
     const current = parsed()

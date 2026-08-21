@@ -169,6 +169,34 @@ test("release extensions load without workspace node_modules", async () => {
     await hooks["experimental.chat.system.transform"]?.({ model: { api: { id: "gpt-5.4" } } } as never, system)
     expect(system.system[0]).toStartWith("You are Drift")
     expect(system.system[0]).toEndWith("workspace context")
+
+    const anthropic = catalog.families.find((item: { id: string }) => item.id === "anthropic")
+    const anthropicSystem = { system: [`${anthropic.original}\nworkspace context`] }
+    await hooks["experimental.chat.system.transform"]?.(
+      { model: { api: { id: "claude-opus-5" } } } as never,
+      anthropicSystem,
+    )
+    const identity = anthropicSystem.system[0].split("\n\n", 1)[0]
+    expect(identity).toStartWith("You are Drift")
+    expect(identity).toContain("You are OpenCode")
+    expect(anthropicSystem.system[0]).toEndWith("workspace context")
+
+    const customAnthropic = "You are Drift for this workspace.\n\nKeep this custom first paragraph."
+    await Bun.write(
+      settingsPath,
+      JSON.stringify({ version: 1, families: { anthropic: customAnthropic } }),
+    )
+    const customHooks = await prompt.PromptOverrides({} as never, {
+      catalogPath: path.join(output, "prompt-catalog.json"),
+      settingsPath,
+    })
+    const customSystem = { system: [`${anthropic.original}\nworkspace context`] }
+    await customHooks["experimental.chat.system.transform"]?.(
+      { model: { api: { id: "claude-opus-5" } } } as never,
+      customSystem,
+    )
+    expect(customSystem.system[0]).toContain(customAnthropic)
+    expect(customSystem.system[0]).toEndWith("workspace context")
   } finally {
     rmSync(output, { recursive: true, force: true })
   }

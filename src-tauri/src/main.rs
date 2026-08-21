@@ -118,6 +118,7 @@ fn main() {
             commands::mcp_approve,
             commands::mcp_reject,
             commands::mcp_revoke,
+            watcher::watcher_set_skill_paths,
             show_main_window,
             commands::storage_stats,
             commands::storage_analyze,
@@ -193,6 +194,7 @@ fn main() {
             app.manage(ui_state);
             app.manage(shell_timeout);
             app.manage(mcp_runtime);
+            app.manage(watcher::SkillWatchRoots::default());
             #[cfg(windows)]
             permissions::install(app)?;
             let remote_access = remote::RemoteAccess::load(&app.state::<store::Store>())
@@ -200,7 +202,7 @@ fn main() {
             let start_remote = remote_access.should_start();
             app.manage(remote_access);
             engine::spawn_engine(app.handle().clone(), shared_database, engine_config);
-            watcher::watch_mcp_configs(app.handle().clone());
+            watcher::watch_engine_configs(app.handle().clone());
             if start_remote {
                 let app = app.handle().clone();
                 tauri::async_runtime::spawn(async move {

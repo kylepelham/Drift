@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test"
 import {
-  createRevealPacer,
-  responseRevealCharsPerSecond,
-  responseRevealMaxBacklogChars,
-  revealBoundary,
-  revealStep,
+  responseBurstSize,
+  responseRevealDuration,
+  responseRevealMaximumMs,
+  responseRevealMaximumSegments,
+  responseRevealMinimumMs,
+  responseRevealSegmentSize,
+  revealResponseNodes,
+  shouldPreserveResponseReveal,
 } from "../src/ui/response-animation"
 import {
   normalizeResponseAnimationSpeed,
@@ -13,69 +16,100 @@ import {
   responseAnimationSpeedMin,
 } from "../src/state/prefs"
 
-const frameMs = 16
+test("every new live character is eligible for reveal", () => {
+  expect(responseBurstSize(0, 1, true, false)).toBe(1)
+  expect(responseBurstSize(100, 101, true, false)).toBe(1)
+  expect(responseBurstSize(100, 500, false, false)).toBe(0)
+  expect(responseBurstSize(100, 500, true, true)).toBe(0)
+  expect(responseBurstSize(500, 100, true, false)).toBe(0)
+})
 
-/** Drives a pacer with a fake clock and scheduler, returning the text emitted per frame. */
-function runPacer(chunks: string[], options: { framesPerChunk?: number } = {}) {
-  const framesPerChunk = options.framesPerChunk ?? 40
-  let pending: (() => void) | undefined
-  let clock = 0
-  const emitted: string[] = []
-  const pacer = createRevealPacer({
-    schedule: (callback) => {
-      pending = callback
-      return 1
-    },
-    cancel: () => (pending = undefined),
-    now: () => clock,
-    emit: (text) => emitted.push(text),
-  })
-  for (const chunk of chunks) {
-    pacer.push(chunk)
-    for (let frame = 0; frame < framesPerChunk && pending; frame++) {
-      const callback = pending
-      pending = undefined
-      clock += frameMs
-      callback()
-    }
+test("reveal duration follows the speed preference within a short bound", () => {
+  expect(responseRevealDuration(0, responseAnimationSpeedDefault)).toBe(0)
+  expect(responseRevealDuration(1, responseAnimationSpeedDefault)).toBe(responseRevealMinimumMs)
+  expect(responseRevealDuration(144, 144)).toBe(responseRevealMaximumMs)
+  expect(responseRevealDuration(20_000, responseAnimationSpeedMin)).toBe(responseRevealMaximumMs)
+  expect(responseRevealDuration(120, 600)).toBe(200)
+})
+
+test("large additions use a bounded number of typing segments", () => {
+  expect(responseRevealSegmentSize(1)).toBe(1)
+  expect(responseRevealSegmentSize(responseRevealMaximumSegments)).toBe(1)
+  expect(responseRevealSegmentSize(responseRevealMaximumSegments + 1)).toBe(2)
+  expect(responseRevealSegmentSize(20_000)).toBe(84)
+})
+
+test("active response reveals survive new deltas and normal completion", () => {
+  expect(shouldPreserveResponseReveal(true, 100, 101, true, false)).toBeTrue()
+  expect(shouldPreserveResponseReveal(true, 100, 101, true, true)).toBeTrue()
+  expect(shouldPreserveResponseReveal(true, 100, 100, true, true)).toBeTrue()
+  expect(shouldPreserveResponseReveal(false, 100, 101, true, false)).toBeFalse()
+  expect(shouldPreserveResponseReveal(true, 100, 101, false, false)).toBeFalse()
+  expect(shouldPreserveResponseReveal(true, 101, 100, true, true)).toBeFalse()
+})
+
+test("response reveal staggers compositor animation state", () => {
+  const fakeNode = () => {
+    const properties = new Map<string, string>()
+    const classes = new Set<string>()
+    const node = {
+      style: {
+        setProperty: (name: string, value: string) => properties.set(name, value),
+        removeProperty: (name: string) => properties.delete(name),
+      },
+      classList: {
+        add: (...names: string[]) => names.forEach((name) => classes.add(name)),
+        remove: (...names: string[]) => names.forEach((name) => classes.delete(name)),
+      },
+    } as unknown as HTMLElement
+    return { node, properties, classes }
   }
-  return { emitted, pacer, remaining: () => !!pending }
-}
+  const nodes = [fakeNode(), fakeNode(), fakeNode()]
+  const finish = revealResponseNodes(nodes.map((entry) => entry.node), 200)
 
-test("reveal advances by characters instead of jumping between words", () => {
-  expect(revealBoundary("hello world again", 0, 11)).toBe(11)
-  expect(revealBoundary("hello world again", 0, 8)).toBe(8)
-  expect(revealBoundary("supercalifragilistic", 0, 6)).toBe(6)
-  expect(revealBoundary("short", 0, 99)).toBe(5)
-  expect(revealBoundary("😀😀", 0, 1)).toBe(2)
+  expect(nodes.map((entry) => entry.properties.get("--response-reveal-delay"))).toEqual(["0ms", "55ms", "110ms"])
+  expect(nodes[0].properties.get("--response-reveal-fade")).toBe("90ms")
+  finish()
+  expect(nodes.every((entry) => !entry.classes.has("md-response-reveal"))).toBeTrue()
+  expect(nodes.every((entry) => !entry.properties.has("--response-reveal-duration"))).toBeTrue()
 })
 
-test("reveal speed follows elapsed time, not how much text arrived", () => {
-  const small = revealStep({ revealed: 0, target: "x".repeat(5000), elapsedMs: frameMs })
-  const large = revealStep({ revealed: 0, target: "x".repeat(5000), elapsedMs: frameMs })
-  expect(small).toBe(large)
-  // Twice the frame time releases roughly twice the characters.
-  const doubled = revealStep({ revealed: 0, target: "x".repeat(5000), elapsedMs: frameMs * 2 })
-  expect(doubled).toBeGreaterThan(small)
-  expect(revealStep({ revealed: 10, target: "0123456789", elapsedMs: frameMs })).toBe(10)
+test("only natural reveal completion advances queued content", async () => {
+  const fakeNode = () => {
+    const classes = new Set<string>()
+    return {
+      style: { setProperty: () => {}, removeProperty: () => {} },
+      classList: {
+        add: (...names: string[]) => names.forEach((name) => classes.add(name)),
+        remove: (...names: string[]) => names.forEach((name) => classes.delete(name)),
+      },
+    } as unknown as HTMLElement
+  }
+  let completions = 0
+  const finish = revealResponseNodes([fakeNode()], 40, () => completions++)
+  finish()
+  await Bun.sleep(80)
+  expect(completions).toBe(0)
+
+  revealResponseNodes([fakeNode()], 40, () => completions++)
+  await Bun.sleep(80)
+  expect(completions).toBe(1)
 })
 
-test("a large backlog accelerates but still spans multiple frames", () => {
-  const backlog = responseRevealMaxBacklogChars * 4
-  const target = "x".repeat(backlog)
-  const burst = revealStep({ revealed: 0, target, elapsedMs: frameMs })
-  const steady = revealStep({ revealed: 0, target: "x".repeat(100), elapsedMs: frameMs })
-  expect(burst).toBeGreaterThan(steady)
-  expect(burst).toBeLessThanOrEqual(steady * 2)
-  expect(burst).toBeLessThan(backlog)
-})
-
-test("normal streaming types roughly one character per display frame", () => {
-  const target = "a response long enough to animate smoothly"
-  const first = revealStep({ revealed: 0, target, elapsedMs: frameMs })
-  const second = revealStep({ revealed: first, target, elapsedMs: frameMs })
-  expect(first).toBe(2)
-  expect(second).toBe(4)
+test("markdown reveal never drives rendering from animation frames", async () => {
+  const [animation, markdown, css] = await Promise.all([
+    Bun.file("src/ui/response-animation.ts").text(),
+    Bun.file("src/ui/markdown.tsx").text(),
+    Bun.file("src/styles/app.css").text(),
+  ])
+  expect(animation).not.toContain("requestAnimationFrame")
+  expect(animation).not.toContain("createRevealPacer")
+  expect(markdown).not.toContain("requestAnimationFrame")
+  expect(markdown).not.toContain("setRevealed")
+  expect(css).toContain("@keyframes response-character-reveal")
+  expect(css).toContain(".md-response-reveal")
+  expect(css).toContain("display: none")
+  expect(css).toContain("display: revert")
 })
 
 test("response animation speed is bounded and defaults safely", () => {
@@ -83,44 +117,6 @@ test("response animation speed is bounded and defaults safely", () => {
   expect(normalizeResponseAnimationSpeed(responseAnimationSpeedMin - 1)).toBe(responseAnimationSpeedMin)
   expect(normalizeResponseAnimationSpeed(responseAnimationSpeedMax + 1)).toBe(responseAnimationSpeedMax)
   expect(normalizeResponseAnimationSpeed(211.6)).toBe(212)
-})
-
-test("one large chunk and many small chunks reveal at the same pace", () => {
-  const full = "word ".repeat(400).trim()
-  const single = runPacer([full])
-  const incremental = runPacer(
-    Array.from({ length: 40 }, (_, index) => full.slice(0, Math.round((full.length * (index + 1)) / 40))),
-    { framesPerChunk: 1 },
-  )
-  const lengthsAfter = (emitted: string[], frames: number) => emitted[Math.min(frames, emitted.length) - 1]?.length ?? 0
-  // Both transports converge on the same revealed length after the same number of frames, which is
-  // what makes the reveal look identical for websocket deltas and coarse REST blocks.
-  expect(Math.abs(lengthsAfter(single.emitted, 10) - lengthsAfter(incremental.emitted, 10))).toBeLessThan(
-    responseRevealCharsPerSecond,
-  )
-  expect(single.emitted.length).toBeGreaterThan(3)
-  expect(incremental.emitted.length).toBeGreaterThan(3)
-})
-
-test("the first chunk after mount animates instead of appearing at once", () => {
-  const { emitted } = runPacer(["a long first response that arrives as one complete block"], { framesPerChunk: 3 })
-  expect(emitted.length).toBeGreaterThan(1)
-  expect(emitted[0]!.length).toBeLessThan("a long first response that arrives as one complete block".length)
-})
-
-test("rewritten text snaps instead of rewinding the reveal", () => {
-  // A revert or compaction replaces the text rather than extending it, so pacing from the old
-  // offset would rewind visible content. Those updates appear immediately instead.
-  const { emitted } = runPacer(["the original streamed answer", "completely different text"], { framesPerChunk: 2 })
-  expect(emitted.at(-1)).toBe("completely different text")
-  expect(emitted.length).toBeGreaterThan(1)
-})
-
-test("flush reveals everything and stops scheduling frames", () => {
-  const run = runPacer(["a streamed response that is still being revealed"], { framesPerChunk: 1 })
-  run.pacer.flush()
-  expect(run.emitted.at(-1)).toBe("a streamed response that is still being revealed")
-  run.pacer.dispose()
 })
 
 test("response animation preference defaults off", async () => {

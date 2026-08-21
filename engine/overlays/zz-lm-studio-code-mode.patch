@@ -1,0 +1,116 @@
+diff --git a/packages/opencode/src/session/tools.ts b/packages/opencode/src/session/tools.ts
+index 55e09e89..e8ef2a3f 100644
+--- a/packages/opencode/src/session/tools.ts
++++ b/packages/opencode/src/session/tools.ts
+@@ -385,7 +385,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
+     })
+   }
+ 
+-  if (flags.experimentalCodeMode) return tools
++  if (flags.experimentalCodeMode || input.model.providerID === "lmstudio") return tools
+ 
+   for (const [key, entry] of Object.entries(yield* mcp.tools())) {
+     const item = McpCatalog.convertTool(entry.def, entry.client, entry.timeout)
+diff --git a/packages/opencode/src/tool/registry.ts b/packages/opencode/src/tool/registry.ts
+index 7473342e..b6ac12e0 100644
+--- a/packages/opencode/src/tool/registry.ts
++++ b/packages/opencode/src/tool/registry.ts
+@@ -110,8 +110,8 @@ export const Service = InstanceService.Service<Service>()("@opencode/ToolRegistry
+     const patchtool = yield* ApplyPatchTool
+     const skilltool = yield* SkillTool
+     const agent = yield* Agent.Service
+-    const codeMode = flags.experimentalCodeMode ? yield* Effect.promise(() => import("./code-mode")) : undefined
+-    const codeModeTool = codeMode ? yield* codeMode.CodeModeTool : undefined
++    const codeMode = yield* Effect.promise(() => import("./code-mode"))
++    const codeModeTool = yield* codeMode.CodeModeTool
+ 
+     const state = yield* InstanceState.make<State>(
+       Effect.fn("ToolRegistry.state")(function* (ctx) {
+@@ -218,7 +218,7 @@ export const Service = InstanceService.Service<Service>()("@opencode/ToolRegistry
+           question: Tool.init(question),
+           lsp: Tool.init(lsptool),
+           plan: Tool.init(plan),
+-          ...(codeModeTool ? { execute: Tool.init(codeModeTool) } : {}),
++          ...(flags.experimentalCodeMode ? { execute: Tool.init(codeModeTool) } : {}),
+         })
+ 
+         return {
+@@ -276,7 +276,6 @@ export const Service = InstanceService.Service<Service>()("@opencode/ToolRegistry
+       agent: Agent.Info
+       permission?: PermissionV1.Ruleset
+     }) {
+-      if (!codeMode) return
+       const ruleset = Permission.merge(input.agent.permission, input.permission ?? [])
+       const tools = Permission.visibleTools(yield* mcp.tools(), ruleset)
+       if (Object.keys(tools).length === 0) return
+@@ -284,7 +283,10 @@ export const Service = InstanceService.Service<Service>()("@opencode/ToolRegistry
+     })
+ 
+     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
+-      const filtered = (yield* all()).filter((tool) => {
++      const lmStudioTool =
++        input.providerID === "lmstudio" && !flags.experimentalCodeMode ? yield* Tool.init(codeModeTool) : undefined
++
++      const filtered = [...(yield* all()), ...(lmStudioTool ? [lmStudioTool] : [])].filter((tool) => {
+         if (tool.id === WebSearchTool.id) {
+           return webSearchEnabled(input.providerID, { exa: flags.enableExa, parallel: flags.enableParallel })
+         }
+diff --git a/packages/opencode/test/tool/registry.test.ts b/packages/opencode/test/tool/registry.test.ts
+index 60872c62..1f2cf3cc 100644
+--- a/packages/opencode/test/tool/registry.test.ts
++++ b/packages/opencode/test/tool/registry.test.ts
+@@ -80,6 +80,29 @@ const withCodeMode = testEffect(
+     ],
+   ]),
+ )
++const withLmStudioCodeMode = testEffect(
++  LayerNode.compile(root, [
++    [Config.node, configLayer],
++    [RuntimeFlags.node, RuntimeFlags.layer()],
++    [
++      MCP.node,
++      Layer.mock(MCP.Service, {
++        tools: () =>
++          Effect.succeed({
++            weather_current: {
++              def: {
++                name: "current",
++                description: "current weather",
++                inputSchema: { type: "object", properties: { city: { type: "string" } }, required: ["city"] },
++              } as MCPToolDef,
++              client: {} as MCP.McpTool["client"],
++            },
++          }),
++        clients: () => Effect.succeed({ weather: {} as any }),
++      }),
++    ],
++  ]),
++)
+ const withEmptyCodeMode = testEffect(
+   LayerNode.compile(root, [
+     [Config.node, configLayer],
+@@ -136,6 +159,24 @@ describe("tool.registry", () => {
+     }),
+   )
+ 
++  withLmStudioCodeMode.instance("exposes execute only for LM Studio without global code mode", () =>
++    Effect.gen(function* () {
++      const registry = yield* ToolRegistry.Service
++      const agents = yield* Agent.Service
++      const ids = yield* registry.ids()
++      const tools = yield* registry.tools({
++        providerID: ProviderV2.ID.make("lmstudio"),
++        modelID: ModelV2.ID.make("test"),
++        agent: yield* agents.defaultInfo(),
++      })
++      const execute = tools.find((tool) => tool.id === "execute")
++
++      expect(ids).not.toContain("execute")
++      expect(tools.map((tool) => tool.id)).toContain("execute")
++      expect(execute?.description).toContain("tools.weather.current(input: {\n  city: string,\n})")
++    }),
++  )
++
+   withEmptyCodeMode.instance("does not expose execute when code mode has no visible tools", () =>
+     Effect.gen(function* () {
+       const registry = yield* ToolRegistry.Service

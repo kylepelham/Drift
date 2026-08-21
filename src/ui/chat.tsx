@@ -19,7 +19,6 @@ import { TextShimmer } from "./text-shimmer"
 import { DriftLogo } from "./logo"
 import { recoverableForSession, recoverableInterruptions } from "../state/recovery"
 import { RecoveryCard } from "./recovery"
-import { interruptResponseAnimations } from "./response-animation"
 import { collapseCompaction, compactionCollapsed } from "../state/prefs"
 
 const estimatedRow = 96
@@ -219,13 +218,9 @@ export function Chat() {
   let dragging = false
   let scrollLatchReset: ReturnType<typeof setTimeout> | undefined
   const gesture = () => (gestureAt = Date.now())
-  const nativeWheel = () => {
-    interruptResponseAnimations()
-    gesture()
-  }
+  const nativeWheel = gesture
   const releaseDrag = () => (dragging = false)
   const forwardedWheel = (event: Event) => {
-    interruptResponseAnimations()
     const detail = (event as CustomEvent<ForwardedWheel>).detail
     gesture()
     const delta = normalizedWheelDelta(detail.deltaY, detail.deltaMode, scroller.clientHeight)
@@ -251,7 +246,6 @@ export function Chat() {
       scrollLatchReset = setTimeout(() => scroller.classList.remove("transcript-scroll-active"), gestureWindowMs)
     }
     if (dragging || Date.now() - gestureAt < gestureWindowMs) {
-      interruptResponseAnimations()
       const distance = scroller.scrollHeight - top - scroller.clientHeight
       const nextStick = scrollGestureSticks(previous, top, distance)
       batch(() => {
@@ -276,7 +270,6 @@ export function Chat() {
   }
 
   function scrollToBottom() {
-    interruptResponseAnimations()
     batch(() => {
       setStick(true)
       setAwayFromBottom(false)

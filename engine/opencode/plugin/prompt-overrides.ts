@@ -16,9 +16,18 @@ export const PromptOverrides: Plugin = async (_input, options) => {
       const system = output.system[0]
       if (!family || !system?.startsWith(family.original)) return
       const replacement = settings?.families[family.id] ?? family.default
-      output.system[0] = replacement + system.slice(family.original.length)
+      output.system[0] = compatibleIdentity(family.id, replacement, family.default) + system.slice(family.original.length)
     },
   }
+}
+
+function compatibleIdentity(family: string, prompt: string, defaultPrompt: string) {
+  if (family !== "anthropic") return prompt
+  const identity = "You are Drift. You are OpenCode under the hood and present yourself to the user as Drift."
+  if (prompt.startsWith(identity)) return prompt
+  const boundary = prompt.indexOf("\n\n")
+  const remainder = boundary >= 0 && prompt === defaultPrompt ? prompt.slice(boundary + 2) : prompt
+  return `${identity}\n\n${remainder}`
 }
 
 function familyFor(id: string) {

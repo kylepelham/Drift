@@ -292,6 +292,22 @@ textarea {
   animation: fade-in 160ms ease-out both;
 }
 
+@keyframes response-character-reveal {
+  from {
+    display: none;
+    opacity: 0;
+  }
+  to {
+    display: revert;
+    opacity: 1;
+  }
+}
+
+.md-response-reveal {
+  will-change: opacity;
+  animation: response-character-reveal var(--response-reveal-fade, 70ms) ease-out var(--response-reveal-delay, 0ms) both;
+}
+
 .composer-dock {
   position: relative;
   isolation: isolate;
@@ -905,6 +921,10 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
 
   [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"] {
     opacity: 0 !important;
+  }
+
+  .md-response-reveal {
+    animation: none !important;
   }
 }
 

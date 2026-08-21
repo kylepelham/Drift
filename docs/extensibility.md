@@ -119,6 +119,9 @@ Builds generate `prompt-catalog.json` from the exact vendored model-family and b
 agent prompt sources. Drift changes only the host identity by default, preserves the
 upstream prompt for inspection, and replaces only the known base-prompt prefix so
 workspace instructions, skills, MCP instructions, and user system text remain intact.
+The Anthropic identity paragraph retains an OpenCode compatibility marker because the
+bundled OAuth transport removes that paragraph before adding its required Claude identity.
+API-key requests keep the paragraph and still identify the product as Drift.
 
 Settings stores only user edits in Drift SQLite. Model-family edits are materialized to
 the plugin settings file; agent and subagent prompt/behavior edits are materialized as
