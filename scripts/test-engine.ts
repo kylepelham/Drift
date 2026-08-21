@@ -62,6 +62,7 @@ async function verifyAuthCapture() {
 await withEngineOverlays(async () => {
   await typecheck("packages/opencode")
   await run("packages/core", ["test/move-session.test.ts"])
+  await run("packages/core", ["test/session-compaction.test.ts"])
   await run("packages/opencode", ["test/server/httpapi-control-plane.test.ts"])
   await verifyAuthCapture()
   await run("packages/opencode", [
@@ -74,6 +75,7 @@ await withEngineOverlays(async () => {
     "-t",
     "LM Studio discovers|provider reload invalidates",
   ])
+  await run("packages/opencode", ["test/tool/registry.test.ts", "-t", "LM Studio without global code mode"])
   await run("packages/opencode", ["test/server/httpapi-instance-route-auth.test.ts"])
   await run("packages/opencode", ["test/tool/shell.test.ts", "-t", "terminates command on timeout"])
   await run("packages/opencode", ["test/tool/shell-timeout.test.ts"])
@@ -92,7 +94,7 @@ await withEngineOverlays(async () => {
   await run("packages/opencode", [
     "test/session/compaction.test.ts",
     "-t",
-    "continues from compacted context|uses a hidden continuation",
+    "continues from compacted context|uses a hidden continuation|summarizes only the head|anchors repeated compactions|keeps plugin context",
   ])
   await run("packages/opencode", [
     "test/session/processor-effect.test.ts",
