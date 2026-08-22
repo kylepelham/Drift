@@ -106,6 +106,9 @@ test("markdown reveal never drives rendering from animation frames", async () =>
   expect(animation).not.toContain("createRevealPacer")
   expect(markdown).not.toContain("requestAnimationFrame")
   expect(markdown).not.toContain("setRevealed")
+  // Formatting newlines under tr/thead/tbody must remain text nodes. Animated spans there become
+  // anonymous table cells and split a valid three-column table into seven columns in Chromium.
+  expect(markdown).toContain("if (node.textContent?.trim()) additions.push(node as Text)")
   expect(css).toContain("@keyframes response-character-reveal")
   expect(css).toContain(".md-response-reveal")
   expect(css).toContain("display: none")

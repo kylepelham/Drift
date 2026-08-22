@@ -599,7 +599,9 @@ type MarkdownAddition = Text | HTMLElement
 
 function collectWholeAddition(node: Node, additions: MarkdownAddition[]) {
   if (node.nodeType === Node.TEXT_NODE) {
-    if (node.textContent) additions.push(node as Text)
+    // Marked formats table rows with newline text nodes. Wrapping those in spans creates
+    // anonymous table cells, so structural whitespace must stay as plain text.
+    if (node.textContent?.trim()) additions.push(node as Text)
     return
   }
   if (node.nodeType !== Node.ELEMENT_NODE) return
