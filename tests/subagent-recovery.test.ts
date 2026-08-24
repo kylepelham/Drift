@@ -281,3 +281,23 @@ test("failed recovery keeps the interruption actionable and updates its model an
     reason: "Recovery failed: provider unavailable",
   })
 })
+
+test("reverting an interrupted turn clears recovery only after the engine accepts it", async () => {
+  const { createActions } = await import("../src/engine/actions")
+  recordRecoverableInterruption(interruption(), store)
+  const [state, set] = createEngineState()
+  const client = {
+    session: {
+      revert: async () => ({ error: { data: { message: "rejected" } } }),
+      messages: async () => ({ data: [] }),
+    },
+  }
+  const actions = createActions(() => client as never, state, set, () => undefined)
+
+  expect(await actions.revert("child", "message-0")).toBeFalse()
+  expect(recoverableForSession("child")).toBeDefined()
+
+  client.session.revert = async () => ({ data: { id: "child", directory: "D:/work/beta" } })
+  expect(await actions.revert("child", "message-0")).toBeTrue()
+  expect(recoverableForSession("child")).toBeUndefined()
+})

@@ -973,6 +973,7 @@ export function createActions(
       return false
     }
     clearSessionError(id)
+    clearRecoverableInterruption(id)
     if (result.data) putSession(set, result.data)
     await reloadSession(id).catch((cause) => reportTranscriptFailure(id, cause))
     return true
