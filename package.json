@@ -21,7 +21,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "^1.17.0",
+    "@opencode-ai/sdk": "^1.18.22",
     "dompurify": "^3.2.4",
     "marked": "^15.0.7",
     "pdfjs-dist": "^6.2.108",

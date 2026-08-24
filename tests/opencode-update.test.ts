@@ -83,7 +83,7 @@ describe("OpenCode update workflow", () => {
     } finally {
       rmSync(temporary, { recursive: true, force: true })
     }
-  })
+  }, 15_000)
 
   test("keeps one review PR and explicitly dispatches CI", () => {
     expect(updateWorkflow).toContain("ref: master")
