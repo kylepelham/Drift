@@ -224,11 +224,14 @@ function OrchestratorBinding() {
     try {
       rounds.set(id, { anchor: goal.info.id, count: count + 1 })
       const prefs = prefsFor(id)
-      await engine.actions.steer(id, status?.state === "working" ? PROCEED_PROMPT : STATUS_REMINDER_PROMPT, {
-        model: prefs.model,
-        agent: ORCHESTRATOR_AGENT,
-        ...(prefs.variant ? { variant: prefs.variant } : {}),
-      })
+      const result = await engine.actions.steer(
+        id,
+        status?.state === "working" ? PROCEED_PROMPT : STATUS_REMINDER_PROMPT,
+        { model: prefs.model, agent: ORCHESTRATOR_AGENT, ...(prefs.variant ? { variant: prefs.variant } : {}) },
+      )
+      // A rejected steer leaves the session idle, so no later transition would restart the driver.
+      if (!result.ok)
+        engine.actions.notice({ title: "Orchestrator paused", message: result.error, variant: "warning" })
     } finally {
       driving.delete(id)
     }

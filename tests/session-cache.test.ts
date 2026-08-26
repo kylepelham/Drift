@@ -87,6 +87,28 @@ test("a cached provider catalog seeds engine state until fresh data overwrites i
   expect("cost" in (cachedProviderCatalog()?.providers[0]?.models["gpt-5"] ?? {})).toBe(false)
 })
 
+test("a failed provider list keeps engine state and the persisted catalog intact", async () => {
+  const { cachedProviderCatalog, rememberProviderCatalog } = await import("../src/state/provider-cache")
+  const { createActions } = await import("../src/engine/actions")
+  const { createEngineState } = await import("../src/engine/store")
+
+  const anthropic = [{ id: "anthropic", name: "Anthropic", models: { sonnet: model("sonnet", "Sonnet") } }]
+  rememberProviderCatalog(anthropic as never, ["anthropic"], { anthropic: "sonnet" })
+  const [state, set] = createEngineState()
+  set("providers", anthropic as never)
+  set("connected", ["anthropic"])
+  const client = { provider: { list: async () => ({ error: { data: { message: "engine unavailable" } } }) } }
+  const actions = createActions(() => client as never, state, set, () => ({ url: "http://engine.test" }))
+
+  expect(await actions.refreshProviders()).toBeNull()
+  expect(state.providers[0]?.id).toBe("anthropic")
+  expect(state.connected).toEqual(["anthropic"])
+  expect(cachedProviderCatalog()?.providers[0]?.id).toBe("anthropic")
+
+  // Hydrate applies the same rule, so a dataless response never reaches the catalog writer.
+  expect(await Bun.file("src/engine/index.tsx").text()).toContain("providers.data !== undefined")
+})
+
 test("a corrupt provider catalog cache is discarded instead of seeding garbage", async () => {
   const { normalizeProviderCatalog } = await import("../src/state/provider-cache")
   expect(normalizeProviderCatalog(null)).toBeNull()

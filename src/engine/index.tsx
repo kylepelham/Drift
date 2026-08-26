@@ -134,10 +134,11 @@ export function EngineProvider(props: ParentProps) {
       // Pending permissions/questions exist only as events; a bounded SSE buffer can drop the ask
       // frame under load, which would strand the session busy forever without this refetch.
       if (bootDirectory) void actions.refreshPermissions([bootDirectory])
-      if (state.providerSnapshotEpoch === providerEpoch) {
-        const catalog = (providers.data?.all ?? []) as unknown as ProviderInfo[]
-        const connected = providers.data?.connected ?? []
-        const defaults = providers.data?.default ?? {}
+      // A failed provider list must not blank the seeded catalog or purge the persisted one.
+      if (state.providerSnapshotEpoch === providerEpoch && providers.data !== undefined) {
+        const catalog = (providers.data.all ?? []) as unknown as ProviderInfo[]
+        const connected = providers.data.connected ?? []
+        const defaults = providers.data.default ?? {}
         set("providers", catalog)
         set("connected", connected)
         set("defaultModels", defaults)

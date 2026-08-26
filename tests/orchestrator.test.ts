@@ -31,6 +31,9 @@ test("status parsing is strict, takes the last block, and fails closed on anythi
       `${block('{"state":"working"}')}\nmore text\n${block('{"state":"done","headline":"all tests pass"}')}`,
     ),
   ).toEqual({ state: "done", headline: "all tests pass" })
+  // The block must close the reply; trailing prose means the model did not follow the protocol.
+  expect(parseOrchestratorStatus(`${block('{"state":"done"}')}\nand one more thing`)).toBeUndefined()
+  expect(parseOrchestratorStatus(`${block('{"state":"done"}')}\n  \n`)).toEqual({ state: "done" })
   expect(parseOrchestratorStatus(block('{"state":"finished"}'))).toBeUndefined()
   expect(parseOrchestratorStatus(block("not json"))).toBeUndefined()
   expect(parseOrchestratorStatus("no block at all")).toBeUndefined()

@@ -29,8 +29,11 @@ const statusBlock = /<orchestrator_status>\s*([\s\S]*?)\s*<\/orchestrator_status
 /** Parses the final status block of a reply; the last one wins. Anything invalid is undefined. */
 export function parseOrchestratorStatus(text: string | undefined): OrchestratorStatus | undefined {
   if (!text) return undefined
-  const blocks = [...text.matchAll(statusBlock)]
-  const raw = blocks.at(-1)?.[1]
+  const last = [...text.matchAll(statusBlock)].at(-1)
+  if (!last) return undefined
+  // The protocol puts the block last, so trailing prose means the reply did not follow it.
+  if (text.slice(last.index + last[0].length).trim()) return undefined
+  const raw = last[1]
   if (!raw) return undefined
   try {
     const parsed = JSON.parse(raw) as { state?: unknown; headline?: unknown }
