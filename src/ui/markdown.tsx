@@ -721,9 +721,11 @@ export function Markdown(props: {
   let flushReveal = false
   let finishReveal = () => {}
   const [revealRevision, setRevealRevision] = createSignal(0)
-  const html = createMemo(() =>
-    DOMPurify.sanitize(marked.parse(prepareMarkdown(props.text, props.humanAuthored), { async: false })),
-  )
+  // Reconcile can swap slot text without notifying consumers, so revision forces reparse and render.
+  const html = createMemo(() => {
+    void props.revision
+    return DOMPurify.sanitize(marked.parse(prepareMarkdown(props.text, props.humanAuthored), { async: false }))
+  })
   onMount(() => window.addEventListener(responseAnimationInterruptEvent, finishActiveReveal))
   onCleanup(() => {
     request++
@@ -750,6 +752,7 @@ export function Markdown(props: {
 
   createEffect(() => {
     revealRevision()
+    void props.revision
     const theme = syntaxTheme() as BundledTheme
     const responseID = props.responseID
     const identityChanged = responseID !== identity

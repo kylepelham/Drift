@@ -18,7 +18,13 @@ import { McpEditor } from "./editor"
 
 type Row = { name: string; stored?: StoredMcpServer; observed?: ObservedMcpServer; status?: McpStatus }
 /** `external` marks a server defined in the user's own config files rather than Drift's registry. */
-type EditorEntry = { server?: StoredMcpServer; expected: McpStoredExpectation; external?: McpExactTarget }
+type EditorEntry = {
+  server?: StoredMcpServer
+  expected: McpStoredExpectation
+  external?: McpExactTarget
+  /** Every config file that defines this server; a save rewrites all of them. */
+  paths?: string[]
+}
 type RuntimeAction = "connect" | "disconnect" | "authenticate"
 type RowKey = "ArrowUp" | "ArrowDown" | "Home" | "End"
 
@@ -131,6 +137,7 @@ export function McpManagement(props: { embedded?: boolean }) {
         server: { name: target.name, config: found.config, updatedAt: 0 },
         expected: { generation: coordinator.state.snapshot.generation },
         external: target,
+        paths: found.paths,
       })
     } catch (error) {
       setFailure(error instanceof Error ? error.message : String(error))
@@ -273,6 +280,7 @@ export function McpManagement(props: { embedded?: boolean }) {
           <McpEditor
             server={entry().server}
             expected={entry().expected}
+            paths={entry().paths}
             pending={!!coordinator.state.mutation}
             onClose={() => setEditor(null)}
             onSave={save}
@@ -368,7 +376,12 @@ function ServerRow(props: {
             </Action>
           </Show>
           <Show when={props.row.stored || props.target}>
-            <Action disabled={props.disabled} tone="danger" title={t("drift.mcp.remove")} onClick={props.onRemove}>
+            <Action
+              disabled={props.disabled}
+              tone="danger"
+              title={props.confirming ? t("drift.mcp.confirmRemove") : t("drift.mcp.remove")}
+              onClick={props.onRemove}
+            >
               {/* The confirm step keeps its text: an icon cannot ask "are you sure". */}
               {props.confirming ? t("drift.mcp.confirmRemove") : <IconTrash class="size-3.5" />}
             </Action>

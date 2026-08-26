@@ -126,7 +126,7 @@ const pendingTranslation = new Set([
   ...pendingKeys(
     "drift.mcp",
     `
-      servers registry add edit remove confirmRemove approve reject revoke authenticate pendingApproval
+      servers registry add edit definedIn approve reject revoke pendingApproval
       invalidStatus rejectedStatus awaitingReport selectWorkspace saved removed approved rejected revoked
       name nameRequired registrySearch registrySource registryLoadFailed registryUnavailable install
       installedLabel installed

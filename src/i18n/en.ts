@@ -244,6 +244,7 @@ export const dict = {
   "drift.mcp.edit": "Edit server",
   "drift.mcp.remove": "Remove",
   "drift.mcp.confirmRemove": "Remove?",
+  "drift.mcp.definedIn": "Defined in {{files}}. Saving rewrites every one of those files.",
   "drift.mcp.approve": "Approve",
   "drift.mcp.reject": "Reject",
   "drift.mcp.revoke": "Revoke",

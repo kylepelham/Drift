@@ -18,6 +18,8 @@ import { Toggle } from "../controls"
 export function McpEditor(props: {
   server?: StoredMcpServer
   expected: McpStoredExpectation
+  /** Config files defining an externally declared server; saving rewrites every one of them. */
+  paths?: string[]
   pending: boolean
   onClose: () => void
   onSave: (name: string, config: McpConfig, expected: McpStoredExpectation) => Promise<void>
@@ -75,6 +77,11 @@ export function McpEditor(props: {
             </button>
           </div>
           <div class="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+            <Show when={props.paths?.length}>
+              <div class="rounded-md border border-edge bg-surface px-3 py-2 text-xs text-ink-faint">
+                {t("drift.mcp.definedIn", { files: props.paths!.join(", ") })}
+              </div>
+            </Show>
             <Field label={t("drift.mcp.name")} required>
               <TextInput autofocus value={name()} onInput={setName} label={t("drift.mcp.name")} mono />
             </Field>

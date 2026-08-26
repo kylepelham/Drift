@@ -970,4 +970,17 @@ describe("config-file-defined MCP servers", () => {
     expect(source).toContain("void editExternal(exact(observed))")
     expect(source).toContain("void removeExternal(exact(observed))")
   })
+
+  test("the external editor names every file a save rewrites", async () => {
+    const source = await Bun.file("src/ui/mcp/manager.tsx").text()
+    expect(source).toContain("paths: found.paths")
+    expect(source).toContain("paths={entry().paths}")
+    expect(await Bun.file("src/ui/mcp/editor.tsx").text()).toContain('t("drift.mcp.definedIn"')
+  })
+
+  test("the remove confirmation is announced, not just shown", async () => {
+    const source = await Bun.file("src/ui/mcp/manager.tsx").text()
+    // Action maps title onto aria-label, which overrides the button's visible text.
+    expect(source).toContain('title={props.confirming ? t("drift.mcp.confirmRemove") : t("drift.mcp.remove")}')
+  })
 })
