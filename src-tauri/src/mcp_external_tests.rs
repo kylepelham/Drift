@@ -132,6 +132,21 @@ fn save_renames_members_but_rejects_collisions() {
 }
 
 #[test]
+fn defined_names_covers_every_candidate_file() {
+    let first = write_fixture(JSONC_FIXTURE);
+    let second = write_fixture(r#"{ "mcp": { "elsewhere": { "type": "local", "command": ["x"] } } }"#);
+    let names = defined_names(&[first.clone(), second.clone()]);
+    assert!(names.contains(&"docs".to_string()));
+    assert!(names.contains(&"elsewhere".to_string()));
+    // apply_save only sees its own file, so the cross-layer collision has to be caught before it.
+    let located = locate(std::slice::from_ref(&first), "docs", PARITY_FINGERPRINT);
+    let replacement = json!({ "type": "local", "command": ["y"] });
+    assert!(apply_save(&located[0], "elsewhere", &replacement).is_ok());
+    std::fs::remove_file(first).ok();
+    std::fs::remove_file(second).ok();
+}
+
+#[test]
 fn remove_handles_first_middle_and_last_members() {
     let path = write_fixture(JSONC_FIXTURE);
     for (name, fingerprint_for) in [("first", None), ("docs", Some(PARITY_FINGERPRINT)), ("last", None)] {

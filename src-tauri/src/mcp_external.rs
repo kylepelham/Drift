@@ -341,23 +341,34 @@ pub fn fingerprint(name: &str, config: &Value) -> Option<String> {
     Some(format!("sha256:{digest:x}"))
 }
 
+/// Reads one candidate file's `mcp` member spans. Unreadable, oversized, or unparseable files
+/// yield `None`: they cannot have produced the fingerprint the engine reported.
+fn read_members(path: &PathBuf) -> Option<(String, String, McpObjectSpans)> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_EXTERNAL_FILE_BYTES {
+        return None;
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    let neutral = neutralize_jsonc(&text);
+    let object = mcp_object_spans(&neutral).ok()??;
+    Some((text, neutral, object))
+}
+
+/// Every `mcp` member name defined across the candidate files, so a rename can be rejected when
+/// a different config layer already defines the target name.
+pub fn defined_names(files: &[PathBuf]) -> Vec<String> {
+    files
+        .iter()
+        .filter_map(read_members)
+        .flat_map(|(_, _, object)| object.members.into_iter().map(|member| member.name))
+        .collect()
+}
+
 /// Scans candidate config files for members named `name` whose definition hashes to `fingerprint`.
-/// Unreadable, oversized, or unparseable files are skipped: they cannot have produced the
-/// fingerprint the engine reported.
 pub fn locate(files: &[PathBuf], name: &str, expected: &str) -> Vec<ExternalLocation> {
     let mut result = Vec::new();
     for path in files {
-        let Ok(metadata) = std::fs::metadata(path) else {
-            continue;
-        };
-        if !metadata.is_file() || metadata.len() > MAX_EXTERNAL_FILE_BYTES {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(path) else {
-            continue;
-        };
-        let neutral = neutralize_jsonc(&text);
-        let Ok(Some(object)) = mcp_object_spans(&neutral) else {
+        let Some((text, neutral, object)) = read_members(path) else {
             continue;
         };
         for index in 0..object.members.len() {

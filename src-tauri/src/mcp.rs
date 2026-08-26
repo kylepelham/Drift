@@ -511,7 +511,14 @@ impl McpRuntime {
         let state = self.require_generation(store, generation)?;
         validate_name(name)?;
         validate_config(&config)?;
-        if name != previous && state.servers.iter().any(|server| server.name == name) {
+        let files = self.candidate_paths(store);
+        // Two config layers defining one name leave whichever loses precedence silently inactive.
+        if name != previous
+            && (state.servers.iter().any(|server| server.name == name)
+                || crate::mcp_external::defined_names(&files)
+                    .iter()
+                    .any(|defined| defined == name))
+        {
             return Err(format!("An MCP server named {name} already exists"));
         }
         let located = self.locate_external(store, previous, fingerprint)?;
@@ -522,10 +529,7 @@ impl McpRuntime {
                     .map(|text| (location.path.clone(), text))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        for (path, text) in rewritten {
-            write_raw(&path, text.as_bytes())?;
-        }
-        Ok(())
+        write_rewritten(rewritten)
     }
 
     /// Deletes a config-file-defined server from every file whose definition matches the observed
@@ -549,10 +553,11 @@ impl McpRuntime {
                 crate::mcp_external::apply_remove(location).map(|text| (location.path.clone(), text))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        for (path, text) in rewritten {
-            write_raw(&path, text.as_bytes())?;
-        }
-        Ok(())
+        write_rewritten(rewritten)
+    }
+
+    fn candidate_paths(&self, store: &Store) -> Vec<PathBuf> {
+        crate::mcp_external::candidate_files(&crate::watcher::external_config_roots(store))
     }
 
     fn locate_external(
@@ -561,9 +566,7 @@ impl McpRuntime {
         name: &str,
         fingerprint: &str,
     ) -> Result<Vec<crate::mcp_external::ExternalLocation>, String> {
-        let roots = crate::watcher::external_config_roots(store);
-        let files = crate::mcp_external::candidate_files(&roots);
-        let located = crate::mcp_external::locate(&files, name, fingerprint);
+        let located = crate::mcp_external::locate(&self.candidate_paths(store), name, fingerprint);
         if located.is_empty() {
             return Err(EXTERNAL_NOT_FOUND.into());
         }
@@ -1114,6 +1117,26 @@ fn report_path(root: &Path, directory: &str) -> PathBuf {
     root.join(format!("{hash:x}.json"))
 }
 
+/// Writes each rewritten config file, naming the ones already replaced when a later write fails so
+/// the user can reconcile config layers this left holding different definitions.
+fn write_rewritten(rewritten: Vec<(PathBuf, String)>) -> Result<(), String> {
+    let mut written: Vec<String> = Vec::new();
+    for (path, text) in rewritten {
+        let Err(error) = write_raw(&path, text.as_bytes()) else {
+            written.push(path.display().to_string());
+            continue;
+        };
+        if written.is_empty() {
+            return Err(error);
+        }
+        return Err(format!(
+            "{error}; these files were already updated: {}",
+            written.join(", ")
+        ));
+    }
+    Ok(())
+}
+
 fn write_json(path: &Path, value: &Value) -> Result<(), String> {
     let contents = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
     write_raw(path, &contents)
@@ -1137,6 +1160,13 @@ pub(crate) fn write_raw(path: &Path, contents: &[u8]) -> Result<(), String> {
         .create_new(true)
         .open(&temporary)
         .map_err(|error| error.to_string())?;
+    // The rename replaces the destination inode, so a user config file's own mode is copied over.
+    #[cfg(unix)]
+    if let Ok(existing) = std::fs::metadata(path) {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = existing.permissions().mode();
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(mode));
+    }
     let written = file.write_all(contents).and_then(|_| file.sync_all());
     drop(file);
     let result = written.and_then(|_| replace_file(&temporary, path));
