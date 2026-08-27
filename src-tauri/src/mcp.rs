@@ -80,6 +80,10 @@ const EXTERNAL_NOT_FOUND: &str = "This MCP definition could not be matched to an
 file. It may use dynamic {env:} or {file:} values or have changed on disk; edit its config file \
 directly.";
 
+/// One config file declares this server twice, so Drift cannot tell which member to rewrite.
+const EXTERNAL_DUPLICATE: &str = "One OpenCode config file defines this MCP server more than once. \
+Remove the duplicate definition in that file, then try again.";
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum McpDecision {
@@ -569,6 +573,12 @@ impl McpRuntime {
         let located = crate::mcp_external::locate(&self.candidate_paths(store), name, fingerprint);
         if located.is_empty() {
             return Err(EXTERNAL_NOT_FOUND.into());
+        }
+        // Each rewrite starts from the file's original text, so two matches in one file would make
+        // the second write discard the first and leave only one of the duplicates edited.
+        let mut seen = std::collections::HashSet::new();
+        if located.iter().any(|location| !seen.insert(&location.path)) {
+            return Err(EXTERNAL_DUPLICATE.into());
         }
         Ok(located)
     }

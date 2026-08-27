@@ -167,6 +167,22 @@ fn remove_handles_first_middle_and_last_members() {
 }
 
 #[test]
+fn duplicate_members_in_one_file_resolve_to_two_locations() {
+    let config = json!({ "type": "local", "command": ["one"] });
+    let member = r#""docs": { "type": "local", "command": ["one"] }"#;
+    let path = write_fixture(&format!("{{ \"mcp\": {{ {member}, {member} }} }}"));
+    let located = locate(
+        std::slice::from_ref(&path),
+        "docs",
+        &fingerprint("docs", &config).unwrap(),
+    );
+    // Both rewrites would start from the original text, so McpRuntime refuses this shape outright.
+    assert_eq!(located.len(), 2);
+    assert_eq!(located[0].path, located[1].path);
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
 fn removing_the_only_member_leaves_an_empty_object() {
     let path = write_fixture(
         r#"{ "mcp": { "docs": { "type": "local", "command": ["one"] } }, "keep": true }"#,
