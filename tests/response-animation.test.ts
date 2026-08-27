@@ -8,6 +8,7 @@ import {
   responseRevealSegmentSize,
   revealResponseNodes,
   shouldPreserveResponseReveal,
+  shouldQueueResponseRedraw,
 } from "../src/ui/response-animation"
 import {
   normalizeResponseAnimationSpeed,
@@ -46,6 +47,17 @@ test("active response reveals survive new deltas and normal completion", () => {
   expect(shouldPreserveResponseReveal(false, 100, 101, true, false)).toBeFalse()
   expect(shouldPreserveResponseReveal(true, 100, 101, false, false)).toBeFalse()
   expect(shouldPreserveResponseReveal(true, 101, 100, true, true)).toBeFalse()
+})
+
+test("a preserved reveal still queues the redraw a same-length replacement needs", async () => {
+  expect(shouldQueueResponseRedraw(100, 101, false)).toBeTrue()
+  expect(shouldQueueResponseRedraw(100, 100, false)).toBeFalse()
+  // A replaced slot keeps its length, so without the revision the reveal would end on stale DOM.
+  expect(shouldQueueResponseRedraw(100, 100, true)).toBeTrue()
+  expect(shouldPreserveResponseReveal(true, 100, 100, true, true)).toBeTrue()
+  const markdown = await Bun.file("src/ui/markdown.tsx").text()
+  expect(markdown).toContain("shouldQueueResponseRedraw(previousLength, textLength, revisionChanged)")
+  expect(markdown).toContain("renderedRevision = revision")
 })
 
 test("response reveal staggers compositor animation state", () => {

@@ -13,6 +13,7 @@ import {
   responseRevealSegmentSize,
   revealResponseNodes,
   shouldPreserveResponseReveal,
+  shouldQueueResponseRedraw,
 } from "./response-animation"
 
 marked.use({ gfm: true, breaks: true })
@@ -713,6 +714,7 @@ export function Markdown(props: {
   let sourceSignatures: string[] = []
   let sourceNodes: ChildNode[] = []
   let renderedTheme: BundledTheme | undefined
+  let renderedRevision = props.revision
   let previousLength = 0
   let mounted = false
   let revealActive = false
@@ -752,7 +754,8 @@ export function Markdown(props: {
 
   createEffect(() => {
     revealRevision()
-    void props.revision
+    const revision = props.revision
+    const revisionChanged = revision !== renderedRevision
     const theme = syntaxTheme() as BundledTheme
     const responseID = props.responseID
     const identityChanged = responseID !== identity
@@ -774,7 +777,7 @@ export function Markdown(props: {
       canAnimate &&
       shouldPreserveResponseReveal(revealActive, previousLength, textLength, live, done)
     ) {
-      revealQueued ||= textLength > previousLength
+      revealQueued ||= shouldQueueResponseRedraw(previousLength, textLength, revisionChanged)
       revealDone ||= done && textLength > previousLength
       return
     }
@@ -816,6 +819,7 @@ export function Markdown(props: {
     }
     identity = responseID
     previousLength = textLength
+    renderedRevision = revision
     mounted = true
     decorateCodeBlocks(root)
     void highlightBlocks(root, theme, () => current === request, !props.done && endsInsideFence(props.text)).then(
