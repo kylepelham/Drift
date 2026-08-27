@@ -106,6 +106,27 @@ export function rememberProviderCatalog(
   setCatalog(next.providers.length ? next : null)
 }
 
+/** A provider listing as the engine reports it; `undefined` means the request produced no payload. */
+export type ProviderListing = { all?: unknown; connected?: string[]; default?: Record<string, string> }
+
+/**
+ * Applies a provider listing to engine state and the cache, reporting whether anything was written.
+ *
+ * A dataless response is not an empty catalog: writing one would blank the picker and delete the
+ * persisted fallback, so every caller must leave both untouched until real providers arrive.
+ */
+export function applyProviderCatalog(set: SetStoreFunction<EngineState>, data: ProviderListing | undefined) {
+  if (data === undefined) return false
+  const providers = (data.all ?? []) as ProviderInfo[]
+  const connected = data.connected ?? []
+  const defaultModels = data.default ?? {}
+  set("providers", providers)
+  set("connected", connected)
+  set("defaultModels", defaultModels)
+  rememberProviderCatalog(providers, connected, defaultModels)
+  return true
+}
+
 /**
  * Seeds engine state from the last known catalog before the first hydrate completes.
  *

@@ -11,7 +11,7 @@ import {
   prunePermissionAttention,
   type DriftPermission,
 } from "../state/permission-attention"
-import { rememberProviderCatalog } from "../state/provider-cache"
+import { applyProviderCatalog } from "../state/provider-cache"
 import { sleep, type EngineTarget } from "./connection"
 import { applySessionSnapshot, purgeSession as purgeSessionState, pushNotice } from "./events"
 import type { MessageEntry } from "./store"
@@ -31,7 +31,6 @@ import {
   type EngineState,
   type ModelRef,
   type Notice,
-  type ProviderInfo,
   type QuestionRequest,
 } from "./store"
 
@@ -578,14 +577,8 @@ export function createActions(
       requireClient() !== client
     )
       return null
-    const catalog = (result.data.all ?? []) as unknown as ProviderInfo[]
-    const connected = result.data.connected ?? []
-    const defaults = result.data.default ?? {}
-    set("providers", catalog)
-    set("connected", connected)
-    set("defaultModels", defaults)
-    rememberProviderCatalog(catalog, connected, defaults)
-    return connected
+    applyProviderCatalog(set, result.data)
+    return result.data.connected ?? []
   }
 
   async function refreshProviders() {

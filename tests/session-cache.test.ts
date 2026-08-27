@@ -104,9 +104,34 @@ test("a failed provider list keeps engine state and the persisted catalog intact
   expect(state.providers[0]?.id).toBe("anthropic")
   expect(state.connected).toEqual(["anthropic"])
   expect(cachedProviderCatalog()?.providers[0]?.id).toBe("anthropic")
+})
 
-  // Hydrate applies the same rule, so a dataless response never reaches the catalog writer.
-  expect(await Bun.file("src/engine/index.tsx").text()).toContain("providers.data !== undefined")
+test("a dataless listing writes nothing while a real one overwrites state and cache", async () => {
+  const { applyProviderCatalog, cachedProviderCatalog, rememberProviderCatalog } = await import(
+    "../src/state/provider-cache"
+  )
+  const { createEngineState } = await import("../src/engine/store")
+
+  const anthropic = [{ id: "anthropic", name: "Anthropic", models: { sonnet: model("sonnet", "Sonnet") } }]
+  rememberProviderCatalog(anthropic as never, ["anthropic"], { anthropic: "sonnet" })
+  const [state, set] = createEngineState()
+  set("providers", anthropic as never)
+  set("connected", ["anthropic"])
+
+  expect(applyProviderCatalog(set, undefined)).toBeFalse()
+  expect(state.providers[0]?.id).toBe("anthropic")
+  expect(state.connected).toEqual(["anthropic"])
+  expect(state.defaultModels).toEqual({})
+  expect(cachedProviderCatalog()?.providers[0]?.id).toBe("anthropic")
+
+  const openai = [{ id: "openai", name: "OpenAI", models: { "gpt-5": model("gpt-5", "GPT-5") } }]
+  expect(applyProviderCatalog(set, { all: openai, connected: ["openai"], default: { openai: "gpt-5" } })).toBeTrue()
+  expect(state.providers[0]?.id).toBe("openai")
+  expect(state.connected).toEqual(["openai"])
+  expect(cachedProviderCatalog()?.providers[0]?.id).toBe("openai")
+
+  // Hydrate routes its response through the same guard rather than writing providers directly.
+  expect(await Bun.file("src/engine/index.tsx").text()).toContain("applyProviderCatalog(set, providers.data)")
 })
 
 test("a corrupt provider catalog cache is discarded instead of seeding garbage", async () => {

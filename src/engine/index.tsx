@@ -7,7 +7,7 @@ import { selectedSession } from "../state/selection"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
 import { clearRecoverableInterruption } from "../state/recovery"
 import { reportShellTimeoutError, shellTimeoutMs } from "../state/prefs"
-import { rememberProviderCatalog, seedProviderCatalog } from "../state/provider-cache"
+import { applyProviderCatalog, seedProviderCatalog } from "../state/provider-cache"
 import { createActions, type EngineActions } from "./actions"
 import {
   configureShellTimeout,
@@ -16,6 +16,7 @@ import {
   restartShellEngine,
   sleep,
   type EngineTarget,
+  type ShellEngineInspection,
 } from "./connection"
 import { applySessionSnapshot, applyStatusSnapshot, reduce } from "./events"
 import { streamEvents } from "./sse"
@@ -28,7 +29,6 @@ import {
   mergeTranscriptSnapshot,
   sessionSnapshotLimit,
   type EngineState,
-  type ProviderInfo,
 } from "./store"
 
 export type Engine = {
@@ -74,6 +74,7 @@ export function EngineProvider(props: ParentProps) {
   let unlistenSkillConfig: (() => void) | undefined
   let unlistenMcpConfig: (() => void) | undefined
   let runtimeMetadataEpoch = 0
+  let runtimeInspection: Promise<ShellEngineInspection | undefined> | undefined
   let timeoutSync = Promise.resolve()
 
   const requireClient = () => {
@@ -134,16 +135,7 @@ export function EngineProvider(props: ParentProps) {
       // Pending permissions/questions exist only as events; a bounded SSE buffer can drop the ask
       // frame under load, which would strand the session busy forever without this refetch.
       if (bootDirectory) void actions.refreshPermissions([bootDirectory])
-      // A failed provider list must not blank the seeded catalog or purge the persisted one.
-      if (state.providerSnapshotEpoch === providerEpoch && providers.data !== undefined) {
-        const catalog = (providers.data.all ?? []) as unknown as ProviderInfo[]
-        const connected = providers.data.connected ?? []
-        const defaults = providers.data.default ?? {}
-        set("providers", catalog)
-        set("connected", connected)
-        set("defaultModels", defaults)
-        rememberProviderCatalog(catalog, connected, defaults)
-      }
+      if (state.providerSnapshotEpoch === providerEpoch) applyProviderCatalog(set, providers.data)
       set("agents", agents.data ?? [])
       if (runtimeMetadataEpoch === metadataEpoch) {
         set("commands", commands.data ?? [])
@@ -249,10 +241,14 @@ export function EngineProvider(props: ParentProps) {
 
   async function inspectRuntimeEngine() {
     const epoch = engineEpoch
-    const status = await Promise.race([
-      inspectShellEngine().catch(() => undefined),
-      sleep(engineInspectionTimeoutMs).then(() => undefined),
-    ])
+    // The timeout cannot cancel the backend call, so retries share the one still in flight rather
+    // than stacking a new invoke per attempt.
+    runtimeInspection ??= inspectShellEngine()
+      .catch(() => undefined)
+      .finally(() => {
+        runtimeInspection = undefined
+      })
+    const status = await Promise.race([runtimeInspection, sleep(engineInspectionTimeoutMs).then(() => undefined)])
     if (!status || disposed || epoch !== engineEpoch) return false
     if (status.error) {
       recordEngineFailure(status.error)
