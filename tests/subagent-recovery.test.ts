@@ -242,6 +242,39 @@ test("a live delegated part overrides an older completion marker", async () => {
   expect(delegatedTaskClickPolicy(status, "child")).toBe("navigate")
 })
 
+test("a running delegated row recovers its child when parallel task metadata is missing", async () => {
+  const { delegatedChildId, delegatedTaskClickPolicy, delegatedTaskStatus } = await import("../src/ui/parts")
+  const [state, set] = createEngineState()
+  set("sessions", "child", {
+    id: "child",
+    parentID: "parent",
+    title: "Explore service sinks (@explore subagent)",
+    time: { created: 1, updated: 1 },
+  } as never)
+  const part = {
+    tool: "task",
+    sessionID: "parent",
+    state: {
+      status: "running",
+      input: { description: "Explore service sinks", subagent_type: "explore" },
+      time: { start: 2 },
+    },
+  } as never
+  const childId = delegatedChildId(state, part)
+  const status = delegatedTaskStatus(state, part, childId!)
+  expect(childId).toBe("child")
+  expect(status).toBe("running")
+  expect(delegatedTaskClickPolicy(status, childId)).toBe("navigate")
+
+  set("sessions", "duplicate", {
+    id: "duplicate",
+    parentID: "parent",
+    title: "Explore service sinks (@explore subagent)",
+    time: { created: 2, updated: 2 },
+  } as never)
+  expect(delegatedChildId(state, part)).toBeNull()
+})
+
 test("running delegated rows navigate while terminal rows expand without lifecycle badges", async () => {
   const { delegatedTaskClickPolicy } = await import("../src/ui/parts")
   expect(delegatedTaskClickPolicy("running", "child")).toBe("navigate")

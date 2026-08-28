@@ -13,7 +13,7 @@ import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../st
 import { TextShimmer } from "./text-shimmer"
 import { openToolContextMenu } from "./tool-context-menu"
 import { permissionRequiresAttention } from "../state/permission-attention"
-import type { EngineState } from "../engine/store"
+import { childrenOf, type EngineState } from "../engine/store"
 import { recoverableForSession, recoverableInterruptions, resumedSessions } from "../state/recovery"
 import { ToolDuration } from "./tool-duration"
 import { resolveAttachmentKind } from "../attachments"
@@ -448,6 +448,22 @@ export function delegatedTaskClickPolicy(status: DelegatedTaskStatus | null, chi
   return childId && (status === "running" || status === "resumed") ? "navigate" : "expand"
 }
 
+export function delegatedChildId(state: EngineState, part: ToolPart) {
+  if (part.tool !== "task" && part.tool !== "spawn_thread") return null
+  const sessionId = (toolMeta(part) as { sessionId?: unknown } | undefined)?.sessionId
+  if (typeof sessionId === "string" && sessionId) return sessionId
+  if (part.tool !== "task") return null
+
+  const input = part.state.input as { description?: unknown; subagent_type?: unknown; task_id?: unknown } | undefined
+  if (typeof input?.task_id === "string" && input.task_id) return input.task_id
+  if (typeof input?.description !== "string" || typeof input.subagent_type !== "string") return null
+
+  // Parallel tasks can create their child before the running tool part persists its session metadata.
+  const title = `${input.description} (@${input.subagent_type} subagent)`
+  const matches = childrenOf(state, part.sessionID).filter((session) => session.title === title)
+  return matches.length === 1 ? matches[0].id : null
+}
+
 function diffStats(diff: string) {
   let additions = 0
   let deletions = 0
@@ -467,8 +483,7 @@ export function ToolView(props: { part: ToolPart }) {
   // would still be in its temporal dead zone during the first evaluation, crashing every
   // transcript that contains a delegated task row.
   function spawnedId() {
-    if (props.part.tool !== "task" && props.part.tool !== "spawn_thread") return null
-    return (toolMeta(props.part) as { sessionId?: string } | undefined)?.sessionId ?? null
+    return delegatedChildId(engine.state, props.part)
   }
   // Memoized: this scans the parent transcript for terminal markers and is read from half a dozen
   // reactive positions per tool row; unmemoized it re-ran the scan for each of them per delta.
