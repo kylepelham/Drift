@@ -320,13 +320,15 @@ function escapeLoneNumberedLines(text: string) {
     const lines = chunk.split("\n")
     const numbers = lines.map((line) => numberedLinePattern.exec(line)?.[1])
     const numbered = numbers.flatMap((value, index) => (value === undefined ? [] : [index]))
+    // Numbered lines arrive in order, so the running count is that line's position in `numbered`.
+    let position = -1
     return lines
       .map((line, index) => {
         const value = numbers[index]
         if (value === undefined) return line
+        position += 1
         const start = Number(value)
         if (start <= 1) return line
-        const position = numbered.indexOf(index)
         const previous = position > 0 ? Number(numbers[numbered[position - 1]]) : undefined
         const next = position < numbered.length - 1 ? Number(numbers[numbered[position + 1]]) : undefined
         if (previous === start - 1 || next === start + 1) return line

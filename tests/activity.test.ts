@@ -169,6 +169,10 @@ test("standalone large numbers stay prose while numbered runs remain lists", asy
   expect(prepareMarkdown("```\n20456. case\n```")).toBe("```\n20456. case\n```")
   expect(marked.parse(prepareMarkdown("Pasted id:\n\n20456. it"), { async: false })).not.toContain("<ol")
   expect(marked.parse(prepareMarkdown("12. step one\n13. step two"), { async: false })).toContain('<ol start="12"')
+  // Interleaved prose keeps each number's neighbours positional, not adjacent by line.
+  expect(prepareMarkdown("intro\n12. step one\nnote\n13. step two")).toBe("intro\n12. step one\nnote\n13. step two")
+  expect(prepareMarkdown("20456. it\nnote\n88. other")).toBe("20456\\. it\nnote\n88\\. other")
+  expect(prepareMarkdown("1. first\nnote\n20456. it")).toBe("1. first\nnote\n20456\\. it")
 })
 
 test("generated user-role seed prompts keep full markdown", async () => {
