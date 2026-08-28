@@ -176,7 +176,8 @@ export function EngineProvider(props: ParentProps) {
         if (health?.version) set("version", health.version)
       }
     } finally {
-      if (client === api && directory === bootDirectory) set("bootstrappedDirectory", bootDirectory)
+      // A hydrate that bailed on a stale epoch wrote nothing, so it must not report readiness.
+      if (current()) set("bootstrappedDirectory", bootDirectory)
     }
   }
 
