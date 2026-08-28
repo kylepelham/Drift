@@ -183,6 +183,17 @@ fn duplicate_members_in_one_file_resolve_to_two_locations() {
 }
 
 #[test]
+fn an_edit_after_discovery_invalidates_the_located_spans() {
+    let path = write_fixture(JSONC_FIXTURE);
+    let located = locate(std::slice::from_ref(&path), "docs", PARITY_FINGERPRINT);
+    assert!(unchanged(&located[0]));
+    // Any outside edit moves the byte spans the rewrite was measured against.
+    std::fs::write(&path, format!("// touched\n{JSONC_FIXTURE}")).unwrap();
+    assert!(!unchanged(&located[0]));
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
 fn removing_the_only_member_leaves_an_empty_object() {
     let path = write_fixture(
         r#"{ "mcp": { "docs": { "type": "local", "command": ["one"] } }, "keep": true }"#,

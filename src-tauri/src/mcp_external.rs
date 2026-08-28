@@ -477,6 +477,12 @@ pub fn candidate_files(roots: &[PathBuf]) -> Vec<PathBuf> {
     files
 }
 
+/// Whether the file still holds the exact text its spans were measured against. Any edit since
+/// discovery invalidates those spans and the definition the user reviewed.
+pub fn unchanged(location: &ExternalLocation) -> bool {
+    std::fs::read_to_string(&location.path).is_ok_and(|text| text == location.text)
+}
+
 /// Display forms of every located defining file, for user-facing messages.
 pub fn display_paths(locations: &[ExternalLocation]) -> Vec<String> {
     locations

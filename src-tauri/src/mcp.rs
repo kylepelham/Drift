@@ -533,6 +533,7 @@ impl McpRuntime {
                     .map(|text| (location.path.clone(), text))
             })
             .collect::<Result<Vec<_>, _>>()?;
+        require_unchanged(&located)?;
         write_rewritten(rewritten)
     }
 
@@ -557,6 +558,7 @@ impl McpRuntime {
                 crate::mcp_external::apply_remove(location).map(|text| (location.path.clone(), text))
             })
             .collect::<Result<Vec<_>, _>>()?;
+        require_unchanged(&located)?;
         write_rewritten(rewritten)
     }
 
@@ -1127,6 +1129,21 @@ fn report_path(root: &Path, directory: &str) -> PathBuf {
     root.join(format!("{hash:x}.json"))
 }
 
+/// Rejects the write when a located file changed after discovery: the rewrite was computed from the
+/// text read then, so replacing the file now would discard whatever else edited it.
+fn require_unchanged(located: &[crate::mcp_external::ExternalLocation]) -> Result<(), String> {
+    let Some(changed) = located
+        .iter()
+        .find(|location| !crate::mcp_external::unchanged(location))
+    else {
+        return Ok(());
+    };
+    Err(format!(
+        "{} changed on disk while it was open. Reload the MCP list and try again.",
+        changed.path.display()
+    ))
+}
+
 /// Writes each rewritten config file, naming the ones already replaced when a later write fails so
 /// the user can reconcile config layers this left holding different definitions.
 fn write_rewritten(rewritten: Vec<(PathBuf, String)>) -> Result<(), String> {
@@ -1152,6 +1169,27 @@ fn write_json(path: &Path, value: &Value) -> Result<(), String> {
     write_raw(path, &contents)
 }
 
+/// Copies the destination's mode onto its replacement, since the rename swaps the inode and would
+/// otherwise widen a config file the user restricted to hold MCP credentials.
+#[cfg(unix)]
+fn inherit_permissions(file: &std::fs::File, path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    match std::fs::metadata(path) {
+        Ok(metadata) => {
+            file.set_permissions(std::fs::Permissions::from_mode(metadata.permissions().mode()))
+        }
+        // A new file has no mode to inherit; anything else is a real failure to read the target.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// Windows has no mode to carry across the replacement; ACLs follow the destination path.
+#[cfg(not(unix))]
+fn inherit_permissions(_file: &std::fs::File, _path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 /// Atomically replaces `path` with `contents` via a temp file and write-through rename.
 pub(crate) fn write_raw(path: &Path, contents: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("generated MCP path has no parent")?;
@@ -1170,12 +1208,11 @@ pub(crate) fn write_raw(path: &Path, contents: &[u8]) -> Result<(), String> {
         .create_new(true)
         .open(&temporary)
         .map_err(|error| error.to_string())?;
-    // The rename replaces the destination inode, so a user config file's own mode is copied over.
-    #[cfg(unix)]
-    if let Ok(existing) = std::fs::metadata(path) {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = existing.permissions().mode();
-        let _ = file.set_permissions(std::fs::Permissions::from_mode(mode));
+    // A failed copy would leave the umask default on the replacement, so it aborts the write.
+    if let Err(error) = inherit_permissions(&file, path) {
+        drop(file);
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.to_string());
     }
     let written = file.write_all(contents).and_then(|_| file.sync_all());
     drop(file);
