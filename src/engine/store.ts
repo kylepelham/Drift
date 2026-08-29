@@ -383,9 +383,14 @@ export function childrenOf(state: EngineState, parentId: string) {
 const providerPriority = ["anthropic", "openai", "opencode", "github-copilot", "google", "zai", "xai"]
 
 export function resolveModel(state: EngineState, pref: ModelRef | null): ModelRef | null {
-  if (pref && state.providers.some((p) => p.id === pref.providerID && pref.modelID in p.models)) return pref
+  if (
+    pref &&
+    (state.connection !== "online" || state.connected.includes(pref.providerID)) &&
+    state.providers.some((p) => p.id === pref.providerID && pref.modelID in p.models)
+  )
+    return pref
   const connected = state.providers.filter((p) => state.connected.includes(p.id))
-  const pool = connected.length ? connected : state.providers
+  const pool = state.connection === "online" ? connected : connected.length ? connected : state.providers
   const rank = (id: string) => {
     const index = providerPriority.indexOf(id)
     return index < 0 ? providerPriority.length : index

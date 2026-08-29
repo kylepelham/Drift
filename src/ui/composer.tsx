@@ -327,7 +327,10 @@ export function Composer() {
   const availableModelItems = createMemo<PickerItem[]>(() => {
     const providers = engine.state.providers.filter((provider) => {
       if (provider.id === "lmstudio") return engine.state.connected.includes(provider.id)
-      return engine.state.connected.includes(provider.id) || engine.state.connected.length === 0
+      return (
+        engine.state.connected.includes(provider.id) ||
+        (engine.state.connection !== "online" && engine.state.connected.length === 0)
+      )
     })
     const order = orderedModelProviderIds(providers.map((provider) => provider.id))
     return order.flatMap((providerID) => {

@@ -814,7 +814,13 @@ function ProvidersSection() {
   const [expanded, setExpanded] = createSignal<string | null>(null)
   const [query, setQuery] = createSignal("")
   const [notice, setNotice] = createSignal<ProviderNotice | null>(null)
-  onMount(() => void engine.actions.providerAuthMethods().then((map) => setMethods({ ...map })))
+  createEffect(() => {
+    if (engine.state.connection !== "online") return
+    void engine.actions
+      .providerAuthMethods()
+      .then((map) => setMethods({ ...map }))
+      .catch(() => {})
+  })
 
   const groups = createMemo(() => {
     const value = query().toLowerCase()
@@ -1069,7 +1075,8 @@ function ProviderConnect(props: {
     props.onNotice({ tone: "error", text: message })
   }
 
-  async function finish(result: { ok: boolean; connected: boolean }) {
+  async function finish(request: Promise<{ ok: boolean; connected: boolean }>) {
+    const result = await request.catch(() => ({ ok: false, connected: props.connected }))
     if (!result.ok) {
       fail(t("drift.provider.connectFailed", { provider: props.providerName }))
       return
@@ -1088,7 +1095,7 @@ function ProviderConnect(props: {
     if (!key().trim()) return
     setPending("connect")
     setError("")
-    await finish(await engine.actions.setProviderKey(props.providerId, key().trim()))
+    await finish(engine.actions.setProviderKey(props.providerId, key().trim()))
   }
 
   async function startOauth() {
@@ -1104,7 +1111,7 @@ function ProviderConnect(props: {
     setAuthorization(auth)
     openExternal(auth.url)
     if (auth.method === "auto") {
-      await finish(await engine.actions.providerCallback(props.providerId, methodIndex()))
+      await finish(engine.actions.providerCallback(props.providerId, methodIndex()))
       setAuthorization(null)
       return
     }
@@ -1115,7 +1122,7 @@ function ProviderConnect(props: {
     if (!code().trim()) return
     setPending("connect")
     setError("")
-    await finish(await engine.actions.providerCallback(props.providerId, methodIndex(), code().trim()))
+    await finish(engine.actions.providerCallback(props.providerId, methodIndex(), code().trim()))
   }
 
   async function disconnect() {

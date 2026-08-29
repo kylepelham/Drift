@@ -87,6 +87,63 @@ test("a cached provider catalog seeds engine state until fresh data overwrites i
   expect("cost" in (cachedProviderCatalog()?.providers[0]?.models["gpt-5"] ?? {})).toBe(false)
 })
 
+test("an online engine never resolves a model from a disconnected provider", async () => {
+  const { createEngineState, resolveModel } = await import("../src/engine/store")
+  const [state, set] = createEngineState()
+  set("connection", "online")
+  set("providers", [
+    { id: "anthropic", name: "Anthropic", models: { fable: model("fable", "Fable") } },
+    { id: "openai", name: "OpenAI", models: { "gpt-5": model("gpt-5", "GPT-5") } },
+  ] as never)
+  set("connected", ["openai"])
+
+  expect(resolveModel(state, { providerID: "anthropic", modelID: "fable" })).toEqual({
+    providerID: "openai",
+    modelID: "gpt-5",
+  })
+  set("connected", [])
+  expect(resolveModel(state, { providerID: "anthropic", modelID: "fable" })).toBeNull()
+})
+
+test("a successful provider change survives a superseding provider refresh", async () => {
+  const { createActions } = await import("../src/engine/actions")
+  const { createEngineState } = await import("../src/engine/store")
+  const [state, set] = createEngineState()
+  let releaseFirst!: () => void
+  let markFirstStarted!: () => void
+  const firstStarted = new Promise<void>((resolve) => (markFirstStarted = resolve))
+  const release = new Promise<void>((resolve) => (releaseFirst = resolve))
+  let listing = 0
+  const data = {
+    all: [{ id: "anthropic", name: "Anthropic", models: { fable: model("fable", "Fable") } }],
+    connected: ["anthropic"],
+    default: { anthropic: "fable" },
+  }
+  const disconnected = { ...data, connected: [] }
+  const client = {
+    provider: {
+      oauth: { callback: async () => ({ data: true }) },
+      list: async () => {
+        listing++
+        if (listing === 1) {
+          markFirstStarted()
+          await release
+        }
+        return { data: listing === 2 ? disconnected : data }
+      },
+    },
+  }
+  const actions = createActions(() => client as never, state, set, () => ({ url: "http://engine.test" }))
+
+  const auth = actions.providerCallback("anthropic", 0, "code")
+  await firstStarted
+  expect(await actions.refreshProviders()).toEqual([])
+  releaseFirst()
+  expect(await auth).toEqual({ ok: true, connected: true })
+  expect(state.connected).toEqual(["anthropic"])
+  expect(listing).toBe(3)
+})
+
 test("a failed provider list keeps engine state and the persisted catalog intact", async () => {
   const { cachedProviderCatalog, rememberProviderCatalog } = await import("../src/state/provider-cache")
   const { createActions } = await import("../src/engine/actions")

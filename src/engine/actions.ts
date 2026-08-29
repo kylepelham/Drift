@@ -586,7 +586,17 @@ export function createActions(
   ): Promise<ProviderAuthResult> {
     if (!changed) return { ok: false, connected: state.connected.includes(id) }
     const connected = await refreshProvidersFor(client, directory, epoch)
-    return { ok: connected !== null, connected: connected?.includes(id) ?? false }
+    if (connected !== null) return { ok: true, connected: connected.includes(id) }
+    if (normalizeDir(state.directory) !== normalizeDir(directory)) {
+      return { ok: true, connected: state.connected.includes(id) }
+    }
+    try {
+      if (requireClient() !== client) return { ok: true, connected: state.connected.includes(id) }
+    } catch {
+      return { ok: true, connected: state.connected.includes(id) }
+    }
+    const refreshed = await refreshProvidersFor(client, directory, beginProviderSnapshot())
+    return { ok: true, connected: (refreshed ?? state.connected).includes(id) }
   }
 
   async function providerAuthMethods() {
