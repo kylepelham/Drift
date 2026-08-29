@@ -7,7 +7,7 @@ import {
   type AttentionKind,
 } from "../state/prefs"
 import { permissionRequiresAttention } from "../state/permission-attention"
-import { selectedSession, selectSession } from "../state/selection"
+import { selectSession } from "../state/selection"
 import { t } from "../state/i18n"
 import {
   exactMcpTarget,
@@ -19,13 +19,6 @@ import {
 import { shellInvoke } from "../shell"
 import { openMcpServers } from "./mcp"
 import { playAlertSound } from "./sounds"
-import {
-  dismissRecoverableInterruption,
-  recoverableForSession,
-  recoverableInterruptions,
-  recoveryNavigationTarget,
-} from "../state/recovery"
-import { selectWorkspace, workspaces } from "../state/workspaces"
 
 // WebView2 stubs the Web Notification API, so the shell path uses the Tauri plugin.
 function show(kind: AttentionKind, sessionId: string, title: string, body: string) {
@@ -108,8 +101,6 @@ export function AttentionNotifier(props: { engine: Engine }) {
   const errors = new Map<string, string>()
   createEffect(() => {
     for (const [sessionId, error] of Object.entries(props.engine.state.errors)) {
-      recoverableInterruptions()
-      if (recoverableForSession(sessionId)) continue
       if (errors.get(sessionId) === error) continue
       errors.set(sessionId, error)
       untrack(() => {
@@ -125,33 +116,6 @@ export function AttentionNotifier(props: { engine: Engine }) {
     for (const id of errors.keys()) if (!props.engine.state.errors[id]) errors.delete(id)
   })
 
-  const recoveries = new Set<string>()
-  createEffect(() => {
-    const current = backgroundRecoveries(recoverableInterruptions(), selectedSession())
-    const present = new Set(current.map((item) => `${item.sessionId}\0${item.identity}`))
-    for (const id of recoveries) if (!present.has(id)) recoveries.delete(id)
-    for (const interruption of current) {
-      const key = `${interruption.sessionId}\0${interruption.identity}`
-      if (recoveries.has(key)) continue
-      recoveries.add(key)
-      untrack(() => {
-        const workspace = workspaces().find((item) => item.id === interruption.workspaceId)
-        show(
-          "error",
-          interruption.sessionId,
-          t("drift.recovery.notification.title"),
-          t("drift.recovery.notification.body", {
-            workspace: workspace?.name ?? interruption.directory,
-            thread: interruption.parentSessionId
-              ? `${t("drift.recovery.subagent")}: ${interruption.threadTitle || t("drift.thread.untitled")}`
-              : interruption.threadTitle || t("drift.thread.untitled"),
-            model: `${interruption.providerId}/${interruption.modelId}`,
-            reason: interruption.reason,
-          }),
-        )
-      })
-    }
-  })
   return null
 }
 
@@ -173,14 +137,6 @@ export function NoticeHost() {
   })
   const dismiss = (id: string) => setDismissed((current) => new Set([...current, id]))
   const pendingMcp = createMemo(() => mcpPromptTargets(mcpCoordinator.state))
-  const recoveries = createMemo(() =>
-    backgroundRecoveries(recoverableInterruptions(), selectedSession()),
-  )
-  const openRecovery = (interruption: (ReturnType<typeof recoveries>)[number]) => {
-    const target = recoveryNavigationTarget(interruption, workspaces())
-    if (target.workspaceId) selectWorkspace(target.workspaceId)
-    selectSession(target.sessionId)
-  }
   const mcpBusy = () => !!mcpCoordinator.state.mutation || !mcpSnapshotActionable(mcpCoordinator.state)
   createEffect(() => {
     const present = new Set(pendingMcp().map(mcpPromptKey))
@@ -255,35 +211,6 @@ export function NoticeHost() {
             </div>
           )}
         </For>
-        <For each={recoveries()}>
-          {(interruption) => {
-            const workspace = () => workspaces().find((item) => item.id === interruption.workspaceId)
-            return (
-              <div class="rounded-lg border border-warn/45 bg-surface/95 px-3 py-2 shadow-xl backdrop-blur" role="alert">
-                <div class="flex items-start gap-3">
-                  <button class="min-w-0 flex-1 text-left" onClick={() => openRecovery(interruption)}>
-                    <div class="text-sm font-semibold text-warn">{t("drift.recovery.notification.title")}</div>
-                    <div class="mt-0.5 text-sm text-ink">
-                      {workspace()?.name ?? interruption.directory} · {interruption.threadTitle || t("drift.thread.untitled")}
-                    </div>
-                    <div class="mt-0.5 text-xs text-ink-muted">
-                      {interruption.parentSessionId ? t("drift.recovery.subagent") + " · " : ""}
-                      {interruption.providerId}/{interruption.modelId}
-                    </div>
-                    <div class="mt-1 line-clamp-2 text-xs break-words text-ink-muted">{interruption.reason}</div>
-                    <div class="mt-2 text-xs font-medium text-accent">{t("drift.recovery.open")}</div>
-                  </button>
-                  <button
-                    class="shrink-0 text-xs text-ink-faint hover:text-ink"
-                    onClick={() => dismissRecoverableInterruption(interruption.sessionId, interruption.identity)}
-                  >
-                    {t("common.dismiss")}
-                  </button>
-                </div>
-              </div>
-            )
-          }}
-        </For>
         <For each={visible()}>
           {(notice) => (
             <div
@@ -357,11 +284,4 @@ export function requestNotificationPermission() {
   }
   if (typeof Notification === "undefined") return
   if (Notification.permission === "default") void Notification.requestPermission()
-}
-
-export function backgroundRecoveries<T extends { sessionId: string; dismissedAt?: number }>(
-  interruptions: T[],
-  selected: string | null,
-) {
-  return interruptions.filter((item) => !item.dismissedAt && item.sessionId !== selected)
 }

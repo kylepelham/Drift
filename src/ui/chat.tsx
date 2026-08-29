@@ -1,7 +1,15 @@
 import type { AssistantMessage, Part, SessionStatus } from "@opencode-ai/sdk/client"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
-import { compareMessages, messageRevisionKey, messageText, modelInfo, type MessageEntry, type ModelRef } from "../engine/store"
+import {
+  compareMessages,
+  messageRevisionKey,
+  messageText,
+  modelInfo,
+  type EngineState,
+  type MessageEntry,
+  type ModelRef,
+} from "../engine/store"
 import { codeFontSize } from "../state/code"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
@@ -17,10 +25,9 @@ import {
 } from "./message"
 import { TextShimmer } from "./text-shimmer"
 import { DriftLogo } from "./logo"
-import { recoverableForSession, recoverableInterruptions } from "../state/recovery"
-import { RecoveryCard, retryModelItems } from "./recovery"
-import { collapseCompaction, compactionCollapsed, prefsFor, updatePrefs } from "../state/prefs"
-import { Picker } from "./picker"
+import { lmStudioModelReady } from "../state/lm-studio"
+import { collapseCompaction, compactionCollapsed, orderedModelProviderIds, prefsFor, updatePrefs } from "../state/prefs"
+import { Picker, type PickerItem } from "./picker"
 import { ProviderIcon } from "./provider-icon"
 
 const estimatedRow = 96
@@ -67,11 +74,6 @@ export function Chat() {
     if (latest?.info.role !== "assistant") return error
     const messageError = (latest.info as { error?: { name: string; data?: unknown } }).error
     return messageError && messageError.name !== "MessageAbortedError" ? null : error
-  })
-  const recoverable = createMemo(() => {
-    recoverableInterruptions()
-    const id = selectedSession()
-    return id ? recoverableForSession(id) : undefined
   })
   const thinking = createMemo(() => {
     const id = selectedSession()
@@ -265,8 +267,6 @@ export function Chat() {
     offsets()
     sessionError()
     thinking()
-    // A recovery card appearing below the last row must also pull a stuck-to-bottom view down.
-    recoverable()
     if (untrack(stick)) {
       queueMicrotask(snapViewportToBottom)
       return
@@ -387,14 +387,7 @@ export function Chat() {
               aria-hidden="true"
               style={{ height: `${(offsets().at(-1) ?? 0) - offsets()[range().end]}px` }}
             />
-            <Show keyed when={recoverable()}>
-              {(interruption) => (
-                <div class="pb-6">
-                  <RecoveryCard interruption={interruption} />
-                </div>
-              )}
-            </Show>
-            <Show when={!recoverable() && sessionError()}>
+            <Show when={sessionError()}>
               {(error) => (
                 <div role="alert">
                   <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger">
@@ -799,7 +792,7 @@ function SessionRetry(props: {
         </div>
         <Show when={props.model}>
           <Picker
-            label={submitting() ? t("drift.recovery.starting") : t("drift.recovery.chooseModel")}
+            label={submitting() ? t("drift.chat.retry.switchingModel") : t("drift.chat.retry.switchModel")}
             items={items()}
             selected={selectedID()}
             fallbackLabel={selectedID()}
@@ -813,6 +806,28 @@ function SessionRetry(props: {
       </div>
     </div>
   )
+}
+
+function retryModelItems(state: EngineState): PickerItem[] {
+  const providers = state.providers.filter((provider) => {
+    if (provider.id === "lmstudio") return state.connected.includes(provider.id)
+    return state.connected.includes(provider.id) || state.connected.length === 0
+  })
+  return orderedModelProviderIds(providers.map((provider) => provider.id)).flatMap((providerID) => {
+    const provider = providers.find((item) => item.id === providerID)
+    if (!provider) return []
+    return Object.values(provider.models)
+      .filter((model) => (provider.id === "lmstudio" ? lmStudioModelReady(model) : model.capabilities.toolcall))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((model) => ({
+        id: `${provider.id}/${model.id}`,
+        label: model.name,
+        group: provider.name,
+        providerID: provider.id,
+        family: model.family,
+        releaseDate: model.release_date,
+      }))
+  })
 }
 
 export function retryPresentation(status: Extract<SessionStatus, { type: "retry" }>, now: number) {

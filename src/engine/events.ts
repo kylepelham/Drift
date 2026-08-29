@@ -8,13 +8,7 @@ import {
   observePermission,
   type DriftPermission,
 } from "../state/permission-attention"
-import { classifyRecoverableError, errorText, type EngineError } from "./error"
-import {
-  clearRecoverableInterruption,
-  interruptionIdentity,
-  recordRecoverableInterruption,
-} from "../state/recovery"
-import { workspaces } from "../state/workspaces"
+import { errorText } from "./error"
 import {
   bumpAskRevision,
   bumpRevision,
@@ -75,7 +69,6 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, st
   if (raw.type === "session.compacted") {
     const sessionID = raw.properties.sessionID as string
     clearError(set, sessionID)
-    clearRecoverableInterruption(sessionID, true)
     return
   }
   if (raw.type === "session.next.moved")
@@ -106,7 +99,6 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, st
       )
       if (event.properties.status.type !== "idle") {
         clearError(set, event.properties.sessionID)
-        clearRecoverableInterruption(event.properties.sessionID, true)
       }
       return
     }
@@ -119,7 +111,7 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, st
         }),
       )
     case "session.error":
-      return recordError(set, event.properties.sessionID, event.properties.error, state, directory)
+      return recordError(set, event.properties.sessionID, event.properties.error)
     case "message.updated":
       return upsertMessage(set, event.properties.info)
     case "message.removed":
@@ -144,7 +136,6 @@ function upsertSession(set: SetEngineState, info: Session) {
 // Full purge of every per-session slice, in response to the engine reporting a deleted session.
 function dropSession(set: SetEngineState, info: Session) {
   set(produce((draft) => purgeSession(draft, info.id)))
-  clearRecoverableInterruption(info.id)
 }
 
 // The session revision bump outlives the purge so an in-flight snapshot taken before the
@@ -178,7 +169,6 @@ export function applySessionSnapshot(
   const ids = new Set(input.sessions.map((info) => info.id))
   const all = input.scope && "all" in input.scope
   const dir = input.scope && "directory" in input.scope ? normalizeDir(input.scope.directory) : undefined
-  const removed: string[] = []
   set(
     produce((draft) => {
       const advanced = (id: string) => revisionAdvanced(draft.revisions, input.captured, sessionRevisionKey(id))
@@ -198,12 +188,10 @@ export function applySessionSnapshot(
         // Scoped listings exclude engine-archived sessions, so their absence is not a deletion.
         // Purging them here would delete-and-reload archived transcripts on every hydration.
         if (!all && (session.time as { archived?: number }).archived) continue
-        removed.push(session.id)
         purgeSession(draft, session.id)
       }
     }),
   )
-  for (const id of removed) clearRecoverableInterruption(id)
 }
 
 // Applies a status snapshot for the given sessions, skipping any whose status a live event
@@ -255,8 +243,6 @@ function recordError(
   set: SetEngineState,
   sessionID?: string,
   error?: { name: string; data?: unknown },
-  state?: EngineState,
-  eventDirectory?: string,
 ) {
   const message = errorText(error)
   if (!sessionID) {
@@ -280,24 +266,6 @@ function recordError(
       draft.errors[sessionID] = message
     }),
   )
-  const recoverable = classifyRecoverableError(error)
-  if (!recoverable || !state) return
-  const session = state.sessions[sessionID]
-  const model = sessionModel(state, sessionID, error)
-  const directory = session?.directory ?? eventDirectory ?? state.directory
-  const workspace = workspaces().find((item) => normalizeDirectory(item.path) === normalizeDirectory(directory))
-  recordRecoverableInterruption({
-    sessionId: sessionID,
-    identity: interruptionIdentity(error as EngineError, model, state.sessionModels[sessionID]?.messageId),
-    workspaceId: workspace?.id,
-    directory,
-    threadTitle: session?.title ?? "",
-    parentSessionId: session?.parentID ?? state.links[sessionID],
-    providerId: model?.providerID ?? providerFromError(error) ?? "unknown",
-    modelId: model?.modelID ?? "unknown",
-    errorName: error?.name ?? "Error",
-    ...recoverable,
-  })
 }
 
 function clearError(set: SetEngineState, sessionID: string) {
@@ -325,12 +293,6 @@ function upsertMessage(set: SetEngineState, info: Message) {
       else list.push({ info, parts: [] })
     }),
   )
-  if (
-    info.role === "assistant" &&
-    info.time.completed &&
-    !(info as { error?: unknown }).error
-  )
-    clearRecoverableInterruption(info.sessionID, true)
 }
 
 function dropMessage(set: SetEngineState, sessionID: string, messageID: string) {
@@ -387,27 +349,6 @@ function reconcilePart(existing: Part, incoming: Part) {
     return { ...incoming, text: existing.text }
   }
   return incoming
-}
-
-function sessionModel(state: EngineState, sessionID: string, error?: { data?: unknown }): ModelRef | undefined {
-  const known = state.sessionModels[sessionID]
-  if (known) return known
-  const latest = [...(state.transcripts[sessionID] ?? [])]
-    .reverse()
-    .find((entry) => entry.info.role === "assistant")?.info
-  if (latest?.role === "assistant") return { providerID: latest.providerID, modelID: latest.modelID }
-  const data = error?.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined
-  if (typeof data?.providerID === "string" && typeof data.modelID === "string")
-    return { providerID: data.providerID, modelID: data.modelID }
-}
-
-function providerFromError(error?: { data?: unknown }) {
-  const data = error?.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined
-  return typeof data?.providerID === "string" ? data.providerID : undefined
-}
-
-function normalizeDirectory(directory: string) {
-  return directory.replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase()
 }
 
 function appendPartDelta(

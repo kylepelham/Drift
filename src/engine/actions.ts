@@ -2,7 +2,6 @@ import { createOpencodeClient, type OpencodeClient, type Permission, type Sessio
 import { createOpencodeClient as createControlClient } from "@opencode-ai/sdk/v2/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
-import { clearRecoverableInterruption, updateRecoverableFailure } from "../state/recovery"
 import {
   beginPermissionReply,
   clearPermissionAttention,
@@ -45,12 +44,6 @@ export type PromptSendResult = { ok: true } | { ok: false; error: string }
 export type PermissionResponse = "once" | "always" | "reject"
 export type ProviderAuthResult = { ok: boolean; connected: boolean }
 export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
-
-export const RECOVERY_INSTRUCTION = [
-  "A recoverable model or provider failure interrupted this session.",
-  "Reassess the durable transcript, completed tool results, current todos, and workspace state before continuing.",
-  "Continue the existing task from the latest durable state. Do not blindly repeat tools or work that already succeeded.",
-].join(" ")
 
 type PermissionRequest = {
   id: string
@@ -134,9 +127,6 @@ export function createActions(
     set("loaded", id, true)
     set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
     recordLinks(entries)
-    const latest = [...entries].reverse().find((entry) => entry.info.role === "assistant")?.info
-    if (latest?.role === "assistant" && latest.time.completed && !latest.error)
-      clearRecoverableInterruption(id, true)
   }
 
   function reportTranscriptFailure(id: string, cause: unknown) {
@@ -464,35 +454,6 @@ export function createActions(
     }
   }
 
-  async function recover(id: string, options: PromptOptions): Promise<PromptSendResult> {
-    if (!options.model) return { ok: false, error: "Recovery requires a model" }
-    clearSessionError(id)
-    const body = {
-      parts: [{ type: "text" as const, text: RECOVERY_INSTRUCTION, metadata: { generated: true } }],
-      model: options.model,
-      agent: options.agent,
-      ...(options.variant ? { variant: options.variant } : {}),
-    }
-    try {
-      const base = target()
-      const directory = options.directory ?? state.sessions[id]?.directory
-      const client = base && directory
-        ? createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
-        : requireClient()
-      const result = await client.session.promptAsync({ path: { id }, body })
-      if (result.error === undefined) return { ok: true }
-      const error = `Recovery failed: ${sdkErrorMessage(result.error, "engine rejected the request")}`
-      set("errors", id, error)
-      updateRecoverableFailure(id, error, options.model)
-      return { ok: false, error }
-    } catch (cause) {
-      const error = `Recovery failed: ${sdkErrorMessage(cause, "could not reach the engine")}`
-      set("errors", id, error)
-      updateRecoverableFailure(id, error, options.model)
-      return { ok: false, error }
-    }
-  }
-
   /**
    * Sends a Drift-generated steering prompt into a session without user involvement. Used by the
    * orchestrator driver; the generated marker keeps these turns from counting as fresh goals.
@@ -727,7 +688,6 @@ export function createActions(
 
   function forgetSession(id: string) {
     set(produce((draft) => purgeSessionState(draft, id)))
-    clearRecoverableInterruption(id)
   }
 
   // Replied ids are filtered out of poll snapshots that raced the reply.
@@ -966,7 +926,6 @@ export function createActions(
       return false
     }
     clearSessionError(id)
-    clearRecoverableInterruption(id)
     if (result.data) putSession(set, result.data)
     await reloadSession(id).catch((cause) => reportTranscriptFailure(id, cause))
     return true
@@ -1004,7 +963,6 @@ export function createActions(
     moveSession,
     moveWorkspaceSessions,
     send,
-    recover,
     steer,
     switchRetryModel,
     abort,

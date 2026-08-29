@@ -7,6 +7,7 @@
       "dependencies": {
         "@opencode-ai/sdk": "^1.18.22",
         "dompurify": "^3.2.4",
+        "linguist-languages": "9.4.0",
         "marked": "^15.0.7",
         "pdfjs-dist": "^6.2.108",
         "shiki": "^3.2.1",
@@ -397,6 +398,8 @@
     "lightningcss-win32-arm64-msvc": ["lightningcss-win32-arm64-msvc@1.32.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-8SbC8BR40pS6baCM8sbtYDSwEVQd4JlFTOlaD3gWGHfThTcABnNDBda6eTZeqbofalIJhFx0qKzgHJmcPTnGdw=="],
 
     "lightningcss-win32-x64-msvc": ["lightningcss-win32-x64-msvc@1.32.0", "", { "os": "win32", "cpu": "x64" }, "sha512-Amq9B/SoZYdDi1kFrojnoqPLxYhQ4Wo5XiL8EVJrVsB8ARoC1PWW6VGtT0WKCemjy8aC+louJnjS7U18x3b06Q=="],
+
+    "linguist-languages": ["linguist-languages@9.4.0", "", {}, "sha512-mYnFVrsWg5Bex0Kl5EDcXhrjXZ5DqMlBDXo7EUWLMTLDpxbuHvgBb2aOvGWC5ZmMJ2HXEKJiuFie9NEs8NUMXg=="],
 
     "lru-cache": ["lru-cache@5.1.1", "", { "dependencies": { "yallist": "^3.0.2" } }, "sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w=="],
 

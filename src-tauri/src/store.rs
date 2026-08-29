@@ -34,25 +34,6 @@ pub struct ArchivedSession {
     pub archived_at: i64,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecoverableInterruption {
-    pub session_id: String,
-    pub identity: String,
-    pub workspace_id: Option<String>,
-    pub directory: String,
-    pub thread_title: String,
-    pub parent_session_id: Option<String>,
-    pub provider_id: String,
-    pub model_id: String,
-    pub kind: String,
-    pub reason: String,
-    pub error_name: String,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub dismissed_at: Option<i64>,
-}
-
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServer {
@@ -135,23 +116,6 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
             original_json TEXT,
             updated_at INTEGER NOT NULL
         ) STRICT;
-        CREATE TABLE IF NOT EXISTS recoverable_interruption(
-            session_id TEXT NOT NULL,
-            identity TEXT NOT NULL,
-            workspace_id TEXT,
-            directory TEXT NOT NULL,
-            thread_title TEXT NOT NULL,
-            parent_session_id TEXT,
-            provider_id TEXT NOT NULL,
-            model_id TEXT NOT NULL,
-            kind TEXT NOT NULL CHECK(kind IN ('usage', 'rate_limit', 'unavailable', 'provider_auth', 'transient')),
-            reason TEXT NOT NULL,
-            error_name TEXT NOT NULL,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL,
-            dismissed_at INTEGER,
-            PRIMARY KEY(session_id, identity)
-        ) STRICT;
         CREATE TABLE IF NOT EXISTS app_setting(
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -162,6 +126,9 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
             token TEXT NOT NULL
         ) STRICT;",
     )?;
+    // The removed model-recovery workflow used this table. Drop legacy rows during upgrade so
+    // failures return to ordinary transcript errors without retaining obsolete recovery state.
+    conn.execute("DROP TABLE IF EXISTS recoverable_interruption", [])?;
     // Migration for databases created before `removed_at` existed. On any database created by the
     // CREATE TABLE above the column is already there and this fails with "duplicate column name",
     // which is why the error is deliberately discarded rather than propagated.
@@ -582,92 +549,6 @@ impl Store {
         )?;
         let rows = stmt.query_map([before], |row| row.get(0))?;
         rows.collect()
-    }
-
-    pub fn interruptions(&self) -> rusqlite::Result<Vec<RecoverableInterruption>> {
-        let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            "SELECT session_id, identity, workspace_id, directory, thread_title, parent_session_id,
-                    provider_id, model_id, kind, reason, error_name, created_at, updated_at, dismissed_at
-             FROM recoverable_interruption ORDER BY updated_at",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(RecoverableInterruption {
-                session_id: row.get(0)?,
-                identity: row.get(1)?,
-                workspace_id: row.get(2)?,
-                directory: row.get(3)?,
-                thread_title: row.get(4)?,
-                parent_session_id: row.get(5)?,
-                provider_id: row.get(6)?,
-                model_id: row.get(7)?,
-                kind: row.get(8)?,
-                reason: row.get(9)?,
-                error_name: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
-                dismissed_at: row.get(13)?,
-            })
-        })?;
-        rows.collect()
-    }
-
-    pub fn save_interruption(&self, item: &RecoverableInterruption) -> rusqlite::Result<()> {
-        let mut conn = self.0.lock().unwrap();
-        let transaction = conn.transaction()?;
-        transaction
-            .prepare_cached(
-                "DELETE FROM recoverable_interruption WHERE session_id = ?1 AND identity <> ?2",
-            )?
-            .execute((&item.session_id, &item.identity))?;
-        transaction.prepare_cached(
-            "INSERT INTO recoverable_interruption(
-                session_id, identity, workspace_id, directory, thread_title, parent_session_id,
-                provider_id, model_id, kind, reason, error_name, created_at, updated_at, dismissed_at
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
-             ON CONFLICT(session_id, identity) DO UPDATE SET
-                workspace_id = ?3, directory = ?4, thread_title = ?5, parent_session_id = ?6,
-                provider_id = ?7, model_id = ?8, kind = ?9, reason = ?10, error_name = ?11,
-                updated_at = ?13, dismissed_at = COALESCE(recoverable_interruption.dismissed_at, ?14)",
-        )?.execute(params![
-            item.session_id,
-            item.identity,
-            item.workspace_id,
-            item.directory,
-            item.thread_title,
-            item.parent_session_id,
-            item.provider_id,
-            item.model_id,
-            item.kind,
-            item.reason,
-            item.error_name,
-            item.created_at,
-            item.updated_at,
-            item.dismissed_at,
-        ])?;
-        transaction.commit()?;
-        Ok(())
-    }
-
-    pub fn dismiss_interruption(
-        &self,
-        session_id: &str,
-        identity: &str,
-        dismissed_at: i64,
-    ) -> rusqlite::Result<()> {
-        self.0.lock().unwrap().prepare_cached(
-            "UPDATE recoverable_interruption SET dismissed_at = ?3 WHERE session_id = ?1 AND identity = ?2",
-        )?.execute((session_id, identity, dismissed_at))?;
-        Ok(())
-    }
-
-    pub fn clear_interruptions(&self, session_id: &str) -> rusqlite::Result<()> {
-        self.0
-            .lock()
-            .unwrap()
-            .prepare_cached("DELETE FROM recoverable_interruption WHERE session_id = ?1")?
-            .execute([session_id])?;
-        Ok(())
     }
 
     pub fn mcp_state(&self) -> rusqlite::Result<McpState> {

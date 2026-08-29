@@ -5,7 +5,6 @@ import { shellEvents, shellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
-import { clearRecoverableInterruption } from "../state/recovery"
 import { reportShellTimeoutError, shellTimeoutMs } from "../state/prefs"
 import { applyProviderCatalog, seedProviderCatalog } from "../state/provider-cache"
 import { createActions, type EngineActions } from "./actions"
@@ -130,8 +129,6 @@ export function EngineProvider(props: ParentProps) {
       })
       if (complete) set("sessionSnapshotDirectory", bootDirectory)
       applyStatusSnapshot(set, { sessions: list, statuses: statuses.data ?? {}, captured })
-      for (const [sessionID, status] of Object.entries(statuses.data ?? {}))
-        if (status.type !== "idle") clearRecoverableInterruption(sessionID, true)
       // Pending permissions/questions exist only as events; a bounded SSE buffer can drop the ask
       // frame under load, which would strand the session busy forever without this refetch.
       if (bootDirectory) void actions.refreshPermissions([bootDirectory])
@@ -164,9 +161,6 @@ export function EngineProvider(props: ParentProps) {
           )
           set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], entries, id, captured, state.revisions))
           set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
-          const latest = [...entries].reverse().find((entry) => entry.info.role === "assistant")?.info
-          if (latest?.role === "assistant" && latest.time.completed && !latest.error)
-            clearRecoverableInterruption(id, true)
         }
       }
       if (!state.version && base) {

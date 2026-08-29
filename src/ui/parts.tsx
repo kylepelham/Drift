@@ -1,4 +1,5 @@
 import type { FilePart, Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
+import type { BundledTheme } from "shiki"
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
@@ -14,9 +15,9 @@ import { TextShimmer } from "./text-shimmer"
 import { openToolContextMenu } from "./tool-context-menu"
 import { permissionRequiresAttention } from "../state/permission-attention"
 import { childrenOf, type EngineState } from "../engine/store"
-import { recoverableForSession, recoverableInterruptions, resumedSessions } from "../state/recovery"
 import { ToolDuration } from "./tool-duration"
 import { resolveAttachmentKind } from "../attachments"
+import { resolveFileLanguage } from "../syntax-language"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -322,10 +323,6 @@ function filename(path?: string) {
   return path.replaceAll("\\", "/").split("/").filter(Boolean).at(-1)
 }
 
-function extension(name?: string) {
-  return name?.match(/\.(\w+)$/)?.[1]?.toLowerCase() ?? "text"
-}
-
 function argsPreview(input: Record<string, unknown> | undefined) {
   if (!input) return undefined
   const parts = Object.entries(input).map(([key, value]) => {
@@ -445,7 +442,7 @@ export function toolChevronVisible(active: boolean, delegated: boolean) {
 }
 
 export function delegatedTaskClickPolicy(status: DelegatedTaskStatus | null, childId: string | null) {
-  return childId && (status === "running" || status === "resumed") ? "navigate" : "expand"
+  return childId && status === "running" ? "navigate" : "expand"
 }
 
 export function delegatedChildId(state: EngineState, part: ToolPart) {
@@ -489,20 +486,18 @@ export function ToolView(props: { part: ToolPart }) {
   // reactive positions per tool row; unmemoized it re-ran the scan for each of them per delta.
   const delegatedStatus = createMemo(() => {
     if (!delegated()) return null
-    recoverableInterruptions()
-    resumedSessions()
     const childId = spawnedId()
     return childId ? delegatedTaskStatus(engine.state, props.part, childId) : null
   })
   const active = () => {
     if (awaitingPermission(engine.state, props.part)) return false
-    if (delegated()) return delegatedStatus() === "running" || delegatedStatus() === "resumed"
+    if (delegated()) return delegatedStatus() === "running"
     return state().status === "running" || state().status === "pending"
   }
   const title = () => (info().called ? `${t("drift.tool.called")} ${info().called}` : (info().title ?? props.part.tool))
   const progress = () => {
     const childId = spawnedId()
-    if (!childId || (delegatedStatus() !== "running" && delegatedStatus() !== "resumed")) return null
+    if (!childId || delegatedStatus() !== "running") return null
     const activity = engine.state.activity[childId]
     if (!activity) return null
     const count = t(activity.tools === 1 ? "drift.count.tool.one" : "drift.count.tool.other", { count: activity.tools })
@@ -628,20 +623,18 @@ export function ToolView(props: { part: ToolPart }) {
   )
 }
 
-export type DelegatedTaskStatus = "running" | "interrupted" | "resumed" | "completed" | "error"
+export type DelegatedTaskStatus = "running" | "completed" | "error"
 
 export function delegatedTaskStatus(
   state: EngineState,
   part: Pick<ToolPart, "sessionID" | "state">,
   childId: string,
 ): DelegatedTaskStatus {
-  if (recoverableForSession(childId)) return "interrupted"
-  const resumed = resumedSessions().has(childId)
-  if (sessionRunning(state, childId)) return resumed ? "resumed" : "running"
+  if (state.errors[childId]) return "error"
+  if (sessionRunning(state, childId)) return "running"
   // A live task part is newer authority than terminal markers elsewhere in the parent transcript.
   // The same child can be resumed, leaving an older completion marker behind while work continues.
-  if (part.state.status === "pending" || part.state.status === "running") return resumed ? "resumed" : "running"
-  if (resumed) return "completed"
+  if (part.state.status === "pending" || part.state.status === "running") return "running"
   const terminal = delegatedTerminalState(state, part, childId)
   if (terminal) return terminal
   return part.state.status === "error" ? "error" : "running"
@@ -684,10 +677,10 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
     return typeof input.content === "string" ? { content: input.content, name: filename(input.filePath) } : null
   }
   const patched = () => (props.part.tool === "apply_patch" ? patchFiles(props.part) : [])
-  const diffLanguage = () => {
+  const diffFilename = () => {
     const input = state().input as { filePath?: string }
     const file = patched()[0]
-    return extension(file?.relativePath ?? file?.filePath ?? input.filePath)
+    return file?.relativePath ?? file?.filePath ?? input.filePath ?? ""
   }
   const tasked = () => taskBody(props.part)
   return (
@@ -718,11 +711,11 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
         </Match>
         <Match when={written()}>
           {(file) => (
-            <ProgressiveCodeView code={file().content} lang={extension(file().name)} />
+            <ProgressiveCodeView code={file().content} filename={file().name ?? ""} />
           )}
         </Match>
         <Match when={patched().length > 1 && patched()}>{(files) => <PatchPanel files={files()} />}</Match>
-        <Match when={props.diff}>{(patch) => <DiffPanel diff={patch()} lang={diffLanguage()} />}</Match>
+        <Match when={props.diff}>{(patch) => <DiffPanel diff={patch()} filename={diffFilename()} />}</Match>
       </Switch>
       <Show when={props.error}>
         {(message) => (
@@ -1067,26 +1060,39 @@ export function parseDiff(diff: string): DiffRow[] {
   return rows
 }
 
-function DiffPanel(props: { diff: string; lang: string; bare?: boolean }) {
+function DiffPanel(props: { diff: string; filename: string; bare?: boolean }) {
   const rows = createMemo(() => parseDiff(props.diff))
   const source = createMemo(() => ({
     code: rows().map((row) => row.text).join("\n"),
-    lang: props.lang,
-    theme: syntaxTheme(),
+    theme: syntaxTheme() as BundledTheme,
   }))
+  const [language, setLanguage] = createSignal<{ filename: string; value: string }>()
   const [tokens, setTokens] = createSignal<SyntaxToken[][]>([])
   let highlighted: ReturnType<typeof source> | undefined
+  let languageRequest = 0
   let request = 0
   createEffect(() => {
+    const filename = props.filename
+    const current = ++languageRequest
+    setLanguage(undefined)
+    void resolveFileLanguage(filename).then((value) => {
+      if (current === languageRequest) setLanguage({ filename, value })
+    })
+  })
+  createEffect(() => {
     const next = source()
+    const resolved = language()
     const current = ++request
     highlighted = undefined
     setTokens([])
-    void codeTokens(next.code, next.lang).then((result) => {
-      if (current !== request) return
-      highlighted = next
-      setTokens(result)
-    })
+    if (!resolved || resolved.filename !== props.filename) return
+    void codeTokens(next.code, resolved.value)
+      .catch(() => [])
+      .then((result) => {
+        if (current !== request) return
+        highlighted = next
+        setTokens(result)
+      })
   })
   const visibleTokens = () => (highlighted === source() ? tokens() : [])
   return (
@@ -1191,7 +1197,7 @@ function PatchFilePanel(props: { file: PatchFile }) {
       </button>
       <Show when={open()}>
         <div class="border-t border-edge">
-          <DiffPanel diff={props.file.patch} lang={extension(props.file.relativePath ?? props.file.filePath)} bare />
+          <DiffPanel diff={props.file.patch} filename={props.file.relativePath ?? props.file.filePath} bare />
         </div>
       </Show>
     </div>

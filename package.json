@@ -23,6 +23,7 @@
   "dependencies": {
     "@opencode-ai/sdk": "^1.18.22",
     "dompurify": "^3.2.4",
+    "linguist-languages": "9.4.0",
     "marked": "^15.0.7",
     "pdfjs-dist": "^6.2.108",
     "shiki": "^3.2.1",

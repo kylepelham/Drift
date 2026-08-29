@@ -3,6 +3,7 @@ import { marked } from "marked"
 import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { shellInvoke } from "../shell"
+import { resolveFileLanguage } from "../syntax-language"
 import { t } from "../state/i18n"
 import { syntaxTheme } from "../state/code"
 import { animateResponses, responseAnimationSpeed } from "../state/prefs"
@@ -555,11 +556,26 @@ export function codeChunks(code: string) {
   return result
 }
 
-export function ProgressiveCodeView(props: { code: string; lang: string }) {
+export function ProgressiveCodeView(props: { code: string; filename: string }) {
   let root!: HTMLDivElement
   let observer: IntersectionObserver | undefined
   const chunks = createMemo(() => codeChunks(props.code))
   const [active, setActive] = createSignal(new Set([0]))
+  const [language, setLanguage] = createSignal<string>()
+  let languageRequest = 0
+
+  createEffect(() => {
+    const filename = props.filename
+    const current = ++languageRequest
+    setLanguage(undefined)
+    void resolveFileLanguage(filename)
+      .then((result) => {
+        if (current === languageRequest) setLanguage(result)
+      })
+      .catch(() => {
+        if (current === languageRequest) setLanguage("text")
+      })
+  })
 
   createEffect(() => {
     const count = chunks().length
@@ -584,8 +600,8 @@ export function ProgressiveCodeView(props: { code: string; lang: string }) {
       <For each={chunks()}>
         {(code, index) => (
           <div class="code-stream-chunk" data-chunk={index()}>
-            <Show when={active().has(index())} fallback={<pre>{code}</pre>}>
-              <CodeView code={code} lang={props.lang} />
+            <Show when={active().has(index()) ? language() : undefined} fallback={<pre>{code}</pre>}>
+              {(lang) => <CodeView code={code} lang={lang()} />}
             </Show>
           </div>
         )}

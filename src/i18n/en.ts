@@ -1,5 +1,3 @@
-import { recovery } from "./recovery"
-
 export const dict = {
   "command.category.agent": "Agent",
   "command.category.model": "Model",
@@ -360,7 +358,6 @@ export const drift = {
   "drift.slash.spawn.required": "Add a task after /spawn.",
   "drift.slash.spawn.review": "Review",
   "drift.slash.spawn.review.description": "Review code or a design in a separate thread.",
-  ...recovery,
   "drift.settings.toolExecution": "Tool execution",
   "drift.settings.shellTimeout.title": "Shell timeout",
   "drift.settings.shellTimeout.description": "Stop shell commands and their child processes after this duration. Changes apply to new calls.",
@@ -425,6 +422,8 @@ export const drift = {
   "drift.chat.retry.info": "{{retry}} - attempt #{{attempt}}",
   "drift.chat.retry.now": "Retrying",
   "drift.chat.retry.providerRejected": "The provider did not accept the request",
+  "drift.chat.retry.switchModel": "Switch model",
+  "drift.chat.retry.switchingModel": "Switching...",
   "drift.chat.thinking": "Thinking",
   "drift.color.accent": "Accent",
   "drift.color.background": "Background",

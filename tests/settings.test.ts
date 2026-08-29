@@ -103,6 +103,7 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 const pendingTranslation = new Set([
   "drift.mobile.openNavigation",
   "drift.settings.code",
+  ...pendingKeys("drift.chat.retry", "switchModel switchingModel"),
   ...pendingKeys(
     "drift.code",
     `
@@ -137,13 +138,6 @@ const pendingTranslation = new Set([
       form.addPair form.removePair form.commandRequired form.urlRequired form.urlInvalid
       form.timeoutInvalid form.pairInvalid form.callbackPortInvalid form.redirectUriInvalid
       toast.pending.title toast.pending.message toast.exact toast.openSettings toast.failed
-    `,
-  ),
-  ...pendingKeys(
-    "drift.recovery",
-    `
-      chooseModel continue durableHint explanation failedModel notification.body notification.title
-      open starting subagent title
     `,
   ),
   ...pendingKeys(

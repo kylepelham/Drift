@@ -10,7 +10,6 @@ import { t } from "./state/i18n"
 import { bindLanguage } from "./state/language"
 import { mcpCoordinator } from "./state/mcp"
 import { driftStore } from "./state/store"
-import { initRecoverableInterruptions } from "./state/recovery"
 import { bindTheme } from "./state/theme"
 import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation"
 import { initZoom } from "./state/zoom"
@@ -254,7 +253,6 @@ function WorkspaceBinding() {
   let permissionTick = 0
   onMount(() => {
     void initWorkspaces()
-    void initRecoverableInterruptions()
   })
   createEffect(() => engine.setDirectory(activeWorkspace()?.path ?? null))
   createEffect(() => {
