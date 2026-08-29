@@ -1071,8 +1071,14 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   background: var(--raised) !important;
 }
 
+/* The wrapper is the horizontal scroller, so it owns the background. A `pre` is only as wide as
+   the visible area, so painting it there ends the background partway through a sideways scroll. */
+.code-view {
+  background: var(--raised);
+}
+
 .code-view :where(pre) {
-  background: var(--raised) !important;
+  background: transparent !important;
   padding: 0.5rem 0.75rem;
   font-family: var(--font-mono);
   font-size: var(--code-size);
@@ -1117,8 +1123,8 @@ pre.code-display {
   --syntax-muted: #9aa5b8;
 }
 
-:root[data-syntax-theme="dracula"] :where(.md pre.shiki, .code-view pre.shiki, .diff-view, .syntax-display),
-:root[data-syntax-theme="nord"] :where(.md pre.shiki, .code-view pre.shiki, .diff-view, .syntax-display) {
+:root[data-syntax-theme="dracula"] :where(.md pre.shiki, .code-view, .diff-view, .syntax-display),
+:root[data-syntax-theme="nord"] :where(.md pre.shiki, .code-view, .diff-view, .syntax-display) {
   background: var(--syntax-bg) !important;
 }
 

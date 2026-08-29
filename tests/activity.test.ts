@@ -223,6 +223,32 @@ test("diff parsing distinguishes file headers from source lines and separates hu
   ])
 })
 
+test("diff highlighting is keyed by content so redraws keep their colours", async () => {
+  const { diffHighlightKey, parseDiff } = await import("../src/ui/parts")
+  const filename = "C:\\repo\\src\\state\\mcp.ts"
+  const language = { filename, value: "typescript" }
+  const diff = "@@ -1,2 +1,2 @@\n-const a = 1\n+const a = 2\n"
+  const code = (input: string) => parseDiff(input).map((row) => row.text).join("\n")
+
+  // Re-parsing the same diff produces fresh row objects, which must not count as new work.
+  const first = diffHighlightKey("github-dark-default", language, filename, code(diff))
+  expect(diffHighlightKey("github-dark-default", language, filename, code(diff))).toBe(first)
+  expect(first).not.toBe("")
+
+  // Anything that changes the rendered colours has to produce a different key.
+  expect(diffHighlightKey("nord", language, filename, code(diff))).not.toBe(first)
+  expect(diffHighlightKey("github-dark-default", { filename, value: "text" }, filename, code(diff))).not.toBe(first)
+  expect(
+    diffHighlightKey("github-dark-default", language, filename, code("@@ -1,1 +1,1 @@\n-const a = 1\n+const a = 3\n")),
+  ).not.toBe(first)
+
+  // An unresolved language, or one resolved for the previous file, highlights nothing.
+  expect(diffHighlightKey("github-dark-default", undefined, filename, code(diff))).toBe("")
+  expect(
+    diffHighlightKey("github-dark-default", { filename: "C:\\repo\\other.ts", value: "typescript" }, filename, code(diff)),
+  ).toBe("")
+})
+
 test("Shiki promise caches evict by approximate size and retry failures", async () => {
   const { AsyncSizeCache } = await import("../src/ui/markdown")
   const cache = new AsyncSizeCache<string>(10, (value) => value.length)

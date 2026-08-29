@@ -1,6 +1,5 @@
 import type { FilePart, Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
-import type { BundledTheme } from "shiki"
-import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, untrack, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
 import { Chevron } from "./controls"
@@ -1060,41 +1059,56 @@ export function parseDiff(diff: string): DiffRow[] {
   return rows
 }
 
+/**
+ * Identifies one exact highlighting result: the same file, code, language and theme.
+ *
+ * Keying by content rather than by object identity is what keeps a diff highlighted. Every
+ * transcript update rebuilds the parsed rows, and an identity check would treat that equal content
+ * as new work, blanking the colours until shiki answered again. An empty key means the language is
+ * still resolving, or resolved against a filename this panel no longer shows.
+ */
+export function diffHighlightKey(
+  theme: string,
+  language: { filename: string; value: string } | undefined,
+  filename: string,
+  code: string,
+) {
+  if (!language || language.filename !== filename) return ""
+  return `${theme}\0${language.value}\0${code}`
+}
+
 function DiffPanel(props: { diff: string; filename: string; bare?: boolean }) {
   const rows = createMemo(() => parseDiff(props.diff))
-  const source = createMemo(() => ({
-    code: rows().map((row) => row.text).join("\n"),
-    theme: syntaxTheme() as BundledTheme,
-  }))
+  const code = createMemo(() => rows().map((row) => row.text).join("\n"))
   const [language, setLanguage] = createSignal<{ filename: string; value: string }>()
-  const [tokens, setTokens] = createSignal<SyntaxToken[][]>([])
-  let highlighted: ReturnType<typeof source> | undefined
+  const [highlight, setHighlight] = createSignal<{ key: string; tokens: SyntaxToken[][] }>()
   let languageRequest = 0
   let request = 0
   createEffect(() => {
     const filename = props.filename
     const current = ++languageRequest
     setLanguage(undefined)
-    void resolveFileLanguage(filename).then((value) => {
-      if (current === languageRequest) setLanguage({ filename, value })
-    })
-  })
-  createEffect(() => {
-    const next = source()
-    const resolved = language()
-    const current = ++request
-    highlighted = undefined
-    setTokens([])
-    if (!resolved || resolved.filename !== props.filename) return
-    void codeTokens(next.code, resolved.value)
-      .catch(() => [])
-      .then((result) => {
-        if (current !== request) return
-        highlighted = next
-        setTokens(result)
+    void resolveFileLanguage(filename)
+      // A failed catalog load must degrade to plain text, not leave the panel unhighlighted forever.
+      .catch(() => "text")
+      .then((value) => {
+        if (current === languageRequest) setLanguage({ filename, value })
       })
   })
-  const visibleTokens = () => (highlighted === source() ? tokens() : [])
+  const highlightKey = createMemo(() => diffHighlightKey(syntaxTheme(), language(), props.filename, code()))
+  createEffect(() => {
+    const key = highlightKey()
+    const resolved = language()
+    const current = ++request
+    if (!key || !resolved) return
+    if (untrack(() => highlight()?.key) === key) return
+    void codeTokens(code(), resolved.value)
+      .catch(() => [] as SyntaxToken[][])
+      .then((tokens) => {
+        if (current === request) setHighlight({ key, tokens })
+      })
+  })
+  const visibleTokens = () => (highlight()?.key === highlightKey() ? (highlight()?.tokens ?? []) : [])
   return (
     <div class="diff-view overflow-hidden" classList={{ "rounded-lg border border-edge": !props.bare }}>
       <div class="transcript-tool-output max-h-80 overflow-auto py-1 font-mono leading-relaxed">
