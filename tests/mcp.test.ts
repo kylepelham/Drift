@@ -964,6 +964,99 @@ describe("config-file-defined MCP servers", () => {
     expect(writes).toEqual([])
   })
 
+  test("a second edit retries against the generation the watcher advanced to", async () => {
+    const { createMcpCoordinator, exactMcpTarget } = await import("../src/state/mcp")
+    // Editing a config file advances the generation from the watcher, so the number the dialog
+    // holds goes stale a moment after the first edit lands.
+    let generation = 6
+    const attempts: number[] = []
+    const coordinator = createMcpCoordinator(
+      dependencies({
+        mcpSnapshot: async (directory: string) => ({ generation, directory, servers: [], observed: [observed] }),
+        externalMcp: async (_name: string, _fingerprint: string, requested: number) => {
+          attempts.push(requested)
+          if (requested !== generation) throw new Error("MCP state is stale; reload before making changes")
+          return { paths: ["S:/repo/opencode.json"], config: { type: "remote", url: "https://example.com/mcp" } }
+        },
+      }),
+    )
+    await coordinator.setActive("S:/repo", true)
+    const target = exactMcpTarget(coordinator.state.snapshot, coordinator.state.snapshot.observed[0])
+    generation = 7
+
+    const found = await coordinator.externalConfig(target)
+    expect(found.config).toEqual({ type: "remote", url: "https://example.com/mcp" })
+    expect(attempts).toEqual([6, 7])
+    expect(coordinator.state.snapshot.generation).toBe(7)
+  })
+
+  test("a definition that changed underneath the editor is never retried", async () => {
+    const { createMcpCoordinator, exactMcpTarget } = await import("../src/state/mcp")
+    let fingerprint = "sha256:docs"
+    const attempts: unknown[][] = []
+    const coordinator = createMcpCoordinator(
+      dependencies({
+        mcpSnapshot: async (directory: string) => ({
+          generation: fingerprint === "sha256:docs" ? 6 : 7,
+          directory,
+          servers: [],
+          observed: [{ ...observed, fingerprint }],
+        }),
+        saveExternalMcp: async (...args: unknown[]) => {
+          attempts.push(args)
+          throw new Error("MCP state is stale; reload before making changes")
+        },
+      }),
+    )
+    await coordinator.setActive("S:/repo", true)
+    const target = exactMcpTarget(coordinator.state.snapshot, coordinator.state.snapshot.observed[0])
+    fingerprint = "sha256:rewritten"
+
+    await expect(
+      coordinator.saveExternal(target, "docs", { type: "remote", url: "https://example.com/mcp" }),
+    ).rejects.toThrow("stale")
+    expect(attempts).toHaveLength(1)
+  })
+
+  test("approval settles before the engine reports runtime status", async () => {
+    const { createMcpCoordinator, exactMcpTarget } = await import("../src/state/mcp")
+    let releaseStatus!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      releaseStatus = resolve
+    })
+    let statusCalls = 0
+    const pending = { ...observed, decision: "pending" as const }
+    const coordinator = createMcpCoordinator({
+      store: snapshotStore({
+        mcpSnapshot: async (directory: string) => ({
+          generation: 6,
+          directory,
+          servers: [],
+          observed: [pending],
+        }),
+        approveMcp: async () => undefined,
+      }) as never,
+      // Reconnecting every approved server is what makes this slow in the app.
+      status: async () => {
+        if (statusCalls++) await blocked
+        return { docs: { status: "connected" as const } }
+      },
+      connect: async () => undefined,
+      disconnect: async () => undefined,
+      authenticate: async () => undefined,
+    })
+    await coordinator.setActive("S:/repo", true)
+    const target = exactMcpTarget(coordinator.state.snapshot, coordinator.state.snapshot.observed[0])
+
+    await coordinator.decide("approve", target)
+    expect(coordinator.state.mutation).toBeNull()
+    expect(coordinator.state.ready).toBeTrue()
+
+    releaseStatus()
+    await coordinator.settled()
+    expect(statusCalls).toBe(2)
+  })
+
   test("manager offers edit and remove for observed-only rows", async () => {
     const source = await Bun.file("src/ui/mcp/manager.tsx").text()
     expect(source).toContain("props.row.stored || props.target")

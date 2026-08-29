@@ -154,21 +154,28 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     setState("error", "")
   }
 
-  async function refreshUnlocked(request = context()) {
+  /**
+   * Reads the effective snapshot, and by default the runtime status alongside it.
+   *
+   * `runtimeStatus: false` skips the engine round trip. Asking the engine for status makes it
+   * rebuild the instance and reconnect every approved server, which takes as long as the slowest
+   * server; a mutation must not hold the dialog shut for that.
+   */
+  async function refreshUnlocked(request = context(), { runtimeStatus = true } = {}) {
     const api = requireDependencies()
     if (!current(request)) return emptySnapshot(request.directory)
     setState("loading", true)
     setState("ready", false)
     setState("error", "")
     try {
-      let statuses: Record<string, McpStatus> = {}
-      if (request.directory && request.online) {
-        statuses = await api.status(request.directory)
+      let statuses: Record<string, McpStatus> | undefined
+      if (runtimeStatus) {
+        statuses = request.directory && request.online ? await api.status(request.directory) : {}
       }
       const snapshot = await api.store.mcpSnapshot(request.directory)
       if (!current(request)) return snapshot
       setState("snapshot", snapshot)
-      setState("statuses", reconcile(statuses))
+      if (statuses) setState("statuses", reconcile(statuses))
       setState("ready", true)
       return snapshot
     } catch (error) {
@@ -235,6 +242,49 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
       throw new Error("This MCP server changed while the editor was open. Reopen it and review the latest definition.")
   }
 
+  /**
+   * Re-runs an action once against the generation the native side is actually holding.
+   *
+   * Editing a config file advances the generation from the watcher rather than from the command
+   * itself, so the next action can carry a number that went stale between the two. The retry only
+   * proceeds when the definition is otherwise identical, so a definition that genuinely changed
+   * still fails instead of being overwritten from a stale editor.
+   */
+  async function withCurrentGeneration<T>(target: McpExactTarget, run: (target: McpExactTarget) => Promise<T>) {
+    try {
+      return await run(target)
+    } catch (error) {
+      if (!staleGeneration(error)) throw error
+      const snapshot = await refreshUnlocked(context(), { runtimeStatus: false })
+      if (snapshot.directory !== target.directory || snapshot.generation === target.generation) throw error
+      const observed = snapshot.observed.find(
+        (item) =>
+          item.name === target.name &&
+          item.type === target.type &&
+          item.fingerprint === target.fingerprint &&
+          item.decision === target.decision,
+      )
+      if (!observed) throw error
+      return run(exactMcpTarget(snapshot, observed))
+    }
+  }
+
+  async function withCurrentStoredGeneration<T>(
+    name: string,
+    expected: McpStoredExpectation,
+    run: (expected: McpStoredExpectation) => Promise<T>,
+  ) {
+    try {
+      return await run(expected)
+    } catch (error) {
+      if (!staleGeneration(error)) throw error
+      const snapshot = await refreshUnlocked(context(), { runtimeStatus: false })
+      const next = { ...expected, generation: snapshot.generation }
+      if (snapshot.generation === expected.generation || !hasExpectedMcpServer(snapshot, name, next)) throw error
+      return run(next)
+    }
+  }
+
   function mutation(label: string, work: (api: McpCoordinatorDependencies) => Promise<void>) {
     if (state.mutation) return Promise.reject(new Error("Another MCP operation is already in progress."))
     const token = Symbol(label)
@@ -253,7 +303,10 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
           throw new Error(message)
         }
         try {
-          await refreshUnlocked()
+          await refreshUnlocked(context(), { runtimeStatus: false })
+          // Runtime status follows on the queue: the definitions are already correct, and waiting
+          // for every approved server to reconnect would keep the dialog locked after an approval.
+          void serialize(() => refreshStatusUnlocked()).catch(() => undefined)
         } catch {
           // The native mutation committed; keep its success distinct from a failed status refresh.
         }
@@ -274,7 +327,9 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     }
     return mutation(name, async (api) => {
       assertStored(name, expected)
-      await api.store.saveMcp(name, config, expected.generation, expected.previousName)
+      await withCurrentStoredGeneration(name, expected, (active) =>
+        api.store.saveMcp(name, config, active.generation, active.previousName),
+      )
     })
   }
 
@@ -286,7 +341,7 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     }
     return mutation(name, async (api) => {
       assertStored(name, expected)
-      await api.store.removeMcp(name, expected.generation)
+      await withCurrentStoredGeneration(name, expected, (active) => api.store.removeMcp(name, active.generation))
     })
   }
 
@@ -303,7 +358,9 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     }
     return serialize(async () => {
       assertExact(target)
-      return requireDependencies().store.externalMcp(target.name, target.fingerprint, target.generation)
+      return withCurrentGeneration(target, (active) =>
+        requireDependencies().store.externalMcp(active.name, active.fingerprint, active.generation),
+      )
     })
   }
 
@@ -315,7 +372,9 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     }
     return mutation(target.name, async (api) => {
       assertExact(target)
-      await api.store.saveExternalMcp(name, target.name, target.fingerprint, config, target.generation)
+      await withCurrentGeneration(target, (active) =>
+        api.store.saveExternalMcp(name, active.name, active.fingerprint, config, active.generation),
+      )
     })
   }
 
@@ -327,7 +386,9 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     }
     return mutation(target.name, async (api) => {
       assertExact(target)
-      await api.store.removeExternalMcp(target.name, target.fingerprint, target.generation)
+      await withCurrentGeneration(target, (active) =>
+        api.store.removeExternalMcp(active.name, active.fingerprint, active.generation),
+      )
     })
   }
 
@@ -343,10 +404,12 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     }
     return mutation(target.name, async (api) => {
       assertExact(target)
-      const args = [target.directory, target.name, target.fingerprint, target.generation] as const
-      if (action === "approve") await api.store.approveMcp(...args)
-      else if (action === "reject") await api.store.rejectMcp(...args)
-      else await api.store.revokeMcp(...args)
+      await withCurrentGeneration(target, (active) => {
+        const args = [active.directory, active.name, active.fingerprint, active.generation] as const
+        if (action === "approve") return api.store.approveMcp(...args)
+        if (action === "reject") return api.store.rejectMcp(...args)
+        return api.store.revokeMcp(...args)
+      })
     })
   }
 
@@ -424,6 +487,11 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
 function conciseMcpError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   return message.replace(/^Error:\s*/i, "").trim() || "MCP operation failed"
+}
+
+/** The native generation guard rejects with this wording; nothing else in the flow reports it. */
+function staleGeneration(error: unknown) {
+  return /mcp state is stale/i.test(conciseMcpError(error))
 }
 
 export const mcpCoordinator = createMcpCoordinator()
