@@ -26,8 +26,14 @@ function addCandidate(map: Map<string, LanguageMatch>, key: string, language: Sy
 }
 
 async function languageCatalog() {
-  return (catalogPromise ??= Promise.all([import("linguist-languages"), import("shiki")]).then(
-    ([linguist, shiki]) => {
+  // A failed import must not be cached: callers fall back to plain text, so a single transient
+  // failure would otherwise leave every file unhighlighted until the window reloads.
+  return (catalogPromise ??= Promise.all([import("linguist-languages"), import("shiki")])
+    .catch((error: unknown) => {
+      catalogPromise = undefined
+      throw error
+    })
+    .then(([linguist, shiki]) => {
       const shikiNames = new Map<string, SyntaxLanguage>()
       for (const info of shiki.bundledLanguagesInfo) {
         const language = info.id as SyntaxLanguage
@@ -62,8 +68,7 @@ async function languageCatalog() {
         for (const filename of data.filenames ?? []) addCandidate(filenames, normalized(filename), language, preferred)
       }
       return { extensions, filenames, shikiNames }
-    },
-  ))
+    }))
 }
 
 export async function fileLanguageCandidates(path: string): Promise<SyntaxLanguage[]> {

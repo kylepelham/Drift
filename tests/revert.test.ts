@@ -139,6 +139,43 @@ test("a revert older than the loaded page backfills instead of blanking the tran
   expect(revertBackfillNeeded({ revertedAt: "msg_marker", visible: 0, loaded: true, cursor: null })).toBeFalse()
 })
 
+test("a failed backfill page is not requested again until the cursor moves", async () => {
+  const { revertBackfillAttempt } = await import("../src/ui/chat")
+  // A page that never arrived leaves the cursor in place, so the retry gate has to key on it:
+  // matching the last failure means asking again would repeat the request that just failed.
+  expect(revertBackfillAttempt("ses_one", "older")).toBe(revertBackfillAttempt("ses_one", "older"))
+  expect(revertBackfillAttempt("ses_one", "older")).not.toBe(revertBackfillAttempt("ses_one", "older-still"))
+  expect(revertBackfillAttempt("ses_one", "older")).not.toBe(revertBackfillAttempt("ses_two", "older"))
+  // A missing cursor must not collide with a session whose id ends where the separator would be.
+  expect(revertBackfillAttempt("ses_one")).not.toBe(revertBackfillAttempt("ses_one", "older"))
+  expect(revertBackfillAttempt("ses_one", null)).toBe(revertBackfillAttempt("ses_one"))
+
+  const source = await Bun.file("src/ui/chat.tsx").text()
+  expect(source).toContain("if (revertBackfillFailure() === attempt) return")
+  expect(source).toContain("if (!loaded) setRevertBackfillFailure(attempt)")
+})
+
+test("retry models come from connected providers once the engine is online", async () => {
+  const { retryModelItems } = await import("../src/ui/chat")
+  const { createEngineState } = await import("../src/engine/store")
+  const model = (id: string) => ({ id, name: id, capabilities: { toolcall: true }, limit: { context: 200_000 } })
+  const [state, set] = createEngineState()
+  set("providers", [
+    { id: "anthropic", name: "Anthropic", models: { fable: model("fable") } },
+    { id: "openai", name: "OpenAI", models: { "gpt-5": model("gpt-5") } },
+  ] as never)
+
+  // Before the first listing there is nothing to filter against, so retrying can offer anything.
+  set("connection", "connecting")
+  expect(retryModelItems(state).map((item) => item.id)).toEqual(["anthropic/fable", "openai/gpt-5"])
+
+  // Online, an empty connected list is the answer: retrying a disconnected provider only fails.
+  set("connection", "online")
+  expect(retryModelItems(state)).toEqual([])
+  set("connected", ["openai"])
+  expect(retryModelItems(state).map((item) => item.id)).toEqual(["openai/gpt-5"])
+})
+
 test("the transcript shows a loading row while reverted history backfills", async () => {
   const source = await Bun.file("src/ui/chat.tsx").text()
   // The empty-state loading row must also cover backfill, otherwise the view is blank mid-page.
