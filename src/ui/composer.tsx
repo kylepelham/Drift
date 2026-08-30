@@ -69,7 +69,7 @@ import {
   type AttachmentKind,
 } from "../attachments"
 import { interruptResponseAnimations } from "./response-animation"
-import { dragHasFiles, dropTargetActive, nextDragDepth, splitDroppedFiles } from "./drag-drop"
+import { dragHasFiles, dropStagesAttachment, dropTargetActive, nextDragDepth, splitDroppedFiles } from "./drag-drop"
 
 
 // Autosize ceiling for the textarea. Must stay in sync with the `max-h-50` class on the textarea
@@ -246,9 +246,9 @@ export function Composer() {
     const onDrop = (event: DragEvent) => {
       update("drop")
       if (!dragHasFiles(event.dataTransfer?.types)) return
-      // A missed drop must never make the browser navigate to the dropped file.
+      // A missed drop must never make the browser navigate to the dropped file, wherever it landed.
       event.preventDefault()
-      if (!ready() || !event.dataTransfer) return
+      if (!ready() || !event.dataTransfer || !dropStagesAttachment(event.target)) return
       const dropped = splitDroppedFiles(Array.from(event.dataTransfer.items ?? []), Array.from(event.dataTransfer.files ?? []))
       if (dropped.files.length) void addFiles(dropped.files)
       // After addFiles' synchronous error reset, so the notice survives staging kicking off.

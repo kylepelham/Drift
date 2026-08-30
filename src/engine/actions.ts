@@ -435,12 +435,7 @@ export function createActions(
       return { ok: false, error }
     }
     try {
-      const base = target()
-      const directory = options.directory ?? state.sessions[id]?.directory
-      const client = base && directory
-        ? createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
-        : requireClient()
-      const result = await client.session.promptAsync({ path: { id }, body })
+      const result = await sessionClient(id, options.directory).session.promptAsync({ path: { id }, body })
       if (result.error !== undefined) {
         const error = `Prompt failed: ${sdkErrorMessage(result.error, "engine rejected the request")}`
         set("errors", id, error)
@@ -452,6 +447,19 @@ export function createActions(
       set("errors", id, error)
       return { ok: false, error }
     }
+  }
+
+  /**
+   * A client bound to the workspace that owns the session.
+   *
+   * The active client carries the selected workspace as its directory header, but a session being
+   * driven or steered can belong to another one. Addressing it with the active header routes the
+   * turn into the wrong workspace, or gets it rejected outright.
+   */
+  function sessionClient(id: string, directory = state.sessions[id]?.directory) {
+    const base = target()
+    if (!base || !directory) return requireClient()
+    return createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
   }
 
   /**
@@ -467,7 +475,7 @@ export function createActions(
       ...(options.variant ? { variant: options.variant } : {}),
     }
     try {
-      const result = await requireClient().session.promptAsync({ path: { id }, body })
+      const result = await sessionClient(id, options.directory).session.promptAsync({ path: { id }, body })
       if (result.error !== undefined) {
         return { ok: false, error: sdkErrorMessage(result.error, "engine rejected the request") }
       }

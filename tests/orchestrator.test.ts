@@ -116,6 +116,34 @@ test("steer sends a generated prompt through the session's own agent", async () 
   })
 })
 
+test("steering a session outside the active workspace addresses that session's workspace", async () => {
+  const { createActions } = await import("../src/engine/actions")
+  const { createEngineState } = await import("../src/engine/store")
+  const [state, set] = createEngineState()
+  // The driver can steer any orchestrator session, including one the sidebar is not showing.
+  set("directory", "C:/active")
+  set("sessions", { ses: { id: "ses", directory: "C:/other", time: { created: 1, updated: 1 } } } as never)
+
+  const requested: { url: string; directory: string | null }[] = []
+  const original = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const request = input as Request
+    requested.push({ url: request.url, directory: request.headers.get("x-opencode-directory") })
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } })
+  }) as typeof fetch
+  try {
+    const actions = createActions(() => ({}) as never, state, set, () => ({ url: "http://engine.test" }))
+    expect(await actions.steer("ses", PROCEED_PROMPT, { model: null, agent: ORCHESTRATOR_AGENT })).toEqual({ ok: true })
+  } finally {
+    globalThis.fetch = original
+  }
+
+  // A POST carries the workspace as a header rather than a query parameter.
+  expect(requested).toHaveLength(1)
+  expect(requested[0].url).toBe("http://engine.test/session/ses/prompt_async")
+  expect(decodeURIComponent(requested[0].directory ?? "")).toBe("C:/other")
+})
+
 test("the orchestrator agent is defined with delegation-only tools and the status protocol", async () => {
   const config = JSON.parse(await Bun.file("engine/opencode/opencode.json").text()) as {
     agent?: Record<string, { mode?: string; prompt?: string; tools?: Record<string, boolean> }>

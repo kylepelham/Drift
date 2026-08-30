@@ -142,6 +142,24 @@ test("file drags gate the drop target without child churn or text-selection drag
   expect(splitDroppedFiles([item("dir", true)], [fallbackFile])).toEqual({ files: [], directories: 1 })
 })
 
+test("a drop into an open dialog never stages into the composer behind it", async () => {
+  const { dropStagesAttachment } = await import("../src/ui/drag-drop")
+  const target = (dialog: boolean) =>
+    ({ closest: (selectors: string) => (dialog && selectors === '[role="dialog"]' ? {} : null) }) as unknown as EventTarget
+
+  expect(dropStagesAttachment(target(false))).toBeTrue()
+  expect(dropStagesAttachment(target(true))).toBeFalse()
+  // The window and text nodes carry no `closest`, and a drop on either belongs to the chat.
+  expect(dropStagesAttachment(null)).toBeTrue()
+  expect(dropStagesAttachment({} as EventTarget)).toBeTrue()
+
+  // Staging is gated on the drop target, while preventDefault stays unconditional so a stray
+  // drop can never navigate the window to the file.
+  const source = await Bun.file("src/ui/composer.tsx").text()
+  expect(source).toContain("!dropStagesAttachment(event.target)")
+  expect(source).toMatch(/event\.preventDefault\(\)\s*\n\s*if \(!ready\(\)/)
+})
+
 test("dropped OS files reach the same staging pipeline as the picker", async () => {
   const composer = await Bun.file("src/ui/composer.tsx").text()
   expect(composer).toContain('window.addEventListener("dragenter", onDragEnter)')

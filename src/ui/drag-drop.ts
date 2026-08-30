@@ -27,6 +27,21 @@ export function dropTargetActive(depth: number) {
   return depth > 0
 }
 
+/**
+ * Whether a drop belongs to the composer rather than to whatever is open above it.
+ *
+ * The listeners are window-level so a drop anywhere over the chat attaches, but dialogs render on
+ * top of that chat. A file dropped into one is meant for that dialog, or for nothing at all, and
+ * must not be staged into the composer hidden behind it.
+ */
+export function dropStagesAttachment(target: EventTarget | null) {
+  // Duck-typed rather than an `instanceof Element` check: the window itself and text nodes are
+  // both legitimate targets that carry no `closest`, and neither sits inside a dialog.
+  const element = target as { closest?: (selectors: string) => unknown } | null
+  if (typeof element?.closest !== "function") return true
+  return !element.closest('[role="dialog"]')
+}
+
 export type DroppedItemLike = {
   kind: string
   getAsFile(): File | null
