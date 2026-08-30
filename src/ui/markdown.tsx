@@ -3,6 +3,7 @@ import { marked } from "marked"
 import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { shellInvoke } from "../shell"
+import { resolveFileLanguage } from "../syntax-language"
 import { t } from "../state/i18n"
 import { syntaxTheme } from "../state/code"
 import { animateResponses, responseAnimationSpeed } from "../state/prefs"
@@ -13,6 +14,7 @@ import {
   responseRevealSegmentSize,
   revealResponseNodes,
   shouldPreserveResponseReveal,
+  shouldQueueResponseRedraw,
 } from "./response-animation"
 
 marked.use({ gfm: true, breaks: true })
@@ -306,6 +308,37 @@ export function fixEscapedEmphasis(text: string) {
   )
 }
 
+const numberedLinePattern = /^\s{0,3}(\d{1,9})\.(?=\s|$)/
+
+/**
+ * Escapes the marker dot of a lone line-leading number so figures like `20456. it` render as
+ * prose. CommonMark treats any `N.` line (N up to 9 digits) as an ordered list, but a larger
+ * start number is only plausibly a list when a sibling line continues the sequence, e.g. `13.`
+ * after `12.`. Start numbers 0 and 1 always open a list.
+ */
+function escapeLoneNumberedLines(text: string) {
+  return mapProseChunks(text, (chunk) => {
+    const lines = chunk.split("\n")
+    const numbers = lines.map((line) => numberedLinePattern.exec(line)?.[1])
+    const numbered = numbers.flatMap((value, index) => (value === undefined ? [] : [index]))
+    // Numbered lines arrive in order, so the running count is that line's position in `numbered`.
+    let position = -1
+    return lines
+      .map((line, index) => {
+        const value = numbers[index]
+        if (value === undefined) return line
+        position += 1
+        const start = Number(value)
+        if (start <= 1) return line
+        const previous = position > 0 ? Number(numbers[numbered[position - 1]]) : undefined
+        const next = position < numbered.length - 1 ? Number(numbers[numbered[position + 1]]) : undefined
+        if (previous === start - 1 || next === start + 1) return line
+        return line.replace(".", "\\.")
+      })
+      .join("\n")
+  })
+}
+
 const urlPattern = /https?:\/\/[^\s<>"')\]]+/g
 const accidentalEntities: Record<string, string> = { "-": "&#45;", "=": "&#61;", "*": "&#42;", _: "&#95;" }
 
@@ -419,7 +452,7 @@ function escapeUnbalancedHtmlChunk(text: string) {
 }
 
 export function prepareMarkdown(text: string, humanAuthored = false) {
-  return escapeUnbalancedHtml(humanAuthored ? humanizeProse(text) : fixEscapedEmphasis(text))
+  return escapeUnbalancedHtml(escapeLoneNumberedLines(humanAuthored ? humanizeProse(text) : fixEscapedEmphasis(text)))
 }
 
 function openExternalLink(event: MouseEvent) {
@@ -523,11 +556,26 @@ export function codeChunks(code: string) {
   return result
 }
 
-export function ProgressiveCodeView(props: { code: string; lang: string }) {
+export function ProgressiveCodeView(props: { code: string; filename: string }) {
   let root!: HTMLDivElement
   let observer: IntersectionObserver | undefined
   const chunks = createMemo(() => codeChunks(props.code))
   const [active, setActive] = createSignal(new Set([0]))
+  const [language, setLanguage] = createSignal<string>()
+  let languageRequest = 0
+
+  createEffect(() => {
+    const filename = props.filename
+    const current = ++languageRequest
+    setLanguage(undefined)
+    void resolveFileLanguage(filename)
+      .then((result) => {
+        if (current === languageRequest) setLanguage(result)
+      })
+      .catch(() => {
+        if (current === languageRequest) setLanguage("text")
+      })
+  })
 
   createEffect(() => {
     const count = chunks().length
@@ -552,8 +600,8 @@ export function ProgressiveCodeView(props: { code: string; lang: string }) {
       <For each={chunks()}>
         {(code, index) => (
           <div class="code-stream-chunk" data-chunk={index()}>
-            <Show when={active().has(index())} fallback={<pre>{code}</pre>}>
-              <CodeView code={code} lang={props.lang} />
+            <Show when={active().has(index()) ? language() : undefined} fallback={<pre>{code}</pre>}>
+              {(lang) => <CodeView code={code} lang={lang()} />}
             </Show>
           </div>
         )}
@@ -570,7 +618,9 @@ type MarkdownAddition = Text | HTMLElement
 
 function collectWholeAddition(node: Node, additions: MarkdownAddition[]) {
   if (node.nodeType === Node.TEXT_NODE) {
-    if (node.textContent) additions.push(node as Text)
+    // Marked formats table rows with newline text nodes. Wrapping those in spans creates
+    // anonymous table cells, so structural whitespace must stay as plain text.
+    if (node.textContent?.trim()) additions.push(node as Text)
     return
   }
   if (node.nodeType !== Node.ELEMENT_NODE) return
@@ -672,6 +722,7 @@ export function Markdown(props: {
   humanAuthored?: boolean
   responseID?: string
   live?: boolean
+  revision?: number
 }) {
   let root!: HTMLDivElement
   let request = 0
@@ -681,6 +732,7 @@ export function Markdown(props: {
   let sourceSignatures: string[] = []
   let sourceNodes: ChildNode[] = []
   let renderedTheme: BundledTheme | undefined
+  let renderedRevision = props.revision
   let previousLength = 0
   let mounted = false
   let revealActive = false
@@ -689,9 +741,11 @@ export function Markdown(props: {
   let flushReveal = false
   let finishReveal = () => {}
   const [revealRevision, setRevealRevision] = createSignal(0)
-  const html = createMemo(() =>
-    DOMPurify.sanitize(marked.parse(prepareMarkdown(props.text, props.humanAuthored), { async: false })),
-  )
+  // Reconcile can swap slot text without notifying consumers, so revision forces reparse and render.
+  const html = createMemo(() => {
+    void props.revision
+    return DOMPurify.sanitize(marked.parse(prepareMarkdown(props.text, props.humanAuthored), { async: false }))
+  })
   onMount(() => window.addEventListener(responseAnimationInterruptEvent, finishActiveReveal))
   onCleanup(() => {
     request++
@@ -718,6 +772,8 @@ export function Markdown(props: {
 
   createEffect(() => {
     revealRevision()
+    const revision = props.revision
+    const revisionChanged = revision !== renderedRevision
     const theme = syntaxTheme() as BundledTheme
     const responseID = props.responseID
     const identityChanged = responseID !== identity
@@ -739,7 +795,7 @@ export function Markdown(props: {
       canAnimate &&
       shouldPreserveResponseReveal(revealActive, previousLength, textLength, live, done)
     ) {
-      revealQueued ||= textLength > previousLength
+      revealQueued ||= shouldQueueResponseRedraw(previousLength, textLength, revisionChanged)
       revealDone ||= done && textLength > previousLength
       return
     }
@@ -781,6 +837,7 @@ export function Markdown(props: {
     }
     identity = responseID
     previousLength = textLength
+    renderedRevision = revision
     mounted = true
     decorateCodeBlocks(root)
     void highlightBlocks(root, theme, () => current === request, !props.done && endsInsideFence(props.text)).then(

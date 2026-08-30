@@ -17,3 +17,5 @@ examples/
 engine/.overlay-lock-reclaimed/
 engine/.overlay-lock-candidate-*/
 .build/
+
+releases/

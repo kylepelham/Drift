@@ -1,5 +1,5 @@
 import type { FilePart, Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
-import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, untrack, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
 import { Chevron } from "./controls"
@@ -13,10 +13,10 @@ import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../st
 import { TextShimmer } from "./text-shimmer"
 import { openToolContextMenu } from "./tool-context-menu"
 import { permissionRequiresAttention } from "../state/permission-attention"
-import type { EngineState } from "../engine/store"
-import { recoverableForSession, recoverableInterruptions, resumedSessions } from "../state/recovery"
+import { childrenOf, type EngineState } from "../engine/store"
 import { ToolDuration } from "./tool-duration"
 import { resolveAttachmentKind } from "../attachments"
+import { resolveFileLanguage } from "../syntax-language"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -38,7 +38,7 @@ const fontStyleItalic = 1
 const fontStyleBold = 2
 const fontStyleUnderline = 4
 
-export function PartView(props: { part: Part; responseID?: string; live?: boolean }) {
+export function PartView(props: { part: Part; responseID?: string; live?: boolean; revision?: number; thinking?: boolean }) {
   return (
     <Switch>
       <Match when={props.part.type !== "tool" && hasPartRenderer(props.part.type) && props.part}>
@@ -51,11 +51,12 @@ export function PartView(props: { part: Part; responseID?: string; live?: boolea
             done={!!part().time?.end}
             responseID={props.responseID}
             live={props.live}
+            revision={props.revision}
           />
         )}
       </Match>
       <Match when={showReasoning() && props.part.type === "reasoning" && (props.part as ReasoningPart)}>
-        {(part) => <ReasoningView part={part()} />}
+        {(part) => <ReasoningView part={part()} revision={props.revision} />}
       </Match>
       <Match
         when={
@@ -80,7 +81,10 @@ export function PartView(props: { part: Part; responseID?: string; live?: boolea
       <Match when={props.part.type === "compaction"}>
         <div class="my-2 flex items-center gap-3 text-xs text-ink-faint">
           <div class="h-px flex-1 bg-edge" />
-          {t("drift.context.compacted")}
+          <TextShimmer
+            text={props.thinking ? t("drift.context.compacting") : t("drift.context.compacted")}
+            active={!!props.thinking}
+          />
           <div class="h-px flex-1 bg-edge" />
         </div>
       </Match>
@@ -209,7 +213,7 @@ function ImageThumb(props: { url: string; filename?: string; mime?: string }) {
   )
 }
 
-function ReasoningView(props: { part: ReasoningPart }) {
+function ReasoningView(props: { part: ReasoningPart; revision?: number }) {
   const [open, setOpen] = createSignal(false)
   const thinking = () => !props.part.time.end
   return (
@@ -223,7 +227,7 @@ function ReasoningView(props: { part: ReasoningPart }) {
       </button>
       <Show when={open()}>
         <div class="mt-1.5 border-l-2 border-edge pl-3 text-ink-muted">
-          <Markdown text={props.part.text} done={!thinking()} />
+          <Markdown text={props.part.text} done={!thinking()} revision={props.revision} />
         </div>
       </Show>
     </div>
@@ -316,10 +320,6 @@ export function taskHeading(agent?: string, description?: string) {
 function filename(path?: string) {
   if (!path) return undefined
   return path.replaceAll("\\", "/").split("/").filter(Boolean).at(-1)
-}
-
-function extension(name?: string) {
-  return name?.match(/\.(\w+)$/)?.[1]?.toLowerCase() ?? "text"
 }
 
 function argsPreview(input: Record<string, unknown> | undefined) {
@@ -441,7 +441,23 @@ export function toolChevronVisible(active: boolean, delegated: boolean) {
 }
 
 export function delegatedTaskClickPolicy(status: DelegatedTaskStatus | null, childId: string | null) {
-  return childId && (status === "running" || status === "resumed") ? "navigate" : "expand"
+  return childId && status === "running" ? "navigate" : "expand"
+}
+
+export function delegatedChildId(state: EngineState, part: ToolPart) {
+  if (part.tool !== "task" && part.tool !== "spawn_thread") return null
+  const sessionId = (toolMeta(part) as { sessionId?: unknown } | undefined)?.sessionId
+  if (typeof sessionId === "string" && sessionId) return sessionId
+  if (part.tool !== "task") return null
+
+  const input = part.state.input as { description?: unknown; subagent_type?: unknown; task_id?: unknown } | undefined
+  if (typeof input?.task_id === "string" && input.task_id) return input.task_id
+  if (typeof input?.description !== "string" || typeof input.subagent_type !== "string") return null
+
+  // Parallel tasks can create their child before the running tool part persists its session metadata.
+  const title = `${input.description} (@${input.subagent_type} subagent)`
+  const matches = childrenOf(state, part.sessionID).filter((session) => session.title === title)
+  return matches.length === 1 ? matches[0].id : null
 }
 
 function diffStats(diff: string) {
@@ -459,21 +475,28 @@ export function ToolView(props: { part: ToolPart }) {
   const state = () => props.part.state
   const info = () => toolInfo(props.part)
   const delegated = () => props.part.tool === "task" || props.part.tool === "spawn_thread"
-  const delegatedStatus = () => {
-    recoverableInterruptions()
-    resumedSessions()
+  // A hoisted declaration: delegatedStatus below is an eager memo, and a `const` accessor here
+  // would still be in its temporal dead zone during the first evaluation, crashing every
+  // transcript that contains a delegated task row.
+  function spawnedId() {
+    return delegatedChildId(engine.state, props.part)
+  }
+  // Memoized: this scans the parent transcript for terminal markers and is read from half a dozen
+  // reactive positions per tool row; unmemoized it re-ran the scan for each of them per delta.
+  const delegatedStatus = createMemo(() => {
+    if (!delegated()) return null
     const childId = spawnedId()
     return childId ? delegatedTaskStatus(engine.state, props.part, childId) : null
-  }
+  })
   const active = () => {
     if (awaitingPermission(engine.state, props.part)) return false
-    if (delegated()) return delegatedStatus() === "running" || delegatedStatus() === "resumed"
+    if (delegated()) return delegatedStatus() === "running"
     return state().status === "running" || state().status === "pending"
   }
   const title = () => (info().called ? `${t("drift.tool.called")} ${info().called}` : (info().title ?? props.part.tool))
   const progress = () => {
     const childId = spawnedId()
-    if (!childId || (delegatedStatus() !== "running" && delegatedStatus() !== "resumed")) return null
+    if (!childId || delegatedStatus() !== "running") return null
     const activity = engine.state.activity[childId]
     if (!activity) return null
     const count = t(activity.tools === 1 ? "drift.count.tool.one" : "drift.count.tool.other", { count: activity.tools })
@@ -499,10 +522,6 @@ export function ToolView(props: { part: ToolPart }) {
     return patch ? diffStats(patch) : null
   }
   const timeout = () => shellTimeoutStatus(props.part)
-  const spawnedId = () => {
-    if (props.part.tool !== "task" && props.part.tool !== "spawn_thread") return null
-    return (toolMeta(props.part) as { sessionId?: string } | undefined)?.sessionId ?? null
-  }
   const activate = () => {
     if (delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "navigate") {
       selectSession(spawnedId()!)
@@ -603,20 +622,18 @@ export function ToolView(props: { part: ToolPart }) {
   )
 }
 
-export type DelegatedTaskStatus = "running" | "interrupted" | "resumed" | "completed" | "error"
+export type DelegatedTaskStatus = "running" | "completed" | "error"
 
 export function delegatedTaskStatus(
   state: EngineState,
   part: Pick<ToolPart, "sessionID" | "state">,
   childId: string,
 ): DelegatedTaskStatus {
-  if (recoverableForSession(childId)) return "interrupted"
-  const resumed = resumedSessions().has(childId)
-  if (sessionRunning(state, childId)) return resumed ? "resumed" : "running"
+  if (state.errors[childId]) return "error"
+  if (sessionRunning(state, childId)) return "running"
   // A live task part is newer authority than terminal markers elsewhere in the parent transcript.
   // The same child can be resumed, leaving an older completion marker behind while work continues.
-  if (part.state.status === "pending" || part.state.status === "running") return resumed ? "resumed" : "running"
-  if (resumed) return "completed"
+  if (part.state.status === "pending" || part.state.status === "running") return "running"
   const terminal = delegatedTerminalState(state, part, childId)
   if (terminal) return terminal
   return part.state.status === "error" ? "error" : "running"
@@ -659,10 +676,10 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
     return typeof input.content === "string" ? { content: input.content, name: filename(input.filePath) } : null
   }
   const patched = () => (props.part.tool === "apply_patch" ? patchFiles(props.part) : [])
-  const diffLanguage = () => {
+  const diffFilename = () => {
     const input = state().input as { filePath?: string }
     const file = patched()[0]
-    return extension(file?.relativePath ?? file?.filePath ?? input.filePath)
+    return file?.relativePath ?? file?.filePath ?? input.filePath ?? ""
   }
   const tasked = () => taskBody(props.part)
   return (
@@ -693,11 +710,11 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
         </Match>
         <Match when={written()}>
           {(file) => (
-            <ProgressiveCodeView code={file().content} lang={extension(file().name)} />
+            <ProgressiveCodeView code={file().content} filename={file().name ?? ""} />
           )}
         </Match>
         <Match when={patched().length > 1 && patched()}>{(files) => <PatchPanel files={files()} />}</Match>
-        <Match when={props.diff}>{(patch) => <DiffPanel diff={patch()} lang={diffLanguage()} />}</Match>
+        <Match when={props.diff}>{(patch) => <DiffPanel diff={patch()} filename={diffFilename()} />}</Match>
       </Switch>
       <Show when={props.error}>
         {(message) => (
@@ -1042,28 +1059,56 @@ export function parseDiff(diff: string): DiffRow[] {
   return rows
 }
 
-function DiffPanel(props: { diff: string; lang: string; bare?: boolean }) {
+/**
+ * Identifies one exact highlighting result: the same file, code, language and theme.
+ *
+ * Keying by content rather than by object identity is what keeps a diff highlighted. Every
+ * transcript update rebuilds the parsed rows, and an identity check would treat that equal content
+ * as new work, blanking the colours until shiki answered again. An empty key means the language is
+ * still resolving, or resolved against a filename this panel no longer shows.
+ */
+export function diffHighlightKey(
+  theme: string,
+  language: { filename: string; value: string } | undefined,
+  filename: string,
+  code: string,
+) {
+  if (!language || language.filename !== filename) return ""
+  return `${theme}\0${language.value}\0${code}`
+}
+
+function DiffPanel(props: { diff: string; filename: string; bare?: boolean }) {
   const rows = createMemo(() => parseDiff(props.diff))
-  const source = createMemo(() => ({
-    code: rows().map((row) => row.text).join("\n"),
-    lang: props.lang,
-    theme: syntaxTheme(),
-  }))
-  const [tokens, setTokens] = createSignal<SyntaxToken[][]>([])
-  let highlighted: ReturnType<typeof source> | undefined
+  const code = createMemo(() => rows().map((row) => row.text).join("\n"))
+  const [language, setLanguage] = createSignal<{ filename: string; value: string }>()
+  const [highlight, setHighlight] = createSignal<{ key: string; tokens: SyntaxToken[][] }>()
+  let languageRequest = 0
   let request = 0
   createEffect(() => {
-    const next = source()
-    const current = ++request
-    highlighted = undefined
-    setTokens([])
-    void codeTokens(next.code, next.lang).then((result) => {
-      if (current !== request) return
-      highlighted = next
-      setTokens(result)
-    })
+    const filename = props.filename
+    const current = ++languageRequest
+    setLanguage(undefined)
+    void resolveFileLanguage(filename)
+      // A failed catalog load must degrade to plain text, not leave the panel unhighlighted forever.
+      .catch(() => "text")
+      .then((value) => {
+        if (current === languageRequest) setLanguage({ filename, value })
+      })
   })
-  const visibleTokens = () => (highlighted === source() ? tokens() : [])
+  const highlightKey = createMemo(() => diffHighlightKey(syntaxTheme(), language(), props.filename, code()))
+  createEffect(() => {
+    const key = highlightKey()
+    const resolved = language()
+    const current = ++request
+    if (!key || !resolved) return
+    if (untrack(() => highlight()?.key) === key) return
+    void codeTokens(code(), resolved.value)
+      .catch(() => [] as SyntaxToken[][])
+      .then((tokens) => {
+        if (current === request) setHighlight({ key, tokens })
+      })
+  })
+  const visibleTokens = () => (highlight()?.key === highlightKey() ? (highlight()?.tokens ?? []) : [])
   return (
     <div class="diff-view overflow-hidden" classList={{ "rounded-lg border border-edge": !props.bare }}>
       <div class="transcript-tool-output max-h-80 overflow-auto py-1 font-mono leading-relaxed">
@@ -1166,7 +1211,7 @@ function PatchFilePanel(props: { file: PatchFile }) {
       </button>
       <Show when={open()}>
         <div class="border-t border-edge">
-          <DiffPanel diff={props.file.patch} lang={extension(props.file.relativePath ?? props.file.filePath)} bare />
+          <DiffPanel diff={props.file.patch} filename={props.file.relativePath ?? props.file.filePath} bare />
         </div>
       </Show>
     </div>

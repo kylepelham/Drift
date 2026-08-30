@@ -55,10 +55,6 @@ const memoryStore: DriftStore = {
     storedArchived = storedArchived.filter((a) => a.sessionId !== sessionId)
   },
   expiredArchived: async (before) => storedArchived.filter((a) => a.archivedAt < before).map((a) => a.sessionId),
-  interruptions: async () => [],
-  saveInterruption: unsupported,
-  dismissInterruption: unsupported,
-  clearInterruptions: async () => undefined,
   mcpSnapshot: unsupported,
   saveMcp: unsupported,
   removeMcp: unsupported,

@@ -814,7 +814,13 @@ function ProvidersSection() {
   const [expanded, setExpanded] = createSignal<string | null>(null)
   const [query, setQuery] = createSignal("")
   const [notice, setNotice] = createSignal<ProviderNotice | null>(null)
-  onMount(() => void engine.actions.providerAuthMethods().then((map) => setMethods({ ...map })))
+  createEffect(() => {
+    if (engine.state.connection !== "online") return
+    void engine.actions
+      .providerAuthMethods()
+      .then((map) => setMethods({ ...map }))
+      .catch(() => {})
+  })
 
   const groups = createMemo(() => {
     const value = query().toLowerCase()
@@ -848,16 +854,16 @@ function ProvidersSection() {
             <ProviderIcon id={provider.id} class="size-4.5" />
           </span>
           <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{provider.name}</span>
-          <span
-            class="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[0.68rem]"
-            classList={{
-              "border-ok/25 bg-ok/10 text-ok": connected(),
-              "border-edge bg-surface/60 text-ink-faint": !connected(),
-            }}
-          >
-            <span class="size-1.5 rounded-full" classList={{ "bg-ok": connected(), "bg-ink-faint": !connected() }} />
-            {connected() ? t("mcp.status.connected") : t("drift.settings.providers.notConnected")}
-          </span>
+          {/* The section headers already say connected / not connected, so the row only needs a
+              quiet dot rather than a bordered pill repeating the group it sits in. */}
+          <Show when={connected()}>
+            <span
+              role="img"
+              aria-label={t("mcp.status.connected")}
+              title={t("mcp.status.connected")}
+              class="size-1.5 shrink-0 rounded-full bg-ok"
+            />
+          </Show>
           <span class="text-ink-faint transition-colors group-hover:text-ink-muted">
             <Chevron open={open()} />
           </span>
@@ -882,7 +888,7 @@ function ProvidersSection() {
   return (
     <div class="space-y-1">
       <input
-        class="mb-2 w-full rounded-lg border border-edge bg-surface px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-edge-strong"
+        class="mb-2 h-9 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
         placeholder={t("dialog.provider.search.placeholder")}
         value={query()}
         onInput={(event) => setQuery(event.currentTarget.value)}
@@ -1069,7 +1075,8 @@ function ProviderConnect(props: {
     props.onNotice({ tone: "error", text: message })
   }
 
-  async function finish(result: { ok: boolean; connected: boolean }) {
+  async function finish(request: Promise<{ ok: boolean; connected: boolean }>) {
+    const result = await request.catch(() => ({ ok: false, connected: props.connected }))
     if (!result.ok) {
       fail(t("drift.provider.connectFailed", { provider: props.providerName }))
       return
@@ -1088,7 +1095,7 @@ function ProviderConnect(props: {
     if (!key().trim()) return
     setPending("connect")
     setError("")
-    await finish(await engine.actions.setProviderKey(props.providerId, key().trim()))
+    await finish(engine.actions.setProviderKey(props.providerId, key().trim()))
   }
 
   async function startOauth() {
@@ -1104,7 +1111,7 @@ function ProviderConnect(props: {
     setAuthorization(auth)
     openExternal(auth.url)
     if (auth.method === "auto") {
-      await finish(await engine.actions.providerCallback(props.providerId, methodIndex()))
+      await finish(engine.actions.providerCallback(props.providerId, methodIndex()))
       setAuthorization(null)
       return
     }
@@ -1115,7 +1122,7 @@ function ProviderConnect(props: {
     if (!code().trim()) return
     setPending("connect")
     setError("")
-    await finish(await engine.actions.providerCallback(props.providerId, methodIndex(), code().trim()))
+    await finish(engine.actions.providerCallback(props.providerId, methodIndex(), code().trim()))
   }
 
   async function disconnect() {

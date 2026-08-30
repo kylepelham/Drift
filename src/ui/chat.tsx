@@ -1,7 +1,15 @@
 import type { AssistantMessage, Part, SessionStatus } from "@opencode-ai/sdk/client"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
-import { compareMessages, messageText, type MessageEntry } from "../engine/store"
+import {
+  compareMessages,
+  messageRevisionKey,
+  messageText,
+  modelInfo,
+  type EngineState,
+  type MessageEntry,
+  type ModelRef,
+} from "../engine/store"
 import { codeFontSize } from "../state/code"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
@@ -17,9 +25,10 @@ import {
 } from "./message"
 import { TextShimmer } from "./text-shimmer"
 import { DriftLogo } from "./logo"
-import { recoverableForSession, recoverableInterruptions } from "../state/recovery"
-import { RecoveryCard } from "./recovery"
-import { collapseCompaction, compactionCollapsed } from "../state/prefs"
+import { lmStudioModelReady } from "../state/lm-studio"
+import { collapseCompaction, compactionCollapsed, orderedModelProviderIds, prefsFor, updatePrefs } from "../state/prefs"
+import { Picker, type PickerItem } from "./picker"
+import { ProviderIcon } from "./provider-icon"
 
 const estimatedRow = 96
 const overscan = 800
@@ -42,6 +51,10 @@ export function Chat() {
     if (!id) return []
     const revertedAt = engine.state.sessions[id]?.revert?.messageID
     const transcript = engine.state.transcripts[id] ?? []
+    // Nested part replacement does not invalidate every memo that iterates the transcript proxy.
+    // Event reducers already bump this key for every message/part update, so consume it at the
+    // transcript derivation boundary before persistent assistant slots reconcile their source.
+    for (const entry of transcript) engine.state.revisions[messageRevisionKey(id, entry.info.id)]
     const boundary = revertedAt ? transcript.find((entry) => entry.info.id === revertedAt) : undefined
     const sorted = [...transcript]
       .filter((entry) => {
@@ -61,11 +74,6 @@ export function Chat() {
     if (latest?.info.role !== "assistant") return error
     const messageError = (latest.info as { error?: { name: string; data?: unknown } }).error
     return messageError && messageError.name !== "MessageAbortedError" ? null : error
-  })
-  const recoverable = createMemo(() => {
-    recoverableInterruptions()
-    const id = selectedSession()
-    return id ? recoverableForSession(id) : undefined
   })
   const thinking = createMemo(() => {
     const id = selectedSession()
@@ -99,14 +107,61 @@ export function Chat() {
     if (known && engine.state.connection === "online") void engine.actions.openSession(id)
   })
 
+  // A revert that spans more than one transcript page can put every loaded message inside the
+  // reverted range, leaving the timeline empty (the marker itself may not even be loaded). Page
+  // older history in until something pre-revert is visible or the history is exhausted. The
+  // in-flight signal re-runs this effect when each page lands, so the loop advances one page at
+  // a time and stops the moment an entry survives the revert filter.
+  const [revertBackfill, setRevertBackfill] = createSignal(false)
+  const [revertBackfillFailure, setRevertBackfillFailure] = createSignal<string>()
+  createEffect(() => {
+    const id = selectedSession()
+    if (!id || revertBackfill()) return
+    const cursor = engine.state.cursors[id]
+    if (
+      !revertBackfillNeeded({
+        revertedAt: engine.state.sessions[id]?.revert?.messageID,
+        visible: entries().length,
+        loaded: engine.state.loaded[id],
+        cursor,
+      })
+    )
+      return
+    // A page that never arrived leaves the cursor untouched, so the next run would ask for the
+    // same page and keep asking. Remember the attempt and wait for the cursor or session to move.
+    const attempt = revertBackfillAttempt(id, cursor)
+    if (revertBackfillFailure() === attempt) return
+    setRevertBackfill(true)
+    void engine.actions
+      .loadOlder(id)
+      .then((loaded) => {
+        if (!loaded) setRevertBackfillFailure(attempt)
+      })
+      .catch(() => setRevertBackfillFailure(attempt))
+      .finally(() => setRevertBackfill(false))
+  })
+
   let scroller!: HTMLDivElement
   const [stick, setStick] = createSignal(true)
   const [awayFromBottom, setAwayFromBottom] = createSignal(false)
   const [viewTop, setViewTop] = createSignal(0)
   const [viewHeight, setViewHeight] = createSignal(800)
   const heights = new Map<string, number>()
+  // Every part delta rebuilds offsets; re-estimating the text of hundreds of unmounted rows per
+  // delta would burn a visible slice of a core, so estimates are cached per message revision.
+  const estimates = new Map<string, { rev?: number; fontSize: number; thinking: boolean; collapsed: boolean; value: number }>()
   const [measured, setMeasured] = createSignal(0)
   let loadingOlder = false
+
+  function rowEstimate(entry: MessageEntry, parts: Part[], fontSize: number, thinking: boolean, collapsed: boolean) {
+    const rev = engine.state.revisions[messageRevisionKey(entry.info.sessionID, entry.info.id)]
+    const cached = estimates.get(entry.info.id)
+    if (cached && cached.rev === rev && cached.fontSize === fontSize && cached.thinking === thinking && cached.collapsed === collapsed)
+      return cached.value
+    const value = estimatedTimelineRow(entry, fontSize, parts, thinking, collapsed)
+    estimates.set(entry.info.id, { rev, fontSize, thinking, collapsed, value })
+    return value
+  }
 
   const offsets = createMemo(() => {
     measured()
@@ -119,7 +174,7 @@ export function Chat() {
       const entry = list[index]
       const parts = timelineParts(entry, groups.get(entry.info.id))
       result[index + 1] = result[index] +
-        (heights.get(entry.info.id) ?? estimatedTimelineRow(entry, fontSize, parts, thinkingOnly(entry), collapsedSummary(entry)))
+        (heights.get(entry.info.id) ?? rowEstimate(entry, parts, fontSize, thinkingOnly(entry), collapsedSummary(entry)))
     }
     return result
   })
@@ -167,12 +222,9 @@ export function Chat() {
     // Preserve the sticky bottom before publishing a resized viewport. Browser clamping can move
     // scrollTop when the composer/attention dock grows; recording that transient position makes
     // the virtual range jump before the queued follow correction runs.
-    if (untrack(stick)) scroller.scrollTop = scroller.scrollHeight
+    if (untrack(stick)) snapViewportToBottom()
+    else publishViewport()
     const top = scroller.scrollTop
-    batch(() => {
-      setViewTop(top)
-      setViewHeight(scroller.clientHeight)
-    })
     if (untrack(stick)) return
     const distance = scroller.scrollHeight - top - scroller.clientHeight
     setAwayFromBottom(shouldShowScrollToBottom(distance))
@@ -184,14 +236,36 @@ export function Chat() {
     observer.observe(element)
   }
 
+  function publishViewport() {
+    batch(() => {
+      setViewTop(scroller.scrollTop)
+      setViewHeight(scroller.clientHeight)
+    })
+  }
+
+  function snapViewportToBottom() {
+    snapVirtualViewport(scroller, (top, height) => {
+      batch(() => {
+        setViewTop(top)
+        setViewHeight(height)
+      })
+    })
+  }
+
   createEffect(on(selectedSession, () => {
     heights.clear()
+    estimates.clear()
+    scroller.scrollTop = 0
     batch(() => {
       setMeasured((value) => value + 1)
       setStick(true)
       setAwayFromBottom(false)
       setViewTop(0)
+      setViewHeight(scroller.clientHeight)
     })
+    // Wait for keyed transcript content and browser layout before snapping the DOM and virtual
+    // viewport together. The immediate top reset keeps the interim frame valid rather than blank.
+    requestAnimationFrame(snapViewportToBottom)
   }))
 
   // Untracked stick: content growth follows the bottom, but flipping stick on its own
@@ -203,7 +277,7 @@ export function Chat() {
     sessionError()
     thinking()
     if (untrack(stick)) {
-      queueMicrotask(() => scroller.scrollTo({ top: scroller.scrollHeight }))
+      queueMicrotask(snapViewportToBottom)
       return
     }
     queueMicrotask(() => {
@@ -258,7 +332,11 @@ export function Chat() {
 
   function maybeLoadOlder(top: number) {
     const id = selectedSession()
-    if (!id || loadingOlder || top > loadOlderAt || !engine.state.cursors[id]) return
+    // A stuck view is auto-following the bottom, so any top position it reports is synthetic:
+    // the session-switch reset assigns scrollTop = 0 and measurement churn can pass through the
+    // top zone before the bottom snap lands. Paging in history for those would fight the snap
+    // with competing scroll corrections. Only a user scroll can unstick, so real reads still page.
+    if (!id || loadingOlder || untrack(stick) || top > loadOlderAt || !engine.state.cursors[id]) return
     loadingOlder = true
     const before = scroller.scrollHeight - scroller.scrollTop
     void engine.actions.loadOlder(id).finally(() => {
@@ -292,7 +370,7 @@ export function Chat() {
       >
         <Show when={selectedSession()} keyed fallback={<EmptyState />}>
           <div class="fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
-            <Show when={timeline().length === 0 && !engine.state.loaded[selectedSession()!] && engine.state.connection === "online" && !sessionError()}>
+            <Show when={timeline().length === 0 && (revertBackfill() || (!engine.state.loaded[selectedSession()!] && engine.state.connection === "online")) && !sessionError()}>
               <div class="flex justify-center pt-8 text-sm select-none" role="status" aria-live="polite">
                 <TextShimmer text={t("common.loading")} />
               </div>
@@ -306,6 +384,7 @@ export function Chat() {
                   nextThinking={thinkingOnly(nextEntries().get(entry.info.id))}
                   groups={assistantGroups().get(entry.info.id)}
                   thinking={thinking()?.messageID === entry.info.id && !retry()}
+                  thinkingCompaction={thinking()?.compaction}
                   thinkingHeading={thinking()?.heading}
                   retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
                   terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
@@ -317,14 +396,7 @@ export function Chat() {
               aria-hidden="true"
               style={{ height: `${(offsets().at(-1) ?? 0) - offsets()[range().end]}px` }}
             />
-            <Show keyed when={recoverable()}>
-              {(interruption) => (
-                <div class="pb-6">
-                  <RecoveryCard interruption={interruption} />
-                </div>
-              )}
-            </Show>
-            <Show when={!recoverable() && sessionError()}>
+            <Show when={sessionError()}>
               {(error) => (
                 <div role="alert">
                   <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger">
@@ -442,6 +514,36 @@ export function virtualRange(offsets: number[], viewTop: number, viewHeight: num
   return { start, end }
 }
 
+/**
+ * Identifies one backfill attempt, so a page that failed is not requested again unchanged.
+ *
+ * A failed page leaves the cursor where it was, which is exactly the state that asked for the
+ * page, so only a new session or a moved cursor is worth another request.
+ */
+export function revertBackfillAttempt(sessionId: string, cursor?: string | null) {
+  return `${sessionId}\u0000${cursor ?? ""}`
+}
+
+/** Whether an empty reverted timeline still has older pages that could reveal pre-revert rows. */
+export function revertBackfillNeeded(input: {
+  revertedAt?: string
+  visible: number
+  loaded?: boolean
+  cursor?: string | null
+}) {
+  return !!input.revertedAt && input.visible === 0 && !!input.loaded && !!input.cursor
+}
+
+export function snapVirtualViewport(
+  scroller: { scrollTop: number; readonly scrollHeight: number; readonly clientHeight: number },
+  publish: (top: number, height: number) => void,
+) {
+  scroller.scrollTop = scroller.scrollHeight
+  // Read back the browser-clamped value and publish it synchronously. A no-op assignment does not
+  // have to dispatch a scroll event, which previously left the virtual range at a stale position.
+  publish(scroller.scrollTop, scroller.clientHeight)
+}
+
 export function scrollGestureSticks(previousTop: number, nextTop: number, distanceFromBottom: number) {
   if (nextTop < previousTop) return false
   return distanceFromBottom < stickyThresholdPx
@@ -547,7 +649,22 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
     .flatMap((entry) => entry.parts)
     .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
     .find((value): value is string => !!value)
-  return { messageID: unfinished?.info.id ?? assistants.at(-1)?.info.id ?? anchor.info.id, heading }
+  const owner = unfinished ?? assistants.at(-1) ?? anchor
+  // Compaction turns are the assistant summary message or, in the brief window before it arrives,
+  // the user boundary carrying the compaction part. Rows use this to pull the shimmer onto the
+  // compaction divider instead of the generic indicator.
+  const compaction = owner.info.role === "assistant"
+    ? !!(owner.info as { summary?: boolean }).summary
+    : owner.parts.some((part) => part.type === "compaction")
+  return { messageID: owner.info.id, heading, compaction }
+}
+
+// Whether this timeline row renders a compaction divider that can carry the shimmer itself.
+// Summary rows only show the divider when the collapsible presentation is enabled; with it off,
+// the summary streams as a plain assistant flow and the generic indicator stays.
+export function compactionThinkingRow(entry: MessageEntry, collapsible: boolean) {
+  if (entry.info.role === "user") return entry.parts.some((part) => part.type === "compaction")
+  return collapsible && !!(entry.info as AssistantMessage).summary
 }
 
 export function reasoningHeading(text: string) {
@@ -586,50 +703,153 @@ function Row(props: {
   nextThinking: boolean
   groups?: PartGroup[]
   thinking: boolean
+  thinkingCompaction?: boolean
   thinkingHeading?: string
   retry?: Extract<SessionStatus, { type: "retry" }>
   terminalError: boolean
   measure: (element: HTMLDivElement) => void
 }) {
   const fresh = Date.now() - props.entry.info.time.created < freshMessageMs
+  // Assistant rows remount during virtualization and session switches; replaying an entrance
+  // animation on those makes streamed output flicker, so only fresh user rows fade in.
+  const fadeIn = fresh && props.entry.info.role === "user"
   const pitch = () => props.nextThinking ? "none" : props.next ? timelinePitch(props.entry, props.next) : props.terminalError ? "turn" : "none"
+  // A running compaction animates its own divider label, so the generic indicator would double up.
+  const compactionShimmer = () =>
+    props.thinking && !!props.thinkingCompaction && compactionThinkingRow(props.entry, collapseCompaction())
   return (
     <div
       ref={props.measure}
       data-mid={props.entry.info.id}
       class="min-w-0 max-w-full"
-      classList={{ "fade-up": fresh, "pb-3": pitch() === "part", "pb-6": pitch() === "turn" }}
+      classList={{ "fade-up": fadeIn, "pb-3": pitch() === "part", "pb-6": pitch() === "turn" }}
     >
-      <MessageView entry={props.entry} footer={props.next?.info.role !== "assistant"} groups={props.groups} />
-      <Show when={props.thinking}>
+      <MessageView
+        entry={props.entry}
+        footer={props.next?.info.role !== "assistant"}
+        groups={props.groups}
+        thinking={compactionShimmer()}
+      />
+      <Show when={props.thinking && !compactionShimmer()}>
         <div class="timeline-thinking select-none" role="status" aria-live="polite">
           <TextShimmer text={t("drift.chat.thinking")} />
           <Show when={props.thinkingHeading}>{(heading) => <span class="timeline-thinking-heading">{heading()}</span>}</Show>
         </div>
       </Show>
-      <Show when={props.retry}>{(status) => <SessionRetry status={status()} />}</Show>
+      <Show when={props.retry}>
+        {(status) => (
+          <SessionRetry
+            status={status()}
+            sessionID={props.entry.info.sessionID}
+            messageID={props.entry.info.id}
+            model={
+              props.entry.info.role === "assistant"
+                ? { providerID: props.entry.info.providerID, modelID: props.entry.info.modelID }
+                : undefined
+            }
+          />
+        )}
+      </Show>
     </div>
   )
 }
 
-function SessionRetry(props: { status: Extract<SessionStatus, { type: "retry" }> }) {
+function SessionRetry(props: {
+  status: Extract<SessionStatus, { type: "retry" }>
+  sessionID: string
+  messageID: string
+  model?: ModelRef
+}) {
+  const engine = useEngine()
   const [now, setNow] = createSignal(Date.now())
+  // Message updates carrying the pre-switch model would snap a plain mirror of props back to the
+  // old selection; a local accepted choice wins until the engine converges on it.
+  const [chosen, setChosen] = createSignal<ModelRef>()
+  const [submitting, setSubmitting] = createSignal(false)
   const timer = setInterval(() => setNow(Date.now()), 1000)
   onCleanup(() => clearInterval(timer))
+  const selected = () => chosen() ?? props.model
   const display = createMemo(() => retryPresentation(props.status, now()))
+  const items = createMemo(() => retryModelItems(engine.state))
+  const selectedID = () => {
+    const model = selected()
+    return model ? `${model.providerID}/${model.modelID}` : undefined
+  }
+
+  async function switchModel(id: string) {
+    if (submitting()) return
+    const [providerID, ...rest] = id.split("/")
+    const model = { providerID, modelID: rest.join("/") }
+    const preferredVariant = prefsFor(props.sessionID).variant
+    const variants = Object.keys(modelInfo(engine.state, model)?.variants ?? {})
+    const variant = preferredVariant && variants.includes(preferredVariant) ? preferredVariant : undefined
+    setSubmitting(true)
+    const result = await engine.actions.switchRetryModel(props.sessionID, props.messageID, model, variant)
+    setSubmitting(false)
+    if (!result.ok) {
+      engine.actions.notice({
+        message: result.error,
+        variant: "error",
+      })
+      return
+    }
+    setChosen(model)
+    updatePrefs(props.sessionID, { model, variant: variant ?? null })
+  }
+
   return (
     <div class="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger" role="status" aria-live="polite">
-      <div class="flex items-start gap-2">
-        <span class="pulse-soft mt-1.5 size-2 shrink-0 rounded-full bg-danger" aria-hidden="true" />
-        <div class="min-w-0">
-          <div class="break-words" classList={{ "cursor-help": display().truncated }} title={display().truncated ? props.status.message : undefined}>
-            {display().message}
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="flex min-w-0 flex-1 items-start gap-2">
+          <span class="pulse-soft mt-1.5 size-2 shrink-0 rounded-full bg-danger" aria-hidden="true" />
+          <div class="min-w-0">
+            <div class="break-words" classList={{ "cursor-help": display().truncated }} title={display().truncated ? props.status.message : undefined}>
+              {display().message}
+            </div>
+            <div class="mt-0.5 text-xs text-danger/75">{display().info}</div>
           </div>
-          <div class="mt-0.5 text-xs text-danger/75">{display().info}</div>
         </div>
+        <Show when={props.model}>
+          <Picker
+            label={submitting() ? t("drift.chat.retry.switchingModel") : t("drift.chat.retry.switchModel")}
+            items={items()}
+            selected={selectedID()}
+            fallbackLabel={selectedID()}
+            icon={<ProviderIcon id={selected()?.providerID} class="size-3.5 shrink-0" />}
+            bordered
+            floating
+            placement="above"
+            onPick={(id) => void switchModel(id)}
+          />
+        </Show>
       </div>
     </div>
   )
+}
+
+export function retryModelItems(state: EngineState): PickerItem[] {
+  const providers = state.providers.filter((provider) => {
+    if (provider.id === "lmstudio") return state.connected.includes(provider.id)
+    // Before the first listing lands there is nothing to filter against, so every provider shows.
+    // Once the engine is online an empty list is the answer, not a gap: retrying on a disconnected
+    // provider only fails again.
+    return state.connected.includes(provider.id) || (state.connection !== "online" && state.connected.length === 0)
+  })
+  return orderedModelProviderIds(providers.map((provider) => provider.id)).flatMap((providerID) => {
+    const provider = providers.find((item) => item.id === providerID)
+    if (!provider) return []
+    return Object.values(provider.models)
+      .filter((model) => (provider.id === "lmstudio" ? lmStudioModelReady(model) : model.capabilities.toolcall))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((model) => ({
+        id: `${provider.id}/${model.id}`,
+        label: model.name,
+        group: provider.name,
+        providerID: provider.id,
+        family: model.family,
+        releaseDate: model.release_date,
+      }))
+  })
 }
 
 export function retryPresentation(status: Extract<SessionStatus, { type: "retry" }>, now: number) {

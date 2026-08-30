@@ -996,7 +996,9 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   tab-size: var(--code-tab-size);
 }
 
-/* Large literal messages stay full-height; the transcript remains the only vertical scroller. */
+/* Large literal messages stay full-height; the transcript remains the only vertical scroller.
+   Wraps long lines (pasted prose is common here) so the bubble never scrolls horizontally,
+   while line breaks and the literal, unparsed rendering are preserved. */
 .user-paste {
   margin: 0;
   max-width: 100%;
@@ -1005,7 +1007,8 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   font-family: var(--font-mono);
   font-size: var(--code-size);
   line-height: 1.6;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   tab-size: var(--code-tab-size);
 }
 
@@ -1068,8 +1071,14 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   background: var(--raised) !important;
 }
 
+/* The wrapper is the horizontal scroller, so it owns the background. A `pre` is only as wide as
+   the visible area, so painting it there ends the background partway through a sideways scroll. */
+.code-view {
+  background: var(--raised);
+}
+
 .code-view :where(pre) {
-  background: var(--raised) !important;
+  background: transparent !important;
   padding: 0.5rem 0.75rem;
   font-family: var(--font-mono);
   font-size: var(--code-size);
@@ -1114,8 +1123,8 @@ pre.code-display {
   --syntax-muted: #9aa5b8;
 }
 
-:root[data-syntax-theme="dracula"] :where(.md pre.shiki, .code-view pre.shiki, .diff-view, .syntax-display),
-:root[data-syntax-theme="nord"] :where(.md pre.shiki, .code-view pre.shiki, .diff-view, .syntax-display) {
+:root[data-syntax-theme="dracula"] :where(.md pre.shiki, .code-view, .diff-view, .syntax-display),
+:root[data-syntax-theme="nord"] :where(.md pre.shiki, .code-view, .diff-view, .syntax-display) {
   background: var(--syntax-bg) !important;
 }
 
@@ -1171,6 +1180,24 @@ pre.code-display {
 
 .md :where(tr:last-child td) {
   border-bottom: none;
+}
+
+/* Clip cell backgrounds to the table's 10px radius (9px = 10px minus the 1px
+   table border). Logical properties keep the corners correct in RTL. */
+.md :where(table > :first-child > tr:first-child > :is(th, td):first-child) {
+  border-start-start-radius: 9px;
+}
+
+.md :where(table > :first-child > tr:first-child > :is(th, td):last-child) {
+  border-start-end-radius: 9px;
+}
+
+.md :where(table > :last-child > tr:last-child > :is(th, td):first-child) {
+  border-end-start-radius: 9px;
+}
+
+.md :where(table > :last-child > tr:last-child > :is(th, td):last-child) {
+  border-end-end-radius: 9px;
 }
 
 .md :where(hr) {

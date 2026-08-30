@@ -113,6 +113,65 @@ test("drag reorder ignores released pointers and converts zoomed geometry", asyn
   expect(dragReorderAllowed({ button: 0, isPrimary: false, pointerType: "pen" })).toBeFalse()
 })
 
+test("file drags gate the drop target without child churn or text-selection drags", async () => {
+  const { dragHasFiles, dropTargetActive, nextDragDepth, splitDroppedFiles } = await import("../src/ui/drag-drop")
+  expect(dragHasFiles(["Files"])).toBeTrue()
+  expect(dragHasFiles(["text/plain", "text/uri-list"])).toBeFalse()
+  expect(dragHasFiles(undefined)).toBeFalse()
+  let depth = nextDragDepth(0, "enter")
+  depth = nextDragDepth(depth, "enter") // child dragenter fires before the parent dragleave
+  depth = nextDragDepth(depth, "leave")
+  expect(dropTargetActive(depth)).toBeTrue()
+  depth = nextDragDepth(depth, "leave")
+  expect(dropTargetActive(depth)).toBeFalse()
+  expect(nextDragDepth(0, "leave")).toBe(0)
+  expect(nextDragDepth(3, "drop")).toBe(0)
+  expect(nextDragDepth(2, "end")).toBe(0)
+
+  const item = (name: string, directory: boolean) => ({
+    kind: "file",
+    getAsFile: () => ({ name }) as File,
+    webkitGetAsEntry: () => ({ isDirectory: directory }),
+  })
+  const text = { kind: "string", getAsFile: () => null }
+  const split = splitDroppedFiles([item("a.png", false), item("src", true), text, item("b.csv", false)])
+  expect(split.files.map((file) => file.name)).toEqual(["a.png", "b.csv"])
+  expect(split.directories).toBe(1)
+  const fallbackFile = { name: "pasted.txt" } as File
+  expect(splitDroppedFiles([], [fallbackFile]).files).toEqual([fallbackFile])
+  expect(splitDroppedFiles([item("dir", true)], [fallbackFile])).toEqual({ files: [], directories: 1 })
+})
+
+test("a drop into an open dialog never stages into the composer behind it", async () => {
+  const { dropStagesAttachment } = await import("../src/ui/drag-drop")
+  const target = (dialog: boolean) =>
+    ({ closest: (selectors: string) => (dialog && selectors === '[role="dialog"]' ? {} : null) }) as unknown as EventTarget
+
+  expect(dropStagesAttachment(target(false))).toBeTrue()
+  expect(dropStagesAttachment(target(true))).toBeFalse()
+  // The window and text nodes carry no `closest`, and a drop on either belongs to the chat.
+  expect(dropStagesAttachment(null)).toBeTrue()
+  expect(dropStagesAttachment({} as EventTarget)).toBeTrue()
+
+  // Staging is gated on the drop target, while preventDefault stays unconditional so a stray
+  // drop can never navigate the window to the file.
+  const source = await Bun.file("src/ui/composer.tsx").text()
+  expect(source).toContain("!dropStagesAttachment(event.target)")
+  expect(source).toMatch(/event\.preventDefault\(\)\s*\n\s*if \(!ready\(\)/)
+})
+
+test("dropped OS files reach the same staging pipeline as the picker", async () => {
+  const composer = await Bun.file("src/ui/composer.tsx").text()
+  expect(composer).toContain('window.addEventListener("dragenter", onDragEnter)')
+  expect(composer).toContain('window.addEventListener("drop", onDrop)')
+  expect(composer).toContain("void addFiles(dropped.files)")
+  expect(composer).toContain("drift.composer.dropFiles")
+  expect(composer).toContain("drift.composer.folderUnsupported")
+  // Tauri must not intercept native drops, or WebView2 never fires HTML5 drop with DataTransfer files.
+  const conf = JSON.parse(await Bun.file("src-tauri/tauri.conf.json").text())
+  expect(conf.app.windows[0].dragDropEnabled).toBeFalse()
+})
+
 test("reverted messages restore uploads and file mentions", async () => {
   const { draftFromMessage } = await import("../src/state/composer")
   const restored = draftFromMessage({

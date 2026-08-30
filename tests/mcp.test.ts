@@ -855,3 +855,225 @@ test("MCP SDK helpers propagate error responses and missing data", async () => {
     docs: { status: "connected" },
   })
 })
+
+// Shared with src-tauri/src/mcp_external_tests.rs. The plugin hashing this vector to the same
+// value the Rust locator computes is what lets Drift edit config-file-defined servers safely.
+const externalParityFingerprint = "sha256:933d9f99f6458ef8004d9f0e9b5fe8768211fe67a62e7baa87b08d8e9a5220dd"
+
+test("external fingerprint parity: the plugin and the Rust locator hash one vector identically", async () => {
+  const setup = await fixture()
+  const config = {
+    mcp: {
+      docs: {
+        type: "remote",
+        url: "https://example.com/mcp",
+        headers: { Authorization: "Bearer x" },
+        enabled: true,
+        timeout: 30000,
+      },
+    },
+  }
+  await run("S:/repo", config, setup)
+  const reported = await report(setup.pendingDirectory, "S:/repo")
+  expect(reported.servers).toEqual([
+    { name: "docs", type: "remote", fingerprint: externalParityFingerprint, decision: "pending" },
+  ])
+  const rust = await Bun.file("src-tauri/src/mcp_external_tests.rs").text()
+  expect(rust).toContain(externalParityFingerprint)
+})
+
+describe("config-file-defined MCP servers", () => {
+  const observed = { name: "docs", type: "remote" as const, fingerprint: "sha256:docs", decision: "approved" as const }
+  const dependencies = (store: Record<string, unknown>) => ({
+    store: store as never,
+    status: async () => ({}),
+    connect: async () => undefined,
+    disconnect: async () => undefined,
+    authenticate: async () => undefined,
+  })
+  const snapshotStore = (extra: Record<string, unknown>) => ({
+    mcpSnapshot: async (directory: string) => ({ generation: 6, directory, servers: [], observed: [observed] }),
+    ...extra,
+  })
+
+  test("external edit resolves the on-disk config and saves through the exact target", async () => {
+    const { createMcpCoordinator, exactMcpTarget } = await import("../src/state/mcp")
+    const calls: unknown[][] = []
+    const coordinator = createMcpCoordinator(
+      dependencies(
+        snapshotStore({
+          externalMcp: async (...args: unknown[]) => {
+            calls.push(["lookup", ...args])
+            return { paths: ["S:/repo/opencode.jsonc"], config: { type: "remote", url: "https://example.com/mcp" } }
+          },
+          saveExternalMcp: async (...args: unknown[]) => {
+            calls.push(["save", ...args])
+          },
+          removeExternalMcp: async (...args: unknown[]) => {
+            calls.push(["remove", ...args])
+          },
+        }),
+      ),
+    )
+    await coordinator.setActive("S:/repo", true)
+    const target = exactMcpTarget(coordinator.state.snapshot, coordinator.state.snapshot.observed[0])
+    const found = await coordinator.externalConfig(target)
+    expect(found.config).toEqual({ type: "remote", url: "https://example.com/mcp" })
+    await coordinator.saveExternal(target, "renamed", { type: "remote", url: "https://new.example.com" })
+    await coordinator.removeExternal(target)
+    expect(calls).toEqual([
+      ["lookup", "docs", "sha256:docs", 6],
+      ["save", "renamed", "docs", "sha256:docs", { type: "remote", url: "https://new.example.com" }, 6],
+      ["remove", "docs", "sha256:docs", 6],
+    ])
+  })
+
+  test("external mutations reject stale exact targets before touching any file", async () => {
+    const { createMcpCoordinator, exactMcpTarget } = await import("../src/state/mcp")
+    let fingerprint = "sha256:docs"
+    const writes: unknown[] = []
+    const coordinator = createMcpCoordinator(
+      dependencies({
+        mcpSnapshot: async (directory: string) => ({
+          generation: 6,
+          directory,
+          servers: [],
+          observed: [{ ...observed, fingerprint }],
+        }),
+        externalMcp: async () => {
+          writes.push("lookup")
+          return { paths: [], config: { type: "remote", url: "https://example.com" } }
+        },
+        saveExternalMcp: async () => {
+          writes.push("save")
+        },
+        removeExternalMcp: async () => {
+          writes.push("remove")
+        },
+      }),
+    )
+    await coordinator.setActive("S:/repo", true)
+    const target = exactMcpTarget(coordinator.state.snapshot, coordinator.state.snapshot.observed[0])
+    fingerprint = "sha256:changed"
+    await coordinator.refresh()
+    await expect(coordinator.externalConfig(target)).rejects.toThrow("stale")
+    await expect(coordinator.saveExternal(target, "docs", { type: "remote", url: "https://x" })).rejects.toThrow(
+      "stale",
+    )
+    await expect(coordinator.removeExternal(target)).rejects.toThrow("stale")
+    expect(writes).toEqual([])
+  })
+
+  test("a second edit retries against the generation the watcher advanced to", async () => {
+    const { createMcpCoordinator, exactMcpTarget } = await import("../src/state/mcp")
+    // Editing a config file advances the generation from the watcher, so the number the dialog
+    // holds goes stale a moment after the first edit lands.
+    let generation = 6
+    const attempts: number[] = []
+    const coordinator = createMcpCoordinator(
+      dependencies({
+        mcpSnapshot: async (directory: string) => ({ generation, directory, servers: [], observed: [observed] }),
+        externalMcp: async (_name: string, _fingerprint: string, requested: number) => {
+          attempts.push(requested)
+          if (requested !== generation) throw new Error("MCP state is stale; reload before making changes")
+          return { paths: ["S:/repo/opencode.json"], config: { type: "remote", url: "https://example.com/mcp" } }
+        },
+      }),
+    )
+    await coordinator.setActive("S:/repo", true)
+    const target = exactMcpTarget(coordinator.state.snapshot, coordinator.state.snapshot.observed[0])
+    generation = 7
+
+    const found = await coordinator.externalConfig(target)
+    expect(found.config).toEqual({ type: "remote", url: "https://example.com/mcp" })
+    expect(attempts).toEqual([6, 7])
+    expect(coordinator.state.snapshot.generation).toBe(7)
+  })
+
+  test("a definition that changed underneath the editor is never retried", async () => {
+    const { createMcpCoordinator, exactMcpTarget } = await import("../src/state/mcp")
+    let fingerprint = "sha256:docs"
+    const attempts: unknown[][] = []
+    const coordinator = createMcpCoordinator(
+      dependencies({
+        mcpSnapshot: async (directory: string) => ({
+          generation: fingerprint === "sha256:docs" ? 6 : 7,
+          directory,
+          servers: [],
+          observed: [{ ...observed, fingerprint }],
+        }),
+        saveExternalMcp: async (...args: unknown[]) => {
+          attempts.push(args)
+          throw new Error("MCP state is stale; reload before making changes")
+        },
+      }),
+    )
+    await coordinator.setActive("S:/repo", true)
+    const target = exactMcpTarget(coordinator.state.snapshot, coordinator.state.snapshot.observed[0])
+    fingerprint = "sha256:rewritten"
+
+    await expect(
+      coordinator.saveExternal(target, "docs", { type: "remote", url: "https://example.com/mcp" }),
+    ).rejects.toThrow("stale")
+    expect(attempts).toHaveLength(1)
+  })
+
+  test("approval settles before the engine reports runtime status", async () => {
+    const { createMcpCoordinator, exactMcpTarget } = await import("../src/state/mcp")
+    let releaseStatus!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      releaseStatus = resolve
+    })
+    let statusCalls = 0
+    const pending = { ...observed, decision: "pending" as const }
+    const coordinator = createMcpCoordinator({
+      store: snapshotStore({
+        mcpSnapshot: async (directory: string) => ({
+          generation: 6,
+          directory,
+          servers: [],
+          observed: [pending],
+        }),
+        approveMcp: async () => undefined,
+      }) as never,
+      // Reconnecting every approved server is what makes this slow in the app.
+      status: async () => {
+        if (statusCalls++) await blocked
+        return { docs: { status: "connected" as const } }
+      },
+      connect: async () => undefined,
+      disconnect: async () => undefined,
+      authenticate: async () => undefined,
+    })
+    await coordinator.setActive("S:/repo", true)
+    const target = exactMcpTarget(coordinator.state.snapshot, coordinator.state.snapshot.observed[0])
+
+    await coordinator.decide("approve", target)
+    expect(coordinator.state.mutation).toBeNull()
+    expect(coordinator.state.ready).toBeTrue()
+
+    releaseStatus()
+    await coordinator.settled()
+    expect(statusCalls).toBe(2)
+  })
+
+  test("manager offers edit and remove for observed-only rows", async () => {
+    const source = await Bun.file("src/ui/mcp/manager.tsx").text()
+    expect(source).toContain("props.row.stored || props.target")
+    expect(source).toContain("void editExternal(exact(observed))")
+    expect(source).toContain("void removeExternal(exact(observed))")
+  })
+
+  test("the external editor names every file a save rewrites", async () => {
+    const source = await Bun.file("src/ui/mcp/manager.tsx").text()
+    expect(source).toContain("paths: found.paths")
+    expect(source).toContain("paths={entry().paths}")
+    expect(await Bun.file("src/ui/mcp/editor.tsx").text()).toContain('t("drift.mcp.definedIn"')
+  })
+
+  test("the remove confirmation is announced, not just shown", async () => {
+    const source = await Bun.file("src/ui/mcp/manager.tsx").text()
+    // Action maps title onto aria-label, which overrides the button's visible text.
+    expect(source).toContain('title={props.confirming ? t("drift.mcp.confirmRemove") : t("drift.mcp.remove")}')
+  })
+})

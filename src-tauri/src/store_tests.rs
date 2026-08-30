@@ -83,81 +83,28 @@ fn store_roundtrip() {
 }
 
 #[test]
-fn recoverable_interruptions_deduplicate_and_survive_reopen() {
-    let dir = test_dir("interruption");
+fn open_drops_legacy_recoverable_interruptions() {
+    let dir = test_dir("legacy-interruption");
     let file = dir.join("drift.db");
-    let item = RecoverableInterruption {
-        session_id: "child".into(),
-        identity: "message-1".into(),
-        workspace_id: Some("workspace".into()),
-        directory: "S:/repo".into(),
-        thread_title: "Research".into(),
-        parent_session_id: Some("parent".into()),
-        provider_id: "anthropic".into(),
-        model_id: "claude".into(),
-        kind: "usage".into(),
-        reason: "usage limit".into(),
-        error_name: "APIError".into(),
-        created_at: 10,
-        updated_at: 10,
-        dismissed_at: None,
-    };
-    {
-        let store = open_at(&file).unwrap();
-        store.save_interruption(&item).unwrap();
-        let mut updated = item.clone();
-        updated.reason = "new detail".into();
-        updated.updated_at = 20;
-        store.save_interruption(&updated).unwrap();
-        assert_eq!(store.interruptions().unwrap().len(), 1);
-        assert_eq!(store.interruptions().unwrap()[0].reason, "new detail");
-        store
-            .dismiss_interruption("child", "message-1", 30)
-            .unwrap();
-    }
-    let reopened = open_at(&file).unwrap();
-    let rows = reopened.interruptions().unwrap();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].dismissed_at, Some(30));
-    let mut replacement = item.clone();
-    replacement.identity = "message-2".into();
-    reopened.save_interruption(&replacement).unwrap();
-    let rows = reopened.interruptions().unwrap();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].identity, "message-2");
-    reopened.clear_interruptions("child").unwrap();
-    assert!(reopened.interruptions().unwrap().is_empty());
-    std::fs::remove_dir_all(dir).ok();
-}
+    let raw = Connection::open(&file).unwrap();
+    raw.execute_batch(
+        "CREATE TABLE recoverable_interruption(id INTEGER PRIMARY KEY);\n\
+         INSERT INTO recoverable_interruption(id) VALUES(1);",
+    )
+    .unwrap();
+    drop(raw);
 
-#[test]
-fn failed_interruption_replacement_preserves_the_existing_row() {
-    let dir = test_dir("interruption-transaction");
-    let store = open(&dir).unwrap();
-    let item = RecoverableInterruption {
-        session_id: "child".into(),
-        identity: "message-1".into(),
-        workspace_id: None,
-        directory: "S:/repo".into(),
-        thread_title: "Research".into(),
-        parent_session_id: None,
-        provider_id: "anthropic".into(),
-        model_id: "claude".into(),
-        kind: "usage".into(),
-        reason: "usage limit".into(),
-        error_name: "APIError".into(),
-        created_at: 10,
-        updated_at: 10,
-        dismissed_at: None,
-    };
-    store.save_interruption(&item).unwrap();
-    let mut invalid = item.clone();
-    invalid.identity = "message-2".into();
-    invalid.kind = "invalid".into();
-    assert!(store.save_interruption(&invalid).is_err());
-    let rows = store.interruptions().unwrap();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].identity, "message-1");
+    let store = open_at(&file).unwrap();
+    drop(store);
+    let raw = Connection::open(&file).unwrap();
+    let tables: i64 = raw
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'recoverable_interruption'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(tables, 0);
     std::fs::remove_dir_all(dir).ok();
 }
 

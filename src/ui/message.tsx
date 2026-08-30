@@ -1,6 +1,6 @@
 import type { AssistantMessage, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/client"
 import { createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
-import { createStore, reconcile } from "solid-js/store"
+import { createStore, reconcile, unwrap } from "solid-js/store"
 import { useEngine } from "../engine"
 import { errorText } from "../engine/error"
 import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store"
@@ -12,8 +12,9 @@ import { IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
 import { Chevron } from "./controls"
 import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
+import { TextShimmer } from "./text-shimmer"
 
-export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[] }) {
+export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; thinking?: boolean }) {
   onMount(() =>
     emitMessageRendered({
       sessionId: props.entry.info.sessionID,
@@ -23,9 +24,9 @@ export function MessageView(props: { entry: MessageEntry; footer?: boolean; grou
   )
   const summary = () => (props.entry.info as AssistantMessage).summary && collapseCompaction()
   return (
-    <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} />}>
+    <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} thinking={props.thinking} />}>
       <Show when={summary()} fallback={<AssistantFlow entry={props.entry} footer={props.footer} groups={props.groups} />}>
-        <CompactionSummary entry={props.entry} footer={props.footer} />
+        <CompactionSummary entry={props.entry} footer={props.footer} thinking={props.thinking} />
       </Show>
     </Show>
   )
@@ -39,7 +40,7 @@ export function messageVisible(entry: MessageEntry) {
   return entry.parts.some(partVisible) || !!info.error
 }
 
-function CompactionSummary(props: { entry: MessageEntry; footer?: boolean }) {
+function CompactionSummary(props: { entry: MessageEntry; footer?: boolean; thinking?: boolean }) {
   const [open, setOpen] = createSignal(!compactionCollapsed())
   return (
     <div class="min-w-0 max-w-full">
@@ -51,7 +52,10 @@ function CompactionSummary(props: { entry: MessageEntry; footer?: boolean }) {
         <div class="h-px flex-1 bg-edge" />
         <span class="flex items-center gap-1.5">
           <Chevron open={open()} />
-          {t("drift.message.compactedSummary")}
+          <TextShimmer
+            text={props.thinking ? t("drift.context.compacting") : t("drift.message.compactedSummary")}
+            active={!!props.thinking}
+          />
         </span>
         <div class="h-px flex-1 bg-edge" />
       </button>
@@ -68,7 +72,7 @@ export function compactionParts(entry: MessageEntry) {
   return entry.parts.filter((part) => part.type === "compaction")
 }
 
-function UserBubble(props: { entry: MessageEntry }) {
+function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
   const engine = useEngine()
   const info = () => props.entry.info as UserMessage
   const text = () => messageText(props.entry)
@@ -117,7 +121,7 @@ function UserBubble(props: { entry: MessageEntry }) {
           </div>
         </div>
       </Show>
-      <For each={compactions()}>{(part) => <PartView part={part} />}</For>
+      <For each={compactions()}>{(part) => <PartView part={part} thinking={props.thinking} />}</For>
     </>
   )
 }
@@ -128,7 +132,7 @@ export function largeUserText(text: string) {
 
 export type PartGroup = { id: string; key: string; explored: ToolPart[] } | { id: string; key: string; part: Part }
 
-export type PartGroupSlot = { id: string; value: PartGroup; update: (value: PartGroup) => void }
+export type PartGroupSlot = { id: string; value: PartGroup; revision?: () => number; update: (value: PartGroup) => void }
 
 export function groupParts(parts: Part[]): PartGroup[] {
   const groups: PartGroup[] = []
@@ -184,7 +188,18 @@ export function groupAssistantEntries(entries: MessageEntry[]) {
 
 function createPartGroupSlot(group: PartGroup): PartGroupSlot {
   const [value, setValue] = createStore(group)
-  return { id: group.id, value, update: (updated) => setValue(reconcile(updated)) }
+  const [revision, setRevision] = createSignal(0)
+  return {
+    id: group.id,
+    value,
+    revision,
+    update: (updated) => {
+      setValue(reconcile(unwrap(updated)))
+      // reconcile can update a nested source proxy without invalidating consumers of part.text.
+      // An explicit revision preserves the mounted slot while guaranteeing those consumers rerun.
+      setRevision((value) => value + 1)
+    },
+  }
 }
 
 export function updatePartGroupSlots(
@@ -266,6 +281,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                 {(single) => (
                   <PartView
                     part={single().part}
+                    revision={group.revision?.()}
                     responseID={`${info().id}:${single().part.id}`}
                     live={single().part.id === liveTextPartID()}
                   />

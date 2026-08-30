@@ -1,0 +1,655 @@
+diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
+--- a/packages/opencode/src/session/prompt.ts
++++ b/packages/opencode/src/session/prompt.ts
+@@ -31,6 +31,7 @@ import { ConfigMarkdown } from "@/config/markdown"
+ import { SessionSummary } from "./summary"
+ import { NamedError } from "@opencode-ai/core/util/error"
+ import { SessionProcessor } from "./processor"
++import { RetryModelSwitch } from "./retry-switch"
+ import { Tool } from "@/tool/tool"
+ import { Permission } from "@/permission"
+ import { SessionStatus } from "./status"
+@@ -1138,7 +1139,8 @@ const layer = Layer.effect(
+               history: msgs,
+             }).pipe(Effect.ignore, Effect.forkIn(scope))
+ 
+-          const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
++          // Reassigned when a parked retry accepts a model switch mid-turn.
++          let model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+           const task = tasks.pop()
+ 
+           if (task?.type === "subtask") {
+@@ -1223,110 +1225,142 @@ const layer = Layer.effect(
+             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
+             const promptOps = yield* ops()
+ 
+-            const tools = yield* SessionTools.resolve({
+-              agent,
+-              session,
+-              model,
+-              processor: handle,
+-              bypassAgentCheck,
+-              messages: msgs,
+-              promptOps,
+-            }).pipe(
+-              Effect.provideService(Plugin.Service, plugin),
+-              Effect.provideService(Permission.Service, permission),
+-              Effect.provideService(ToolRegistry.Service, registry),
+-              Effect.provideService(MCP.Service, mcp),
+-              Effect.provideService(Truncate.Service, truncate),
+-              Effect.provideService(RuntimeFlags.Service, flags),
+-            )
+-
+-            if (lastUser.format?.type === "json_schema") {
+-              tools["StructuredOutput"] = createStructuredOutputTool({
+-                schema: lastUser.format.schema,
+-                onSuccess(output) {
+-                  structured = output
+-                },
+-              })
+-            }
++            // A parked retry can switch models mid-turn: the attempt restarts here so tools,
++            // system prompts, and model messages are rebuilt for the switched model. Once-per-turn
++            // work (title summarize, transform hooks) only runs on the first attempt.
++            let first = true
++            for (;;) {
++              const tools = yield* SessionTools.resolve({
++                agent,
++                session,
++                model,
++                processor: handle,
++                bypassAgentCheck,
++                messages: msgs,
++                promptOps,
++              }).pipe(
++                Effect.provideService(Plugin.Service, plugin),
++                Effect.provideService(Permission.Service, permission),
++                Effect.provideService(ToolRegistry.Service, registry),
++                Effect.provideService(MCP.Service, mcp),
++                Effect.provideService(Truncate.Service, truncate),
++                Effect.provideService(RuntimeFlags.Service, flags),
++              )
+ 
+-            if (step === 1)
+-              yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
+-
+-            yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+-
+-            const [skills, env, instructions, mcpInstructions, modelMsgs] = yield* Effect.all([
+-              sys.skills(agent),
+-              sys.environment(model),
+-              instruction.system().pipe(Effect.orDie),
+-              sys.mcp(agent, session.permission),
+-              MessageV2.toModelMessagesEffect(msgs, model),
+-            ])
+-            const system = [
+-              ...env,
+-              ...instructions,
+-              ...(mcpInstructions ? [mcpInstructions] : []),
+-              ...(skills ? [skills] : []),
+-            ]
+-            const format = lastUser.format ?? { type: "text" as const }
+-            if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+-            const result = yield* handle.process({
+-              user: lastUser,
+-              agent,
+-              permission: session.permission,
+-              sessionID,
+-              parentSessionID: session.parentID,
+-              system,
+-              messages: [
+-                ...modelMsgs,
+-                ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
+-              ],
+-              tools,
+-              model,
+-              toolChoice: format.type === "json_schema" ? "required" : undefined,
+-            })
++              if (lastUser.format?.type === "json_schema") {
++                tools["StructuredOutput"] = createStructuredOutputTool({
++                  schema: lastUser.format.schema,
++                  onSuccess(output) {
++                    structured = output
++                  },
++                })
++              }
+ 
+-            if (structured !== undefined) {
+-              handle.message.structured = structured
+-              handle.message.finish = handle.message.finish ?? "stop"
+-              yield* sessions.updateMessage(handle.message)
+-              return "break" as const
+-            }
++              if (first && step === 1)
++                yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
++
++              if (first) yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
++
++              const [skills, env, instructions, mcpInstructions, modelMsgs] = yield* Effect.all([
++                sys.skills(agent),
++                sys.environment(model),
++                instruction.system().pipe(Effect.orDie),
++                sys.mcp(agent, session.permission),
++                MessageV2.toModelMessagesEffect(msgs, model),
++              ])
++              const system = [
++                ...env,
++                ...instructions,
++                ...(mcpInstructions ? [mcpInstructions] : []),
++                ...(skills ? [skills] : []),
++              ]
++              const format = lastUser.format ?? { type: "text" as const }
++              if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
++              const switchWindow = yield* RetryModelSwitch.open(sessionID, handle.message.id)
++              const raced = yield* Effect.raceFirst(
++                handle
++                  .process({
++                    user: lastUser,
++                    agent,
++                    permission: session.permission,
++                    sessionID,
++                    parentSessionID: session.parentID,
++                    system,
++                    messages: [
++                      ...modelMsgs,
++                      ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
++                    ],
++                    tools,
++                    model,
++                    toolChoice: format.type === "json_schema" ? "required" : undefined,
++                  })
++                  .pipe(Effect.map((result) => ({ type: "result" as const, result }))),
++                switchWindow.wait.pipe(Effect.map((selection) => ({ type: "switch" as const, selection }))),
++              ).pipe(Effect.ensuring(switchWindow.close))
++              first = false
++
++              if (raced.type === "switch") {
++                // The parked attempt was interrupted by an accepted switch. Show the session busy
++                // immediately, move the turn and its assistant attempt to the switched model, and
++                // restart the attempt against it.
++                yield* status.set(sessionID, { type: "busy" })
++                model = yield* getModel(raced.selection.providerID, raced.selection.modelID, sessionID)
++                lastUser.model = {
++                  providerID: raced.selection.providerID,
++                  modelID: raced.selection.modelID,
++                  variant: raced.selection.variant,
++                }
++                handle.message.providerID = model.providerID
++                handle.message.modelID = model.id
++                handle.message.variant = raced.selection.variant
++                yield* Effect.all([sessions.updateMessage(lastUser), sessions.updateMessage(handle.message)])
++                continue
++              }
++              const result = raced.result
+ 
+-            const finished = handle.message.finish && !["tool-calls", "unknown"].includes(handle.message.finish)
+-            if (finished && !handle.message.error) {
+-              // Surface any content-filter finish (e.g. Anthropic stop_reason:
+-              // refusal) as an error. These turns may have produced no visible
+-              // output at all — previously the session went idle silently — or
+-              // partial text that was cut off by the provider's filter.
+-              if (handle.message.finish === "content-filter") {
+-                handle.message.error = new SessionV1.ContentFilterError({
+-                  message: "The response was blocked by the provider's content filter",
+-                }).toObject()
++              if (structured !== undefined) {
++                handle.message.structured = structured
++                handle.message.finish = handle.message.finish ?? "stop"
+                 yield* sessions.updateMessage(handle.message)
+-                yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
+                 return "break" as const
+               }
+-              if (format.type === "json_schema") {
+-                handle.message.error = new SessionV1.StructuredOutputError({
+-                  message: "Model did not produce structured output",
+-                  retries: 0,
+-                }).toObject()
+-                yield* sessions.updateMessage(handle.message)
+-                return "break" as const
++
++              const finished = handle.message.finish && !["tool-calls", "unknown"].includes(handle.message.finish)
++              if (finished && !handle.message.error) {
++                // Surface any content-filter finish (e.g. Anthropic stop_reason:
++                // refusal) as an error. These turns may have produced no visible
++                // output at all — previously the session went idle silently — or
++                // partial text that was cut off by the provider's filter.
++                if (handle.message.finish === "content-filter") {
++                  handle.message.error = new SessionV1.ContentFilterError({
++                    message: "The response was blocked by the provider's content filter",
++                  }).toObject()
++                  yield* sessions.updateMessage(handle.message)
++                  yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
++                  return "break" as const
++                }
++                if (format.type === "json_schema") {
++                  handle.message.error = new SessionV1.StructuredOutputError({
++                    message: "Model did not produce structured output",
++                    retries: 0,
++                  }).toObject()
++                  yield* sessions.updateMessage(handle.message)
++                  return "break" as const
++                }
+               }
+-            }
+ 
+-            if (result === "stop") return "break" as const
+-            if (result === "compact") {
+-              yield* compaction.create({
+-                sessionID,
+-                agent: lastUser.agent,
+-                model: lastUser.model,
+-                auto: true,
+-                overflow: !handle.message.finish,
+-              })
++              if (result === "stop") return "break" as const
++              if (result === "compact") {
++                yield* compaction.create({
++                  sessionID,
++                  agent: lastUser.agent,
++                  model: lastUser.model,
++                  auto: true,
++                  overflow: !handle.message.finish,
++                })
++              }
++              return "continue" as const
+             }
+-            return "continue" as const
+           }).pipe(
+             Effect.ensuring(instruction.clear(handle.message.id)),
+             Effect.onInterrupt(() => finalizeInterruptedAssistant),
+diff --git a/packages/opencode/src/session/processor.ts b/packages/opencode/src/session/processor.ts
+--- a/packages/opencode/src/session/processor.ts
++++ b/packages/opencode/src/session/processor.ts
+@@ -16,6 +16,7 @@ import { isOverflow } from "./overflow"
+ import { PartID } from "./schema"
+ import type { SessionID } from "./schema"
+ import { SessionRetry } from "./retry"
++import { RetryModelSwitch } from "./retry-switch"
+ import { SessionStatus } from "./status"
+ import { SessionSummary } from "./summary"
+ import type { Provider } from "@/provider/provider"
+@@ -114,9 +115,11 @@ const layer = Layer.effect(
+       }
+       let aborted = false
+ 
++      // ctx.model tracks the latest process() call: after a retry-model switch the next attempt
++      // streams with the switched model, and errors must attribute to the provider that failed.
+       const parse = (e: unknown) =>
+         MessageV2.fromError(e, {
+-          providerID: input.model.providerID,
++          providerID: ctx.model.providerID,
+           aborted,
+         })
+ 
+@@ -628,6 +631,8 @@ const layer = Layer.effect(
+           "session.id": input.sessionID,
+           messageID: input.assistantMessage.id,
+         })
++        aborted = false
++        ctx.model = streamInput.model
+         ctx.needsCompaction = false
+         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
+ 
+@@ -635,6 +640,7 @@ const layer = Layer.effect(
+           yield* Effect.gen(function* () {
+             ctx.currentText = undefined
+             ctx.reasoningMap = {}
++            RetryModelSwitch.resume(ctx.sessionID, ctx.assistantMessage.id)
+             yield* status.set(ctx.sessionID, { type: "busy" })
+             const stream = llm.stream(streamInput)
+ 
+@@ -646,6 +652,9 @@ const layer = Layer.effect(
+           }).pipe(
+             Effect.onInterrupt(() =>
+               Effect.gen(function* () {
++                // A retry-model switch interrupts the parked attempt on purpose; the prompt loop
++                // immediately restarts it, so the message must not finalize as aborted.
++                if (RetryModelSwitch.isSwitching(ctx.sessionID, ctx.assistantMessage.id)) return
+                 aborted = true
+                 if (!ctx.assistantMessage.error) {
+                   yield* halt(new DOMException("Aborted", "AbortError"))
+@@ -658,9 +667,10 @@ const layer = Layer.effect(
+             ),
+             Effect.retry(
+               SessionRetry.policy({
+-                provider: input.model.providerID,
++                provider: ctx.model.providerID,
+                 parse,
+                 set: (info) => {
++                  RetryModelSwitch.park(ctx.sessionID, ctx.assistantMessage.id)
+                   return status.set(ctx.sessionID, {
+                     type: "retry",
+                     attempt: info.attempt,
+@@ -672,7 +682,11 @@ const layer = Layer.effect(
+               }),
+             ),
+             Effect.catch(halt),
+-            Effect.ensuring(cleanup()),
++            Effect.ensuring(
++              Effect.suspend(() =>
++                RetryModelSwitch.isSwitching(ctx.sessionID, ctx.assistantMessage.id) ? Effect.void : cleanup(),
++              ),
++            ),
+           )
+ 
+           if (ctx.needsCompaction) return "compact"
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/groups/experimental.ts b/packages/opencode/src/server/routes/instance/httpapi/groups/experimental.ts
+--- a/packages/opencode/src/server/routes/instance/httpapi/groups/experimental.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/groups/experimental.ts
+@@ -2,7 +2,7 @@ import { AccountID, OrgID } from "@/account/schema"
+ import { MCP } from "@/mcp"
+ 
+ import { Session } from "@/session/session"
+-import { SessionID } from "@/session/schema"
++import { MessageID, SessionID } from "@/session/schema"
+ import { Worktree } from "@/worktree"
+ import { NonNegativeInt } from "@opencode-ai/core/schema"
+ import { Schema } from "effect"
+@@ -77,6 +77,21 @@ export class WorktreeApiError extends Schema.ErrorClass<WorktreeApiError>("Workt
+   },
+   { httpApiStatus: 400 },
+ ) {}
++export const RetryModelPayload = Schema.Struct({
++  messageID: MessageID,
++  providerID: ProviderV2.ID,
++  modelID: ModelV2.ID,
++  variant: Schema.optional(Schema.String),
++})
++
++export class RetryModelError extends Schema.ErrorClass<RetryModelError>("RetryModelError")(
++  {
++    name: Schema.Literal("RetryModelError"),
++    data: Schema.Struct({ message: Schema.String }),
++  },
++  { httpApiStatus: 409 },
++) {}
++
+ export const SessionListQuery = Schema.Struct({
+   ...WorkspaceRoutingQueryFields,
+   roots: Schema.optional(QueryBoolean),
+@@ -98,6 +113,7 @@ export const ExperimentalPaths = {
+   worktreeReset: "/experimental/worktree/reset",
+   session: "/experimental/session",
+   sessionBackground: "/experimental/session/:sessionID/background",
++  sessionRetryModel: "/experimental/session/:sessionID/retry-model",
+   resource: "/experimental/resource",
+ } as const
+ 
+@@ -245,6 +261,20 @@ export const ExperimentalApi = HttpApi.make("experimental")
+               "Detach any synchronous subagents currently blocking the session and continue them in the background.",
+           }),
+         ),
++        HttpApiEndpoint.put("sessionRetryModel", ExperimentalPaths.sessionRetryModel, {
++          params: { sessionID: SessionID },
++          query: WorkspaceRoutingQuery,
++          payload: RetryModelPayload,
++          success: described(HttpApiSchema.NoContent, "Retry model switched"),
++          error: RetryModelError,
++        }).annotateMerge(
++          OpenApi.annotations({
++            identifier: "experimental.session.retryModel",
++            summary: "Switch retry model",
++            description:
++              "Switch the model used by an active retry without losing the turn. Only the exact assistant attempt currently parked in retry backoff accepts a switch.",
++          }),
++        ),
+         HttpApiEndpoint.get("resource", ExperimentalPaths.resource, {
+           query: WorkspaceRoutingQuery,
+           success: described(Schema.Record(Schema.String, MCP.Resource), "MCP resources"),
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/experimental.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/experimental.ts
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/experimental.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/experimental.ts
+@@ -6,7 +6,10 @@ import { InstanceState } from "@/effect/instance-state"
+ import { RuntimeFlags } from "@/effect/runtime-flags"
+ import { MCP } from "@/mcp"
+ import { Project } from "@/project/project"
++import { Provider } from "@/provider/provider"
++import { RetryModelSwitch } from "@/session/retry-switch"
+ import { Session } from "@/session/session"
++import { SessionStatus } from "@/session/status"
+ import type { SessionID } from "@/session/schema"
+ import { ToolJsonSchema } from "@/tool/json-schema"
+ import { ToolRegistry } from "@/tool/registry"
+@@ -15,7 +18,14 @@ import { Effect, Option } from "effect"
+ import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
+ import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
+ import { InstanceHttpApi } from "../api"
+-import { ConsoleSwitchPayload, SessionListQuery, ToolListQuery, WorktreeApiError } from "../groups/experimental"
++import {
++  ConsoleSwitchPayload,
++  RetryModelError,
++  RetryModelPayload,
++  SessionListQuery,
++  ToolListQuery,
++  WorktreeApiError,
++} from "../groups/experimental"
+ 
+ function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
+   return self.pipe(
+@@ -35,6 +45,8 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
+     const sessions = yield* Session.Service
+     const background = yield* BackgroundJob.Service
+     const flags = yield* RuntimeFlags.Service
++    const providers = yield* Provider.Service
++    const status = yield* SessionStatus.Service
+ 
+     const capabilities = Effect.fn("ExperimentalHttpApi.capabilities")(function* () {
+       return { backgroundSubagents: flags.experimentalBackgroundSubagents }
+@@ -171,6 +183,30 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
+       return promoted.some((job) => job !== undefined)
+     })
+ 
++    const sessionRetryModel = Effect.fn("ExperimentalHttpApi.sessionRetryModel")(function* (ctx: {
++      params: { sessionID: SessionID }
++      payload: typeof RetryModelPayload.Type
++    }) {
++      const fail = (message: string) => new RetryModelError({ name: "RetryModelError", data: { message } })
++      if ((yield* status.get(ctx.params.sessionID)).type !== "retry") {
++        return yield* fail("Session is not waiting to retry")
++      }
++      // Reject unknown or unavailable models before interrupting anything.
++      yield* providers
++        .getModel(ctx.payload.providerID, ctx.payload.modelID)
++        .pipe(Effect.mapError((error) => fail(error.message)))
++      const accepted = yield* RetryModelSwitch.request({
++        sessionID: ctx.params.sessionID,
++        messageID: ctx.payload.messageID,
++        selection: {
++          providerID: ctx.payload.providerID,
++          modelID: ctx.payload.modelID,
++          variant: ctx.payload.variant,
++        },
++      })
++      if (!accepted) return yield* fail("The targeted assistant message is no longer waiting to retry")
++    })
++
+     const resource = Effect.fn("ExperimentalHttpApi.resource")(function* () {
+       return yield* mcp.resources()
+     })
+@@ -188,6 +224,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
+       .handle("worktreeReset", worktreeReset)
+       .handle("session", session)
+       .handle("sessionBackground", sessionBackground)
++      .handle("sessionRetryModel", sessionRetryModel)
+       .handle("resource", resource)
+   }),
+ )
+diff --git a/packages/opencode/src/session/retry-switch.ts b/packages/opencode/src/session/retry-switch.ts
+new file mode 100644
+--- /dev/null
++++ b/packages/opencode/src/session/retry-switch.ts
+@@ -0,0 +1,82 @@
++import type { ModelV2 } from "@opencode-ai/core/model"
++import type { ProviderV2 } from "@opencode-ai/core/provider"
++import { Deferred, Effect } from "effect"
++import type { SessionID } from "./schema"
++
++export interface Selection {
++  providerID: ProviderV2.ID
++  modelID: ModelV2.ID
++  variant?: string | undefined
++}
++
++interface Entry {
++  messageID: string
++  selection: Deferred.Deferred<Selection>
++  parked: boolean
++  switching: boolean
++}
++
++// Process-local: a retrying attempt streams in this process, so its switch window lives and
++// dies with the attempt. One entry per session - a session runs at most one attempt at a time.
++const entries = new Map<SessionID, Entry>()
++
++/**
++ * Opens the switch window for one assistant attempt. The caller races `wait` against the
++ * streaming attempt and must run `close` afterwards so a finished attempt can never accept a
++ * selection meant for a newer one.
++ */
++export const open = Effect.fn("RetryModelSwitch.open")(function* (sessionID: SessionID, messageID: string) {
++  const entry: Entry = {
++    messageID,
++    selection: yield* Deferred.make<Selection>(),
++    parked: false,
++    switching: false,
++  }
++  entries.set(sessionID, entry)
++  return {
++    wait: Deferred.await(entry.selection),
++    close: Effect.sync(() => {
++      if (entries.get(sessionID) === entry) entries.delete(sessionID)
++    }),
++  }
++})
++
++/**
++ * Marks the attempt as parked in retry backoff. Only parked attempts accept a switch: while the
++ * provider stream is live, interrupting it mid-output would lose already-streamed content.
++ */
++export function park(sessionID: SessionID, messageID: string) {
++  const entry = entries.get(sessionID)
++  if (entry && entry.messageID === messageID && !entry.switching) entry.parked = true
++}
++
++/** Leaves backoff parking when the next attempt starts streaming. */
++export function resume(sessionID: SessionID, messageID: string) {
++  const entry = entries.get(sessionID)
++  if (entry && entry.messageID === messageID && !entry.switching) entry.parked = false
++}
++
++/**
++ * Accepts a switch for the exact parked attempt, or reports false so the caller can tell the
++ * user the attempt is no longer switchable. Marking `switching` before resolving keeps the
++ * interrupt that follows distinguishable from a user abort.
++ */
++export const request = Effect.fn("RetryModelSwitch.request")(function* (input: {
++  sessionID: SessionID
++  messageID: string
++  selection: Selection
++}) {
++  const entry = entries.get(input.sessionID)
++  if (!entry || entry.messageID !== input.messageID || entry.switching || !entry.parked) return false
++  entry.switching = true
++  yield* Deferred.succeed(entry.selection, input.selection)
++  return true
++})
++
++/** Whether the attempt's interruption was caused by an accepted switch rather than an abort. */
++export function isSwitching(sessionID: SessionID, messageID: string) {
++  const entry = entries.get(sessionID)
++  return entry?.messageID === messageID && entry.switching
++}
++
++export * as RetryModelSwitch from "./retry-switch"
+diff --git a/packages/opencode/test/session/retry-model-switch.test.ts b/packages/opencode/test/session/retry-model-switch.test.ts
+new file mode 100644
+--- /dev/null
++++ b/packages/opencode/test/session/retry-model-switch.test.ts
+@@ -0,0 +1,87 @@
++import { expect, test } from "bun:test"
++import { Effect } from "effect"
++import type { ModelV2 } from "@opencode-ai/core/model"
++import type { ProviderV2 } from "@opencode-ai/core/provider"
++import { RetryModelSwitch } from "../../src/session/retry-switch"
++import type { SessionID } from "../../src/session/schema"
++
++const selection = {
++  providerID: "anthropic" as ProviderV2.ID,
++  modelID: "claude-test" as ModelV2.ID,
++  variant: "high",
++}
++
++test("only the exact parked attempt accepts a switch", async () => {
++  const sessionID = "ses_switch_exact" as SessionID
++  await Effect.runPromise(
++    Effect.gen(function* () {
++      const window = yield* RetryModelSwitch.open(sessionID, "msg_1")
++      // Streaming attempts are never switchable: interrupting a live stream loses output.
++      expect(yield* RetryModelSwitch.request({ sessionID, messageID: "msg_1", selection })).toBeFalse()
++
++      RetryModelSwitch.park(sessionID, "msg_1")
++      expect(yield* RetryModelSwitch.request({ sessionID, messageID: "msg_2", selection })).toBeFalse()
++
++      // The next attempt starting to stream unparks the window.
++      RetryModelSwitch.resume(sessionID, "msg_1")
++      expect(yield* RetryModelSwitch.request({ sessionID, messageID: "msg_1", selection })).toBeFalse()
++
++      RetryModelSwitch.park(sessionID, "msg_1")
++      expect(RetryModelSwitch.isSwitching(sessionID, "msg_1")).toBeFalse()
++      expect(yield* RetryModelSwitch.request({ sessionID, messageID: "msg_1", selection })).toBeTrue()
++      expect(RetryModelSwitch.isSwitching(sessionID, "msg_1")).toBeTrue()
++      expect(yield* window.wait).toEqual(selection)
++
++      // While switching, park/resume are ignored and no second switch can race the first.
++      RetryModelSwitch.resume(sessionID, "msg_1")
++      expect(RetryModelSwitch.isSwitching(sessionID, "msg_1")).toBeTrue()
++      expect(yield* RetryModelSwitch.request({ sessionID, messageID: "msg_1", selection })).toBeFalse()
++      yield* window.close
++    }),
++  )
++})
++
++test("a closed window never accepts a stale selection", async () => {
++  const sessionID = "ses_switch_stale" as SessionID
++  await Effect.runPromise(
++    Effect.gen(function* () {
++      const first = yield* RetryModelSwitch.open(sessionID, "msg_1")
++      RetryModelSwitch.park(sessionID, "msg_1")
++      yield* first.close
++      expect(yield* RetryModelSwitch.request({ sessionID, messageID: "msg_1", selection })).toBeFalse()
++
++      // A newer attempt owns the session's window; requests for the old attempt stay refused.
++      const second = yield* RetryModelSwitch.open(sessionID, "msg_2")
++      RetryModelSwitch.park(sessionID, "msg_2")
++      expect(yield* RetryModelSwitch.request({ sessionID, messageID: "msg_1", selection })).toBeFalse()
++      expect(yield* RetryModelSwitch.request({ sessionID, messageID: "msg_2", selection })).toBeTrue()
++      yield* second.close
++      expect(RetryModelSwitch.isSwitching(sessionID, "msg_2")).toBeFalse()
++    }),
++  )
++})
++
++test("the processor parks retry backoff and skips abort finalization while switching", async () => {
++  const processor = await Bun.file(new URL("../../src/session/processor.ts", import.meta.url)).text()
++  expect(processor).toContain("RetryModelSwitch.park(ctx.sessionID, ctx.assistantMessage.id)")
++  expect(processor).toContain("RetryModelSwitch.resume(ctx.sessionID, ctx.assistantMessage.id)")
++  // The switch interrupt must not finalize the message as aborted or run the abort cleanup.
++  expect(processor).toContain(
++    "if (RetryModelSwitch.isSwitching(ctx.sessionID, ctx.assistantMessage.id)) return",
++  )
++  expect(processor).toContain(
++    "RetryModelSwitch.isSwitching(ctx.sessionID, ctx.assistantMessage.id) ? Effect.void : cleanup()",
++  )
++  // Errors and retry policy attribute to the model of the current attempt, not the original one.
++  expect(processor).toContain("providerID: ctx.model.providerID")
++  expect(processor).toContain("provider: ctx.model.providerID")
++})
++
++test("the prompt loop restarts a switched attempt with rebuilt model context", async () => {
++  const prompt = await Bun.file(new URL("../../src/session/prompt.ts", import.meta.url)).text()
++  expect(prompt).toContain("RetryModelSwitch.open(sessionID, handle.message.id)")
++  expect(prompt).toContain("Effect.ensuring(switchWindow.close)")
++  // The switch path re-enters the attempt loop so tools/system/messages rebuild for the model.
++  expect(prompt).toMatch(/raced\.type === "switch"[\s\S]*?continue\s*\}/)
++  expect(prompt).toContain("handle.message.providerID = model.providerID")
++})

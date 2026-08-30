@@ -66,6 +66,24 @@ pub struct PromptSnapshot {
     overrides: Vec<PromptOverride>,
 }
 
+/// A config-file-defined MCP server resolved for editing: the files that define it and the
+/// definition they contain.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMcpConfig {
+    pub paths: Vec<String>,
+    pub config: Value,
+}
+
+/// The observed fingerprint no longer matches any on-disk definition Drift can safely rewrite.
+const EXTERNAL_NOT_FOUND: &str = "This MCP definition could not be matched to an OpenCode config \
+file. It may use dynamic {env:} or {file:} values or have changed on disk; edit its config file \
+directly.";
+
+/// One config file declares this server twice, so Drift cannot tell which member to rewrite.
+const EXTERNAL_DUPLICATE: &str = "One OpenCode config file defines this MCP server more than once. \
+Remove the duplicate definition in that file, then try again.";
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum McpDecision {
@@ -454,6 +472,117 @@ impl McpRuntime {
                 .map(|_| ())
                 .map_err(|error| error.to_string())
         })
+    }
+
+    /// Resolves a config-file-defined server for the editor. Read-only, but still serialized
+    /// behind the mutation lock so it cannot race a rewrite of the same files.
+    pub fn external_config(
+        &self,
+        store: &Store,
+        name: &str,
+        fingerprint: &str,
+        generation: i64,
+    ) -> Result<ExternalMcpConfig, String> {
+        let _guard = self
+            .mutation
+            .lock()
+            .map_err(|_| "MCP mutation lock is poisoned")?;
+        self.require_generation(store, generation)?;
+        let located = self.locate_external(store, name, fingerprint)?;
+        Ok(ExternalMcpConfig {
+            paths: crate::mcp_external::display_paths(&located),
+            config: located[0].config.clone(),
+        })
+    }
+
+    /// Rewrites a config-file-defined server in place. Every file whose definition matches the
+    /// observed fingerprint is updated, so a definition duplicated across config layers stays
+    /// consistent. The changed fingerprint drops the server back to pending approval, and the
+    /// config watcher performs the generation advance and engine restart.
+    pub fn external_save(
+        &self,
+        store: &Store,
+        name: &str,
+        previous: &str,
+        fingerprint: &str,
+        config: Value,
+        generation: i64,
+    ) -> Result<(), String> {
+        let _guard = self
+            .mutation
+            .lock()
+            .map_err(|_| "MCP mutation lock is poisoned")?;
+        let state = self.require_generation(store, generation)?;
+        validate_name(name)?;
+        validate_config(&config)?;
+        let files = self.candidate_paths(store);
+        // Two config layers defining one name leave whichever loses precedence silently inactive.
+        if name != previous
+            && (state.servers.iter().any(|server| server.name == name)
+                || crate::mcp_external::defined_names(&files)
+                    .iter()
+                    .any(|defined| defined == name))
+        {
+            return Err(format!("An MCP server named {name} already exists"));
+        }
+        let located = self.locate_external(store, previous, fingerprint)?;
+        let rewritten = located
+            .iter()
+            .map(|location| {
+                crate::mcp_external::apply_save(location, name, &config)
+                    .map(|text| (location.path.clone(), text))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        require_unchanged(&located)?;
+        write_rewritten(rewritten)
+    }
+
+    /// Deletes a config-file-defined server from every file whose definition matches the observed
+    /// fingerprint. The config watcher performs the generation advance and engine restart.
+    pub fn external_remove(
+        &self,
+        store: &Store,
+        name: &str,
+        fingerprint: &str,
+        generation: i64,
+    ) -> Result<(), String> {
+        let _guard = self
+            .mutation
+            .lock()
+            .map_err(|_| "MCP mutation lock is poisoned")?;
+        self.require_generation(store, generation)?;
+        let located = self.locate_external(store, name, fingerprint)?;
+        let rewritten = located
+            .iter()
+            .map(|location| {
+                crate::mcp_external::apply_remove(location).map(|text| (location.path.clone(), text))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        require_unchanged(&located)?;
+        write_rewritten(rewritten)
+    }
+
+    fn candidate_paths(&self, store: &Store) -> Vec<PathBuf> {
+        crate::mcp_external::candidate_files(&crate::watcher::external_config_roots(store))
+    }
+
+    fn locate_external(
+        &self,
+        store: &Store,
+        name: &str,
+        fingerprint: &str,
+    ) -> Result<Vec<crate::mcp_external::ExternalLocation>, String> {
+        let located = crate::mcp_external::locate(&self.candidate_paths(store), name, fingerprint);
+        if located.is_empty() {
+            return Err(EXTERNAL_NOT_FOUND.into());
+        }
+        // Each rewrite starts from the file's original text, so two matches in one file would make
+        // the second write discard the first and leave only one of the duplicates edited.
+        let mut seen = std::collections::HashSet::new();
+        if located.iter().any(|location| !seen.insert(&location.path)) {
+            return Err(EXTERNAL_DUPLICATE.into());
+        }
+        Ok(located)
     }
 
     fn require_generation(&self, store: &Store, generation: i64) -> Result<McpState, String> {
@@ -1000,8 +1129,69 @@ fn report_path(root: &Path, directory: &str) -> PathBuf {
     root.join(format!("{hash:x}.json"))
 }
 
+/// Rejects the write when a located file changed after discovery: the rewrite was computed from the
+/// text read then, so replacing the file now would discard whatever else edited it.
+fn require_unchanged(located: &[crate::mcp_external::ExternalLocation]) -> Result<(), String> {
+    let Some(changed) = located
+        .iter()
+        .find(|location| !crate::mcp_external::unchanged(location))
+    else {
+        return Ok(());
+    };
+    Err(format!(
+        "{} changed on disk while it was open. Reload the MCP list and try again.",
+        changed.path.display()
+    ))
+}
+
+/// Writes each rewritten config file, naming the ones already replaced when a later write fails so
+/// the user can reconcile config layers this left holding different definitions.
+fn write_rewritten(rewritten: Vec<(PathBuf, String)>) -> Result<(), String> {
+    let mut written: Vec<String> = Vec::new();
+    for (path, text) in rewritten {
+        let Err(error) = write_raw(&path, text.as_bytes()) else {
+            written.push(path.display().to_string());
+            continue;
+        };
+        if written.is_empty() {
+            return Err(error);
+        }
+        return Err(format!(
+            "{error}; these files were already updated: {}",
+            written.join(", ")
+        ));
+    }
+    Ok(())
+}
+
 fn write_json(path: &Path, value: &Value) -> Result<(), String> {
     let contents = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
+    write_raw(path, &contents)
+}
+
+/// Copies the destination's mode onto its replacement, since the rename swaps the inode and would
+/// otherwise widen a config file the user restricted to hold MCP credentials.
+#[cfg(unix)]
+fn inherit_permissions(file: &std::fs::File, path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    match std::fs::metadata(path) {
+        Ok(metadata) => {
+            file.set_permissions(std::fs::Permissions::from_mode(metadata.permissions().mode()))
+        }
+        // A new file has no mode to inherit; anything else is a real failure to read the target.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// Windows has no mode to carry across the replacement; ACLs follow the destination path.
+#[cfg(not(unix))]
+fn inherit_permissions(_file: &std::fs::File, _path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// Atomically replaces `path` with `contents` via a temp file and write-through rename.
+pub(crate) fn write_raw(path: &Path, contents: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("generated MCP path has no parent")?;
     std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     let name = path
@@ -1018,7 +1208,13 @@ fn write_json(path: &Path, value: &Value) -> Result<(), String> {
         .create_new(true)
         .open(&temporary)
         .map_err(|error| error.to_string())?;
-    let written = file.write_all(&contents).and_then(|_| file.sync_all());
+    // A failed copy would leave the umask default on the replacement, so it aborts the write.
+    if let Err(error) = inherit_permissions(&file, path) {
+        drop(file);
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    let written = file.write_all(contents).and_then(|_| file.sync_all());
     drop(file);
     let result = written.and_then(|_| replace_file(&temporary, path));
     if let Err(error) = result {

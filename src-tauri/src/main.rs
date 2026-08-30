@@ -7,6 +7,7 @@ mod editor;
 mod engine;
 mod engine_db;
 mod mcp;
+mod mcp_external;
 mod permissions;
 mod remote;
 mod storage;
@@ -66,6 +67,11 @@ fn show_main_window(window: tauri::WebviewWindow) {
     reveal_main_window(&window);
 }
 
+#[tauri::command]
+fn open_webview_devtools(window: tauri::WebviewWindow) {
+    window.open_devtools();
+}
+
 fn main() {
     // Reqwest is built without a bundled provider so the release build needs no extra C toolchain.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -105,10 +111,6 @@ fn main() {
             commands::store_archive_session,
             commands::store_unarchive_session,
             commands::store_expired_archived,
-            commands::store_interruptions,
-            commands::store_save_interruption,
-            commands::store_dismiss_interruption,
-            commands::store_clear_interruptions,
             commands::mcp_snapshot,
             commands::prompt_snapshot,
             commands::prompt_save,
@@ -119,7 +121,11 @@ fn main() {
             commands::mcp_reject,
             commands::mcp_revoke,
             watcher::watcher_set_skill_paths,
+            commands::mcp_external_config,
+            commands::mcp_external_save,
+            commands::mcp_external_remove,
             show_main_window,
+            open_webview_devtools,
             commands::storage_stats,
             commands::storage_analyze,
             commands::storage_prune,

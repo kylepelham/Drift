@@ -47,8 +47,25 @@ export function mountScene(load: () => Promise<(() => void) | undefined>, onFall
   }
 }
 
+/**
+ * Resolves the current accent to an `rgb()` string. Reading the raw custom property would hand
+ * three.js whatever colour syntax the theme happens to use; a probe returns a computed colour
+ * the Color parser always understands.
+ */
+function accentColor(host: HTMLElement) {
+  const probe = document.createElement("span")
+  probe.style.cssText = "display:none;color:var(--accent)"
+  host.append(probe)
+  const value = getComputedStyle(probe).color
+  probe.remove()
+  return value || "#8fd9fb"
+}
+
 async function createScene(host: HTMLElement, ready: () => void) {
-  const [THREE, { createJellyfish }] = await Promise.all([import("three"), import("./jelly/jellyfish")])
+  const [THREE, { applyAccent, createJellyfish }] = await Promise.all([
+    import("three"),
+    import("./jelly/jellyfish"),
+  ])
   if (!host.isConnected) return undefined
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true })
   const canvas = renderer.domElement
@@ -57,8 +74,12 @@ async function createScene(host: HTMLElement, ready: () => void) {
     return undefined
   }
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2))
+  // Explicitly fully transparent: the mascot sits on the About panel, never on its own backdrop.
+  renderer.setClearColor(0x000000, 0)
   canvas.style.display = "block"
   canvas.style.background = "transparent"
+  canvas.style.opacity = "0"
+  canvas.style.transition = "opacity 140ms ease-out"
 
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 40)
@@ -82,9 +103,17 @@ async function createScene(host: HTMLElement, ready: () => void) {
     camera.updateProjectionMatrix()
   }
   let observer: ResizeObserver | undefined
+  // Themes swap documentElement.dataset.theme (and custom themes rewrite the CSS variables), so
+  // retint from the same source rather than rebuilding the scene.
+  const retint = () => {
+    applyAccent(accentColor(host))
+    if (!running) renderer.render(scene, camera)
+  }
+  const themeObserver = new MutationObserver(retint)
 
   let frame = 0
   let running = false
+  let revealed = false
   const started = performance.now()
   const start = () => {
     if (running || document.hidden) return
@@ -106,6 +135,14 @@ async function createScene(host: HTMLElement, ready: () => void) {
     jelly.group.rotation.x = -pointerSmooth.y * 0.12
     jelly.update(time, pointerSmooth)
     renderer.render(scene, camera)
+    // A freshly attached accelerated canvas composites one frame before this callback runs, and
+    // that frame is opaque white in WebView2. The canvas therefore mounts hidden and is only
+    // revealed here, after a frame it actually drew, with the fallback logo covering the gap.
+    if (!revealed) {
+      revealed = true
+      canvas.style.opacity = "1"
+      ready()
+    }
     frame = requestAnimationFrame(render)
   }
   const dispose = () => {
@@ -115,6 +152,7 @@ async function createScene(host: HTMLElement, ready: () => void) {
     host.removeEventListener("pointermove", onPointer)
     host.removeEventListener("pointerleave", resetPointer)
     observer?.disconnect()
+    themeObserver.disconnect()
     jelly?.group.traverse((object) => {
       const mesh = object as Mesh
       mesh.geometry?.dispose()
@@ -127,6 +165,8 @@ async function createScene(host: HTMLElement, ready: () => void) {
   }
 
   try {
+    // Tint before the first render so the mascot never appears in the stock palette.
+    applyAccent(accentColor(host))
     jelly = createJellyfish()
     jelly.group.scale.setScalar(0.72)
     jelly.group.position.y = 0.65
@@ -142,9 +182,11 @@ async function createScene(host: HTMLElement, ready: () => void) {
     host.addEventListener("pointerleave", resetPointer)
     observer = new ResizeObserver(resize)
     observer.observe(host)
+    themeObserver.observe(document.documentElement, { attributeFilter: ["data-theme", "style", "class"] })
     document.addEventListener("visibilitychange", visibility)
     host.append(canvas)
-    ready()
+    // `ready()` is deliberately not called here: the fallback logo stays until render() confirms
+    // a painted frame, so the canvas is never visible while it is still blank.
     start()
     return dispose
   } catch (error) {

@@ -103,6 +103,7 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 const pendingTranslation = new Set([
   "drift.mobile.openNavigation",
   "drift.settings.code",
+  ...pendingKeys("drift.chat.retry", "switchModel switchingModel"),
   ...pendingKeys(
     "drift.code",
     `
@@ -126,7 +127,7 @@ const pendingTranslation = new Set([
   ...pendingKeys(
     "drift.mcp",
     `
-      servers registry add edit remove confirmRemove approve reject revoke authenticate pendingApproval
+      servers registry add edit definedIn approve reject revoke pendingApproval
       invalidStatus rejectedStatus awaitingReport selectWorkspace saved removed approved rejected revoked
       name nameRequired registrySearch registrySource registryLoadFailed registryUnavailable install
       installedLabel installed
@@ -137,13 +138,6 @@ const pendingTranslation = new Set([
       form.addPair form.removePair form.commandRequired form.urlRequired form.urlInvalid
       form.timeoutInvalid form.pairInvalid form.callbackPortInvalid form.redirectUriInvalid
       toast.pending.title toast.pending.message toast.exact toast.openSettings toast.failed
-    `,
-  ),
-  ...pendingKeys(
-    "drift.recovery",
-    `
-      chooseModel continue durableHint explanation failedModel notification.body notification.title
-      open starting subagent title
     `,
   ),
   ...pendingKeys(
@@ -391,4 +385,57 @@ test("the About mascot always disposes its scene, including when it loads after 
   mountScene(() => Promise.reject(new Error("no webgl")), () => ignored++)()
   await settle()
   expect(ignored).toBe(0)
+})
+
+test("the mascot takes the theme accent and the logo mark never flashes as a block", async () => {
+  const { applyAccent } = await import("../src/ui/jelly/jellyfish")
+  const THREE = await import("three")
+
+  // The bell palette derives from the accent, so a themed mascot never falls back to stock aqua.
+  applyAccent("#c9a9e0")
+  const bell = (await import("../src/ui/jelly/jellyfish")).createJellyfish()
+  const tinted: string[] = []
+  bell.group.traverse((object) => {
+    const material = (object as { material?: unknown }).material as
+      | { uniforms?: Record<string, { value: unknown }> }
+      | undefined
+    for (const name of ["uTop", "uBottom", "uRim", "uColor", "uTip"]) {
+      const value = material?.uniforms?.[name]?.value
+      if (value instanceof THREE.Color) tinted.push(value.getHexString())
+    }
+  })
+  expect(tinted.length).toBeGreaterThan(0)
+  // Stock aqua (#8fd9fb and friends) must be gone entirely.
+  expect(tinted).not.toContain("8fd9fb")
+  expect(tinted).not.toContain("d4f2ff")
+  expect(tinted).not.toContain("4f93cc")
+  // Every bell tint stays on the accent hue rather than reverting to blue. The face colours are
+  // deliberately fixed - the blush and eyes read as features, not as themed surfaces.
+  const face = new Set(["ffa9b8", "ffffff", "0f1626"])
+  const bellTints = tinted.filter((hex) => !face.has(hex))
+  expect(bellTints.length).toBeGreaterThan(0)
+  for (const hex of bellTints) {
+    const color = new THREE.Color(`#${hex}`)
+    const hsl = { h: 0, s: 0, l: 0 }
+    color.getHSL(hsl)
+    if (hsl.s > 0.05) expect(Math.abs(hsl.h - 0.763)).toBeLessThan(0.05)
+  }
+
+  // The logo mask is inlined, so `background: currentColor` is never painted unmasked.
+  const logo = await Bun.file("src/ui/logo.tsx").text()
+  expect(logo).toContain('logo.svg?raw')
+  expect(logo).toContain("data:image/svg+xml,${encodeURIComponent(logoSource)}")
+  const jelly = await Bun.file("src/ui/jellyfish.tsx").text()
+  // Tinted before the first frame and retinted on theme changes, with the observer torn down.
+  expect(jelly).toMatch(/applyAccent\(accentColor\(host\)\)[\s\S]*?jelly = createJellyfish\(\)/)
+  expect(jelly).toContain("themeObserver.observe(document.documentElement")
+  expect(jelly).toContain("themeObserver.disconnect()")
+  expect(jelly).toContain("renderer.setClearColor(0x000000, 0)")
+
+  // The canvas mounts hidden and is revealed only from inside render(), after a frame it drew.
+  // Revealing at append time let WebView2 composite one opaque white frame first.
+  expect(jelly).toContain('canvas.style.opacity = "0"')
+  expect(jelly).toMatch(/renderer\.render\(scene, camera\)\s*\n[\s\S]*?if \(!revealed\) \{\s*\n\s*revealed = true\s*\n\s*canvas\.style\.opacity = "1"\s*\n\s*ready\(\)/)
+  // No reveal may happen next to the append, before any frame exists.
+  expect(jelly).not.toMatch(/host\.append\(canvas\)\s*\n\s*ready\(\)/)
 })

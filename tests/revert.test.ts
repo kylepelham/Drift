@@ -124,3 +124,62 @@ test("dock previews collapse whitespace to a single line", async () => {
   expect(revertPreview(user("01", "  line one\nline two  "))).toBe("line one line two")
   expect(revertPreview(undefined)).toBe("")
 })
+
+test("a revert older than the loaded page backfills instead of blanking the transcript", async () => {
+  const { revertBackfillNeeded } = await import("../src/ui/chat")
+  // Real shape from a 35k-message session: the marker sat 325 messages back while only the
+  // newest 100 were loaded, so every loaded row was inside the reverted range and the timeline
+  // rendered empty. Backfill must run until a pre-revert row survives the filter.
+  expect(revertBackfillNeeded({ revertedAt: "msg_marker", visible: 0, loaded: true, cursor: "older" })).toBeTrue()
+  // Stops as soon as anything is visible.
+  expect(revertBackfillNeeded({ revertedAt: "msg_marker", visible: 1, loaded: true, cursor: "older" })).toBeFalse()
+  // Never fires for a session without a revert, mid-load, or with history exhausted.
+  expect(revertBackfillNeeded({ visible: 0, loaded: true, cursor: "older" })).toBeFalse()
+  expect(revertBackfillNeeded({ revertedAt: "msg_marker", visible: 0, cursor: "older" })).toBeFalse()
+  expect(revertBackfillNeeded({ revertedAt: "msg_marker", visible: 0, loaded: true, cursor: null })).toBeFalse()
+})
+
+test("a failed backfill page is not requested again until the cursor moves", async () => {
+  const { revertBackfillAttempt } = await import("../src/ui/chat")
+  // A page that never arrived leaves the cursor in place, so the retry gate has to key on it:
+  // matching the last failure means asking again would repeat the request that just failed.
+  expect(revertBackfillAttempt("ses_one", "older")).toBe(revertBackfillAttempt("ses_one", "older"))
+  expect(revertBackfillAttempt("ses_one", "older")).not.toBe(revertBackfillAttempt("ses_one", "older-still"))
+  expect(revertBackfillAttempt("ses_one", "older")).not.toBe(revertBackfillAttempt("ses_two", "older"))
+  // A missing cursor must not collide with a session whose id ends where the separator would be.
+  expect(revertBackfillAttempt("ses_one")).not.toBe(revertBackfillAttempt("ses_one", "older"))
+  expect(revertBackfillAttempt("ses_one", null)).toBe(revertBackfillAttempt("ses_one"))
+
+  const source = await Bun.file("src/ui/chat.tsx").text()
+  expect(source).toContain("if (revertBackfillFailure() === attempt) return")
+  expect(source).toContain("if (!loaded) setRevertBackfillFailure(attempt)")
+})
+
+test("retry models come from connected providers once the engine is online", async () => {
+  const { retryModelItems } = await import("../src/ui/chat")
+  const { createEngineState } = await import("../src/engine/store")
+  const model = (id: string) => ({ id, name: id, capabilities: { toolcall: true }, limit: { context: 200_000 } })
+  const [state, set] = createEngineState()
+  set("providers", [
+    { id: "anthropic", name: "Anthropic", models: { fable: model("fable") } },
+    { id: "openai", name: "OpenAI", models: { "gpt-5": model("gpt-5") } },
+  ] as never)
+
+  // Before the first listing there is nothing to filter against, so retrying can offer anything.
+  set("connection", "connecting")
+  expect(retryModelItems(state).map((item) => item.id)).toEqual(["anthropic/fable", "openai/gpt-5"])
+
+  // Online, an empty connected list is the answer: retrying a disconnected provider only fails.
+  set("connection", "online")
+  expect(retryModelItems(state)).toEqual([])
+  set("connected", ["openai"])
+  expect(retryModelItems(state).map((item) => item.id)).toEqual(["openai/gpt-5"])
+})
+
+test("the transcript shows a loading row while reverted history backfills", async () => {
+  const source = await Bun.file("src/ui/chat.tsx").text()
+  // The empty-state loading row must also cover backfill, otherwise the view is blank mid-page.
+  expect(source).toContain("timeline().length === 0 && (revertBackfill() ||")
+  // Each finished page re-runs the effect, so paging continues past a fully reverted page.
+  expect(source).toContain(".finally(() => setRevertBackfill(false))")
+})

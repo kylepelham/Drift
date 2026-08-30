@@ -486,6 +486,22 @@ test("engine send reports admission, SDK rejection, and thrown transport failure
     error: "Prompt failed: transport unavailable",
   })
   expect(state.errors["send-session"]).toBe("Prompt failed: transport unavailable")
+
+  result = { data: {} }
+  expect(await actions.send("send-session", "continue with my exact message", options)).toEqual({ ok: true })
+  expect(state.errors["send-session"]).toBeUndefined()
+  expect(request).toMatchObject({
+    body: {
+      parts: [
+        { type: "text", text: "continue with my exact message" },
+        { type: "file" },
+      ],
+    },
+  })
+  expect((request as { body: { parts: unknown[] } }).body.parts[0]).toEqual({
+    type: "text",
+    text: "continue with my exact message",
+  })
 })
 
 test("question navigation selects the normalized owning workspace before its session", async () => {

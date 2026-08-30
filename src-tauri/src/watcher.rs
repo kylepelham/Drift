@@ -186,7 +186,9 @@ pub(crate) fn watched_skill_paths(mut roots: Vec<PathBuf>) -> Vec<PathBuf> {
     paths
 }
 
-fn external_mcp_signature(store: &Store) -> Vec<(PathBuf, u64, u128, u64)> {
+/// Every root the engine can read user MCP config from. Shared with external MCP editing so the
+/// set of files Drift will rewrite is exactly the set it watches.
+pub(crate) fn external_config_roots(store: &Store) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
         let home = PathBuf::from(home);
@@ -211,6 +213,11 @@ fn external_mcp_signature(store: &Store) -> Vec<(PathBuf, u64, u128, u64)> {
     roots.sort();
     roots.dedup();
     roots.truncate(MAX_WATCHED_MCP_FILES);
+    roots
+}
+
+fn external_mcp_signature(store: &Store) -> Vec<(PathBuf, u64, u128, u64)> {
+    let roots = external_config_roots(store);
     let configs = roots
         .iter()
         .flat_map(|root| {

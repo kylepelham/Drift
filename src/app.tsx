@@ -1,5 +1,6 @@
 import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
+import { messageText } from "./engine/store"
 import { PluginHost } from "./plugins"
 import { shellEvents } from "./shell"
 import { bindCodePreferences } from "./state/code"
@@ -9,11 +10,19 @@ import { t } from "./state/i18n"
 import { bindLanguage } from "./state/language"
 import { mcpCoordinator } from "./state/mcp"
 import { driftStore } from "./state/store"
-import { initRecoverableInterruptions } from "./state/recovery"
 import { bindTheme } from "./state/theme"
 import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation"
 import { initZoom } from "./state/zoom"
-import { bindShellTimeoutPolicy } from "./state/prefs"
+import { bindShellTimeoutPolicy, prefsFor } from "./state/prefs"
+import {
+  isGeneratedUserEntry,
+  ORCHESTRATOR_AGENT,
+  orchestratorGate,
+  parseOrchestratorStatus,
+  PROCEED_PROMPT,
+  STATUS_REMINDER_PROMPT,
+} from "./state/orchestrator"
+import { initDevtoolsShortcut } from "./state/devtools"
 import { listenMirrorLiveError } from "./state/mirror"
 import { activeWorkspace, initWorkspaces, purgeAll, workspaces } from "./state/workspaces"
 import { debugPanelOpen } from "./state/panels"
@@ -40,11 +49,13 @@ export function App() {
   initKeybinds()
   initZoom()
   bindShellTimeoutPolicy()
+  onCleanup(initDevtoolsShortcut())
   onMount(() => void syncDictationConsent().catch(() => undefined))
   return (
     <EngineProvider>
       <WorkspaceBinding />
       <McpBinding />
+      <OrchestratorBinding />
       <PluginBinding />
       <div class="app-shell flex h-full flex-col bg-bg text-ink">
         <Titlebar />
@@ -134,6 +145,100 @@ function PluginBinding() {
   )
 }
 
+function OrchestratorBinding() {
+  const engine = useEngine()
+  const previous = new Map<string, string>()
+  // Rounds are anchored to the user's goal message, so a fresh goal resets the budget while
+  // Drift's own generated proceed prompts never do.
+  const rounds = new Map<string, { anchor: string; count: number; capNotified?: boolean }>()
+  const driving = new Set<string>()
+
+  createEffect(() => {
+    for (const [id, status] of Object.entries(engine.state.status)) {
+      const before = previous.get(id)
+      previous.set(id, status.type)
+      if (status.type !== "idle" || driving.has(id)) continue
+      // The microtask escapes the effect's tracking scope: driving reads a lot of state that
+      // must not resubscribe this effect.
+      if (before === "busy" || before === "retry") queueMicrotask(() => void drive(id, before))
+    }
+    for (const id of previous.keys()) if (!engine.state.status[id]) previous.delete(id)
+  })
+
+  async function drive(id: string, previousStatus: string) {
+    const state = engine.state
+    const session = state.sessions[id]
+    const entries = state.transcripts[id] ?? []
+    const last = entries.at(-1)
+    const goal = [...entries]
+      .reverse()
+      .find((entry) => entry.info.role === "user" && !isGeneratedUserEntry(entry.parts as never))
+    if (!session || !goal || !last) return
+    const record = rounds.get(id)
+    const count = record && record.anchor === goal.info.id ? record.count : 0
+    const blocked = orchestratorGate({
+      previousStatus,
+      status: state.status[id]?.type ?? "idle",
+      goalAgent: (goal.info as { agent?: string }).agent,
+      parentID: session.parentID,
+      pendingAsks: (state.permissions[id]?.length ?? 0) + (state.questions[id]?.length ?? 0),
+      lastMessage:
+        last.info.role === "assistant"
+          ? {
+              role: last.info.role,
+              completed: !!(last.info as { time: { completed?: number } }).time.completed,
+              errored: !!(last.info as { error?: unknown }).error,
+            }
+          : undefined,
+      rounds: count,
+    })
+    if (blocked === "round limit reached" && !record?.capNotified) {
+      rounds.set(id, { anchor: goal.info.id, count, capNotified: true })
+      engine.actions.notice({
+        title: "Orchestrator paused",
+        message: "The round limit was reached for this goal. Send a message to keep going.",
+        variant: "warning",
+      })
+      return
+    }
+    if (blocked) return
+    const status = parseOrchestratorStatus(messageText(last))
+    if (status?.state === "done") {
+      engine.actions.notice({
+        title: "Orchestrator finished",
+        message: status.headline ?? "The goal was reported complete.",
+        variant: "success",
+      })
+      return
+    }
+    if (status?.state === "blocked") {
+      engine.actions.notice({
+        title: "Orchestrator blocked",
+        message: status.headline ?? "The orchestrator needs your input to continue.",
+        variant: "warning",
+      })
+      return
+    }
+    driving.add(id)
+    try {
+      rounds.set(id, { anchor: goal.info.id, count: count + 1 })
+      const prefs = prefsFor(id)
+      const result = await engine.actions.steer(
+        id,
+        status?.state === "working" ? PROCEED_PROMPT : STATUS_REMINDER_PROMPT,
+        { model: prefs.model, agent: ORCHESTRATOR_AGENT, ...(prefs.variant ? { variant: prefs.variant } : {}) },
+      )
+      // A rejected steer leaves the session idle, so no later transition would restart the driver.
+      if (!result.ok)
+        engine.actions.notice({ title: "Orchestrator paused", message: result.error, variant: "warning" })
+    } finally {
+      driving.delete(id)
+    }
+  }
+
+  return null
+}
+
 const dayMs = 24 * 60 * 60 * 1000
 const purgeIntervalMs = 60 * 60 * 1000
 // The active workspace is polled on every tick; every other workspace is polled less often because
@@ -148,7 +253,6 @@ function WorkspaceBinding() {
   let permissionTick = 0
   onMount(() => {
     void initWorkspaces()
-    void initRecoverableInterruptions()
   })
   createEffect(() => engine.setDirectory(activeWorkspace()?.path ?? null))
   createEffect(() => {

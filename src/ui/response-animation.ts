@@ -28,6 +28,16 @@ export function shouldPreserveResponseReveal(
   return done || (live && nextLength > previousLength)
 }
 
+/**
+ * Whether a preserved reveal must still redraw once it finishes.
+ *
+ * Growth is the usual trigger, but a slot whose text was replaced in place reports the same length,
+ * so only its changed revision can distinguish that from a repeat of the current render.
+ */
+export function shouldQueueResponseRedraw(previousLength: number, nextLength: number, revisionChanged: boolean) {
+  return revisionChanged || nextLength > previousLength
+}
+
 export function revealResponseNodes(nodes: HTMLElement[], duration: number, onComplete?: () => void) {
   if (!nodes.length || duration <= 0) return () => {}
   const fade = Math.min(90, Math.max(45, Math.round((duration / nodes.length) * 3)))

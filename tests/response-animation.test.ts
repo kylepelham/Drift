@@ -8,6 +8,7 @@ import {
   responseRevealSegmentSize,
   revealResponseNodes,
   shouldPreserveResponseReveal,
+  shouldQueueResponseRedraw,
 } from "../src/ui/response-animation"
 import {
   normalizeResponseAnimationSpeed,
@@ -46,6 +47,17 @@ test("active response reveals survive new deltas and normal completion", () => {
   expect(shouldPreserveResponseReveal(false, 100, 101, true, false)).toBeFalse()
   expect(shouldPreserveResponseReveal(true, 100, 101, false, false)).toBeFalse()
   expect(shouldPreserveResponseReveal(true, 101, 100, true, true)).toBeFalse()
+})
+
+test("a preserved reveal still queues the redraw a same-length replacement needs", async () => {
+  expect(shouldQueueResponseRedraw(100, 101, false)).toBeTrue()
+  expect(shouldQueueResponseRedraw(100, 100, false)).toBeFalse()
+  // A replaced slot keeps its length, so without the revision the reveal would end on stale DOM.
+  expect(shouldQueueResponseRedraw(100, 100, true)).toBeTrue()
+  expect(shouldPreserveResponseReveal(true, 100, 100, true, true)).toBeTrue()
+  const markdown = await Bun.file("src/ui/markdown.tsx").text()
+  expect(markdown).toContain("shouldQueueResponseRedraw(previousLength, textLength, revisionChanged)")
+  expect(markdown).toContain("renderedRevision = revision")
 })
 
 test("response reveal staggers compositor animation state", () => {
@@ -106,10 +118,18 @@ test("markdown reveal never drives rendering from animation frames", async () =>
   expect(animation).not.toContain("createRevealPacer")
   expect(markdown).not.toContain("requestAnimationFrame")
   expect(markdown).not.toContain("setRevealed")
+  // Formatting newlines under tr/thead/tbody must remain text nodes. Animated spans there become
+  // anonymous table cells and split a valid three-column table into seven columns in Chromium.
+  expect(markdown).toContain("if (node.textContent?.trim()) additions.push(node as Text)")
   expect(css).toContain("@keyframes response-character-reveal")
   expect(css).toContain(".md-response-reveal")
   expect(css).toContain("display: none")
   expect(css).toContain("display: revert")
+})
+
+test("history paging never fires from synthetic scroll positions while stuck to the bottom", async () => {
+  const source = await Bun.file("src/ui/chat.tsx").text()
+  expect(source).toMatch(/loadingOlder \|\| untrack\(stick\)/)
 })
 
 test("response animation speed is bounded and defaults safely", () => {

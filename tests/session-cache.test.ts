@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test"
 
+if (!("localStorage" in globalThis))
+  Object.defineProperty(globalThis, "localStorage", {
+    value: { getItem: () => null, setItem: () => undefined },
+  })
+
 const storage = new Map<string, string>()
 localStorage.getItem = (key: string) => storage.get(key) ?? null
 localStorage.setItem = (key: string, value: string) => storage.set(key, value)
@@ -31,6 +36,182 @@ test("cached threads survive a restart and only the engine may replace them", as
 
   forgetCachedSessions(directory)
   expect(cachedSessions(directory)).toEqual([])
+})
+
+const model = (id: string, name: string) => ({
+  id,
+  name,
+  capabilities: { toolcall: true },
+  limit: { context: 200_000 },
+})
+
+test("a cached provider catalog seeds engine state until fresh data overwrites it", async () => {
+  const { cachedProviderCatalog, rememberProviderCatalog, seedProviderCatalog } = await import(
+    "../src/state/provider-cache"
+  )
+  const { createEngineState, resolveModel } = await import("../src/engine/store")
+
+  expect(cachedProviderCatalog()).toBeNull()
+  rememberProviderCatalog(
+    [{ id: "anthropic", name: "Anthropic", models: { sonnet: model("sonnet", "Sonnet") } }] as never,
+    ["anthropic"],
+    { anthropic: "sonnet" },
+  )
+  expect(JSON.parse(localStorage.getItem("drift.providers.cache")!).providers).toHaveLength(1)
+
+  const [state, set] = createEngineState()
+  expect(seedProviderCatalog(state, set)).toBe(true)
+  expect(state.providers[0]?.id).toBe("anthropic")
+  expect(state.connected).toEqual(["anthropic"])
+  expect(state.defaultModels).toEqual({ anthropic: "sonnet" })
+  // The saved preference resolves from the seeded catalog instead of falling back to "Default".
+  expect(resolveModel(state, { providerID: "anthropic", modelID: "sonnet" })).toEqual({
+    providerID: "anthropic",
+    modelID: "sonnet",
+  })
+
+  // Fresh engine data always overwrites the seed, and a later seed call must not clobber it.
+  set("providers", [{ id: "openai", name: "OpenAI", models: { "gpt-5": model("gpt-5", "GPT-5") } }] as never)
+  set("connected", ["openai"])
+  expect(seedProviderCatalog(state, set)).toBe(false)
+  expect(state.providers[0]?.id).toBe("openai")
+  rememberProviderCatalog(state.providers, state.connected, {})
+  expect(cachedProviderCatalog()?.providers[0]?.id).toBe("openai")
+
+  // The cache strips models to what the picker reads; engine-only payload fields are dropped.
+  rememberProviderCatalog(
+    [{ id: "openai", name: "OpenAI", models: { "gpt-5": { ...model("gpt-5", "GPT-5"), cost: { input: 1 } } } }] as never,
+    [],
+    {},
+  )
+  expect("cost" in (cachedProviderCatalog()?.providers[0]?.models["gpt-5"] ?? {})).toBe(false)
+})
+
+test("an online engine never resolves a model from a disconnected provider", async () => {
+  const { createEngineState, resolveModel } = await import("../src/engine/store")
+  const [state, set] = createEngineState()
+  set("connection", "online")
+  set("providers", [
+    { id: "anthropic", name: "Anthropic", models: { fable: model("fable", "Fable") } },
+    { id: "openai", name: "OpenAI", models: { "gpt-5": model("gpt-5", "GPT-5") } },
+  ] as never)
+  set("connected", ["openai"])
+
+  expect(resolveModel(state, { providerID: "anthropic", modelID: "fable" })).toEqual({
+    providerID: "openai",
+    modelID: "gpt-5",
+  })
+  set("connected", [])
+  expect(resolveModel(state, { providerID: "anthropic", modelID: "fable" })).toBeNull()
+})
+
+test("a successful provider change survives a superseding provider refresh", async () => {
+  const { createActions } = await import("../src/engine/actions")
+  const { createEngineState } = await import("../src/engine/store")
+  const [state, set] = createEngineState()
+  let releaseFirst!: () => void
+  let markFirstStarted!: () => void
+  const firstStarted = new Promise<void>((resolve) => (markFirstStarted = resolve))
+  const release = new Promise<void>((resolve) => (releaseFirst = resolve))
+  let listing = 0
+  const data = {
+    all: [{ id: "anthropic", name: "Anthropic", models: { fable: model("fable", "Fable") } }],
+    connected: ["anthropic"],
+    default: { anthropic: "fable" },
+  }
+  const disconnected = { ...data, connected: [] }
+  const client = {
+    provider: {
+      oauth: { callback: async () => ({ data: true }) },
+      list: async () => {
+        listing++
+        if (listing === 1) {
+          markFirstStarted()
+          await release
+        }
+        return { data: listing === 2 ? disconnected : data }
+      },
+    },
+  }
+  const actions = createActions(() => client as never, state, set, () => ({ url: "http://engine.test" }))
+
+  const auth = actions.providerCallback("anthropic", 0, "code")
+  await firstStarted
+  expect(await actions.refreshProviders()).toEqual([])
+  releaseFirst()
+  expect(await auth).toEqual({ ok: true, connected: true })
+  expect(state.connected).toEqual(["anthropic"])
+  expect(listing).toBe(3)
+})
+
+test("a failed provider list keeps engine state and the persisted catalog intact", async () => {
+  const { cachedProviderCatalog, rememberProviderCatalog } = await import("../src/state/provider-cache")
+  const { createActions } = await import("../src/engine/actions")
+  const { createEngineState } = await import("../src/engine/store")
+
+  const anthropic = [{ id: "anthropic", name: "Anthropic", models: { sonnet: model("sonnet", "Sonnet") } }]
+  rememberProviderCatalog(anthropic as never, ["anthropic"], { anthropic: "sonnet" })
+  const [state, set] = createEngineState()
+  set("providers", anthropic as never)
+  set("connected", ["anthropic"])
+  const client = { provider: { list: async () => ({ error: { data: { message: "engine unavailable" } } }) } }
+  const actions = createActions(() => client as never, state, set, () => ({ url: "http://engine.test" }))
+
+  expect(await actions.refreshProviders()).toBeNull()
+  expect(state.providers[0]?.id).toBe("anthropic")
+  expect(state.connected).toEqual(["anthropic"])
+  expect(cachedProviderCatalog()?.providers[0]?.id).toBe("anthropic")
+})
+
+test("a dataless listing writes nothing while a real one overwrites state and cache", async () => {
+  const { applyProviderCatalog, cachedProviderCatalog, rememberProviderCatalog } = await import(
+    "../src/state/provider-cache"
+  )
+  const { createEngineState } = await import("../src/engine/store")
+
+  const anthropic = [{ id: "anthropic", name: "Anthropic", models: { sonnet: model("sonnet", "Sonnet") } }]
+  rememberProviderCatalog(anthropic as never, ["anthropic"], { anthropic: "sonnet" })
+  const [state, set] = createEngineState()
+  set("providers", anthropic as never)
+  set("connected", ["anthropic"])
+
+  expect(applyProviderCatalog(set, undefined)).toBeFalse()
+  expect(state.providers[0]?.id).toBe("anthropic")
+  expect(state.connected).toEqual(["anthropic"])
+  expect(state.defaultModels).toEqual({})
+  expect(cachedProviderCatalog()?.providers[0]?.id).toBe("anthropic")
+
+  const openai = [{ id: "openai", name: "OpenAI", models: { "gpt-5": model("gpt-5", "GPT-5") } }]
+  expect(applyProviderCatalog(set, { all: openai, connected: ["openai"], default: { openai: "gpt-5" } })).toBeTrue()
+  expect(state.providers[0]?.id).toBe("openai")
+  expect(state.connected).toEqual(["openai"])
+  expect(cachedProviderCatalog()?.providers[0]?.id).toBe("openai")
+
+  // Hydrate routes its response through the same guard rather than writing providers directly.
+  expect(await Bun.file("src/engine/index.tsx").text()).toContain("applyProviderCatalog(set, providers.data)")
+})
+
+test("a corrupt provider catalog cache is discarded instead of seeding garbage", async () => {
+  const { normalizeProviderCatalog } = await import("../src/state/provider-cache")
+  expect(normalizeProviderCatalog(null)).toBeNull()
+  expect(normalizeProviderCatalog("not a catalog")).toBeNull()
+  expect(normalizeProviderCatalog(["wrong shape"])).toBeNull()
+  expect(normalizeProviderCatalog({ providers: "nope" })).toBeNull()
+  expect(normalizeProviderCatalog({ providers: [{ id: "broken" }] })).toBeNull()
+  // Partially valid catalogs keep the well-formed entries and drop the rest.
+  const normalized = normalizeProviderCatalog({
+    providers: [
+      { id: "anthropic", name: "Anthropic", models: { sonnet: model("sonnet", "Sonnet"), bad: { id: "bad" } } },
+      { id: "empty", name: "Empty", models: {} },
+      null,
+    ],
+    connected: ["anthropic", 7],
+    defaultModels: { anthropic: "sonnet", broken: 3 },
+  })
+  expect(normalized?.providers).toHaveLength(1)
+  expect(Object.keys(normalized?.providers[0]?.models ?? {})).toEqual(["sonnet"])
+  expect(normalized?.connected).toEqual(["anthropic"])
+  expect(normalized?.defaultModels).toEqual({ anthropic: "sonnet" })
 })
 
 test("a stored cache is restored and malformed entries are discarded", async () => {

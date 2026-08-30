@@ -158,6 +158,23 @@ test("human-typed prose still renders deliberate fences and tables", async () =>
   expect(table).toContain("<td>a&#95;b</td>")
 })
 
+test("standalone large numbers stay prose while numbered runs remain lists", async () => {
+  const { prepareMarkdown } = await import("../src/ui/markdown")
+  const { marked } = await import("marked")
+  expect(prepareMarkdown("20456. it")).toBe("20456\\. it")
+  expect(prepareMarkdown("3500000.")).toBe("3500000\\.")
+  expect(prepareMarkdown("1234567. and then text", true)).toBe("1234567\\. and then text")
+  expect(prepareMarkdown("1. first\n2. second\n3. third")).toBe("1. first\n2. second\n3. third")
+  expect(prepareMarkdown("12. step one\n13. step two")).toBe("12. step one\n13. step two")
+  expect(prepareMarkdown("```\n20456. case\n```")).toBe("```\n20456. case\n```")
+  expect(marked.parse(prepareMarkdown("Pasted id:\n\n20456. it"), { async: false })).not.toContain("<ol")
+  expect(marked.parse(prepareMarkdown("12. step one\n13. step two"), { async: false })).toContain('<ol start="12"')
+  // Interleaved prose keeps each number's neighbours positional, not adjacent by line.
+  expect(prepareMarkdown("intro\n12. step one\nnote\n13. step two")).toBe("intro\n12. step one\nnote\n13. step two")
+  expect(prepareMarkdown("20456. it\nnote\n88. other")).toBe("20456\\. it\nnote\n88\\. other")
+  expect(prepareMarkdown("1. first\nnote\n20456. it")).toBe("1. first\nnote\n20456\\. it")
+})
+
 test("generated user-role seed prompts keep full markdown", async () => {
   const { prepareMarkdown } = await import("../src/ui/markdown")
   const seed = "## Carried context\nUse the *active* summary."
@@ -204,6 +221,32 @@ test("diff parsing distinguishes file headers from source lines and separates hu
     { kind: "del", line: 10, text: "old" },
     { kind: "add", line: 10, text: "new" },
   ])
+})
+
+test("diff highlighting is keyed by content so redraws keep their colours", async () => {
+  const { diffHighlightKey, parseDiff } = await import("../src/ui/parts")
+  const filename = "C:\\repo\\src\\state\\mcp.ts"
+  const language = { filename, value: "typescript" }
+  const diff = "@@ -1,2 +1,2 @@\n-const a = 1\n+const a = 2\n"
+  const code = (input: string) => parseDiff(input).map((row) => row.text).join("\n")
+
+  // Re-parsing the same diff produces fresh row objects, which must not count as new work.
+  const first = diffHighlightKey("github-dark-default", language, filename, code(diff))
+  expect(diffHighlightKey("github-dark-default", language, filename, code(diff))).toBe(first)
+  expect(first).not.toBe("")
+
+  // Anything that changes the rendered colours has to produce a different key.
+  expect(diffHighlightKey("nord", language, filename, code(diff))).not.toBe(first)
+  expect(diffHighlightKey("github-dark-default", { filename, value: "text" }, filename, code(diff))).not.toBe(first)
+  expect(
+    diffHighlightKey("github-dark-default", language, filename, code("@@ -1,1 +1,1 @@\n-const a = 1\n+const a = 3\n")),
+  ).not.toBe(first)
+
+  // An unresolved language, or one resolved for the previous file, highlights nothing.
+  expect(diffHighlightKey("github-dark-default", undefined, filename, code(diff))).toBe("")
+  expect(
+    diffHighlightKey("github-dark-default", { filename: "C:\\repo\\other.ts", value: "typescript" }, filename, code(diff)),
+  ).toBe("")
 })
 
 test("Shiki promise caches evict by approximate size and retry failures", async () => {
@@ -749,7 +792,40 @@ test("thinking derives the first provider reasoning heading for the active turn"
   expect(thinkingState([user, assistant] as never, "busy")).toEqual({
     messageID: "a1",
     heading: "Tracing session state",
+    compaction: false,
   })
+})
+
+test("compaction turns carry the shimmer on the compaction row instead of the generic indicator", async () => {
+  const { compactionThinkingRow, thinkingState } = await import("../src/ui/chat")
+  const boundary = {
+    info: { id: "u1", role: "user", sessionID: "s1", time: { created: 1 } },
+    parts: [{ id: "p1", messageID: "u1", sessionID: "s1", type: "compaction", auto: true }],
+  }
+  const summary = {
+    info: { id: "a1", role: "assistant", sessionID: "s1", parentID: "u1", summary: true, time: { created: 2 } },
+    parts: [{ id: "p2", messageID: "a1", sessionID: "s1", type: "text", text: "summary", time: { start: 2 } }],
+  }
+  // The brief window before the summary message arrives anchors on the boundary's compaction part.
+  expect(thinkingState([boundary] as never, "busy")).toMatchObject({ messageID: "u1", compaction: true })
+  // Once the streaming summary exists it owns the shimmer.
+  expect(thinkingState([boundary, summary] as never, "busy")).toMatchObject({ messageID: "a1", compaction: true })
+  const user = { info: { id: "u2", role: "user", time: { created: 1 } }, parts: [] }
+  const reply = { info: { id: "a2", role: "assistant", parentID: "u2", time: { created: 2 } }, parts: [] }
+  // Ordinary turns keep the separate indicator.
+  expect(thinkingState([user, reply] as never, "busy")).toMatchObject({ messageID: "a2", compaction: false })
+
+  // Boundary rows always render the divider; summary rows only do behind the collapsible pref.
+  expect(compactionThinkingRow(boundary as never, true)).toBeTrue()
+  expect(compactionThinkingRow(boundary as never, false)).toBeTrue()
+  expect(compactionThinkingRow(summary as never, true)).toBeTrue()
+  expect(compactionThinkingRow(summary as never, false)).toBeFalse()
+  expect(compactionThinkingRow(reply as never, true)).toBeFalse()
+
+  // The row must suppress the generic indicator only when the divider itself shimmers.
+  const chat = await Bun.file("src/ui/chat.tsx").text()
+  expect(chat).toContain("props.thinking && !compactionShimmer()")
+  expect(chat).toContain("thinkingCompaction={thinking()?.compaction}")
 })
 
 test("retry presentation follows OpenCode countdown and truncation", async () => {

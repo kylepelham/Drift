@@ -841,21 +841,6 @@ remote_commands! {
             store(),
             arg(args, "before")?,
         )?),
-        "store_interruptions" => value(commands::store_interruptions(store())?),
-        "store_save_interruption" => value(commands::store_save_interruption(
-            store(),
-            arg(args, "interruption")?,
-        )?),
-        "store_dismiss_interruption" => value(commands::store_dismiss_interruption(
-            store(),
-            arg(args, "sessionId")?,
-            arg(args, "identity")?,
-            arg(args, "dismissedAt")?,
-        )?),
-        "store_clear_interruptions" => value(commands::store_clear_interruptions(
-            store(),
-            arg(args, "sessionId")?,
-        )?),
         "mcp_snapshot" => value(commands::mcp_snapshot(
             runtime(),
             store(),
@@ -888,6 +873,29 @@ remote_commands! {
             runtime(),
             store(),
             arg(args, "name")?,
+            arg(args, "generation")?,
+        )?),
+        "mcp_external_config" => value(commands::mcp_external_config(
+            runtime(),
+            store(),
+            arg(args, "name")?,
+            arg(args, "fingerprint")?,
+            arg(args, "generation")?,
+        )?),
+        "mcp_external_save" => value(commands::mcp_external_save(
+            runtime(),
+            store(),
+            arg(args, "name")?,
+            arg(args, "previousName")?,
+            arg(args, "fingerprint")?,
+            arg(args, "config")?,
+            arg(args, "generation")?,
+        )?),
+        "mcp_external_remove" => value(commands::mcp_external_remove(
+            runtime(),
+            store(),
+            arg(args, "name")?,
+            arg(args, "fingerprint")?,
             arg(args, "generation")?,
         )?),
         "mcp_approve" => value(commands::mcp_approve(
@@ -1126,7 +1134,6 @@ mod tests {
     fn rpc_has_a_finite_allowlist() {
         assert!(rpc_allowed("store_workspaces"));
         assert!(rpc_allowed("store_expired_archived"));
-        assert!(rpc_allowed("store_interruptions"));
         assert!(rpc_allowed("voice_transcribe"));
         assert!(rpc_allowed("ui_state_snapshot"));
         assert!(rpc_allowed("ui_state_update"));

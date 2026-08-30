@@ -5,7 +5,7 @@
 use crate::engine::stop_engine_instances;
 use crate::mcp;
 use crate::storage::{self, PruneResult, PruneRules, RuleEstimate, StorageStats};
-use crate::store::{ArchivedSession, RecoverableInterruption, Store, Workspace};
+use crate::store::{ArchivedSession, Store, Workspace};
 use serde_json::Value;
 use tauri::State;
 
@@ -133,45 +133,6 @@ pub(crate) fn store_expired_archived(store: State<Store>, before: i64) -> Result
 }
 
 #[tauri::command]
-pub(crate) fn store_interruptions(
-    store: State<Store>,
-) -> Result<Vec<RecoverableInterruption>, String> {
-    store.interruptions().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub(crate) fn store_save_interruption(
-    store: State<Store>,
-    interruption: RecoverableInterruption,
-) -> Result<(), String> {
-    store
-        .save_interruption(&interruption)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub(crate) fn store_dismiss_interruption(
-    store: State<Store>,
-    session_id: String,
-    identity: String,
-    dismissed_at: i64,
-) -> Result<(), String> {
-    store
-        .dismiss_interruption(&session_id, &identity, dismissed_at)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub(crate) fn store_clear_interruptions(
-    store: State<Store>,
-    session_id: String,
-) -> Result<(), String> {
-    store
-        .clear_interruptions(&session_id)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub(crate) fn mcp_snapshot(
     runtime: State<mcp::McpRuntime>,
     store: State<Store>,
@@ -237,6 +198,41 @@ pub(crate) fn mcp_remove(
     generation: i64,
 ) -> Result<(), String> {
     runtime.remove(&store, &name, generation, || stop_engine_instances(&app))
+}
+
+#[tauri::command]
+pub(crate) fn mcp_external_config(
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    name: String,
+    fingerprint: String,
+    generation: i64,
+) -> Result<mcp::ExternalMcpConfig, String> {
+    runtime.external_config(&store, &name, &fingerprint, generation)
+}
+
+#[tauri::command]
+pub(crate) fn mcp_external_save(
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    name: String,
+    previous_name: String,
+    fingerprint: String,
+    config: Value,
+    generation: i64,
+) -> Result<(), String> {
+    runtime.external_save(&store, &name, &previous_name, &fingerprint, config, generation)
+}
+
+#[tauri::command]
+pub(crate) fn mcp_external_remove(
+    runtime: State<mcp::McpRuntime>,
+    store: State<Store>,
+    name: String,
+    fingerprint: String,
+    generation: i64,
+) -> Result<(), String> {
+    runtime.external_remove(&store, &name, &fingerprint, generation)
 }
 
 #[tauri::command]

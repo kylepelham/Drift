@@ -13,11 +13,18 @@ import {
 import { t } from "../../state/i18n"
 import { backendInvoke } from "../../backend"
 import type { McpConfig, ObservedMcpServer, StoredMcpServer } from "../../state/store"
-import { IconCheck, IconPlus, IconShieldCheck, IconSquarePen } from "../icons"
+import { IconCheck, IconKey, IconPlug, IconPlugOff, IconPlus, IconShieldCheck, IconSquarePen, IconTrash } from "../icons"
 import { McpEditor } from "./editor"
 
 type Row = { name: string; stored?: StoredMcpServer; observed?: ObservedMcpServer; status?: McpStatus }
-type EditorEntry = { server?: StoredMcpServer; expected: McpStoredExpectation }
+/** `external` marks a server defined in the user's own config files rather than Drift's registry. */
+type EditorEntry = {
+  server?: StoredMcpServer
+  expected: McpStoredExpectation
+  external?: McpExactTarget
+  /** Every config file that defines this server; a save rewrites all of them. */
+  paths?: string[]
+}
 type RuntimeAction = "connect" | "disconnect" | "authenticate"
 type RowKey = "ArrowUp" | "ArrowDown" | "Home" | "End"
 
@@ -48,6 +55,8 @@ export function McpManagement(props: { embedded?: boolean }) {
   const [view, setView] = createSignal<"servers" | "registry">("servers")
   const [confirmRemove, setConfirmRemove] = createSignal("")
   const [message, setMessage] = createSignal("")
+  // Failures outside the coordinator's mutation path (external config lookup) surface here.
+  const [failure, setFailure] = createSignal("")
   const [selected, setSelected] = createSignal("")
   const rowElements = new Map<string, HTMLDivElement>()
   const native = !!backendInvoke()
@@ -91,6 +100,7 @@ export function McpManagement(props: { embedded?: boolean }) {
   })
   const run = async (action: () => Promise<void>, success?: string) => {
     setMessage("")
+    setFailure("")
     try {
       await action()
       if (success) setMessage(success)
@@ -101,7 +111,10 @@ export function McpManagement(props: { embedded?: boolean }) {
   }
   const save = async (name: string, config: McpConfig, expected: McpStoredExpectation) => {
     setMessage("")
-    await coordinator.save(name, config, expected)
+    setFailure("")
+    const external = editor()?.external
+    if (external) await coordinator.saveExternal(external, name, config)
+    else await coordinator.save(name, config, expected)
     setMessage(t("drift.mcp.saved", { name }))
     setEditor(null)
   }
@@ -113,6 +126,26 @@ export function McpManagement(props: { embedded?: boolean }) {
       updatedAt: server.updatedAt,
     }
     if (await run(() => coordinator.remove(server.name, expected), t("drift.mcp.removed", { name: server.name })))
+      setConfirmRemove("")
+  }
+  const editExternal = async (target: McpExactTarget) => {
+    setMessage("")
+    setFailure("")
+    try {
+      const found = await coordinator.externalConfig(target)
+      setEditor({
+        server: { name: target.name, config: found.config, updatedAt: 0 },
+        expected: { generation: coordinator.state.snapshot.generation },
+        external: target,
+        paths: found.paths,
+      })
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : String(error))
+    }
+  }
+  const removeExternal = async (target: McpExactTarget) => {
+    if (confirmRemove() !== target.name) return setConfirmRemove(target.name)
+    if (await run(() => coordinator.removeExternal(target), t("drift.mcp.removed", { name: target.name })))
       setConfirmRemove("")
   }
   const decide = (action: "approve" | "reject" | "revoke", target: McpExactTarget) =>
@@ -156,16 +189,16 @@ export function McpManagement(props: { embedded?: boolean }) {
           </button>
         </Show>
       </div>
-      <Show when={coordinator.state.error || message()}>
+      <Show when={coordinator.state.error || failure() || message()}>
         <div
-          role={coordinator.state.error ? "alert" : "status"}
+          role={coordinator.state.error || failure() ? "alert" : "status"}
           class="rounded-md border px-3 py-2 text-xs"
           classList={{
-            "border-danger/35 bg-danger/10 text-danger": !!coordinator.state.error,
-            "border-ok/35 bg-ok/10 text-ok": !coordinator.state.error,
+            "border-danger/35 bg-danger/10 text-danger": !!(coordinator.state.error || failure()),
+            "border-ok/35 bg-ok/10 text-ok": !coordinator.state.error && !failure(),
           }}
         >
-          {coordinator.state.error || message()}
+          {coordinator.state.error || failure() || message()}
         </div>
       </Show>
       <Show when={!coordinator.state.directory}>
@@ -190,19 +223,28 @@ export function McpManagement(props: { embedded?: boolean }) {
                   onNavigate={(key) => moveRow(key, name)}
                   onEdit={() => {
                     const stored = row().stored
-                    if (!stored) return
-                    setEditor({
-                      server: stored,
-                      expected: {
-                        generation: coordinator.state.snapshot.generation,
-                        previousName: stored.name,
-                        updatedAt: stored.updatedAt,
-                      },
-                    })
+                    if (stored) {
+                      setEditor({
+                        server: stored,
+                        expected: {
+                          generation: coordinator.state.snapshot.generation,
+                          previousName: stored.name,
+                          updatedAt: stored.updatedAt,
+                        },
+                      })
+                      return
+                    }
+                    const observed = row().observed
+                    if (observed) void editExternal(exact(observed))
                   }}
                   onRemove={() => {
                     const stored = row().stored
-                    if (stored) void remove(stored)
+                    if (stored) {
+                      void remove(stored)
+                      return
+                    }
+                    const observed = row().observed
+                    if (observed) void removeExternal(exact(observed))
                   }}
                   onDecision={decide}
                   onRuntime={(action) => {
@@ -238,6 +280,7 @@ export function McpManagement(props: { embedded?: boolean }) {
           <McpEditor
             server={entry().server}
             expected={entry().expected}
+            paths={entry().paths}
             pending={!!coordinator.state.mutation}
             onClose={() => setEditor(null)}
             onSave={save}
@@ -311,7 +354,9 @@ function ServerRow(props: {
             <span class={status().tone}>{status().text}</span>
           </div>
         </div>
-        <div class="flex shrink-0 flex-wrap justify-end gap-1.5">
+        {/* Approval decisions lead and stay textual - they are the security-relevant choice.
+            Everything after them is a routine action, compacted to an icon with a tooltip. */}
+        <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
           <Show when={props.target?.decision === "pending" && props.target}>
             {(target) => (
               <>
@@ -330,17 +375,22 @@ function ServerRow(props: {
               {t("drift.mcp.revoke")}
             </Action>
           </Show>
+          <Show when={props.row.stored || props.target}>
+            <Action
+              disabled={props.disabled}
+              tone="danger"
+              title={props.confirming ? t("drift.mcp.confirmRemove") : t("drift.mcp.remove")}
+              onClick={props.onRemove}
+            >
+              {/* The confirm step keeps its text: an icon cannot ask "are you sure". */}
+              {props.confirming ? t("drift.mcp.confirmRemove") : <IconTrash class="size-3.5" />}
+            </Action>
+            <Action disabled={props.disabled} title={t("common.edit")} onClick={props.onEdit}>
+              <IconSquarePen class="size-3.5" />
+            </Action>
+          </Show>
           <Show when={props.target?.decision === "approved" && props.row.status}>
             <Runtime status={props.row.status!} disabled={props.disabled} onRun={props.onRuntime} />
-          </Show>
-          <Show when={props.row.stored}>
-            <Action disabled={props.disabled} onClick={props.onEdit}>
-              <IconSquarePen class="size-3" />
-              {t("common.edit")}
-            </Action>
-            <Action disabled={props.disabled} tone="danger" onClick={props.onRemove}>
-              {props.confirming ? t("drift.mcp.confirmRemove") : t("drift.mcp.remove")}
-            </Action>
           </Show>
         </div>
       </div>
@@ -354,9 +404,16 @@ function Runtime(props: {
   onRun: (action: RuntimeAction) => void
 }) {
   const action = () => mcpRuntimeAction(props.status)
+  const label = () => t(action() === "authenticate" ? "drift.mcp.authenticate" : `common.${action()}`)
   return (
-    <Action disabled={props.disabled} onClick={() => props.onRun(action())}>
-      {t(action() === "authenticate" ? "drift.mcp.authenticate" : `common.${action()}`)}
+    <Action disabled={props.disabled} title={label()} onClick={() => props.onRun(action())}>
+      {action() === "disconnect" ? (
+        <IconPlugOff class="size-3.5" />
+      ) : action() === "authenticate" ? (
+        <IconKey class="size-3.5" />
+      ) : (
+        <IconPlug class="size-3.5" />
+      )}
     </Action>
   )
 }
@@ -492,7 +549,7 @@ function TextInput(props: { value: string; onInput: (value: string) => void; lab
   return (
     <input
       aria-label={props.label}
-      class="w-full rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-strong"
+      class="h-9 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
       placeholder={props.label}
       value={props.value}
       onInput={(event) => props.onInput(event.currentTarget.value)}
@@ -500,11 +557,19 @@ function TextInput(props: { value: string; onInput: (value: string) => void; lab
   )
 }
 
-function Action(props: { disabled?: boolean; tone?: "warn" | "danger"; onClick: () => void; children: JSX.Element }) {
+function Action(props: {
+  disabled?: boolean
+  tone?: "warn" | "danger"
+  title?: string
+  onClick: () => void
+  children: JSX.Element
+}) {
   return (
     <button
       type="button"
       disabled={props.disabled}
+      title={props.title}
+      aria-label={props.title}
       class="flex items-center gap-1 rounded-md border px-2 py-1 text-xs disabled:opacity-40"
       classList={{
         "border-edge text-ink-muted hover:text-ink": !props.tone,

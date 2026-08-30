@@ -1,0 +1,423 @@
+diff --git a/packages/opencode/src/session/message-v2.ts b/packages/opencode/src/session/message-v2.ts
+--- a/packages/opencode/src/session/message-v2.ts
++++ b/packages/opencode/src/session/message-v2.ts
+@@ -122,6 +122,52 @@ function hydrate(db: Database.Interface["db"], rows: (typeof MessageTable.$infer
+   })
+ }
+ 
++function messageRows(
++  db: Database.Interface["db"],
++  input: {
++    sessionID: SessionID
++    limit: number
++    before?: string
++  },
++) {
++  return Effect.gen(function* () {
++    const before = input.before ? cursor.decode(input.before) : undefined
++    const where = before
++      ? and(eq(MessageTable.session_id, input.sessionID), older(before))
++      : eq(MessageTable.session_id, input.sessionID)
++    const rows = yield* db
++      .select()
++      .from(MessageTable)
++      .where(where)
++      .orderBy(desc(MessageTable.time_created), desc(MessageTable.id))
++      .limit(input.limit + 1)
++      .all()
++      .pipe(Effect.orDie)
++    if (rows.length === 0) {
++      const row = yield* db
++        .select({ id: SessionTable.id })
++        .from(SessionTable)
++        .where(eq(SessionTable.id, input.sessionID))
++        .get()
++        .pipe(Effect.orDie)
++      if (!row) return yield* new NotFoundError({ message: `Session not found: ${input.sessionID}` })
++      return {
++        rows: [],
++        more: false,
++      }
++    }
++
++    const more = rows.length > input.limit
++    const slice = more ? rows.slice(0, input.limit) : rows
++    const tail = slice.at(-1)
++    return {
++      rows: slice,
++      more,
++      cursor: more && tail ? cursor.encode({ id: tail.id, time: tail.time_created }) : undefined,
++    }
++  })
++}
++
+ function providerMeta(metadata: Record<string, any> | undefined) {
+   if (!metadata) return undefined
+   const { providerExecuted: _, ...rest } = metadata
+@@ -428,41 +474,13 @@ export const page = Effect.fn("MessageV2.page")(function* (input: {
+   before?: string
+ }) {
+   const { db } = yield* Database.Service
+-  const before = input.before ? cursor.decode(input.before) : undefined
+-  const where = before
+-    ? and(eq(MessageTable.session_id, input.sessionID), older(before))
+-    : eq(MessageTable.session_id, input.sessionID)
+-  const rows = yield* db
+-    .select()
+-    .from(MessageTable)
+-    .where(where)
+-    .orderBy(desc(MessageTable.time_created), desc(MessageTable.id))
+-    .limit(input.limit + 1)
+-    .all()
+-    .pipe(Effect.orDie)
+-  if (rows.length === 0) {
+-    const row = yield* db
+-      .select({ id: SessionTable.id })
+-      .from(SessionTable)
+-      .where(eq(SessionTable.id, input.sessionID))
+-      .get()
+-      .pipe(Effect.orDie)
+-    if (!row) return yield* new NotFoundError({ message: `Session not found: ${input.sessionID}` })
+-    return {
+-      items: [] as WithParts[],
+-      more: false,
+-    }
+-  }
+-
+-  const more = rows.length > input.limit
+-  const slice = more ? rows.slice(0, input.limit) : rows
+-  const items = yield* hydrate(db, slice)
++  const result = yield* messageRows(db, input)
++  const items = yield* hydrate(db, result.rows)
+   items.reverse()
+-  const tail = slice.at(-1)
+   return {
+     items,
+-    more,
+-    cursor: more && tail ? cursor.encode({ id: tail.id, time: tail.time_created }) : undefined,
++    more: result.more,
++    cursor: result.cursor,
+   }
+ })
+ 
+@@ -595,29 +613,50 @@ function finalize(result: WithParts[]) {
+ 
+ // Pages newest-first and stops at the compaction boundary, so a long session hydrates only its
+ // post-compaction tail instead of the entire message history on every agent step.
+ export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: SessionID) {
++  const { db } = yield* Database.Service
+   const size = 50
+-  const scanner = compactionScanner()
++  const rows = [] as (typeof MessageTable.$inferSelect)[]
++  const completed = new Set<string>()
++  let retain: MessageID | undefined
+   let before: string | undefined
+-  let done = false
+-  while (!done) {
+-    const next = yield* page({ sessionID, limit: size, before }).pipe(
+-      Effect.catchIf(NotFoundError.isInstance, () =>
+-        Effect.succeed({ items: [] as WithParts[], more: false, cursor: undefined }),
++
++  pages: while (true) {
++    const next = yield* messageRows(db, { sessionID, limit: size, before }).pipe(
++      Effect.catchIf(
++        (error): error is NotFoundError => NotFoundError.isInstance(error),
++        () => Effect.succeed({ rows: [] as (typeof MessageTable.$inferSelect)[], more: false, cursor: undefined }),
+       ),
+     )
+-    if (next.items.length === 0) break
+-    for (let i = next.items.length - 1; i >= 0; i--) {
+-      const item = next.items[i]
+-      if (item && scanner.push(item)) {
+-        done = true
+-        break
++    if (next.rows.length === 0) break
++    for (const row of next.rows) {
++      rows.push(row)
++      const message = info(row)
++      if (retain) {
++        if (message.id === retain) break pages
++        continue
++      }
++      if (message.role === "user" && completed.has(message.id)) {
++        const compaction = (yield* parts(message.id)).find((item): item is CompactionPart => item.type === "compaction")
++        if (!compaction) continue
++        if (!compaction.tail_start_id) break pages
++        retain = compaction.tail_start_id
++        if (message.id === retain) break pages
++        continue
++      }
++      if (message.role === "assistant" && message.summary && message.finish && !message.error) {
++        completed.add(message.parentID)
+       }
+     }
+     if (!next.more || !next.cursor) break
+     before = next.cursor
+   }
+-  return scanner.finish()
++
++  const result = [] as WithParts[]
++  for (let index = 0; index < rows.length; index += size) {
++    result.push(...(yield* hydrate(db, rows.slice(index, index + size))))
++  }
++  return filterCompacted(result)
+ })
+ 
+ // filterCompacted reorders messages for model consumption
+diff --git a/packages/opencode/src/session/summary.ts b/packages/opencode/src/session/summary.ts
+--- a/packages/opencode/src/session/summary.ts
++++ b/packages/opencode/src/session/summary.ts
+@@ -1,9 +1,11 @@
+ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
++import { Database } from "@opencode-ai/core/database/database"
+ import { Effect, Layer, Context, Schema } from "effect"
+ import { SessionV1 } from "@opencode-ai/core/v1/session"
+ import { EventV2Bridge } from "@/event-v2-bridge"
+ import { Snapshot } from "@/snapshot"
+ import { Session } from "./session"
++import { MessageV2 } from "./message-v2"
+ import { SessionID, MessageID } from "./schema"
+ import { Config } from "@/config/config"
+ 
+@@ -76,5 +78,6 @@ const layer = Layer.effect(
+   Effect.gen(function* () {
+     const sessions = yield* Session.Service
++    const database = yield* Database.Service
+     const snapshot = yield* Snapshot.Service
+     const events = yield* EventV2Bridge.Service
+     const config = yield* Config.Service
+@@ -98,6 +101,29 @@ const layer = Layer.effect(
+       if (from && to) return yield* snapshot.diffFull(from, to)
+       return []
+     })
++
++    // Summary work runs after every provider turn. Page only as far as that turn's user message so
++    // old transcripts do not repeatedly hydrate every part in a long-lived agent session.
++    const turnMessages = Effect.fnUntraced(function* (input: { sessionID: SessionID; messageID: MessageID }) {
++      const result = [] as SessionV1.WithParts[]
++      let before: string | undefined
++      while (true) {
++        const next = yield* MessageV2.page({ sessionID: input.sessionID, limit: 50, before }).pipe(
++          Effect.provideService(Database.Service, database),
++          Effect.orDie,
++        )
++        result.unshift(
++          ...next.items.filter(
++            (message) =>
++              message.info.id === input.messageID ||
++              (message.info.role === "assistant" && message.info.parentID === input.messageID),
++          ),
++        )
++        if (next.items.some((message) => message.info.id === input.messageID)) return result
++        if (!next.more || !next.cursor) return []
++        before = next.cursor
++      }
++    })
+ 
+     const summarize = Effect.fn("SessionSummary.summarize")(function* (input: {
+       sessionID: SessionID
+@@ -116,7 +142,3 @@ const layer = Layer.effect(
+-      const all = yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)
+-      if (!all.length) return
+-
+-      const messages = all.filter(
+-        (m) => m.info.id === input.messageID || (m.info.role === "assistant" && m.info.parentID === input.messageID),
+-      )
++      const messages = yield* turnMessages(input)
++      if (!messages.length) return
+       const target = messages.find((m) => m.info.id === input.messageID)
+@@ -129,7 +151,7 @@ const layer = Layer.effect(
+     const diff = Effect.fn("SessionSummary.diff")(function* (input: { sessionID: SessionID; messageID?: MessageID }) {
+       if (!input.messageID) return []
+-      const message = (yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)).find(
+-        (item) => item.info.id === input.messageID,
+-      )
++      const message = (yield* turnMessages({ sessionID: input.sessionID, messageID: input.messageID })).find(
++        (item) => item.info.id === input.messageID,
++      )
+       if (!message || message.info.role !== "user") return []
+       const diffs = message.info.summary?.diffs ?? []
+@@ -154,5 +176,5 @@ export const node = LayerNode.make({
+   service: Service,
+   layer: layer,
+-  deps: [Session.node, Snapshot.node, EventV2Bridge.node, Config.node],
++  deps: [Session.node, Database.node, Snapshot.node, EventV2Bridge.node, Config.node],
+ })
+ 
+diff --git a/packages/opencode/test/session/compaction-scan.test.ts b/packages/opencode/test/session/compaction-scan.test.ts
+--- a/packages/opencode/test/session/compaction-scan.test.ts
++++ b/packages/opencode/test/session/compaction-scan.test.ts
+@@ -52,10 +52,11 @@ test("sessions without compaction keep their full chronological history", () =>
+   expect(filterCompacted(msgs).map((m) => m.info.id as string)).toEqual(["u1", "a1"])
+ })
+ 
+-test("the effect pages instead of streaming the whole session", async () => {
++test("the effect scans message rows before hydrating retained history", async () => {
+   const source = await Bun.file(new URL("../../src/session/message-v2.ts", import.meta.url)).text()
+   const effect = source.slice(source.indexOf("export const filterCompactedEffect"))
+-  expect(effect).toContain("compactionScanner()")
+-  expect(effect).toContain("page({ sessionID, limit: size, before })")
++  expect(effect).toContain("messageRows(db, { sessionID, limit: size, before })")
++  expect(effect).toContain("hydrate(db, rows.slice(index, index + size))")
++  expect(effect).not.toContain("yield* page(")
+   expect(effect).not.toContain("yield* stream(")
+ })
+diff --git a/packages/opencode/test/session/compaction-row-scan.test.ts b/packages/opencode/test/session/compaction-row-scan.test.ts
+new file mode 100644
+--- /dev/null
++++ b/packages/opencode/test/session/compaction-row-scan.test.ts
+@@ -0,0 +1,154 @@
++import { describe, expect } from "bun:test"
++import { Database } from "@opencode-ai/core/database/database"
++import { LayerNode } from "@opencode-ai/core/effect/layer-node"
++import { ModelV2 } from "@opencode-ai/core/model"
++import { ProviderV2 } from "@opencode-ai/core/provider"
++import { SessionProjector } from "@opencode-ai/core/session/projector"
++import { SessionV1 } from "@opencode-ai/core/v1/session"
++import { sql } from "drizzle-orm"
++import { Effect } from "effect"
++import { Session as SessionNs } from "@/session/session"
++import { MessageV2 } from "../../src/session/message-v2"
++import { SessionSummary } from "../../src/session/summary"
++import { MessageID, PartID, type SessionID } from "../../src/session/schema"
++import { testEffect } from "../lib/effect"
++
++const it = testEffect(
++  LayerNode.compile(LayerNode.group([SessionNs.node, MessageV2.node, SessionProjector.node, SessionSummary.node])),
++)
++
++const withSession = <A, E, R>(
++  fn: (input: { session: SessionNs.Interface; sessionID: SessionID }) => Effect.Effect<A, E, R>,
++) =>
++  Effect.acquireUseRelease(
++    Effect.gen(function* () {
++      const session = yield* SessionNs.Service
++      const created = yield* session.create({})
++      return { session, sessionID: created.id }
++    }),
++    fn,
++    (input) => input.session.remove(input.sessionID).pipe(Effect.ignore),
++  )
++
++const addUser = Effect.fn("Test.addUser")(function* (sessionID: SessionID, text?: string) {
++  const session = yield* SessionNs.Service
++  const id = MessageID.ascending()
++  yield* session.updateMessage({
++    id,
++    sessionID,
++    role: "user",
++    time: { created: Date.now() },
++    agent: "test",
++    model: { providerID: "test", modelID: "test" },
++    tools: {},
++    mode: "",
++  } as unknown as SessionV1.Info)
++  if (text) {
++    yield* session.updatePart({
++      id: PartID.ascending(),
++      sessionID,
++      messageID: id,
++      type: "text",
++      text,
++    })
++  }
++  return id
++})
++
++const addAssistant = Effect.fn("Test.addAssistant")(function* (
++  sessionID: SessionID,
++  parentID: MessageID,
++  summary = false,
++) {
++  const session = yield* SessionNs.Service
++  const id = MessageID.ascending()
++  yield* session.updateMessage({
++    id,
++    sessionID,
++    role: "assistant",
++    time: { created: Date.now() },
++    parentID,
++    modelID: ModelV2.ID.make("test"),
++    providerID: ProviderV2.ID.make("test"),
++    mode: "",
++    agent: "default",
++    path: { cwd: "/", root: "/" },
++    cost: 0,
++    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
++    summary,
++    finish: "end_turn",
++  } as unknown as SessionV1.Info)
++  return id
++})
++
++const addCompaction = Effect.fn("Test.addCompaction")(function* (sessionID: SessionID, messageID: MessageID) {
++  const session = yield* SessionNs.Service
++  yield* session.updatePart({
++    id: PartID.ascending(),
++    sessionID,
++    messageID,
++    type: "compaction",
++    auto: true,
++  } as SessionV1.CompactionPart)
++})
++
++const fill = Effect.fn("Test.fill")(function* (sessionID: SessionID, count: number) {
++  const ids = [] as MessageID[]
++  for (let index = 0; index < count; index++) ids.push(yield* addUser(sessionID, `message ${index}`))
++  return ids
++})
++
++describe("MessageV2.filterCompactedEffect row scan", () => {
++  it.instance("retains history for an incomplete compaction", () =>
++    withSession(({ sessionID }) =>
++      Effect.gen(function* () {
++        const before = yield* fill(sessionID, 2)
++        const compaction = yield* addUser(sessionID)
++        yield* addCompaction(sessionID, compaction)
++        const incomplete = yield* addAssistant(sessionID, compaction)
++        const after = yield* fill(sessionID, 60)
++
++        const result = yield* MessageV2.filterCompactedEffect(sessionID)
++        expect(result.map((item) => item.info.id)).toEqual([...before, compaction, incomplete, ...after])
++      }),
++    ),
++  )
++
++  it.instance("does not hydrate parts before a completed full compaction", () =>
++    withSession(({ sessionID }) =>
++      Effect.gen(function* () {
++        const old = yield* addUser(sessionID, "old prompt")
++        const compaction = yield* addUser(sessionID)
++        yield* addCompaction(sessionID, compaction)
++        const summary = yield* addAssistant(sessionID, compaction, true)
++        const recent = yield* fill(sessionID, 60)
++
++        const { db } = yield* Database.Service
++        yield* db.run(sql`UPDATE part SET data = 'invalid json' WHERE message_id = ${old}`)
++
++        const result = yield* MessageV2.filterCompactedEffect(sessionID)
++        expect(result.map((item) => item.info.id)).toEqual([compaction, summary, ...recent])
++      }),
++    ),
++  )
++
++  it.instance("summary loading stops at the current turn", () =>
++    withSession(({ sessionID }) =>
++      Effect.gen(function* () {
++        const old = (yield* fill(sessionID, 60))[0]!
++        const target = yield* addUser(sessionID, "current prompt")
++        yield* addAssistant(sessionID, target)
++
++        const { db } = yield* Database.Service
++        yield* db.run(sql`UPDATE part SET data = 'invalid json' WHERE message_id = ${old}`)
++
++        const summary = yield* SessionSummary.Service
++        yield* summary.summarize({ sessionID, messageID: target })
++
++        const message = yield* MessageV2.get({ sessionID, messageID: target })
++        if (message.info.role !== "user" || !message.info.summary) throw new Error("Expected summarized user message")
++        expect(message.info.summary.diffs).toEqual([])
++      }),
++    ),
++  )
++})

@@ -5,8 +5,8 @@ import { shellEvents, shellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
-import { clearRecoverableInterruption } from "../state/recovery"
 import { reportShellTimeoutError, shellTimeoutMs } from "../state/prefs"
+import { applyProviderCatalog, seedProviderCatalog } from "../state/provider-cache"
 import { createActions, type EngineActions } from "./actions"
 import {
   configureShellTimeout,
@@ -15,6 +15,7 @@ import {
   restartShellEngine,
   sleep,
   type EngineTarget,
+  type ShellEngineInspection,
 } from "./connection"
 import { applySessionSnapshot, applyStatusSnapshot, reduce } from "./events"
 import { streamEvents } from "./sse"
@@ -27,7 +28,6 @@ import {
   mergeTranscriptSnapshot,
   sessionSnapshotLimit,
   type EngineState,
-  type ProviderInfo,
 } from "./store"
 
 export type Engine = {
@@ -42,6 +42,7 @@ const EngineContext = createContext<Engine>()
 
 // Reconnect transcript refreshes run in small batches so they cannot starve the visible session.
 const transcriptRefreshBatch = 3
+const engineInspectionTimeoutMs = 5_000
 
 /** Reads the engine version, or null if the engine is unreachable or does not answer with it. */
 function fetchEngineVersion(target: EngineTarget) {
@@ -58,6 +59,9 @@ export function useEngine() {
 
 export function EngineProvider(props: ParentProps) {
   const [state, set] = createEngineState()
+  // Cold engine startup can take seconds; the last known catalog keeps the model picker populated
+  // (and the saved model preference resolvable) until the first hydrate delivers fresh providers.
+  seedProviderCatalog(state, set)
   let base: EngineTarget | undefined
   let client: OpencodeClient | undefined
   let pumpAbort: AbortController | undefined
@@ -69,6 +73,7 @@ export function EngineProvider(props: ParentProps) {
   let unlistenSkillConfig: (() => void) | undefined
   let unlistenMcpConfig: (() => void) | undefined
   let runtimeMetadataEpoch = 0
+  let runtimeInspection: Promise<ShellEngineInspection | undefined> | undefined
   let timeoutSync = Promise.resolve()
 
   const requireClient = () => {
@@ -101,7 +106,11 @@ export function EngineProvider(props: ParentProps) {
     const metadataEpoch = runtimeMetadataEpoch + 1
     runtimeMetadataEpoch = metadataEpoch
     set("providerSnapshotEpoch", providerEpoch)
-    const current = () => client === api && directory === bootDirectory
+    // A reconnect flap can overlap two hydrates against the same client and directory; the epoch
+    // (bumped by every server.connected) keeps the stale one from purging what the fresh one wrote.
+    const epoch = state.sessionSnapshotEpoch
+    const current = () =>
+      client === api && directory === bootDirectory && state.sessionSnapshotEpoch === epoch
     try {
       const stale = Object.keys(state.loaded)
       const captured = captureRevisions(state)
@@ -120,13 +129,10 @@ export function EngineProvider(props: ParentProps) {
       })
       if (complete) set("sessionSnapshotDirectory", bootDirectory)
       applyStatusSnapshot(set, { sessions: list, statuses: statuses.data ?? {}, captured })
-      for (const [sessionID, status] of Object.entries(statuses.data ?? {}))
-        if (status.type !== "idle") clearRecoverableInterruption(sessionID, true)
-      if (state.providerSnapshotEpoch === providerEpoch) {
-        set("providers", (providers.data?.all ?? []) as unknown as ProviderInfo[])
-        set("connected", providers.data?.connected ?? [])
-        set("defaultModels", providers.data?.default ?? {})
-      }
+      // Pending permissions/questions exist only as events; a bounded SSE buffer can drop the ask
+      // frame under load, which would strand the session busy forever without this refetch.
+      if (bootDirectory) void actions.refreshPermissions([bootDirectory])
+      if (state.providerSnapshotEpoch === providerEpoch) applyProviderCatalog(set, providers.data)
       set("agents", agents.data ?? [])
       if (runtimeMetadataEpoch === metadataEpoch) {
         set("commands", commands.data ?? [])
@@ -155,9 +161,6 @@ export function EngineProvider(props: ParentProps) {
           )
           set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], entries, id, captured, state.revisions))
           set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
-          const latest = [...entries].reverse().find((entry) => entry.info.role === "assistant")?.info
-          if (latest?.role === "assistant" && latest.time.completed && !latest.error)
-            clearRecoverableInterruption(id, true)
         }
       }
       if (!state.version && base) {
@@ -167,7 +170,8 @@ export function EngineProvider(props: ParentProps) {
         if (health?.version) set("version", health.version)
       }
     } finally {
-      if (client === api && directory === bootDirectory) set("bootstrappedDirectory", bootDirectory)
+      // A hydrate that bailed on a stale epoch wrote nothing, so it must not report readiness.
+      if (current()) set("bootstrappedDirectory", bootDirectory)
     }
   }
 
@@ -232,7 +236,14 @@ export function EngineProvider(props: ParentProps) {
 
   async function inspectRuntimeEngine() {
     const epoch = engineEpoch
-    const status = await inspectShellEngine().catch(() => undefined)
+    // The timeout cannot cancel the backend call, so retries share the one still in flight rather
+    // than stacking a new invoke per attempt.
+    runtimeInspection ??= inspectShellEngine()
+      .catch(() => undefined)
+      .finally(() => {
+        runtimeInspection = undefined
+      })
+    const status = await Promise.race([runtimeInspection, sleep(engineInspectionTimeoutMs).then(() => undefined)])
     if (!status || disposed || epoch !== engineEpoch) return false
     if (status.error) {
       recordEngineFailure(status.error)
@@ -250,6 +261,7 @@ export function EngineProvider(props: ParentProps) {
     while (!signal.aborted) {
       const target = base
       if (!target) return
+      let streamError: unknown
       try {
         await streamEvents(target, signal, (event, eventDirectory) => {
           if (event.type === "server.connected") {
@@ -260,13 +272,25 @@ export function EngineProvider(props: ParentProps) {
             void hydrate().catch(() => undefined)
             return
           }
-          reduce(set, event, eventDirectory, state)
+          try {
+            reduce(set, event, eventDirectory, state)
+          } catch (cause) {
+            // One malformed or locally unpersistable event must not kill all future updates.
+            console.error("Drift could not reduce engine event", {
+              type: event.type,
+              directory: eventDirectory,
+              cause,
+            })
+          }
         })
-      } catch {}
-      if (signal.aborted) return
-      if (await inspectRuntimeEngine()) return
+      } catch (cause) {
+        streamError = cause
+      }
       if (signal.aborted) return
       set("connection", "offline")
+      if (streamError) console.warn("Drift engine event stream disconnected", streamError)
+      if (await inspectRuntimeEngine()) return
+      if (signal.aborted) return
       await sleep(1500)
       if (signal.aborted) return
       set("connection", "connecting")
@@ -291,8 +315,17 @@ export function EngineProvider(props: ParentProps) {
       }),
     )
     if (import.meta.env.DEV) seedBench(set, path)
-    pumpAbort = new AbortController()
-    void pump(pumpAbort.signal)
+    const controller = new AbortController()
+    pumpAbort = controller
+    void pump(controller.signal)
+      .catch((cause) => {
+        if (!controller.signal.aborted) console.error("Drift engine event pump stopped unexpectedly", cause)
+      })
+      .finally(() => {
+        if (pumpAbort !== controller) return
+        pumpAbort = undefined
+        if (!disposed && !controller.signal.aborted && base && directory) startPump(directory)
+      })
   }
 
   function restartEngine() {
