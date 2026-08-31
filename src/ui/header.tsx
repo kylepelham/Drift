@@ -5,7 +5,8 @@ import { prefsFor } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { toggleDebugPanel } from "../state/panels"
 import { openMobileDrawer } from "../state/navigation"
-import { IconArrowUp, IconMenu } from "./icons"
+import { IconArrowUp, IconMenu, IconSearch } from "./icons"
+import { openTranscriptFind, TranscriptFindBar, transcriptFindOpen } from "./transcript-find"
 import { t } from "../state/i18n"
 
 const chatColumnWidth = 768
@@ -76,6 +77,16 @@ export function ChatHeader() {
       <Show when={session()}>
         {(current) => (
           <div class="pointer-events-auto flex shrink-0 items-center gap-2">
+            <TranscriptFindBar />
+            <Show when={!transcriptFindOpen()}>
+              <button
+                class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+                title={t("drift.search.transcript")}
+                onClick={openTranscriptFind}
+              >
+                <IconSearch class="size-3.5" />
+              </button>
+            </Show>
             <ContextMeter sessionId={current().id} />
             <Show when={current().share?.url}>
               {(url) => (

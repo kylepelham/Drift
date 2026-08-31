@@ -10,6 +10,7 @@ mod mcp;
 mod mcp_external;
 mod permissions;
 mod remote;
+mod session_search;
 mod storage;
 mod store;
 mod ui_state;
@@ -126,6 +127,7 @@ fn main() {
             commands::mcp_external_remove,
             show_main_window,
             open_webview_devtools,
+            commands::session_search,
             commands::storage_stats,
             commands::storage_analyze,
             commands::storage_prune,

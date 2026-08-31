@@ -1,10 +1,19 @@
 import { persisted } from "./persist"
 
-export type KeybindAction = "palette" | "newThread" | "autoAccept" | "zoomIn" | "zoomOut" | "zoomReset"
+export type KeybindAction =
+  | "palette"
+  | "newThread"
+  | "findInSession"
+  | "autoAccept"
+  | "zoomIn"
+  | "zoomOut"
+  | "zoomReset"
 
 export const keybindDefs: { action: KeybindAction; combo: string | null }[] = [
   { action: "palette", combo: "ctrl+k" },
   { action: "newThread", combo: "ctrl+n" },
+  // Takes over the WebView's own find bar, which cannot see a virtualized transcript.
+  { action: "findInSession", combo: "ctrl+f" },
   { action: "autoAccept", combo: "ctrl+shift+a" },
   { action: "zoomIn", combo: "ctrl+=" },
   { action: "zoomOut", combo: "ctrl+-" },

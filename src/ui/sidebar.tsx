@@ -9,6 +9,7 @@ import type { Workspace } from "../state/store"
 import { addWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, workspaces } from "../state/workspaces"
 import { ArchiveModal } from "./archive"
 import { IconArchive, IconGear, IconPlus } from "./icons"
+import { SessionSearchBar, SessionSearchResults, sessionSearchActive } from "./session-search"
 import { openSettings } from "./settings"
 import { t } from "../state/i18n"
 import {
@@ -144,12 +145,18 @@ export function Sidebar() {
           </button>
         </div>
       </div>
+      <SessionSearchBar />
       <nav class="app-sidebar-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-2 pb-2">
-        <For each={workspaces()}>
-          {(workspace) => <WorkspaceGroup workspace={workspace} onMenu={setMenu} onSessionMenu={setSessionMenu} />}
-        </For>
-        <Show when={workspaces().length === 0}>
-          <div class="px-2 py-4 text-xs text-ink-faint">{t("drift.sidebar.empty")}</div>
+        <Show
+          when={!sessionSearchActive()}
+          fallback={<SessionSearchResults />}
+        >
+          <For each={workspaces()}>
+            {(workspace) => <WorkspaceGroup workspace={workspace} onMenu={setMenu} onSessionMenu={setSessionMenu} />}
+          </For>
+          <Show when={workspaces().length === 0}>
+            <div class="px-2 py-4 text-xs text-ink-faint">{t("drift.sidebar.empty")}</div>
+          </Show>
         </Show>
       </nav>
       <SidebarFooter onSettings={openSettings} />

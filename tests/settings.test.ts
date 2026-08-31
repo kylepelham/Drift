@@ -149,6 +149,13 @@ const pendingTranslation = new Set([
     `,
   ),
   ...pendingKeys(
+    "drift.search",
+    `
+      archived clear close empty mode.content mode.name next previous
+      sessions.placeholder transcript transcript.placeholder
+    `,
+  ),
+  ...pendingKeys(
     "drift.settings.prompts",
     `
       agentDescription agentPrompt agents behavior familyDescription inheritsFamily invalidJson
@@ -156,6 +163,7 @@ const pendingTranslation = new Set([
     `,
   ),
   "drift.settings.prompts",
+  "drift.shortcuts.findInSession",
   ...pendingKeys(
     "drift.slash",
     `

@@ -185,6 +185,7 @@ const sectionGroups: { label: string; items: Section[] }[] = [
 const keybindLabels: Record<KeybindAction, string> = {
   palette: "command.palette",
   newThread: "command.session.new",
+  findInSession: "drift.shortcuts.findInSession",
   autoAccept: "drift.shortcuts.autoAccept",
   zoomIn: "drift.shortcuts.zoomIn",
   zoomOut: "drift.shortcuts.zoomOut",
