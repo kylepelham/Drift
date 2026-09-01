@@ -232,7 +232,7 @@ fn external_mcp_signature(store: &Store) -> Vec<(PathBuf, u64, u128, u64)> {
         .into_iter()
         .flat_map(|root| [root.join("plugin"), root.join("plugins")])
         .collect::<Vec<_>>();
-    let mut paths = watched_mcp_paths(configs, plugins);
+    let mut paths = watched_mcp_paths(configs.clone(), plugins);
     if cfg!(target_os = "macos") {
         let managed = PathBuf::from("/Library/Managed Preferences");
         paths.push(managed.join("ai.opencode.managed.plist"));
@@ -240,7 +240,37 @@ fn external_mcp_signature(store: &Store) -> Vec<(PathBuf, u64, u128, u64)> {
             paths.push(managed.join(user).join("ai.opencode.managed.plist"));
         }
     }
+    mcp_signatures(paths, &configs)
+}
+
+/// Signs each watched path, comparing config files by their MCP content rather than their bytes.
+///
+/// A reload disposes every engine instance, which interrupts whatever those sessions are doing, so
+/// it must only happen when MCP behaviour actually changed. Config files carry unrelated settings
+/// that the user edits far more often than their servers; those edits leave this signature alone.
+/// Everything else, including plugin sources and files that will not parse, is still compared
+/// whole, because there is no smaller unit that can be trusted.
+pub(crate) fn mcp_signatures(
+    paths: Vec<PathBuf>,
+    configs: &[PathBuf],
+) -> Vec<(PathBuf, u64, u128, u64)> {
+    let watched = configs.iter().collect::<HashSet<_>>();
     file_signatures(paths)
+        .into_iter()
+        .map(|(path, len, modified, hash)| {
+            if !watched.contains(&path) {
+                return (path, len, modified, hash);
+            }
+            match crate::mcp_external::mcp_content(&path) {
+                Some(content) => {
+                    let mut hasher = DefaultHasher::new();
+                    content.hash(&mut hasher);
+                    (path, 0, 0, hasher.finish())
+                }
+                None => (path, len, modified, hash),
+            }
+        })
+        .collect()
 }
 
 pub(crate) fn watched_mcp_paths(mut configs: Vec<PathBuf>, mut plugin_roots: Vec<PathBuf>) -> Vec<PathBuf> {
