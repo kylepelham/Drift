@@ -1027,6 +1027,15 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
+::highlight(drift-find) {
+  background-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+::highlight(drift-find-active) {
+  background-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  color: var(--ink);
+}
+
 .md .code-block {
   position: relative;
   margin-block: 0.6em;

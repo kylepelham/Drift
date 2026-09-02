@@ -1,4 +1,4 @@
-import { createEffect, For, onCleanup, Show } from "solid-js"
+import { createEffect, For, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSignal } from "solid-js"
 import { useEngine } from "../engine"
@@ -20,6 +20,7 @@ import { IconSearch, IconX } from "./icons"
 
 // One sidebar, one search: the query has to be readable by the input and by the list that replaces
 // the workspace tree, so it lives beside them rather than inside either one.
+const [expanded, setExpanded] = createSignal(false)
 const [query, setQuery] = createSignal("")
 const [mode, setMode] = createSignal<SessionSearchMode>("name")
 const [results, setResults] = createStore<SessionSearchState>({
@@ -35,6 +36,24 @@ const [pendingReveal, setPendingReveal] = createSignal<{ sessionId: string; mess
 
 export function sessionSearchActive() {
   return sessionSearchReady(query())
+}
+
+export function sessionSearchOpen() {
+  return expanded()
+}
+
+export function closeSessionSearch() {
+  setExpanded(false)
+  setQuery("")
+}
+
+/** The sidebar shows only a magnifier until this expands it into the input. */
+export function toggleSessionSearch() {
+  if (expanded()) {
+    closeSessionSearch()
+    return
+  }
+  setExpanded(true)
 }
 
 export function revealTarget(sessionId: string) {
@@ -56,6 +75,8 @@ export function SessionSearchBar() {
   const engine = useEngine()
   let input: HTMLInputElement | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
+
+  onMount(() => input?.focus())
 
   // Titles come from what the engine has already hydrated. The sidebar asks for every workspace on
   // startup, so title search reuses that instead of issuing a listing of its own.
@@ -107,8 +128,7 @@ export function SessionSearchBar() {
           onKeyDown={(event) => {
             if (event.key !== "Escape") return
             event.preventDefault()
-            setQuery("")
-            input?.blur()
+            closeSessionSearch()
           }}
         />
         <Show when={query()}>

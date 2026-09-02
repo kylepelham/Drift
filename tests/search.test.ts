@@ -145,20 +145,40 @@ test("in-session search reads every visible surface and counts repeats", async (
 })
 
 test("match navigation wraps at both ends and survives a growing transcript", async () => {
-  const { reanchorMatch, stepMatch } = await import("../src/state/transcript-search")
+  const { occurrenceAt, reanchorMatch, stepMatch } = await import("../src/state/transcript-search")
   expect(stepMatch(0, 3, 1)).toBe(1)
   expect(stepMatch(2, 3, 1)).toBe(0)
   expect(stepMatch(0, 3, -1)).toBe(2)
   expect(stepMatch(0, 0, 1)).toBe(-1)
 
-  const before = [
-    { messageId: "m2", count: 1 },
+  // The cursor walks occurrences: repeats inside one message are distinct stops.
+  const matches = [
+    { messageId: "m2", count: 2 },
     { messageId: "m5", count: 1 },
   ]
+  expect(occurrenceAt(matches, 0)).toEqual({ messageId: "m2", index: 0 })
+  expect(occurrenceAt(matches, 1)).toEqual({ messageId: "m2", index: 1 })
+  expect(occurrenceAt(matches, 2)).toEqual({ messageId: "m5", index: 0 })
+  expect(occurrenceAt(matches, 3)).toBeUndefined()
+  expect(occurrenceAt(matches, -1)).toBeUndefined()
+
   // An older page loading in front of the cursor must not move the highlight to another message.
-  const after = [{ messageId: "m1", count: 1 }, ...before]
-  expect(reanchorMatch(after, "m5", 0)).toBe(2)
+  const after = [{ messageId: "m1", count: 3 }, ...matches]
+  expect(reanchorMatch(after, { messageId: "m5", index: 0 }, 0)).toBe(5)
+  // The second occurrence in a message stays the second occurrence after the set grows.
+  expect(reanchorMatch(after, { messageId: "m2", index: 1 }, 0)).toBe(4)
+  // An occurrence that disappeared clamps to the last one that still exists in its message.
+  expect(reanchorMatch(after, { messageId: "m2", index: 9 }, 0)).toBe(4)
   // A message that stopped matching falls back to the nearest position that still exists.
-  expect(reanchorMatch(after, "gone", 9)).toBe(2)
-  expect(reanchorMatch([], "m5", 0)).toBe(-1)
+  expect(reanchorMatch(after, { messageId: "gone", index: 0 }, 9)).toBe(5)
+  expect(reanchorMatch([], { messageId: "m5", index: 0 }, 0)).toBe(-1)
+})
+
+test("the search text cache follows a message that is still streaming", async () => {
+  const { transcriptMatches } = await import("../src/state/transcript-search")
+  const streaming = entry("m1", [{ type: "text", text: "cache" }])
+  expect(transcriptMatches([streaming], "cache")).toEqual([{ messageId: "m1", count: 1 }])
+  // The same object growing (a streamed reply) must invalidate the cached lowered text.
+  ;(streaming.parts[0] as { text: string }).text = "cache then cache again"
+  expect(transcriptMatches([streaming], "cache")).toEqual([{ messageId: "m1", count: 2 }])
 })

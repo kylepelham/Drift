@@ -30,7 +30,14 @@ import { collapseCompaction, compactionCollapsed, orderedModelProviderIds, prefs
 import { Picker, type PickerItem } from "./picker"
 import { ProviderIcon } from "./provider-icon"
 import { clearReveal, revealTarget } from "./session-search"
-import { activeFindMessage, syncTranscriptMatches } from "./transcript-find"
+import {
+  activeFindMessage,
+  clearFindHighlights,
+  paintFindHighlights,
+  syncTranscriptMatches,
+  transcriptFindCursor,
+  transcriptFindNeedle,
+} from "./transcript-find"
 
 const estimatedRow = 96
 const overscan = 800
@@ -263,6 +270,39 @@ export function Chat() {
   createEffect(() => syncTranscriptMatches(entries()))
 
   const findHighlight = createMemo(() => activeFindMessage() ?? revealTarget(selectedSession() ?? ""))
+
+  // Repaints the in-text match highlights whenever the settled query, the cursor, or the mounted
+  // rows change. Painting is deferred a frame so the walked DOM reflects what this update rendered.
+  let findRaf = 0
+  let scrolledFindCursor = -1
+  createEffect(() => {
+    const value = transcriptFindNeedle()
+    transcriptFindCursor()
+    viewTop()
+    measured()
+    entries()
+    cancelAnimationFrame(findRaf)
+    if (!value) {
+      scrolledFindCursor = -1
+      clearFindHighlights()
+      return
+    }
+    findRaf = requestAnimationFrame(() => {
+      const active = paintFindHighlights(scroller)
+      const at = untrack(transcriptFindCursor)
+      // Nudge the active occurrence into view once per step; repaints from the user's own
+      // scrolling must not drag the viewport back.
+      if (active && at !== scrolledFindCursor) {
+        scrolledFindCursor = at
+        const parent = active.startContainer.parentElement
+        parent?.scrollIntoView({ block: "nearest" })
+      }
+    })
+  })
+  onCleanup(() => {
+    cancelAnimationFrame(findRaf)
+    clearFindHighlights()
+  })
 
   /**
    * Brings a message into view by index rather than by element: the row is usually unmounted, so

@@ -8,8 +8,14 @@ import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
 import { addWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, workspaces } from "../state/workspaces"
 import { ArchiveModal } from "./archive"
-import { IconArchive, IconGear, IconPlus } from "./icons"
-import { SessionSearchBar, SessionSearchResults, sessionSearchActive } from "./session-search"
+import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons"
+import {
+  SessionSearchBar,
+  SessionSearchResults,
+  sessionSearchActive,
+  sessionSearchOpen,
+  toggleSessionSearch,
+} from "./session-search"
 import { openSettings } from "./settings"
 import { t } from "../state/i18n"
 import {
@@ -130,6 +136,14 @@ export function Sidebar() {
         </span>
         <div class="flex items-center gap-0.5">
           <button
+            class="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink"
+            classList={{ "text-ink": sessionSearchOpen(), "text-ink-faint": !sessionSearchOpen() }}
+            title={t("drift.search.sessions.placeholder")}
+            onClick={toggleSessionSearch}
+          >
+            <IconSearch class="size-3.5" />
+          </button>
+          <button
             class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
             title={t("drift.sidebar.archived")}
             onClick={() => setArchive(true)}
@@ -145,7 +159,9 @@ export function Sidebar() {
           </button>
         </div>
       </div>
-      <SessionSearchBar />
+      <Show when={sessionSearchOpen()}>
+        <SessionSearchBar />
+      </Show>
       <nav class="app-sidebar-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-2 pb-2">
         <Show
           when={!sessionSearchActive()}
