@@ -1,6 +1,6 @@
 //! Polls engine configuration and skill files, then invalidates cached instances on change.
 
-use crate::engine::stop_engine_instances;
+use crate::engine::{reload_engine_mcp, stop_engine_instances};
 use crate::mcp;
 use crate::store::Store;
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
@@ -97,14 +97,14 @@ pub(crate) fn watch_engine_configs(app: tauri::AppHandle) {
                 continue;
             }
 
-            let mut disposed = false;
             if mcp_changed {
+                // Reconnecting the servers in place leaves running sessions alone, so this no
+                // longer stands in for the disposal a skill change still needs.
                 let reloaded = app
                     .state::<mcp::McpRuntime>()
-                    .reload(&app.state::<Store>(), || stop_engine_instances(&app));
+                    .reload(&app.state::<Store>(), || reload_engine_mcp(&app));
                 match reloaded {
                     Ok(()) => {
-                        disposed = true;
                         previous_mcp = current_mcp;
                         let _ = app.emit("mcp-config-changed", ());
                     }
@@ -115,11 +115,9 @@ pub(crate) fn watch_engine_configs(app: tauri::AppHandle) {
             }
 
             if skills_changed {
-                if !disposed {
-                    if let Err(error) = stop_engine_instances(&app) {
-                        eprintln!("failed to reload changed skills: {error}");
-                        continue;
-                    }
+                if let Err(error) = stop_engine_instances(&app) {
+                    eprintln!("failed to reload changed skills: {error}");
+                    continue;
                 }
                 previous_skills = current_skills;
                 let _ = app.emit("skill-config-changed", ());
