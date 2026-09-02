@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show, untrack } from "solid-js"
 import { t } from "../state/i18n"
 import { onKeybind } from "../state/keybinds"
 import { selectedSession } from "../state/selection"
@@ -88,16 +88,22 @@ export function closeTranscriptFind() {
  * Called by the timeline whenever its entries or the settled query change, so results follow a
  * streaming reply and any older page that loads. A new query starts from its first occurrence; a
  * transcript change under the same query keeps the cursor on the occurrence it was already at.
+ *
+ * The anchor reads run untracked: this executes inside the caller's effect, and reading the very
+ * signals it is about to write would make each run retrigger the next forever, until Solid's
+ * update guard kills the effect and search silently reports nothing.
  */
 export function syncTranscriptMatches(entries: MessageEntry[]) {
   if (!open()) return
   const value = needle()
   const found = transcriptMatches(entries, value)
-  const fresh = value !== syncedNeedle
-  syncedNeedle = value
-  const anchor = fresh ? undefined : activeFindOccurrence()
-  setMatches(found)
-  setCursor(fresh ? (found.length ? 0 : -1) : reanchorMatch(found, anchor, cursor()))
+  untrack(() => {
+    const fresh = value !== syncedNeedle
+    syncedNeedle = value
+    const anchor = fresh ? undefined : activeFindOccurrence()
+    setMatches(found)
+    setCursor(fresh ? (found.length ? 0 : -1) : reanchorMatch(found, anchor, cursor()))
+  })
 }
 
 export function stepTranscriptFind(step: number) {
