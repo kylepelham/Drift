@@ -317,26 +317,53 @@ const numberedLinePattern = /^\s{0,3}(\d{1,9})\.(?=\s|$)/
  * after `12.`. Start numbers 0 and 1 always open a list.
  */
 function escapeLoneNumberedLines(text: string) {
-  return mapProseChunks(text, (chunk) => {
-    const lines = chunk.split("\n")
-    const numbers = lines.map((line) => numberedLinePattern.exec(line)?.[1])
-    const numbered = numbers.flatMap((value, index) => (value === undefined ? [] : [index]))
-    // Numbered lines arrive in order, so the running count is that line's position in `numbered`.
-    let position = -1
-    return lines
-      .map((line, index) => {
-        const value = numbers[index]
-        if (value === undefined) return line
-        position += 1
-        const start = Number(value)
-        if (start <= 1) return line
-        const previous = position > 0 ? Number(numbers[numbered[position - 1]]) : undefined
-        const next = position < numbered.length - 1 ? Number(numbers[numbered[position + 1]]) : undefined
-        if (previous === start - 1 || next === start + 1) return line
-        return line.replace(".", "\\.")
-      })
-      .join("\n")
-  })
+  // The sibling check must see the whole document. Running it per prose chunk would cut the
+  // sequence at every inline code span, so an item after one containing `code` looks lone and
+  // gets escaped into a continuation of the item before it. A line-leading marker can never sit
+  // inside a span, so only fenced blocks need excluding.
+  const lines = text.split("\n")
+  const fenced = fencedLines(text)
+  const numbers = lines.map((line, index) => (fenced.has(index) ? undefined : numberedLinePattern.exec(line)?.[1]))
+  const numbered = numbers.flatMap((value, index) => (value === undefined ? [] : [index]))
+  // Numbered lines arrive in order, so the running count is that line's position in `numbered`.
+  let position = -1
+  return lines
+    .map((line, index) => {
+      const value = numbers[index]
+      if (value === undefined) return line
+      position += 1
+      const start = Number(value)
+      if (start <= 1) return line
+      const previous = position > 0 ? Number(numbers[numbered[position - 1]]) : undefined
+      const next = position < numbered.length - 1 ? Number(numbers[numbered[position + 1]]) : undefined
+      if (previous === start - 1 || next === start + 1) return line
+      return line.replace(".", "\\.")
+    })
+    .join("\n")
+}
+
+/** Indices of the lines that fall inside a fenced code block, by the same rules `mapProseChunks` uses. */
+function fencedLines(text: string) {
+  const inside = new Set<number>()
+  const lines = text.split("\n")
+  let index = 0
+  while (index < lines.length) {
+    const opener = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[index])
+    if (!opener || (opener[1][0] === "`" && opener[2].includes("`"))) {
+      index++
+      continue
+    }
+    const marker = opener[1]
+    let close = index + 1
+    while (close < lines.length) {
+      const closer = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(lines[close])
+      if (closer && closer[1][0] === marker[0] && closer[1].length >= marker.length) break
+      close++
+    }
+    for (let line = index; line <= Math.min(close, lines.length - 1); line++) inside.add(line)
+    index = close + 1
+  }
+  return inside
 }
 
 const urlPattern = /https?:\/\/[^\s<>"')\]]+/g
