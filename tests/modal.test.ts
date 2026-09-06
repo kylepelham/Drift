@@ -5,13 +5,17 @@ test("modal backdrop closes only when the pointer starts outside the dialog", ()
   const backdrop = {}
   const dialog = {}
   let closes = 0
+  let prevented = 0
   const close = () => closes++
+  const preventDefault = () => prevented++
 
-  closeOnBackdropPointerDown({ target: dialog, currentTarget: backdrop }, close)
+  closeOnBackdropPointerDown({ target: dialog, currentTarget: backdrop, preventDefault }, close)
   expect(closes).toBe(0)
+  expect(prevented).toBe(0)
 
-  closeOnBackdropPointerDown({ target: backdrop, currentTarget: backdrop }, close)
+  closeOnBackdropPointerDown({ target: backdrop, currentTarget: backdrop, preventDefault }, close)
   expect(closes).toBe(1)
+  expect(prevented).toBe(1)
 })
 
 test("modal stack keeps only the newest overlay topmost and tolerates out-of-order cleanup", () => {
@@ -47,13 +51,16 @@ test("modal stack keeps a higher visual layer topmost over newer lower layers", 
   expect(stack.isTop(settings)).toBeTrue()
 })
 
-test("settings and split MCP dialogs use the shared modal lifecycle", async () => {
+test("settings, model manager, and split MCP dialogs use the shared modal lifecycle", async () => {
   const settings = await Bun.file("src/ui/settings.tsx").text()
+  const models = await Bun.file("src/ui/model-manager.tsx").text()
   const mcp = await Bun.file("src/ui/mcp.tsx").text()
   const editor = await Bun.file("src/ui/mcp/editor.tsx").text()
   expect(settings).toContain("<Portal>")
   expect(settings).toContain("activateModal(dialog, props.onClose)")
   expect(settings).not.toContain('document.addEventListener("keydown", escape)')
+  expect(models).toContain("<Portal>")
+  expect(models).toContain("w-[min(35rem,calc(100vw-1rem))]")
   expect(mcp).toContain("activateModal(dialog, props.onClose)")
   expect(editor).toContain("activateModal(dialog, props.onClose)")
 })

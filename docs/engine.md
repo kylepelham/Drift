@@ -66,11 +66,75 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   `skill-config-changed` event refreshes Drift's slash-command snapshot after disposal has
   completed. Remote clients also refresh command/config metadata whenever the slash menu opens.
 
+## Async questions
+
+The question tool defaults to `async: true`. It registers a pending request and returns
+its ID immediately so independent work can continue. Work that depends on the answer
+must wait. The model can pass `async: false` for a blocking clarification; direct
+`Question.ask`, plan exit, and permission approvals remain blocking.
+
+Drift labels async cards and offers **Answer later**, which collapses the card without
+rejecting it. The pending-request selector switches between requests across sessions;
+answer drafts stay keyed to their request. Replies go to the owning workspace and session,
+not whichever thread is currently selected. Failed submissions retain the card and draft.
+Sending and failure state also stay keyed to the request when switching cards. Once an
+async answer is submitted, its contents are locked: **Retry original answer** resends the
+original snapshot because an unconfirmed delivery might already have saved it. Blocking
+questions remain editable after failed submission. Dismissal remains a separate rejection.
+
+Question replies and rejections have an eight-second transport deadline. Identical
+in-flight submissions share one request; conflicting submissions are not sent. A timeout
+means delivery is unconfirmed, not that the engine discarded the answer. Confirmed
+resolution clears the draft and submission state; late transport completions cannot
+recreate cleared state.
+
+The engine saves accepted answers as user messages with the session's latest agent,
+model, variant, system instructions, and output format. It queues a serialized follow-up
+without interrupting active work. Cancellation and permission/question rejection invalidate
+queued follow-ups; an already saved answer remains in history for the next manual turn.
+Save failures retain the pending request, and events publish only after the save commits.
+Failed question notifications cannot strand a blocking caller: rejection still settles its
+wait, and a failed asked notification removes the pending request.
+
+Accepted answers carry `metadata.driftClarification` on their durable text part. Drift
+renders them as compact, expandable **Answered** rows instead of protocol-text bubbles.
+The request ID is not displayed or copied. Older answers with the exact legacy protocol
+heading use the same disclosure without guessing where multiline questions or answers end.
+The model-facing text remains unchanged, and ordinary messages keep their existing rendering.
+
+Pending requests and queued follow-ups are instance-local, not restart-persistent.
+Restarting the engine clears unanswered cards. Saved answers survive, but a crash after
+admission can require manually resuming the session.
+
+## Response latency
+
+Prompt preparation uses upstream's sequential ordering. The experimental five-way overlap
+was removed after a slower-response report and review found that sibling failure could
+interrupt cold skill-cache initialization and leave its interrupted result cached. Synthetic
+overlap tests did not establish an end-to-end latency benefit or safe cold-cache recovery.
+Snapshot capture and permission enforcement remain unchanged.
+
+Locally created sessions start with a ready, empty transcript before selection or prompt
+dispatch. This prevents the initial transcript GET from racing the first response and
+discarding its events, without adding an HTTP wait to first-send latency. Existing-session
+hydration is unchanged; accepting partial live messages during an initial GET requires
+part-level reconciliation rather than the current whole-message revision merge.
+
+The UI batches consecutive text/part deltas already received in one network chunk into
+one reactive update. It flushes before control events and before awaiting more network
+data, so busy/idle transitions remain observable and no pacing timer delays the first text.
+In a synthetic browser-Solid test, 128 deltas in one chunk cause one downstream memo/effect
+rerun instead of 128. This measures reactive work, not provider token speed or end-to-end latency.
+
+See [the async question comparison](async-question-comparison.md) for the public Codex
+protocol findings, the limits of the installed-app inspection, and follow-up work.
+
 ## Engine update runbook
 
 The 2026-09-06 update imports OpenCode 1.18.29 at `5b1e31988ed74b821b3a7ca6647188446992aafc`.
-This is upstream's version-sync commit on `dev`: its runtime code matches the release tag,
-whose source manifests still said 1.18.28. Using the sync commit keeps the ancestry check below valid.
+This is upstream's version-sync commit on `dev`. Its complete tree equals the `v1.18.29`
+release tag's tree, including the 1.18.29 manifests. The marker stays pinned to the `dev`
+sync commit so future updates can validate ancestry along `dev`, rather than the separate release commit.
 The snapshot is imported without upstream history, and overlays remain separate.
 
 The temporary Astra catalog and allowlist workaround was removed after verifying models.dev's
@@ -148,8 +212,9 @@ release tags could otherwise trigger Drift's own `v*` release workflow if pushed
 `session.created/updated/deleted`, `session.status`, `session.idle`, `session.error`,
 `permission.updated`, `permission.replied`, `todo.updated`. `server.connected` triggers
 (re)hydration; `sync` and `server.heartbeat` frames are dropped in the SSE parser; everything
-else is ignored on purpose. Native `skill-config-changed` and `mcp-config-changed` events refresh
-runtime metadata only after their file transactions and instance disposal complete.
+else is ignored on purpose. Native `skill-config-changed` refreshes runtime metadata after
+instance disposal. `mcp-config-changed` does so after the serialized policy/config transaction
+and in-place MCP reload complete, without disposing engine instances.
 
 ## Gotchas learned the hard way
 

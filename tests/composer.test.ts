@@ -307,11 +307,13 @@ test("shell transcript preserves a visible command-output gap and normalizes out
     ({ tool: "bash", state: { status, input: {}, metadata } }) as never
   expect(shellTimeoutStatus(shellPart("running", { shellTimeoutMs: 300_000 }))).toEqual({
     timedOut: false,
+    timeoutMs: 300_000,
     text: "Limit 5m",
   })
   expect(shellTimeoutStatus(shellPart("running", { shellTimeoutMs: null }))).toBeNull()
   expect(shellTimeoutStatus(shellPart("completed", { shellTimeoutMs: 60_000, timedOut: true }))).toEqual({
     timedOut: true,
+    timeoutMs: 60_000,
     text: "Timed out after 1m",
   })
 
@@ -485,10 +487,10 @@ test("question steps and answers persist independently by request id", async () 
   clearQuestionDraft("q2")
 })
 
-test("confirmed question events clear the matching persisted draft", async () => {
+test.each(["question.replied", "question.rejected"])("%s clears the matching draft and submission before a late failure", async (type) => {
   const { reduce } = await import("../src/engine/events")
   const { createEngineState } = await import("../src/engine/store")
-  const { questionDraftState, updateQuestionDraft } = await import("../src/state/question-drafts")
+  const { questionDraftState, questionSubmissionState, submitQuestionAnswer, updateQuestionDraft } = await import("../src/state/question-drafts")
   const [state, set] = createEngineState()
   const asked = {
     type: "question.asked",
@@ -496,10 +498,146 @@ test("confirmed question events clear the matching persisted draft", async () =>
   } as never
   reduce(set, asked)
   updateQuestionDraft("q-event", 1, 0, { selected: ["Keep me"], custom: "", customSelected: false })
+  let finish!: (completed: boolean) => void
+  const pending = new Promise<boolean>((resolve) => { finish = resolve })
+  const submission = submitQuestionAnswer("q-event", true, [["Keep me"]], () => pending)
+  expect(questionSubmissionState("q-event")?.sending).toBe(true)
   reduce(set, {
-    type: "question.replied",
+    type,
     properties: { requestID: "q-event", sessionID: "s1" },
   } as never)
   expect(state.questions.s1).toEqual([])
   expect(questionDraftState("q-event", 1).drafts[0].selected).toEqual([])
+  expect(questionSubmissionState("q-event")).toBeUndefined()
+  finish(false)
+  await submission
+  expect(questionSubmissionState("q-event")).toBeUndefined()
+})
+
+test("only async question cards collapse and their controls expose the controlled body", async () => {
+  const source = await Bun.file("src/ui/attention.tsx").text()
+  const card = source.slice(source.indexOf("export function QuestionCard"), source.indexOf("export function selectQuestionOption"))
+  expect(card).toContain("const hidden = () => !!props.async && collapsed()")
+  expect(card).toMatch(/if \(event\.key === "Escape"\) \{\s*event\.stopPropagation\(\)\s*if \(props\.async\) setCollapsed\(true\)\s*else void answer\(null\)/)
+  expect(card).toMatch(/<Show when=\{props\.async\}>[\s\S]*?aria-expanded=\{!hidden\(\)\}[\s\S]*?aria-controls=\{`question-body-\$\{props\.requestID\}`\}[\s\S]*?onClick=\{\(\) => setCollapsed\(!hidden\(\)\)\}[\s\S]*?drift\.question\.answerNow[\s\S]*?drift\.question\.answerLater[\s\S]*?<\/Show>/)
+  expect(card).toMatch(/<fieldset\s+id=\{`question-body-\$\{props\.requestID\}`\}[^>]*hidden=\{hidden\(\)\}[^>]*disabled=\{sending\(\)\}>/)
+  expect(card).toContain('aria-busy={sending()}')
+  expect(card).toContain("if (sending() || hidden()) return")
+  expect(card).toContain("if (!questionAnswer(draft()).length) return")
+  expect(card).toContain("const missing = drafts().findIndex((item) => !questionAnswer(item).length)")
+  expect(card).toContain("if (missing !== -1) return setStep(missing)")
+})
+
+test("question card uses shared submission state and locks only answer editing for async retry", async () => {
+  const source = await Bun.file("src/ui/attention.tsx").text()
+  const answer = source.slice(source.indexOf("async function answer("), source.indexOf("function advance()"))
+  expect(answer).toContain("submitQuestionAnswer(requestID, !!props.async, answers, props.onAnswer)")
+  expect(answer).toContain("if (completed === false && props.requestID === requestID) setCollapsed(false)")
+  expect(source).toContain("const submission = () => questionSubmissionState(props.requestID)")
+  expect(source).toContain("const sending = () => !!submission()?.sending")
+  expect(source).toContain("const failed = () => !!submission()?.failed")
+  expect(source).toContain("const locked = () => submission()?.answers !== undefined")
+  expect(source).toContain("const editingDisabled = () => sending() || locked()")
+  expect(source).toContain("if (original) return void answer(original)")
+  expect(source).toMatch(/<fieldset[^>]*disabled=\{editingDisabled\(\)\}>/)
+  expect(source).toContain('label={t("common.dismiss")} danger onClick={() => void answer(null)}')
+  expect(source).toContain('locked() ? t("session.question.retryOriginal")')
+  expect(source).toContain('role={failed() ? "alert" : "status"}')
+  expect(source).toContain('t("session.question.deliveryUnconfirmed")')
+  expect(source).toMatch(/<Show when=\{failed\(\) && !locked\(\)\}>\s*<div role="alert"[^>]*>\{t\("drift.question.sendFailed"\)\}/)
+  expect(source).toContain("disabled={sending() || (!locked() && !questionAnswer(draft()).length)}")
+  expect(source).toMatch(/function update\(next: QuestionDraft\) \{\s*if \(editingDisabled\(\)\) return/)
+  expect(source).toMatch(/function setStep\(next: number\) \{\s*if \(sending\(\)\) return/)
+  expect(source).toContain('if (editingDisabled() || event.target instanceof HTMLInputElement) return')
+  expect(source).toContain('tabIndex={editingDisabled() ? -1 : 0}')
+  expect(source).toMatch(/if \(event\.key === "Escape"\) return\s*event\.stopPropagation\(\)/)
+})
+
+test("question retry copy falls back to English in other languages", async () => {
+  const { loadDictionary, t } = await import("../src/state/i18n")
+  try {
+    await loadDictionary("es")
+    expect(t("session.question.retryOriginal")).toBe("Retry original answer")
+    expect(t("session.question.deliveryUnconfirmed")).toBe(
+      "Delivery is unconfirmed. Answers are locked; retry will send your original submitted answer.",
+    )
+  } finally {
+    await loadDictionary("en")
+  }
+})
+
+test("queued async selection preserves request drafts and the ordinary composer draft", async () => {
+  const { focusedQuestion } = await import("../src/ui/composer")
+  const { clearQuestionDraft, questionDraftState, setQuestionDraftStep, updateQuestionDraft } = await import("../src/state/question-drafts")
+  const { clearComposerDraft, composerDraft, composerScope, patchComposerDraft } = await import("../src/state/composer")
+  const { createEngineState } = await import("../src/engine/store")
+  const [state, set] = createEngineState()
+  const first = { id: "queue-async", sessionID: "owner", async: true, questions: [] }
+  const second = { id: "queue-blocking", sessionID: "other", async: false, questions: [] }
+  const scope = composerScope("queue-current", "queue-workspace")
+  try {
+    set("questions", { owner: [first], other: [second] })
+    patchComposerDraft(scope, { text: "Unsent prompt", mentions: ["src/app.tsx"] })
+    updateQuestionDraft(first.id, 2, 0, { selected: ["Tests"], custom: "", customSelected: false })
+    updateQuestionDraft(first.id, 2, 1, { selected: [], custom: "Custom answer", customSelected: true })
+    setQuestionDraftStep(first.id, 2, 1)
+    updateQuestionDraft(second.id, 1, 0, { selected: ["Docs"], custom: "", customSelected: false })
+    const firstDraft = questionDraftState(first.id, 2)
+    const prompt = composerDraft(scope)
+    const questions = () => Object.values(state.questions).flat()
+
+    expect(focusedQuestion(questions(), second.id)).toEqual(second)
+    expect(focusedQuestion([...questions()].reverse(), first.id)).toEqual(first)
+    expect(questionDraftState(first.id, 2)).toEqual(firstDraft)
+    expect(questionDraftState(second.id, 1).drafts[0].selected).toEqual(["Docs"])
+    set("questions", "owner", [])
+    clearQuestionDraft(first.id)
+    expect(focusedQuestion(questions(), first.id)).toEqual(second)
+    expect(questionDraftState(second.id, 1).drafts[0].selected).toEqual(["Docs"])
+    expect(composerDraft(scope)).toEqual(prompt)
+    set("questions", "other", [])
+    expect(focusedQuestion(questions(), second.id)).toBeUndefined()
+  } finally {
+    clearQuestionDraft(first.id)
+    clearQuestionDraft(second.id)
+    clearComposerDraft(scope)
+  }
+})
+
+test("queued question UI routes answers by owner without conditionally mounting the composer", async () => {
+  const source = await Bun.file("src/ui/composer.tsx").text()
+  expect(source).toContain("const questions = () => Object.values(engine.state.questions).flat()")
+  expect(source).toContain("const pendingQuestion = () => focusedQuestion(questions(), focusedQuestionID())")
+  expect(source).toMatch(/<Show when=\{questions\(\)\.length > 1\}>\s*<label[^>]*>[\s\S]*?<select[\s\S]*?value=\{pendingQuestion\(\)\?\.id \?\? ""\}[\s\S]*?onChange=\{\(event\) => setFocusedQuestionID\(event\.currentTarget\.value\)\}[\s\S]*?<\/select>\s*<\/label>/)
+  expect(source).toContain('request.async ? "" : `${t("drift.question.blocking")}: `')
+  expect(source).toContain("async={request().async}")
+  expect(source).toContain("onAnswer={(answers) => engine.actions.answerQuestion(request().sessionID, questionID, answers)}")
+  expect(source).toContain("const ready = () => online() && !!activeWorkspace()")
+
+  // Parse JSX ancestry rather than relying on whitespace to prove the textarea is unconditional.
+  const ts = await import("typescript")
+  const parsed = ts.createSourceFile("composer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  let textareas = 0
+  function visit(node: import("typescript").Node) {
+    if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(parsed) === "textarea") {
+      textareas++
+      expect(node.getText(parsed)).toContain("disabled={!ready()}")
+      expect(node.getText(parsed)).toContain("value={draft()}")
+      for (let parent = node.parent; parent && !ts.isReturnStatement(parent); parent = parent.parent) {
+        if (ts.isJsxElement(parent)) expect(parent.openingElement.tagName.getText(parsed)).toBe("div")
+        expect(ts.isJsxExpression(parent)).toBeFalse()
+        expect(ts.isConditionalExpression(parent)).toBeFalse()
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  expect(textareas).toBe(1)
+})
+test("permission cards use an opaque surface like the other composer cards", async () => {
+  const source = await Bun.file("src/ui/attention.tsx").text()
+  const card = source.slice(source.indexOf("export function PermissionCard"), source.indexOf("export function QuestionCard"))
+  expect(card).toContain("border-warn/40 bg-surface")
+  expect(card).not.toContain("bg-warn/10")
+  expect(card).toContain('class="text-warn"')
 })

@@ -7,6 +7,7 @@
  */
 
 import type { MessageEntry } from "../engine/store"
+import { clarificationAnswer } from "../ui/clarification-answer"
 
 export type TranscriptMatch = { messageId: string; count: number }
 
@@ -21,6 +22,8 @@ type TextualPart = { type: string; text?: string; synthetic?: boolean; state?: {
  * because a match there is not something the user ever saw.
  */
 export function entrySearchText(entry: MessageEntry) {
+  const clarification = clarificationAnswer(entry)
+  if (clarification) return clarification.text
   const parts: string[] = []
   for (const part of entry.parts as unknown as TextualPart[]) {
     if (part.synthetic) continue
@@ -41,7 +44,7 @@ export function entrySearchText(entry: MessageEntry) {
  * streaming reply, tool output landing), so a total-length fingerprint is enough to know when the
  * cached copy is stale without comparing the text itself.
  */
-const loweredCache = new WeakMap<MessageEntry, { fingerprint: number; lower: string }>()
+const loweredCache = new WeakMap<MessageEntry, { fingerprint: number | string; lower: string }>()
 
 function textFingerprint(entry: MessageEntry) {
   let total = entry.parts.length
@@ -54,10 +57,12 @@ function textFingerprint(entry: MessageEntry) {
 }
 
 export function loweredSearchText(entry: MessageEntry) {
-  const fingerprint = textFingerprint(entry)
+  const clarification = clarificationAnswer(entry)
+  // Clarification metadata can change independently of the stored protocol text.
+  const fingerprint = clarification?.text ?? textFingerprint(entry)
   const cached = loweredCache.get(entry)
   if (cached && cached.fingerprint === fingerprint) return cached.lower
-  const lower = entrySearchText(entry).toLowerCase()
+  const lower = (clarification?.text ?? entrySearchText(entry)).toLowerCase()
   loweredCache.set(entry, { fingerprint, lower })
   return lower
 }

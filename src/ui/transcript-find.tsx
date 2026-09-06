@@ -9,6 +9,7 @@ import {
   totalMatches,
   transcriptMatches,
   type TranscriptMatch,
+  type TranscriptOccurrence,
 } from "../state/transcript-search"
 import type { MessageEntry } from "../engine/store"
 import { IconArrowDown, IconArrowUp, IconSearch, IconX } from "./icons"
@@ -132,15 +133,14 @@ export function clearFindHighlights() {
  * across markdown elements is counted by the data model but cannot be painted; that only costs the
  * paint, not the position or navigation.
  */
-export function paintFindHighlights(container: HTMLElement): Range | undefined {
+export function paintFindHighlights(container: HTMLElement, needle: string, active: TranscriptOccurrence | undefined): Range | undefined {
   const registry = highlightRegistry()
   if (!registry) return
-  const value = transcriptFindNeedle().toLowerCase()
+  const value = needle.toLowerCase()
   if (!value) {
     clearFindHighlights()
     return
   }
-  const active = activeFindOccurrence()
   const ranges: Range[] = []
   let activeRange: Range | undefined
   for (const row of container.querySelectorAll<HTMLElement>("[data-mid]")) {
@@ -148,6 +148,7 @@ export function paintFindHighlights(container: HTMLElement): Range | undefined {
     let seen = 0
     const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT)
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.parentElement?.closest("[data-find-ignore]")) continue
       const text = (node.nodeValue ?? "").toLowerCase()
       for (let at = text.indexOf(value); at !== -1; at = text.indexOf(value, at + value.length)) {
         const range = new Range()
@@ -163,6 +164,13 @@ export function paintFindHighlights(container: HTMLElement): Range | undefined {
   if (activeRange) registry.set(FIND_ACTIVE_HIGHLIGHT, new Highlight(activeRange))
   else registry.delete(FIND_ACTIVE_HIGHLIGHT)
   return activeRange
+}
+
+export function scrollFindOccurrence(range: Range) {
+  const parent = range.startContainer.parentElement
+  for (let details = parent?.closest<HTMLDetailsElement>("details:not([open])"); details; details = parent?.closest<HTMLDetailsElement>("details:not([open])"))
+    details.open = true
+  parent?.scrollIntoView({ block: "nearest" })
 }
 
 export function TranscriptFindBar() {

@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { Portal } from "solid-js/web"
 import { modelVisible, moveModelProvider, setModelsVisible, setModelVisible } from "../state/prefs"
 import { IconX } from "./icons"
 import { dragReorder } from "./drag-reorder"
@@ -38,118 +39,120 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
   onMount(() => onCleanup(activateModal(dialog, props.onClose)))
 
   return (
-    <div
-      data-wheel-lock
-      data-modal-layer
-      class="fixed inset-0 z-30 flex items-center justify-center bg-black/50"
-      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
-    >
+    <Portal>
       <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("dialog.model.manage")}
-        tabIndex={-1}
-        class="fade-up flex max-h-[80vh] w-[35rem] flex-col overflow-hidden rounded-2xl border border-edge bg-overlay shadow-2xl shadow-black/40"
-        onClick={(event) => event.stopPropagation()}
+        data-wheel-lock
+        data-modal-layer
+        class="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-2 sm:p-4"
+        onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
       >
-        <div class="flex items-center justify-between border-b border-edge px-5 py-4">
-          <div class="text-sm font-semibold tracking-wide text-ink">{t("dialog.model.manage")}</div>
-          <button
-            title={t("common.close")}
-            class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-            onClick={props.onClose}
-          >
-            <IconX />
-          </button>
-        </div>
-        <div class="border-b border-edge px-4 py-3">
-          <input
-            autofocus
-            class="w-full rounded-xl border border-edge bg-surface px-3.5 py-2.5 text-sm outline-none transition-colors placeholder:text-ink-faint focus:border-edge-strong"
-            placeholder={t("dialog.model.search.placeholder")}
-            value={query()}
-            onInput={(event) => setQuery(event.currentTarget.value)}
-          />
-        </div>
-        <div class="min-h-0 flex-1 overflow-y-auto p-3.5">
-          <For each={groups()}>
-            {(provider) => {
-              let root!: HTMLElement
-              let cancelDrag = () => {}
-              onCleanup(() => cancelDrag())
-              const all = () => providerItems(provider.id, props.items)
-              const visibleItems = () => providerItems(provider.id)
-              const enabledCount = () => all().filter(enabled).length
-              const allEnabled = () => all().length > 0 && enabledCount() === all().length
-              return (
-                <section
-                  ref={root}
-                  data-provider={provider.id}
-                  class="mb-2 overflow-hidden rounded-xl border border-edge bg-surface/20 last:mb-0"
-                >
-                  <div
-                    class="flex min-h-12 cursor-pointer items-center gap-2 px-3 transition-colors select-none hover:bg-raised/50"
-                    aria-expanded={providerOpen(provider.id)}
-                    onPointerDown={(event) => {
-                      cancelDrag()
-                      cancelDrag = dragReorder(event, root, {
-                        selector: ":scope > [data-provider]",
-                        id: provider.id,
-                        itemID: (element) => element.dataset.provider ?? "",
-                        move: (id, beforeID) => moveModelProvider(id, beforeID, providerIDs()),
-                        dragged: markProviderDragged,
-                      })
-                    }}
-                    onClick={() => {
-                      if (!providerDragged) toggleProvider(provider.id)
-                    }}
+        <div
+          ref={dialog}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("dialog.model.manage")}
+          tabIndex={-1}
+          class="fade-up flex max-h-[calc(100dvh-1rem)] w-[min(35rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-edge bg-overlay shadow-2xl shadow-black/40 sm:max-h-[80dvh]"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div class="flex items-center justify-between border-b border-edge px-5 py-4">
+            <div class="text-sm font-semibold tracking-wide text-ink">{t("dialog.model.manage")}</div>
+            <button
+              title={t("common.close")}
+              class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+              onClick={props.onClose}
+            >
+              <IconX />
+            </button>
+          </div>
+          <div class="border-b border-edge px-4 py-3">
+            <input
+              autofocus
+              class="w-full rounded-xl border border-edge bg-surface px-3.5 py-2.5 text-sm outline-none transition-colors placeholder:text-ink-faint focus:border-edge-strong"
+              placeholder={t("dialog.model.search.placeholder")}
+              value={query()}
+              onInput={(event) => setQuery(event.currentTarget.value)}
+            />
+          </div>
+          <div class="min-h-0 flex-1 overflow-y-auto p-3.5">
+            <For each={groups()}>
+              {(provider) => {
+                let root!: HTMLElement
+                let cancelDrag = () => {}
+                onCleanup(() => cancelDrag())
+                const all = () => providerItems(provider.id, props.items)
+                const visibleItems = () => providerItems(provider.id)
+                const enabledCount = () => all().filter(enabled).length
+                const allEnabled = () => all().length > 0 && enabledCount() === all().length
+                return (
+                  <section
+                    ref={root}
+                    data-provider={provider.id}
+                    class="mb-2 overflow-hidden rounded-xl border border-edge bg-surface/20 last:mb-0"
                   >
-                    <span class="flex size-5 shrink-0 items-center justify-center text-ink-faint">
-                      <Chevron open={providerOpen(provider.id)} />
-                    </span>
-                    <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{provider.label}</span>
-                    <span class="shrink-0 rounded-full bg-raised px-2 py-0.5 text-[0.65rem] tabular-nums text-ink-faint">
-                      {t("drift.model.enabledCount", { enabled: enabledCount(), total: all().length })}
-                    </span>
-                    <Toggle
-                      label={t("dialog.model.manage.provider.toggle", { provider: provider.label })}
-                      checked={allEnabled()}
-                      onChange={() => setModelsVisible(all().map((item) => item.id), !allEnabled())}
-                    />
-                  </div>
-                  <Show when={providerOpen(provider.id)}>
-                    <div class="border-t border-edge bg-overlay/30 p-1.5">
-                      <For each={visibleItems()}>
-                        {(item) => (
-                          <button
-                            role="switch"
-                            aria-checked={enabled(item)}
-                            class="flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-2 text-left hover:bg-raised/60"
-                            onClick={() => setModelVisible(item.id, !enabled(item))}
-                          >
-                            <span class="min-w-0 flex-1">
-                              <span class="block truncate text-sm text-ink">{item.label}</span>
-                              <Show when={item.detail}>
-                                <span class="block truncate text-[0.68rem] text-ink-faint">{item.detail}</span>
-                              </Show>
-                            </span>
-                            <ToggleTrack checked={enabled(item)} />
-                          </button>
-                        )}
-                      </For>
+                    <div
+                      class="flex min-h-12 cursor-pointer items-center gap-2 px-3 transition-colors select-none hover:bg-raised/50"
+                      aria-expanded={providerOpen(provider.id)}
+                      onPointerDown={(event) => {
+                        cancelDrag()
+                        cancelDrag = dragReorder(event, root, {
+                          selector: ":scope > [data-provider]",
+                          id: provider.id,
+                          itemID: (element) => element.dataset.provider ?? "",
+                          move: (id, beforeID) => moveModelProvider(id, beforeID, providerIDs()),
+                          dragged: markProviderDragged,
+                        })
+                      }}
+                      onClick={() => {
+                        if (!providerDragged) toggleProvider(provider.id)
+                      }}
+                    >
+                      <span class="flex size-5 shrink-0 items-center justify-center text-ink-faint">
+                        <Chevron open={providerOpen(provider.id)} />
+                      </span>
+                      <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{provider.label}</span>
+                      <span class="shrink-0 rounded-full bg-raised px-2 py-0.5 text-[0.65rem] tabular-nums text-ink-faint">
+                        {t("drift.model.enabledCount", { enabled: enabledCount(), total: all().length })}
+                      </span>
+                      <Toggle
+                        label={t("dialog.model.manage.provider.toggle", { provider: provider.label })}
+                        checked={allEnabled()}
+                        onChange={() => setModelsVisible(all().map((item) => item.id), !allEnabled())}
+                      />
                     </div>
-                  </Show>
-                </section>
-              )
-            }}
-          </For>
-          <Show when={filtered().length === 0}>
-            <div class="py-8 text-center text-sm text-ink-faint">{t("dialog.model.empty")}</div>
-          </Show>
+                    <Show when={providerOpen(provider.id)}>
+                      <div class="border-t border-edge bg-overlay/30 p-1.5">
+                        <For each={visibleItems()}>
+                          {(item) => (
+                            <button
+                              role="switch"
+                              aria-checked={enabled(item)}
+                              class="flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-2 text-left hover:bg-raised/60"
+                              onClick={() => setModelVisible(item.id, !enabled(item))}
+                            >
+                              <span class="min-w-0 flex-1">
+                                <span class="block truncate text-sm text-ink">{item.label}</span>
+                                <Show when={item.detail}>
+                                  <span class="block truncate text-[0.68rem] text-ink-faint">{item.detail}</span>
+                                </Show>
+                              </span>
+                              <ToggleTrack checked={enabled(item)} />
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </section>
+                )
+              }}
+            </For>
+            <Show when={filtered().length === 0}>
+              <div class="py-8 text-center text-sm text-ink-faint">{t("dialog.model.empty")}</div>
+            </Show>
+          </div>
         </div>
       </div>
-    </div>
+    </Portal>
   )
 }
 

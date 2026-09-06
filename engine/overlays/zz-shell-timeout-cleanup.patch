@@ -1,0 +1,116 @@
+diff --git a/packages/opencode/src/tool/shell.ts b/packages/opencode/src/tool/shell.ts
+--- a/packages/opencode/src/tool/shell.ts
++++ b/packages/opencode/src/tool/shell.ts
+@@ -1,4 +1,4 @@
+-import { Effect, Stream } from "effect"
++import { Effect, Fiber, Stream } from "effect"
+ import os from "os"
+ import { createWriteStream } from "node:fs"
+ import * as Tool from "./tool"
+@@ -504,7 +504,7 @@ export const ShellTool = Tool.define(
+           yield* Effect.addFinalizer(closeSink)
+           const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env))
++          const exited = yield* handle.exitCode.pipe(Effect.forkDetach({ startImmediately: true }))
+ 
+-          yield* Effect.forkScoped(
+-            Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
++          const output = yield* Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
+               const size = Buffer.byteLength(chunk, "utf-8")
+               list.push({ text: chunk, size })
+@@ -539,6 +538,8 @@ export const ShellTool = Tool.define(
+ 
+               return streamMetadata
+-            }),
+-          )
++            }).pipe(Effect.forkDetach({ startImmediately: true }))
++          yield* Effect.addFinalizer(() =>
++            Fiber.interruptAll([exited, output]).pipe(Effect.forkDetach({ startImmediately: true }), Effect.asVoid),
++          )
+ 
+           const abort = Effect.callback<void>((resume) => {
+@@ -559,13 +561,10 @@ export const ShellTool = Tool.define(
+           const exit = yield* Effect.raceAll([
+-            handle.exitCode.pipe(Effect.map((code) => ({ kind: "exit" as const, code }))),
++            Fiber.join(exited).pipe(Effect.map((code) => ({ kind: "exit" as const, code }))),
+             abort.pipe(Effect.map(() => ({ kind: "abort" as const, code: null }))),
+             timeout,
+           ])
+ 
+-          if (exit.kind === "abort") {
+-            aborted = true
+-            yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.orDie)
+-          }
++          if (exit.kind === "abort") aborted = true
+           if (exit.kind === "timeout") {
+             expired = true
+             yield* ctx.metadata({
+@@ -574,7 +573,21 @@ export const ShellTool = Tool.define(
+                 timedOut: true,
+               },
+             })
+-            yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.orDie)
++          }
++          if (exit.kind !== "exit") {
++            // Child processes can survive tree termination and retain stdout handles. Unref first
++            // so neither this kill nor the process scope can wait forever for an exit event.
++            yield* handle.unref.pipe(Effect.ignore)
++            const killing = yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(
++              Effect.ignore,
++              Effect.forkDetach({ startImmediately: true }),
++            )
++            yield* Fiber.await(killing).pipe(
++              Effect.timeoutOrElse({
++                duration: "5 seconds",
++                orElse: () => Effect.void,
++              }),
++            )
+           }
+ 
+           return exit.kind === "exit" ? exit.code : null
+@@ -585,7 +598,7 @@ export const ShellTool = Tool.define(
+       if (expired) {
+         const duration = `${input.timeout} ms`
+         meta.push(
+-          `ShellTimeoutError: command timed out after ${duration}; shell tool terminated command after exceeding timeout ${duration}. The shell command and its child process tree were terminated. If this command is expected to take longer, retry with a larger timeout value in milliseconds.`,
++          `ShellTimeoutError: command timed out after ${duration}; shell tool requested termination after exceeding timeout ${duration}. If this command is expected to take longer, retry with a larger timeout value in milliseconds.`,
+         )
+       }
+       if (aborted) meta.push("User aborted the command")
+diff --git a/packages/opencode/test/tool/shell-output-throttle.test.ts b/packages/opencode/test/tool/shell-output-throttle.test.ts
+--- a/packages/opencode/test/tool/shell-output-throttle.test.ts
++++ b/packages/opencode/test/tool/shell-output-throttle.test.ts
+@@ -20,3 +20,22 @@ test("the throttle cannot suppress terminal output states", () => {
+   // The tool result carries the full retained tail regardless of throttle timing.
+   expect(shell).toContain("output: last || preview(output)")
+ })
++
++test("timeout cleanup cannot wait forever for a child process exit", () => {
++  const cleanup = shell.slice(shell.indexOf('if (exit.kind === "abort")'), shell.indexOf("return exit.kind"))
++  expect(cleanup).toContain("yield* handle.unref.pipe(Effect.ignore)")
++  expect(cleanup).toContain("Effect.forkDetach")
++  expect(cleanup).toContain("Fiber.await(killing)")
++  expect(cleanup).toContain('duration: "5 seconds"')
++  expect(cleanup.match(/handle\.kill/g)).toHaveLength(1)
++  expect(cleanup.indexOf("handle.unref")).toBeLessThan(cleanup.indexOf("handle.kill"))
++  expect(shell).toContain("shell tool requested termination")
++  expect(shell).not.toContain("process tree were terminated")
++})
++
++test("timeout races an interruptible observer instead of the process effect", () => {
++  const race = shell.slice(shell.indexOf("const exit ="), shell.indexOf('if (exit.kind === "abort")'))
++  expect(race).toContain("Fiber.join(exited)")
++  expect(race).not.toContain("handle.exitCode")
++  expect(shell).toContain("Fiber.interruptAll([exited, output])")
++})
+diff --git a/packages/opencode/test/tool/shell.test.ts b/packages/opencode/test/tool/shell.test.ts
+--- a/packages/opencode/test/tool/shell.test.ts
++++ b/packages/opencode/test/tool/shell.test.ts
+@@ -1050,7 +1050,7 @@ describe("tool.shell abort", () => {
+             command: `sleep 60`,
+             timeout: 500,
+           })
+-          expect(result.output).toContain("shell tool terminated command after exceeding timeout")
++          expect(result.output).toContain("shell tool requested termination after exceeding timeout")
+           expect(result.output).toContain("retry with a larger timeout value in milliseconds")
+         }),
+       ),

@@ -6,6 +6,7 @@ mod config;
 mod editor;
 mod engine;
 mod engine_db;
+mod file_preview;
 mod mcp;
 mod mcp_external;
 mod permissions;
@@ -100,6 +101,8 @@ fn main() {
             config::config_read,
             editor::pick_folder,
             editor::open_file,
+            editor::open_file_in_editor,
+            file_preview::read_file_preview,
             commands::store_workspaces,
             commands::store_removed_workspaces,
             commands::store_add_workspace,

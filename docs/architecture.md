@@ -70,6 +70,74 @@ the same API for custom or wildcard tool behavior. Positioned file opens cross o
 Tauri command boundary, use a cached direct GUI executable without shell probing, and
 fall back to the system association if no supported editor is installed.
 
+Chat Markdown resolves local links from their raw `href` against the owning session's
+directory, never the selected workspace or the webview URL. Windows paths, file URIs,
+and relative paths open an enabled file preview when a native or companion backend is
+available. Disabled or unrecognized types use `open_file_in_editor`; `#L42` and `#L42C7`
+carry line and column positions. The preview's explicit Open in editor action uses the
+same command. It reports an error rather than falling back to a system association,
+so a document link cannot launch a script that way. Explicit HTTP(S) links remain browser
+links. Only copy buttons created by Drift consume copy clicks; authored `data-*`
+attributes cannot bypass link handling.
+
+Local chat images use the same owning directory and bounded preview reader. Sanitization
+removes their raw `src` and responsive `srcset` before insertion, leaving only internally
+generated image markers. External HTTP(S) and data images retain transcript behavior.
+`src/ui/markdown-images.ts` shares local loading with document previews, caching at most
+12 unique paths within a conservative 20 MiB byte budget. Streaming replacements reuse
+cached results; workspace or preference changes dispose the cache and revoke its blob URLs.
+Unlinked images open the lightbox by click, Enter, or Space; explicit image links retain
+navigation. Local lightbox images own a separate blob URL so transcript cleanup cannot
+invalidate an open viewer. Closing or replacing the lightbox revokes that URL.
+
+General settings persist file preview mode as All, None, or Custom, with All the default.
+Custom keeps a toggle for each type; switching modes preserves those choices. Filename
+classification in `src/file-preview-types.ts` allows Markdown and text/code up to 2 MiB
+each, PDF and audio up to 20 MiB each, images up to 10 MiB, CSV/TSV up to 5 MiB, and video
+up to 40 MiB. Text formats require valid UTF-8 without NUL bytes. Tables show at most
+200 rows and 50 columns with a truncation notice. Image and media decoding depend on
+webview support. Previews never write files; failures stay in the dialog rather than
+automatically launching another application. Read failures offer Retry, and Open in
+editor remains available even when previewing fails.
+
+`read_file_preview` returns bounded base64 bytes through Tauri or the authenticated
+companion RPC, not an engine file endpoint or a public file URL. Remote reads use the
+same host/origin checks and credential-revocation handling as other companion commands.
+The reader canonicalizes the supplied original workspace and target, requires a regular
+file inside that root, then checks the opened handle's final path before reading to
+reject symlink and path-swap escapes. Windows and Linux support this handle check; other
+platforms fail closed. Metadata checks and a limit-plus-one read reject oversized files,
+including growth past the limit, with a backend ceiling of 40 MiB. The frontend also
+validates response size.
+The workspace root comes from the request, not a separate server-side workspace grant.
+
+Markdown documents use a separate sanitized rendering policy. Relative links and images
+resolve beside the document while all preview reads retain the original workspace root.
+Only enabled local images load, through the bounded reader, with at most 12 unique paths and
+a conservative 20 MiB byte budget. Remote images and authored active content are blocked.
+HTML and code files render as text; SVG renders only in an image element, never as markup
+or an embedded document. Media uses revocable blob URLs. Rendering does not fetch external
+document resources or execute document scripts; explicit browser links remain user actions.
+
+Attachment lightboxes and image file previews share `src/ui/image-viewer.tsx`. Lightboxes
+place the filename, zoom controls, and close button in one header row, hiding secondary
+metadata on narrow screens. Ordinary wheel input zooms around the image pixel under the
+cursor; dragging pans, and two touch
+pointers pan and zoom around their moving midpoint. Fractional layout measurements keep
+these coordinates accurate under CSS zoom. Images use transforms rather than oversized
+scroll containers, with a numerical ceiling of 1024x actual pixels and enough overlap
+retained to grab an image after panning. Reset zoom fits the image without upscaling;
+1:1 shows actual size. Double-click toggles between fitted and enlarged views. Keyboard
+controls are +/-, arrow keys, 0/Home to fit, and 1 for actual size. Resizing preserves
+either the fitted view or the zoomed image center; changing the source resets the view.
+
+PDF previews lazy-load PDF.js and its bundled worker, rendering one canvas page at a time
+with page navigation, `#page=N`, and 25-400% zoom. Canvas output is capped at 8 million
+pixels and 8192 pixels per side. There is no text selection/search layer, interactive
+forms or links, document scripting, or password entry. XFA, WASM, and worker fetches are
+disabled; no external CMap, font, or WASM URLs are supplied. PDFs needing those resources
+may render incompletely, and password-protected files report an error.
+
 Desktop zoom uses the webview's native zoom API rather than CSS `zoom`, keeping pointer
 events, fixed overlays, viewport units, and anchored popovers in one coordinate system.
 Browser development retains CSS zoom and converts detached context-menu coordinates

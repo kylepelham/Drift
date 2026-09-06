@@ -3,10 +3,16 @@ import { marked } from "marked"
 import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { shellInvoke } from "../shell"
+import { backendInvoke } from "../backend"
+import { shouldPreviewFile } from "../state/file-preview-prefs"
+import { openFilePreview } from "../state/file-preview"
+import { openFile } from "../tool-actions"
 import { resolveFileLanguage } from "../syntax-language"
 import { t } from "../state/i18n"
 import { syntaxTheme } from "../state/code"
 import { animateResponses, responseAnimationSpeed } from "../state/prefs"
+import { classifyMarkdownLink } from "./markdown-links"
+import { markdownImageAttribute, observeMarkdownImages } from "./markdown-images"
 import {
   responseAnimationInterruptEvent,
   responseBurstSize,
@@ -20,7 +26,8 @@ import {
 marked.use({ gfm: true, breaks: true })
 
 let shikiModule: Promise<typeof import("shiki")> | undefined
-const codeBlocks = new WeakMap<HTMLElement, string>()
+let markdownPurifier: ReturnType<typeof DOMPurify> | undefined
+const codeBlocks = new WeakMap<HTMLElement, { button: HTMLButtonElement; code: string }>()
 // How long the code-block copy button shows its "copied" state.
 // NOTE: parts.tsx uses 2000ms for its visually identical shell copy button.
 const copiedFeedbackMs = 1600
@@ -482,23 +489,131 @@ export function prepareMarkdown(text: string, humanAuthored = false) {
   return escapeUnbalancedHtml(escapeLoneNumberedLines(humanAuthored ? humanizeProse(text) : fixEscapedEmphasis(text)))
 }
 
-function openExternalLink(event: MouseEvent) {
-  const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[href]")
-  if (!anchor) return
-  const url = new URL(anchor.href)
-  if (url.protocol !== "http:" && url.protocol !== "https:") return
-  const invoke = shellInvoke()
-  if (!invoke) return
-  event.preventDefault()
-  void invoke("plugin:opener|open_url", { url: url.href }).catch(() => {})
+export { markdownImageAttribute } from "./markdown-images"
+
+export function sanitizeMarkdownDocumentHtml(html: string) {
+  // Keep document policy isolated from transcript hooks and never insert the raw HTML.
+  const purifier = DOMPurify(window)
+  const images = new WeakMap<Node, string>()
+  purifier.addHook("beforeSanitizeAttributes", (node) => {
+    if (!(node instanceof window.Element)) return
+    node.removeAttribute(markdownImageAttribute)
+    if (node.nodeName !== "IMG" || node.namespaceURI !== "http://www.w3.org/1999/xhtml") return
+    const raw = node.getAttribute("src") ?? ""
+    const link = classifyMarkdownLink(raw, "/")
+    if (link.kind === "file" && !link.path.startsWith("//")) images.set(node, raw)
+  })
+  purifier.addHook("uponSanitizeAttribute", (node, attribute) => {
+    if (attribute.attrName === "class" && (node.nodeName !== "CODE" || !/^language-[\w-]+$/.test(attribute.attrValue)))
+      attribute.keepAttr = false
+    if (attribute.attrName === "href" && node.nodeName === "A" &&
+      node.namespaceURI === "http://www.w3.org/1999/xhtml" && classifyMarkdownLink(attribute.attrValue).kind === "file")
+      attribute.forceKeepAttr = true
+  })
+  purifier.addHook("afterSanitizeAttributes", (node) => {
+    const raw = images.get(node)
+    if (raw !== undefined) node.setAttribute(markdownImageAttribute, raw)
+    else if (node.nodeName === "IMG") node.setAttribute("title", "Only local workspace images can be previewed")
+  })
+  const clean = purifier.sanitize(html, {
+    ALLOWED_TAGS: ["a", "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "code",
+      "em", "strong", "b", "i", "del", "s", "u", "sub", "sup", "kbd", "samp", "var", "ul", "ol", "li",
+      "dl", "dt", "dd", "table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td", "div", "span",
+      "details", "summary", "figure", "figcaption", "img"],
+    ALLOWED_ATTR: ["href", "alt", "title", "class", "colspan", "rowspan", "scope", "start", "reversed"],
+    ALLOW_DATA_ATTR: false,
+    ALLOW_ARIA_ATTR: false,
+    FORBID_CONTENTS: ["script", "style", "svg", "math", "iframe", "object", "embed", "audio", "video", "picture", "template"],
+    RETURN_DOM_FRAGMENT: true,
+  })
+  const ids = new Set<string>()
+  const suffixes = new Map<string, number>()
+  for (const heading of clean.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6")) {
+    const base = (heading.textContent ?? "").trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").replace(/\s+/g, "-") || "section"
+    let suffix = suffixes.get(base) ?? 0
+    let id = suffix ? `${base}-${suffix}` : base
+    while (ids.has(id)) id = `${base}-${++suffix}`
+    suffixes.set(base, suffix + 1)
+    ids.add(id)
+    heading.id = id
+  }
+  const template = document.createElement("template")
+  template.content.append(clean)
+  return template.innerHTML
 }
 
-function decorateCodeBlocks(root: HTMLElement) {
+export function sanitizeMarkdownHtml(html: string, documentPreview = false) {
+  if (documentPreview) return sanitizeMarkdownDocumentHtml(html)
+  if (!markdownPurifier) {
+    markdownPurifier = DOMPurify(window)
+    const images = new WeakMap<Node, string>()
+    markdownPurifier.addHook("beforeSanitizeAttributes", (node) => {
+      if (!(node instanceof window.Element)) return
+      node.removeAttribute(markdownImageAttribute)
+      // Responsive sources must not bypass the workspace reader through a browser-relative URL.
+      if (node.nodeName === "IMG" || node.nodeName === "SOURCE") node.removeAttribute("srcset")
+      if (node.nodeName !== "IMG" || node.namespaceURI !== "http://www.w3.org/1999/xhtml") return
+      const raw = node.getAttribute("src") ?? ""
+      const link = classifyMarkdownLink(raw, "/")
+      if (link.kind === "external" || /^data:image\//i.test(raw)) return
+      node.removeAttribute("src")
+      if (link.kind === "file" && !link.path.startsWith("//")) images.set(node, raw)
+    })
+    markdownPurifier.addHook("uponSanitizeAttribute", (node, attribute) => {
+      // Only explicit local anchor destinations bypass the default URI filter, never image sources or other schemes.
+      if (
+        node.nodeName === "A" && node.namespaceURI === "http://www.w3.org/1999/xhtml" &&
+        attribute.attrName === "href" && classifyMarkdownLink(attribute.attrValue).kind === "file"
+      ) attribute.forceKeepAttr = true
+    })
+    markdownPurifier.addHook("afterSanitizeAttributes", (node) => {
+      const raw = images.get(node)
+      if (raw !== undefined) node.setAttribute(markdownImageAttribute, raw)
+    })
+  }
+  return markdownPurifier.sanitize(html)
+}
+
+export async function openMarkdownLink(event: MouseEvent, directory?: string, workspaceDirectory = directory) {
+  if (event.defaultPrevented || (event.button !== 0 && event.button !== 1)) return
+  const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]")
+  if (!anchor) return
+  const href = anchor.getAttribute("href") ?? ""
+  // Preserve existing browser handling for contact links and companion navigation.
+  if (/^(?:mailto:|tel:|#\/)/i.test(href)) return
+  const link = classifyMarkdownLink(href, directory)
+  if (link.kind === "external") {
+    const invoke = shellInvoke()
+    if (!invoke) return
+    event.preventDefault()
+    event.stopPropagation()
+    await invoke("plugin:opener|open_url", { url: link.url })
+    return
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  if (link.kind === "fragment") {
+    const id = decodeURIComponent(link.hash.slice(1))
+    const root = event.currentTarget as HTMLElement
+    const target = [...root.querySelectorAll<HTMLElement>("[id]")].find((item) => item.id === id)
+    target?.scrollIntoView({ block: "nearest" })
+    return
+  }
+  if (link.kind === "unsupported") throw new Error("The link is invalid or its workspace directory is unavailable")
+  if (workspaceDirectory && shouldPreviewFile(link.path) && backendInvoke()) {
+    openFilePreview({ ...link, directory: workspaceDirectory, hash: href.includes("#") ? decodeURIComponent(href.slice(href.indexOf("#") + 1)) : undefined })
+    return
+  }
+  await openFile(link.path, { line: link.line, column: link.column, editorOnly: true })
+}
+
+export function decorateCodeBlocks(root: HTMLElement) {
   for (const pre of root.querySelectorAll<HTMLElement>("pre")) {
     const code = pre.querySelector("code")?.textContent ?? pre.textContent ?? ""
     const existing = pre.closest<HTMLElement>(codeBlockAttribute)
-    if (existing) {
-      codeBlocks.set(existing, code)
+    const block = existing ? codeBlocks.get(existing) : undefined
+    if (block) {
+      block.code = code
       continue
     }
     const wrapper = document.createElement("div")
@@ -513,17 +628,21 @@ function decorateCodeBlocks(root: HTMLElement) {
     button.title = t("drift.markdown.copyCode")
     pre.before(wrapper)
     wrapper.append(pre, button)
-    codeBlocks.set(wrapper, code)
+    codeBlocks.set(wrapper, { button, code })
   }
 }
 
-function markdownClick(event: MouseEvent) {
+export function markdownClick(event: MouseEvent, directory?: string, workspaceDirectory = directory) {
+  if (event.defaultPrevented || event.button !== 0) return
   const button = (event.target as Element).closest<HTMLButtonElement>(copyButtonAttribute)
-  if (!button) return openExternalLink(event)
+  if (!button) return openMarkdownLink(event, directory, workspaceDirectory)
   const wrapper = button.closest<HTMLElement>(codeBlockAttribute)
-  const code = wrapper ? codeBlocks.get(wrapper) : undefined
-  if (code === undefined) return
-  void writeClipboard(code)
+  const block = wrapper ? codeBlocks.get(wrapper) : undefined
+  // data-* attributes in authored HTML do not identify a trusted copy control.
+  if (!block || block.button !== button) return openMarkdownLink(event, directory, workspaceDirectory)
+  event.preventDefault()
+  event.stopPropagation()
+  void writeClipboard(block.code)
     .then(() => {
       button.innerHTML = copiedIcon
       button.setAttribute("aria-label", t("drift.markdown.codeCopied"))
@@ -583,7 +702,7 @@ export function codeChunks(code: string) {
   return result
 }
 
-export function ProgressiveCodeView(props: { code: string; filename: string }) {
+export function ProgressiveCodeView(props: { code: string; filename: string; fill?: boolean; line?: number }) {
   let root!: HTMLDivElement
   let observer: IntersectionObserver | undefined
   const chunks = createMemo(() => codeChunks(props.code))
@@ -622,8 +741,17 @@ export function ProgressiveCodeView(props: { code: string; filename: string }) {
   })
   onCleanup(() => observer?.disconnect())
 
+  onMount(() => {
+    if (!props.line) return
+    const frame = requestAnimationFrame(() => {
+      const chunk = Math.min(chunks().length - 1, Math.floor((props.line! - 1) / chunkLines))
+      root.querySelector<HTMLElement>(`[data-chunk="${chunk}"]`)?.scrollIntoView({ block: "start" })
+    })
+    onCleanup(() => cancelAnimationFrame(frame))
+  })
+
   return (
-    <div ref={root} class="transcript-tool-output code-view code-stream max-h-80 overflow-auto rounded-lg border border-edge">
+    <div ref={root} class="transcript-tool-output code-view code-stream overflow-auto rounded-lg border border-edge" classList={{ "max-h-80": !props.fill, "min-h-0 flex-1": props.fill }}>
       <For each={chunks()}>
         {(code, index) => (
           <div class="code-stream-chunk" data-chunk={index()}>
@@ -745,6 +873,9 @@ function replaceMarkdownSuffix(
 
 export function Markdown(props: {
   text: string
+  directory?: string
+  workspaceDirectory?: string
+  documentPreview?: boolean
   done?: boolean
   humanAuthored?: boolean
   responseID?: string
@@ -768,10 +899,29 @@ export function Markdown(props: {
   let flushReveal = false
   let finishReveal = () => {}
   const [revealRevision, setRevealRevision] = createSignal(0)
+  const [linkError, setLinkError] = createSignal<string>()
+  async function handleClick(event: MouseEvent) {
+    setLinkError(undefined)
+    try {
+      if (event.type === "auxclick") await openMarkdownLink(event, props.directory, props.workspaceDirectory ?? props.directory)
+      else await markdownClick(event, props.directory, props.workspaceDirectory ?? props.directory)
+    } catch (cause) {
+      setLinkError(`${t("drift.markdown.linkFailed")} ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
+  }
   // Reconcile can swap slot text without notifying consumers, so revision forces reparse and render.
   const html = createMemo(() => {
     void props.revision
-    return DOMPurify.sanitize(marked.parse(prepareMarkdown(props.text, props.humanAuthored), { async: false }))
+    return sanitizeMarkdownHtml(marked.parse(props.documentPreview ? props.text : prepareMarkdown(props.text, props.humanAuthored), { async: false }), props.documentPreview)
+  })
+  createEffect(() => {
+    if (props.documentPreview) return
+    void props.responseID
+    onCleanup(observeMarkdownImages(root, {
+      parent: props.directory,
+      directory: props.workspaceDirectory ?? props.directory,
+      enabled: shouldPreviewFile("image.png"),
+    }))
   })
   onMount(() => window.addEventListener(responseAnimationInterruptEvent, finishActiveReveal))
   onCleanup(() => {
@@ -873,5 +1023,16 @@ export function Markdown(props: {
       },
     )
   })
-  return <div ref={root} class="md" classList={{ "md-user": props.humanAuthored }} onClick={markdownClick} />
+  return (
+    <>
+      <div
+        ref={root}
+        class="md"
+        classList={{ "md-user": props.humanAuthored }}
+        onClick={handleClick}
+        onAuxClick={(event) => { if (event.button === 1) void handleClick(event) }}
+      />
+      <Show when={linkError()}>{(error) => <div role="alert" class="mt-1 text-xs text-danger">{error()}</div>}</Show>
+    </>
+  )
 }

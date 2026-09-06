@@ -101,6 +101,7 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 
 /** Keys that deliberately fall back to English until locale-specific translations ship. */
 const pendingTranslation = new Set([
+  "drift.markdown.linkFailed",
   "drift.mobile.openNavigation",
   "drift.settings.code",
   ...pendingKeys("drift.chat.retry", "switchModel switchingModel"),
@@ -246,6 +247,18 @@ test("Drift owns explicit app-specific translations for every locale", async () 
     expect(source).not.toMatch(/\.\.\.[A-Za-z_$]/)
   }
   expect(await Bun.file("src/state/i18n.ts").text()).not.toContain("engine/upstream")
+})
+
+test("General settings expose preview modes and custom-only per-type toggles", async () => {
+  const source = await Bun.file("src/ui/settings.tsx").text()
+  const general = source.slice(source.indexOf("function GeneralSection()"), source.indexOf("function RemoteAccessSection()"))
+  expect(general).toContain('title={t("drift.preview.settings.title")}')
+  expect(general).toContain('(["all", "none", "custom"] as const)')
+  expect(general).toContain('selected={filePreviewPrefs().mode}')
+  expect(general).toContain('<Show when={filePreviewPrefs().mode === "custom"}>')
+  expect(general).toContain('<For each={filePreviewTypes}>')
+  expect(general).toContain('checked={filePreviewPrefs().types[type]}')
+  expect(general).toContain('setFilePreviewType(type, !filePreviewPrefs().types[type])')
 })
 
 test("appearance exposes static presets plus custom theming", async () => {

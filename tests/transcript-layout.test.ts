@@ -24,6 +24,36 @@ const text = (id: string, messageID: string) => ({
   time: { start: 1, end: 2 },
 })
 
+test("question tool names distinguish async input and persisted metadata from blocking questions", async () => {
+  const { toolInfo } = await import("../src/ui/parts")
+  for (const status of ["pending", "running", "completed", "error"]) {
+    for (const [input, metadata, title] of [
+      [{ async: true }, {}, "Async Question"],
+      [{}, { async: true, requestID: "que_saved" }, "Async Question"],
+      [{ async: false }, {}, "Question"],
+      [{}, { answers: [["Yes"]] }, "Question"],
+      [{ async: "true" }, {}, "Question"],
+      [{}, {}, "Question"],
+    ] as const) {
+      const part = tool("q1", "a1", "question")
+      const info = toolInfo({
+        ...part,
+        state: { ...part.state, status, input: { ...input, questions: [{ header: "Output format" }] }, metadata },
+      } as Parameters<typeof toolInfo>[0])
+      expect(info).toEqual({ title, subtitle: "Output format" })
+    }
+  }
+})
+
+test("all locales distinguish the async question tool name", async () => {
+  for (const locale of ["en", "ar", "br", "bs", "da", "de", "es", "fr", "ja", "ko", "no", "pl", "ru", "th", "tr", "uk", "zh", "zht"]) {
+    const { dict, drift } = await import(`../src/i18n/${locale}`)
+    expect(drift["drift.tool.asyncQuestion"]).toBeString()
+    expect(drift["drift.tool.asyncQuestion"].length).toBeGreaterThan(0)
+    expect(drift["drift.tool.asyncQuestion"]).not.toBe(dict["notification.question.title"])
+  }
+})
+
 const assistant = (id: string, parts: unknown[], extra: Record<string, unknown> = {}) => ({
   info: { id, sessionID: "s1", role: "assistant", time: { created: 1 }, ...extra },
   parts,
@@ -129,7 +159,8 @@ test("the code view paints its background on the scroller, not on the inner bloc
     Bun.file("src/styles/app.css").text(),
   ])
   // The wrapper is what scrolls sideways, so only the wrapper's background covers the full width.
-  expect(markup).toContain("code-view code-stream max-h-80 overflow-auto")
+  expect(markup).toContain("code-view code-stream overflow-auto")
+  expect(markup).toContain('classList={{ "max-h-80": !props.fill, "min-h-0 flex-1": props.fill }}')
   expect(css).toMatch(/\.code-view \{\s*background: var\(--raised\);/)
   expect(css).toMatch(/\.code-view :where\(pre\) \{\s*background: transparent !important;/)
   // A themed background has to move with it, otherwise the same seam reappears under that theme.

@@ -91,6 +91,7 @@ export function createActions(
   let allSessionsRequest: { epoch: number; promise: Promise<void> } | undefined
   const transcriptRequests = new Map<string, Promise<boolean>>()
   const permissionReplies = new Map<string, Promise<boolean>>()
+  const questionReplies = new Map<string, { body: string; promise: Promise<boolean> }>()
   const queuedAskDirectories = new Map<string, string>()
   const activeAskDirectories = new Set<string>()
   let askRefresh: Promise<void> | undefined
@@ -255,6 +256,15 @@ export function createActions(
     const result = await client.session.create({ body: {} })
     const session = result.data
     if (!session) return
+    // A locally created session is known empty. Prime it before publishing metadata or returning
+    // to selection/send, without replacing any transcript already established by live events.
+    set(
+      produce((draft) => {
+        draft.transcripts[session.id] ??= []
+        draft.loaded[session.id] = true
+        draft.cursors[session.id] ??= null
+      }),
+    )
     // putSession bumps the session revision so an in-flight snapshot listing that predates this
     // creation cannot purge the new thread before its session.created event lands.
     putSession(set, session)
@@ -872,27 +882,48 @@ export function createActions(
     return true
   }
 
-  async function answerQuestion(sessionID: string, requestID: string, answers: string[][] | null) {
+  // False means unconfirmed, not necessarily unsaved: aborting a reply cannot undo server delivery.
+  function answerQuestion(sessionID: string, requestID: string, answers: string[][] | null) {
+    const key = `${sessionID}\0${requestID}`
+    const body = JSON.stringify(answers ? { answers } : {})
+    const existing = questionReplies.get(key)
+    if (existing) return existing.body === body ? existing.promise : Promise.resolve(false)
+    const promise = sendQuestionReply(sessionID, requestID, answers ? "reply" : "reject", body).finally(() =>
+      questionReplies.delete(key),
+    )
+    questionReplies.set(key, { body, promise })
+    return promise
+  }
+
+  async function sendQuestionReply(sessionID: string, requestID: string, action: "reply" | "reject", body: string) {
     const base = target()
     if (!base) return false
     const question = (state.questions[sessionID] ?? []).find((item) => item.id === requestID)
-    const dir = question?.directory ?? state.directory
-    const action = answers ? "reply" : "reject"
+    const dir = question?.directory ?? state.sessions[sessionID]?.directory ?? state.directory
     const url = withDirectory(`${base.url}/question/${requestID}/${action}`, dir)
-    const response = await engineFetch(url, {
-      method: "POST",
-      headers: jsonHeaders(base),
-      body: JSON.stringify(answers ? { answers } : {}),
-    })
-    if (!response) return false
-    answered.add(askKey("question", dir, requestID))
-    set(
-      produce((draft) => {
-        draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter((item) => item.id !== requestID)
-        bumpAskRevision(draft, "question", dir)
-      }),
-    )
-    return true
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), permissionReplyTimeoutMs)
+    try {
+      const response = await engineFetch(url, {
+        method: "POST",
+        headers: jsonHeaders(base),
+        body,
+        signal: controller.signal,
+      })
+      if (!response || controller.signal.aborted) return false
+      answered.add(askKey("question", dir, requestID))
+      set(
+        produce((draft) => {
+          draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter(
+            (item) => item.id !== requestID || normalizeDir(item.directory ?? dir) !== normalizeDir(dir),
+          )
+          bumpAskRevision(draft, "question", dir)
+        }),
+      )
+      return true
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 
   async function postPermissionReply(

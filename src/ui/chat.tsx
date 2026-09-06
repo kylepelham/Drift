@@ -25,6 +25,7 @@ import {
 } from "./message"
 import { TextShimmer } from "./text-shimmer"
 import { DriftLogo } from "./logo"
+import { clarificationAnswer } from "./clarification-answer"
 import { lmStudioModelReady } from "../state/lm-studio"
 import { collapseCompaction, compactionCollapsed, orderedModelProviderIds, prefsFor, updatePrefs } from "../state/prefs"
 import { Picker, type PickerItem } from "./picker"
@@ -32,10 +33,11 @@ import { ProviderIcon } from "./provider-icon"
 import { clearReveal, revealTarget } from "./session-search"
 import {
   activeFindMessage,
+  activeFindOccurrence,
   clearFindHighlights,
   paintFindHighlights,
+  scrollFindOccurrence,
   syncTranscriptMatches,
-  transcriptFindCursor,
   transcriptFindNeedle,
 } from "./transcript-find"
 
@@ -274,28 +276,27 @@ export function Chat() {
   // Repaints the in-text match highlights whenever the settled query, the cursor, or the mounted
   // rows change. Painting is deferred a frame so the walked DOM reflects what this update rendered.
   let findRaf = 0
-  let scrolledFindCursor = -1
+  let scrolledFindOccurrence = ""
   createEffect(() => {
     const value = transcriptFindNeedle()
-    transcriptFindCursor()
+    const occurrence = activeFindOccurrence()
+    const target = occurrence ? JSON.stringify([value, occurrence.messageId, occurrence.index]) : ""
     viewTop()
     measured()
     entries()
     cancelAnimationFrame(findRaf)
     if (!value) {
-      scrolledFindCursor = -1
+      scrolledFindOccurrence = ""
       clearFindHighlights()
       return
     }
     findRaf = requestAnimationFrame(() => {
-      const active = paintFindHighlights(scroller)
-      const at = untrack(transcriptFindCursor)
+      const active = paintFindHighlights(scroller, value, occurrence)
       // Nudge the active occurrence into view once per step; repaints from the user's own
       // scrolling must not drag the viewport back.
-      if (active && at !== scrolledFindCursor) {
-        scrolledFindCursor = at
-        const parent = active.startContainer.parentElement
-        parent?.scrollIntoView({ block: "nearest" })
+      if (active && target !== scrolledFindOccurrence) {
+        scrolledFindOccurrence = target
+        scrollFindOccurrence(active)
       }
     })
   })
@@ -564,6 +565,7 @@ export function estimatedTimelineRow(
 ) {
   if (thinkingOnly) return 32
   if (collapsedSummary) return 44
+  if (clarificationAnswer(parts === entry.parts ? entry : { ...entry, parts })) return 40
   const text = messageText(parts === entry.parts ? entry : { ...entry, parts })
   const generated = parts.some((part) => part.type === "text" && part.metadata?.generated === true)
   if (entry.info.role === "user" && !generated && largeUserText(text))
