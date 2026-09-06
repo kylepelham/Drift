@@ -44,6 +44,21 @@ fn text_part(text: &str) -> String {
 }
 
 #[test]
+fn excerpts_map_lowercase_offsets_back_to_original_unicode_characters() {
+    for character in ['\u{212a}', '\u{130}', '\u{23a}'] {
+        let short = format!("{character} needle");
+        assert_eq!(excerpt(&short, "needle"), short);
+        let prefix = character.to_string().repeat(100);
+        let text = format!("{prefix} needle");
+        assert_eq!(excerpt(&text, "needle"), format!("\u{2026}{} needle", character.to_string().repeat(69)));
+    }
+    let conn = fixture();
+    add_session(&conn, "unicode", "C:/work", "Unicode", 1);
+    add_part(&conn, "p1", "unicode", "m1", 1, &text_part("\u{212a} needle"));
+    assert_eq!(search_in(&conn, "needle", "C:/work").unwrap()[0].excerpt, "\u{212a} needle");
+}
+
+#[test]
 fn finds_the_newest_session_per_match_and_reports_the_matching_message() {
     let conn = fixture();
     add_session(&conn, "old", "C:\\work\\app", "Older thread", 100);

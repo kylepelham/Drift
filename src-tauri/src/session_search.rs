@@ -88,9 +88,12 @@ pub(crate) fn excerpt(text: &str, query: &str) -> String {
     let Some(found) = found else {
         return collapsed.chars().take(EXCERPT_RADIUS * 2).collect();
     };
-    // Byte offsets from the lowercase copy can land mid-character, so the window is rebuilt over
-    // character counts against the original text.
-    let start_chars = collapsed[..found].chars().count();
+    // Lowercasing can change UTF-8 widths or expand a character. Map the match back before cropping.
+    let mut lowercase_end = 0;
+    let start_chars = collapsed.chars().position(|character| {
+        lowercase_end += character.to_lowercase().map(char::len_utf8).sum::<usize>();
+        lowercase_end > found
+    }).unwrap_or(0);
     let begin = start_chars.saturating_sub(EXCERPT_RADIUS);
     let length = query.chars().count() + EXCERPT_RADIUS * 2;
     let mut window: String = collapsed.chars().skip(begin).take(length).collect();
