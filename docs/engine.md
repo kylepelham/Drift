@@ -68,6 +68,19 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
 
 ## Engine update runbook
 
+The 2026-09-06 update imports OpenCode 1.18.29 at `5b1e31988ed74b821b3a7ca6647188446992aafc`.
+This is upstream's version-sync commit on `dev`: its runtime code matches the release tag,
+whose source manifests still said 1.18.28. Using the sync commit keeps the ancestry check below valid.
+The snapshot is imported without upstream history, and overlays remain separate.
+
+The temporary Astra catalog and allowlist workaround was removed after verifying models.dev's
+native entry and upstream's integer GPT-version filter. `zz-codex-context-limits.patch` retains
+only the GPT-6 OAuth limits of 400k context, 272k input, and 128k output; API-key limits remain native.
+Upstream now preserves running tool timestamps, replacing that hunk in `shell-timeout.patch`.
+`zz-v2-mcp-compat.patch` preserves existing camelCase MCP OAuth fields when V2 fields trigger
+normalization. Ordinary V1 configs retain their shape. Drift's external MCP editor still expects
+V1 layout; this update does not add editing support for nested V2 `mcp.servers` definitions.
+
 The `OpenCode update` workflow checks upstream `dev` every day at 06:17 UTC and can be
 run manually. When an update exists and no update pull request is open, it fetches into
 the dedicated `refs/remotes/opencode-update/dev` ref, creates or refreshes

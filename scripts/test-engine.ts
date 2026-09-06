@@ -61,6 +61,18 @@ async function verifyAuthCapture() {
 
 await withEngineOverlays(async () => {
   await typecheck("packages/opencode")
+  await run("packages/opencode", ["test/plugin/codex.test.ts"])
+  await run("packages/opencode", [
+    "test/config/v2-compat.test.ts",
+    "test/config/v2-mcp-compat.test.ts",
+    "test/provider/header-timeout.test.ts",
+    "test/provider/transform.test.ts",
+    "test/plugin/azure.test.ts",
+    "test/plugin/github-copilot.test.ts",
+    "test/session/tools.test.ts",
+    "test/patched-dependencies.test.ts",
+  ])
+  await run("packages/core", ["test/database-migration.test.ts"])
   await run("packages/core", ["test/move-session.test.ts"])
   await run("packages/core", ["test/session-compaction.test.ts"])
   await run("packages/opencode", ["test/server/httpapi-control-plane.test.ts"])
