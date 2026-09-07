@@ -6,6 +6,7 @@ import { closeFilePreview, previewFile, type FilePreviewRequest } from "../state
 import { t } from "../state/i18n"
 import { openFile } from "../tool-actions"
 import { IconX } from "./icons"
+import { HtmlPreview } from "./html-preview"
 import { ImageViewer } from "./image-viewer"
 import { ProgressiveCodeView } from "./markdown"
 import { MarkdownDocument } from "./markdown-document"
@@ -86,6 +87,9 @@ function FilePreviewDialog(props: { file: FilePreviewRequest }) {
                   <div class="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-8"><div class="mx-auto max-w-4xl">
                     <MarkdownDocument text={file().text!} path={props.file.path} directory={props.file.directory} hash={props.file.hash} />
                   </div></div>
+                </Match>
+                <Match when={file().kind === "text" && /\.html?$/i.test(props.file.path)}>
+                  <HtmlPreview text={file().text!} filename={filename()} line={props.file.line} />
                 </Match>
                 <Match when={file().kind === "text"}>
                   <div class="flex min-h-0 flex-1 flex-col p-3"><ProgressiveCodeView code={file().text!} filename={filename()} line={props.file.line} fill /></div>

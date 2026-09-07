@@ -57,7 +57,7 @@ const mimeByExtension = new Map(Object.entries({
   mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", ogv: "video/ogg", mov: "video/quicktime",
 }))
 
-/** HTML/code stay plain text. SVG blobs must only be rendered in img, never an executable document. */
+/** Raw HTML/code bytes stay plain text; HTML rendering uses a separate sanitized, sandboxed document. SVG blobs are image-only. */
 export function filePreviewMime(path: string): string {
   const type = filePreviewType(path)
   if (!type) return "application/octet-stream"

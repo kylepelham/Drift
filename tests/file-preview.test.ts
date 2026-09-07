@@ -112,7 +112,7 @@ for (const route of ["native", "remote"] as const) {
     })
 
     test.each([
-      ["notes.md", "markdown"], ["main.ts", "text"], ["data.csv", "table"], ["data.tsv", "table"],
+      ["notes.md", "markdown"], ["main.ts", "text"], ["plan.html", "text"], ["plan.HTM", "text"], ["data.csv", "table"], ["data.tsv", "table"],
     ] as const)("%s preserves text whitespace and counts UTF-8 bytes rather than characters", async (filename, kind) => {
       const text = " \t\r\n  caf\u00e9 \u{1f642}\n\t "
       response = encoded(text)
@@ -147,7 +147,7 @@ for (const route of ["native", "remote"] as const) {
       else expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ command: "read_file_preview", args })
     })
 
-    test.each(["notes.md", "main.ts", "data.csv"])("%s rejects NUL-containing binary disguised as text", async (filename) => {
+    test.each(["notes.md", "main.ts", "plan.html", "data.csv"])("%s rejects NUL-containing binary disguised as text", async (filename) => {
       response = encoded("plain\0binary")
       await expect(readFilePreview({ ...request, path: `C:/workspace/${filename}` })).rejects.toThrow(t("drift.preview.unsupported"))
     })
@@ -155,6 +155,7 @@ for (const route of ["native", "remote"] as const) {
     test.each([
       ["notes.md", [0xc3, 0x28]],
       ["main.ts", [0xff]],
+      ["plan.htm", [0xff]],
       ["data.csv", [0xe2, 0x82]],
       ["data.tsv", [0xc0, 0xaf]],
     ] as [string, number[]][])("%s rejects malformed UTF-8 instead of replacing bytes", async (filename, bytes) => {

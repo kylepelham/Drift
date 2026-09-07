@@ -115,9 +115,19 @@ Markdown documents use a separate sanitized rendering policy. Relative links and
 resolve beside the document while all preview reads retain the original workspace root.
 Only enabled local images load, through the bounded reader, with at most 12 unique paths and
 a conservative 20 MiB byte budget. Remote images and authored active content are blocked.
-HTML and code files render as text; SVG renders only in an image element, never as markup
-or an embedded document. Media uses revocable blob URLs. Rendering does not fetch external
-document resources or execute document scripts; explicit browser links remain user actions.
+Code files render as text; standalone SVG files render only in an image element, never as
+an embedded document. Media uses revocable blob URLs. Rendering does not fetch external
+document resources or execute document scripts; explicit Markdown browser links remain user actions.
+
+`.htm` and `.html` files default to a rendered page with Preview / HTML source tabs in
+`src/ui/html-preview.tsx`. They retain the existing text preview preference and 2 MiB UTF-8
+limit. A separate DOMPurify instance preserves document styles and inline SVG but removes
+active elements, navigation, and resource attributes. A CSP placed before user styles
+blocks network resources, forms, and scripts while allowing inline CSS and embedded data
+images/fonts. The iframe sandbox allows only same-origin access so trusted host code can
+forward Escape to the modal; it never allows scripts, forms, popups, or top navigation.
+External/local companion assets and JavaScript-driven content are not loaded. The source
+tab displays the original text, not the sanitized document. Other code links are unchanged.
 
 Attachment lightboxes and image file previews share `src/ui/image-viewer.tsx`. Lightboxes
 place the filename, zoom controls, and close button in one header row, hiding secondary

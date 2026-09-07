@@ -186,7 +186,7 @@ test("all 18 locales own preview keys with matching interpolation placeholders",
     "settings.title", "settings.mode", "settings.description", "mode.all", "mode.none", "mode.custom",
     ...filePreviewTypes.map((type) => `type.${type}`),
     "title", "loading", "error", "openEditor", "retry", "previous", "next", "page", "zoomIn", "zoomOut",
-    "unsupported", "tooLarge", "unavailable", "tableTruncated", "mediaError", "pdfPassword",
+    "unsupported", "tooLarge", "unavailable", "tableTruncated", "mediaError", "pdfPassword", "htmlRendered", "htmlSource", "htmlStatic",
   ].map((key) => `drift.preview.${key}`).sort()
   for (const locale of ["en", "ar", "br", "bs", "da", "de", "es", "fr", "ja", "ko", "no", "pl", "ru", "th", "tr", "uk", "zh", "zht"]) {
     const { dict, drift } = await import(`../src/i18n/${locale}.ts`)
