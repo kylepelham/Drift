@@ -255,7 +255,7 @@ export const dict = {
   "zen.privacy.exceptionsLink": "następującymi wyjątkami",
 
   "go.title": "OpenCode Go | Niskokosztowe modele do kodowania dla każdego",
-  "go.banner.text": "Ox Alpha Free jest dostępny w Go przez ograniczony czas",
+  "go.banner.text": "GLM-5.3-Flash oferuje 2x wyższe limity użycia przez ograniczony czas",
   "go.meta.description":
     "Go kosztuje $10/miesiąc, oferując hojne limity użycia i niezawodny dostęp do wiodących modeli do kodowania.",
   "go.hero.title": "Niskokosztowe modele do kodowania dla każdego",
@@ -353,7 +353,7 @@ export const dict = {
   "go.faq.a5.gptRetention":
     "Dzienniki monitorowania nadużyć są generowane dla każdego użycia funkcji API i przechowywane przez maksymalnie 30 dni.",
   "go.faq.a5.learnMore": "Dowiedz się więcej",
-  "go.faq.a5.deepseekRetention": "Umowa ZDR jest odnawiana co miesiąc. Obecna umowa obowiązuje do 31 sierpnia 2026 r.",
+  "go.faq.a5.deepseekRetention": "Umowa ZDR jest odnawiana co miesiąc. Obecna umowa obowiązuje do 30 września 2026 r.",
   "go.faq.a5.museRetention":
     "Znacznie obniżone ceny tokenów w zamian za zgodę na wykorzystanie Twoich promptów i odpowiedzi do trenowania przyszłych modeli Meta.",
 
@@ -370,7 +370,7 @@ export const dict = {
 
   "go.faq.q9": "Jaka jest różnica między darmowymi modelami a Go?",
   "go.faq.a9":
-    "Darmowe modele obejmują Big Pickle oraz modele promocyjne dostępne w danym momencie, z limitem 200 zapytań/dzień. Go oferuje starannie dobrany zestaw modeli z wyższymi limitami zapytań egzekwowanymi w oknach kroczących (5-godzinnych, tygodniowych i miesięcznych), odpowiadającymi w przybliżeniu $12 na 5 godzin, $30 tygodniowo i $60 miesięcznie (rzeczywista liczba zapytań zależy od modelu i użycia).",
+    "Darmowe modele obejmują Big Pickle oraz modele promocyjne dostępne w danym momencie, z limitem 200 zapytań/dzień. Go oferuje starannie dobrany zestaw modeli z wyższymi limitami zapytań egzekwowanymi w oknach kroczących (5-godzinnych, tygodniowych i miesięcznych), odpowiadającymi w przybliżeniu bazowym limitom $12 na 5 godzin, $30 tygodniowo i $60 miesięcznie; limity mogą się różnić zależnie od modelu (rzeczywista liczba zapytań zależy od modelu i użycia).",
 
   "zen.api.error.rateLimitExceeded": "Przekroczono limit zapytań. Spróbuj ponownie później.",
   "zen.api.error.modelNotSupported": "Model {{model}} nie jest obsługiwany",
@@ -671,10 +671,18 @@ export const dict = {
   "workspace.lite.time.fewSeconds": "kilka sekund",
   "workspace.lite.subscription.message": "Subskrybujesz OpenCode Go.",
   "workspace.lite.subscription.manage": "Zarządzaj subskrypcją",
-  "workspace.lite.subscription.rollingUsage": "Użycie kroczące",
+  "workspace.lite.subscription.rollingUsage": "Użycie w ciągu 5 godzin",
+  "workspace.lite.subscription.rollingQuota": "Limit 5-godzinny",
   "workspace.lite.subscription.weeklyUsage": "Użycie tygodniowe",
+  "workspace.lite.subscription.weeklyQuota": "Limit tygodniowy",
   "workspace.lite.subscription.monthlyUsage": "Użycie miesięczne",
+  "workspace.lite.subscription.monthlyQuota": "Limit miesięczny",
   "workspace.lite.subscription.resetsIn": "Resetuje się za",
+  "workspace.lite.subscription.showDetails": "Pokaż szczegóły",
+  "workspace.lite.subscription.hideDetails": "Ukryj szczegóły",
+  "workspace.lite.subscription.model": "Model",
+  "workspace.lite.subscription.contribution": "%",
+  "workspace.lite.subscription.total": "Łącznie",
   "workspace.lite.subscription.useBalance": "Użyj dostępnego salda po osiągnięciu limitów użycia",
   "workspace.lite.subscription.selectProvider":
     'Wybierz "OpenCode Go" jako dostawcę w konfiguracji opencode, aby używać modeli Go.',

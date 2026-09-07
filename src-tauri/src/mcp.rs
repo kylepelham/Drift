@@ -291,12 +291,58 @@ impl McpRuntime {
         self.materialize_prompts(store)
     }
 
+    /// The servers Drift can describe on its own, decided against the policy it already holds.
+    ///
+    /// A report only exists once that workspace's engine instance has started under the current
+    /// generation, and every mutation clears them all. Without this the list is empty in every
+    /// workspace the user has not opened since, which reads as "no MCPs configured" even though
+    /// the servers are configured and approved.
+    fn configured(&self, store: &Store, state: &McpState) -> Vec<ObservedServer> {
+        let decisions = state
+            .decisions
+            .iter()
+            .map(|decision| (decision.fingerprint.as_str(), decision.decision.as_str()))
+            .collect::<std::collections::HashMap<_, _>>();
+        let stored = state
+            .servers
+            .iter()
+            .map(|server| (server.name.clone(), server.config.clone()));
+        let external = crate::mcp_external::defined_members(&self.candidate_paths(store));
+        let mut seen = std::collections::HashSet::new();
+        stored
+            .chain(external)
+            .filter(|(name, _)| seen.insert(name.clone()))
+            .map(|(name, config)| {
+                let transport = config.get("type").and_then(Value::as_str).unwrap_or_default();
+                let fingerprint = crate::mcp_external::fingerprint(&name, &config);
+                // A definition Drift cannot fingerprint is one the plugin will refuse too, so it
+                // is reported invalid rather than left out of the list entirely.
+                let decision = match fingerprint.as_deref() {
+                    Some(value) if matches!(transport, "local" | "remote") => {
+                        match decisions.get(value).copied() {
+                            Some("approved") => McpDecision::Approved,
+                            Some("rejected") => McpDecision::Rejected,
+                            _ => McpDecision::Pending,
+                        }
+                    }
+                    _ => McpDecision::Invalid,
+                };
+                ObservedServer {
+                    name,
+                    transport: transport.to_string(),
+                    fingerprint: fingerprint.unwrap_or_default(),
+                    decision,
+                }
+            })
+            .collect()
+    }
+
     pub fn snapshot(&self, store: &Store, directory: &str) -> Result<McpSnapshot, String> {
         let state = store.mcp_state().map_err(|error| error.to_string())?;
-        let observed = self
-            .report(directory, state.generation)?
-            .map(|report| report.servers)
-            .unwrap_or_default();
+        let observed = match self.report(directory, state.generation)? {
+            Some(report) => report.servers,
+            None => self.configured(store, &state),
+        };
         Ok(McpSnapshot {
             generation: state.generation,
             directory: directory.to_string(),
@@ -391,11 +437,15 @@ impl McpRuntime {
             .lock()
             .map_err(|_| "MCP mutation lock is poisoned")?;
         let state = self.require_generation(store, generation)?;
-        let report = self
-            .report(directory, generation)?
-            .ok_or("The current MCP approval report is not available")?;
-        let server = report
-            .servers
+        // Deciding needs the exact fingerprint, not the engine's report of it: the plugin enforces
+        // the policy by recomputing fingerprints itself, so a definition that later hashes to
+        // anything else stays pending regardless. Falling back to what Drift can read from the
+        // config files keeps a workspace decidable before its engine instance has started.
+        let observed = match self.report(directory, generation)? {
+            Some(report) => report.servers,
+            None => self.configured(store, &state),
+        };
+        let server = observed
             .iter()
             .find(|server| {
                 server.name == name
@@ -435,10 +485,11 @@ impl McpRuntime {
             .lock()
             .map_err(|_| "MCP mutation lock is poisoned")?;
         let state = self.require_generation(store, generation)?;
-        let report = self
-            .report(directory, generation)?
-            .ok_or("The current MCP approval report is not available")?;
-        if !report.servers.iter().any(|server| {
+        let observed = match self.report(directory, generation)? {
+            Some(report) => report.servers,
+            None => self.configured(store, &state),
+        };
+        if !observed.iter().any(|server| {
             server.name == name
                 && server.fingerprint == fingerprint
                 && matches!(

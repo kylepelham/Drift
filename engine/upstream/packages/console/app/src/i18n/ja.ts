@@ -253,7 +253,7 @@ export const dict = {
   "zen.privacy.exceptionsLink": "以下の例外",
 
   "go.title": "OpenCode Go | すべての人のための低価格なコーディングモデル",
-  "go.banner.text": "Ox Alpha Freeは期間限定でGoで利用できます",
+  "go.banner.text": "GLM-5.3-Flashの利用上限が期間限定で2倍に",
   "go.meta.description":
     "Goは月額$10で、主要なコーディングモデルへのゆとりある利用上限と安定したアクセスを提供します。",
   "go.hero.title": "すべての人のための低価格なコーディングモデル",
@@ -353,7 +353,7 @@ export const dict = {
   "go.faq.a5.museRetention":
     "将来のMetaモデルのトレーニングにプロンプトと生成結果を使用する許可と引き換えに、トークン料金が大幅に割引されます。",
   "go.faq.a5.learnMore": "詳しく見る",
-  "go.faq.a5.deepseekRetention": "ZDR契約は毎月更新されます。現在の契約は2026年8月31日まで有効です。",
+  "go.faq.a5.deepseekRetention": "ZDR契約は毎月更新されます。現在の契約は2026年9月30日まで有効です。",
   "go.faq.a5.beforeExceptions":
     "Goのモデルは米国でホストされています。プロバイダーはゼロ保持ポリシーに従い、モデルのトレーニングにデータを使用しません（",
   "go.faq.a5.exceptionsLink": "以下の例外",
@@ -367,7 +367,7 @@ export const dict = {
 
   "go.faq.q9": "無料モデルとGoの違いは何ですか？",
   "go.faq.a9":
-    "無料モデルにはBig Pickleと、その時点で利用可能なプロモーションモデルが含まれ、1日200リクエストの制限があります。Goでは厳選されたモデルラインナップを利用でき、ローリングウィンドウ（5時間、週間、月間）全体でより高いリクエスト制限が適用されます。これは概算で5時間あたり$12、週間$30、月間$60相当です（実際のリクエスト数はモデルと使用状況により異なります）。",
+    "無料モデルにはBig Pickleと、その時点で利用可能なプロモーションモデルが含まれ、1日200リクエストの制限があります。Goでは厳選されたモデルラインナップを利用でき、ローリングウィンドウ（5時間、週間、月間）全体でより高いリクエスト制限が適用されます。基本利用枠では概算で5時間あたり$12、週間$30、月間$60相当ですが、モデル別の利用枠は異なる場合があります（実際のリクエスト数はモデルと使用状況により異なります）。",
 
   "zen.api.error.rateLimitExceeded": "レート制限を超えました。後でもう一度お試しください。",
   "zen.api.error.modelNotSupported": "モデル {{model}} はサポートされていません",
@@ -670,10 +670,18 @@ export const dict = {
   "workspace.lite.time.fewSeconds": "数秒",
   "workspace.lite.subscription.message": "あなたは OpenCode Go を購読しています。",
   "workspace.lite.subscription.manage": "サブスクリプションの管理",
-  "workspace.lite.subscription.rollingUsage": "ローリング利用量",
+  "workspace.lite.subscription.rollingUsage": "5時間利用量",
+  "workspace.lite.subscription.rollingQuota": "5時間上限",
   "workspace.lite.subscription.weeklyUsage": "週間利用量",
+  "workspace.lite.subscription.weeklyQuota": "週間上限",
   "workspace.lite.subscription.monthlyUsage": "月間利用量",
+  "workspace.lite.subscription.monthlyQuota": "月間上限",
   "workspace.lite.subscription.resetsIn": "リセットまで",
+  "workspace.lite.subscription.showDetails": "詳細を表示",
+  "workspace.lite.subscription.hideDetails": "詳細を非表示",
+  "workspace.lite.subscription.model": "モデル",
+  "workspace.lite.subscription.contribution": "%",
+  "workspace.lite.subscription.total": "合計",
   "workspace.lite.subscription.useBalance": "利用限度額に達したら利用可能な残高を使用する",
   "workspace.lite.subscription.selectProvider":
     "Go モデルを使用するには、opencode の設定で「OpenCode Go」をプロバイダーとして選択してください。",

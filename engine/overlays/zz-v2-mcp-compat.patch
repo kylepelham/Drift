@@ -1,0 +1,136 @@
+diff --git a/packages/opencode/src/config/v2-compat.ts b/packages/opencode/src/config/v2-compat.ts
+--- a/packages/opencode/src/config/v2-compat.ts
++++ b/packages/opencode/src/config/v2-compat.ts
+@@ -324,11 +324,23 @@ function normalizeServer(input: unknown, path: string[], diagnostics: Diagnostic[]) {
+   if (server.codemode !== undefined) unsupported([...path, "codemode"], diagnostics)
+   if (server.timeout && lowerTimeout(server.timeout) === undefined && Object.keys(server.timeout).length)
+     unsupported([...path, "timeout"], diagnostics)
++  const result = lowerServer(server)
+   const raw = decodeRecord(input)
+-  if (Option.isNone(raw) || !Object.hasOwn(raw.value, "enabled")) return lowerServer(server)
++  if (Option.isNone(raw)) return result
++  if (server.type === "remote") {
++    const legacy = decodeRecord(raw.value.oauth)
++    const oauth = decodeRecord(result.oauth)
++    if (Option.isSome(legacy) && Option.isSome(oauth)) {
++      // Preserve explicit V1 values, including invalid ones, for the final V1 decoder.
++      for (const key of ["clientId", "clientSecret", "callbackPort", "redirectUri"])
++        if (Object.hasOwn(legacy.value, key)) setOwn(oauth.value, key, legacy.value[key])
++      result.oauth = oauth.value
++    }
++  }
++  if (!Object.hasOwn(raw.value, "enabled")) return result
+   if (server.disabled !== undefined && raw.value.enabled === server.disabled)
+     conflict([...path, "disabled"], diagnostics)
+-  return { ...lowerServer(server), enabled: raw.value.enabled }
++  return { ...result, enabled: raw.value.enabled }
+ }
+ 
+ function normalizeLsp(input: Record<string, unknown>, result: Record<string, unknown>, diagnostics: Diagnostic[]) {
+diff --git a/packages/opencode/test/config/v2-mcp-compat.test.ts b/packages/opencode/test/config/v2-mcp-compat.test.ts
+new file mode 100644
+--- /dev/null
++++ b/packages/opencode/test/config/v2-mcp-compat.test.ts
+@@ -0,0 +1,102 @@
++import { expect, test } from "bun:test"
++import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
++import { ConfigMCPV1 } from "@opencode-ai/core/v1/config/mcp"
++import { ConfigParse } from "../../src/config/parse"
++import { ConfigV2Compat } from "../../src/config/v2-compat"
++
++const source = "test:v2-mcp-compat"
++const oauth = {
++  clientId: "legacy-client",
++  clientSecret: "legacy-secret",
++  callbackPort: 19877,
++  redirectUri: "http://127.0.0.1:19877/callback",
++  scope: "read",
++}
++const remote = { type: "remote" as const, url: "https://example.com/mcp", oauth }
++const nativeOAuth = {
++  client_id: "native-client",
++  client_secret: "native-secret",
++  callback_port: 19878,
++  redirect_uri: "http://127.0.0.1:19878/callback",
++  scope: "read",
++}
++
++function lower(server: unknown) {
++  return (ConfigV2Compat.lower({ mcp: { docs: server } }, source).value as { mcp: { docs: unknown } }).mcp.docs
++}
++
++test("Drift preserves plain V1 MCP definitions through normalization and config decoding", () => {
++  const input = {
++    mcp: {
++      docs: { ...remote, enabled: false, timeout: 30000 },
++      automatic: { type: "remote" as const, url: remote.url },
++      anonymous: { type: "remote" as const, url: remote.url, oauth: false as const },
++      servers: { type: "local" as const, command: ["example-mcp"], environment: { MODE: "test" } },
++      timeout: { enabled: false },
++    },
++  }
++  const original = structuredClone(input)
++  const result = ConfigV2Compat.lower(input, source)
++  expect(result.diagnostics).toEqual([])
++  expect(ConfigParse.schema(ConfigV1.Info, result.value, source)).toEqual(input)
++  expect(input).toEqual(original)
++})
++
++test("Drift retains V1 OAuth when V2 server fields trigger normalization", () => {
++  for (const fields of [{ codemode: false }, { disabled: false }, { timeout: { catalog: 30000, execution: 30000 } }]) {
++    for (const enabled of [undefined, true, false]) {
++      const input = { ...remote, ...fields, ...(enabled === undefined ? {} : { enabled }) }
++      const original = structuredClone(input)
++      const result = ConfigParse.schema(ConfigMCPV1.Remote, lower(input), source)
++      expect(result).toEqual({
++        ...remote,
++        enabled: enabled ?? true,
++        ...("timeout" in fields ? { timeout: 30000 } : {}),
++      })
++      expect(input).toEqual(original)
++    }
++  }
++})
++
++test("Drift gives explicit V1 OAuth fields precedence over V2 equivalents", () => {
++  const legacy = { ...oauth, clientId: "", clientSecret: "", redirectUri: "" }
++  const input = { ...remote, enabled: false, disabled: false, oauth: { ...nativeOAuth, ...legacy } }
++  const original = structuredClone(input)
++  expect(ConfigParse.schema(ConfigMCPV1.Remote, lower(input), source)).toEqual({
++    ...remote,
++    enabled: false,
++    oauth: legacy,
++  })
++  expect(input).toEqual(original)
++})
++
++test("Drift still lowers V2 OAuth fields without explicit V1 equivalents", () => {
++  expect(ConfigParse.schema(ConfigMCPV1.Remote, lower({ ...remote, oauth: nativeOAuth }), source)).toEqual({
++    ...remote,
++    enabled: true,
++    oauth: {
++      clientId: nativeOAuth.client_id,
++      clientSecret: nativeOAuth.client_secret,
++      callbackPort: nativeOAuth.callback_port,
++      redirectUri: nativeOAuth.redirect_uri,
++      scope: nativeOAuth.scope,
++    },
++  })
++})
++
++test("Drift leaves invalid explicit V1 OAuth values for the V1 remote decoder to reject", () => {
++  const invalid = [
++    { clientId: null },
++    { clientSecret: 42 },
++    { redirectUri: false },
++    { callbackPort: 0 },
++    { callbackPort: 65536 },
++    { callbackPort: 1.5 },
++  ]
++  for (const fields of invalid) {
++    const result = lower({ ...remote, codemode: false, oauth: { ...nativeOAuth, ...fields } })
++    expect(result).toMatchObject({ oauth: fields })
++    // ConfigV1.Info also accepts enabled-only entries; validate the actual remote definition here.
++    expect(() => ConfigParse.schema(ConfigMCPV1.Remote, result, source)).toThrow("ConfigInvalidError")
++  }
++})

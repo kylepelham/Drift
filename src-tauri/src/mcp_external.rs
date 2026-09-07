@@ -354,6 +354,48 @@ fn read_members(path: &PathBuf) -> Option<(String, String, McpObjectSpans)> {
     Some((text, neutral, object))
 }
 
+/// Every `mcp` member defined in a config file, with its definition.
+///
+/// Lets Drift describe the servers a workspace has without waiting for the engine to boot there
+/// and report them back.
+pub fn defined_members(files: &[PathBuf]) -> Vec<(String, Value)> {
+    let mut members = Vec::new();
+    for path in files {
+        let Some((_, neutral, object)) = read_members(path) else {
+            continue;
+        };
+        for member in &object.members {
+            let Ok(config) =
+                serde_json::from_str::<Value>(&neutral[member.value_start..member.value_end])
+            else {
+                continue;
+            };
+            members.push((member.name.clone(), config));
+        }
+    }
+    members
+}
+
+/// The parts of a config file that can change MCP behaviour: the server definitions, and the
+/// plugin list, since a plugin can register servers of its own.
+///
+/// Comparing this instead of the file itself is what stops an unrelated edit from reloading the
+/// engine. `None` means the file is missing or unparseable, leaving the caller to fall back to
+/// whole-file comparison rather than assume nothing changed.
+pub fn mcp_content(path: &PathBuf) -> Option<String> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_EXTERNAL_FILE_BYTES {
+        return None;
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    let value = serde_json::from_str::<Value>(&neutralize_jsonc(&text)).ok()?;
+    let object = value.as_object()?;
+    canonical(&Value::Array(vec![
+        object.get("mcp").cloned().unwrap_or(Value::Null),
+        object.get("plugin").cloned().unwrap_or(Value::Null),
+    ]))
+}
+
 /// Every `mcp` member name defined across the candidate files, so a rename can be rejected when
 /// a different config layer already defines the target name.
 pub fn defined_names(files: &[PathBuf]) -> Vec<String> {

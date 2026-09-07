@@ -178,6 +178,82 @@ fn invalid_observations_are_visible_but_cannot_be_decided() {
 }
 
 #[test]
+fn lists_and_decides_configured_servers_before_the_engine_reports_them() {
+    let (root, store, runtime) = fixture();
+    let workspace = root.join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    store
+        .add_workspace("w1", &workspace.to_string_lossy(), "Workspace", "")
+        .unwrap();
+    std::fs::write(
+        workspace.join("opencode.json"),
+        r#"{ "mcp": { "docs": { "type": "remote", "url": "https://example.com/mcp" } } }"#,
+    )
+    .unwrap();
+    let stored = json!({ "type": "local", "command": ["registry"] });
+    store.save_mcp_server("registry", None, &stored).unwrap();
+    runtime.materialize(&store).unwrap();
+
+    // Every mutation clears the reports, and one is only rewritten when that workspace's engine
+    // instance starts. Until then the list has to come from what Drift can read itself.
+    // The user's own global config is a candidate here too, so this asserts on the fixture's own
+    // servers rather than the exact list.
+    let directory = workspace.to_string_lossy().to_string();
+    let snapshot = runtime.snapshot(&store, &directory).unwrap();
+    let decision_for = |name: &str| {
+        snapshot
+            .observed
+            .iter()
+            .find(|server| server.name == name)
+            .map(|server| server.decision)
+    };
+    assert_eq!(decision_for("registry"), Some(McpDecision::Pending));
+    assert_eq!(decision_for("docs"), Some(McpDecision::Pending));
+
+    // The fingerprint is what the policy is keyed on, so a decision taken from this list is the
+    // same decision the plugin will enforce.
+    let observed = snapshot
+        .observed
+        .iter()
+        .find(|server| server.name == "docs")
+        .unwrap();
+    let generation = snapshot.generation;
+    runtime
+        .decide(
+            &store,
+            &directory,
+            "docs",
+            &observed.fingerprint,
+            generation,
+            McpDecision::Approved,
+            || Ok(()),
+        )
+        .unwrap();
+
+    let approved = runtime.snapshot(&store, &directory).unwrap();
+    assert_eq!(
+        approved
+            .observed
+            .iter()
+            .find(|server| server.name == "docs")
+            .unwrap()
+            .decision,
+        McpDecision::Approved,
+    );
+    let policy: Value = serde_json::from_str(
+        &std::fs::read_to_string(runtime.config_dir().join("mcp-approvals.json")).unwrap(),
+    )
+    .unwrap();
+    let recorded = policy["decisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|decision| decision["fingerprint"] == observed.fingerprint.as_str());
+    assert!(recorded, "the decision must reach the policy the plugin reads");
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn failed_materialization_restores_registry_content() {
     let (root, store, runtime) = fixture();
     let first = json!({ "type": "local", "command": ["first"] });

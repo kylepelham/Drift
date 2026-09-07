@@ -6,10 +6,12 @@ mod config;
 mod editor;
 mod engine;
 mod engine_db;
+mod file_preview;
 mod mcp;
 mod mcp_external;
 mod permissions;
 mod remote;
+mod session_search;
 mod storage;
 mod store;
 mod ui_state;
@@ -99,6 +101,8 @@ fn main() {
             config::config_read,
             editor::pick_folder,
             editor::open_file,
+            editor::open_file_in_editor,
+            file_preview::read_file_preview,
             commands::store_workspaces,
             commands::store_removed_workspaces,
             commands::store_add_workspace,
@@ -126,6 +130,7 @@ fn main() {
             commands::mcp_external_remove,
             show_main_window,
             open_webview_devtools,
+            commands::session_search,
             commands::storage_stats,
             commands::storage_analyze,
             commands::storage_prune,

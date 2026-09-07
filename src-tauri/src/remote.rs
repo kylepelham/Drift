@@ -1,4 +1,4 @@
-use crate::{commands, config, editor, engine, mcp, store::Store, ui_state, voice};
+use crate::{commands, config, editor, engine, file_preview, mcp, store::Store, ui_state, voice};
 use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, Extension, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
@@ -797,6 +797,19 @@ remote_commands! {
             optional(args, "line")?,
             optional(args, "column")?,
         )?),
+        "open_file_in_editor" => value(editor::open_file_in_editor(
+            arg(args, "path")?,
+            optional(args, "line")?,
+            optional(args, "column")?,
+        )?),
+        "read_file_preview" => value(
+            file_preview::read_file_preview(
+                arg(args, "path")?,
+                arg(args, "directory")?,
+                arg(args, "maxBytes")?,
+            )
+            .await?,
+        ),
         "store_workspaces" => value(commands::store_workspaces(store())?),
         "store_removed_workspaces" => {
             value(commands::store_removed_workspaces(store())?)
@@ -1140,11 +1153,69 @@ mod tests {
         assert!(rpc_allowed("shell_timeout_snapshot"));
         assert!(rpc_allowed("shell_timeout_update"));
         assert!(rpc_allowed("pick_folder"));
+        assert!(rpc_allowed("open_file"));
+        assert!(rpc_allowed("open_file_in_editor"));
+        assert!(rpc_allowed("read_file_preview"));
         assert!(!rpc_allowed("voice_dictation_set_enabled"));
         assert!(!rpc_allowed("remote_access_enable"));
         assert!(!rpc_allowed("ui_state_initialize"));
         assert!(!rpc_allowed("shell_timeout_initialize"));
         assert!(!rpc_allowed("plugin:shell|execute"));
+    }
+
+    #[tokio::test]
+    async fn file_preview_rpc_requires_typed_arguments_and_safe_limits() {
+        let valid = json!({ "path": "file", "directory": "workspace", "maxBytes": 0 });
+        assert_eq!(arg::<String>(&valid, "path").unwrap(), "file");
+        assert_eq!(arg::<String>(&valid, "directory").unwrap(), "workspace");
+        assert_eq!(arg::<u64>(&valid, "maxBytes").unwrap(), 0);
+        for key in ["path", "directory", "maxBytes"] {
+            let mut missing = valid.clone();
+            missing.as_object_mut().unwrap().remove(key);
+            let error = if key == "maxBytes" {
+                arg::<u64>(&missing, key).unwrap_err()
+            } else {
+                arg::<String>(&missing, key).unwrap_err()
+            };
+            assert_eq!(error, format!("missing argument: {key}"));
+        }
+        for invalid in [Value::Null, json!(false), json!(1), json!([]), json!({})] {
+            for key in ["path", "directory"] {
+                let mut args = valid.clone();
+                args[key] = invalid.clone();
+                assert!(arg::<String>(&args, key)
+                    .unwrap_err()
+                    .contains("invalid argument"));
+            }
+        }
+        for invalid in [
+            Value::Null,
+            json!(false),
+            json!(-1),
+            json!(1.5),
+            json!("10"),
+            json!([]),
+            json!({}),
+            json!(18446744073709551616.0),
+        ] {
+            let mut args = valid.clone();
+            args["maxBytes"] = invalid;
+            assert!(arg::<u64>(&args, "maxBytes")
+                .unwrap_err()
+                .contains("invalid argument"));
+        }
+        assert!(arg::<u64>(&json!({ "max_bytes": 1 }), "maxBytes").is_err());
+        for limit in [40 * 1024 * 1024 + 1, u64::MAX] {
+            let args = json!({ "path": "file", "directory": "workspace", "maxBytes": limit });
+            let error = file_preview::read_file_preview(
+                arg(&args, "path").unwrap(),
+                arg(&args, "directory").unwrap(),
+                arg(&args, "maxBytes").unwrap(),
+            )
+            .await
+            .unwrap_err();
+            assert!(error.contains("too large"));
+        }
     }
 
     #[test]

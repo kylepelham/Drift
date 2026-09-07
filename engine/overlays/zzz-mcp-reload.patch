@@ -1,0 +1,271 @@
+diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
+--- a/packages/opencode/src/config/config.ts
++++ b/packages/opencode/src/config/config.ts
+@@ -18,7 +18,7 @@ import { isRecord } from "@/util/record"
+ import type { ConsoleState } from "@opencode-ai/core/v1/config/console-state"
+ import { FSUtil } from "@opencode-ai/core/fs-util"
+ import { InstanceState } from "@/effect/instance-state"
+-import { Context, Duration, Effect, Exit, Fiber, Layer, Option, Schema } from "effect"
++import { Context, Duration, Effect, Exit, Fiber, Layer, Option, Schema, ScopedCache } from "effect"
+ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
+ import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
+ import { containsPath, type InstanceContext } from "../project/instance-context"
+@@ -128,6 +128,7 @@ export interface Interface {
+   readonly update: (config: Info) => Effect.Effect<void>
+   readonly updateGlobal: (config: Info) => Effect.Effect<{ info: Info; changed: boolean }>
+   readonly invalidate: () => Effect.Effect<void>
++  readonly reload: () => Effect.Effect<void>
+   readonly directories: () => Effect.Effect<string[]>
+   readonly waitForDependencies: () => Effect.Effect<void>
+ }
+@@ -634,6 +635,16 @@ const layer = Layer.effect(
+       yield* invalidateGlobal
+     })
+ 
++    /**
++     * Drops every instance's merged config as well as the global one, so the next read reflects the
++     * files on disk and re-runs the plugin hooks that shape them. `invalidate` deliberately leaves
++     * the instance states alone; callers reacting to an edited config file want both.
++     */
++    const reload = Effect.fn("Config.reload")(function* () {
++      yield* invalidateGlobal
++      yield* ScopedCache.invalidateAll(state.cache)
++    })
++
+     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
+       const file = globalConfigFile()
+       const before = (yield* readConfigFile(file)) ?? "{}"
+@@ -666,6 +677,7 @@ const layer = Layer.effect(
+       update,
+       updateGlobal,
+       invalidate,
++      reload,
+       directories,
+       waitForDependencies,
+     })
+diff --git a/packages/opencode/src/mcp/index.ts b/packages/opencode/src/mcp/index.ts
+--- a/packages/opencode/src/mcp/index.ts
++++ b/packages/opencode/src/mcp/index.ts
+@@ -26,7 +26,7 @@ import { McpOAuthCallback } from "./oauth-callback"
+ import { McpAuth } from "./auth"
+ import { EventV2Bridge } from "@/event-v2-bridge"
+ import { TuiEvent } from "@/server/tui-event"
+-import { Cause, Effect, Exit, Fiber, Layer, Context, Schema, Stream } from "effect"
++import { Cause, Effect, Exit, Fiber, Layer, Context, Schema, ScopedCache, Stream } from "effect"
+ import { EffectBridge } from "@/effect/bridge"
+ import { InstanceState } from "@/effect/instance-state"
+ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+@@ -168,6 +168,7 @@ export interface McpTool {
+ 
+ export interface Interface {
+   readonly status: () => Effect.Effect<Record<string, Status>>
++  readonly reload: () => Effect.Effect<void>
+   readonly clients: () => Effect.Effect<Record<string, MCPClient>>
+   readonly instructions: () => Effect.Effect<ServerInstructions[]>
+   readonly tools: () => Effect.Effect<Record<string, McpTool>>
+@@ -666,6 +667,20 @@ const layer = Layer.effect(
+       return result
+     })
+ 
++    /**
++     * Drops every instance's MCP clients and the config they were built from, so the next access
++     * reconnects from what is on disk now. Invalidating the state runs its finalizer, which closes
++     * the clients and reaps stdio children.
++     *
++     * Disposing the instances would also reconnect, but it ends whatever sessions they are running.
++     * Config is invalidated alongside the clients because server definitions can be filtered while
++     * the config is assembled, and a plugin doing that filtering only reruns when config is rebuilt.
++     */
++    const reload = Effect.fn("MCP.reload")(function* () {
++      yield* cfgSvc.reload()
++      yield* ScopedCache.invalidateAll(state.cache)
++    })
++
+     const clients = Effect.fn("MCP.clients")(function* () {
+       const s = yield* InstanceState.get(state)
+       return s.clients
+@@ -1085,6 +1100,7 @@ const layer = Layer.effect(
+ 
+     return Service.of({
+       status,
++      reload,
+       clients,
+       instructions,
+       tools,
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/groups/global.ts b/packages/opencode/src/server/routes/instance/httpapi/groups/global.ts
+--- a/packages/opencode/src/server/routes/instance/httpapi/groups/global.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/groups/global.ts
+@@ -70,6 +70,7 @@ export const GlobalPaths = {
+   event: "/global/event",
+   config: "/global/config",
+   dispose: "/global/dispose",
++  mcpReload: "/global/mcp/reload",
+   upgrade: "/global/upgrade",
+ } as const
+ 
+@@ -123,6 +124,16 @@ export const GlobalApi = HttpApi.make("global").add(
+           description: "Clean up and dispose all OpenCode instances, releasing all resources.",
+         }),
+       ),
++      HttpApiEndpoint.post("mcpReload", GlobalPaths.mcpReload, {
++        success: described(Schema.Boolean, "MCP servers reloaded"),
++      }).annotateMerge(
++        OpenApi.annotations({
++          identifier: "global.mcp.reload",
++          summary: "Reload MCP servers",
++          description:
++            "Reconnect every instance's Model Context Protocol (MCP) servers from the config on disk, without disposing the instances or interrupting their sessions.",
++        }),
++      ),
+       HttpApiEndpoint.post("upgrade", GlobalPaths.upgrade, {
+         payload: GlobalUpgradeInput,
+         success: described(GlobalUpgradeResult, "Upgrade result"),
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts
+@@ -3,6 +3,7 @@ import { GlobalBus, type GlobalEvent as GlobalBusEvent } from "@/bus/global"
+ import { EffectBridge } from "@/effect/bridge"
+ import { EventV2 } from "@opencode-ai/core/event"
+ import { Installation } from "@/installation"
++import { MCP } from "@/mcp"
+ import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
+ import { InstallationVersion } from "@opencode-ai/core/installation/version"
+ import { Cause, Effect, Queue } from "effect"
+@@ -78,6 +79,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
+   Effect.gen(function* () {
+     const config = yield* Config.Service
+     const installation = yield* Installation.Service
++    const mcp = yield* MCP.Service
+     const bridge = yield* EffectBridge.make()
+ 
+     const health = Effect.fn("GlobalHttpApi.health")(function* () {
+@@ -103,6 +105,11 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
+       return true
+     })
+ 
++    const mcpReload = Effect.fn("GlobalHttpApi.mcpReload")(function* () {
++      yield* mcp.reload()
++      return true
++    })
++
+     const upgrade = Effect.fn("GlobalHttpApi.upgrade")(function* (ctx: { payload: typeof GlobalUpgradeInput.Type }) {
+       const method = yield* installation.method()
+       if (method === "unknown") {
+@@ -138,6 +145,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
+       .handle("configGet", configGet)
+       .handle("configUpdate", configUpdate)
+       .handle("dispose", dispose)
++      .handle("mcpReload", mcpReload)
+       .handle("upgrade", upgrade)
+   }),
+ )
+diff --git a/packages/opencode/test/fixture/config.ts b/packages/opencode/test/fixture/config.ts
+--- a/packages/opencode/test/fixture/config.ts
++++ b/packages/opencode/test/fixture/config.ts
+@@ -10,6 +10,7 @@ export function make(overrides: Partial<Config.Interface> = {}) {
+     update: () => Effect.void,
+     updateGlobal: (config) => Effect.succeed({ info: config, changed: false }),
+     invalidate: () => Effect.void,
++    reload: () => Effect.void,
+     directories: () => Effect.succeed([]),
+     waitForDependencies: () => Effect.void,
+     ...overrides,
+diff --git a/packages/opencode/test/mcp/lifecycle.test.ts b/packages/opencode/test/mcp/lifecycle.test.ts
+--- a/packages/opencode/test/mcp/lifecycle.test.ts
++++ b/packages/opencode/test/mcp/lifecycle.test.ts
+@@ -397,6 +397,35 @@ it.instance("ordinary MCP request failures leave the connection enabled", () =>
+   }),
+ )
+ 
++it.instance("reload() picks up config edits and closes the old sessions", () =>
++  Effect.gen(function* () {
++    const first = yield* lifecycleServer()
++    const second = yield* lifecycleServer()
++    const mcp = yield* MCP.Service
++    const test = yield* TestInstance
++    const write = (url: string) =>
++      Effect.promise(() =>
++        Bun.write(path.join(test.directory, "opencode.json"), JSON.stringify({ mcp: { configured: remote(url) } })),
++      )
++
++    yield* write(first.url)
++    expect((yield* mcp.status())["configured"]?.status).toBe("connected")
++
++    // The edit is invisible until reload, because both the config and the clients it produced are cached.
++    yield* write(second.url)
++    expect(first.state.requests.length).toBeGreaterThan(0)
++    expect(second.state.requests).toEqual([])
++
++    yield* mcp.reload()
++    expect((yield* mcp.status())["configured"]?.status).toBe("connected")
++    expect(second.state.requests.length).toBeGreaterThan(0)
++    yield* pollWithTimeout(
++      Effect.sync(() => (first.state.aborted > 0 ? first.state.aborted : undefined)),
++      "the replaced server's HTTP session was not aborted",
++    )
++  }),
++)
++
+ it.instance("add() closes the old protocol session when replacing a server", () =>
+   Effect.gen(function* () {
+     const first = yield* lifecycleServer()
+diff --git a/packages/opencode/test/server/httpapi-control-plane.test.ts b/packages/opencode/test/server/httpapi-control-plane.test.ts
+--- a/packages/opencode/test/server/httpapi-control-plane.test.ts
++++ b/packages/opencode/test/server/httpapi-control-plane.test.ts
+@@ -9,6 +9,7 @@ import { SessionV2 } from "@opencode-ai/core/session"
+ import { Auth } from "../../src/auth"
+ import { Config } from "../../src/config/config"
+ import { Installation } from "../../src/installation"
++import { MCP } from "../../src/mcp"
+ import { Provider } from "../../src/provider/provider"
+ import { Project } from "../../src/project/project"
+ import { ServerAuth } from "../../src/server/auth"
+@@ -72,6 +73,7 @@ const apiLayer = HttpRouter.serve(
+   Layer.provideMerge(NodeHttpServer.layerTest),
+   Layer.provide(Layer.mock(Auth.Service)({})),
+   Layer.provide(Layer.mock(Provider.Service)({ reload: () => Effect.void })),
++  Layer.provide(Layer.mock(MCP.Service)({ reload: () => Effect.void })),
+   Layer.provide(Layer.mock(Config.Service)({})),
+   Layer.provide(Layer.mock(Installation.Service)({})),
+   Layer.provide(
+diff --git a/packages/opencode/test/server/httpapi-global.test.ts b/packages/opencode/test/server/httpapi-global.test.ts
+--- a/packages/opencode/test/server/httpapi-global.test.ts
++++ b/packages/opencode/test/server/httpapi-global.test.ts
+@@ -6,6 +6,7 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
+ import { Auth } from "../../src/auth"
+ import { Config } from "../../src/config/config"
+ import { Installation } from "../../src/installation"
++import { MCP } from "../../src/mcp"
+ import { Provider } from "../../src/provider/provider"
+ import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
+ import { Project } from "../../src/project/project"
+@@ -35,6 +36,7 @@ const apiLayer = HttpRouter.serve(
+   Layer.provideMerge(NodeHttpServer.layerTest),
+   Layer.provide(Layer.mock(Auth.Service)({})),
+   Layer.provide(Layer.mock(Provider.Service)({ reload: () => Effect.void })),
++  Layer.provide(Layer.mock(MCP.Service)({ reload: () => Effect.void })),
+   Layer.provide(Layer.mock(Config.Service)({})),
+   Layer.provide(Layer.mock(MoveSession.Service)({})),
+   Layer.provide(Layer.mock(Session.Service)({})),
+diff --git a/packages/opencode/test/session/prompt.test.ts b/packages/opencode/test/session/prompt.test.ts
+--- a/packages/opencode/test/session/prompt.test.ts
++++ b/packages/opencode/test/session/prompt.test.ts
+@@ -114,6 +114,7 @@ function makeMcp(instructions: MCP.ServerInstructions[] = []) {
+     MCP.Service,
+     MCP.Service.of({
+       status: () => Effect.succeed({}),
++      reload: () => Effect.void,
+       clients: () => Effect.succeed({}),
+       instructions: () => Effect.succeed(instructions),
+       tools: () => Effect.succeed({}),
+diff --git a/packages/opencode/test/session/snapshot-tool-race.test.ts b/packages/opencode/test/session/snapshot-tool-race.test.ts
+--- a/packages/opencode/test/session/snapshot-tool-race.test.ts
++++ b/packages/opencode/test/session/snapshot-tool-race.test.ts
+@@ -36,6 +36,7 @@ const mcp = Layer.succeed(
+   MCP.Service,
+   MCP.Service.of({
+     status: () => Effect.succeed({}),
++    reload: () => Effect.void,
+     clients: () => Effect.succeed({}),
+     instructions: () => Effect.succeed([]),
+     tools: () => Effect.succeed({}),

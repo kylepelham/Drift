@@ -85,6 +85,7 @@ export type QuestionInfo = {
 export type QuestionRequest = {
   id: string
   sessionID: string
+  async?: boolean
   questions: QuestionInfo[]
   tool?: { messageID: string; callID: string }
   directory?: string

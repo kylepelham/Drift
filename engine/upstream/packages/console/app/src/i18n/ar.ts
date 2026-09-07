@@ -252,7 +252,7 @@ export const dict = {
   "zen.privacy.exceptionsLink": "الاستثناءات التالية",
 
   "go.title": "OpenCode Go | نماذج برمجة منخفضة التكلفة للجميع",
-  "go.banner.text": "Ox Alpha Free متاح على Go لفترة محدودة",
+  "go.banner.text": "يحصل GLM-5.3-Flash على حدود استخدام مضاعفة لفترة محدودة",
   "go.meta.description": "يبلغ سعر Go ‏$10/شهر، مع حدود استخدام سخية ووصول موثوق إلى نماذج البرمجة الرائدة.",
   "go.hero.title": "نماذج برمجة منخفضة التكلفة للجميع",
   "go.hero.body":
@@ -349,7 +349,7 @@ export const dict = {
   "go.faq.a5.museRetention":
     "أسعار توكنات مخفّضة للغاية مقابل منح الإذن باستخدام مطالباتك وإكمالات النموذج لتدريب نماذج Meta المستقبلية.",
   "go.faq.a5.learnMore": "اعرف المزيد",
-  "go.faq.a5.deepseekRetention": "تُجدَّد اتفاقية ZDR شهريًا. الاتفاقية الحالية سارية حتى 31 أغسطس 2026.",
+  "go.faq.a5.deepseekRetention": "تُجدَّد اتفاقية ZDR شهريًا. الاتفاقية الحالية سارية حتى 30 سبتمبر 2026.",
   "go.faq.a5.beforeExceptions":
     "تتم استضافة نماذج Go في الولايات المتحدة. يتبع المزودون سياسة عدم الاحتفاظ بالبيانات ولا يستخدمون بياناتك لتدريب النماذج، مع",
   "go.faq.a5.exceptionsLink": "الاستثناءات التالية",
@@ -362,7 +362,7 @@ export const dict = {
 
   "go.faq.q9": "ما الفرق بين النماذج المجانية وGo؟",
   "go.faq.a9":
-    "تشمل النماذج المجانية Big Pickle بالإضافة إلى النماذج الترويجية المتاحة في ذلك الوقت، مع حصة قدرها 200 طلب/يوم. يقدّم Go مجموعة منسقة من النماذج مع حصص طلبات أعلى مطبقة عبر نوافذ متجددة (5 ساعات، وأسبوعية، وشهرية)، تعادل تقريبًا $12 لكل 5 ساعات، و$30 في الأسبوع، و$60 في الشهر (تختلف أعداد الطلبات الفعلية حسب النموذج والاستخدام).",
+    "تشمل النماذج المجانية Big Pickle بالإضافة إلى النماذج الترويجية المتاحة في ذلك الوقت، مع حصة قدرها 200 طلب/يوم. يقدّم Go مجموعة منسقة من النماذج مع حصص طلبات أعلى مطبقة عبر نوافذ متجددة (5 ساعات، وأسبوعية، وشهرية)، تعادل الحصص الأساسية فيها تقريبًا $12 لكل 5 ساعات و$30 في الأسبوع و$60 في الشهر؛ وقد تختلف الحصص حسب النموذج (تختلف أعداد الطلبات الفعلية حسب النموذج والاستخدام).",
 
   "zen.api.error.rateLimitExceeded": "تم تجاوز حد الطلبات. يرجى المحاولة مرة أخرى لاحقًا.",
   "zen.api.error.modelNotSupported": "النموذج {{model}} غير مدعوم",
@@ -661,10 +661,18 @@ export const dict = {
   "workspace.lite.time.fewSeconds": "بضع ثوان",
   "workspace.lite.subscription.message": "أنت مشترك في OpenCode Go.",
   "workspace.lite.subscription.manage": "إدارة الاشتراك",
-  "workspace.lite.subscription.rollingUsage": "الاستخدام المتجدد",
+  "workspace.lite.subscription.rollingUsage": "الاستخدام خلال 5 ساعات",
+  "workspace.lite.subscription.rollingQuota": "الحصة خلال 5 ساعات",
   "workspace.lite.subscription.weeklyUsage": "الاستخدام الأسبوعي",
+  "workspace.lite.subscription.weeklyQuota": "الحصة الأسبوعية",
   "workspace.lite.subscription.monthlyUsage": "الاستخدام الشهري",
+  "workspace.lite.subscription.monthlyQuota": "الحصة الشهرية",
   "workspace.lite.subscription.resetsIn": "إعادة تعيين في",
+  "workspace.lite.subscription.showDetails": "إظهار التفاصيل",
+  "workspace.lite.subscription.hideDetails": "إخفاء التفاصيل",
+  "workspace.lite.subscription.model": "النموذج",
+  "workspace.lite.subscription.contribution": "%",
+  "workspace.lite.subscription.total": "الإجمالي",
   "workspace.lite.subscription.useBalance": "استخدم رصيدك المتوفر بعد الوصول إلى حدود الاستخدام",
   "workspace.lite.subscription.selectProvider":
     'اختر "OpenCode Go" كمزود في إعدادات opencode الخاصة بك لاستخدام نماذج Go.',

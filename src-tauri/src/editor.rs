@@ -50,6 +50,19 @@ pub(crate) fn open_file(
     Ok(OpenFileResult { positioned })
 }
 
+#[tauri::command]
+pub(crate) fn open_file_in_editor(
+    path: String,
+    line: Option<u32>,
+    column: Option<u32>,
+) -> Result<OpenFileResult, String> {
+    // Keep this separate from open_file: older hosts must reject it, not use an OS association.
+    if !open_positioned(&path, line.unwrap_or(1).max(1), column.unwrap_or(1).max(1)) {
+        return Err("No editor is available or the editor could not be started".into());
+    }
+    Ok(OpenFileResult { positioned: true })
+}
+
 fn open_positioned(path: &str, line: u32, column: u32) -> bool {
     static EDITOR: OnceLock<Option<Editor>> = OnceLock::new();
     let Some(editor) = EDITOR.get_or_init(detect_editor) else {
@@ -171,4 +184,54 @@ fn spawn_editor(executable: &Path, args: &[String]) -> std::io::Result<Child> {
         command.creation_flags(CREATE_NO_WINDOW);
     }
     command.spawn()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn editor_only_open_fails_closed_with_or_without_a_position() {
+        // NUL is rejected before process creation, even if this machine has an editor.
+        let path = "unlaunchable\0.cmd";
+        for (line, column) in [
+            (None, None),
+            (None, Some(3)),
+            (Some(24), Some(3)),
+            (Some(0), Some(0)),
+        ] {
+            let result = open_file_in_editor(path.into(), line, column);
+            assert_eq!(
+                result.err().as_deref(),
+                Some("No editor is available or the editor could not be started")
+            );
+        }
+    }
+
+    #[test]
+    fn editor_spawn_rejects_invalid_file_arguments_and_missing_executables() {
+        // A file cannot be the parent directory of an editor executable.
+        let executable = std::env::current_exe().unwrap();
+        assert!(spawn_editor(&executable.join("missing-editor.exe"), &[]).is_err());
+        let args = editor_arguments(EditorKind::GotoFlag, "unlaunchable\0.cmd", 1, 1);
+        let error = spawn_editor(&executable, &args).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn editor_file_paths_remain_literal_arguments() {
+        let path = r#"C:\repo\a & whoami; $(whoami) 'quoted'.cmd"#;
+        assert_eq!(
+            editor_arguments(EditorKind::GotoFlag, path, 1, 1),
+            ["--goto".to_string(), format!("{path}:1:1")]
+        );
+        assert_eq!(
+            editor_arguments(EditorKind::Location, path, 1, 1),
+            [format!("{path}:1:1")]
+        );
+        assert_eq!(
+            editor_arguments(EditorKind::NotepadPlus, path, 1, 1),
+            ["-n1", "-c1", path]
+        );
+    }
 }

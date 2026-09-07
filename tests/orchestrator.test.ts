@@ -168,3 +168,10 @@ test("the driver is wired into the app and reacts to status transitions", async 
   expect(app).toMatch(/state === "done"[\s\S]*?variant: "success"/)
   expect(app).toMatch(/state === "blocked"[\s\S]*?variant: "warning"/)
 })
+
+test("async questions do not pause independent orchestrator rounds or mark tools as awaiting permission", async () => {
+  const app = await Bun.file("src/app.tsx").text()
+  const parts = await Bun.file("src/ui/parts.tsx").text()
+  expect(app).toContain("pendingAsks: (state.permissions[id]?.length ?? 0) + (state.questions[id]?.filter((question) => !question.async).length ?? 0)")
+  expect(parts).toContain("(question) => !question.async && question.tool?.callID === part.callID")
+})

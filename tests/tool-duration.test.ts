@@ -25,6 +25,12 @@ describe("tool elapsed timestamps", () => {
     expect(formatToolDuration(toolElapsedMs(state, 53_000)!)).toBe("43s")
   })
 
+  test("a timed-out running clock stops at the timeout", () => {
+    const state = { status: "running", time: { start: 10_000 } }
+    expect(toolElapsedMs(state, 1_030_000, 120_000)).toBe(120_000)
+    expect(formatToolDuration(toolElapsedMs(state, 1_030_000, 120_000)!)).toBe("2m 00s")
+  })
+
   test("a terminal clock freezes at its persisted end timestamp", () => {
     const state = { status: "completed", time: { start: 10_000, end: 52_000 } }
     expect(toolElapsedMs(state, 80_000)).toBe(42_000)

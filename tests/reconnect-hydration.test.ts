@@ -4,11 +4,6 @@ import { createActions } from "../src/engine/actions"
 import { applySessionSnapshot, applyStatusSnapshot, reduce } from "../src/engine/events"
 import { captureRevisions, createEngineState, mergeTranscriptSnapshot, putSession, type MessageEntry } from "../src/engine/store"
 
-if (!("localStorage" in globalThis))
-  Object.defineProperty(globalThis, "localStorage", {
-    value: { getItem: () => null, setItem: () => undefined },
-  })
-
 function session(id: string, directory = "C:/work"): Session {
   return {
     id,
@@ -157,6 +152,76 @@ test("a newer status event survives an older delayed status snapshot", () => {
   expect(state.status.racing?.type).toBe("busy")
   expect(state.status.settled?.type).toBe("retry")
   expect(state.status.missing).toBeUndefined()
+})
+
+test("hydrate only reconciles successful status data and preserves newer busy events", async () => {
+  const ts = await import("typescript")
+  const source = await Bun.file(new URL("../src/engine/index.tsx", import.meta.url)).text()
+  const parsed = ts.createSourceFile("index.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const statements: import("typescript").Node[] = []
+  function visit(node: import("typescript").Node) {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "applyStatusSnapshot") {
+      let owner: import("typescript").Node = node
+      while (owner.parent && !ts.isFunctionDeclaration(owner)) owner = owner.parent
+      if (ts.isFunctionDeclaration(owner) && owner.name?.text === "hydrate") {
+        // Keep the enclosing guard, not a copied condition or an unguarded helper call.
+        let statement: import("typescript").Node = node
+        while (!ts.isBlock(statement.parent)) statement = statement.parent
+        statements.push(statement)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  expect(statements).toHaveLength(1)
+  const reconcile = new Function(
+    "statuses", "set", "list", "captured", "applyStatusSnapshot",
+    ts.transpileModule(statements[0]!.getText(parsed), {
+      compilerOptions: { target: ts.ScriptTarget.ESNext },
+    }).outputText,
+  )
+
+  for (const scenario of [
+    { name: "error without data", response: { error: { message: "status unavailable" } }, applied: false },
+    { name: "error with empty data", response: { error: { message: "status unavailable" }, data: {} }, applied: false },
+    { name: "null error is not success", response: { error: null, data: {} }, applied: false },
+    { name: "missing data", response: {}, applied: false },
+    { name: "undefined data", response: { error: undefined, data: undefined }, applied: false },
+    { name: "successful empty data", response: { data: {} }, applied: true },
+    { name: "newer busy revision", response: { data: {} }, applied: true, newer: true },
+  ]) {
+    const [state, set] = createEngineState()
+    const list = [session("active"), session("unknown")]
+    for (const info of list) putSession(set, info)
+    set("status", "active", { type: "busy" })
+    set("liveTools", "running-tool", "active")
+    const captured = captureRevisions(state)
+    if (scenario.newer)
+      reduce(set, { type: "session.status", properties: { sessionID: "active", status: { type: "busy" } } } as never)
+    const revisions = { ...state.revisions }
+    let calls = 0
+    reconcile(scenario.response, set, list, captured, (...args: Parameters<typeof applyStatusSnapshot>) => {
+      calls++
+      applyStatusSnapshot(...args)
+    })
+
+    const idle = scenario.applied && !scenario.newer
+    expect({
+      name: scenario.name,
+      calls,
+      active: state.status.active?.type,
+      unknown: state.status.unknown?.type,
+      liveTools: { ...state.liveTools },
+      revisions: { ...state.revisions },
+    }).toEqual({
+      name: scenario.name,
+      calls: Number(scenario.applied),
+      active: idle ? "idle" : "busy",
+      unknown: scenario.applied ? "idle" : undefined,
+      liveTools: idle ? {} : { "running-tool": "active" },
+      revisions,
+    })
+  }
 })
 
 test("a newer message-part event survives an older delayed transcript reload", async () => {
