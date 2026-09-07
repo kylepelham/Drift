@@ -128,7 +128,8 @@ export function EngineProvider(props: ParentProps) {
         ...(complete && bootDirectory ? { scope: { directory: bootDirectory } } : {}),
       })
       if (complete) set("sessionSnapshotDirectory", bootDirectory)
-      applyStatusSnapshot(set, { sessions: list, statuses: statuses.data ?? {}, captured })
+      if (statuses.error === undefined && statuses.data !== undefined)
+        applyStatusSnapshot(set, { sessions: list, statuses: statuses.data, captured })
       // Pending permissions/questions exist only as events; a bounded SSE buffer can drop the ask
       // frame under load, which would strand the session busy forever without this refetch.
       if (bootDirectory) void actions.refreshPermissions([bootDirectory])

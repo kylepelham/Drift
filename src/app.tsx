@@ -32,6 +32,7 @@ import { Composer } from "./ui/composer"
 import { DebugPanel } from "./ui/debug"
 import { ChatHeader } from "./ui/header"
 import { Lightbox } from "./ui/lightbox"
+import { FilePreviewHost } from "./ui/file-preview"
 import { McpServersModal } from "./ui/mcp"
 import { AttentionNotifier, NoticeHost } from "./ui/notifications"
 import { PaletteHost } from "./ui/palette"
@@ -88,6 +89,7 @@ export function App() {
           </main>
         </div>
         <Lightbox />
+        <FilePreviewHost />
         <McpServersModal />
         <SettingsHost />
         <PaletteHost />
@@ -181,7 +183,7 @@ function OrchestratorBinding() {
       status: state.status[id]?.type ?? "idle",
       goalAgent: (goal.info as { agent?: string }).agent,
       parentID: session.parentID,
-      pendingAsks: (state.permissions[id]?.length ?? 0) + (state.questions[id]?.length ?? 0),
+      pendingAsks: (state.permissions[id]?.length ?? 0) + (state.questions[id]?.filter((question) => !question.async).length ?? 0),
       lastMessage:
         last.info.role === "assistant"
           ? {

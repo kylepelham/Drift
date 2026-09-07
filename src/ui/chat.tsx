@@ -25,10 +25,21 @@ import {
 } from "./message"
 import { TextShimmer } from "./text-shimmer"
 import { DriftLogo } from "./logo"
+import { clarificationAnswer } from "./clarification-answer"
 import { lmStudioModelReady } from "../state/lm-studio"
 import { collapseCompaction, compactionCollapsed, orderedModelProviderIds, prefsFor, updatePrefs } from "../state/prefs"
 import { Picker, type PickerItem } from "./picker"
 import { ProviderIcon } from "./provider-icon"
+import { clearReveal, revealTarget } from "./session-search"
+import {
+  activeFindMessage,
+  activeFindOccurrence,
+  clearFindHighlights,
+  paintFindHighlights,
+  scrollFindOccurrence,
+  syncTranscriptMatches,
+  transcriptFindNeedle,
+} from "./transcript-find"
 
 const estimatedRow = 96
 const overscan = 800
@@ -42,6 +53,10 @@ const stickyThresholdPx = 80
 const gestureWindowMs = 250
 // Messages younger than this are treated as newly arrived rather than restored history.
 const freshMessageMs = 2000
+// The transcript column is padded by pt-14; row offsets are measured from below that padding.
+const headerOffset = 56
+// Breathing room above a message jumped to from search, so it does not sit under the header.
+const findMargin = 24
 const maxRetryMessageChars = 80
 
 export function Chat() {
@@ -252,7 +267,80 @@ export function Chat() {
     })
   }
 
+  // Search reads the whole transcript, not the mounted slice, so results follow streaming output
+  // and any older page that lands.
+  createEffect(() => syncTranscriptMatches(entries()))
+
+  const findHighlight = createMemo(() => activeFindMessage() ?? revealTarget(selectedSession() ?? ""))
+
+  // Repaints the in-text match highlights whenever the settled query, the cursor, or the mounted
+  // rows change. Painting is deferred a frame so the walked DOM reflects what this update rendered.
+  let findRaf = 0
+  let scrolledFindOccurrence = ""
+  createEffect(() => {
+    const value = transcriptFindNeedle()
+    const occurrence = activeFindOccurrence()
+    const target = occurrence ? JSON.stringify([value, occurrence.messageId, occurrence.index]) : ""
+    viewTop()
+    measured()
+    entries()
+    cancelAnimationFrame(findRaf)
+    if (!value) {
+      scrolledFindOccurrence = ""
+      clearFindHighlights()
+      return
+    }
+    findRaf = requestAnimationFrame(() => {
+      const active = paintFindHighlights(scroller, value, occurrence)
+      // Nudge the active occurrence into view once per step; repaints from the user's own
+      // scrolling must not drag the viewport back.
+      if (active && target !== scrolledFindOccurrence) {
+        scrolledFindOccurrence = target
+        scrollFindOccurrence(active)
+      }
+    })
+  })
+  onCleanup(() => {
+    cancelAnimationFrame(findRaf)
+    clearFindHighlights()
+  })
+
+  /**
+   * Brings a message into view by index rather than by element: the row is usually unmounted, so
+   * there is nothing to call `scrollIntoView` on until after the jump lands.
+   *
+   * Rows above the target that have never been measured contribute estimated heights, so the first
+   * jump is approximate. Re-reading the offsets on the next frame, once the real heights have been
+   * observed, settles it without a visible second scroll in the common case.
+   */
+  function scrollToMessage(messageId: string) {
+    const index = timeline().findIndex((entry) => entry.info.id === messageId)
+    if (index < 0) return false
+    const place = () => {
+      const target = Math.max(0, headerOffset + offsets()[index] - findMargin)
+      scroller.scrollTop = target
+      publishViewport()
+    }
+    batch(() => {
+      setStick(false)
+      setAwayFromBottom(true)
+    })
+    place()
+    requestAnimationFrame(place)
+    return true
+  }
+
+  createEffect(() => {
+    const target = findHighlight()
+    if (!target) return
+    // Depend on measurement so a target inside a not-yet-measured region is re-tried once the
+    // heights that determine its offset are known.
+    measured()
+    untrack(() => scrollToMessage(target))
+  })
+
   createEffect(on(selectedSession, () => {
+    clearReveal()
     heights.clear()
     estimates.clear()
     scroller.scrollTop = 0
@@ -388,6 +476,7 @@ export function Chat() {
                   thinkingHeading={thinking()?.heading}
                   retry={thinking()?.messageID === entry.info.id ? retry() : undefined}
                   terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
+                  found={findHighlight() === entry.info.id}
                   measure={measureRow}
                 />
               )}
@@ -476,6 +565,7 @@ export function estimatedTimelineRow(
 ) {
   if (thinkingOnly) return 32
   if (collapsedSummary) return 44
+  if (clarificationAnswer(parts === entry.parts ? entry : { ...entry, parts })) return 40
   const text = messageText(parts === entry.parts ? entry : { ...entry, parts })
   const generated = parts.some((part) => part.type === "text" && part.metadata?.generated === true)
   if (entry.info.role === "user" && !generated && largeUserText(text))
@@ -707,6 +797,7 @@ function Row(props: {
   thinkingHeading?: string
   retry?: Extract<SessionStatus, { type: "retry" }>
   terminalError: boolean
+  found: boolean
   measure: (element: HTMLDivElement) => void
 }) {
   const fresh = Date.now() - props.entry.info.time.created < freshMessageMs
@@ -722,7 +813,12 @@ function Row(props: {
       ref={props.measure}
       data-mid={props.entry.info.id}
       class="min-w-0 max-w-full"
-      classList={{ "fade-up": fadeIn, "pb-3": pitch() === "part", "pb-6": pitch() === "turn" }}
+      classList={{
+        "fade-up": fadeIn,
+        "pb-3": pitch() === "part",
+        "pb-6": pitch() === "turn",
+        "search-hit": props.found,
+      }}
     >
       <MessageView
         entry={props.entry}

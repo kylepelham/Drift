@@ -599,6 +599,26 @@ export function Composer() {
             </div>
           )}
         </Show>
+        <Show when={questions().length > 1}>
+          <label class="flex min-w-0 items-center gap-2 px-1 text-xs text-ink-muted">
+            <span class="shrink-0">{t("drift.question.pending", { count: questions().length })}</span>
+            <select
+              class="min-w-0 flex-1 rounded-md border border-edge bg-surface px-2 py-1.5 text-ink"
+              value={pendingQuestion()?.id ?? ""}
+              onChange={(event) => setFocusedQuestionID(event.currentTarget.value)}
+            >
+              <For each={questions()}>
+                {(request) => (
+                  <option value={request.id}>
+                    {request.async ? "" : `${t("drift.question.blocking")}: `}
+                    {request.questions[0]?.header || t("drift.question.number", { number: 1 })}
+                    {" - "}{engine.state.sessions[request.sessionID]?.title || t("drift.composer.anotherThread")}
+                  </option>
+                )}
+              </For>
+            </select>
+          </label>
+        </Show>
         <Show keyed when={pendingQuestion()?.id}>
           {(questionID) => {
             const question = () => questions().find((item) => item.id === questionID)
@@ -608,6 +628,7 @@ export function Composer() {
                   <div class="flow-root">
                     <QuestionCard
                       requestID={questionID}
+                      async={request().async}
                       questions={[...request().questions]}
                       thread={
                         request().sessionID !== selectedSession()

@@ -244,7 +244,7 @@ export const dict = {
   "zen.privacy.exceptionsLink": "以下例外情況",
 
   "go.title": "OpenCode Go | 低成本全民編碼模型",
-  "go.banner.text": "Ox Alpha Free 限時加入 Go",
+  "go.banner.text": "GLM-5.3-Flash 限時享有 2 倍使用額度",
   "go.meta.description": "Go 每月 $10，提供充裕的使用限額，並可穩定存取領先的編碼模型。",
   "go.hero.title": "低成本全民編碼模型",
   "go.hero.body":
@@ -336,7 +336,7 @@ export const dict = {
   "go.faq.a5.gptRetention": "所有 API 功能的使用都會產生濫用監控日誌，並保留最多 30 天。",
   "go.faq.a5.museRetention": "以允許使用您的提示詞和生成結果來訓練未來的 Meta 模型為交換，token 價格可享大幅折扣。",
   "go.faq.a5.learnMore": "了解更多",
-  "go.faq.a5.deepseekRetention": "ZDR 協議每月續簽。目前的協議有效至 2026 年 8 月 31 日。",
+  "go.faq.a5.deepseekRetention": "ZDR 協議每月續簽。目前的協議有效至 2026 年 9 月 30 日。",
   "go.faq.a5.beforeExceptions": "Go 模型託管在美國。供應商遵循零留存政策，不會將你的資料用於模型訓練，但有",
   "go.faq.a5.exceptionsLink": "以下例外",
   "go.faq.q6": "我可以儲值額度嗎？",
@@ -348,7 +348,7 @@ export const dict = {
 
   "go.faq.q9": "免費模型與 Go 有什麼區別？",
   "go.faq.a9":
-    "免費模型包括 Big Pickle 以及當時可用的促銷模型，配額為 200 次請求/天。Go 提供精選模型陣容，並在滾動視窗（5 小時、每週和每月）內提供更高的請求配額，大約相當於每 5 小時 $12、每週 $30 和每月 $60（實際請求數因模型和使用情況而異）。",
+    "免費模型包括 Big Pickle 以及當時可用的促銷模型，配額為 200 次請求/天。Go 提供精選模型陣容，並在滾動視窗（5 小時、每週和每月）內提供更高的請求配額，大約相當於每 5 小時 $12、每週 $30 和每月 $60 的基礎額度；具體額度可能因模型而異（實際請求數因模型和使用情況而異）。",
 
   "zen.api.error.rateLimitExceeded": "超出頻率限制。請稍後再試。",
   "zen.api.error.modelNotSupported": "不支援模型 {{model}}",
@@ -642,10 +642,18 @@ export const dict = {
   "workspace.lite.time.fewSeconds": "幾秒",
   "workspace.lite.subscription.message": "您已訂閱 OpenCode Go。",
   "workspace.lite.subscription.manage": "管理訂閱",
-  "workspace.lite.subscription.rollingUsage": "滾動使用量",
+  "workspace.lite.subscription.rollingUsage": "5 小時使用量",
+  "workspace.lite.subscription.rollingQuota": "5 小時配額",
   "workspace.lite.subscription.weeklyUsage": "每週使用量",
+  "workspace.lite.subscription.weeklyQuota": "每週配額",
   "workspace.lite.subscription.monthlyUsage": "每月使用量",
+  "workspace.lite.subscription.monthlyQuota": "每月配額",
   "workspace.lite.subscription.resetsIn": "重置時間：",
+  "workspace.lite.subscription.showDetails": "顯示詳情",
+  "workspace.lite.subscription.hideDetails": "隱藏詳情",
+  "workspace.lite.subscription.model": "模型",
+  "workspace.lite.subscription.contribution": "%",
+  "workspace.lite.subscription.total": "總計",
   "workspace.lite.subscription.useBalance": "達到使用限制後使用您的可用餘額",
   "workspace.lite.subscription.selectProvider":
     "在您的 opencode 設定中選擇「OpenCode Go」作為提供商，即可使用 Go 模型。",

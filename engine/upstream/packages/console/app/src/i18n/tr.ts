@@ -256,7 +256,7 @@ export const dict = {
   "zen.privacy.exceptionsLink": "aşağıdaki istisnalar",
 
   "go.title": "OpenCode Go | Herkes için düşük maliyetli kodlama modelleri",
-  "go.banner.text": "Ox Alpha Free sınırlı bir süre için Go'da kullanılabilir",
+  "go.banner.text": "GLM-5.3-Flash sınırlı bir süre için 2x kullanım limiti sunuyor",
   "go.meta.description":
     "Go ayda 10$'dır; cömert kullanım limitleri ve önde gelen kodlama modellerine güvenilir erişim sunar.",
   "go.hero.title": "Herkes için düşük maliyetli kodlama modelleri",
@@ -355,7 +355,7 @@ export const dict = {
     "Tüm API özelliklerinin kullanımı için kötüye kullanım izleme günlükleri oluşturulur ve 30 güne kadar saklanır.",
   "go.faq.a5.learnMore": "Daha fazla bilgi",
   "go.faq.a5.deepseekRetention":
-    "ZDR anlaşması aylık olarak yenilenir. Mevcut anlaşma 31 Ağustos 2026 tarihine kadar geçerlidir.",
+    "ZDR anlaşması aylık olarak yenilenir. Mevcut anlaşma 30 Eylül 2026 tarihine kadar geçerlidir.",
   "go.faq.a5.museRetention":
     "İstemlerinizi ve tamamlamalarınızı gelecekteki Meta modellerini eğitmek için kullanma izni karşılığında büyük ölçüde indirimli token fiyatları.",
 
@@ -372,7 +372,7 @@ export const dict = {
 
   "go.faq.q9": "Ücretsiz modeller ve Go arasındaki fark nedir?",
   "go.faq.a9":
-    "Ücretsiz modeller, günlük 200 istek kotasıyla Big Pickle'ı ve o sırada mevcut olan promosyonel modelleri içerir. Go ise kayan zaman aralıklarında (5 saatlik, haftalık ve aylık) uygulanan daha yüksek istek kotalarıyla özenle seçilmiş model seçenekleri sunar. Bu kotalar kabaca her 5 saatte 12$, haftada 30$ ve ayda 60$ değerine eşdeğerdir (gerçek istek sayıları modele ve kullanıma göre değişir).",
+    "Ücretsiz modeller, günlük 200 istek kotasıyla Big Pickle'ı ve o sırada mevcut olan promosyonel modelleri içerir. Go ise kayan zaman aralıklarında (5 saatlik, haftalık ve aylık) uygulanan daha yüksek istek kotalarıyla özenle seçilmiş model seçenekleri sunar. Bu kotalar kabaca her 5 saatte 12$, haftada 30$ ve ayda 60$ değerindeki temel kullanım haklarına eşdeğerdir; modele özgü kullanım hakları farklılık gösterebilir (gerçek istek sayıları modele ve kullanıma göre değişir).",
 
   "zen.api.error.rateLimitExceeded": "İstek limiti aşıldı. Lütfen daha sonra tekrar deneyin.",
   "zen.api.error.modelNotSupported": "{{model}} modeli desteklenmiyor",
@@ -673,10 +673,18 @@ export const dict = {
   "workspace.lite.time.fewSeconds": "birkaç saniye",
   "workspace.lite.subscription.message": "OpenCode Go abonesisiniz.",
   "workspace.lite.subscription.manage": "Aboneliği Yönet",
-  "workspace.lite.subscription.rollingUsage": "Devam Eden Kullanım",
+  "workspace.lite.subscription.rollingUsage": "5 Saatlik Kullanım",
+  "workspace.lite.subscription.rollingQuota": "5 Saatlik Kota",
   "workspace.lite.subscription.weeklyUsage": "Haftalık Kullanım",
+  "workspace.lite.subscription.weeklyQuota": "Haftalık Kota",
   "workspace.lite.subscription.monthlyUsage": "Aylık Kullanım",
+  "workspace.lite.subscription.monthlyQuota": "Aylık Kota",
   "workspace.lite.subscription.resetsIn": "Sıfırlama süresi",
+  "workspace.lite.subscription.showDetails": "Ayrıntıları göster",
+  "workspace.lite.subscription.hideDetails": "Ayrıntıları gizle",
+  "workspace.lite.subscription.model": "Model",
+  "workspace.lite.subscription.contribution": "%",
+  "workspace.lite.subscription.total": "Toplam",
   "workspace.lite.subscription.useBalance": "Kullanım limitlerine ulaştıktan sonra mevcut bakiyenizi kullanın",
   "workspace.lite.subscription.selectProvider":
     'Go modellerini kullanmak için opencode yapılandırmanızda "OpenCode Go"\'yu sağlayıcı olarak seçin.',

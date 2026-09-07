@@ -1,5 +1,5 @@
 import type { AssistantMessage, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/client"
-import { createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
+import { createMemo, createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 import { createStore, reconcile, unwrap } from "solid-js/store"
 import { useEngine } from "../engine"
 import { errorText } from "../engine/error"
@@ -8,11 +8,12 @@ import { emitMessageRendered } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
 import { agentLabel, t } from "../state/i18n"
 import { collapseCompaction, compactionCollapsed } from "../state/prefs"
-import { IconCopy, IconUndo } from "./icons"
+import { IconCheck, IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
 import { Chevron } from "./controls"
 import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
 import { TextShimmer } from "./text-shimmer"
+import { clarificationAnswer } from "./clarification-answer"
 
 export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; thinking?: boolean }) {
   onMount(() =>
@@ -75,7 +76,8 @@ export function compactionParts(entry: MessageEntry) {
 function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
   const engine = useEngine()
   const info = () => props.entry.info as UserMessage
-  const text = () => messageText(props.entry)
+  const clarification = createMemo(() => clarificationAnswer(props.entry))
+  const text = () => clarification()?.text ?? messageText(props.entry)
   // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
   const generated = () => props.entry.parts.some((part) => part.type === "text" && part.metadata?.generated === true)
   const files = () => props.entry.parts.filter((part) => part.type === "file")
@@ -84,45 +86,88 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
   const time = () => new Date(info().time.created).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
   const revert = async () => {
     const restored = draftFromMessage(props.entry)
+    if (clarification()) restored.text = text()
     if (await engine.actions.revert(info().sessionID, info().id))
       setComposerDraft(composerScope(info().sessionID), restored)
   }
   return (
-    <>
-      <Show when={text() || files().length > 0}>
-        <div class="group flex flex-col items-end gap-1.5">
-          <Show when={files().length > 0}>
-            <div class="flex max-w-[85%] flex-wrap justify-end gap-1.5">
-              <For each={files()}>{(file) => <FilePartView part={file} />}</For>
+    <Show
+      when={clarification()}
+      fallback={
+        <>
+          <Show when={text() || files().length > 0}>
+            <div class="group flex flex-col items-end gap-1.5">
+              <Show when={files().length > 0}>
+                <div class="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+                  <For each={files()}>{(file) => <FilePartView part={file} />}</For>
+                </div>
+              </Show>
+              <Show when={text()}>
+                <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
+                  <Show
+                    when={!generated() && largeUserText(text())}
+                    fallback={<Markdown text={text()} directory={engine.state.sessions[info().sessionID]?.directory} done humanAuthored={!generated()} />}
+                  >
+                    <pre class="user-paste">{text()}</pre>
+                  </Show>
+                </div>
+              </Show>
+              <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
+                <span>{agentLabel(info().agent)} · {model()} · {time()}</span>
+                <button title={t("drift.message.revertHere")} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void revert()}>
+                  <IconUndo class="size-3.5" />
+                </button>
+                <button
+                  title={t("drift.message.copy")}
+                  class="rounded p-0.5 hover:bg-raised hover:text-ink"
+                  onClick={() => void navigator.clipboard.writeText(text())}
+                >
+                  <IconCopy class="size-3.5" />
+                </button>
+              </div>
             </div>
           </Show>
-          <Show when={text()}>
-            <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
-              <Show
-                when={!generated() && largeUserText(text())}
-                fallback={<Markdown text={text()} done humanAuthored={!generated()} />}
-              >
-                <pre class="user-paste">{text()}</pre>
+          <For each={compactions()}>{(part) => <PartView part={part} thinking={props.thinking} />}</For>
+        </>
+      }
+    >
+      {(answer) => (
+        <div class="group flex min-w-0 items-start justify-end gap-1.5">
+          <details class="group/answer min-w-0 max-w-[85%] text-xs">
+            <summary data-find-ignore class="flex min-w-0 cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-ink-muted hover:bg-raised/40 [&::-webkit-details-marker]:hidden">
+              <IconCheck class="size-3.5 shrink-0 text-ink-faint" />
+              <span class="shrink-0">{t("drift.question.answered")}</span>
+              <Show when={answer().preview}>
+                <span class="min-w-0 truncate text-ink">{answer().preview}</span>
+              </Show>
+              <span class="shrink-0 transition-transform group-open/answer:rotate-90"><Chevron open={false} /></span>
+            </summary>
+            <div class="mt-1 mb-2 space-y-3 border-l border-edge px-3 py-1 text-sm">
+              <Show when={answer().items.length} fallback={<div class="whitespace-pre-wrap break-words">{answer().text}</div>}>
+                <For each={answer().items}>
+                  {(item) => (
+                    <div class="space-y-1">
+                      <div class="whitespace-pre-wrap break-words text-xs text-ink-faint">{item.question}</div>
+                      <div data-find-ignore={item.answers.length ? undefined : ""} class="whitespace-pre-wrap break-words text-ink">
+                        {item.answers.length ? item.answers.join(", ") : t("drift.question.unanswered")}
+                      </div>
+                    </div>
+                  )}
+                </For>
               </Show>
             </div>
-          </Show>
-          <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
-            <span>{agentLabel(info().agent)} · {model()} · {time()}</span>
+          </details>
+          <div class="flex shrink-0 items-center gap-1 py-1 text-ink-faint opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
             <button title={t("drift.message.revertHere")} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void revert()}>
               <IconUndo class="size-3.5" />
             </button>
-            <button
-              title={t("drift.message.copy")}
-              class="rounded p-0.5 hover:bg-raised hover:text-ink"
-              onClick={() => void navigator.clipboard.writeText(text())}
-            >
+            <button title={t("drift.message.copy")} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void navigator.clipboard.writeText(text())}>
               <IconCopy class="size-3.5" />
             </button>
           </div>
         </div>
-      </Show>
-      <For each={compactions()}>{(part) => <PartView part={part} thinking={props.thinking} />}</For>
-    </>
+      )}
+    </Show>
   )
 }
 

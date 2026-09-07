@@ -61,6 +61,30 @@ async function verifyAuthCapture() {
 
 await withEngineOverlays(async () => {
   await typecheck("packages/opencode")
+  await typecheck("packages/core")
+  await typecheck("packages/schema")
+  await run("packages/opencode", [
+    "test/question/question.test.ts",
+    "test/question/async-question.test.ts",
+    "test/tool/question.test.ts",
+    "test/effect/runner.test.ts",
+    "test/effect/async-question.test.ts",
+  ])
+  await run("packages/opencode", ["test/session/prompt.test.ts", "-t", "async question"])
+  await run("packages/opencode", ["test/session/instruction.test.ts"])
+  await run("packages/core", ["test/event.test.ts"])
+  await run("packages/opencode", ["test/plugin/codex.test.ts"])
+  await run("packages/opencode", [
+    "test/config/v2-compat.test.ts",
+    "test/config/v2-mcp-compat.test.ts",
+    "test/provider/header-timeout.test.ts",
+    "test/provider/transform.test.ts",
+    "test/plugin/azure.test.ts",
+    "test/plugin/github-copilot.test.ts",
+    "test/session/tools.test.ts",
+    "test/patched-dependencies.test.ts",
+  ])
+  await run("packages/core", ["test/database-migration.test.ts"])
   await run("packages/core", ["test/move-session.test.ts"])
   await run("packages/core", ["test/session-compaction.test.ts"])
   await run("packages/opencode", ["test/server/httpapi-control-plane.test.ts"])
@@ -90,7 +114,7 @@ await withEngineOverlays(async () => {
   await run("packages/opencode", [
     "test/mcp/lifecycle.test.ts",
     "-t",
-    "restores tools|newer reconnect wins|ordinary MCP request failures",
+    "restores tools|newer reconnect wins|ordinary MCP request failures|reload\\(\\) picks up config edits",
   ])
   await run("packages/opencode", [
     "test/session/compaction.test.ts",

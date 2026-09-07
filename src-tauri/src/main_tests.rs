@@ -7,7 +7,8 @@ use crate::editor::{editor_arguments, editor_kind, EditorKind};
 use crate::engine::{basic_authorization, Engine};
 use crate::updater::installed_alongside_uninstaller;
 use crate::watcher::{
-    file_signatures, resolve_skill_path, watched_mcp_paths, watched_skill_paths, SkillWatchRoots,
+    file_signatures, mcp_signatures, resolve_skill_path, watched_mcp_paths, watched_skill_paths,
+    SkillWatchRoots,
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -123,6 +124,58 @@ fn mcp_watch_paths_include_plugins_and_external_file_references() {
         vec![config_root.join("plugin"), config_root.join("plugins")],
     ));
     assert_ne!(before_plugin, after_plugin);
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn only_mcp_relevant_config_edits_count_as_a_change() {
+    let root = std::env::temp_dir().join(format!("drift-mcp-signature-test-{}", std::process::id()));
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::create_dir_all(&root).unwrap();
+    let config = root.join("opencode.json");
+    let configs = vec![config.clone()];
+    let sign = || mcp_signatures(vec![config.clone()], &configs);
+
+    std::fs::write(
+        &config,
+        r#"{ "theme": "drift", "mcp": { "docs": { "type": "remote", "url": "https://example.com/mcp" } } }"#,
+    )
+    .unwrap();
+    let original = sign();
+
+    // Reloading disposes every instance, so an edit that cannot change MCP behaviour must not
+    // register as one. Whitespace, comments and unrelated settings all qualify.
+    std::fs::write(
+        &config,
+        "{\n  // now with a comment\n  \"theme\": \"midnight\",\n  \"model\": \"anthropic/claude\",\n  \"mcp\": { \"docs\": { \"type\": \"remote\", \"url\": \"https://example.com/mcp\" } }\n}\n",
+    )
+    .unwrap();
+    assert_eq!(original, sign());
+
+    // A changed server definition still is one.
+    std::fs::write(
+        &config,
+        r#"{ "theme": "midnight", "mcp": { "docs": { "type": "remote", "url": "https://example.com/other" } } }"#,
+    )
+    .unwrap();
+    assert_ne!(original, sign());
+
+    // So is a changed plugin list, because a plugin can register servers of its own.
+    std::fs::write(
+        &config,
+        r#"{ "plugin": ["example@1"], "mcp": { "docs": { "type": "remote", "url": "https://example.com/mcp" } } }"#,
+    )
+    .unwrap();
+    let with_plugin = sign();
+    assert_ne!(original, with_plugin);
+
+    // A file that will not parse falls back to whole-file comparison rather than looking unchanged.
+    std::fs::write(&config, "{ not json").unwrap();
+    let broken = sign();
+    assert_ne!(with_plugin, broken);
+    std::fs::write(&config, "{ still not json").unwrap();
+    assert_ne!(broken, sign());
+
     std::fs::remove_dir_all(root).ok();
 }
 

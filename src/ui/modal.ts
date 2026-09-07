@@ -42,12 +42,14 @@ const modalStack = new ModalStack<ModalEntry>((entry) => entry.priority)
 const inertBeforeModal = new Map<HTMLElement, boolean>()
 
 export function closeOnBackdropPointerDown(
-  event: { target: unknown; currentTarget: unknown },
+  event: { target: unknown; currentTarget: unknown; preventDefault?: () => void },
   onClose: () => void,
   modal?: HTMLElement,
 ) {
   if (event.target !== event.currentTarget) return
   if (modal && !modalIsTopmost(modal)) return
+  // Do not let the closing press move focus away from the restored opener.
+  event.preventDefault?.()
   onClose()
 }
 
@@ -56,7 +58,7 @@ export function modalIsTopmost(element: HTMLElement) {
   return !top || top.element === element
 }
 
-export function activateModal(element: HTMLElement, onClose: () => void) {
+export function activateModal(element: HTMLElement, onClose: () => void, options: { nativeTabOrder?: boolean } = {}) {
   const overlay = element.closest<HTMLElement>("[data-modal-layer]") ?? element
   const entry: ModalEntry = {
     element,
@@ -67,6 +69,51 @@ export function activateModal(element: HTMLElement, onClose: () => void) {
   modalStack.push(entry)
   syncModalInert()
 
+  // Native media controls live in browser shadow DOM. Let the browser tab through
+  // them; only redirect focus at the boundaries. Media hosts need tabindex="0".
+  const guards = options.nativeTabOrder ? [document.createElement("span"), document.createElement("span")] : []
+  for (const guard of guards) {
+    guard.tabIndex = 0
+    guard.setAttribute("data-modal-focus-guard", "")
+    // Keep focusable guards out of aria-hidden, including while parked after media.
+    guard.style.cssText = "position:fixed;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;"
+  }
+  if (guards.length) {
+    element.prepend(guards[0])
+    element.append(guards[1])
+  }
+  let lastFocused: HTMLElement | undefined
+  let parkedAtEnd = false
+  const onFocusIn = (event: FocusEvent) => {
+    if (!modalStack.isTop(entry) || !(event.target instanceof HTMLElement)) return
+    if (parkedAtEnd && event.target === guards[1]) return
+    parkedAtEnd = false
+    let target: HTMLElement
+    if (guards.includes(event.target)) {
+      const focusable = modalFocusable(element)
+      target = (event.target === guards[0] ? focusable.at(-1) : focusable[0]) ?? element
+      if (event.target === guards[0] && target.matches("audio[controls], video[controls]")) {
+        // Focusing the media host resets its shadow controls to forward entry.
+        // Park after it instead; the next Shift+Tab enters its last native control.
+        parkedAtEnd = true
+        guards[1].focus({ preventScroll: true })
+        return
+      }
+    } else if (element.contains(event.target)) {
+      lastFocused = event.target
+      return
+    } else {
+      target = lastFocused?.isConnected && element.contains(lastFocused)
+        ? lastFocused
+        : modalFocusable(element)[0] ?? element
+    }
+    target.focus({ preventScroll: true })
+    if (guards.includes(document.activeElement as HTMLElement) || !element.contains(document.activeElement)) {
+      element.focus({ preventScroll: true })
+    }
+  }
+  if (options.nativeTabOrder) document.addEventListener("focusin", onFocusIn, true)
+
   const onKeyDown = (event: KeyboardEvent) => {
     if (!modalStack.isTop(entry)) return
     if (event.key === "Escape") {
@@ -76,6 +123,16 @@ export function activateModal(element: HTMLElement, onClose: () => void) {
       return
     }
     if (event.key !== "Tab") return
+    if (options.nativeTabOrder) {
+      // A direction change while parked must not Tab past the end of the dialog.
+      if (document.activeElement === guards[1] && !event.shiftKey) {
+        event.preventDefault()
+        const target = modalFocusable(element)[0] ?? element
+        target.focus({ preventScroll: true })
+        if (document.activeElement === guards[1]) element.focus({ preventScroll: true })
+      }
+      return
+    }
     const focusable = modalFocusable(element)
     if (!focusable.length) {
       event.preventDefault()
@@ -105,6 +162,8 @@ export function activateModal(element: HTMLElement, onClose: () => void) {
     if (!active) return
     active = false
     document.removeEventListener("keydown", onKeyDown, true)
+    if (options.nativeTabOrder) document.removeEventListener("focusin", onFocusIn, true)
+    for (const guard of guards) guard.remove()
     const wasTop = modalStack.remove(entry)
     syncModalInert()
     if (!wasTop) return
@@ -141,5 +200,5 @@ function syncModalInert() {
 function modalFocusable(element: HTMLElement) {
   return [...element.querySelectorAll<HTMLElement>(
     'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-  )].filter((item) => !item.hidden && item.getClientRects().length > 0)
+  )].filter((item) => !item.hasAttribute("data-modal-focus-guard") && !item.hidden && item.getClientRects().length > 0)
 }

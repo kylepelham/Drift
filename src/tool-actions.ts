@@ -46,10 +46,10 @@ export function toolContextActions(part: ToolPart) {
   return actions
 }
 
-export function openFile(path: string, location?: FileLocation) {
+export function openFile(path: string, location?: FileLocation & { editorOnly?: boolean }) {
   const invoke = backendInvoke()
   if (!invoke) return Promise.reject(new Error("Opening files requires the Drift host backend"))
-  return invoke<OpenFileResult>("open_file", {
+  return invoke<OpenFileResult>(location?.editorOnly ? "open_file_in_editor" : "open_file", {
     path,
     line: location?.line,
     column: location?.column,

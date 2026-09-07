@@ -1,0 +1,2536 @@
+diff --git a/packages/core/src/database/database.ts b/packages/core/src/database/database.ts
+index d61adf0..f3a8db3 100644
+--- a/packages/core/src/database/database.ts
++++ b/packages/core/src/database/database.ts
+@@ -12,11 +12,22 @@ import { makeGlobalNode } from "../effect/app-node"
+ 
+ const makeDatabase = EffectDrizzleSqlite.makeWithDefaults()
+ type DatabaseShape = Effect.Success<typeof makeDatabase>
++const Notifications = Context.Reference<ReadonlyMap<DatabaseShape, Effect.Effect<void>[]> | undefined>(
++  "@opencode/Database/Notifications",
++  { defaultValue: () => undefined },
++)
+ 
+ export interface Interface {
+   db: DatabaseShape
+ }
+ 
++export const afterCommit = (db: DatabaseShape, effect: Effect.Effect<void>) =>
++  Effect.gen(function* () {
++    const pending = (yield* Notifications)?.get(db)
++    if (pending) pending.push(effect)
++    else yield* effect
++  })
++
+ export class Service extends Context.Service<Service, Interface>()("@opencode/v2/storage/Database") {}
+ 
+ const layer = Layer.effect(
+@@ -32,6 +43,33 @@ const layer = Layer.effect(
+     yield* db.run("PRAGMA wal_checkpoint(PASSIVE)")
+     yield* DatabaseMigration.apply(db)
+ 
++    const transaction = db.transaction.bind(db)
++    db.transaction = (fn, config) =>
++      Effect.uninterruptibleMask((restore) =>
++        Effect.gen(function* () {
++          const pending = yield* Notifications
++          const notifications: Effect.Effect<void>[] = []
++          const result = yield* transaction((tx) => {
++            tx.transaction = (fn) => db.transaction(fn)
++            return restore(fn(tx))
++          }, config).pipe(Effect.provideService(Notifications, new Map(pending).set(db, notifications)))
++          // A released savepoint is not a commit. Only the outer transaction notifies.
++          const parent = pending?.get(db)
++          if (parent) parent.push(...notifications)
++          else
++            yield* Effect.forEach(
++              notifications,
++              (notification) =>
++                notification.pipe(
++                  Effect.catchCause((cause) =>
++                    Effect.logError("Database post-commit notification failed; transaction committed", { cause }),
++                  ),
++                ),
++              { discard: true, concurrency: 1 },
++            )
++          return result
++        }),
++      )
+     return { db }
+   }).pipe(Effect.orDie),
+ )
+diff --git a/packages/core/src/event.ts b/packages/core/src/event.ts
+index c92ac0a..e3a1adb 100644
+--- a/packages/core/src/event.ts
++++ b/packages/core/src/event.ts
+@@ -352,10 +352,13 @@ export const layerWith = (options?: LayerOptions) =>
+                     )
+                     .pipe(Effect.orDie)
+                   if (committed) {
+-                    yield* Effect.forEach(
+-                      pubsub.durable.get(committed.aggregateID) ?? [],
+-                      (wake) => PubSub.publish(wake, undefined),
+-                      { discard: true },
++                    yield* Database.afterCommit(
++                      db,
++                      Effect.forEach(
++                        pubsub.durable.get(committed.aggregateID) ?? [],
++                        (wake) => PubSub.publish(wake, undefined),
++                        { discard: true },
++                      ),
+                     )
+                   }
+                   return committed
+@@ -386,11 +389,11 @@ export const layerWith = (options?: LayerOptions) =>
+                   version: definition.durable.version,
+                 },
+               }
+-              yield* notify(event as Payload, true)
++              yield* Database.afterCommit(db, notify(event as Payload, true))
+               return event
+             }
+           }
+-          yield* notify(event as Payload, false)
++          yield* Database.afterCommit(db, notify(event as Payload, false))
+           return event
+         })
+       }
+@@ -461,16 +464,19 @@ export const layerWith = (options?: LayerOptions) =>
+               strictOwner: options?.strictOwner,
+             })
+             if (committed && options?.publish) {
+-              yield* notify(
+-                {
+-                  ...payload,
+-                  durable: {
+-                    aggregateID: committed.aggregateID,
+-                    seq: committed.seq,
+-                    version: definition.durable.version,
++              yield* Database.afterCommit(
++                db,
++                notify(
++                  {
++                    ...payload,
++                    durable: {
++                      aggregateID: committed.aggregateID,
++                      seq: committed.seq,
++                      version: definition.durable.version,
++                    },
+                   },
+-                },
+-                true,
++                  true,
++                ),
+               )
+             }
+           }
+diff --git a/packages/core/test/event.test.ts b/packages/core/test/event.test.ts
+index e4329a2..13d7f7d 100644
+--- a/packages/core/test/event.test.ts
++++ b/packages/core/test/event.test.ts
+@@ -84,6 +84,177 @@ const it = testEffect(
+ const itWithoutLocation = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, EventV2.node])))
+ 
+ describe("EventV2", () => {
++  for (const failure of ["defect", "interrupt"])
++    it.effect(
++      `post-commit live callback ${failure} preserves the commit and later durable notifications and wake`,
++      () =>
++        Effect.gen(function* () {
++          const events = yield* EventV2.Service
++          const { db } = yield* Database.Service
++          const aggregateID = Session.ID.create()
++          yield* events.publish(DurableMessage, durableData(aggregateID, "seed"))
++          const ready = yield* Deferred.make<void>()
++          const tail = yield* events.durable({ aggregateID }).pipe(
++            Stream.tap((event) => (event.durable?.seq === 0 ? Deferred.succeed(ready, undefined) : Effect.void)),
++            Stream.take(2),
++            Stream.runCollect,
++            Effect.forkScoped,
++          )
++          yield* Deferred.await(ready)
++          const observed: EventV2.Payload[] = []
++          const off = yield* events.listen((event) => {
++            if (event.type === Message.type)
++              return failure === "defect" ? Effect.die("live listener failed") : Effect.interrupt
++            return Effect.sync(() => {
++              observed.push(event)
++            })
++          })
++          yield* Effect.addFinalizer(() => off)
++          const exit = yield* db
++            .transaction(() =>
++              Effect.gen(function* () {
++                yield* events.publish(Message, { text: "fails after commit" })
++                const durable = yield* events.publish(DurableMessage, durableData(aggregateID, "committed"))
++                expect(observed).toEqual([])
++                return durable
++              }),
++            )
++            .pipe(Effect.exit)
++          expect(Exit.isSuccess(exit)).toBe(true)
++          if (Exit.isFailure(exit)) return
++          expect(observed).toEqual([exit.value])
++          expect(yield* EventV2.latestSequence(db, aggregateID)).toBe(1)
++          expect(Array.from(yield* Fiber.join(tail)).map((event) => event.durable?.seq)).toEqual([0, 1])
++          const next = yield* events.publish(DurableMessage, durableData(aggregateID, "next"))
++          expect(next.durable?.seq).toBe(2)
++          expect(observed).toEqual([exit.value, next])
++        }),
++    )
++
++  it.effect("notifies nested publications only after the outer commit releases its connection", () =>
++    Effect.gen(function* () {
++      const events = yield* EventV2.Service
++      const { db } = yield* Database.Service
++      const id = EventV2.ID.create()
++      const received: EventV2.Payload[] = []
++      const sequences: number[] = []
++      const off = yield* events.listen((event) =>
++        Effect.gen(function* () {
++          received.push(event)
++          sequences.push(yield* db.transaction(() => EventV2.latestSequence(db, id)).pipe(Effect.orDie))
++        }),
++      )
++      yield* Effect.addFinalizer(() => off)
++      const published = yield* db.transaction((tx) =>
++        Effect.gen(function* () {
++          const first = yield* events.publish(SyncMessage, { id, text: "first" })
++          const second = yield* tx.transaction(() => events.publish(SyncMessage, { id, text: "second" }))
++          const transient = yield* events.publish(Message, { text: "transient" })
++          expect(received).toEqual([])
++          return [first, second, transient]
++        }),
++      )
++      expect(received).toEqual(published)
++      expect(sequences).toEqual([1, 1, 1])
++    }),
++  )
++
++  it.effect("discards outer rollback notifications and reuses only committed sync sequences", () =>
++    Effect.gen(function* () {
++      const events = yield* EventV2.Service
++      const { db } = yield* Database.Service
++      const id = EventV2.ID.create()
++      const received: EventV2.Payload[] = []
++      const off = yield* events.listen((event) =>
++        Effect.sync(() => {
++          received.push(event)
++        }),
++      )
++      yield* Effect.addFinalizer(() => off)
++      const failed = yield* db
++        .transaction(() =>
++          Effect.gen(function* () {
++            yield* events.publish(SyncMessage, { id, text: "rolled back" })
++            yield* events.publish(Message, { text: "also rolled back" })
++            return yield* Effect.fail("rollback")
++          }),
++        )
++        .pipe(Effect.exit)
++      expect(Exit.isFailure(failed)).toBe(true)
++      expect(received).toEqual([])
++      expect(yield* EventV2.latestSequence(db, id)).toBe(-1)
++      const event = yield* events.publish(SyncMessage, { id, text: "committed" })
++      expect(event.durable?.seq).toBe(0)
++      expect(received).toEqual([event])
++    }),
++  )
++
++  it.effect("discards a rolled back savepoint without losing outer notifications", () =>
++    Effect.gen(function* () {
++      const events = yield* EventV2.Service
++      const { db } = yield* Database.Service
++      const id = EventV2.ID.create()
++      const received: EventV2.Payload[] = []
++      const off = yield* events.listen((event) =>
++        Effect.sync(() => {
++          received.push(event)
++        }),
++      )
++      yield* Effect.addFinalizer(() => off)
++      const published = yield* db.transaction((tx) =>
++        Effect.gen(function* () {
++          const first = yield* events.publish(SyncMessage, { id, text: "first" })
++          const failed = yield* tx
++            .transaction(() =>
++              Effect.gen(function* () {
++                yield* events.publish(SyncMessage, { id, text: "rolled back" })
++                return yield* Effect.fail("rollback")
++              }),
++            )
++            .pipe(Effect.exit)
++          expect(Exit.isFailure(failed)).toBe(true)
++          const second = yield* events.publish(SyncMessage, { id, text: "second" })
++          expect(received).toEqual([])
++          return [first, second]
++        }),
++      )
++      expect(received).toEqual(published)
++      expect(received.map((event) => event.durable?.seq)).toEqual([0, 1])
++    }),
++  )
++
++  it.effect("discards notifications when the actual outer commit fails", () =>
++    Effect.gen(function* () {
++      const events = yield* EventV2.Service
++      const { db } = yield* Database.Service
++      const id = EventV2.ID.create()
++      const received: EventV2.Payload[] = []
++      const off = yield* events.listen((event) =>
++        Effect.sync(() => {
++          received.push(event)
++        }),
++      )
++      yield* Effect.addFinalizer(() => off)
++      yield* db.run("CREATE TABLE notification_parent (id INTEGER PRIMARY KEY)")
++      yield* db.run(
++        "CREATE TABLE notification_child (parent_id INTEGER REFERENCES notification_parent(id) DEFERRABLE INITIALLY DEFERRED)",
++      )
++      const failed = yield* db
++        .transaction(() =>
++          Effect.gen(function* () {
++            yield* events.publish(SyncMessage, { id, text: "commit will fail" })
++            yield* db.run("INSERT INTO notification_child VALUES (1)")
++          }),
++        )
++        .pipe(Effect.exit)
++      expect(Exit.isFailure(failed)).toBe(true)
++      expect(received).toEqual([])
++      expect(yield* EventV2.latestSequence(db, id)).toBe(-1)
++      const event = yield* events.publish(SyncMessage, { id, text: "committed" })
++      expect(received).toEqual([event])
++    }),
++  )
++
+   it.effect("publishes events with the current location", () =>
+     Effect.gen(function* () {
+       const events = yield* EventV2.Service
+diff --git a/packages/opencode/src/effect/runner.ts b/packages/opencode/src/effect/runner.ts
+index f21a61c..5a918c9 100644
+--- a/packages/opencode/src/effect/runner.ts
++++ b/packages/opencode/src/effect/runner.ts
+@@ -4,6 +4,9 @@ export interface Runner<A, E = never> {
+   readonly state: State<A, E>
+   readonly busy: boolean
+   readonly ensureRunning: (work: Effect.Effect<A, E>) => Effect.Effect<A, E>
++  /** Construct before admission; the coalesced wake is invalidated by cancellation or a terminal stop. */
++  readonly wake: (work: Effect.Effect<A, E>) => Effect.Effect<void>
++  readonly suppressWake: Effect.Effect<void>
+   readonly startShell: (work: Effect.Effect<A, E>, ready?: Latch.Latch) => Effect.Effect<A, E | Busy>
+   readonly cancel: Effect.Effect<void>
+ }
+@@ -28,11 +31,18 @@ interface PendingHandle<A, E> {
+   id: number
+   done: Deferred.Deferred<A, E | Cancelled>
+   work: Effect.Effect<A, E>
++  wake?: Effect.Effect<A, E>
+ }
+ 
+ export type State<A, E> =
+   | { readonly _tag: "Idle" }
+-  | { readonly _tag: "Running"; readonly run: RunHandle<A, E> }
++  | {
++      readonly _tag: "Running"
++      readonly run: RunHandle<A, E>
++      readonly wake?: Effect.Effect<A, E>
++      readonly stopped?: boolean
++    }
++  | { readonly _tag: "Cancelling"; readonly done: Deferred.Deferred<void> }
+   | { readonly _tag: "Shell"; readonly shell: ShellHandle<A, E> }
+   | { readonly _tag: "ShellThenRun"; readonly shell: ShellHandle<A, E>; readonly run: PendingHandle<A, E> }
+ 
+@@ -42,6 +52,7 @@ export const make = <A, E = never>(
+     onIdle?: Effect.Effect<void>
+     onBusy?: Effect.Effect<void>
+     onInterrupt?: Effect.Effect<A, E>
++    onCancel?: Effect.Effect<void>
+   },
+ ): Runner<A, E> => {
+   const ref = SynchronizedRef.makeUnsafe<State<A, E>>({ _tag: "Idle" })
+@@ -49,6 +60,7 @@ export const make = <A, E = never>(
+   const onBusy = opts?.onBusy ?? Effect.void
+   const onInterrupt = opts?.onInterrupt
+   let ids = 0
++  let generation = 0
+ 
+   const state = () => SynchronizedRef.getUnsafe(ref)
+   const next = () => {
+@@ -64,20 +76,40 @@ export const make = <A, E = never>(
+   const awaitDone = (done: Deferred.Deferred<A, E | Cancelled>) =>
+     Deferred.await(done).pipe(Effect.catchTag("RunnerCancelled", (e) => onInterrupt ?? Effect.die(e)))
+ 
+-  const idleIfCurrent = () =>
+-    SynchronizedRef.modify(ref, (st) => [st._tag === "Idle" ? idle : Effect.void, st] as const).pipe(Effect.flatten)
++  const suppressWake = SynchronizedRef.update(ref, (st) => {
++    generation++
++    return st._tag === "Running" ? { ...st, wake: undefined, stopped: true } : st
++  })
+ 
+-  const finishRun = (id: number, done: Deferred.Deferred<A, E | Cancelled>, exit: Exit.Exit<A, E>) =>
+-    SynchronizedRef.modify(
++  const finishRun = (
++    id: number,
++    done: Deferred.Deferred<A, E | Cancelled>,
++    exit: Exit.Exit<A, E>,
++  ): Effect.Effect<void> =>
++    SynchronizedRef.modifyEffect(
+       ref,
+-      (st) =>
+-        [
+-          Effect.gen(function* () {
+-            if (st._tag === "Running" && st.run.id === id) yield* idle
+-            yield* complete(done, exit)
+-          }),
+-          st._tag === "Running" && st.run.id === id ? ({ _tag: "Idle" } as const) : st,
+-        ] as const,
++      Effect.fnUntraced(function* (st) {
++        if (st._tag !== "Running" || st.run.id !== id) return [complete(done, exit), st] as const
++        // The wake and finish transitions share this lock: even a wake after the
++        // loop's final history read gets a successor, never a discarded join.
++        if (Exit.isFailure(exit) || st.stopped) generation++
++        if (Exit.isSuccess(exit) && !st.stopped && st.wake) {
++          const nextDone = yield* Deferred.make<A, E | Cancelled>()
++          const run = yield* startRun(st.wake, nextDone)
++          return [complete(done, exit), { _tag: "Running", run }] as const
++        }
++        const notified = yield* Effect.exit(idle)
++        return [
++          complete(done, exit).pipe(
++            Effect.andThen(
++              Exit.isFailure(notified)
++                ? Effect.logError("Runner idle notification failed", { cause: notified.cause })
++                : Effect.void,
++            ),
++          ),
++          { _tag: "Idle" },
++        ] as const
++      }),
+     ).pipe(Effect.flatten)
+ 
+   const startRun = (work: Effect.Effect<A, E>, done: Deferred.Deferred<A, E | Cancelled>) =>
+@@ -99,7 +131,7 @@ export const make = <A, E = never>(
+         }
+         if (st._tag === "ShellThenRun" && st.shell.id === id) {
+           const run = yield* startRun(st.run.work, st.run.done)
+-          return [Effect.void, { _tag: "Running", run }] as const
++          return [Effect.void, { _tag: "Running", run, wake: st.run.wake }] as const
+         }
+         return [Effect.void, st] as const
+       }),
+@@ -112,11 +144,16 @@ export const make = <A, E = never>(
+       yield* Fiber.interrupt(shell.fiber)
+     })
+ 
+-  const ensureRunning = (work: Effect.Effect<A, E>) =>
++  const ensureRunning: Runner<A, E>["ensureRunning"] = (work) =>
+     SynchronizedRef.modifyEffect(
+       ref,
+       Effect.fnUntraced(function* (st) {
+         switch (st._tag) {
++          case "Cancelling":
++            return [
++              Deferred.await(st.done).pipe(Effect.andThen(Effect.suspend(() => ensureRunning(work)))),
++              st,
++            ] as const
+           case "Running":
+           case "ShellThenRun":
+             return [awaitDone(st.run.done), st] as const
+@@ -137,6 +174,39 @@ export const make = <A, E = never>(
+       }),
+     ).pipe(Effect.flatten)
+ 
++  const wake = (work: Effect.Effect<A, E>) => {
++    // Capture before answer admission, which may outlive a cancellation or denial.
++    const admitted = generation
++    return SynchronizedRef.modifyEffect(
++      ref,
++      Effect.fnUntraced(function* (st) {
++        if (admitted !== generation || st._tag === "Cancelling" || (st._tag === "Running" && st.stopped))
++          return [undefined, st] as const
++        switch (st._tag) {
++          case "Running":
++            return [undefined, { ...st, wake: work }] as const
++          case "ShellThenRun":
++            // This run has not started yet; compose one coalesced wake after it.
++            return [undefined, { ...st, run: { ...st.run, wake: work } }] as const
++          case "Shell": {
++            const run = {
++              id: next(),
++              done: yield* Deferred.make<A, E | Cancelled>(),
++              work,
++            }
++            return [undefined, { _tag: "ShellThenRun", shell: st.shell, run }] as const
++          }
++          case "Idle": {
++            yield* onBusy
++            const done = yield* Deferred.make<A, E | Cancelled>()
++            const run = yield* startRun(work, done)
++            return [undefined, { _tag: "Running", run }] as const
++          }
++        }
++      }),
++    )
++  }
++
+   const startShell = (work: Effect.Effect<A, E>, ready?: Latch.Latch): Effect.Effect<A, E | Busy> =>
+     SynchronizedRef.modifyEffect(
+       ref,
+@@ -168,38 +238,37 @@ export const make = <A, E = never>(
+       }),
+     ).pipe(Effect.flatten)
+ 
+-  const cancel = SynchronizedRef.modify(ref, (st) => {
+-    switch (st._tag) {
+-      case "Idle":
+-        return [Effect.void, st] as const
+-      case "Running":
+-        return [
+-          Effect.gen(function* () {
+-            yield* Fiber.interrupt(st.run.fiber)
+-            yield* Deferred.fail(st.run.done, new Cancelled()).pipe(Effect.asVoid)
+-            yield* idleIfCurrent()
+-          }),
+-          { _tag: "Idle" } as const,
+-        ] as const
+-      case "Shell":
+-        return [
+-          Effect.gen(function* () {
+-            yield* stopShell(st.shell)
+-            yield* idleIfCurrent()
+-          }),
+-          { _tag: "Idle" } as const,
+-        ] as const
+-      case "ShellThenRun":
+-        return [
+-          Effect.gen(function* () {
+-            yield* stopShell(st.shell)
+-            yield* Deferred.fail(st.run.done, new Cancelled()).pipe(Effect.asVoid)
+-            yield* idleIfCurrent()
+-          }),
+-          { _tag: "Idle" } as const,
+-        ] as const
+-    }
+-  }).pipe(Effect.flatten)
++  const cancel = SynchronizedRef.modifyEffect(
++    ref,
++    Effect.fnUntraced(function* (st) {
++      // Task interruption hooks can re-enter from a fiber this cleanup is joining.
++      // The first caller owns cleanup; repeated cancellation must not join it.
++      if (st._tag === "Cancelling") return [Effect.void, st] as const
++      generation++
++      const done = yield* Deferred.make<void>()
++      return [
++        Effect.gen(function* () {
++          if (st._tag === "Running") yield* Fiber.interrupt(st.run.fiber)
++          if (st._tag === "Shell" || st._tag === "ShellThenRun") yield* stopShell(st.shell)
++          if (st._tag === "Running" || st._tag === "ShellThenRun") yield* Deferred.fail(st.run.done, new Cancelled())
++          yield* opts?.onCancel ?? Effect.void
++        }).pipe(
++          Effect.ensuring(
++            SynchronizedRef.modifyEffect(ref, () =>
++              idle.pipe(
++                Effect.exit,
++                Effect.map((exit) => {
++                  generation++
++                  return [exit, { _tag: "Idle" }] as const
++                }),
++              ),
++            ).pipe(Effect.flatten, Effect.ensuring(Deferred.succeed(done, undefined))),
++          ),
++        ),
++        { _tag: "Cancelling", done },
++      ] as const
++    }),
++  ).pipe(Effect.flatten, Effect.uninterruptible)
+ 
+   return {
+     get state() {
+@@ -209,6 +278,8 @@ export const make = <A, E = never>(
+       return state()._tag !== "Idle"
+     },
+     ensureRunning,
++    wake,
++    suppressWake,
+     startShell,
+     cancel,
+   }
+diff --git a/packages/opencode/src/question/index.ts b/packages/opencode/src/question/index.ts
+index 8afc141..7ff4144 100644
+--- a/packages/opencode/src/question/index.ts
++++ b/packages/opencode/src/question/index.ts
+@@ -1,7 +1,8 @@
+ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
++import { KeyedMutex } from "@opencode-ai/core/effect/keyed-mutex"
+ import { Deferred, Effect, Layer, Schema, Context } from "effect"
+ import { InstanceState } from "@/effect/instance-state"
+-import { SessionID } from "@/session/schema"
++import { SessionID, MessageID, PartID } from "@/session/schema"
+ import { QuestionID } from "./schema"
+ import { EventV2Bridge } from "@/event-v2-bridge"
+ import { QuestionV1 } from "@opencode-ai/schema/question-v1"
+@@ -34,9 +35,28 @@ export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("Que
+   requestID: QuestionID,
+ }) {}
+ 
++export class ReplyError extends Schema.TaggedErrorClass<ReplyError>()("Question.ReplyError", {
++  requestID: QuestionID,
++  message: Schema.String,
++}) {}
++
++export interface Delivery {
++  request: Request
++  answers: ReadonlyArray<Answer>
++  messageID: MessageID
++  partID: PartID
++}
++
++// Supplied by SessionPrompt through tool context, never a Question -> SessionPrompt dependency.
++export interface PromptOps {
++  answerQuestion(input: Delivery): Effect.Effect<void, unknown>
++}
++
+ interface PendingEntry {
+   info: Request
+   deferred: Deferred.Deferred<ReadonlyArray<Answer>, RejectedError>
++  deliver?: PromptOps["answerQuestion"]
++  delivery?: Delivery
+ }
+ 
+ interface State {
+@@ -46,6 +66,12 @@ interface State {
+ // Service
+ 
+ export interface Interface {
++  readonly register: (input: {
++    sessionID: SessionID
++    questions: ReadonlyArray<Info>
++    tool?: Tool
++    deliver: PromptOps["answerQuestion"]
++  }) => Effect.Effect<Request>
+   readonly ask: (input: {
+     sessionID: SessionID
+     questions: ReadonlyArray<Info>
+@@ -54,7 +80,7 @@ export interface Interface {
+   readonly reply: (input: {
+     requestID: QuestionID
+     answers: ReadonlyArray<Answer>
+-  }) => Effect.Effect<void, NotFoundError>
++  }) => Effect.Effect<void, NotFoundError | ReplyError>
+   readonly reject: (requestID: QuestionID) => Effect.Effect<void, NotFoundError>
+   readonly list: () => Effect.Effect<ReadonlyArray<Request>>
+ }
+@@ -65,6 +91,7 @@ const layer = Layer.effect(
+   Service,
+   Effect.gen(function* () {
+     const events = yield* EventV2Bridge.Service
++    const replies = KeyedMutex.makeUnsafe<QuestionID>()
+     const state = yield* InstanceState.make<State>(
+       Effect.fn("Question.state")(function* () {
+         const state = {
+@@ -84,6 +111,29 @@ const layer = Layer.effect(
+       }),
+     )
+ 
++    // Like blocking asks, registrations live only until this instance is disposed/reloaded.
++    // Accepted answers are durable user messages; pending cards are not a durable inbox.
++    const register: Interface["register"] = Effect.fn("Question.register")(function* (input) {
++      const pending = (yield* InstanceState.get(state)).pending
++      const info: Request = {
++        id: QuestionID.ascending(),
++        sessionID: input.sessionID,
++        questions: input.questions,
++        tool: input.tool,
++        async: true,
++      }
++      const deferred = yield* Deferred.make<ReadonlyArray<Answer>, RejectedError>()
++      pending.set(info.id, { info, deferred, deliver: input.deliver })
++      yield* events.publish(Event.Asked, info).pipe(
++        Effect.onExit((exit) =>
++          Effect.sync(() => {
++            if (exit._tag === "Failure") pending.delete(info.id)
++          }),
++        ),
++      )
++      return info
++    }, Effect.uninterruptible)
++
+     const ask = Effect.fn("Question.ask")(function* (input: {
+       sessionID: SessionID
+       questions: ReadonlyArray<Info>
+@@ -101,10 +151,8 @@ const layer = Layer.effect(
+         tool: input.tool,
+       }
+       pending.set(id, { info, deferred })
+-      yield* events.publish(Event.Asked, info)
+-
+       return yield* Effect.ensuring(
+-        Deferred.await(deferred),
++        events.publish(Event.Asked, info).pipe(Effect.andThen(Deferred.await(deferred))),
+         Effect.sync(() => {
+           pending.delete(id)
+         }),
+@@ -111,48 +159,80 @@ const layer = Layer.effect(
+       )
+     })
+ 
+-    const reply = Effect.fn("Question.reply")(function* (input: {
+-      requestID: QuestionID
+-      answers: ReadonlyArray<Answer>
+-    }) {
+-      const pending = (yield* InstanceState.get(state)).pending
+-      const existing = pending.get(input.requestID)
+-      if (!existing) {
+-        yield* Effect.logWarning("reply for unknown request", { requestID: input.requestID })
+-        return yield* new NotFoundError({ requestID: input.requestID })
+-      }
+-      pending.delete(input.requestID)
+-      yield* Effect.logInfo("replied", { requestID: input.requestID, answers: input.answers })
+-      yield* events.publish(Event.Replied, {
+-        sessionID: existing.info.sessionID,
+-        requestID: existing.info.id,
+-        answers: input.answers.map((a) => [...a]),
+-      })
+-      yield* Deferred.succeed(existing.deferred, input.answers)
+-    })
++    const reply = Effect.fn("Question.reply")(
++      function* (input: { requestID: QuestionID; answers: ReadonlyArray<Answer> }) {
++        const pending = (yield* InstanceState.get(state)).pending
++        const existing = pending.get(input.requestID)
++        if (!existing) {
++          yield* Effect.logWarning("reply for unknown request", { requestID: input.requestID })
++          return yield* new NotFoundError({ requestID: input.requestID })
++        }
++        if (existing.deliver) {
++          if (existing.delivery && JSON.stringify(existing.delivery.answers) !== JSON.stringify(input.answers)) {
++            return yield* new ReplyError({ requestID: input.requestID, message: "Retry with the original answers" })
++          }
++          existing.delivery ??= {
++            request: existing.info,
++            answers: input.answers.map((answer) => [...answer]),
++            messageID: MessageID.ascending(),
++            partID: PartID.ascending(),
++          }
++          yield* existing.deliver(existing.delivery).pipe(
++            Effect.catchCause((cause) =>
++              Effect.gen(function* () {
++                yield* Effect.logError("question answer delivery failed; request retained", {
++                  requestID: input.requestID,
++                  cause,
++                })
++                return yield* new ReplyError({
++                  requestID: input.requestID,
++                  message: "Answer delivery did not complete. Request retained; retry with the same answers.",
++                })
++              }),
++            ),
++          )
++        }
++        pending.delete(input.requestID)
++        yield* Effect.logInfo("replied", { requestID: input.requestID })
++        yield* events
++          .publish(Event.Replied, {
++            sessionID: existing.info.sessionID,
++            requestID: existing.info.id,
++            answers: input.answers.map((a) => [...a]),
++          })
++          .pipe(Effect.catchCause((cause) => Effect.logError("question replied notification failed", { cause })))
++        yield* Deferred.succeed(existing.deferred, input.answers)
++      },
++      (effect, input) => replies.withLock(input.requestID)(Effect.uninterruptible(effect)),
++    )
+ 
+-    const reject = Effect.fn("Question.reject")(function* (requestID: QuestionID) {
+-      const pending = (yield* InstanceState.get(state)).pending
+-      const existing = pending.get(requestID)
+-      if (!existing) {
+-        yield* Effect.logWarning("reject for unknown request", { requestID })
+-        return yield* new NotFoundError({ requestID })
+-      }
+-      pending.delete(requestID)
+-      yield* Effect.logInfo("rejected", { requestID })
+-      yield* events.publish(Event.Rejected, {
+-        sessionID: existing.info.sessionID,
+-        requestID: existing.info.id,
+-      })
+-      yield* Deferred.fail(existing.deferred, new RejectedError())
+-    })
++    const reject = Effect.fn("Question.reject")(
++      function* (requestID: QuestionID) {
++        const pending = (yield* InstanceState.get(state)).pending
++        const existing = pending.get(requestID)
++        if (!existing) {
++          yield* Effect.logWarning("reject for unknown request", { requestID })
++          return yield* new NotFoundError({ requestID })
++        }
++        pending.delete(requestID)
++        yield* Effect.logInfo("rejected", { requestID })
++        yield* events
++          .publish(Event.Rejected, {
++            sessionID: existing.info.sessionID,
++            requestID: existing.info.id,
++          })
++          .pipe(Effect.catchCause((cause) => Effect.logError("question rejected notification failed", { cause })))
++        yield* Deferred.fail(existing.deferred, new RejectedError())
++      },
++      (effect, requestID) => replies.withLock(requestID)(Effect.uninterruptible(effect)),
++    )
+ 
+     const list = Effect.fn("Question.list")(function* () {
+       const pending = (yield* InstanceState.get(state)).pending
+       return Array.from(pending.values(), (x) => x.info)
+     })
+ 
+-    return Service.of({ ask, reply, reject, list })
++    return Service.of({ register, ask, reply, reject, list })
+   }),
+ )
+ 
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/errors.ts b/packages/opencode/src/server/routes/instance/httpapi/errors.ts
+index 5e35d6a..598101b 100644
+--- a/packages/opencode/src/server/routes/instance/httpapi/errors.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/errors.ts
+@@ -122,6 +122,12 @@ export class SessionBusyError extends Schema.TaggedErrorClass<SessionBusyError>(
+   { httpApiStatus: 409 },
+ ) {}
+ 
++export class QuestionReplyError extends Schema.TaggedErrorClass<QuestionReplyError>()(
++  "QuestionReplyError",
++  { requestID: Schema.String, message: Schema.String },
++  { httpApiStatus: 400 },
++) {}
++
+ export class QuestionNotFoundError extends Schema.TaggedErrorClass<QuestionNotFoundError>()(
+   "QuestionNotFoundError",
+   {
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/groups/question.ts b/packages/opencode/src/server/routes/instance/httpapi/groups/question.ts
+index e9e6342..d60cd0a 100644
+--- a/packages/opencode/src/server/routes/instance/httpapi/groups/question.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/groups/question.ts
+@@ -2,7 +2,7 @@ import { Question } from "@/question"
+ import { QuestionID } from "@/question/schema"
+ import { Schema } from "effect"
+ import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+-import { QuestionNotFoundError } from "../errors"
++import { QuestionNotFoundError, QuestionReplyError } from "../errors"
+ import { Authorization } from "../middleware/authorization"
+ import { InstanceContextMiddleware } from "../middleware/instance-context"
+ import { WorkspaceRoutingMiddleware, WorkspaceRoutingQuery } from "../middleware/workspace-routing"
+@@ -34,7 +34,7 @@ export const QuestionApi = HttpApi.make("question")
+           query: WorkspaceRoutingQuery,
+           payload: ReplyPayload,
+           success: described(Schema.Boolean, "Question answered successfully"),
+-          error: [HttpApiError.BadRequest, QuestionNotFoundError],
++          error: [HttpApiError.BadRequest, QuestionNotFoundError, QuestionReplyError],
+         }).annotateMerge(
+           OpenApi.annotations({
+             identifier: "question.reply",
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/question.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/question.ts
+index e9ed8cc..836af7c 100644
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/question.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/question.ts
+@@ -3,7 +3,7 @@ import { QuestionID } from "@/question/schema"
+ import { Effect } from "effect"
+ import { HttpApiBuilder } from "effect/unstable/httpapi"
+ import { InstanceHttpApi } from "../api"
+-import { QuestionNotFoundError } from "../errors"
++import { QuestionNotFoundError, QuestionReplyError } from "../errors"
+ 
+ export const questionHandlers = HttpApiBuilder.group(InstanceHttpApi, "question", (handlers) =>
+   Effect.gen(function* () {
+@@ -23,6 +23,14 @@ export const questionHandlers = HttpApiBuilder.group(InstanceHttpApi, "question"
+           answers: ctx.payload.answers,
+         })
+         .pipe(
++          Effect.catchTag("Question.ReplyError", (error) =>
++            Effect.fail(
++              new QuestionReplyError({
++                requestID: error.requestID,
++                message: error.message,
++              }),
++            ),
++          ),
+           Effect.catchTag("Question.NotFoundError", (error) =>
+             Effect.fail(
+               new QuestionNotFoundError({
+diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
+index c923893..3c4b545 100644
+--- a/packages/opencode/src/session/prompt.ts
++++ b/packages/opencode/src/session/prompt.ts
+@@ -57,6 +57,7 @@ import { SessionTable } from "@opencode-ai/core/session/sql"
+ import { SessionReminders } from "./reminders"
+ import { SessionTools } from "./tools"
+ import { LLMEvent } from "@opencode-ai/llm"
++import type { Question } from "@/question"
+ 
+ // @ts-ignore
+ globalThis.AI_SDK_LOG_WARNINGS = false
+@@ -102,6 +103,7 @@ function isOrphanedInterruptedTool(part: SessionV1.ToolPart) {
+ 
+ export interface Interface {
+   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
++  readonly answerQuestion: Question.PromptOps["answerQuestion"]
+   readonly prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error | Session.BusyError>
+   readonly loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
+   readonly shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
+@@ -143,11 +145,13 @@ const layer = Layer.effect(
+     const database = yield* Database.Service
+     const { db } = database
+     const ops = Effect.fn("SessionPrompt.ops")(function* () {
++      const context = yield* Effect.context()
+       return {
+         cancel: (sessionID: SessionID) => cancel(sessionID),
+         resolvePromptParts: (template: string) => resolvePromptParts(template),
+         prompt: (input: PromptInput) => prompt(input).pipe(Effect.catch(Effect.die)),
+-      } satisfies TaskPromptOps
++        answerQuestion: (input: Question.Delivery) => answerQuestion(input).pipe(Effect.provide(context)),
++      } satisfies TaskPromptOps & Question.PromptOps
+     })
+ 
+     const cancel = Effect.fn("SessionPrompt.cancel")(function* (sessionID: SessionID) {
+@@ -633,7 +637,10 @@ const layer = Layer.effect(
+       return yield* provider.defaultModel().pipe(Effect.orDie)
+     })
+ 
+-    const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
++    const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (
++      input: PromptInput,
++      preserveSelection = false,
++    ) {
+       const agentName = input.agent
+       const ag = agentName ? yield* agents.get(agentName) : yield* agents.defaultInfo()
+       if (!ag) {
+@@ -647,12 +654,14 @@ const layer = Layer.effect(
+       const model = input.model ?? ag.model ?? (yield* currentModel(input.sessionID))
+       const same = ag.model && model.providerID === ag.model.providerID && model.modelID === ag.model.modelID
+       const full =
+-        !input.variant && ag.variant && same
++        !preserveSelection && !input.variant && ag.variant && same
+           ? yield* provider
+               .getModel(model.providerID, model.modelID)
+               .pipe(Effect.catchIf(Provider.ModelNotFoundError.isInstance, () => Effect.succeed(undefined)))
+           : undefined
+-      const variant = input.variant ?? (ag.variant && full?.variants?.[ag.variant] ? ag.variant : undefined)
++      const variant = preserveSelection
++        ? input.variant
++        : (input.variant ?? (ag.variant && full?.variants?.[ag.variant] ? ag.variant : undefined))
+ 
+       const info: SessionV1.User = {
+         id: input.messageID ?? MessageID.ascending(),
+@@ -1052,31 +1061,116 @@ const layer = Layer.effect(
+ 
+     const prompt: (
+       input: PromptInput,
+-    ) => Effect.Effect<SessionV1.WithParts, Image.Error | Session.BusyError> = Effect.fn(
+-      "SessionPrompt.prompt",
+-    )(function* (input: PromptInput) {
++      preserveSelection?: boolean,
++    ) => Effect.Effect<SessionV1.WithParts, Image.Error | Session.BusyError> = Effect.fn("SessionPrompt.prompt")(
++      function* (input: PromptInput, preserveSelection = false) {
++        return yield* state.runTree(
++          input.sessionID,
++          Effect.gen(function* () {
++            const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
++            yield* revert.cleanup(session)
++            const message = yield* createUserMessage(input, preserveSelection)
++            yield* sessions.touch(input.sessionID)
++
++            const permissions: PermissionV1.Rule[] = []
++            for (const [t, enabled] of Object.entries(input.tools ?? {})) {
++              permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
++            }
++            if (permissions.length > 0) {
++              session.permission = permissions
++              yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
++            }
++
++            if (input.noReply === true) return message
++            return yield* loop({ sessionID: input.sessionID })
++          }),
++        )
++      },
++    )
++
++    const answerQuestion: Question.PromptOps["answerQuestion"] = Effect.fn("SessionPrompt.answerQuestion")(function* (
++      input,
++    ) {
++      const sessionID = input.request.sessionID
++      const wake = yield* state.prepareWake(sessionID, lastAssistant(sessionID), runLoop(sessionID))
+       return yield* state.runTree(
+-        input.sessionID,
++        sessionID,
+         Effect.gen(function* () {
+-          const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+-          yield* revert.cleanup(session)
+-          const message = yield* createUserMessage(input)
+-          yield* sessions.touch(input.sessionID)
+-
+-          const permissions: PermissionV1.Rule[] = []
+-          for (const [t, enabled] of Object.entries(input.tools ?? {})) {
+-            permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
+-          }
+-          if (permissions.length > 0) {
+-            session.permission = permissions
+-            yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
++          const existing = yield* sessions.findMessage(sessionID, (message) => message.info.id === input.messageID)
++          // Stable IDs reconcile an admission that committed before a wake failed.
++          // Never append another user message on a retry of the same answer.
++          if (Option.isNone(existing)) {
++            const current = yield* sessions.get(sessionID)
++            const latest = yield* sessions.findMessage(sessionID, (message) => message.info.role === "user")
++            const user = Option.isSome(latest) && latest.value.info.role === "user" ? latest.value.info : undefined
++            const agent = user?.agent ?? current.agent
++            // Retry-model-switch updates the latest user before session metadata.
++            const model =
++              user?.model ??
++              (current.model
++                ? {
++                    providerID: current.model.providerID,
++                    modelID: current.model.id,
++                  }
++                : undefined)
++            if (!agent || !model) return yield* Effect.die(new Error("Question session has no agent/model context"))
++            const variant = user
++              ? user.model.variant
++              : current.model
++                ? current.model.variant === "default"
++                  ? undefined
++                  : current.model.variant
++                : undefined
++            const text =
++              `Answer to clarification ${input.request.id}:\n` +
++              input.request.questions
++                .map(
++                  (q, i) => `${q.question}\n${input.answers[i]?.length ? input.answers[i].join(", ") : "Unanswered"}`,
++                )
++                .join("\n\n")
++            // Use normal prompt admission, not a synthetic/system message or a tool
++            // result. The transaction prevents partial message/part admission on failure.
++            yield* db
++              .transaction(() =>
++                prompt(
++                  {
++                    sessionID,
++                    messageID: input.messageID,
++                    agent,
++                    model,
++                    variant,
++                    system: user?.system,
++                    // History contains JSON, while admission encodes schema class instances.
++                    format: user?.format ? Schema.decodeUnknownSync(SessionV1.Format)(user.format) : undefined,
++                    noReply: true,
++                    parts: [
++                      {
++                        id: input.partID,
++                        type: "text",
++                        text,
++                        metadata: {
++                          driftClarification: {
++                            version: 1,
++                            requestID: input.request.id,
++                            items: input.request.questions.map((q, i) => ({
++                              header: q.header,
++                              question: q.question,
++                              answers: [...(input.answers[i] ?? [])],
++                            })),
++                          },
++                        },
++                      },
++                    ],
++                  },
++                  true,
++                ),
++              )
++              .pipe(Effect.orDie)
+           }
+-
+-          if (input.noReply === true) return message
+-          return yield* loop({ sessionID: input.sessionID })
++          yield* wake
+         }),
+       )
+-    })
++    }, Effect.uninterruptible)
+ 
+     const lastAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
+       const match = yield* sessions.findMessage(sessionID, (m) => m.info.role !== "user").pipe(Effect.orDie)
+@@ -1163,7 +1240,10 @@ const layer = Layer.effect(
+               auto: task.auto,
+               overflow: task.overflow,
+             })
+-            if (result === "stop") break
++            if (result === "stop") {
++              yield* state.suppressWake(sessionID)
++              break
++            }
+             continue
+           }
+ 
+@@ -1227,7 +1307,7 @@ const layer = Layer.effect(
+             })
+             .pipe(Effect.onInterrupt(() => finalizeInterruptedAssistant))
+ 
+-          const outcome: "break" | "continue" = yield* Effect.gen(function* () {
++          const outcome: "break" | "stop" | "continue" = yield* Effect.gen(function* () {
+             const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
+             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
+             const promptOps = yield* ops()
+@@ -1264,7 +1344,9 @@ const layer = Layer.effect(
+               }
+ 
+               if (first && step === 1)
+-                yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
++                yield* summary
++                  .summarize({ sessionID, messageID: lastUser.id })
++                  .pipe(Effect.ignore, Effect.forkIn(scope))
+ 
+               if (first) yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+ 
+@@ -1325,6 +1407,8 @@ const layer = Layer.effect(
+               }
+               const result = raced.result
+ 
++              if (result === "stop") return "stop" as const
++
+               if (structured !== undefined) {
+                 handle.message.structured = structured
+                 handle.message.finish = handle.message.finish ?? "stop"
+@@ -1344,7 +1428,7 @@ const layer = Layer.effect(
+                   }).toObject()
+                   yield* sessions.updateMessage(handle.message)
+                   yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
+-                  return "break" as const
++                  return "stop" as const
+                 }
+                 if (format.type === "json_schema") {
+                   handle.message.error = new SessionV1.StructuredOutputError({
+@@ -1352,11 +1436,10 @@ const layer = Layer.effect(
+                     retries: 0,
+                   }).toObject()
+                   yield* sessions.updateMessage(handle.message)
+-                  return "break" as const
++                  return "stop" as const
+                 }
+               }
+ 
+-              if (result === "stop") return "break" as const
+               if (result === "compact") {
+                 yield* compaction.create({
+                   sessionID,
+@@ -1372,7 +1455,8 @@ const layer = Layer.effect(
+             Effect.ensuring(instruction.clear(handle.message.id)),
+             Effect.onInterrupt(() => finalizeInterruptedAssistant),
+           )
+-          if (outcome === "break") break
++          if (outcome === "stop") yield* state.suppressWake(sessionID)
++          if (outcome !== "continue") break
+           continue
+         }
+ 
+@@ -1522,6 +1606,7 @@ const layer = Layer.effect(
+     })
+ 
+     return Service.of({
++      answerQuestion,
+       cancel,
+       prompt,
+       loop,
+diff --git a/packages/opencode/src/session/run-state.ts b/packages/opencode/src/session/run-state.ts
+index faad9fa..f0702b5 100644
+--- a/packages/opencode/src/session/run-state.ts
++++ b/packages/opencode/src/session/run-state.ts
+@@ -21,6 +21,12 @@ export interface Interface {
+     effect: Effect.Effect<A, E, R>,
+   ) => Effect.Effect<A, E | Session.BusyError, R>
+   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
++  readonly suppressWake: (sessionID: SessionID) => Effect.Effect<void>
++  readonly prepareWake: (
++    sessionID: SessionID,
++    onInterrupt: Effect.Effect<SessionV1.WithParts>,
++    work: Effect.Effect<SessionV1.WithParts>,
++  ) => Effect.Effect<Effect.Effect<void, Session.BusyError>>
+   readonly ensureRunning: (
+     sessionID: SessionID,
+     onInterrupt: Effect.Effect<SessionV1.WithParts>,
+@@ -110,11 +116,13 @@ const layer = Layer.effect(
+       if (existing) return existing
+       const next = Runner.make<SessionV1.WithParts, Session.BusyError>(data.scope, {
+         onIdle: Effect.gen(function* () {
+-          data.runners.delete(sessionID)
++          // Retain the coordinator until instance disposal so a racing wake cannot
++          // hold an evicted runner while another caller creates a second one.
+           yield* status.set(sessionID, { type: "idle" })
+         }),
+         onBusy: status.set(sessionID, { type: "busy" }),
+         onInterrupt,
++        onCancel: cancelBackgroundJobs(background, sessionID),
+       })
+       data.runners.set(sessionID, next)
+       return next
+@@ -161,10 +169,10 @@ const layer = Layer.effect(
+     )
+ 
+     const cancel = Effect.fn("SessionRunState.cancel")(function* (sessionID: SessionID) {
+-      yield* cancelBackgroundJobs(background, sessionID)
+       const data = yield* InstanceState.get(state)
+       const existing = data.runners.get(sessionID)
+       if (!existing) {
++        yield* cancelBackgroundJobs(background, sessionID)
+         yield* status.set(sessionID, { type: "idle" })
+         return
+       }
+@@ -179,6 +187,30 @@ const layer = Layer.effect(
+       return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(runTree(sessionID, work))
+     })
+ 
++    const suppressWake: Interface["suppressWake"] = Effect.fn("SessionRunState.suppressWake")(function* (sessionID) {
++      const data = yield* InstanceState.get(state)
++      yield* data.runners.get(sessionID)?.suppressWake ?? Effect.void
++    })
++
++    const prepareWake: Interface["prepareWake"] = Effect.fn("SessionRunState.prepareWake")(
++      function* (sessionID, onInterrupt, work) {
++        const current = yield* runner(sessionID, onInterrupt)
++        return runTree(
++          sessionID,
++          current.wake(
++            runTree(sessionID, work).pipe(
++              Effect.catchCause((cause) =>
++                Effect.logError("session question wake failed; admitted answer remains in history", {
++                  sessionID,
++                  cause,
++                }).pipe(Effect.andThen(Effect.failCause(cause))),
++              ),
++            ),
++          ),
++        )
++      },
++    )
++
+     const startShell = Effect.fn("SessionRunState.startShell")(function* (
+       sessionID: SessionID,
+       onInterrupt: Effect.Effect<SessionV1.WithParts>,
+@@ -203,7 +235,16 @@ const layer = Layer.effect(
+       }
+     })
+ 
+-    return Service.of({ assertNotBusy, runTree, whileTreeIdle, cancel, ensureRunning, startShell })
++    return Service.of({
++      assertNotBusy,
++      runTree,
++      whileTreeIdle,
++      cancel,
++      ensureRunning,
++      prepareWake,
++      suppressWake,
++      startShell,
++    })
+   }),
+ )
+ 
+diff --git a/packages/opencode/src/tool/question.ts b/packages/opencode/src/tool/question.ts
+index 51f1e71..8fb34ec 100644
+--- a/packages/opencode/src/tool/question.ts
++++ b/packages/opencode/src/tool/question.ts
+@@ -5,10 +5,16 @@ import DESCRIPTION from "./question.txt"
+ 
+ export const Parameters = Schema.Struct({
+   questions: Schema.mutable(Schema.Array(Question.Prompt)).annotate({ description: "Questions to ask" }),
++  async: Schema.optional(Schema.Boolean).annotate({
++    description:
++      "Default true: ask optional clarification and continue independent work. Set false when the answer is required before proceeding. Never bypass required approvals.",
++  }),
+ })
+ 
+ type Metadata = {
+-  answers: ReadonlyArray<Question.Answer>
++  answers?: ReadonlyArray<Question.Answer>
++  requestID?: string
++  async?: boolean
+ }
+ 
+ export const QuestionTool = Tool.define<typeof Parameters, Metadata, Question.Service>(
+@@ -21,11 +27,28 @@ export const QuestionTool = Tool.define<typeof Parameters, Metadata, Question.Se
+       parameters: Parameters,
+       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context<Metadata>) =>
+         Effect.gen(function* () {
+-          const answers = yield* question.ask({
++          const input = {
+             sessionID: ctx.sessionID,
+             questions: params.questions,
+             tool: ctx.callID ? { messageID: ctx.messageID, callID: ctx.callID } : undefined,
+-          })
++          }
++          if (params.async !== false) {
++            const ops = ctx.extra?.promptOps as Question.PromptOps | undefined
++            if (!ops?.answerQuestion)
++              return yield* Effect.die(new Error("Async QuestionTool requires answerQuestion in promptOps"))
++            const request = yield* question.register({ ...input, deliver: ops.answerQuestion })
++            return {
++              title: `Asked ${params.questions.length} question${params.questions.length > 1 ? "s" : ""}`,
++              output: [
++                `Question registered: ${request.id}. The user has NOT answered yet.`,
++                "Continue independent work that does not depend on this answer. Do not poll, sleep, or assume an answer.",
++                "The answer will arrive as a user message in this session. If nothing independent remains, end your turn.",
++                "This is not approval or permission to perform any restricted action.",
++              ].join("\n"),
++              metadata: { requestID: request.id, async: true },
++            }
++          }
++          const answers = yield* question.ask(input)
+ 
+           const formatted = params.questions
+             .map((q, i) => `"${q.question}"="${answers[i]?.length ? answers[i].join(", ") : "Unanswered"}"`)
+diff --git a/packages/opencode/src/tool/question.txt b/packages/opencode/src/tool/question.txt
+index 03cd496..e3d6095 100644
+--- a/packages/opencode/src/tool/question.txt
++++ b/packages/opencode/src/tool/question.txt
+@@ -5,6 +5,9 @@ Use this tool when you need to ask the user questions during execution. This all
+ 4. Offer choices to the user about what direction to take.
+ 
+ Usage notes:
++- Prefer async clarification for optional preferences while independent work remains. The question TOOL defaults to async=true and returns a pending request ID, not an answer.
++- Set async=false for questions whose answers are required before proceeding. Direct blocking asks, including plan approval, still wait for the user.
++- Never use async questions to bypass required approvals, permissions, safety checks, or to assume consent. Only continue work that does not depend on the answer.
+ - When `custom` is enabled (default), a "Type your own answer" option is added automatically; don't include "Other" or catch-all options
+ - Answers are returned as arrays of labels; set `multiple: true` to allow selecting more than one
+ - If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label
+diff --git a/packages/opencode/test/effect/async-question.test.ts b/packages/opencode/test/effect/async-question.test.ts
+new file mode 100644
+index 0000000..8e2a0e3
+--- /dev/null
++++ b/packages/opencode/test/effect/async-question.test.ts
+@@ -0,0 +1,269 @@
++import { expect } from "bun:test"
++import { Cause, Deferred, Effect, Exit, Fiber, Scope } from "effect"
++import { Runner } from "../../src/effect/runner"
++import { it } from "../lib/effect"
++
++for (const failed of [false, true])
++  for (const hook of ["defect", "interrupt"])
++    it.live(
++      `question runner settles ${failed ? "failed" : "successful"} work after idle hook ${hook}`,
++      Effect.gen(function* () {
++        const scope = yield* Scope.Scope
++        const runner = Runner.make<string, string>(scope, {
++          onIdle: hook === "defect" ? Effect.die("idle failed") : Effect.interrupt,
++        })
++        const result = yield* runner
++          .ensureRunning(failed ? Effect.fail("work failed") : Effect.succeed("work result"))
++          .pipe(Effect.exit, Effect.timeout("2 seconds"))
++        expect(runner.state._tag).toBe("Idle")
++        expect(Exit.isFailure(result)).toBe(failed)
++        if (Exit.isFailure(result)) expect(Cause.squash(result.cause)).toBe("work failed")
++        else expect(result.value).toBe("work result")
++        expect(yield* runner.ensureRunning(Effect.succeed("next prompt")).pipe(Effect.timeout("2 seconds"))).toBe(
++          "next prompt",
++        )
++        expect(runner.busy).toBe(false)
++      }),
++    )
++
++for (const hook of ["onCancel", "onIdle"] as const)
++  it.live(
++    `question cancellation still stops work when ${hook} fails`,
++    Effect.gen(function* () {
++      const scope = yield* Scope.Scope
++      const runner = Runner.make<string>(scope, {
++        onInterrupt: Effect.succeed("cancelled"),
++        [hook]: Effect.die("cleanup failed"),
++      })
++      const entered = yield* Deferred.make<void>()
++      let finalized = false
++      const run = yield* runner
++        .ensureRunning(
++          Deferred.succeed(entered, undefined).pipe(
++            Effect.andThen(Effect.never),
++            Effect.ensuring(
++              Effect.sync(() => {
++                finalized = true
++              }),
++            ),
++          ),
++        )
++        .pipe(Effect.forkChild)
++      yield* Deferred.await(entered)
++      expect(Exit.isFailure(yield* runner.cancel.pipe(Effect.exit))).toBe(true)
++      expect(yield* Fiber.join(run)).toBe("cancelled")
++      expect(finalized).toBe(true)
++      expect(runner.busy).toBe(false)
++    }),
++  )
++
++for (const stop of ["failure", "terminal"])
++  it.live(
++    `question wake drops queued and inflight work after ${stop}`,
++    Effect.gen(function* () {
++      const scope = yield* Scope.Scope
++      const runner = Runner.make<string, string>(scope)
++      const entered = yield* Deferred.make<void>()
++      const release = yield* Deferred.make<void>()
++      let calls = 0
++      const work = Effect.sync(() => {
++        calls++
++        return "wake"
++      })
++      const first = yield* runner
++        .ensureRunning(
++          Effect.gen(function* () {
++            yield* Deferred.succeed(entered, undefined)
++            yield* Deferred.await(release)
++            if (stop === "failure") return yield* Effect.fail("failed")
++            yield* runner.suppressWake
++            return "denied"
++          }),
++        )
++        .pipe(Effect.exit, Effect.forkChild)
++      yield* Deferred.await(entered)
++      const inflight = runner.wake(work)
++      yield* runner.wake(work)
++      yield* Deferred.succeed(release, undefined)
++      const exit = yield* Fiber.join(first)
++      expect(Exit.isFailure(exit)).toBe(stop === "failure")
++      yield* inflight
++      expect(calls).toBe(0)
++      expect(runner.busy).toBe(false)
++      expect(yield* runner.ensureRunning(Effect.succeed("explicit"))).toBe("explicit")
++    }),
++  )
++
++it.live(
++  "question wake cannot restart during cancellation cleanup or from a stale admission",
++  Effect.gen(function* () {
++    const scope = yield* Scope.Scope
++    const runner = Runner.make<string>(scope, { onInterrupt: Effect.succeed("cancelled") })
++    const entered = yield* Deferred.make<void>()
++    const finalizing = yield* Deferred.make<void>()
++    const release = yield* Deferred.make<void>()
++    let calls = 0
++    const work = Effect.sync(() => {
++      calls++
++      return "wake"
++    })
++    yield* Effect.gen(function* () {
++      const first = yield* runner
++        .ensureRunning(
++          Deferred.succeed(entered, undefined).pipe(
++            Effect.andThen(Effect.never),
++            Effect.ensuring(Deferred.succeed(finalizing, undefined).pipe(Effect.andThen(Deferred.await(release)))),
++          ),
++        )
++        .pipe(Effect.forkChild)
++      yield* Deferred.await(entered)
++      const inflight = runner.wake(work)
++      yield* runner.wake(work)
++      const cancel = yield* runner.cancel.pipe(Effect.forkChild)
++      yield* Deferred.await(finalizing)
++      expect(runner.state._tag).toBe("Cancelling")
++      expect(runner.busy).toBe(true)
++      const during = runner.wake(work)
++      yield* runner.wake(work)
++      yield* inflight
++      expect(calls).toBe(0)
++      const secondCancel = yield* runner.cancel.pipe(Effect.forkChild)
++      yield* Deferred.succeed(release, undefined)
++      yield* Fiber.join(cancel)
++      yield* Fiber.join(secondCancel)
++      expect(yield* Fiber.join(first)).toBe("cancelled")
++      yield* inflight
++      yield* during
++      expect(calls).toBe(0)
++      expect(runner.busy).toBe(false)
++    }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)))
++  }),
++)
++
++it.live(
++  "question wake does not abort active work and coalesces a serialized successor",
++  Effect.gen(function* () {
++    const scope = yield* Scope.Scope
++    const runner = Runner.make<string>(scope)
++    const entered = yield* Deferred.make<void>()
++    const release = yield* Deferred.make<void>()
++    const woke = yield* Deferred.make<void>()
++    const order: string[] = []
++    const first = yield* runner
++      .ensureRunning(
++        Effect.gen(function* () {
++          order.push("active")
++          yield* Deferred.succeed(entered, undefined)
++          yield* Deferred.await(release)
++          order.push("finished")
++          return "first"
++        }),
++      )
++      .pipe(Effect.forkChild)
++    yield* Deferred.await(entered)
++    const work = Effect.sync(() => {
++      order.push("successor")
++      return "next"
++    }).pipe(Effect.tap(() => Deferred.succeed(woke, undefined)))
++    yield* runner.wake(work)
++    yield* runner.wake(work)
++    expect(order).toEqual(["active"])
++    yield* Deferred.succeed(release, undefined)
++    expect(yield* Fiber.join(first)).toBe("first")
++    yield* Deferred.await(woke)
++    expect(order).toEqual(["active", "finished", "successor"])
++  }),
++)
++
++it.live(
++  "question wake arriving during the final idle transition is not lost",
++  Effect.gen(function* () {
++    const scope = yield* Scope.Scope
++    const exiting = yield* Deferred.make<void>()
++    const release = yield* Deferred.make<void>()
++    const woke = yield* Deferred.make<void>()
++    let idles = 0
++    const runner = Runner.make<string>(scope, {
++      onIdle: Effect.gen(function* () {
++        if (++idles !== 1) return
++        yield* Deferred.succeed(exiting, undefined)
++        yield* Deferred.await(release)
++      }),
++    })
++    const first = yield* runner.ensureRunning(Effect.succeed("finished")).pipe(Effect.forkChild)
++    yield* Deferred.await(exiting)
++    const wake = yield* runner.wake(Deferred.succeed(woke, undefined).pipe(Effect.as("answer"))).pipe(Effect.forkChild)
++    yield* Deferred.succeed(release, undefined)
++    yield* Fiber.join(first)
++    yield* Fiber.join(wake)
++    yield* Deferred.await(woke)
++  }),
++)
++
++it.live(
++  "question wake cancellation drops a queued successor instead of restarting",
++  Effect.gen(function* () {
++    const scope = yield* Scope.Scope
++    const runner = Runner.make<string>(scope, { onInterrupt: Effect.succeed("cancelled") })
++    const entered = yield* Deferred.make<void>()
++    let woke = false
++    const first = yield* runner
++      .ensureRunning(Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)))
++      .pipe(Effect.forkChild)
++    yield* Deferred.await(entered)
++    yield* runner.wake(
++      Effect.sync(() => {
++        woke = true
++        return "bad"
++      }),
++    )
++    yield* runner.cancel
++    expect(yield* Fiber.join(first)).toBe("cancelled")
++    expect(woke).toBe(false)
++    expect(runner.busy).toBe(false)
++  }),
++)
++
++it.live(
++  "question wake waits for a shell and its already queued run",
++  Effect.gen(function* () {
++    const scope = yield* Scope.Scope
++    const runner = Runner.make<string>(scope)
++    const entered = yield* Deferred.make<void>()
++    const release = yield* Deferred.make<void>()
++    const woke = yield* Deferred.make<void>()
++    const order: string[] = []
++    const shell = yield* runner
++      .startShell(
++        Effect.gen(function* () {
++          yield* Deferred.succeed(entered, undefined)
++          yield* Deferred.await(release)
++          order.push("shell")
++          return "shell"
++        }),
++      )
++      .pipe(Effect.forkChild)
++    yield* Deferred.await(entered)
++    const queued = yield* runner
++      .ensureRunning(
++        Effect.sync(() => {
++          order.push("queued")
++          return "queued"
++        }),
++      )
++      .pipe(Effect.forkChild)
++    while (runner.state._tag !== "ShellThenRun") yield* Effect.yieldNow
++    yield* runner.wake(
++      Effect.sync(() => {
++        order.push("wake")
++        return "wake"
++      }).pipe(Effect.tap(() => Deferred.succeed(woke, undefined))),
++    )
++    expect(order).toEqual([])
++    yield* Deferred.succeed(release, undefined)
++    yield* Fiber.join(shell)
++    yield* Fiber.join(queued)
++    yield* Deferred.await(woke)
++    expect(order).toEqual(["shell", "queued", "wake"])
++  }),
++)
+diff --git a/packages/opencode/test/question/async-question.test.ts b/packages/opencode/test/question/async-question.test.ts
+new file mode 100644
+index 0000000..aaaf943
+--- /dev/null
++++ b/packages/opencode/test/question/async-question.test.ts
+@@ -0,0 +1,244 @@
++import { expect } from "bun:test"
++import { LayerNode } from "@opencode-ai/core/effect/layer-node"
++import { Cause, Deferred, Effect, Exit, Fiber, Schema } from "effect"
++import { Question } from "../../src/question"
++import { QuestionID } from "../../src/question/schema"
++import { QuestionTool, Parameters } from "../../src/tool/question"
++import { SessionID, MessageID } from "../../src/session/schema"
++import { EventV2Bridge } from "../../src/event-v2-bridge"
++import { Truncate } from "../../src/tool/truncate"
++import { Agent } from "../../src/agent/agent"
++import { awaitWithTimeout, testEffect } from "../lib/effect"
++
++const it = testEffect(
++  LayerNode.compile(LayerNode.group([Question.node, EventV2Bridge.node, Truncate.node, Agent.node])),
++)
++const questions = [{ question: "Which color?", header: "Color", options: [{ label: "Blue", description: "Blue" }] }]
++const sessionID = SessionID.make("ses_async-question")
++const ctx = {
++  sessionID,
++  messageID: MessageID.make("msg_async-question"),
++  callID: "call-question",
++  agent: "plan",
++  abort: AbortSignal.any([]),
++  messages: [],
++  metadata: () => Effect.void,
++  ask: () => Effect.die("Question must not grant permissions"),
++}
++
++it.instance("async question tool defaults to immediate return and a wire-visible pending request", () =>
++  Effect.gen(function* () {
++    const question = yield* Question.Service
++    const info = yield* QuestionTool
++    const tool = yield* info.init()
++    const received: Question.Delivery[] = []
++    const result = yield* tool.execute(
++      { questions },
++      {
++        ...ctx,
++        extra: {
++          promptOps: {
++            answerQuestion: (input: Question.Delivery) =>
++              Effect.sync(() => {
++                received.push(input)
++              }),
++          },
++        },
++      },
++    )
++    const pending = yield* question.list()
++    expect(pending).toHaveLength(1)
++    expect(pending[0]).toMatchObject({
++      id: result.metadata.requestID,
++      sessionID,
++      async: true,
++      tool: { messageID: ctx.messageID, callID: ctx.callID },
++    })
++    expect(Schema.decodeUnknownSync(Question.Request)(pending[0]).async).toBe(true)
++    expect(Schema.decodeUnknownSync(Parameters)({ questions, async: false }).async).toBe(false)
++    expect(result.output).toContain("NOT answered")
++    expect(result.metadata.answers).toBeUndefined()
++    expect(received).toHaveLength(0)
++    yield* question.reply({ requestID: pending[0].id, answers: [["Blue"]] })
++    expect(received).toHaveLength(1)
++    expect(received[0].request.sessionID).toBe(sessionID)
++    expect(yield* question.list()).toEqual([])
++    const duplicate = yield* question.reply({ requestID: pending[0].id, answers: [["Blue"]] }).pipe(Effect.exit)
++    expect(Exit.isFailure(duplicate)).toBe(true)
++    if (Exit.isFailure(duplicate)) expect(Cause.squash(duplicate.cause)).toBeInstanceOf(Question.NotFoundError)
++    expect(received).toHaveLength(1)
++  }),
++)
++
++it.instance("async reply retains the card until admission and serializes concurrent duplicates", () =>
++  Effect.gen(function* () {
++    const question = yield* Question.Service
++    const entered = yield* Deferred.make<void>()
++    const release = yield* Deferred.make<void>()
++    let calls = 0
++    const request = yield* question.register({
++      sessionID,
++      questions,
++      deliver: () =>
++        Effect.gen(function* () {
++          calls++
++          yield* Deferred.succeed(entered, undefined)
++          yield* Deferred.await(release)
++        }),
++    })
++    const first = yield* question.reply({ requestID: request.id, answers: [["Blue"]] }).pipe(Effect.forkChild)
++    yield* Deferred.await(entered)
++    expect(yield* question.list()).toHaveLength(1)
++    const duplicate = yield* question
++      .reply({ requestID: request.id, answers: [["Blue"]] })
++      .pipe(Effect.exit, Effect.forkChild)
++    yield* Deferred.succeed(release, undefined)
++    yield* Fiber.join(first)
++    const exit = yield* Fiber.join(duplicate)
++    expect(Exit.isFailure(exit)).toBe(true)
++    expect(calls).toBe(1)
++    expect(yield* question.list()).toEqual([])
++  }),
++)
++
++it.instance("async admission failures retain the request and retry stable IDs and original answers", () =>
++  Effect.gen(function* () {
++    const question = yield* Question.Service
++    const deliveries: Question.Delivery[] = []
++    const request = yield* question.register({
++      sessionID,
++      questions,
++      deliver: (input) =>
++        Effect.gen(function* () {
++          deliveries.push(input)
++          if (deliveries.length === 1) return yield* Effect.die(new Error("admission unavailable"))
++        }),
++    })
++    const first = yield* question.reply({ requestID: request.id, answers: [["Blue"]] }).pipe(Effect.exit)
++    expect(Exit.isFailure(first)).toBe(true)
++    if (Exit.isFailure(first)) expect(Cause.squash(first.cause)).toBeInstanceOf(Question.ReplyError)
++    expect(yield* question.list()).toHaveLength(1)
++    const changed = yield* question.reply({ requestID: request.id, answers: [["Red"]] }).pipe(Effect.exit)
++    expect(Exit.isFailure(changed)).toBe(true)
++    expect(deliveries).toHaveLength(1)
++    yield* question.reply({ requestID: request.id, answers: [["Blue"]] })
++    expect(deliveries).toHaveLength(2)
++    expect(deliveries[0]).toEqual(deliveries[1])
++    expect(yield* question.list()).toEqual([])
++  }),
++)
++
++it.instance("async rejection never admits an answer or restarts a stopped session", () =>
++  Effect.gen(function* () {
++    const question = yield* Question.Service
++    const request = yield* question.register({
++      sessionID,
++      questions,
++      deliver: () => Effect.die("Reject must not deliver or wake"),
++    })
++    yield* question.reject(request.id)
++    expect(yield* question.list()).toEqual([])
++    const exit = yield* question.reply({ requestID: request.id, answers: [["Blue"]] }).pipe(Effect.exit)
++    expect(Exit.isFailure(exit)).toBe(true)
++    const unknown = yield* question.reply({ requestID: QuestionID.make("que_unknown"), answers: [] }).pipe(Effect.exit)
++    expect(Exit.isFailure(unknown)).toBe(true)
++  }),
++)
++
++for (const failure of ["defect", "interrupt"]) {
++  it.instance(`blocking rejection settles the caller despite a rejected notification ${failure}`, () =>
++    Effect.gen(function* () {
++      const question = yield* Question.Service
++      const events = yield* EventV2Bridge.Service
++      const asked = yield* Deferred.make<Question.Request>()
++      let notifications = 0
++      const off = yield* events.listen((event) => {
++        if (event.type === Question.Event.Asked.type)
++          return Deferred.succeed(asked, event.data as Question.Request).pipe(Effect.asVoid)
++        if (event.type !== Question.Event.Rejected.type) return Effect.void
++        notifications++
++        return failure === "defect" ? Effect.die("rejected listener failed") : Effect.interrupt
++      })
++      yield* Effect.addFinalizer(() => off)
++      const caller = yield* question.ask({ sessionID, questions }).pipe(Effect.exit, Effect.forkChild)
++      const request = yield* awaitWithTimeout(Deferred.await(asked), "blocking question was not published")
++      expect(yield* question.list()).toEqual([request])
++      const rejected = yield* question.reject(request.id).pipe(Effect.exit)
++      expect(Exit.isSuccess(rejected)).toBe(true)
++      expect(notifications).toBe(1)
++      expect(yield* question.list()).toEqual([])
++      const exit = yield* awaitWithTimeout(Fiber.join(caller), "rejected caller did not settle")
++      expect(Exit.isFailure(exit)).toBe(true)
++      if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBeInstanceOf(Question.RejectedError)
++      const duplicate = yield* question.reject(request.id).pipe(Effect.exit)
++      expect(Exit.isFailure(duplicate)).toBe(true)
++      if (Exit.isFailure(duplicate)) expect(Cause.squash(duplicate.cause)).toBeInstanceOf(Question.NotFoundError)
++      expect(notifications).toBe(1)
++    }),
++  )
++
++  it.instance(`blocking ask removes its pending request after an asked publication ${failure}`, () =>
++    Effect.gen(function* () {
++      const question = yield* Question.Service
++      const events = yield* EventV2Bridge.Service
++      const published: Question.Request[] = []
++      const defect = new Error("asked listener failed")
++      const off = yield* events.listen((event) => {
++        if (event.type !== Question.Event.Asked.type) return Effect.void
++        published.push(event.data as Question.Request)
++        return failure === "defect" ? Effect.die(defect) : Effect.interrupt
++      })
++      yield* Effect.addFinalizer(() => off)
++      const exit = yield* question.ask({ sessionID, questions }).pipe(Effect.exit)
++      expect(Exit.isFailure(exit)).toBe(true)
++      if (Exit.isFailure(exit)) {
++        if (failure === "defect") expect(Cause.squash(exit.cause)).toBe(defect)
++        else expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true)
++      }
++      expect(published).toHaveLength(1)
++      expect(yield* question.list()).toEqual([])
++      const reply = yield* question.reply({ requestID: published[0].id, answers: [["Blue"]] }).pipe(Effect.exit)
++      expect(Exit.isFailure(reply)).toBe(true)
++      if (Exit.isFailure(reply)) expect(Cause.squash(reply.cause)).toBeInstanceOf(Question.NotFoundError)
++      yield* off
++      const asked = yield* Deferred.make<Question.Request>()
++      const unsubscribe = yield* events.listen((event) =>
++        event.type === Question.Event.Asked.type
++          ? Deferred.succeed(asked, event.data as Question.Request).pipe(Effect.asVoid)
++          : Effect.void,
++      )
++      yield* Effect.addFinalizer(() => unsubscribe)
++      const caller = yield* question.ask({ sessionID, questions }).pipe(Effect.forkChild)
++      const request = yield* awaitWithTimeout(Deferred.await(asked), "next question was not published")
++      yield* question.reply({ requestID: request.id, answers: [["Blue"]] })
++      expect(yield* awaitWithTimeout(Fiber.join(caller), "next question did not settle")).toEqual([["Blue"]])
++      expect(yield* question.list()).toEqual([])
++    }),
++  )
++}
++
++it.instance("async false preserves blocking tool execution without promptOps", () =>
++  Effect.gen(function* () {
++    const question = yield* Question.Service
++    const info = yield* QuestionTool
++    const tool = yield* info.init()
++    const asked = yield* Deferred.make<Question.Request>()
++    const events = yield* EventV2Bridge.Service
++    const off = yield* events.listen((event) =>
++      event.type === Question.Event.Asked.type
++        ? Deferred.succeed(asked, event.data as Question.Request).pipe(Effect.asVoid)
++        : Effect.void,
++    )
++    yield* Effect.addFinalizer(() => off)
++    const finished = yield* Deferred.make<void>()
++    const fiber = yield* tool.execute({ questions, async: false }, ctx).pipe(
++      Effect.tap(() => Deferred.succeed(finished, undefined)),
++      Effect.forkChild,
++    )
++    const request = yield* Deferred.await(asked)
++    expect(request.async).toBeUndefined()
++    expect(yield* Deferred.isDone(finished)).toBe(false)
++    yield* question.reply({ requestID: request.id, answers: [["Blue"]] })
++    expect((yield* Fiber.join(fiber)).metadata.answers).toEqual([["Blue"]])
++  }),
++)
+diff --git a/packages/opencode/test/session/prompt.test.ts b/packages/opencode/test/session/prompt.test.ts
+index 33140d1..27cdc97 100644
+--- a/packages/opencode/test/session/prompt.test.ts
++++ b/packages/opencode/test/session/prompt.test.ts
+@@ -5,6 +5,9 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+ import { SessionProjector } from "@opencode-ai/core/session/projector"
+ import { eq } from "drizzle-orm"
+ import { EventV2Bridge } from "@/event-v2-bridge"
++import { EventV2 } from "@opencode-ai/core/event"
++import { InstanceStore } from "@/project/instance-store"
++import { InstanceRef } from "@/effect/instance-ref"
+ import { expect } from "bun:test"
+ import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect"
+ import path from "path"
+@@ -47,6 +48,8 @@ import { Shell } from "@opencode-ai/core/shell"
+ import { Snapshot } from "../../src/snapshot"
+ import { ToolRegistry } from "@/tool/registry"
+ import { Truncate } from "@/tool/truncate"
++import { PlanExitTool } from "@/tool/plan"
++import { TaskTool, type TaskPromptOps } from "@/tool/task"
+ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+ import { Ripgrep } from "@opencode-ai/core/ripgrep"
+ import { Format } from "../../src/format"
+@@ -2469,3 +2472,654 @@ noLLMServer.instance(
+     }),
+   30_000,
+ )
++
++it.instance("async question retained child runner cancellation completes the real task interruption hook", () =>
++  Effect.gen(function* () {
++    const { llm } = yield* useServerConfig(providerCfg)
++    const prompt = yield* SessionPrompt.Service
++    const sessions = yield* Session.Service
++    const state = yield* SessionRunState.Service
++    const jobs = yield* BackgroundJob.Service
++    const parent = yield* sessions.create({ title: "Pinned" })
++    const child = yield* sessions.create({ parentID: parent.id, title: "Child" })
++    yield* llm.text("Parent ready")
++    const parentReply = yield* prompt.prompt({
++      sessionID: parent.id,
++      agent: "build",
++      model: ref,
++      parts: [{ type: "text", text: "Prepare parent" }],
++    })
++    yield* llm.text("Child ready")
++    yield* prompt.prompt({
++      sessionID: child.id,
++      agent: "general",
++      model: ref,
++      parts: [{ type: "text", text: "Prepare child" }],
++    })
++    yield* state.assertNotBusy(child.id)
++    const resolving = yield* Deferred.make<void>()
++    const hookCompleted = yield* Deferred.make<void>()
++    const promptOps: TaskPromptOps = {
++      resolvePromptParts: () => Deferred.succeed(resolving, undefined).pipe(Effect.andThen(Effect.never)),
++      prompt: (input) => prompt.prompt(input).pipe(Effect.orDie),
++      cancel: (sessionID) =>
++        prompt.cancel(sessionID).pipe(
++          Effect.tap(() => {
++            expect(sessionID).toBe(child.id)
++            return Deferred.succeed(hookCompleted, undefined)
++          }),
++        ),
++    }
++    const flags = yield* RuntimeFlags.Service
++    const info = yield* TaskTool.pipe(
++      Effect.provideService(RuntimeFlags.Service, {
++        ...flags,
++        experimentalBackgroundSubagents: true,
++      }),
++    )
++    const tool = yield* info.init()
++    const task = yield* tool.execute(
++      {
++        description: "Resume child",
++        prompt: "Continue child work",
++        subagent_type: "general",
++        task_id: child.id,
++        background: true,
++      },
++      {
++        sessionID: parent.id,
++        messageID: parentReply.info.id,
++        agent: "build",
++        messages: [],
++        abort: new AbortController().signal,
++        ask: () => Effect.void,
++        metadata: () => Effect.void,
++        extra: { promptOps },
++      },
++    )
++    expect(task.metadata.background).toBe(true)
++    yield* Deferred.await(resolving)
++    expect((yield* jobs.get(child.id))?.status).toBe("running")
++    yield* prompt.cancel(child.id)
++    expect(yield* Deferred.isDone(hookCompleted)).toBe(true)
++    expect((yield* jobs.get(child.id))?.status).toBe("cancelled")
++    yield* state.assertNotBusy(child.id)
++    yield* llm.text("Child resumed")
++    const next = yield* prompt.prompt({
++      sessionID: child.id,
++      agent: "general",
++      model: ref,
++      parts: [{ type: "text", text: "New explicit prompt" }],
++    })
++    expect(next.parts.some((part) => part.type === "text" && part.text === "Child resumed")).toBe(true)
++  }),
++)
++
++for (const failed of [false, true])
++  it.instance(
++    `async question runner accepts a new prompt after ${failed ? "failed" : "successful"} work and an idle notification defect`,
++    () =>
++      Effect.gen(function* () {
++        const { llm } = yield* useServerConfig(providerCfg)
++        const prompt = yield* SessionPrompt.Service
++        const sessions = yield* Session.Service
++        const state = yield* SessionRunState.Service
++        const events = yield* EventV2Bridge.Service
++        const chat = yield* sessions.create({ title: "Pinned" })
++        const original = yield* prompt.prompt({
++          sessionID: chat.id,
++          agent: "plan",
++          model: ref,
++          noReply: true,
++          parts: [{ type: "text", text: "Initial" }],
++        })
++        let notified = false
++        const off = yield* events.listen((event) =>
++          Effect.gen(function* () {
++            if (event.type !== SessionStatus.Event.Status.type || notified) return
++            const data = event.data as { sessionID: SessionID; status: SessionStatus.Info }
++            if (data.sessionID !== chat.id || data.status.type !== "idle") return
++            notified = true
++            return yield* Effect.die("idle observer failed")
++          }),
++        )
++        yield* Effect.addFinalizer(() => off)
++        const exit = yield* state
++          .ensureRunning(
++            chat.id,
++            Effect.succeed(original),
++            failed ? Effect.die("work failed") : Effect.succeed(original),
++          )
++          .pipe(Effect.exit, Effect.timeout("2 seconds"))
++        expect(notified).toBe(true)
++        expect(Exit.isFailure(exit)).toBe(failed)
++        if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBe("work failed")
++        yield* state.assertNotBusy(chat.id)
++        yield* llm.text("Recovered")
++        const next = yield* prompt.prompt({
++          sessionID: chat.id,
++          agent: "plan",
++          model: ref,
++          parts: [{ type: "text", text: "Continue explicitly" }],
++        })
++        expect(next.parts.some((part) => part.type === "text" && part.text === "Recovered")).toBe(true)
++        yield* state.assertNotBusy(chat.id)
++      }),
++  )
++
++it.instance("async question admits a user answer during active work and wakes after that turn stops", () =>
++  Effect.gen(function* () {
++    const { llm } = yield* useServerConfig(providerCfg)
++    const prompt = yield* SessionPrompt.Service
++    const sessions = yield* Session.Service
++    const question = yield* Question.Service
++    const status = yield* SessionStatus.Service
++    const release = yield* Deferred.make<void>()
++    const chat = yield* sessions.create({
++      title: "Pinned",
++      permission: [{ permission: "edit", pattern: "*", action: "deny" }],
++    })
++    const other = yield* sessions.create({ title: "Other" })
++    const questions = [{ question: "Which color?", header: "Color", options: [{ label: "Blue", description: "Blue" }] }]
++    yield* llm.tool("question", { questions })
++    yield* llm.hold("Independent work finished", deferredAsPromise(release))
++    yield* llm.text("Using the answer now")
++    const run = yield* prompt
++      .prompt({
++        sessionID: chat.id,
++        agent: "plan",
++        model: ref,
++        parts: [{ type: "text", text: "Ask about color and keep researching" }],
++      })
++      .pipe(Effect.forkChild)
++    yield* llm.wait(2)
++    const request = (yield* question.list())[0]
++    expect(request?.async).toBe(true)
++    const before = yield* sessions.get(chat.id)
++    yield* question.reply({ requestID: request.id, answers: [["Blue"]] })
++    expect(yield* question.list()).toEqual([])
++    expect((yield* status.get(chat.id)).type).toBe("busy")
++    expect(yield* llm.calls).toBe(2)
++    const messages = yield* sessions.messages({ sessionID: chat.id })
++    const answer = messages.find((message) =>
++      message.parts.some((part) => part.type === "text" && part.text.includes(`Answer to clarification ${request.id}`)),
++    )
++    expect(answer?.info).toMatchObject({ role: "user", sessionID: chat.id, agent: "plan", model: ref })
++    expect(answer?.parts).toHaveLength(1)
++    expect(answer?.parts[0]).toMatchObject({
++      type: "text",
++      text: `Answer to clarification ${request.id}:\nWhich color?\nBlue`,
++      metadata: {
++        driftClarification: {
++          version: 1,
++          requestID: request.id,
++          items: [{ header: "Color", question: "Which color?", answers: ["Blue"] }],
++        },
++      },
++    })
++    expect(answer?.parts[0]).not.toHaveProperty("synthetic", true)
++    expect((yield* sessions.get(chat.id)).permission).toEqual(before.permission)
++    expect(yield* sessions.messages({ sessionID: other.id })).toEqual([])
++    expect(
++      messages.some(
++        (message) => message.info.role === "assistant" && message.info.error?.name === "MessageAbortedError",
++      ),
++    ).toBe(false)
++    yield* Deferred.succeed(release, undefined)
++    yield* Fiber.join(run)
++    yield* llm.wait(3)
++    yield* pollWithTimeout(
++      status.get(chat.id).pipe(Effect.map((value) => (value.type === "idle" ? true : undefined))),
++      "question successor did not finish",
++    )
++    const hits = yield* llm.hits
++    expect(JSON.stringify(hits[2].body)).toContain(`Answer to clarification ${request.id}`)
++    expect(JSON.stringify(hits[2].body)).not.toContain("driftClarification")
++    expect(
++      (yield* sessions.messages({ sessionID: chat.id })).filter((message) => message.info.id === answer?.info.id),
++    ).toHaveLength(1)
++    expect(yield* llm.calls).toBe(3)
++  }),
++)
++
++it.instance("async question admission rolls back a partial save and retry persists once", () =>
++  Effect.gen(function* () {
++    const { llm } = yield* useServerConfig(providerCfg)
++    const prompt = yield* SessionPrompt.Service
++    const sessions = yield* Session.Service
++    const question = yield* Question.Service
++    const status = yield* SessionStatus.Service
++    const { db } = yield* Database.Service
++    const chat = yield* sessions.create({ title: "Pinned" })
++    yield* prompt.prompt({
++      sessionID: chat.id,
++      agent: "plan",
++      model: ref,
++      noReply: true,
++      parts: [{ type: "text", text: "Initial context" }],
++    })
++    const request = yield* question.register({
++      sessionID: chat.id,
++      questions: [{ question: "Which color?", header: "Color", options: [] }],
++      deliver: prompt.answerQuestion,
++    })
++    const events = yield* EventV2Bridge.Service
++    const observed: EventV2.Payload[] = []
++    const visibleParts: number[] = []
++    const beforeSequence = yield* EventV2.latestSequence(db, chat.id)
++    const off = yield* events.listen((event) =>
++      Effect.gen(function* () {
++        if (event.durable?.aggregateID !== chat.id) return
++        observed.push(event)
++        if (event.type === SessionV1.Event.MessageUpdated.type) {
++          const data = event.data as { info: SessionV1.Info }
++          if (data.info.role !== "user") return
++          const messages = yield* sessions.messages({ sessionID: chat.id }).pipe(Effect.orDie)
++          visibleParts.push(messages.find((message) => message.info.id === data.info.id)?.parts.length ?? -1)
++        }
++      }),
++    )
++    yield* Effect.addFinalizer(() => off)
++    // Fail the part write after the message was projected, not just before admission.
++    yield* db.run(
++      "CREATE TEMP TRIGGER async_question_fail BEFORE INSERT ON part BEGIN SELECT RAISE(ABORT, 'test admission failure'); END",
++    )
++    const failed = yield* question.reply({ requestID: request.id, answers: [["Blue"]] }).pipe(Effect.exit)
++    yield* db.run("DROP TRIGGER async_question_fail")
++    expect(Exit.isFailure(failed)).toBe(true)
++    expect(yield* question.list()).toHaveLength(1)
++    expect(yield* sessions.messages({ sessionID: chat.id })).toHaveLength(1)
++    expect(observed).toEqual([])
++    expect(yield* EventV2.latestSequence(db, chat.id)).toBe(beforeSequence)
++    expect(yield* llm.calls).toBe(0)
++    yield* llm.text("Answer accepted")
++    yield* question.reply({ requestID: request.id, answers: [["Blue"]] })
++    yield* llm.wait(1)
++    yield* pollWithTimeout(
++      status.get(chat.id).pipe(Effect.map((value) => (value.type === "idle" ? true : undefined))),
++      "retry did not finish",
++    )
++    expect(yield* question.list()).toEqual([])
++    const answers = (yield* sessions.messages({ sessionID: chat.id })).filter((message) =>
++      message.parts.some((part) => part.type === "text" && part.text.includes(`Answer to clarification ${request.id}`)),
++    )
++    expect(answers).toHaveLength(1)
++    expect(answers[0].info).toMatchObject({ role: "user", agent: "plan", model: ref })
++    expect(visibleParts).toEqual([1])
++    expect(observed[0].durable?.seq).toBe(beforeSequence + 1)
++  }),
++)
++
++for (const denial of ["permission", "question"])
++  it.instance(`async question queued answer does not restart after ${denial} rejection`, () =>
++    Effect.gen(function* () {
++      const { llm } = yield* useServerConfig(providerCfg)
++      const prompt = yield* SessionPrompt.Service
++      const sessions = yield* Session.Service
++      const question = yield* Question.Service
++      const permission = yield* Permission.Service
++      const status = yield* SessionStatus.Service
++      const chat = yield* sessions.create({
++        title: "Pinned",
++        permission: [{ permission: "glob", pattern: "*", action: "ask" }],
++      })
++      const questions = [{ question: "Which color?", header: "Color", options: [] }]
++      yield* llm.tool("question", { questions })
++      if (denial === "permission") yield* llm.tool("glob", { pattern: "*.txt" })
++      else yield* llm.tool("question", { questions, async: false })
++      yield* llm.text("Must not run after denial")
++      const run = yield* prompt
++        .prompt({
++          sessionID: chat.id,
++          agent: "plan",
++          model: ref,
++          parts: [{ type: "text", text: "Ask, then wait for approval" }],
++        })
++        .pipe(Effect.forkChild)
++      yield* llm.wait(2)
++      const reject =
++        denial === "permission"
++          ? yield* pollWithTimeout(
++              permission.list().pipe(Effect.map((items) => items[0])),
++              "permission not asked",
++            ).pipe(Effect.map((item) => permission.reply({ requestID: item.id, reply: "reject" })))
++          : yield* pollWithTimeout(
++              question.list().pipe(Effect.map((items) => items.find((item) => !item.async))),
++              "blocking question not asked",
++            ).pipe(Effect.map((item) => question.reject(item.id)))
++      const request = (yield* question.list()).find((item) => item.async)!
++      yield* question.reply({ requestID: request.id, answers: [["Blue"]] })
++      expect(yield* llm.calls).toBe(2)
++      yield* reject
++      const result = yield* Fiber.join(run)
++      expect(errorTool(result.parts)?.state.error).toContain(denial === "permission" ? "rejected" : "dismissed")
++      yield* pollWithTimeout(
++        status.get(chat.id).pipe(Effect.map((value) => (value.type === "idle" ? true : undefined))),
++        "denied run not idle",
++      )
++      expect(yield* llm.calls).toBe(2)
++      expect(
++        (yield* sessions.messages({ sessionID: chat.id })).filter((message) => message.info.role === "user"),
++      ).toHaveLength(2)
++    }),
++  )
++
++for (const delivery of ["during", "after"])
++  it.instance(`async question inflight reply cannot wake ${delivery} cancellation cleanup`, () =>
++    Effect.gen(function* () {
++      const { llm } = yield* useServerConfig(providerCfg)
++      const prompt = yield* SessionPrompt.Service
++      const sessions = yield* Session.Service
++      const question = yield* Question.Service
++      const state = yield* SessionRunState.Service
++      const events = yield* EventV2Bridge.Service
++      const chat = yield* sessions.create({ title: "Pinned" })
++      const original = yield* prompt.prompt({
++        sessionID: chat.id,
++        agent: "plan",
++        model: ref,
++        noReply: true,
++        parts: [{ type: "text", text: "Initial" }],
++      })
++      const entered = yield* Deferred.make<void>()
++      const finalizing = yield* Deferred.make<void>()
++      const releaseFinalizer = yield* Deferred.make<void>()
++      const admitting = yield* Deferred.make<void>()
++      const releaseReply = yield* Deferred.make<void>()
++      yield* Effect.gen(function* () {
++        const run = yield* state
++          .ensureRunning(
++            chat.id,
++            Effect.succeed(original),
++            Deferred.succeed(entered, undefined).pipe(
++              Effect.andThen(Effect.never),
++              Effect.ensuring(
++                Deferred.succeed(finalizing, undefined).pipe(Effect.andThen(Deferred.await(releaseFinalizer))),
++              ),
++            ),
++          )
++          .pipe(Effect.forkChild)
++        yield* Deferred.await(entered)
++        const off = yield* events.listen((event) =>
++          Effect.gen(function* () {
++            if (event.type !== SessionV1.Event.MessageUpdated.type) return
++            const data = event.data as { info: SessionV1.Info }
++            if (data.info.sessionID !== chat.id || data.info.role !== "user" || data.info.id === original.info.id)
++              return
++            yield* Deferred.succeed(admitting, undefined)
++            yield* Deferred.await(releaseReply)
++          }),
++        )
++        yield* Effect.addFinalizer(() => off)
++        const request = yield* question.register({ sessionID: chat.id, questions: [], deliver: prompt.answerQuestion })
++        yield* llm.text("Must not restart")
++        const reply = yield* question.reply({ requestID: request.id, answers: [] }).pipe(Effect.forkChild)
++        yield* Deferred.await(admitting)
++        const cancel = yield* prompt.cancel(chat.id).pipe(Effect.forkChild)
++        yield* Deferred.await(finalizing)
++        expect(Exit.isFailure(yield* state.assertNotBusy(chat.id).pipe(Effect.exit))).toBe(true)
++        if (delivery === "after") {
++          yield* Deferred.succeed(releaseFinalizer, undefined)
++          yield* Fiber.join(cancel)
++        }
++        yield* Deferred.succeed(releaseReply, undefined)
++        yield* Fiber.join(reply)
++        expect(yield* llm.calls).toBe(0)
++        yield* Deferred.succeed(releaseFinalizer, undefined)
++        yield* Fiber.join(cancel)
++        yield* Fiber.join(run)
++        yield* state.assertNotBusy(chat.id)
++        expect(yield* llm.calls).toBe(0)
++        expect(yield* question.list()).toEqual([])
++        expect(yield* sessions.messages({ sessionID: chat.id })).toHaveLength(2)
++      }).pipe(
++        Effect.ensuring(
++          Effect.all([Deferred.succeed(releaseFinalizer, undefined), Deferred.succeed(releaseReply, undefined)], {
++            discard: true,
++          }),
++        ),
++      )
++    }),
++  )
++
++it.instance("async question preserves custom system and structured output on the next provider request", () =>
++  Effect.gen(function* () {
++    const { llm } = yield* useServerConfig(providerCfg)
++    const prompt = yield* SessionPrompt.Service
++    const sessions = yield* Session.Service
++    const question = yield* Question.Service
++    const status = yield* SessionStatus.Service
++    const chat = yield* sessions.create({ title: "Pinned" })
++    const system = "Always use the user's custom color policy."
++    const format = new SessionV1.OutputFormatJsonSchema({
++      type: "json_schema",
++      retryCount: 2,
++      schema: {
++        type: "object",
++        properties: { color: { type: "string" } },
++        required: ["color"],
++        additionalProperties: false,
++      },
++    })
++    yield* prompt.prompt({
++      sessionID: chat.id,
++      agent: "plan",
++      model: ref,
++      system,
++      format,
++      noReply: true,
++      parts: [{ type: "text", text: "Choose a color" }],
++    })
++    const request = yield* question.register({ sessionID: chat.id, questions: [], deliver: prompt.answerQuestion })
++    yield* llm.tool("StructuredOutput", { color: "Blue" })
++    yield* question.reply({ requestID: request.id, answers: [] })
++    yield* llm.wait(1)
++    yield* pollWithTimeout(
++      status.get(chat.id).pipe(Effect.map((value) => (value.type === "idle" ? true : undefined))),
++      "structured answer not finished",
++    )
++    const messages = yield* sessions.messages({ sessionID: chat.id })
++    expect(messages.filter((message) => message.info.role === "user")[1].info).toMatchObject({
++      system,
++      format: { ...format },
++    })
++    const body = (yield* llm.hits)[0].body
++    expect(JSON.stringify(body.messages)).toContain(system)
++    expect(body.tool_choice).toBe("required")
++    expect(body.tools).toEqual(
++      expect.arrayContaining([
++        expect.objectContaining({
++          function: expect.objectContaining({ name: "StructuredOutput", parameters: format.schema }),
++        }),
++      ]),
++    )
++    expect(messages.findLast((message) => message.info.role === "assistant")?.info).toMatchObject({
++      structured: { color: "Blue" },
++    })
++  }),
++)
++
++noLLMServer.instance(
++  "async question on a deleted original session retains the request without admission",
++  () =>
++    Effect.gen(function* () {
++      const prompt = yield* SessionPrompt.Service
++      const sessions = yield* Session.Service
++      const question = yield* Question.Service
++      const chat = yield* sessions.create({ title: "Pinned" })
++      const request = yield* question.register({ sessionID: chat.id, questions: [], deliver: prompt.answerQuestion })
++      yield* sessions.remove(chat.id)
++      const failed = yield* question.reply({ requestID: request.id, answers: [] }).pipe(Effect.exit)
++      expect(Exit.isFailure(failed)).toBe(true)
++      expect(yield* question.list()).toHaveLength(1)
++      yield* question.reject(request.id)
++      expect(yield* question.list()).toEqual([])
++    }),
++  { config: cfg },
++)
++
++for (const answer of ["No", "Yes"])
++  noLLMServer.instance(
++    `async question leaves plan_exit blocking until explicit ${answer}`,
++    () =>
++      Effect.gen(function* () {
++        const sessions = yield* Session.Service
++        const prompt = yield* SessionPrompt.Service
++        const question = yield* Question.Service
++        const events = yield* EventV2Bridge.Service
++        const chat = yield* sessions.create({
++          title: "Pinned",
++          permission: [{ permission: "edit", pattern: "*", action: "deny" }],
++        })
++        const first = yield* prompt.prompt({
++          sessionID: chat.id,
++          agent: "plan",
++          model: ref,
++          noReply: true,
++          parts: [{ type: "text", text: "Plan only" }],
++        })
++        const info = yield* PlanExitTool
++        const tool = yield* info.init()
++        const asked = yield* Deferred.make<Question.Request>()
++        const off = yield* events.listen((event) =>
++          event.type === Question.Event.Asked.type
++            ? Deferred.succeed(asked, event.data as Question.Request).pipe(Effect.asVoid)
++            : Effect.void,
++        )
++        yield* Effect.addFinalizer(() => off)
++        const completed = yield* Deferred.make<void>()
++        const run = yield* tool
++          .execute(
++            {},
++            {
++              sessionID: chat.id,
++              messageID: first.info.id,
++              agent: "plan",
++              callID: "plan-exit",
++              abort: AbortSignal.any([]),
++              messages: [],
++              metadata: () => Effect.void,
++              ask: () => Effect.die("Unexpected permission grant"),
++            },
++          )
++          .pipe(
++            Effect.ensuring(Deferred.succeed(completed, undefined).pipe(Effect.asVoid)),
++            Effect.exit,
++            Effect.forkChild,
++          )
++        const request = yield* Deferred.await(asked)
++        expect(request.async).toBeUndefined()
++        expect(yield* Deferred.isDone(completed)).toBe(false)
++        expect(yield* sessions.messages({ sessionID: chat.id })).toHaveLength(1)
++        yield* question.reply({ requestID: request.id, answers: [[answer]] })
++        const exit = yield* Fiber.join(run)
++        expect(Exit.isSuccess(exit)).toBe(answer === "Yes")
++        const messages = yield* sessions.messages({ sessionID: chat.id })
++        expect(messages).toHaveLength(answer === "Yes" ? 2 : 1)
++        if (answer === "Yes") expect(messages[1].info).toMatchObject({ role: "user", agent: "build", model: ref })
++        expect((yield* sessions.get(chat.id)).permission).toEqual(chat.permission)
++      }),
++    { config: cfg },
++  )
++
++it.instance("async question retry after committed admission reuses its message and latest switched selection", () =>
++  Effect.gen(function* () {
++    const { llm } = yield* useServerConfig(providerCfg)
++    const prompt = yield* SessionPrompt.Service
++    const sessions = yield* Session.Service
++    const question = yield* Question.Service
++    const status = yield* SessionStatus.Service
++    const runState = yield* SessionRunState.Service
++    const chat = yield* sessions.create({ title: "Pinned" })
++    const original = yield* prompt.prompt({
++      sessionID: chat.id,
++      agent: "plan",
++      model: ref,
++      noReply: true,
++      parts: [{ type: "text", text: "Initial" }],
++    })
++    if (original.info.role !== "user") return yield* Effect.die("Expected a user")
++    // The retry overlay changes the latest user/assistant model before session metadata.
++    yield* sessions.updateMessage({ ...original.info, model: { ...ref, variant: "switched" } })
++    const entered = yield* Deferred.make<void>()
++    const release = yield* Deferred.make<void>()
++    const active = yield* runState
++      .ensureRunning(
++        chat.id,
++        Effect.succeed(original),
++        Effect.gen(function* () {
++          yield* Deferred.succeed(entered, undefined)
++          yield* Deferred.await(release)
++          return original
++        }),
++      )
++      .pipe(Effect.forkChild)
++    yield* Deferred.await(entered)
++    let attempts = 0
++    const request = yield* question.register({
++      sessionID: chat.id,
++      questions: [
++        { header: "Color", question: "Which colors?", options: [], multiple: true },
++        { header: "Notes", question: "Any notes?", options: [] },
++        { header: "Missing", question: "Anything else?", options: [] },
++      ],
++      deliver: (input) =>
++        Effect.gen(function* () {
++          yield* prompt.answerQuestion(input)
++          if (++attempts === 1) return yield* Effect.die("Failure after durable admission")
++        }),
++    })
++    const answers = [["Blue", "Green, teal"], ["Keep raw\ntext <unchanged>"]]
++    const metadata = {
++      driftClarification: {
++        version: 1,
++        requestID: request.id,
++        items: [
++          { header: "Color", question: "Which colors?", answers: ["Blue", "Green, teal"] },
++          { header: "Notes", question: "Any notes?", answers: ["Keep raw\ntext <unchanged>"] },
++          { header: "Missing", question: "Anything else?", answers: [] },
++        ],
++      },
++    }
++    const failed = yield* question.reply({ requestID: request.id, answers }).pipe(Effect.exit)
++    expect(Exit.isFailure(failed)).toBe(true)
++    expect(yield* question.list()).toHaveLength(1)
++    const committed = (yield* sessions.messages({ sessionID: chat.id }))[1]
++    expect(committed.parts[0]).toHaveProperty("metadata", metadata)
++    yield* question.reply({ requestID: request.id, answers })
++    expect(yield* question.list()).toEqual([])
++    const messages = yield* sessions.messages({ sessionID: chat.id })
++    expect(messages).toHaveLength(2)
++    expect(messages[1].info).toMatchObject({ role: "user", agent: "plan", model: { ...ref, variant: "switched" } })
++    expect(messages[1]).toEqual(committed)
++    expect(messages[1].parts[0]).toMatchObject({
++      type: "text",
++      text: `Answer to clarification ${request.id}:\nWhich colors?\nBlue, Green, teal\n\nAny notes?\nKeep raw\ntext <unchanged>\n\nAnything else?\nUnanswered`,
++      metadata,
++    })
++    expect(messages[1].parts[0]).not.toHaveProperty("synthetic", true)
++    yield* llm.text("Handled once")
++    yield* Deferred.succeed(release, undefined)
++    yield* Fiber.join(active)
++    yield* llm.wait(1)
++    yield* pollWithTimeout(
++      status.get(chat.id).pipe(Effect.map((value) => (value.type === "idle" ? true : undefined))),
++      "retry successor did not finish",
++    )
++    expect(yield* llm.calls).toBe(1)
++    const store = yield* InstanceStore.Service
++    const { directory } = yield* TestInstance
++    const reloaded = yield* store.reload({ directory })
++    const history = yield* sessions.messages({ sessionID: chat.id }).pipe(Effect.provideService(InstanceRef, reloaded))
++    expect(history.filter((message) => message.info.id === committed.info.id)).toEqual([committed])
++    const provider = yield* ProviderSvc.Service
++    const model = yield* provider.getModel(ref.providerID, ref.modelID)
++    const converted = yield* MessageV2.toModelMessagesEffect(
++      [history.find((message) => message.info.id === committed.info.id)!],
++      model,
++    )
++    expect(converted).toEqual([
++      { role: "user", content: [{ type: "text", text: (committed.parts[0] as SessionV1.TextPart).text }] },
++    ])
++  }),
++)
+diff --git a/packages/opencode/test/tool/question.test.ts b/packages/opencode/test/tool/question.test.ts
+index d8c6df7..69e2cc3 100644
+--- a/packages/opencode/test/tool/question.test.ts
++++ b/packages/opencode/test/tool/question.test.ts
+@@ -59,7 +59,7 @@ describe("tool.question", () => {
+         },
+       ]
+ 
+-      const fiber = yield* tool.execute({ questions }, ctx).pipe(Effect.forkScoped)
++      const fiber = yield* tool.execute({ questions, async: false }, ctx).pipe(Effect.forkScoped)
+       const item = yield* pending(question)
+       yield* question.reply({ requestID: item.id, answers: [["Red"]] })
+ 
+@@ -81,7 +81,7 @@ describe("tool.question", () => {
+         },
+       ]
+ 
+-      const fiber = yield* tool.execute({ questions }, ctx).pipe(Effect.forkScoped)
++      const fiber = yield* tool.execute({ questions, async: false }, ctx).pipe(Effect.forkScoped)
+       const item = yield* pending(question)
+       yield* question.reply({ requestID: item.id, answers: [["Dog"]] })
+ 
+diff --git a/packages/schema/src/v1/question.ts b/packages/schema/src/v1/question.ts
+index e566996..9671569 100644
+--- a/packages/schema/src/v1/question.ts
++++ b/packages/schema/src/v1/question.ts
+@@ -37,6 +37,9 @@ export const Request = Schema.Struct({
+   sessionID: SessionID,
+   questions: Schema.Array(Info).annotate({ description: "Questions to ask" }),
+   tool: Schema.optional(Tool),
++  async: Schema.optional(Schema.Boolean).annotate({
++    description: "Optional clarification that does not block execution",
++  }),
+ }).annotate({ identifier: "QuestionRequest" })
+ export const Answer = Schema.Array(Schema.String).annotate({ identifier: "QuestionAnswer" })
+ export const Reply = Schema.Struct({

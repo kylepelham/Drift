@@ -322,6 +322,27 @@ pub(crate) fn respawn_engine(app: &tauri::AppHandle) {
 }
 
 pub(crate) fn stop_engine_instances(app: &tauri::AppHandle) -> Result<(), String> {
+    post_to_engine(
+        app,
+        "/global/dispose",
+        "embedded engine refused global disposal",
+    )
+}
+
+/// Reconnects every instance's MCP servers from the config on disk.
+///
+/// Unlike disposal this leaves the instances standing, so an edited MCP config does not interrupt
+/// the sessions running inside them. The engine rebuilds its config as part of the reload, which is
+/// what re-applies the approval policy to the servers it reconnects.
+pub(crate) fn reload_engine_mcp(app: &tauri::AppHandle) -> Result<(), String> {
+    post_to_engine(
+        app,
+        "/global/mcp/reload",
+        "embedded engine refused the MCP reload",
+    )
+}
+
+fn post_to_engine(app: &tauri::AppHandle, path: &str, refusal: &str) -> Result<(), String> {
     let engine = app.state::<Engine>();
     let Some(url) = engine.url.lock().unwrap().clone() else {
         return Ok(());
@@ -346,7 +367,7 @@ pub(crate) fn stop_engine_instances(app: &tauri::AppHandle) -> Result<(), String
         .map_err(|error| error.to_string())?;
     let authorization = basic_authorization(ENGINE_USERNAME, &engine.password);
     let request = format!(
-        "POST /global/dispose HTTP/1.1\r\nHost: {host}:{port}\r\nAuthorization: Basic {authorization}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nAuthorization: Basic {authorization}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
     );
     stream
         .write_all(request.as_bytes())
@@ -356,7 +377,7 @@ pub(crate) fn stop_engine_instances(app: &tauri::AppHandle) -> Result<(), String
         .read_line(&mut response)
         .map_err(|error| error.to_string())?;
     if !response.starts_with(HTTP_OK_STATUS_LINE) {
-        return Err("embedded engine refused global disposal".into());
+        return Err(refusal.into());
     }
     Ok(())
 }

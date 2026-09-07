@@ -39,6 +39,7 @@ const fontStyleBold = 2
 const fontStyleUnderline = 4
 
 export function PartView(props: { part: Part; responseID?: string; live?: boolean; revision?: number; thinking?: boolean }) {
+  const engine = useEngine()
   return (
     <Switch>
       <Match when={props.part.type !== "tool" && hasPartRenderer(props.part.type) && props.part}>
@@ -48,6 +49,7 @@ export function PartView(props: { part: Part; responseID?: string; live?: boolea
         {(part) => (
           <Markdown
             text={part().text}
+            directory={engine.state.sessions[part().sessionID]?.directory}
             done={!!part().time?.end}
             responseID={props.responseID}
             live={props.live}
@@ -214,6 +216,7 @@ function ImageThumb(props: { url: string; filename?: string; mime?: string }) {
 }
 
 function ReasoningView(props: { part: ReasoningPart; revision?: number }) {
+  const engine = useEngine()
   const [open, setOpen] = createSignal(false)
   const thinking = () => !props.part.time.end
   return (
@@ -227,7 +230,7 @@ function ReasoningView(props: { part: ReasoningPart; revision?: number }) {
       </button>
       <Show when={open()}>
         <div class="mt-1.5 border-l-2 border-edge pl-3 text-ink-muted">
-          <Markdown text={props.part.text} done={!thinking()} revision={props.revision} />
+          <Markdown text={props.part.text} directory={engine.state.sessions[props.part.sessionID]?.directory} done={!thinking()} revision={props.revision} />
         </div>
       </Show>
     </div>
@@ -244,7 +247,7 @@ type PatchFile = {
   deletions: number
 }
 
-function toolInfo(part: ToolPart): ToolInfo {
+export function toolInfo(part: ToolPart): ToolInfo {
   const input = part.state.input as Record<string, unknown>
   const meta = toolMeta(part) ?? {}
   const text = (key: string) => (typeof input?.[key] === "string" ? (input[key] as string) : undefined)
@@ -304,7 +307,10 @@ function toolInfo(part: ToolPart): ToolInfo {
       return { title: title ? `${t("drift.tool.spawn")} ${title}` : t("drift.tool.spawn") }
     }
     case "question":
-      return { title: t("notification.question.title"), subtitle: text("question") ?? (input?.questions as { header?: string }[] | undefined)?.[0]?.header }
+      return {
+        title: t(meta.async === true || input?.async === true ? "drift.tool.asyncQuestion" : "notification.question.title"),
+        subtitle: text("question") ?? (input?.questions as { header?: string }[] | undefined)?.[0]?.header,
+      }
     case "skill":
       return { title: text("name") ?? t("prompt.slash.badge.skill") }
     default:
@@ -337,7 +343,7 @@ function awaitingPermission(state: EngineState, part: ToolPart) {
     (state.permissions[part.sessionID] ?? []).some(
       (permission) => permission.callID === part.callID && permissionRequiresAttention(permission, state),
     ) ||
-    (state.questions[part.sessionID] ?? []).some((question) => question.tool?.callID === part.callID)
+    (state.questions[part.sessionID] ?? []).some((question) => !question.async && question.tool?.callID === part.callID)
   )
 }
 
@@ -363,6 +369,7 @@ export function shellTimeoutStatus(part: ToolPart) {
   const duration = formatShellTimeout(timeout)
   return {
     timedOut,
+    timeoutMs: timeout,
     text: timedOut
       ? t("drift.shell.timeout.expired", { duration })
       : t("drift.shell.timeout.limit", { duration }),
@@ -596,7 +603,7 @@ export function ToolView(props: { part: ToolPart }) {
         <Show when={awaitingPermission(engine.state, props.part)}>
           <span class="shrink-0 text-xs text-warn/90">{t("drift.status.waitingForPermission")}</span>
         </Show>
-        <ToolDuration state={state()} />
+        <ToolDuration state={state()} maxMs={timeout()?.timedOut ? timeout()?.timeoutMs : undefined} />
         <Show when={spawnedId()}>
           {(childId) => (
             <span
@@ -626,34 +633,35 @@ export type DelegatedTaskStatus = "running" | "completed" | "error"
 
 export function delegatedTaskStatus(
   state: EngineState,
-  part: Pick<ToolPart, "sessionID" | "state">,
+  part: Pick<ToolPart, "id" | "tool" | "sessionID" | "state">,
   childId: string,
 ): DelegatedTaskStatus {
-  if (state.errors[childId]) return "error"
-  if (sessionRunning(state, childId)) return "running"
-  // A live task part is newer authority than terminal markers elsewhere in the parent transcript.
-  // The same child can be resumed, leaving an older completion marker behind while work continues.
-  if (part.state.status === "pending" || part.state.status === "running") return "running"
+  // This invocation's result stays terminal even when another call resumes the same child.
+  if (part.state.status === "error") return "error"
   const terminal = delegatedTerminalState(state, part, childId)
   if (terminal) return terminal
-  return part.state.status === "error" ? "error" : "running"
-}
-
-function sessionRunning(state: EngineState, sessionId: string) {
-  const status = state.status[sessionId]?.type
-  return status === "busy" || status === "retry"
+  return state.errors[childId] ? "error" : "running"
 }
 
 function delegatedTerminalState(
   state: EngineState,
-  part: Pick<ToolPart, "sessionID" | "state">,
+  part: Pick<ToolPart, "id" | "tool" | "sessionID" | "state">,
   childId: string,
 ): "completed" | "error" | undefined {
-  const pattern = new RegExp(`<task\\s+id=["']${escapeRegExp(childId)}["']\\s+state=["'](completed|error)["']`)
+  if (part.state.status !== "completed") return
+  const pattern = new RegExp(`^\\s*<task\\s+id=["']${escapeRegExp(childId)}["']\\s+state=["'](running|completed|error)["']`)
+  const result = part.state.output.match(pattern)?.[1]
+  if (result === "completed" || result === "error") return result
+  if (part.tool === "task" && result !== "running" && part.state.metadata?.background !== true) return "completed"
+
+  // Background calls finish their tool part before the work. Find their first later result,
+  // never an earlier invocation's result or a later foreground call's output.
+  let after = false
   for (const entry of state.transcripts[part.sessionID] ?? []) {
     for (const item of entry.parts) {
-      const value = item.type === "text" ? item.text : item.type === "tool" && item.state.status === "completed" ? item.state.output : ""
-      const match = value.match(pattern)?.[1]
+      if (item.id === part.id) after = true
+      if (!after || item.type !== "text") continue
+      const match = item.text.match(pattern)?.[1]
       if (match === "completed" || match === "error") return match
     }
   }
@@ -664,6 +672,7 @@ function escapeRegExp(value: string) {
 }
 
 function ToolBody(props: { part: ToolPart; diff: string | null; error: string | null }) {
+  const engine = useEngine()
   const state = () => props.part.state
   const shellCommand = () => (state().input as { command?: string }).command ?? ""
   const shellOutput = () =>
@@ -695,7 +704,11 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
               </Show>
               <Show when={task().result}>
                 <div class="transcript-tool-output max-h-80 overflow-auto text-ink-muted">
-                  <Markdown text={task().result} done />
+                  <Markdown
+                    text={task().result}
+                    directory={engine.state.sessions[delegatedChildId(engine.state, props.part) ?? props.part.sessionID]?.directory}
+                    done
+                  />
                 </div>
               </Show>
             </div>

@@ -2,6 +2,8 @@ import type { Agent, ProviderAuthMethod } from "@opencode-ai/sdk/client"
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useEngine } from "../engine"
+import { filePreviewTypes } from "../file-preview-types"
+import { filePreviewPrefs, setFilePreviewMode, setFilePreviewType } from "../state/file-preview-prefs"
 import {
   codeFontSize,
   codeFontSizes,
@@ -185,6 +187,7 @@ const sectionGroups: { label: string; items: Section[] }[] = [
 const keybindLabels: Record<KeybindAction, string> = {
   palette: "command.palette",
   newThread: "command.session.new",
+  findInSession: "drift.shortcuts.findInSession",
   autoAccept: "drift.shortcuts.autoAccept",
   zoomIn: "drift.shortcuts.zoomIn",
   zoomOut: "drift.shortcuts.zoomOut",
@@ -414,6 +417,41 @@ function GeneralSection() {
               </output>
             </div>
           </SettingsRow>
+        </Show>
+      </SettingsGroup>
+
+      <SettingsGroup title={t("drift.preview.settings.title")}>
+        <SettingsRow title={t("drift.preview.settings.mode")} description={t("drift.preview.settings.description")}>
+          <Picker
+            label={t("drift.preview.settings.mode")}
+            items={(["all", "none", "custom"] as const).map((mode) => ({ id: mode, label: t(`drift.preview.mode.${mode}`) }))}
+            selected={filePreviewPrefs().mode}
+            floating
+            bordered
+            chevronAtEnd
+            placement="below"
+            width="12rem"
+            onPick={(mode) => {
+              if (mode === "all" || mode === "none" || mode === "custom") setFilePreviewMode(mode)
+            }}
+          />
+        </SettingsRow>
+        <Show when={filePreviewPrefs().mode === "custom"}>
+          <For each={filePreviewTypes}>
+            {(type) => (
+              <SettingsRow
+                title={t(`drift.preview.type.${type}`)}
+                description=""
+                onClick={() => setFilePreviewType(type, !filePreviewPrefs().types[type])}
+              >
+                <Toggle
+                  label={t(`drift.preview.type.${type}`)}
+                  checked={filePreviewPrefs().types[type]}
+                  onChange={() => setFilePreviewType(type, !filePreviewPrefs().types[type])}
+                />
+              </SettingsRow>
+            )}
+          </For>
         </Show>
       </SettingsGroup>
 

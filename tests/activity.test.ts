@@ -173,6 +173,14 @@ test("standalone large numbers stay prose while numbered runs remain lists", asy
   expect(prepareMarkdown("intro\n12. step one\nnote\n13. step two")).toBe("intro\n12. step one\nnote\n13. step two")
   expect(prepareMarkdown("20456. it\nnote\n88. other")).toBe("20456\\. it\nnote\n88\\. other")
   expect(prepareMarkdown("1. first\nnote\n20456. it")).toBe("1. first\nnote\n20456\\. it")
+  // An inline code span inside an item must not cut the sequence: `3.` still has `2.` before it.
+  const spanned = "1. one\n2. calls `SetCursor`, which fails\n3. three"
+  expect(prepareMarkdown(spanned)).toBe(spanned)
+  expect(marked.parse(prepareMarkdown(spanned), { async: false }).match(/<li>/g)).toHaveLength(3)
+  // Fenced blocks still shield their contents, and a sequence resumes across one.
+  const fencedRun = "1. one\n```\n99. not a step\n```\n2. two"
+  expect(prepareMarkdown(fencedRun)).toBe(fencedRun)
+  expect(prepareMarkdown("```\n5. a\n```\n6. b")).toBe("```\n5. a\n```\n6\\. b")
 })
 
 test("generated user-role seed prompts keep full markdown", async () => {

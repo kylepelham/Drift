@@ -40,37 +40,61 @@ delete old decisions: returning to an old exact definition restores its approval
 rejection. Rejection keeps execution disabled and lets clients suppress repeated prompts.
 Revocation deletes only the exact fingerprint decision.
 
-Approve, reject, and revoke require the report's exact directory, name, fingerprint, and
-generation. Approve/reject additionally require `decision: "pending"`; revoke requires a
-currently approved or rejected report entry. There is no fallback lookup by name.
+Approve, reject, and revoke require the current generation and an exact name/fingerprint
+match. Drift uses the report for the requested directory when present; a stale, malformed,
+or unreadable report is an error, not a reason to fall back. Only a missing report uses
+configured definitions from Drift's registry and candidate config files across tracked
+workspaces and global roots. This fallback keeps the first definition per name, with
+registry entries first, and looks up decisions by fingerprint. It does not reproduce
+OpenCode's config merging or variable substitution.
+
+Approve/reject require `decision: "pending"`; revoke requires an approved or rejected entry.
+There is no name-only approval. The plugin still validates and fingerprints the effective
+definition, so a fallback approval cannot authorize a different merged or substituted definition.
 
 ## Reload protocol
 
-Native mutations and detected external config changes share one serialized protocol:
+Registry mutations, approval decisions, and detected external config changes share one
+serialized protocol:
 
 1. Atomically publish an empty next-generation policy and clear reports.
-2. Dispose all engine instances.
+2. Call `POST /global/mcp/reload` to invalidate global and per-instance config caches, then
+   close cached MCP clients and reap their stdio children without disposing engine instances.
 3. Commit the SQLite mutation or generation advance.
 4. Atomically replace generated config, then publish matching durable decisions.
-5. Mark the generation materialized; the next instance writes a fresh report.
+5. Mark the generation materialized and remove any fail-closed sentinel last. Subsequent
+   config/MCP access rebuilds the invalidated state and reruns the approval hook to write a fresh report.
+
+The reload invalidates state rather than eagerly reconnecting every server. Closing MCP
+connections can interrupt in-flight MCP calls, but does not dispose the sessions themselves.
+Skill changes still call `POST /global/dispose`; neither path restarts the sidecar process.
+External-editor saves/removals rewrite the matching config files first; the watcher then
+performs the generation advance and reload above.
 
 Generated files use same-directory temporary files and atomic replacement. Windows uses
 `MoveFileExW` with replace-existing and write-through flags; the destination is never
-deleted first. A failed post-commit materialization restores the previous registry data
-under a fresh generation and rematerializes it. If restoration itself fails, Drift writes
-an independently checked `mcp-fail-closed.json` sentinel, invalidates the policy, clears
-reports, and stops instances again. Successful materialization removes the sentinel last.
+deleted first. When the database has not changed, file recovery rematerializes its current
+state. A failed post-commit materialization restores the previous registry data under a
+fresh generation and rematerializes it. If recovery itself fails, Drift attempts every
+fail-closed step: write the independently checked `mcp-fail-closed.json` sentinel, invalidate
+the policy, clear reports, and invoke the same MCP-reload callback to stop active clients.
+This is not a separate instance-disposal path. Incomplete shutdown is reported as an error;
+successful materialization removes the sentinel last.
 
 The live watcher hashes a bounded, deterministic set of config files, files below relevant
 `.opencode/plugin` and `.opencode/plugins` directories, and `{file:...}` references found
-in config text even when those references point outside watched roots. Any change advances
-the serialized generation before instances reload.
+in config text even when those references point outside watched roots. Parseable config files
+are compared by canonical `mcp` and `plugin` content, so whitespace, comments, and unrelated
+settings alone do not trigger MCP reloads. Other watched files and configs that cannot be
+parsed within the size bound retain file signatures. A changed signature triggers the
+serialized protocol above.
 
 ## Native API
 
 `mcp_snapshot(directory)` returns `{ generation, directory, servers, observed }`.
 `servers` are Drift-owned global definitions; `observed` contains only
-`name`, `type`, `fingerprint`, and `decision` from the effective config.
+`name`, `type`, `fingerprint`, and `decision` from the effective-config report or the configured
+fallback described above.
 
 All writes use the snapshot generation:
 
@@ -80,9 +104,10 @@ All writes use the snapshot generation:
 - `mcp_reject(directory, name, fingerprint, generation)`
 - `mcp_revoke(directory, name, fingerprint, generation)`
 
-After a successful write or the `mcp-config-changed` event, initialize/reload the relevant
-engine instance and fetch a new snapshot. Browser-only development deliberately throws for
-all MCP registry operations because it cannot enforce the native policy boundary.
+After a successful registry/decision write or the `mcp-config-changed` event, refresh runtime
+metadata/status and fetch a new snapshot; do not dispose the instance to refresh MCPs.
+External-editor writes rely on the watcher to complete the reload. Browser-only development
+deliberately throws for all MCP registry operations because it cannot enforce the native policy boundary.
 
 ## Runtime recovery
 

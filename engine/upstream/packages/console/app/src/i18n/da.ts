@@ -254,7 +254,7 @@ export const dict = {
   "zen.privacy.exceptionsLink": "følgende undtagelser",
 
   "go.title": "OpenCode Go | Kodningsmodeller til lav pris for alle",
-  "go.banner.text": "Ox Alpha Free er tilgængelig på Go i en begrænset periode",
+  "go.banner.text": "GLM-5.3-Flash får fordoblet brugsgrænse i en begrænset periode",
   "go.meta.description":
     "Go koster $10/måned, med generøse brugsgrænser og pålidelig adgang til førende kodningsmodeller.",
   "go.hero.title": "Kodningsmodeller til lav pris for alle",
@@ -354,7 +354,7 @@ export const dict = {
     "Kraftigt nedsatte tokenpriser til gengæld for tilladelse til at bruge dine prompts og modelsvar til at træne fremtidige Meta-modeller.",
   "go.faq.a5.learnMore": "Læs mere",
   "go.faq.a5.deepseekRetention":
-    "ZDR-aftalen fornyes månedligt. Den nuværende aftale er gyldig til og med 31. august 2026.",
+    "ZDR-aftalen fornyes månedligt. Den nuværende aftale er gyldig til og med 30. september 2026.",
 
   "go.faq.a5.beforeExceptions":
     "Go-modeller hostes i USA. Udbydere følger en nulopbevaringspolitik og bruger ikke dine data til modeltræning, med de",
@@ -368,7 +368,7 @@ export const dict = {
 
   "go.faq.q9": "Hvad er forskellen på gratis modeller og Go?",
   "go.faq.a9":
-    "Gratis modeller inkluderer Big Pickle plus kampagnemodeller, der er tilgængelige på det pågældende tidspunkt, med en kvote på 200 forespørgsler/dag. Go tilbyder et kurateret modeludvalg med højere forespørgselskvoter håndhævet over rullende perioder (5 timer, ugentligt og månedligt), omtrent svarende til $12 pr. 5 timer, $30 pr. uge og $60 pr. måned (det faktiske antal forespørgsler varierer efter model og brug).",
+    "Gratis modeller inkluderer Big Pickle plus kampagnemodeller, der er tilgængelige på det pågældende tidspunkt, med en kvote på 200 forespørgsler/dag. Go tilbyder et kurateret modeludvalg med højere forespørgselskvoter håndhævet over rullende perioder (5 timer, ugentligt og månedligt), omtrent svarende til basiskvoter på $12 pr. 5 timer, $30 pr. uge og $60 pr. måned; modelspecifikke kvoter kan variere (det faktiske antal forespørgsler varierer efter model og brug).",
 
   "zen.api.error.rateLimitExceeded": "Hastighedsgrænse overskredet. Prøv venligst igen senere.",
   "zen.api.error.modelNotSupported": "Model {{model}} understøttes ikke",
@@ -669,10 +669,18 @@ export const dict = {
   "workspace.lite.time.fewSeconds": "et par sekunder",
   "workspace.lite.subscription.message": "Du abonnerer på OpenCode Go.",
   "workspace.lite.subscription.manage": "Administrer abonnement",
-  "workspace.lite.subscription.rollingUsage": "Løbende forbrug",
+  "workspace.lite.subscription.rollingUsage": "5-timers forbrug",
+  "workspace.lite.subscription.rollingQuota": "5-timers kvote",
   "workspace.lite.subscription.weeklyUsage": "Ugentligt forbrug",
+  "workspace.lite.subscription.weeklyQuota": "Ugentlig kvote",
   "workspace.lite.subscription.monthlyUsage": "Månedligt forbrug",
+  "workspace.lite.subscription.monthlyQuota": "Månedlig kvote",
   "workspace.lite.subscription.resetsIn": "Nulstiller i",
+  "workspace.lite.subscription.showDetails": "Vis detaljer",
+  "workspace.lite.subscription.hideDetails": "Skjul detaljer",
+  "workspace.lite.subscription.model": "Model",
+  "workspace.lite.subscription.contribution": "%",
+  "workspace.lite.subscription.total": "I alt",
   "workspace.lite.subscription.useBalance": "Brug din tilgængelige saldo, når du har nået forbrugsgrænserne",
   "workspace.lite.subscription.selectProvider":
     'Vælg "OpenCode Go" som udbyder i din opencode-konfiguration for at bruge Go-modeller.',

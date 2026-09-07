@@ -2,12 +2,22 @@
 //!
 //! Each exists only to adapt an error type into the String the frontend receives.
 
-use crate::engine::stop_engine_instances;
+use crate::engine::reload_engine_mcp;
 use crate::mcp;
+use crate::session_search::{self, SessionMatch};
 use crate::storage::{self, PruneResult, PruneRules, RuleEstimate, StorageStats};
 use crate::store::{ArchivedSession, Store, Workspace};
 use serde_json::Value;
 use tauri::State;
+
+/// Sessions whose transcript contains `query`. Runs off the UI thread: the scan touches the
+/// engine database, which the engine may be writing to at the same time.
+#[tauri::command]
+pub(crate) async fn session_search(query: String, directory: String) -> Result<Vec<SessionMatch>, String> {
+    tauri::async_runtime::spawn_blocking(move || session_search::search(&query, &directory))
+        .await
+        .map_err(|error| error.to_string())?
+}
 
 /// Fast, sampled overview of what is using space in the session database.
 #[tauri::command]
@@ -185,7 +195,7 @@ pub(crate) fn mcp_save(
         previous_name.as_deref(),
         config,
         generation,
-        || stop_engine_instances(&app),
+        || reload_engine_mcp(&app),
     )
 }
 
@@ -197,7 +207,7 @@ pub(crate) fn mcp_remove(
     name: String,
     generation: i64,
 ) -> Result<(), String> {
-    runtime.remove(&store, &name, generation, || stop_engine_instances(&app))
+    runtime.remove(&store, &name, generation, || reload_engine_mcp(&app))
 }
 
 #[tauri::command]
@@ -252,7 +262,7 @@ pub(crate) fn mcp_approve(
         &fingerprint,
         generation,
         mcp::McpDecision::Approved,
-        || stop_engine_instances(&app),
+        || reload_engine_mcp(&app),
     )
 }
 
@@ -273,7 +283,7 @@ pub(crate) fn mcp_reject(
         &fingerprint,
         generation,
         mcp::McpDecision::Rejected,
-        || stop_engine_instances(&app),
+        || reload_engine_mcp(&app),
     )
 }
 
@@ -288,6 +298,6 @@ pub(crate) fn mcp_revoke(
     generation: i64,
 ) -> Result<(), String> {
     runtime.revoke(&store, &directory, &name, &fingerprint, generation, || {
-        stop_engine_instances(&app)
+        reload_engine_mcp(&app)
     })
 }

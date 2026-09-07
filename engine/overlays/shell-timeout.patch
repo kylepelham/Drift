@@ -80,18 +80,6 @@ index 0000000..8c3ef9c
 +  current,
 +  snapshot,
 +}
-diff --git a/packages/opencode/src/session/tools.ts b/packages/opencode/src/session/tools.ts
---- a/packages/opencode/src/session/tools.ts
-+++ b/packages/opencode/src/session/tools.ts
-@@ -74,7 +74,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
-             metadata: val.metadata,
-             status: "running",
-             input: args,
--            time: { start: Date.now() },
-+            time: { start: match.state.status === "running" ? match.state.time.start : Date.now() },
-           },
-         }
-       }),
 diff --git a/packages/opencode/src/tool/shell.ts b/packages/opencode/src/tool/shell.ts
 index c60ee49..42da276 100644
 --- a/packages/opencode/src/tool/shell.ts
@@ -274,7 +262,7 @@ index 0000000..ff37fab
 +
 +test("streamed metadata preserves the original tool start time", async () => {
 +  const tools = await Bun.file(new URL("../../src/session/tools.ts", import.meta.url)).text()
-+  expect(tools).toContain('match.state.status === "running" ? match.state.time.start : Date.now()')
++  expect(tools).toContain('match.state.status === "running" ? match.state.time : { start: Date.now() }')
 +})
 +
 +test("does not apply the shell timeout class to other tools", async () => {

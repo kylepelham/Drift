@@ -1,4 +1,5 @@
 import type { Event } from "@opencode-ai/sdk/client"
+import { batch } from "solid-js"
 import type { EngineTarget } from "./connection"
 
 // The engine heartbeats every 10s, so silence means the socket is half-open (proxy, VPN,
@@ -48,10 +49,27 @@ export async function streamEvents(
       buffer += decoder.decode(chunk.value, { stream: true })
       const lines = buffer.split("\n")
       buffer = lines.pop() ?? ""
+      const deltas: { payload: Event; directory?: string }[] = []
+      const flush = () => {
+        if (!deltas.length) return
+        batch(() => {
+          for (const event of deltas) onEvent(event.payload, event.directory)
+        })
+        deltas.length = 0
+      }
       for (const line of lines) {
         const event = parseLine(line)
-        if (event) onEvent(event.payload, event.directory)
+        if (!event) continue
+        if ((event.payload.type as string) === "message.part.delta") {
+          deltas.push(event)
+          continue
+        }
+        // Effects must see each lifecycle transition, not just the last control in a chunk.
+        flush()
+        onEvent(event.payload, event.directory)
       }
+      // Never hold available deltas while waiting for more network data.
+      flush()
     }
   } finally {
     if (timer) clearTimeout(timer)

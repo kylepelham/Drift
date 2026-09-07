@@ -20,6 +20,15 @@ export type McpSnapshot = {
 }
 /** A config-file-defined MCP server resolved for editing: its defining files and definition. */
 export type ExternalMcpConfig = { paths: string[]; config: McpConfig }
+/** One session whose transcript contains the query, with the message that matched. */
+export type SessionContentMatch = {
+  sessionId: string
+  messageId: string
+  title: string
+  directory: string
+  updatedAt: number
+  excerpt: string
+}
 export interface DriftStore {
   workspaces(): Promise<Workspace[]>
   removedWorkspaces(): Promise<Workspace[]>
@@ -48,6 +57,8 @@ export interface DriftStore {
   approveMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
   rejectMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
   revokeMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
+  /** Sessions whose transcript contains `query`. An empty `directory` searches every workspace. */
+  searchSessions(query: string, directory: string): Promise<SessionContentMatch[]>
 }
 
 type Invoke = ShellInvoke
@@ -82,6 +93,7 @@ function shellStore(invoke: Invoke): DriftStore {
       invoke("mcp_reject", { directory, name, fingerprint, generation }),
     revokeMcp: (directory, name, fingerprint, generation) =>
       invoke("mcp_revoke", { directory, name, fingerprint, generation }),
+    searchSessions: (query, directory) => invoke("session_search", { query, directory }),
   }
 }
 
@@ -164,6 +176,9 @@ function browserStore(): DriftStore {
     approveMcp: desktopMcpOnly,
     rejectMcp: desktopMcpOnly,
     revokeMcp: desktopMcpOnly,
+    // Content search reads the engine database directly, which only the desktop backend can do.
+    // The remote mirror still searches titles, so this returns nothing rather than failing.
+    searchSessions: async () => [],
   }
 }
 

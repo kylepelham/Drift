@@ -258,7 +258,7 @@ export const dict = {
   "zen.privacy.exceptionsLink": "следующими исключениями",
 
   "go.title": "OpenCode Go | Недорогие модели для кодинга для всех",
-  "go.banner.text": "Ox Alpha Free доступна в Go в течение ограниченного времени",
+  "go.banner.text": "GLM-5.3-Flash получает 2x лимиты использования на ограниченное время",
   "go.meta.description":
     "Go стоит $10/месяц и предлагает щедрые лимиты использования и надежный доступ к ведущим моделям для кодинга.",
   "go.hero.title": "Недорогие модели для кодинга для всех",
@@ -358,7 +358,7 @@ export const dict = {
     "Журналы мониторинга злоупотреблений создаются при любом использовании функций API и хранятся до 30 дней.",
   "go.faq.a5.learnMore": "Подробнее",
   "go.faq.a5.deepseekRetention":
-    "Соглашение ZDR продлевается ежемесячно. Текущее соглашение действует до 31 августа 2026 года.",
+    "Соглашение ZDR продлевается ежемесячно. Текущее соглашение действует до 30 сентября 2026 года.",
   "go.faq.a5.museRetention":
     "Значительно сниженная стоимость токенов в обмен на разрешение использовать ваши промпты и ответы для обучения будущих моделей Meta.",
 
@@ -375,7 +375,7 @@ export const dict = {
 
   "go.faq.q9": "В чем разница между бесплатными моделями и Go?",
   "go.faq.a9":
-    "Бесплатные модели включают Big Pickle и доступные на данный момент промо-модели с квотой 200 запросов/день. Go предлагает набор отобранных моделей с более высокими квотами запросов, применяемыми в скользящих окнах (5 часов, неделя и месяц), что примерно эквивалентно $12 за 5 часов, $30 в неделю и $60 в месяц (фактическое количество запросов зависит от модели и использования).",
+    "Бесплатные модели включают Big Pickle и доступные на данный момент промо-модели с квотой 200 запросов/день. Go предлагает набор отобранных моделей с более высокими квотами запросов, применяемыми в скользящих окнах (5 часов, неделя и месяц), что примерно эквивалентно базовым лимитам $12 за 5 часов, $30 в неделю и $60 в месяц; лимиты для отдельных моделей могут отличаться (фактическое количество запросов зависит от модели и использования).",
 
   "zen.api.error.rateLimitExceeded": "Превышен лимит запросов. Пожалуйста, попробуйте позже.",
   "zen.api.error.modelNotSupported": "Модель {{model}} не поддерживается",
@@ -678,10 +678,18 @@ export const dict = {
   "workspace.lite.time.fewSeconds": "несколько секунд",
   "workspace.lite.subscription.message": "Вы подписаны на OpenCode Go.",
   "workspace.lite.subscription.manage": "Управление подпиской",
-  "workspace.lite.subscription.rollingUsage": "Скользящее использование",
+  "workspace.lite.subscription.rollingUsage": "Использование за 5 часов",
+  "workspace.lite.subscription.rollingQuota": "Квота на 5 часов",
   "workspace.lite.subscription.weeklyUsage": "Недельное использование",
+  "workspace.lite.subscription.weeklyQuota": "Недельная квота",
   "workspace.lite.subscription.monthlyUsage": "Ежемесячное использование",
+  "workspace.lite.subscription.monthlyQuota": "Ежемесячная квота",
   "workspace.lite.subscription.resetsIn": "Сброс через",
+  "workspace.lite.subscription.showDetails": "Показать подробности",
+  "workspace.lite.subscription.hideDetails": "Скрыть подробности",
+  "workspace.lite.subscription.model": "Модель",
+  "workspace.lite.subscription.contribution": "%",
+  "workspace.lite.subscription.total": "Итого",
   "workspace.lite.subscription.useBalance": "Использовать доступный баланс после достижения лимитов",
   "workspace.lite.subscription.selectProvider":
     'Выберите "OpenCode Go" в качестве провайдера в настройках opencode для использования моделей Go.',

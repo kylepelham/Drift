@@ -1,0 +1,32 @@
+diff --git a/packages/opencode/src/plugin/openai/codex.ts b/packages/opencode/src/plugin/openai/codex.ts
+--- a/packages/opencode/src/plugin/openai/codex.ts
++++ b/packages/opencode/src/plugin/openai/codex.ts
+@@ -314,7 +314,7 @@ export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPluginOptions = {}): Promise<Hooks> {
+                   cache: { read: 0, write: 0 },
+                 },
+                 limit:
+-                  model.id.includes("gpt-5.5") || model.id.includes("gpt-5.6")
++                  model.id.includes("gpt-5.5") || model.id.includes("gpt-5.6") || model.id.includes("gpt-6")
+                     ? {
+                         context: 400_000,
+                         input: 272_000,
+diff --git a/packages/opencode/test/plugin/codex.test.ts b/packages/opencode/test/plugin/codex.test.ts
+--- a/packages/opencode/test/plugin/codex.test.ts
++++ b/packages/opencode/test/plugin/codex.test.ts
+@@ -289,7 +289,7 @@ describe("CodexAuthPlugin", () => {
+       models: {
+         ...Object.fromEntries(
+-          ["gpt-5.4", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.7-pro"].map((id) => [
++          ["gpt-5.4", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.7-pro", "gpt-6-astra"].map((id) => [
+             id,
+             { id, api: { id }, limit, cost: {}, options: {} },
+           ]),
+         ),
+@@ -318,6 +318,7 @@ describe("CodexAuthPlugin", () => {
+     expect(models["gpt-5.6-sol"]?.limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
+     expect(models["gpt-5.6-terra"]?.limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
+     expect(models["gpt-5.6-luna"]?.limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
++    expect(models["gpt-6-astra"]?.limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
+     expect(models["gpt-5.4-pro"]).toBeUndefined()
+     expect(models["gpt-5.7-pro"]).toBeDefined()
+     expect(models["gpt-5.6-sol-high"]).toBeDefined()

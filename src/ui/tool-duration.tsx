@@ -41,12 +41,13 @@ function createSharedNow(active: () => boolean) {
   return now
 }
 
-export function toolElapsedMs(state: ToolTimingState, now: number) {
+export function toolElapsedMs(state: ToolTimingState, now: number, maxMs?: number) {
   const start = timestamp(state.time?.start)
   if (start === undefined) return undefined
   const end = timestamp(state.time?.end)
   if (end === undefined && !running(state)) return undefined
-  return Math.max(0, (end ?? now) - start)
+  const elapsed = Math.max(0, (end ?? now) - start)
+  return maxMs === undefined ? elapsed : Math.min(elapsed, Math.max(0, maxMs))
 }
 
 export function formatToolDuration(ms: number) {
@@ -57,11 +58,14 @@ export function formatToolDuration(ms: number) {
   return `${Math.floor(totalMinutes / 60)}h ${String(totalMinutes % 60).padStart(2, "0")}m`
 }
 
-export function ToolDuration(props: { state: ToolTimingState }) {
+export function ToolDuration(props: { state: ToolTimingState; maxMs?: number }) {
   const live = () =>
-    running(props.state) && timestamp(props.state.time?.start) !== undefined && timestamp(props.state.time?.end) === undefined
+    props.maxMs === undefined &&
+    running(props.state) &&
+    timestamp(props.state.time?.start) !== undefined &&
+    timestamp(props.state.time?.end) === undefined
   const now = createSharedNow(live)
-  const elapsed = () => toolElapsedMs(props.state, now())
+  const elapsed = () => toolElapsedMs(props.state, now(), props.maxMs)
   const duration = () => {
     const value = elapsed()
     return value === undefined ? undefined : formatToolDuration(value)
