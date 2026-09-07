@@ -297,6 +297,14 @@ test("release workflow gates publication on policy and successful master CI", ()
   expect(workflow).not.toContain("overwrite_files:")
 })
 
+test("native CI installs frontend resource dependencies before running Cargo", () => {
+  const workflow = readFileSync(path.join(root, ".github/workflows/ci.yml"), "utf8")
+  const full = workflow.slice(workflow.indexOf("  full:"))
+  const install = full.indexOf("          bun install --frozen-lockfile\n")
+  expect(install).toBeGreaterThan(0)
+  expect(full.indexOf("cargo test")).toBeGreaterThan(install)
+})
+
 test("release workflow uses immutable action pins and triggering SHA binding", () => {
   const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
   const actions = [...workflow.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)].map((match) => match[1])
