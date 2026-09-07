@@ -41,8 +41,9 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install engine dependencies
+      - name: Install dependencies
         run: |
+          bun install --frozen-lockfile
           bun install --frozen-lockfile --ignore-scripts --cwd engine/upstream
           bun install --frozen-lockfile --cwd engine/opencode
 
