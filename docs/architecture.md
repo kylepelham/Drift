@@ -124,10 +124,17 @@ document resources or execute document scripts; explicit Markdown browser links 
 limit. A separate DOMPurify instance preserves document styles and inline SVG but removes
 active elements, navigation, and resource attributes. A CSP placed before user styles
 blocks network resources, forms, and scripts while allowing inline CSS and embedded data
-images/fonts. The iframe sandbox allows only same-origin access so trusted host code can
-forward Escape to the modal; it never allows scripts, forms, popups, or top navigation.
-External/local companion assets and JavaScript-driven content are not loaded. The source
-tab displays the original text, not the sanitized document. Other code links are unchanged.
+images/fonts and host-created image blob URLs. Local `img src` values become trusted reader
+markers, not browser URLs. The shared Markdown image loader resolves them beside the HTML
+file while retaining the original workspace root for native and authenticated companion
+reads. Image preferences, the 12-path/20 MiB budget, and per-image limits still apply.
+Switching tabs, replacing the document, or closing it disposes the loader and its blob URLs;
+late reads cannot update a discarded preview. HTML images retain their authored styling
+without Markdown lightbox controls. The iframe sandbox allows only same-origin access so
+trusted host code can load images and forward Escape to the modal; it never allows scripts,
+forms, popups, or top navigation. Remote resources, linked stylesheets, CSS file URLs,
+`srcset`, and JavaScript-driven content are not loaded. The source tab displays the original
+text, not the sanitized document. Other code links are unchanged.
 
 Attachment lightboxes and image file previews share `src/ui/image-viewer.tsx`. Lightboxes
 place the filename, zoom controls, and close button in one header row, hiding secondary

@@ -89,7 +89,7 @@ function FilePreviewDialog(props: { file: FilePreviewRequest }) {
                   </div></div>
                 </Match>
                 <Match when={file().kind === "text" && /\.html?$/i.test(props.file.path)}>
-                  <HtmlPreview text={file().text!} filename={filename()} line={props.file.line} />
+                  <HtmlPreview text={file().text!} filename={filename()} path={props.file.path} directory={props.file.directory} line={props.file.line} />
                 </Match>
                 <Match when={file().kind === "text"}>
                   <div class="flex min-h-0 flex-1 flex-col p-3"><ProgressiveCodeView code={file().text!} filename={filename()} line={props.file.line} fill /></div>
