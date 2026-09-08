@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "Loading MCP servers...",
+  "drift.mcp.refreshing": "Refreshing MCP servers...",
+  "drift.mcp.retry": "Retry",
   "command.category.agent": "Agent",
   "command.category.model": "Model",
   "command.category.suggested": "Suggested",

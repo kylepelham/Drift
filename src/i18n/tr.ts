@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "MCP sunucuları yükleniyor...",
+  "drift.mcp.refreshing": "MCP sunucuları yenileniyor...",
+  "drift.mcp.retry": "Yeniden dene",
   "command.category.suggested": "Önerilen",
   "command.category.view": "Görünüm",
   "command.category.project": "Proje",

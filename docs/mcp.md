@@ -122,7 +122,12 @@ request failures while the client stays connected. OpenCode's existing one-shot 
 session recovery also remains active beneath this transport-close recovery.
 
 While MCP management is visible, Drift refreshes runtime statuses every two seconds without
-invalidating the exact-definition snapshot. The standalone `/mcp` dialog initially focuses
+invalidating the exact-definition snapshot. Initial definition loading shows a status message
+and skeleton rows. Same-workspace refreshes and reconnects retain known definitions with
+actions disabled until the snapshot is validated. Failed refreshes retain those rows and
+offer Retry, rather than implying the configuration was deleted. Workspace switches still
+clear the previous workspace's rows immediately. The empty state requires a successful,
+settled snapshot. The standalone `/mcp` dialog initially focuses
 the Servers tab. Up/Down and Home/End move through servers, Left disconnects, Right connects
 or authenticates, and Enter runs the selected server's primary runtime action.
 

@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "MCP 서버를 불러오는 중...",
+  "drift.mcp.refreshing": "MCP 서버를 새로 고치는 중...",
+  "drift.mcp.retry": "다시 시도",
   "command.category.suggested": "추천",
   "command.category.view": "보기",
   "command.category.project": "프로젝트",

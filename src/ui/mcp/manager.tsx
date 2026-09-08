@@ -60,6 +60,7 @@ export function McpManagement(props: { embedded?: boolean }) {
   const [selected, setSelected] = createSignal("")
   const rowElements = new Map<string, HTMLDivElement>()
   const native = !!backendInvoke()
+  const loading = () => native && (coordinator.state.loading || (!coordinator.state.ready && !coordinator.state.error))
   const locked = () => !native || !!coordinator.state.mutation || !mcpSnapshotActionable(coordinator.state)
   const rows = createMemo<Row[]>(() => {
     const result = new Map<string, Row>()
@@ -199,13 +200,36 @@ export function McpManagement(props: { embedded?: boolean }) {
           }}
         >
           {coordinator.state.error || failure() || message()}
+          <Show when={native && coordinator.state.error}>
+            <button class="ml-3 rounded border border-current px-2 py-1 disabled:opacity-40"
+              disabled={coordinator.state.loading || !!coordinator.state.mutation}
+              onClick={() => void coordinator.refresh().catch(() => undefined)}>
+              {t("drift.mcp.retry")}
+            </button>
+          </Show>
         </div>
       </Show>
       <Show when={!coordinator.state.directory}>
         <div class="text-xs text-ink-faint">{t("drift.mcp.selectWorkspace")}</div>
       </Show>
       <Show when={view() === "servers"}>
-        <div classList={{ "space-y-1": !props.embedded, "border-y border-edge/80": props.embedded }}>
+        <Show when={loading()}>
+          <div role="status" class="flex items-center gap-2 px-3 py-2 text-sm text-ink-muted">
+            <span aria-hidden="true" class="size-3.5 shrink-0 rounded-full border-2 border-ink-faint/30 border-t-ink-muted motion-safe:animate-spin" />
+            {t(rows().length ? "drift.mcp.refreshing" : "drift.mcp.loading")}
+          </div>
+        </Show>
+        <div aria-busy={loading()} classList={{ "space-y-1": !props.embedded, "border-y border-edge/80": props.embedded }}>
+          <Show when={loading() && !rows().length}>
+            <div aria-hidden="true" class="space-y-2 motion-safe:animate-pulse">
+              <For each={["w-32", "w-44", "w-28"]}>{(width) => (
+                <div class="rounded-lg border border-edge/60 px-3 py-4">
+                  <div class={`h-3 max-w-full rounded bg-ink-faint/15 ${width}`} />
+                  <div class="mt-2.5 h-2 w-20 rounded bg-ink-faint/10" />
+                </div>
+              )}</For>
+            </div>
+          </Show>
           <For each={rowNames()}>
             {(name) => {
               const row = () => rows().find((item) => item.name === name)!
@@ -255,7 +279,7 @@ export function McpManagement(props: { embedded?: boolean }) {
               )
             }}
           </For>
-          <Show when={!coordinator.state.loading && !rows().length}>
+          <Show when={coordinator.state.ready && !coordinator.state.loading && !coordinator.state.error && !rows().length}>
             <div class="px-3 py-5 text-sm text-ink-faint">{t("dialog.mcp.empty")}</div>
           </Show>
         </div>

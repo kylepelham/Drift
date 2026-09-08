@@ -147,8 +147,8 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     return request.revision === revision && request.directory === state.directory && request.online === state.online
   }
 
-  function clearForContext(directory: string) {
-    setState("snapshot", emptySnapshot(directory))
+  function clearForContext(directory: string, keepSnapshot = false) {
+    if (!keepSnapshot) setState("snapshot", emptySnapshot(directory))
     setState("statuses", reconcile({}))
     setState("ready", false)
     setState("error", "")
@@ -181,7 +181,8 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     } catch (error) {
       const message = conciseMcpError(error)
       if (current(request)) {
-        setState("snapshot", emptySnapshot(request.directory))
+        // A failed refresh is not an empty configuration. Retain the last definitions,
+        // but leave them non-actionable until a successful refresh validates them.
         setState("statuses", reconcile({}))
         setState("ready", false)
         setState("error", message)
@@ -216,10 +217,11 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
 
   function setActive(directory: string, online: boolean) {
     if (state.directory === directory && state.online === online) return Promise.resolve(state.snapshot)
+    const sameDirectory = state.directory === directory
     revision++
     setState("directory", directory)
     setState("online", online)
-    clearForContext(directory)
+    clearForContext(directory, sameDirectory)
     setState("loading", true)
     const request = context()
     return serialize(() => refreshUnlocked(request))
