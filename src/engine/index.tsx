@@ -45,8 +45,8 @@ const transcriptRefreshBatch = 3
 const engineInspectionTimeoutMs = 5_000
 
 /** Reads the engine version, or null if the engine is unreachable or does not answer with it. */
-function fetchEngineVersion(target: EngineTarget) {
-  return fetch(`${target.url}/global/health`, { headers: target.headers })
+function fetchEngineVersion(target: EngineTarget, signal: AbortSignal) {
+  return fetch(`${target.url}/global/health`, { headers: target.headers, signal })
     .then((response) => (response.ok ? (response.json() as Promise<{ version?: string }>) : null))
     .catch(() => null)
 }
@@ -65,6 +65,7 @@ export function EngineProvider(props: ParentProps) {
   let base: EngineTarget | undefined
   let client: OpencodeClient | undefined
   let pumpAbort: AbortController | undefined
+  let versionAbort: AbortController | undefined
   let directory: string | null = null
   let disposed = false
   let engineEpoch = 0
@@ -99,6 +100,23 @@ export function EngineProvider(props: ParentProps) {
     syncShellTimeout()
   })
 
+  async function refreshVersion() {
+    const target = base
+    if (!target || disposed || versionAbort) return
+    const epoch = engineEpoch
+    const controller = new AbortController()
+    versionAbort = controller
+    const timeout = setTimeout(() => controller.abort(), engineInspectionTimeoutMs)
+    try {
+      const health = await fetchEngineVersion(target, controller.signal)
+      if (disposed || controller.signal.aborted || base !== target || engineEpoch !== epoch) return
+      if (health?.version) set("version", health.version)
+    } finally {
+      clearTimeout(timeout)
+      if (versionAbort === controller) versionAbort = undefined
+    }
+  }
+
   async function hydrate() {
     const bootDirectory = directory ?? ""
     const api = requireClient()
@@ -110,13 +128,23 @@ export function EngineProvider(props: ParentProps) {
     // (bumped by every server.connected) keeps the stale one from purging what the fresh one wrote.
     const epoch = state.sessionSnapshotEpoch
     const current = () =>
-      client === api && directory === bootDirectory && state.sessionSnapshotEpoch === epoch
+      !disposed && client === api && directory === bootDirectory && state.sessionSnapshotEpoch === epoch
+    // Commands can wait on MCP initialization; neither they nor skill watchers gate readiness.
+    void api.command.list().then((commands) => {
+      if (current() && runtimeMetadataEpoch === metadataEpoch && commands.data !== undefined)
+        set("commands", commands.data)
+    }).catch(() => undefined)
+    void api.config.get().then((config) => {
+      if (current() && runtimeMetadataEpoch === metadataEpoch && config.data !== undefined)
+        syncSkillWatchPaths(bootDirectory, config.data)
+    }).catch(() => undefined)
+    if (!state.version) void refreshVersion()
     try {
       const stale = Object.keys(state.loaded)
       const captured = captureRevisions(state)
-      const [sessions, [statuses, providers, agents, commands, config]] = await Promise.all([
+      const [sessions, [statuses, providers, agents]] = await Promise.all([
         api.session.list(),
-        Promise.all([api.session.status(), api.provider.list(), api.app.agents(), api.command.list(), api.config.get()]),
+        Promise.all([api.session.status(), api.provider.list(), api.app.agents()]),
       ])
       if (!current()) return
       const list = sessions.data ?? []
@@ -135,10 +163,6 @@ export function EngineProvider(props: ParentProps) {
       if (bootDirectory) void actions.refreshPermissions([bootDirectory])
       if (state.providerSnapshotEpoch === providerEpoch) applyProviderCatalog(set, providers.data)
       set("agents", agents.data ?? [])
-      if (runtimeMetadataEpoch === metadataEpoch) {
-        set("commands", commands.data ?? [])
-        if (config.data !== undefined) syncSkillWatchPaths(bootDirectory, config.data)
-      }
       // The visible session refreshes first so a reconnect never leaves the open transcript
       // waiting behind bulk refetches; the rest trickle in small batches to avoid saturating
       // the handful of HTTP connections a remote browser gives the proxy.
@@ -163,12 +187,6 @@ export function EngineProvider(props: ParentProps) {
           set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], entries, id, captured, state.revisions))
           set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
         }
-      }
-      if (!state.version && base) {
-        const target = base
-        const health = await fetchEngineVersion(target)
-        if (!current() || base !== target) return
-        if (health?.version) set("version", health.version)
       }
     } finally {
       // A hydrate that bailed on a stale epoch wrote nothing, so it must not report readiness.
@@ -303,6 +321,8 @@ export function EngineProvider(props: ParentProps) {
   function stopPump() {
     pumpAbort?.abort()
     pumpAbort = undefined
+    versionAbort?.abort()
+    versionAbort = undefined
     client = undefined
   }
 
@@ -402,15 +422,13 @@ export function EngineProvider(props: ParentProps) {
 
   const startupEpoch = engineEpoch
   void resolveEngine()
-    .then(async (target) => {
+    .then((target) => {
       if (disposed || startupEpoch !== engineEpoch) return
       base = target
       syncShellTimeout(target)
       set("engineError", "")
-      const health = await fetchEngineVersion(target)
-      if (disposed || startupEpoch !== engineEpoch) return
-      if (health?.version) set("version", health.version)
       if (directory) startPump(directory)
+      void refreshVersion()
     })
     .catch((error: unknown) => {
       if (disposed || startupEpoch !== engineEpoch) return
@@ -438,6 +456,7 @@ export function EngineProvider(props: ParentProps) {
   onCleanup(() => {
     disposed = true
     pumpAbort?.abort()
+    versionAbort?.abort()
     unlistenEngineExit?.()
     unlistenSkillConfig?.()
     unlistenMcpConfig?.()

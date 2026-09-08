@@ -62,6 +62,7 @@ export function McpManagement(props: { embedded?: boolean }) {
   const native = !!backendInvoke()
   const loading = () => native && (coordinator.state.loading || (!coordinator.state.ready && !coordinator.state.error))
   const locked = () => !native || !!coordinator.state.mutation || !mcpSnapshotActionable(coordinator.state)
+  const error = () => coordinator.state.error || coordinator.state.statusError || failure()
   const rows = createMemo<Row[]>(() => {
     const result = new Map<string, Row>()
     for (const stored of coordinator.state.snapshot.servers) result.set(stored.name, { name: stored.name, stored })
@@ -190,17 +191,17 @@ export function McpManagement(props: { embedded?: boolean }) {
           </button>
         </Show>
       </div>
-      <Show when={coordinator.state.error || failure() || message()}>
+      <Show when={error() || message()}>
         <div
-          role={coordinator.state.error || failure() ? "alert" : "status"}
+          role={error() ? "alert" : "status"}
           class="rounded-md border px-3 py-2 text-xs"
           classList={{
-            "border-danger/35 bg-danger/10 text-danger": !!(coordinator.state.error || failure()),
-            "border-ok/35 bg-ok/10 text-ok": !coordinator.state.error && !failure(),
+            "border-danger/35 bg-danger/10 text-danger": !!error(),
+            "border-ok/35 bg-ok/10 text-ok": !error(),
           }}
         >
-          {coordinator.state.error || failure() || message()}
-          <Show when={native && coordinator.state.error}>
+          {error() || message()}
+          <Show when={native && (coordinator.state.error || coordinator.state.statusError)}>
             <button class="ml-3 rounded border border-current px-2 py-1 disabled:opacity-40"
               disabled={coordinator.state.loading || !!coordinator.state.mutation}
               onClick={() => void coordinator.refresh().catch(() => undefined)}>
@@ -449,7 +450,7 @@ function statusLabel(row: Row, busy: boolean) {
   if (row.observed?.decision === "rejected") return { text: t("drift.mcp.rejectedStatus"), tone: "text-danger" }
   if (!row.observed && row.stored) return { text: t("drift.mcp.awaitingReport"), tone: "text-ink-faint" }
   if (!row.status)
-    return { text: row.observed?.decision === "approved" ? t("mcp.status.disabled") : "", tone: "text-ink-faint" }
+    return { text: row.observed?.decision === "approved" ? t("drift.mcp.awaitingReport") : "", tone: "text-ink-faint" }
   if (row.status.status === "connected") return { text: t("mcp.status.connected"), tone: "text-ok" }
   if (row.status.status === "failed")
     return {

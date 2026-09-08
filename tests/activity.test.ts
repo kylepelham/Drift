@@ -631,6 +631,7 @@ test("MCP engine actions propagate transport and SDK failures", async () => {
   const { createActions } = await import("../src/engine/actions")
   const [state, set] = createEngineState()
   const client = {
+    config: { get: async () => ({ error: { message: "config rejected" } }) },
     mcp: {
       status: async (): Promise<unknown> => ({ error: { message: "status rejected" } }),
       connect: async () => ({ error: { message: "connect rejected" } }),
@@ -639,12 +640,42 @@ test("MCP engine actions propagate transport and SDK failures", async () => {
     },
   }
   const actions = createActions(() => client as never, state, set, () => ({ url: "http://engine.test" }))
+  await expect(actions.mcpInitialize()).rejects.toThrow("config rejected")
   await expect(actions.mcpStatus()).rejects.toThrow("status rejected")
   await expect(actions.mcpConnect("docs")).rejects.toThrow("connect rejected")
   await expect(actions.mcpDisconnect("docs")).rejects.toThrow("Could not disconnect docs")
   await expect(actions.mcpAuthenticate("docs")).rejects.toThrow("auth rejected")
   client.mcp.status = async () => { throw new Error("network down") }
   await expect(actions.mcpStatus()).rejects.toThrow("network down")
+})
+
+test("MCP initialization reads config without querying connections and status accepts cancellation", async () => {
+  const { createActions } = await import("../src/engine/actions")
+  const [state, set] = createEngineState()
+  let configSignal!: AbortSignal
+  let statusSignal!: AbortSignal
+  let statusCalls = 0
+  const client = {
+    config: { get: async ({ signal }: { signal: AbortSignal }) => {
+      configSignal = signal
+      return { data: {} }
+    } },
+    mcp: { status: async ({ signal }: { signal: AbortSignal }) => {
+      statusCalls++
+      statusSignal = signal
+      return { data: {} }
+    } },
+  }
+  const actions = createActions(() => client as never, state, set, () => ({ url: "http://engine.test" }))
+  await actions.mcpInitialize()
+  expect(configSignal).toBeInstanceOf(AbortSignal)
+  expect(statusCalls).toBe(0)
+  const controller = new AbortController()
+  await actions.mcpStatus("", controller.signal)
+  expect(statusCalls).toBe(1)
+  expect(statusSignal.aborted).toBeFalse()
+  controller.abort()
+  expect(statusSignal.aborted).toBeTrue()
 })
 
 test("upward transcript gestures unstick immediately near the bottom", async () => {

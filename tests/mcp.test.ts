@@ -298,6 +298,7 @@ test("browser MCP registry fails clearly instead of emulating policy", async () 
 describe("MCP frontend coordinator", () => {
   const dependencies = (store: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
     store: store as never,
+    initialize: async () => undefined,
     status: async () => ({}),
     connect: async () => undefined,
     disconnect: async () => undefined,
@@ -329,7 +330,7 @@ describe("MCP frontend coordinator", () => {
     stop()
   })
 
-  test("initializes the engine before reading the effective snapshot", async () => {
+  test("initializes config before reading definitions and then polls status independently", async () => {
     const { createMcpCoordinator } = await import("../src/state/mcp")
     const order: string[] = []
     const coordinator = createMcpCoordinator(
@@ -341,6 +342,7 @@ describe("MCP frontend coordinator", () => {
           },
         },
         {
+          initialize: async () => { order.push("config") },
           status: async () => {
             order.push("status")
             return {}
@@ -349,7 +351,8 @@ describe("MCP frontend coordinator", () => {
       ),
     )
     await coordinator.setActive("S:/repo", true)
-    expect(order).toEqual(["status", "snapshot"])
+    await coordinator.refreshStatus()
+    expect(order).toEqual(["config", "snapshot", "status"])
     expect(coordinator.state.snapshot.generation).toBe(3)
   })
 
@@ -404,7 +407,7 @@ describe("MCP frontend coordinator", () => {
     expect(coordinator.state.error).toBe("report failed")
   })
 
-  test("initial loading stays non-actionable while the engine status request is pending", async () => {
+  test("definitions become actionable without waiting for MCP connections", async () => {
     const { createMcpCoordinator, mcpSnapshotActionable } = await import("../src/state/mcp")
     let release!: () => void
     const pending = new Promise<void>((resolve) => { release = resolve })
@@ -415,17 +418,14 @@ describe("MCP frontend coordinator", () => {
         return { generation: 1, directory, servers: [], observed: [] }
       },
     }, { status: async () => { await pending; return {} } }))
-    const loading = coordinator.setActive("S:/repo", true)
-    await Promise.resolve()
-    expect(coordinator.state.loading).toBeTrue()
-    expect(coordinator.state.ready).toBeFalse()
-    expect(mcpSnapshotActionable(coordinator.state)).toBeFalse()
-    expect(snapshots).toBe(0)
-    release()
-    await loading
+    await coordinator.setActive("S:/repo", true)
     expect(coordinator.state.loading).toBeFalse()
     expect(coordinator.state.ready).toBeTrue()
+    expect(coordinator.state.statusLoading).toBeTrue()
+    expect(mcpSnapshotActionable(coordinator.state)).toBeTrue()
     expect(snapshots).toBe(1)
+    release()
+    await coordinator.refreshStatus()
   })
 
   test("same-workspace reconnects retain definitions but disable actions until refreshed", async () => {
@@ -449,11 +449,111 @@ describe("MCP frontend coordinator", () => {
     await expect(coordinator.runtime(target, "connect")).rejects.toThrow("refreshing")
     release()
     await reconnect
+    await coordinator.refreshStatus()
     expect(mcpSnapshotActionable(coordinator.state)).toBeTrue()
     expect(coordinator.state.statuses.docs.status).toBe("connected")
   })
 
-  test.each(["status", "snapshot"])("a failed %s refresh retains rows without permitting stale mutations", async (stage) => {
+  test("pending config initialization still prevents snapshot actions", async () => {
+    const { createMcpCoordinator, mcpSnapshotActionable } = await import("../src/state/mcp")
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    let snapshots = 0
+    const coordinator = createMcpCoordinator(dependencies({
+      mcpSnapshot: async (directory: string) => {
+        snapshots++
+        return { generation: 1, directory, servers: [], observed: [] }
+      },
+    }, { initialize: () => pending }))
+    const loading = coordinator.setActive("S:/repo", true)
+    await Promise.resolve()
+    expect(coordinator.state.loading).toBeTrue()
+    expect(mcpSnapshotActionable(coordinator.state)).toBeFalse()
+    expect(snapshots).toBe(0)
+    release()
+    await loading
+    expect(snapshots).toBe(1)
+    expect(mcpSnapshotActionable(coordinator.state)).toBeTrue()
+  })
+
+  test("slow status polls coalesce and cannot block definition mutations", async () => {
+    const { createMcpCoordinator } = await import("../src/state/mcp")
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    const signals: AbortSignal[] = []
+    let saves = 0
+    const coordinator = createMcpCoordinator(dependencies({
+      mcpSnapshot: async (directory: string) => ({ generation: 1, directory, servers: [], observed: [] }),
+      saveMcp: async () => { saves++ },
+    }, { status: async (_directory: string, signal: AbortSignal) => {
+      signals.push(signal)
+      await pending
+      return {}
+    } }))
+    await coordinator.setActive("S:/repo", true)
+    const first = coordinator.refreshStatus()
+    for (let poll = 0; poll < 30; poll++) expect(coordinator.refreshStatus()).toBe(first)
+    expect(signals).toHaveLength(1)
+    await coordinator.save("docs", { type: "local", command: ["docs"] }, { generation: 1 })
+    expect(saves).toBe(1)
+    expect(coordinator.state.mutation).toBeNull()
+    expect(signals[0].aborted).toBeTrue()
+    release()
+    await first
+    await coordinator.refreshStatus()
+  })
+
+  test("workspace changes do not wait for old status or accept its late response", async () => {
+    const { createMcpCoordinator } = await import("../src/state/mcp")
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    let oldSignal!: AbortSignal
+    const coordinator = createMcpCoordinator(dependencies({
+      mcpSnapshot: async (directory: string) => ({ generation: 1, directory, servers: [], observed: [] }),
+    }, { status: async (directory: string, signal: AbortSignal) => {
+      if (directory === "S:/one") {
+        oldSignal = signal
+        await pending
+        return { old: { status: "connected" } }
+      }
+      return { fresh: { status: "connected" } }
+    } }))
+    await coordinator.setActive("S:/one", true)
+    const old = coordinator.refreshStatus()
+    await coordinator.setActive("S:/two", true)
+    await coordinator.refreshStatus()
+    expect(oldSignal.aborted).toBeTrue()
+    expect(coordinator.state.snapshot.directory).toBe("S:/two")
+    expect(coordinator.state.statuses).toEqual({ fresh: { status: "connected" } })
+    release()
+    await old
+    expect(coordinator.state.statuses).toEqual({ fresh: { status: "connected" } })
+  })
+
+  test("a late status response cannot overwrite the status after a same-workspace refresh", async () => {
+    const { createMcpCoordinator } = await import("../src/state/mcp")
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    let calls = 0
+    const coordinator = createMcpCoordinator(dependencies({
+      mcpSnapshot: async (directory: string) => ({ generation: 1, directory, servers: [], observed: [] }),
+    }, { status: async () => {
+      if (++calls === 1) {
+        await pending
+        return { docs: { status: "connected" } }
+      }
+      return { docs: { status: "disabled" } }
+    } }))
+    await coordinator.setActive("S:/repo", true)
+    const old = coordinator.refreshStatus()
+    await coordinator.refresh()
+    await coordinator.refreshStatus()
+    release()
+    await old
+    expect(coordinator.state.statuses.docs.status).toBe("disabled")
+  })
+
+  test.each(["config", "snapshot"])("a failed %s refresh retains rows without permitting stale mutations", async (stage) => {
     const { createMcpCoordinator, exactMcpTarget, mcpSnapshotActionable } = await import("../src/state/mcp")
     let fail = false
     let release!: () => void
@@ -465,10 +565,12 @@ describe("MCP frontend coordinator", () => {
           { name: "docs", type: "remote", fingerprint: "sha256:docs", decision: "pending" },
         ] }
       },
-    }, { status: async () => {
-      if (fail) { await pending; if (stage === "status") throw new Error("Engine unavailable") }
-      return { docs: { status: "connected" } }
-    } }))
+    }, {
+      initialize: async () => {
+        if (fail) { await pending; if (stage === "config") throw new Error("Config unavailable") }
+      },
+      status: async () => ({ docs: { status: "connected" } }),
+    }))
     await coordinator.setActive("S:/repo", true)
     const target = exactMcpTarget(coordinator.state.snapshot, coordinator.state.snapshot.observed[0])
     fail = true
@@ -637,6 +739,7 @@ describe("MCP frontend coordinator", () => {
     )
     await coordinator.setActive("S:/repo", true)
     await coordinator.refreshStatus()
+    await coordinator.refreshStatus()
     expect(snapshots).toBe(1)
     expect(statuses).toBe(2)
     expect(coordinator.state.statuses.docs.status).toBe("connected")
@@ -663,12 +766,18 @@ describe("MCP frontend coordinator", () => {
       ),
     )
     await coordinator.setActive("S:/repo", true)
+    await coordinator.refreshStatus()
     expect(coordinator.state.statuses.docs.status).toBe("connected")
 
     fail = true
     await expect(coordinator.refreshStatus()).rejects.toThrow("engine unavailable")
     expect(coordinator.state.statuses).toEqual({})
     expect(coordinator.state.ready).toBeTrue()
+    expect(coordinator.state.error).toBe("")
+    expect(coordinator.state.statusError).toBe("engine unavailable")
+    fail = false
+    await coordinator.refreshStatus()
+    expect(coordinator.state.statusError).toBe("")
   })
 
   test("external refresh bursts coalesce and cancellation prevents delayed work", async () => {
@@ -982,6 +1091,7 @@ describe("config-file-defined MCP servers", () => {
   const observed = { name: "docs", type: "remote" as const, fingerprint: "sha256:docs", decision: "approved" as const }
   const dependencies = (store: Record<string, unknown>) => ({
     store: store as never,
+    initialize: async () => undefined,
     status: async () => ({}),
     connect: async () => undefined,
     disconnect: async () => undefined,
@@ -1123,6 +1233,7 @@ describe("config-file-defined MCP servers", () => {
     let statusCalls = 0
     const pending = { ...observed, decision: "pending" as const }
     const coordinator = createMcpCoordinator({
+      initialize: async () => undefined,
       store: snapshotStore({
         mcpSnapshot: async (directory: string) => ({
           generation: 6,
@@ -1142,6 +1253,7 @@ describe("config-file-defined MCP servers", () => {
       authenticate: async () => undefined,
     })
     await coordinator.setActive("S:/repo", true)
+    await coordinator.refreshStatus()
     const target = exactMcpTarget(coordinator.state.snapshot, coordinator.state.snapshot.observed[0])
 
     await coordinator.decide("approve", target)
@@ -1149,7 +1261,7 @@ describe("config-file-defined MCP servers", () => {
     expect(coordinator.state.ready).toBeTrue()
 
     releaseStatus()
-    await coordinator.settled()
+    await coordinator.refreshStatus()
     expect(statusCalls).toBe(2)
   })
 
