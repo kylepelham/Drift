@@ -5,7 +5,7 @@ import { openLightbox } from "./lightbox"
 
 export const markdownImageAttribute = "data-document-image"
 
-export function observeMarkdownImages(root: HTMLDivElement, input: { parent?: string; directory?: string; enabled: boolean; hash?: string }): () => void {
+export function observeMarkdownImages(root: HTMLElement, input: { parent?: string; directory?: string; enabled: boolean; hash?: string; interactive?: boolean }): () => void {
   const { parent, directory, enabled } = input
   const hash = input.hash?.replace(/^#/, "")
   let disposed = false
@@ -42,6 +42,7 @@ export function observeMarkdownImages(root: HTMLDivElement, input: { parent?: st
   }
 
   function decorate(image: HTMLImageElement) {
+    if (input.interactive === false) return
     if (controls.has(image) || image.closest("a[href],button") || !imageSource(image)) return
     controls.set(image, controlAttributes.map((name) => image.getAttribute(name)))
     image.setAttribute("role", "button")

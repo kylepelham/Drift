@@ -657,8 +657,14 @@ export function createActions(
     return syncProvider(id, result?.data === true, client, directory, epoch)
   }
 
-  async function mcpStatus(directory = state.directory) {
-    const result = await mcpClient(directory).mcp.status()
+  async function mcpInitialize(directory = state.directory) {
+    const result = await mcpClient(directory).config.get({ signal: AbortSignal.timeout(10_000) })
+    requireSdkData(result, "Could not load MCP configuration")
+  }
+
+  async function mcpStatus(directory = state.directory, signal?: AbortSignal) {
+    const timeout = AbortSignal.timeout(10_000)
+    const result = await mcpClient(directory).mcp.status({ signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
     return requireSdkData(result, "Could not load MCP status")
   }
 
@@ -1028,6 +1034,7 @@ export function createActions(
     setProviderKey,
     disconnectProvider,
     reloadProviderInstances,
+    mcpInitialize,
     mcpStatus,
     mcpConnect,
     mcpDisconnect,

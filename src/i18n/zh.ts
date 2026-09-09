@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "正在加载 MCP 服务器...",
+  "drift.mcp.refreshing": "正在刷新 MCP 服务器...",
+  "drift.mcp.retry": "重试",
   "command.category.suggested": "建议",
   "command.category.view": "视图",
   "command.category.project": "项目",

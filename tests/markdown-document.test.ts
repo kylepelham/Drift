@@ -41,7 +41,7 @@ function image(raw: string) {
   }
 }
 
-function setup(raw: string[], options: { enabled?: boolean; hash?: string; size?: number; pending?: boolean; input?: { parent?: string; directory?: string; enabled: boolean; hash?: string } } = {}) {
+function setup(raw: string[], options: { enabled?: boolean; hash?: string; size?: number; pending?: boolean; input?: { parent?: string; directory?: string; enabled: boolean; hash?: string; interactive?: boolean } } = {}) {
   const images = raw.map(image)
   const heading = { id: "heading-1", scrollIntoView: mock(() => {}) }
   const listeners = new Map<string, Set<() => void>>()
@@ -137,6 +137,20 @@ test("image preference disables automatic reads without opening anything", async
   expect(view.read).not.toHaveBeenCalled()
   expect(view.images[0].title).not.toBe("")
   expect(view.images[0].getAttribute("alt")).toBe("diagram")
+})
+
+test("static HTML images load without adding lightbox controls to the document", async () => {
+  const view = setup(["./renders/view%20one.png"], { input: {
+    parent: "C:/work/docs", directory: "C:/work", enabled: true, interactive: false,
+  } })
+  await flush()
+  expect(view.read.mock.calls).toEqual([[{ path: "C:/work/docs/renders/view one.png", directory: "C:/work" }]])
+  expect(view.images[0].src).toBe("blob:owned-1")
+  for (const attr of ["role", "tabindex", "class"]) expect(view.images[0].getAttribute(attr)).toBeNull()
+  view.activate()
+  expect(view.open).not.toHaveBeenCalled()
+  view.dispose()
+  expect(view.urls.revokeObjectURL.mock.calls).toEqual([["blob:owned-1"]])
 })
 
 test.each([{}, { type: "keydown", key: "Enter" }, { type: "keydown", key: " " }])("local images open the lightbox with owned bytes and keyboard access: %j", async (event) => {

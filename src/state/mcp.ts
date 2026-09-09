@@ -20,13 +20,16 @@ export type McpCoordinatorState = {
   statuses: Record<string, McpStatus>
   loading: boolean
   ready: boolean
+  statusLoading: boolean
+  statusError: string
   mutation: string | null
   error: string
 }
 
 export type McpCoordinatorDependencies = {
   store: DriftStore
-  status: (directory: string) => Promise<Record<string, McpStatus>>
+  initialize: (directory: string) => Promise<void>
+  status: (directory: string, signal: AbortSignal) => Promise<Record<string, McpStatus>>
   connect: (name: string, directory: string) => Promise<void>
   disconnect: (name: string, directory: string) => Promise<void>
   authenticate: (name: string, directory: string) => Promise<void>
@@ -107,6 +110,8 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     statuses: {},
     loading: false,
     ready: false,
+    statusLoading: false,
+    statusError: "",
     mutation: null,
     error: "",
   })
@@ -117,9 +122,10 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
   let startSequence = 0
   let revision = 0
   let mutationToken: symbol | undefined
+  let statusRequest: { controller: AbortController; promise: Promise<Record<string, McpStatus>> } | undefined
 
   /**
-   * Queues work so MCP operations never overlap: each waits for the previous one to settle.
+   * Queues definition reads and mutations. Runtime polling must not hold this queue.
    *
    * `work` is passed as both handlers so it runs whether the previous task resolved or rejected -
    * one failed operation must not wedge the queue. The tail then swallows the outcome so a
@@ -147,19 +153,17 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     return request.revision === revision && request.directory === state.directory && request.online === state.online
   }
 
-  function clearForContext(directory: string) {
-    setState("snapshot", emptySnapshot(directory))
+  function clearForContext(directory: string, keepSnapshot = false) {
+    invalidateStatus()
+    if (!keepSnapshot) setState("snapshot", emptySnapshot(directory))
     setState("statuses", reconcile({}))
     setState("ready", false)
     setState("error", "")
   }
 
   /**
-   * Reads the effective snapshot, and by default the runtime status alongside it.
-   *
-   * `runtimeStatus: false` skips the engine round trip. Asking the engine for status makes it
-   * rebuild the instance and reconnect every approved server, which takes as long as the slowest
-   * server; a mutation must not hold the dialog shut for that.
+   * Config initialization writes the approval report without waiting for MCP connections.
+   * Mutations already update definitions, so their follow-up read skips that round trip.
    */
   async function refreshUnlocked(request = context(), { runtimeStatus = true } = {}) {
     const api = requireDependencies()
@@ -167,21 +171,21 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     setState("loading", true)
     setState("ready", false)
     setState("error", "")
+    invalidateStatus()
     try {
-      let statuses: Record<string, McpStatus> | undefined
-      if (runtimeStatus) {
-        statuses = request.directory && request.online ? await api.status(request.directory) : {}
-      }
+      if (runtimeStatus && request.directory && request.online) await api.initialize(request.directory)
+      if (!current(request)) return emptySnapshot(request.directory)
       const snapshot = await api.store.mcpSnapshot(request.directory)
       if (!current(request)) return snapshot
       setState("snapshot", snapshot)
-      if (statuses) setState("statuses", reconcile(statuses))
       setState("ready", true)
+      if (runtimeStatus) void refreshStatus().catch(() => undefined)
       return snapshot
     } catch (error) {
       const message = conciseMcpError(error)
       if (current(request)) {
-        setState("snapshot", emptySnapshot(request.directory))
+        // A failed refresh is not an empty configuration. Retain the last definitions,
+        // but leave them non-actionable until a successful refresh validates them.
         setState("statuses", reconcile({}))
         setState("ready", false)
         setState("error", message)
@@ -192,16 +196,12 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     }
   }
 
-  async function refreshStatusUnlocked(request = context()) {
-    if (!current(request) || !request.directory || !request.online) return {}
-    try {
-      const statuses = await requireDependencies().status(request.directory)
-      if (current(request)) setState("statuses", reconcile(statuses))
-      return statuses
-    } catch (error) {
-      if (current(request)) setState("statuses", reconcile({}))
-      throw error
-    }
+  function invalidateStatus() {
+    statusRequest?.controller.abort()
+    statusRequest = undefined
+    setState("statusLoading", false)
+    setState("statusError", "")
+    setState("statuses", reconcile({}))
   }
 
   function refresh() {
@@ -210,16 +210,42 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
   }
 
   function refreshStatus() {
+    if (statusRequest) return statusRequest.promise
     const request = context()
-    return serialize(() => refreshStatusUnlocked(request))
+    if (!request.directory || !request.online || !state.ready || state.mutation) return Promise.resolve({})
+    const controller = new AbortController()
+    setState("statusLoading", true)
+    // Polls share one request, outside the mutation queue. A workspace/config change aborts it.
+    const promise = Promise.resolve().then(() => requireDependencies().status(request.directory, controller.signal))
+      .then((statuses) => {
+        if (current(request) && !controller.signal.aborted) {
+          setState("statuses", reconcile(statuses))
+          setState("statusError", "")
+        }
+        return statuses
+      }).catch((error) => {
+        if (current(request) && !controller.signal.aborted) {
+          setState("statuses", reconcile({}))
+          setState("statusError", conciseMcpError(error))
+        }
+        throw error
+      }).finally(() => {
+        if (statusRequest?.controller === controller) {
+          statusRequest = undefined
+          setState("statusLoading", false)
+        }
+      })
+    statusRequest = { controller, promise }
+    return promise
   }
 
   function setActive(directory: string, online: boolean) {
     if (state.directory === directory && state.online === online) return Promise.resolve(state.snapshot)
+    const sameDirectory = state.directory === directory
     revision++
     setState("directory", directory)
     setState("online", online)
-    clearForContext(directory)
+    clearForContext(directory, sameDirectory)
     setState("loading", true)
     const request = context()
     return serialize(() => refreshUnlocked(request))
@@ -289,6 +315,7 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     if (state.mutation) return Promise.reject(new Error("Another MCP operation is already in progress."))
     const token = Symbol(label)
     mutationToken = token
+    invalidateStatus()
     setState("mutation", label)
     return serialize(async () => {
       const api = requireDependencies()
@@ -304,9 +331,6 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
         }
         try {
           await refreshUnlocked(context(), { runtimeStatus: false })
-          // Runtime status follows on the queue: the definitions are already correct, and waiting
-          // for every approved server to reconnect would keep the dialog locked after an approval.
-          void serialize(() => refreshStatusUnlocked()).catch(() => undefined)
         } catch {
           // The native mutation committed; keep its success distinct from a failed status refresh.
         }
@@ -314,6 +338,7 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
         if (mutationToken === token) {
           mutationToken = undefined
           setState("mutation", null)
+          void refreshStatus().catch(() => undefined)
         }
       }
     })
@@ -460,6 +485,8 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
     return () => {
       if (sequence !== startSequence) return
       startSequence++
+      revision++
+      invalidateStatus()
       debounce.cancel()
       stopDebounce = undefined
       stopListening?.()

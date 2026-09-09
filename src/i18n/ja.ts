@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "MCPサーバーを読み込み中...",
+  "drift.mcp.refreshing": "MCPサーバーを更新中...",
+  "drift.mcp.retry": "再試行",
   "command.category.suggested": "おすすめ",
   "command.category.view": "表示",
   "command.category.project": "プロジェクト",

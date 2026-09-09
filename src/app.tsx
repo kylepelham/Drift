@@ -122,6 +122,7 @@ function McpBinding() {
   const event = shellEvents()
   const stop = mcpCoordinator.start({
     store: driftStore,
+    initialize: engine.actions.mcpInitialize,
     status: engine.actions.mcpStatus,
     connect: engine.actions.mcpConnect,
     disconnect: engine.actions.mcpDisconnect,
