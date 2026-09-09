@@ -164,7 +164,7 @@ test("legacy foreground results stay completed without a loaded parent transcrip
   expect(delegatedTaskStatus(state, legacy, "child")).toBe("completed")
 })
 
-test("background admission and spawned-thread receipts are not finished-work results", async () => {
+test("background tasks track work while spawned-thread receipts finish at admission", async () => {
   const { delegatedTaskStatus } = await import("../src/ui/parts")
   const [state, set] = createEngineState()
   const background = taskPart("background", "Background task started")
@@ -176,8 +176,34 @@ test("background admission and spawned-thread receipts are not finished-work res
   for (const type of ["busy", "idle"] as const) {
     set("status", "child", { type })
     expect(delegatedTaskStatus(state, background, "child")).toBe("running")
-    expect(delegatedTaskStatus(state, spawned, "child")).toBe("running")
+    expect(delegatedTaskStatus(state, spawned, "child")).toBe("completed")
   }
+  set("status", "child", { type: "retry", attempt: 1, message: "retry", next: 10 })
+  expect(delegatedTaskStatus(state, spawned, "child")).toBe("completed")
+  set("errors", "child", "Sibling failed later")
+  expect(delegatedTaskStatus(state, spawned, "child")).toBe("completed")
+})
+
+test("spawned-thread rows only track their own pending, running, or failed invocation", async () => {
+  const { delegatedTaskStatus } = await import("../src/ui/parts")
+  const [state, set] = createEngineState()
+  set("errors", "child", "Unrelated sibling error")
+  const spawned = { ...taskPart("spawned", ""), tool: "spawn_thread" }
+  for (const status of ["pending", "running"] as const) {
+    const toolState = status === "pending"
+      ? { status, input: {}, raw: "" }
+      : { status, input: {}, time: { start: 1 } }
+    expect(delegatedTaskStatus(state, { ...spawned, state: toolState }, "child")).toBe("running")
+  }
+  expect(delegatedTaskStatus(state, {
+    ...spawned,
+    state: { status: "error", input: {}, error: "Spawn failed", time: { start: 1, end: 2 } },
+  }, "child")).toBe("error")
+})
+
+test("only subagent tasks render child activity progress", async () => {
+  const source = await Bun.file(new URL("../src/ui/parts.tsx", import.meta.url)).text()
+  expect(source).toMatch(/const progress = \(\) => \{\s*if \(props\.part\.tool !== "task"\) return null/)
 })
 
 test("background completions belong to the invocation preceding them, including after reload", async () => {

@@ -502,6 +502,7 @@ export function ToolView(props: { part: ToolPart }) {
   }
   const title = () => (info().called ? `${t("drift.tool.called")} ${info().called}` : (info().title ?? props.part.tool))
   const progress = () => {
+    if (props.part.tool !== "task") return null
     const childId = spawnedId()
     if (!childId || delegatedStatus() !== "running") return null
     const activity = engine.state.activity[childId]
@@ -638,6 +639,7 @@ export function delegatedTaskStatus(
 ): DelegatedTaskStatus {
   // This invocation's result stays terminal even when another call resumes the same child.
   if (part.state.status === "error") return "error"
+  if (part.tool === "spawn_thread") return part.state.status === "completed" ? "completed" : "running"
   const terminal = delegatedTerminalState(state, part, childId)
   if (terminal) return terminal
   return state.errors[childId] ? "error" : "running"

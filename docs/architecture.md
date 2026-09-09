@@ -90,6 +90,10 @@ Unlinked images open the lightbox by click, Enter, or Space; explicit image link
 navigation. Local lightbox images own a separate blob URL so transcript cleanup cannot
 invalidate an open viewer. Closing or replacing the lightbox revokes that URL.
 
+Spawned-thread tool rows finish when the spawn call succeeds, independently of the
+sibling's later activity or errors. Only subagent task rows display live child tool
+counts; spawn rows retain their receipt and navigation link without ongoing progress.
+
 General settings persist file preview mode as All, None, or Custom, with All the default.
 Custom keeps a toggle for each type; switching modes preserves those choices. Filename
 classification in `src/file-preview-types.ts` allows Markdown and text/code up to 2 MiB
@@ -99,6 +103,9 @@ up to 40 MiB. Text formats require valid UTF-8 without NUL bytes. Tables show at
 webview support. Previews never write files; failures stay in the dialog rather than
 automatically launching another application. Read failures offer Retry, and Open in
 editor remains available even when previewing fails.
+The portal-mounted preview panel explicitly enables text selection, overriding the
+app shell's non-selectable default so code, Markdown, table cells, and HTML source
+can be highlighted and copied with the browser's normal selection and copy commands.
 
 `read_file_preview` returns bounded base64 bytes through Tauri or the authenticated
 companion RPC, not an engine file endpoint or a public file URL. Remote reads use the

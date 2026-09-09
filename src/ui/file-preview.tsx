@@ -64,7 +64,7 @@ function FilePreviewDialog(props: { file: FilePreviewRequest }) {
     <div ref={dialog} role="dialog" aria-modal="true" aria-label={`${t("drift.preview.title")}: ${filename()}`}
       tabIndex={-1} data-modal-layer class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-2 sm:p-6"
       onPointerDown={(event) => closeOnBackdropPointerDown(event, closeFilePreview, dialog)}>
-      <section class="flex h-[90dvh] max-h-[1000px] w-full max-w-6xl min-w-0 flex-col overflow-hidden rounded-xl border border-edge bg-bg text-ink shadow-2xl">
+      <section class="flex h-[90dvh] max-h-[1000px] w-full max-w-6xl min-w-0 flex-col overflow-hidden rounded-xl border border-edge bg-bg text-ink shadow-2xl select-text">
         <header class="flex shrink-0 flex-wrap items-center gap-2 border-b border-edge px-3 py-2 sm:px-4">
           <div class="min-w-0 flex-1">
             <h2 class="truncate text-sm font-medium" title={props.file.path}>{filename()}</h2>
