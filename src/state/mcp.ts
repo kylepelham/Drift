@@ -264,8 +264,17 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
 
   function assertStored(name: string, expected: McpStoredExpectation) {
     assertReady()
-    if (!hasExpectedMcpServer(state.snapshot, name, expected))
+    const active = { ...expected, generation: state.snapshot.generation }
+    if (!hasExpectedMcpServer(state.snapshot, name, active))
       throw new Error("This MCP server changed while the editor was open. Reopen it and review the latest definition.")
+    return active
+  }
+
+  function currentExternalTarget(target: McpExactTarget) {
+    // Generation covers every MCP. Only this definition's identity must still match the editor.
+    const active = { ...target, generation: state.snapshot.generation }
+    assertExact(active)
+    return active
   }
 
   /**
@@ -351,8 +360,8 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
       return Promise.reject(error)
     }
     return mutation(name, async (api) => {
-      assertStored(name, expected)
-      await withCurrentStoredGeneration(name, expected, (active) =>
+      const current = assertStored(name, expected)
+      await withCurrentStoredGeneration(name, current, (active) =>
         api.store.saveMcp(name, config, active.generation, active.previousName),
       )
     })
@@ -365,8 +374,8 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
       return Promise.reject(error)
     }
     return mutation(name, async (api) => {
-      assertStored(name, expected)
-      await withCurrentStoredGeneration(name, expected, (active) => api.store.removeMcp(name, active.generation))
+      const current = assertStored(name, expected)
+      await withCurrentStoredGeneration(name, current, (active) => api.store.removeMcp(name, active.generation))
     })
   }
 
@@ -377,13 +386,13 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
    */
   function externalConfig(target: McpExactTarget): Promise<ExternalMcpConfig> {
     try {
-      assertExact(target)
+      currentExternalTarget(target)
     } catch (error) {
       return Promise.reject(error)
     }
     return serialize(async () => {
-      assertExact(target)
-      return withCurrentGeneration(target, (active) =>
+      const current = currentExternalTarget(target)
+      return withCurrentGeneration(current, (active) =>
         requireDependencies().store.externalMcp(active.name, active.fingerprint, active.generation),
       )
     })
@@ -391,13 +400,13 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
 
   function saveExternal(target: McpExactTarget, name: string, config: McpConfig) {
     try {
-      assertExact(target)
+      currentExternalTarget(target)
     } catch (error) {
       return Promise.reject(error)
     }
     return mutation(target.name, async (api) => {
-      assertExact(target)
-      await withCurrentGeneration(target, (active) =>
+      const current = currentExternalTarget(target)
+      await withCurrentGeneration(current, (active) =>
         api.store.saveExternalMcp(name, active.name, active.fingerprint, config, active.generation),
       )
     })
@@ -405,13 +414,13 @@ export function createMcpCoordinator(initial?: McpCoordinatorDependencies) {
 
   function removeExternal(target: McpExactTarget) {
     try {
-      assertExact(target)
+      currentExternalTarget(target)
     } catch (error) {
       return Promise.reject(error)
     }
     return mutation(target.name, async (api) => {
-      assertExact(target)
-      await withCurrentGeneration(target, (active) =>
+      const current = currentExternalTarget(target)
+      await withCurrentGeneration(current, (active) =>
         api.store.removeExternalMcp(active.name, active.fingerprint, active.generation),
       )
     })

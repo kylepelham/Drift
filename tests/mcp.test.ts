@@ -619,7 +619,7 @@ describe("MCP frontend coordinator", () => {
     expect(connects).toEqual([])
   })
 
-  test("editor expectations detect updatedAt and generation conflicts", async () => {
+  test("editor expectations reject changes to the edited server across generations", async () => {
     const { createMcpCoordinator } = await import("../src/state/mcp")
     let generation = 2
     let updatedAt = 10
@@ -674,6 +674,33 @@ describe("MCP frontend coordinator", () => {
     release()
     await first
     expect(coordinator.state.mutation).toBeNull()
+  })
+
+  test("stored editors survive unrelated generation changes but still reject rename collisions", async () => {
+    const { createMcpCoordinator } = await import("../src/state/mcp")
+    let generation = 2
+    const writes: unknown[][] = []
+    const coordinator = createMcpCoordinator(dependencies({
+      mcpSnapshot: async (directory: string) => ({
+        generation, directory, observed: [], servers: [
+          { name: "docs", config: { type: "local", command: ["docs"] }, updatedAt: 10 },
+          { name: "other", config: { type: "local", command: ["other"] }, updatedAt: generation },
+        ],
+      }),
+      saveMcp: async (...args: unknown[]) => { writes.push(args) },
+      removeMcp: async (...args: unknown[]) => { writes.push(args) },
+    }))
+    await coordinator.refresh()
+    const expected = { generation: 2, previousName: "docs", updatedAt: 10 }
+    generation = 3
+    await coordinator.refresh()
+    await coordinator.save("docs", { type: "local", command: ["edited"] }, expected)
+    await expect(coordinator.save("other", { type: "local", command: ["edited"] }, expected)).rejects.toThrow("changed")
+    await coordinator.remove("docs", expected)
+    expect(writes).toEqual([
+      ["docs", { type: "local", command: ["edited"] }, 3, "docs"],
+      ["docs", 3],
+    ])
   })
 
   test("committed mutations remain successful when only the follow-up refresh fails", async () => {
@@ -1170,12 +1197,94 @@ describe("config-file-defined MCP servers", () => {
     expect(writes).toEqual([])
   })
 
+  test("external editors survive a frontend refresh caused by another MCP", async () => {
+    const { createMcpCoordinator, exactMcpTarget } = await import("../src/state/mcp")
+    let generation = 6
+    const calls: unknown[][] = []
+    const config = { type: "remote" as const, url: "https://example.com/mcp" }
+    const coordinator = createMcpCoordinator(dependencies({
+      mcpSnapshot: async (directory: string) => ({ generation, directory, servers: [], observed: [
+        observed, { ...observed, name: "other", fingerprint: `sha256:other-${generation}` },
+      ] }),
+      externalMcp: async (...args: unknown[]) => { calls.push(["lookup", ...args]); return { paths: [], config } },
+      saveExternalMcp: async (...args: unknown[]) => { calls.push(["save", ...args]) },
+      removeExternalMcp: async (...args: unknown[]) => { calls.push(["remove", ...args]) },
+    }))
+    await coordinator.setActive("S:/repo", true)
+    const target = exactMcpTarget(coordinator.state.snapshot, observed)
+    generation = 7
+    await coordinator.refresh()
+    await coordinator.externalConfig(target)
+    await coordinator.saveExternal(target, "docs", config)
+    await coordinator.removeExternal(target)
+    expect(calls).toEqual([
+      ["lookup", "docs", "sha256:docs", 7],
+      ["save", "docs", "docs", "sha256:docs", config, 7],
+      ["remove", "docs", "sha256:docs", 7],
+    ])
+    expect(target.generation).toBe(6)
+    // Runtime/approval actions retain their stricter captured-generation semantics.
+    await expect(coordinator.runtime(target, "connect")).rejects.toThrow("stale")
+    await expect(coordinator.decide("revoke", target)).rejects.toThrow("stale")
+  })
+
+  test.each(["fingerprint", "decision", "type", "name", "removed", "workspace"])(
+    "external editor rebasing rejects a changed %s", async (change) => {
+      const { createMcpCoordinator, exactMcpTarget } = await import("../src/state/mcp")
+      let generation = 6
+      let writes = 0
+      const coordinator = createMcpCoordinator(dependencies({
+        mcpSnapshot: async (directory: string) => ({ generation, directory, servers: [], observed: generation === 6
+          ? [observed]
+          : change === "removed" ? [] : [{ ...observed,
+            ...(change === "fingerprint" ? { fingerprint: "sha256:changed" } : {}),
+            ...(change === "decision" ? { decision: "rejected" } : {}),
+            ...(change === "type" ? { type: "local" } : {}),
+            ...(change === "name" ? { name: "renamed" } : {}),
+          }],
+        }),
+        saveExternalMcp: async () => { writes++ },
+      }))
+      await coordinator.setActive("S:/repo", true)
+      const target = exactMcpTarget(coordinator.state.snapshot, observed)
+      generation++
+      if (change === "workspace") await coordinator.setActive("S:/other", true)
+      else await coordinator.refresh()
+      await expect(coordinator.saveExternal(target, "docs", { type: "local", command: ["edited"] })).rejects.toThrow("stale")
+      expect(writes).toBe(0)
+    },
+  )
+
+  test.each([false, true])("external saves revalidate behind a queued refresh, target changed: %s", async (changed) => {
+    const { createMcpCoordinator, exactMcpTarget } = await import("../src/state/mcp")
+    let generation = 6
+    const writes: number[] = []
+    const coordinator = createMcpCoordinator(dependencies({
+      mcpSnapshot: async (directory: string) => ({ generation, directory, servers: [], observed: [
+        { ...observed, fingerprint: changed && generation === 7 ? "sha256:changed" : observed.fingerprint },
+      ] }),
+      saveExternalMcp: async (_name: string, _previous: string, _fingerprint: string, _config: unknown, active: number) => {
+        writes.push(active)
+      },
+    }))
+    await coordinator.setActive("S:/repo", true)
+    const target = exactMcpTarget(coordinator.state.snapshot, observed)
+    generation = 7
+    const refresh = coordinator.refresh()
+    const save = coordinator.saveExternal(target, "docs", { type: "local", command: ["edited"] })
+    const result = changed ? expect(save).rejects.toThrow("stale") : save
+    await refresh
+    await result
+    expect(writes).toEqual(changed ? [] : [7])
+  })
+
   test("a second edit retries against the generation the watcher advanced to", async () => {
     const { createMcpCoordinator, exactMcpTarget } = await import("../src/state/mcp")
     // Editing a config file advances the generation from the watcher, so the number the dialog
     // holds goes stale a moment after the first edit lands.
     let generation = 6
     const attempts: number[] = []
+    const saves: number[] = []
     const coordinator = createMcpCoordinator(
       dependencies({
         mcpSnapshot: async (directory: string) => ({ generation, directory, servers: [], observed: [observed] }),
@@ -1183,6 +1292,9 @@ describe("config-file-defined MCP servers", () => {
           attempts.push(requested)
           if (requested !== generation) throw new Error("MCP state is stale; reload before making changes")
           return { paths: ["S:/repo/opencode.json"], config: { type: "remote", url: "https://example.com/mcp" } }
+        },
+        saveExternalMcp: async (_name: string, _previous: string, _fingerprint: string, _config: unknown, requested: number) => {
+          saves.push(requested)
         },
       }),
     )
@@ -1194,6 +1306,8 @@ describe("config-file-defined MCP servers", () => {
     expect(found.config).toEqual({ type: "remote", url: "https://example.com/mcp" })
     expect(attempts).toEqual([6, 7])
     expect(coordinator.state.snapshot.generation).toBe(7)
+    await coordinator.saveExternal(target, "docs", found.config)
+    expect(saves).toEqual([7])
   })
 
   test("a definition that changed underneath the editor is never retried", async () => {

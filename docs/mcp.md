@@ -141,6 +141,12 @@ or authenticates, and Enter runs the selected server's primary runtime action.
 
 ## Validation
 
+An open editor can use a newer shared MCP generation when only other servers changed.
+External editors still require the same workspace, name, transport, fingerprint, and approval
+decision; stored editors require the same server revision and an available destination name.
+These checks run again inside the operation queue, and native generation/file checks remain
+in place. Runtime and approval actions retain their captured-generation checks.
+
 Drift preserves unknown fields while validating the complete current local and remote
 schema when saving. OpenCode validates external config before plugin hooks; files that fail
 that base schema surface an engine configuration error. After OpenCode merges valid external
