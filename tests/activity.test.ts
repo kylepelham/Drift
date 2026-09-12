@@ -655,6 +655,7 @@ test("MCP initialization reads config without querying connections and status ac
   let configSignal!: AbortSignal
   let statusSignal!: AbortSignal
   let statusCalls = 0
+  let releaseStatus: (() => void) | undefined
   const client = {
     config: { get: async ({ signal }: { signal: AbortSignal }) => {
       configSignal = signal
@@ -663,7 +664,15 @@ test("MCP initialization reads config without querying connections and status ac
     mcp: { status: async ({ signal }: { signal: AbortSignal }) => {
       statusCalls++
       statusSignal = signal
-      return { data: {} }
+      return new Promise<{ data: {} }>((resolve, reject) => {
+        const abort = () => reject(signal.reason)
+        releaseStatus = () => {
+          signal.removeEventListener("abort", abort)
+          resolve({ data: {} })
+        }
+        signal.addEventListener("abort", abort, { once: true })
+        if (signal.aborted) abort()
+      })
     } },
   }
   const actions = createActions(() => client as never, state, set, () => ({ url: "http://engine.test" }))
@@ -671,11 +680,23 @@ test("MCP initialization reads config without querying connections and status ac
   expect(configSignal).toBeInstanceOf(AbortSignal)
   expect(statusCalls).toBe(0)
   const controller = new AbortController()
-  await actions.mcpStatus("", controller.signal)
-  expect(statusCalls).toBe(1)
-  expect(statusSignal.aborted).toBeFalse()
-  controller.abort()
-  expect(statusSignal.aborted).toBeTrue()
+  const pending = actions.mcpStatus("", controller.signal)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error("MCP status did not cancel promptly")), 1_000)
+  })
+  const reason = new Error("MCP status cancelled")
+  const result = Promise.race([pending, timeout])
+  try {
+    expect(statusCalls).toBe(1)
+    expect(statusSignal.aborted).toBeFalse()
+    controller.abort(reason)
+    expect(statusSignal.aborted).toBeTrue()
+    await expect(result).rejects.toBe(reason)
+  } finally {
+    clearTimeout(timer)
+    releaseStatus?.()
+  }
 })
 
 test("upward transcript gestures unstick immediately near the bottom", async () => {

@@ -138,7 +138,7 @@ export function EngineProvider(props: ParentProps) {
       if (current() && runtimeMetadataEpoch === metadataEpoch && config.data !== undefined)
         syncSkillWatchPaths(bootDirectory, config.data)
     }).catch(() => undefined)
-    if (!state.version) void refreshVersion()
+    void refreshVersion()
     try {
       const stale = Object.keys(state.loaded)
       const captured = captureRevisions(state)
@@ -376,6 +376,7 @@ export function EngineProvider(props: ParentProps) {
           }),
         )
         if (directory) startPump(directory)
+        void refreshVersion()
         return true
       })
       .catch((error: unknown) => {

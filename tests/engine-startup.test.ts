@@ -224,3 +224,31 @@ test.each(["restart", "dispose"])("%s cancels health and rejects stale version a
     expect(view.state.version).toBe("replacement")
   }
 })
+
+test.each(["restart", "reconnect", "restart without workspace"])("%s refreshes an already known engine version", async (change) => {
+  const view = setup()
+  await settle()
+  view.health[0].result.resolve(Response.json({ version: "1.18.29" }))
+  view.requests[0].sessions.resolve({ data: [] })
+  await settle()
+  expect(view.state.version).toBe("1.18.29")
+
+  if (change === "reconnect") view.reconnect()
+  else {
+    if (change === "restart without workspace") view.engine.setDirectory(null)
+    expect(await view.engine.restartEngine()).toBeTrue()
+  }
+  await settle()
+  expect(view.health).toHaveLength(2)
+  if (change !== "restart without workspace") {
+    view.requests[1].sessions.resolve({ data: [] })
+    await settle()
+    expect(view.state.bootstrappedDirectory).toBe("C:/work")
+    expect(view.state.connection).toBe("online")
+  }
+  // The version request can finish after readiness and must replace the previous value.
+  view.health[1].result.resolve(Response.json({ version: "1.18.30" }))
+  await settle()
+  expect(view.state.version).toBe("1.18.30")
+  expect(view.timers.size).toBe(0)
+})
