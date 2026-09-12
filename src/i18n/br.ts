@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "Carregando servidores MCP...",
+  "drift.mcp.refreshing": "Atualizando servidores MCP...",
+  "drift.mcp.retry": "Tentar novamente",
   "command.category.suggested": "Sugerido",
   "command.category.view": "Visualizar",
   "command.category.project": "Projeto",
@@ -1024,6 +1027,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Link de arquivo ambíguo \"{{href}}\". Use um caminho mais completo para escolher entre: {{files}}",
   "drift.preview.settings.title": "Pré-visualizações de arquivos",
   "drift.preview.settings.mode": "Modo de pré-visualização",
   "drift.preview.settings.description": "Escolha quais tipos de arquivo abrem em uma pré-visualização.",
@@ -1060,6 +1064,7 @@ export const drift = {
   "drift.remote.statusStarting": "Iniciando",
   "drift.remote.statusError": "Erro",
   "drift.remote.clipboardError": "Não foi possível copiar",
+  "drift.settings.prompts.astraDescription": "O GPT-6 usa o prompt padrão Astra, a menos que você salve uma substituição aqui. As substituições salvas se aplicam a todos os modelos desta família.",
   "drift.settings.shellTimeout.scope": "Os limites do shell encerram árvores de processos. Não afetam modelos, servidores MCP ou chamadas de rede.",
   "drift.settings.toolExecution": "Execução de ferramentas",
   "drift.settings.shellTimeout.title": "Tempo limite do shell",

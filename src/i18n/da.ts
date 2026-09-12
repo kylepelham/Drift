@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "Indlæser MCP-servere...",
+  "drift.mcp.refreshing": "Opdaterer MCP-servere...",
+  "drift.mcp.retry": "Prøv igen",
   "command.category.suggested": "Foreslået",
   "command.category.view": "Vis",
   "command.category.project": "Projekt",
@@ -1092,6 +1095,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Tvetydigt fillink \"{{href}}\". Brug en længere sti til at vælge mellem: {{files}}",
   "drift.preview.settings.title": "Filforhåndsvisninger",
   "drift.preview.settings.mode": "Forhåndsvisningstilstand",
   "drift.preview.settings.description": "Vælg, hvilke filtyper der åbnes i en forhåndsvisning.",
@@ -1128,6 +1132,7 @@ export const drift = {
   "drift.remote.statusStarting": "Starter",
   "drift.remote.statusError": "Fejl",
   "drift.remote.clipboardError": "Kunne ikke kopiere",
+  "drift.settings.prompts.astraDescription": "GPT-6 bruger sin Astra-standardprompt, medmindre du gemmer en tilsidesættelse her. Gemte tilsidesættelser gælder for alle modeller i denne familie.",
   "drift.settings.shellTimeout.scope": "Shell-timeouts afslutter procestræer. De påvirker ikke modeller, MCP-servere eller netværkskald.",
   "drift.settings.toolExecution": "Værktøjskørsel",
   "drift.settings.shellTimeout.title": "Shell-timeout",

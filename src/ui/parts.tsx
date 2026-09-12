@@ -17,6 +17,7 @@ import { childrenOf, type EngineState } from "../engine/store"
 import { ToolDuration } from "./tool-duration"
 import { resolveAttachmentKind } from "../attachments"
 import { resolveFileLanguage } from "../syntax-language"
+import { citationFileGroups } from "./citation-files"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -50,6 +51,7 @@ export function PartView(props: { part: Part; responseID?: string; live?: boolea
           <Markdown
             text={part().text}
             directory={engine.state.sessions[part().sessionID]?.directory}
+            fileGroups={() => citationFileGroups(engine.state, part().sessionID, part().messageID, part().id)}
             done={!!part().time?.end}
             responseID={props.responseID}
             live={props.live}
@@ -230,7 +232,7 @@ function ReasoningView(props: { part: ReasoningPart; revision?: number }) {
       </button>
       <Show when={open()}>
         <div class="mt-1.5 border-l-2 border-edge pl-3 text-ink-muted">
-          <Markdown text={props.part.text} directory={engine.state.sessions[props.part.sessionID]?.directory} done={!thinking()} revision={props.revision} />
+          <Markdown text={props.part.text} directory={engine.state.sessions[props.part.sessionID]?.directory} fileGroups={() => citationFileGroups(engine.state, props.part.sessionID, props.part.messageID, props.part.id)} done={!thinking()} revision={props.revision} />
         </div>
       </Show>
     </div>
@@ -502,6 +504,7 @@ export function ToolView(props: { part: ToolPart }) {
   }
   const title = () => (info().called ? `${t("drift.tool.called")} ${info().called}` : (info().title ?? props.part.tool))
   const progress = () => {
+    if (props.part.tool !== "task") return null
     const childId = spawnedId()
     if (!childId || delegatedStatus() !== "running") return null
     const activity = engine.state.activity[childId]
@@ -638,6 +641,7 @@ export function delegatedTaskStatus(
 ): DelegatedTaskStatus {
   // This invocation's result stays terminal even when another call resumes the same child.
   if (part.state.status === "error") return "error"
+  if (part.tool === "spawn_thread") return part.state.status === "completed" ? "completed" : "running"
   const terminal = delegatedTerminalState(state, part, childId)
   if (terminal) return terminal
   return state.errors[childId] ? "error" : "running"
@@ -691,6 +695,12 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
     return file?.relativePath ?? file?.filePath ?? input.filePath ?? ""
   }
   const tasked = () => taskBody(props.part)
+  const citationFiles = () => {
+    const child = delegatedChildId(engine.state, props.part)
+    return child
+      ? citationFileGroups(engine.state, child, undefined, undefined, props.part.state.status === "completed" ? props.part.state.time.end : undefined)
+      : citationFileGroups(engine.state, props.part.sessionID, props.part.messageID, props.part.id)
+  }
   return (
     <>
       <Switch fallback={<GenericBody part={props.part} />}>
@@ -707,6 +717,7 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
                   <Markdown
                     text={task().result}
                     directory={engine.state.sessions[delegatedChildId(engine.state, props.part) ?? props.part.sessionID]?.directory}
+                    fileGroups={citationFiles}
                     done
                   />
                 </div>

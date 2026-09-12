@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "Učitavanje MCP servera...",
+  "drift.mcp.refreshing": "Osvježavanje MCP servera...",
+  "drift.mcp.retry": "Pokušaj ponovo",
   "command.category.suggested": "Predloženo",
   "command.category.view": "Prikaz",
   "command.category.project": "Projekat",
@@ -1100,6 +1103,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Dvosmislena veza do datoteke \"{{href}}\". Koristite dužu putanju za odabir između: {{files}}",
   "drift.preview.settings.title": "Pregledi datoteka",
   "drift.preview.settings.mode": "Način pregleda",
   "drift.preview.settings.description": "Odaberite koje vrste datoteka se otvaraju u pregledu.",
@@ -1136,6 +1140,7 @@ export const drift = {
   "drift.remote.statusStarting": "Pokretanje",
   "drift.remote.statusError": "Greška",
   "drift.remote.clipboardError": "Kopiranje nije uspjelo",
+  "drift.settings.prompts.astraDescription": "GPT-6 koristi zadani Astra prompt osim ako ovdje ne sačuvate zamjenski prompt. Sačuvani zamjenski promptovi primjenjuju se na sve modele u ovoj porodici.",
   "drift.settings.shellTimeout.scope": "Ograničenja ljuske prekidaju stabla procesa. Ne utiču na modele, MCP servere ili mrežne pozive.",
   "drift.settings.toolExecution": "Izvršavanje alata",
   "drift.settings.shellTimeout.title": "Vremensko ograničenje ljuske",

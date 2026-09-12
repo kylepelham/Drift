@@ -514,6 +514,7 @@ test("all four Markdown callers pass their owning session directory, including d
   const sources = await Promise.all(["message", "parts"].map((name) => Bun.file(new URL(`../src/ui/${name}.tsx`, import.meta.url)).text()))
   const callers = sources.flatMap((source) => [...source.matchAll(/<Markdown\b[\s\S]*?\/>/g)].map(([tag]) => tag))
   expect(callers).toHaveLength(4)
+  expect(callers.every((tag) => tag.includes("fileGroups="))).toBe(true)
   expect(callers.map((tag) => tag.match(/\bdirectory=\{([^}]+)\}/)?.[1].replace(/\s+/g, ""))).toEqual([
     "engine.state.sessions[info().sessionID]?.directory",
     "engine.state.sessions[part().sessionID]?.directory",
@@ -526,7 +527,39 @@ test("Markdown wires click and middle auxclick through its directory-aware handl
   const source = await Bun.file(new URL("../src/ui/markdown.tsx", import.meta.url)).text()
   expect(source).toMatch(/onClick=\{handleClick\}/)
   expect(source).toMatch(/onAuxClick=\{\(event\)\s*=>\s*\{\s*if\s*\(event\.button\s*===\s*1\)\s*void handleClick\(event\)/)
-  expect(source).toMatch(/if\s*\(event\.type\s*===\s*"auxclick"\)\s*await openMarkdownLink\(event,\s*props\.directory,\s*props\.workspaceDirectory\s*\?\?\s*props\.directory\)/)
-  expect(source).toMatch(/else\s+await markdownClick\(event,\s*props\.directory,\s*props\.workspaceDirectory\s*\?\?\s*props\.directory\)/)
-  expect(source).toMatch(/if\s*\(!button\)\s*return openMarkdownLink\(event,\s*directory,\s*workspaceDirectory\)/)
+  expect(source).toMatch(/if\s*\(event\.type\s*===\s*"auxclick"\)\s*await openMarkdownLink\(event,\s*props\.directory,\s*props\.workspaceDirectory\s*\?\?\s*props\.directory,\s*props\.fileGroups\)/)
+  expect(source).toMatch(/else\s+await markdownClick\(event,\s*props\.directory,\s*props\.workspaceDirectory\s*\?\?\s*props\.directory,\s*props\.fileGroups\)/)
+  expect(source).toMatch(/if\s*\(!button\)\s*return openMarkdownLink\(event,\s*directory,\s*workspaceDirectory,\s*fileGroups\)/)
+})
+
+test.each(["all", "none"] as const)("short citations open the task's full path in %s mode", async (mode) => {
+  native()
+  prefs.setFilePreviewMode(mode)
+  const link = click("AmazingCode.cs:345:21")
+  await openMarkdownLink(link.event, "C:/", "C:/", () => [["C:/Projects/App/AmazingCode.cs"]])
+  if (mode === "all") expect(previewFile()).toMatchObject({ path: "C:/Projects/App/AmazingCode.cs", directory: "C:/", line: 345, column: 21 })
+  else expect(invoke.mock.calls).toEqual([["open_file_in_editor", { path: "C:/Projects/App/AmazingCode.cs", line: 345, column: 21 }]])
+  expectStopped(link)
+})
+
+test("ambiguous citations cancel navigation and never open a guessed file", async () => {
+  native()
+  const link = click("AmazingCode.cs#L345")
+  await expect(openMarkdownLink(link.event, "C:/", "C:/", () => [["C:/One/AmazingCode.cs", "C:/Two/AmazingCode.cs"]]))
+    .rejects.toThrow("Ambiguous file link")
+  expect(invoke).not.toHaveBeenCalled()
+  expect(previewFile()).toBeUndefined()
+  expectStopped(link)
+})
+
+test("remote middle-click citations send the full host path and position", async () => {
+  runtime("http://192.168.1.8:41718/companion")
+  fetchMock.mockImplementation(async () => Response.json({ positioned: true }))
+  const link = click("AmazingCode.cs:345:21", { button: 1 })
+  await openMarkdownLink(link.event, "C:/", "C:/", () => [["C:/Projects/App/AmazingCode.cs"]])
+  const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+  expect(JSON.parse(init.body as string)).toEqual({ command: "open_file_in_editor", args: {
+    path: "C:/Projects/App/AmazingCode.cs", line: 345, column: 21,
+  } })
+  expectStopped(link)
 })

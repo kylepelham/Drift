@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "Загрузка серверов MCP...",
+  "drift.mcp.refreshing": "Обновление серверов MCP...",
+  "drift.mcp.retry": "Повторить",
   "command.category.suggested": "Предложено",
   "command.category.view": "Просмотр",
   "command.category.project": "Проект",
@@ -1103,6 +1106,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Неоднозначная ссылка на файл \"{{href}}\". Укажите более полный путь, чтобы выбрать из: {{files}}",
   "drift.preview.settings.title": "Предпросмотр файлов",
   "drift.preview.settings.mode": "Режим предпросмотра",
   "drift.preview.settings.description": "Выберите типы файлов для открытия в предпросмотре.",
@@ -1139,6 +1143,7 @@ export const drift = {
   "drift.remote.statusStarting": "Запуск",
   "drift.remote.statusError": "Ошибка",
   "drift.remote.clipboardError": "Не удалось скопировать",
+  "drift.settings.prompts.astraDescription": "GPT-6 использует стандартный промпт Astra, если вы не сохраните здесь собственный. Сохранённые пользовательские промпты применяются ко всем моделям этого семейства.",
   "drift.settings.shellTimeout.scope": "Тайм-ауты оболочки завершают деревья процессов. Они не влияют на модели, серверы MCP и сетевые вызовы.",
   "drift.settings.toolExecution": "Выполнение инструментов",
   "drift.settings.shellTimeout.title": "Тайм-аут оболочки",

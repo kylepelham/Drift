@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "MCP 서버를 불러오는 중...",
+  "drift.mcp.refreshing": "MCP 서버를 새로 고치는 중...",
+  "drift.mcp.retry": "다시 시도",
   "command.category.suggested": "추천",
   "command.category.view": "보기",
   "command.category.project": "프로젝트",
@@ -1015,6 +1018,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "파일 링크 \"{{href}}\"가 모호합니다. 다음 파일 중에서 선택할 수 있도록 더 구체적인 경로를 사용하세요: {{files}}",
   "drift.preview.settings.title": "파일 미리보기",
   "drift.preview.settings.mode": "미리보기 모드",
   "drift.preview.settings.description": "미리보기로 열 파일 형식을 선택하세요.",
@@ -1051,6 +1055,7 @@ export const drift = {
   "drift.remote.statusStarting": "시작 중",
   "drift.remote.statusError": "오류",
   "drift.remote.clipboardError": "복사할 수 없음",
+  "drift.settings.prompts.astraDescription": "여기에 재정의할 프롬프트를 저장하지 않으면 GPT-6는 기본 Astra 프롬프트를 사용합니다. 저장된 재정의는 이 계열의 모든 모델에 적용됩니다.",
   "drift.settings.shellTimeout.scope": "셸 시간 제한은 프로세스 트리를 종료합니다. 모델, MCP 서버 또는 네트워크 호출에는 영향을 주지 않습니다.",
   "drift.settings.toolExecution": "도구 실행",
   "drift.settings.shellTimeout.title": "셸 시간 제한",

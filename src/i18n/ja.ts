@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "MCPサーバーを読み込み中...",
+  "drift.mcp.refreshing": "MCPサーバーを更新中...",
+  "drift.mcp.retry": "再試行",
   "command.category.suggested": "おすすめ",
   "command.category.view": "表示",
   "command.category.project": "プロジェクト",
@@ -1016,6 +1019,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "ファイルリンク \"{{href}}\" を特定できません。次の候補から選べるよう、より詳しいパスを指定してください: {{files}}",
   "drift.preview.settings.title": "ファイルプレビュー",
   "drift.preview.settings.mode": "プレビューモード",
   "drift.preview.settings.description": "プレビューで開くファイルの種類を選択します。",
@@ -1052,6 +1056,7 @@ export const drift = {
   "drift.remote.statusStarting": "起動中",
   "drift.remote.statusError": "エラー",
   "drift.remote.clipboardError": "コピーできませんでした",
+  "drift.settings.prompts.astraDescription": "ここでカスタムプロンプトを保存しない限り、GPT-6 はデフォルトの Astra プロンプトを使用します。保存したカスタムプロンプトは、このファミリーのすべてのモデルに適用されます。",
   "drift.settings.shellTimeout.scope": "シェルのタイムアウトはプロセスツリーを終了します。モデル、MCP、ネットワーク呼び出しには影響しません。",
   "drift.settings.toolExecution": "ツール実行",
   "drift.settings.shellTimeout.title": "シェルのタイムアウト",

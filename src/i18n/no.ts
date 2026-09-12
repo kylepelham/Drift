@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "Laster MCP-servere...",
+  "drift.mcp.refreshing": "Oppdaterer MCP-servere...",
+  "drift.mcp.retry": "Prøv igjen",
   "command.category.suggested": "Foreslått",
   "command.category.view": "Visning",
   "command.category.project": "Prosjekt",
@@ -1108,6 +1111,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Tvetydig fillenke \"{{href}}\". Bruk en lengre sti for å velge mellom: {{files}}",
   "drift.preview.settings.title": "Filforhåndsvisninger",
   "drift.preview.settings.mode": "Forhåndsvisningsmodus",
   "drift.preview.settings.description": "Velg hvilke filtyper som åpnes i en forhåndsvisning.",
@@ -1144,6 +1148,7 @@ export const drift = {
   "drift.remote.statusStarting": "Starter",
   "drift.remote.statusError": "Feil",
   "drift.remote.clipboardError": "Kunne ikke kopiere",
+  "drift.settings.prompts.astraDescription": "GPT-6 bruker sin standardprompt for Astra med mindre du lagrer en overstyring her. Lagrede overstyringer gjelder alle modeller i denne familien.",
   "drift.settings.shellTimeout.scope": "Shell-tidsavbrudd avslutter prosesstrær. De påvirker ikke modeller, MCP-servere eller nettverkskall.",
   "drift.settings.toolExecution": "Verktøykjøring",
   "drift.settings.shellTimeout.title": "Tidsavbrudd for shell",

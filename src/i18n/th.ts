@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "กำลังโหลดเซิร์ฟเวอร์ MCP...",
+  "drift.mcp.refreshing": "กำลังรีเฟรชเซิร์ฟเวอร์ MCP...",
+  "drift.mcp.retry": "ลองอีกครั้ง",
   "command.category.suggested": "แนะนำ",
   "command.category.view": "มุมมอง",
   "command.category.project": "โปรเจกต์",
@@ -1087,6 +1090,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "ลิงก์ไฟล์ \"{{href}}\" ไม่ชัดเจน ใช้พาธที่เจาะจงขึ้นเพื่อเลือกระหว่าง: {{files}}",
   "drift.preview.settings.title": "ตัวอย่างไฟล์",
   "drift.preview.settings.mode": "โหมดแสดงตัวอย่าง",
   "drift.preview.settings.description": "เลือกประเภทไฟล์ที่จะเปิดเป็นตัวอย่าง",
@@ -1123,6 +1127,7 @@ export const drift = {
   "drift.remote.statusStarting": "กำลังเริ่ม",
   "drift.remote.statusError": "ข้อผิดพลาด",
   "drift.remote.clipboardError": "คัดลอกไม่ได้",
+  "drift.settings.prompts.astraDescription": "GPT-6 จะใช้พรอมต์ Astra เริ่มต้น เว้นแต่คุณจะบันทึกพรอมต์ที่กำหนดเองไว้ที่นี่ พรอมต์ที่กำหนดเองที่บันทึกไว้จะใช้กับทุกโมเดลในตระกูลนี้",
   "drift.settings.shellTimeout.scope": "การหมดเวลาของเชลล์จะยุติผังกระบวนการ โดยไม่กระทบโมเดล เซิร์ฟเวอร์ MCP หรือการเรียกเครือข่าย",
   "drift.settings.toolExecution": "การเรียกใช้เครื่องมือ",
   "drift.settings.shellTimeout.title": "หมดเวลาของเชลล์",

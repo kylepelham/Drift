@@ -11,7 +11,7 @@ import { resolveFileLanguage } from "../syntax-language"
 import { t } from "../state/i18n"
 import { syntaxTheme } from "../state/code"
 import { animateResponses, responseAnimationSpeed } from "../state/prefs"
-import { classifyMarkdownLink } from "./markdown-links"
+import { AmbiguousCitationError, citationHref, classifyMarkdownLink, resolveMarkdownCitation } from "./markdown-links"
 import { markdownImageAttribute, observeMarkdownImages } from "./markdown-images"
 import {
   responseAnimationInterruptEvent,
@@ -563,7 +563,7 @@ export function sanitizeMarkdownHtml(html: string, documentPreview = false) {
       // Only explicit local anchor destinations bypass the default URI filter, never image sources or other schemes.
       if (
         node.nodeName === "A" && node.namespaceURI === "http://www.w3.org/1999/xhtml" &&
-        attribute.attrName === "href" && classifyMarkdownLink(attribute.attrValue).kind === "file"
+        attribute.attrName === "href" && classifyMarkdownLink(citationHref(attribute.attrValue), "/").kind === "file"
       ) attribute.forceKeepAttr = true
     })
     markdownPurifier.addHook("afterSanitizeAttributes", (node) => {
@@ -574,14 +574,15 @@ export function sanitizeMarkdownHtml(html: string, documentPreview = false) {
   return markdownPurifier.sanitize(html)
 }
 
-export async function openMarkdownLink(event: MouseEvent, directory?: string, workspaceDirectory = directory) {
+export async function openMarkdownLink(event: MouseEvent, directory?: string, workspaceDirectory = directory, fileGroups?: () => readonly (readonly string[])[]) {
   if (event.defaultPrevented || (event.button !== 0 && event.button !== 1)) return
   const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]")
   if (!anchor) return
   const href = anchor.getAttribute("href") ?? ""
   // Preserve existing browser handling for contact links and companion navigation.
   if (/^(?:mailto:|tel:|#\/)/i.test(href)) return
-  const link = classifyMarkdownLink(href, directory)
+  // Cancel navigation before contextual resolution, which can reject an ambiguous citation.
+  let link = classifyMarkdownLink(fileGroups ? citationHref(href) : href, directory)
   if (link.kind === "external") {
     const invoke = shellInvoke()
     if (!invoke) return
@@ -600,6 +601,8 @@ export async function openMarkdownLink(event: MouseEvent, directory?: string, wo
     return
   }
   if (link.kind === "unsupported") throw new Error("The link is invalid or its workspace directory is unavailable")
+  if (fileGroups) link = resolveMarkdownCitation(href, directory, fileGroups())
+  if (link.kind !== "file") return
   if (workspaceDirectory && shouldPreviewFile(link.path) && backendInvoke()) {
     openFilePreview({ ...link, directory: workspaceDirectory, hash: href.includes("#") ? decodeURIComponent(href.slice(href.indexOf("#") + 1)) : undefined })
     return
@@ -632,14 +635,14 @@ export function decorateCodeBlocks(root: HTMLElement) {
   }
 }
 
-export function markdownClick(event: MouseEvent, directory?: string, workspaceDirectory = directory) {
+export function markdownClick(event: MouseEvent, directory?: string, workspaceDirectory = directory, fileGroups?: () => readonly (readonly string[])[]) {
   if (event.defaultPrevented || event.button !== 0) return
   const button = (event.target as Element).closest<HTMLButtonElement>(copyButtonAttribute)
-  if (!button) return openMarkdownLink(event, directory, workspaceDirectory)
+  if (!button) return openMarkdownLink(event, directory, workspaceDirectory, fileGroups)
   const wrapper = button.closest<HTMLElement>(codeBlockAttribute)
   const block = wrapper ? codeBlocks.get(wrapper) : undefined
   // data-* attributes in authored HTML do not identify a trusted copy control.
-  if (!block || block.button !== button) return openMarkdownLink(event, directory, workspaceDirectory)
+  if (!block || block.button !== button) return openMarkdownLink(event, directory, workspaceDirectory, fileGroups)
   event.preventDefault()
   event.stopPropagation()
   void writeClipboard(block.code)
@@ -875,6 +878,7 @@ export function Markdown(props: {
   text: string
   directory?: string
   workspaceDirectory?: string
+  fileGroups?: () => readonly (readonly string[])[]
   documentPreview?: boolean
   done?: boolean
   humanAuthored?: boolean
@@ -903,10 +907,12 @@ export function Markdown(props: {
   async function handleClick(event: MouseEvent) {
     setLinkError(undefined)
     try {
-      if (event.type === "auxclick") await openMarkdownLink(event, props.directory, props.workspaceDirectory ?? props.directory)
-      else await markdownClick(event, props.directory, props.workspaceDirectory ?? props.directory)
+      if (event.type === "auxclick") await openMarkdownLink(event, props.directory, props.workspaceDirectory ?? props.directory, props.fileGroups)
+      else await markdownClick(event, props.directory, props.workspaceDirectory ?? props.directory, props.fileGroups)
     } catch (cause) {
-      setLinkError(`${t("drift.markdown.linkFailed")} ${cause instanceof Error ? cause.message : String(cause)}`)
+      setLinkError(cause instanceof AmbiguousCitationError
+        ? t("drift.markdown.ambiguousCitation", { href: cause.href, files: cause.files.join(", ") })
+        : `${t("drift.markdown.linkFailed")} ${cause instanceof Error ? cause.message : String(cause)}`)
     }
   }
   // Reconcile can swap slot text without notifying consumers, so revision forces reparse and render.

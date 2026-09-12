@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "Loading MCP servers...",
+  "drift.mcp.refreshing": "Refreshing MCP servers...",
+  "drift.mcp.retry": "Retry",
   "command.category.agent": "Agent",
   "command.category.model": "Model",
   "command.category.suggested": "Suggested",
@@ -311,6 +314,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Ambiguous file link \"{{href}}\". Use a longer path to choose between: {{files}}",
   "drift.preview.settings.title": "File previews",
   "drift.preview.settings.mode": "Preview mode",
   "drift.preview.settings.description": "Choose which file types open in a preview.",
@@ -371,6 +375,7 @@ export const drift = {
   "drift.settings.prompts.agents": "Agents and subagents",
   "drift.settings.prompts.behavior": "Behavior configuration (JSON)",
   "drift.settings.prompts.familyDescription": "Edit Drift's effective base prompt for this model family.",
+  "drift.settings.prompts.astraDescription": "GPT-6 uses its Astra default unless you save an override here. Saved overrides apply to all models in this family.",
   "drift.settings.prompts.inheritsFamily": "Empty agents inherit the selected model family's prompt.",
   "drift.settings.prompts.invalidJson": "Agent behavior must be a JSON object.",
   "drift.settings.prompts.modelFamilies": "Model-family system prompts",

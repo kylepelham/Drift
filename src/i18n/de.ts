@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "MCP-Server werden geladen...",
+  "drift.mcp.refreshing": "MCP-Server werden aktualisiert...",
+  "drift.mcp.retry": "Erneut versuchen",
   "command.category.suggested": "Vorgeschlagen",
   "command.category.view": "Ansicht",
   "command.category.project": "Projekt",
@@ -1033,6 +1036,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Mehrdeutiger Dateilink \"{{href}}\". Verwende einen längeren Pfad, um zwischen diesen Dateien zu wählen: {{files}}",
   "drift.preview.settings.title": "Dateivorschauen",
   "drift.preview.settings.mode": "Vorschaumodus",
   "drift.preview.settings.description": "Wähle, welche Dateitypen in einer Vorschau geöffnet werden.",
@@ -1069,6 +1073,7 @@ export const drift = {
   "drift.remote.statusStarting": "Wird gestartet",
   "drift.remote.statusError": "Fehler",
   "drift.remote.clipboardError": "Kopieren fehlgeschlagen",
+  "drift.settings.prompts.astraDescription": "GPT-6 verwendet seinen Astra-Standardprompt, sofern du hier keinen eigenen Prompt speicherst. Gespeicherte eigene Prompts gelten für alle Modelle dieser Familie.",
   "drift.settings.shellTimeout.scope": "Shell-Zeitlimits beenden Prozessbäume. Modelle, MCP-Server und Netzwerkaufrufe sind nicht betroffen.",
   "drift.settings.toolExecution": "Werkzeugausführung",
   "drift.settings.shellTimeout.title": "Shell-Zeitlimit",

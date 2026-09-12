@@ -80,6 +80,16 @@ so a document link cannot launch a script that way. Explicit HTTP(S) links remai
 links. Only copy buttons created by Drift consume copy clicks; authored `data-*`
 attributes cannot bypass link handling.
 
+Abbreviated transcript citations such as `AmazingCode.cs:345:21` also accept colon
+line/column positions. At click time, `src/ui/citation-files.ts` collects known file
+paths from completed read/write/edit/patch tools and file attachments in the owning
+task, then older loaded history in that session. Collection stops at the cited part;
+delegated results use the child session with a completion-time cutoff. Unique path
+suffixes resolve within the session workspace, including a drive-root workspace such
+as `C:/`. Multiple matches produce an error listing the candidates. Absolute paths
+and explicit parent navigation keep their normal meaning; unknown paths retain the
+workspace-relative fallback. Resolution does not search the filesystem.
+
 Local chat images use the same owning directory and bounded preview reader. Sanitization
 removes their raw `src` and responsive `srcset` before insertion, leaving only internally
 generated image markers. External HTTP(S) and data images retain transcript behavior.
@@ -90,6 +100,10 @@ Unlinked images open the lightbox by click, Enter, or Space; explicit image link
 navigation. Local lightbox images own a separate blob URL so transcript cleanup cannot
 invalidate an open viewer. Closing or replacing the lightbox revokes that URL.
 
+Spawned-thread tool rows finish when the spawn call succeeds, independently of the
+sibling's later activity or errors. Only subagent task rows display live child tool
+counts; spawn rows retain their receipt and navigation link without ongoing progress.
+
 General settings persist file preview mode as All, None, or Custom, with All the default.
 Custom keeps a toggle for each type; switching modes preserves those choices. Filename
 classification in `src/file-preview-types.ts` allows Markdown and text/code up to 2 MiB
@@ -99,6 +113,9 @@ up to 40 MiB. Text formats require valid UTF-8 without NUL bytes. Tables show at
 webview support. Previews never write files; failures stay in the dialog rather than
 automatically launching another application. Read failures offer Retry, and Open in
 editor remains available even when previewing fails.
+The portal-mounted preview panel explicitly enables text selection, overriding the
+app shell's non-selectable default so code, Markdown, table cells, and HTML source
+can be highlighted and copied with the browser's normal selection and copy commands.
 
 `read_file_preview` returns bounded base64 bytes through Tauri or the authenticated
 companion RPC, not an engine file endpoint or a public file URL. Remote reads use the
@@ -124,10 +141,17 @@ document resources or execute document scripts; explicit Markdown browser links 
 limit. A separate DOMPurify instance preserves document styles and inline SVG but removes
 active elements, navigation, and resource attributes. A CSP placed before user styles
 blocks network resources, forms, and scripts while allowing inline CSS and embedded data
-images/fonts. The iframe sandbox allows only same-origin access so trusted host code can
-forward Escape to the modal; it never allows scripts, forms, popups, or top navigation.
-External/local companion assets and JavaScript-driven content are not loaded. The source
-tab displays the original text, not the sanitized document. Other code links are unchanged.
+images/fonts and host-created image blob URLs. Local `img src` values become trusted reader
+markers, not browser URLs. The shared Markdown image loader resolves them beside the HTML
+file while retaining the original workspace root for native and authenticated companion
+reads. Image preferences, the 12-path/20 MiB budget, and per-image limits still apply.
+Switching tabs, replacing the document, or closing it disposes the loader and its blob URLs;
+late reads cannot update a discarded preview. HTML images retain their authored styling
+without Markdown lightbox controls. The iframe sandbox allows only same-origin access so
+trusted host code can load images and forward Escape to the modal; it never allows scripts,
+forms, popups, or top navigation. Remote resources, linked stylesheets, CSS file URLs,
+`srcset`, and JavaScript-driven content are not loaded. The source tab displays the original
+text, not the sanitized document. Other code links are unchanged.
 
 Attachment lightboxes and image file previews share `src/ui/image-viewer.tsx`. Lightboxes
 place the filename, zoom controls, and close button in one header row, hiding secondary

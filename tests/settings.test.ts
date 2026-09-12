@@ -76,6 +76,9 @@ test("prompt and agent editors are separate Server settings with inherited-value
   expect(source).toContain('"text-ink-faint": !agentPromptModified()')
   expect(source).toContain('"text-ink-faint": !agentBehaviorModified()')
   expect(source).toContain("disabled={props.disabled || !props.dirty}")
+  expect(source).toContain('t("drift.settings.prompts.astraDescription")')
+  expect(source).toContain('GPT-6 (Astra): {t("drift.settings.prompts.upstreamOriginal")}')
+  expect(source).toContain("{variant.original}")
 })
 
 test("agent overrides retain only values changed from upstream", async () => {

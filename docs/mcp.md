@@ -122,11 +122,30 @@ request failures while the client stays connected. OpenCode's existing one-shot 
 session recovery also remains active beneath this transport-close recovery.
 
 While MCP management is visible, Drift refreshes runtime statuses every two seconds without
-invalidating the exact-definition snapshot. The standalone `/mcp` dialog initially focuses
+invalidating the exact-definition snapshot. Concurrent polls share one request, outside the
+definition/mutation queue; workspace or configuration changes abort stale status requests.
+Startup waits for config bootstrap and its approval hook before reading definitions, not for
+every MCP transport to connect. Runtime status follows in the background, with a ten-second
+request timeout and a separate error/Retry state that does not lock valid definitions.
+Config bootstrap requests also have a ten-second timeout. These request limits do not change
+the engine's per-server connection or tool-execution timeouts. The workspace's core hydration
+does not wait for the MCP-dependent command catalog or the engine version check.
+Initial definition loading shows a status message
+and skeleton rows. Same-workspace refreshes and reconnects retain known definitions with
+actions disabled until the snapshot is validated. Failed refreshes retain those rows and
+offer Retry, rather than implying the configuration was deleted. Workspace switches still
+clear the previous workspace's rows immediately. The empty state requires a successful,
+settled snapshot. The standalone `/mcp` dialog initially focuses
 the Servers tab. Up/Down and Home/End move through servers, Left disconnects, Right connects
 or authenticates, and Enter runs the selected server's primary runtime action.
 
 ## Validation
+
+An open editor can use a newer shared MCP generation when only other servers changed.
+External editors still require the same workspace, name, transport, fingerprint, and approval
+decision; stored editors require the same server revision and an available destination name.
+These checks run again inside the operation queue, and native generation/file checks remain
+in place. Runtime and approval actions retain their captured-generation checks.
 
 Drift preserves unknown fields while validating the complete current local and remote
 schema when saving. OpenCode validates external config before plugin hooks; files that fail

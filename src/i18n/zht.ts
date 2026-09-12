@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "正在載入 MCP 伺服器...",
+  "drift.mcp.refreshing": "正在重新整理 MCP 伺服器...",
+  "drift.mcp.retry": "重試",
   "command.category.suggested": "建議",
   "command.category.view": "檢視",
   "command.category.project": "專案",
@@ -1070,6 +1073,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "檔案連結 \"{{href}}\" 不明確。請使用更完整的路徑來選擇以下檔案之一：{{files}}",
   "drift.preview.settings.title": "檔案預覽",
   "drift.preview.settings.mode": "預覽模式",
   "drift.preview.settings.description": "選擇在預覽中開啟的檔案類型。",
@@ -1106,6 +1110,7 @@ export const drift = {
   "drift.remote.statusStarting": "正在啟動",
   "drift.remote.statusError": "錯誤",
   "drift.remote.clipboardError": "無法複製",
+  "drift.settings.prompts.astraDescription": "除非你在此儲存自訂提示詞，否則 GPT-6 會使用其預設的 Astra 提示詞。已儲存的自訂提示詞會套用至此系列的所有模型。",
   "drift.settings.shellTimeout.scope": "Shell 逾時會終止處理程序樹狀結構，但不會影響模型、MCP 伺服器或網路呼叫。",
   "drift.settings.toolExecution": "工具執行",
   "drift.settings.shellTimeout.title": "Shell 逾時",

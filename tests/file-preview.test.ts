@@ -317,6 +317,11 @@ test("preview host source uses keyed modal cleanup and ignores late read results
   expect(source).toContain("editorOnly: true")
 })
 
+test("preview panel opts into text selection outside the transcript", async () => {
+  const source = await Bun.file(new URL("../src/ui/file-preview.tsx", import.meta.url)).text()
+  expect(source).toMatch(/<section\b[^>]*class="[^"]*\bselect-text\b[^"]*"/)
+})
+
 test("preview renderers source preserves the workspace root and renders bounded table cells as text", async () => {
   const source = await Bun.file(new URL("../src/ui/file-preview.tsx", import.meta.url)).text()
   expect(source).toContain("<MarkdownDocument text={file().text!} path={props.file.path} directory={props.file.directory}")

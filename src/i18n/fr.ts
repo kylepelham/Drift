@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "Chargement des serveurs MCP...",
+  "drift.mcp.refreshing": "Actualisation des serveurs MCP...",
+  "drift.mcp.retry": "Réessayer",
   "command.category.suggested": "Suggéré",
   "command.category.view": "Affichage",
   "command.category.project": "Projet",
@@ -1037,6 +1040,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Lien de fichier ambigu \"{{href}}\". Utilisez un chemin plus complet pour choisir parmi : {{files}}",
   "drift.preview.settings.title": "Aperçus des fichiers",
   "drift.preview.settings.mode": "Mode d'aperçu",
   "drift.preview.settings.description": "Choisissez les types de fichiers à ouvrir dans un aperçu.",
@@ -1073,6 +1077,7 @@ export const drift = {
   "drift.remote.statusStarting": "Démarrage",
   "drift.remote.statusError": "Erreur",
   "drift.remote.clipboardError": "Copie impossible",
+  "drift.settings.prompts.astraDescription": "GPT-6 utilise son prompt Astra par défaut, sauf si vous enregistrez un prompt personnalisé ici. Les prompts personnalisés enregistrés s'appliquent à tous les modèles de cette famille.",
   "drift.settings.shellTimeout.scope": "Les délais du shell arrêtent les arborescences de processus. Ils n’affectent pas les modèles, MCP ou appels réseau.",
   "drift.settings.toolExecution": "Exécution des outils",
   "drift.settings.shellTimeout.title": "Délai du shell",

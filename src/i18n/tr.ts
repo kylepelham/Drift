@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "MCP sunucuları yükleniyor...",
+  "drift.mcp.refreshing": "MCP sunucuları yenileniyor...",
+  "drift.mcp.retry": "Yeniden dene",
   "command.category.suggested": "Önerilen",
   "command.category.view": "Görünüm",
   "command.category.project": "Proje",
@@ -1102,6 +1105,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Belirsiz dosya bağlantısı \"{{href}}\". Şunlar arasından seçim yapmak için daha ayrıntılı bir yol kullanın: {{files}}",
   "drift.preview.settings.title": "Dosya önizlemeleri",
   "drift.preview.settings.mode": "Önizleme modu",
   "drift.preview.settings.description": "Hangi dosya türlerinin önizlemede açılacağını seçin.",
@@ -1138,6 +1142,7 @@ export const drift = {
   "drift.remote.statusStarting": "Başlatılıyor",
   "drift.remote.statusError": "Hata",
   "drift.remote.clipboardError": "Kopyalanamadı",
+  "drift.settings.prompts.astraDescription": "Burada özel bir istem kaydetmediğiniz sürece GPT-6, varsayılan Astra istemini kullanır. Kaydedilen özel istemler bu ailedeki tüm modeller için geçerlidir.",
   "drift.settings.shellTimeout.scope": "Kabuk zaman aşımları işlem ağaçlarını sonlandırır. Modelleri, MCP sunucularını veya ağ çağrılarını etkilemez.",
   "drift.settings.toolExecution": "Araç yürütme",
   "drift.settings.shellTimeout.title": "Kabuk zaman aşımı",

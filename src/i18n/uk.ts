@@ -1,4 +1,7 @@
 export const dict = {
+  "drift.mcp.loading": "Завантаження серверів MCP...",
+  "drift.mcp.refreshing": "Оновлення серверів MCP...",
+  "drift.mcp.retry": "Спробувати знову",
   "command.category.suggested": "Рекомендовані",
   "command.category.view": "Вигляд",
   "command.category.project": "Проєкт",
@@ -1105,6 +1108,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Неоднозначне посилання на файл \"{{href}}\". Укажіть повніший шлях, щоб вибрати з: {{files}}",
   "drift.preview.settings.title": "Попередній перегляд файлів",
   "drift.preview.settings.mode": "Режим попереднього перегляду",
   "drift.preview.settings.description": "Виберіть типи файлів для відкриття в попередньому перегляді.",
@@ -1141,6 +1145,7 @@ export const drift = {
   "drift.remote.statusStarting": "Запуск",
   "drift.remote.statusError": "Помилка",
   "drift.remote.clipboardError": "Не вдалося скопіювати",
+  "drift.settings.prompts.astraDescription": "GPT-6 використовує стандартний промпт Astra, якщо ви не збережете тут власний. Збережені власні промпти застосовуються до всіх моделей цієї родини.",
   "drift.settings.shellTimeout.scope": "Час очікування оболонки завершує дерева процесів. Він не впливає на моделі, сервери MCP чи мережеві виклики.",
   "drift.settings.toolExecution": "Виконання інструментів",
   "drift.settings.shellTimeout.title": "Тайм-аут оболонки",
