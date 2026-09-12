@@ -145,8 +145,13 @@ the provider rather than being silently dropped by the SDK's model allowlist.
 fixing a circular-import failure exposed by running the core Bedrock suite independently.
 
 The temporary Astra catalog and allowlist workaround was removed after verifying models.dev's
-native entry and upstream's integer GPT-version filter. `zz-codex-context-limits.patch` retains
-only the GPT-6 OAuth limits of 400k context, 272k input, and 128k output; API-key limits remain native.
+native entry and upstream's integer GPT-version filter. GPT-6 OAuth and API-key connections retain
+the catalog limits. The GPT-6 OAuth clamp shipped in 1.3.5 has been removed;
+`zz-codex-context-limits.patch` now contains regression tests only. The current GPT-6 Astra catalog
+matches [OpenAI's model reference](https://developers.openai.com/api/docs/models/gpt-6-astra):
+1,050,000 context, 922,000 input, and 128,000 output tokens. With the default 20,000-token reserve,
+automatic compaction starts at 902,000 reported tokens. Both the engine and context meter use the
+input limit for this threshold. Explicit compaction reserve settings can change the engine threshold.
 Upstream now preserves running tool timestamps, replacing that hunk in `shell-timeout.patch`.
 `zz-v2-mcp-compat.patch` preserves existing camelCase MCP OAuth fields when V2 fields trigger
 normalization. Ordinary V1 configs retain their shape. Drift's external MCP editor still expects
