@@ -1106,6 +1106,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Неоднозначная ссылка на файл \"{{href}}\". Укажите более полный путь, чтобы выбрать из: {{files}}",
   "drift.preview.settings.title": "Предпросмотр файлов",
   "drift.preview.settings.mode": "Режим предпросмотра",
   "drift.preview.settings.description": "Выберите типы файлов для открытия в предпросмотре.",

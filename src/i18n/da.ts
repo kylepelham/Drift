@@ -1095,6 +1095,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Tvetydigt fillink \"{{href}}\". Brug en længere sti til at vælge mellem: {{files}}",
   "drift.preview.settings.title": "Filforhåndsvisninger",
   "drift.preview.settings.mode": "Forhåndsvisningstilstand",
   "drift.preview.settings.description": "Vælg, hvilke filtyper der åbnes i en forhåndsvisning.",

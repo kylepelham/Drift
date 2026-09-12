@@ -1073,6 +1073,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "檔案連結 \"{{href}}\" 不明確。請使用更完整的路徑來選擇以下檔案之一：{{files}}",
   "drift.preview.settings.title": "檔案預覽",
   "drift.preview.settings.mode": "預覽模式",
   "drift.preview.settings.description": "選擇在預覽中開啟的檔案類型。",

@@ -1027,6 +1027,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Niejednoznaczny link do pliku \"{{href}}\". Użyj dłuższej ścieżki, aby wybrać spośród: {{files}}",
   "drift.preview.settings.title": "Podglądy plików",
   "drift.preview.settings.mode": "Tryb podglądu",
   "drift.preview.settings.description": "Wybierz typy plików otwierane w podglądzie.",

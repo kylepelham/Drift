@@ -1027,6 +1027,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Link de arquivo ambíguo \"{{href}}\". Use um caminho mais completo para escolher entre: {{files}}",
   "drift.preview.settings.title": "Pré-visualizações de arquivos",
   "drift.preview.settings.mode": "Modo de pré-visualização",
   "drift.preview.settings.description": "Escolha quais tipos de arquivo abrem em uma pré-visualização.",

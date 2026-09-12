@@ -1105,6 +1105,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Belirsiz dosya bağlantısı \"{{href}}\". Şunlar arasından seçim yapmak için daha ayrıntılı bir yol kullanın: {{files}}",
   "drift.preview.settings.title": "Dosya önizlemeleri",
   "drift.preview.settings.mode": "Önizleme modu",
   "drift.preview.settings.description": "Hangi dosya türlerinin önizlemede açılacağını seçin.",

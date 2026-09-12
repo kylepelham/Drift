@@ -1103,6 +1103,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Dvosmislena veza do datoteke \"{{href}}\". Koristite dužu putanju za odabir između: {{files}}",
   "drift.preview.settings.title": "Pregledi datoteka",
   "drift.preview.settings.mode": "Način pregleda",
   "drift.preview.settings.description": "Odaberite koje vrste datoteka se otvaraju u pregledu.",

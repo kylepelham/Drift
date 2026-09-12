@@ -1111,6 +1111,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "Tvetydig fillenke \"{{href}}\". Bruk en lengre sti for å velge mellom: {{files}}",
   "drift.preview.settings.title": "Filforhåndsvisninger",
   "drift.preview.settings.mode": "Forhåndsvisningsmodus",
   "drift.preview.settings.description": "Velg hvilke filtyper som åpnes i en forhåndsvisning.",

@@ -14,6 +14,7 @@ import { Chevron } from "./controls"
 import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
 import { TextShimmer } from "./text-shimmer"
 import { clarificationAnswer } from "./clarification-answer"
+import { citationFileGroups } from "./citation-files"
 
 export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; thinking?: boolean }) {
   onMount(() =>
@@ -106,7 +107,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
                 <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
                   <Show
                     when={!generated() && largeUserText(text())}
-                    fallback={<Markdown text={text()} directory={engine.state.sessions[info().sessionID]?.directory} done humanAuthored={!generated()} />}
+                    fallback={<Markdown text={text()} directory={engine.state.sessions[info().sessionID]?.directory} fileGroups={() => citationFileGroups(engine.state, info().sessionID, info().id)} done humanAuthored={!generated()} />}
                   >
                     <pre class="user-paste">{text()}</pre>
                   </Show>

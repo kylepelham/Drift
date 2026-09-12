@@ -1019,6 +1019,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "ファイルリンク \"{{href}}\" を特定できません。次の候補から選べるよう、より詳しいパスを指定してください: {{files}}",
   "drift.preview.settings.title": "ファイルプレビュー",
   "drift.preview.settings.mode": "プレビューモード",
   "drift.preview.settings.description": "プレビューで開くファイルの種類を選択します。",

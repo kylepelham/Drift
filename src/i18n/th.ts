@@ -1090,6 +1090,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.markdown.ambiguousCitation": "ลิงก์ไฟล์ \"{{href}}\" ไม่ชัดเจน ใช้พาธที่เจาะจงขึ้นเพื่อเลือกระหว่าง: {{files}}",
   "drift.preview.settings.title": "ตัวอย่างไฟล์",
   "drift.preview.settings.mode": "โหมดแสดงตัวอย่าง",
   "drift.preview.settings.description": "เลือกประเภทไฟล์ที่จะเปิดเป็นตัวอย่าง",

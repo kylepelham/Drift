@@ -80,6 +80,16 @@ so a document link cannot launch a script that way. Explicit HTTP(S) links remai
 links. Only copy buttons created by Drift consume copy clicks; authored `data-*`
 attributes cannot bypass link handling.
 
+Abbreviated transcript citations such as `AmazingCode.cs:345:21` also accept colon
+line/column positions. At click time, `src/ui/citation-files.ts` collects known file
+paths from completed read/write/edit/patch tools and file attachments in the owning
+task, then older loaded history in that session. Collection stops at the cited part;
+delegated results use the child session with a completion-time cutoff. Unique path
+suffixes resolve within the session workspace, including a drive-root workspace such
+as `C:/`. Multiple matches produce an error listing the candidates. Absolute paths
+and explicit parent navigation keep their normal meaning; unknown paths retain the
+workspace-relative fallback. Resolution does not search the filesystem.
+
 Local chat images use the same owning directory and bounded preview reader. Sanitization
 removes their raw `src` and responsive `srcset` before insertion, leaving only internally
 generated image markers. External HTTP(S) and data images retain transcript behavior.
