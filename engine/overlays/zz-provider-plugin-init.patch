@@ -1,0 +1,99 @@
+diff --git a/packages/core/src/plugin/provider.ts b/packages/core/src/plugin/provider.ts
+--- a/packages/core/src/plugin/provider.ts
++++ b/packages/core/src/plugin/provider.ts
+@@ -33,7 +33,8 @@
+ import type { PluginInternal } from "./internal"
+ import type { Scope } from "effect"
+ 
+-export const ProviderPlugins: PluginInternal.Plugin<PluginInternal.Requirements | Scope.Scope>[] = [
++// Plugins import internal.ts for define(), so read their exports only after module initialization.
++export const ProviderPlugins = (): PluginInternal.Plugin<PluginInternal.Requirements | Scope.Scope>[] => [
+   AlibabaPlugin,
+   AmazonBedrockPlugin,
+   AnthropicPlugin,
+diff --git a/packages/core/src/plugin/internal.ts b/packages/core/src/plugin/internal.ts
+--- a/packages/core/src/plugin/internal.ts
++++ b/packages/core/src/plugin/internal.ts
+@@ -115,7 +115,7 @@
+         yield* add(ConfigAgentPlugin.Plugin)
+         yield* add(ConfigCommandPlugin.Plugin)
+         yield* add(ConfigSkillPlugin.Plugin)
+-        for (const item of ProviderPlugins) yield* add(item)
++        for (const item of ProviderPlugins()) yield* add(item)
+         yield* add(ConfigExternalPlugin.Plugin)
+         yield* add(ConfigProviderPlugin.Plugin)
+         yield* add(VariantPlugin.Plugin)
+diff --git a/packages/core/test/plugin/provider-kilo.test.ts b/packages/core/test/plugin/provider-kilo.test.ts
+--- a/packages/core/test/plugin/provider-kilo.test.ts
++++ b/packages/core/test/plugin/provider-kilo.test.ts
+@@ -19,7 +19,7 @@
+ 
+ describe("KiloPlugin", () => {
+   it.effect("is registered so legacy referer headers can be applied", () =>
+-    Effect.sync(() => expect(ProviderPlugins.map((item) => item.id)).toContain(PluginV2.ID.make("kilo"))),
++    Effect.sync(() => expect(ProviderPlugins().map((item) => item.id)).toContain(PluginV2.ID.make("kilo"))),
+   )
+ 
+   it.effect("applies legacy referer headers only to kilo", () =>
+diff --git a/packages/core/test/plugin/provider-llmgateway.test.ts b/packages/core/test/plugin/provider-llmgateway.test.ts
+--- a/packages/core/test/plugin/provider-llmgateway.test.ts
++++ b/packages/core/test/plugin/provider-llmgateway.test.ts
+@@ -21,7 +21,7 @@
+ 
+ describe("LLMGatewayPlugin", () => {
+   it.effect("is registered so legacy referer headers can be applied", () =>
+-    Effect.sync(() => expect(ProviderPlugins.map((item) => item.id)).toContain(PluginV2.ID.make("llmgateway"))),
++    Effect.sync(() => expect(ProviderPlugins().map((item) => item.id)).toContain(PluginV2.ID.make("llmgateway"))),
+   )
+ 
+   it.effect("applies legacy referer headers only to enabled llmgateway", () =>
+diff --git a/packages/core/test/plugin/provider-nvidia.test.ts b/packages/core/test/plugin/provider-nvidia.test.ts
+--- a/packages/core/test/plugin/provider-nvidia.test.ts
++++ b/packages/core/test/plugin/provider-nvidia.test.ts
+@@ -19,7 +19,7 @@
+ 
+ describe("NvidiaPlugin", () => {
+   it.effect("is registered so legacy referer headers can be applied", () =>
+-    Effect.sync(() => expect(ProviderPlugins.map((item) => item.id)).toContain(PluginV2.ID.make("nvidia"))),
++    Effect.sync(() => expect(ProviderPlugins().map((item) => item.id)).toContain(PluginV2.ID.make("nvidia"))),
+   )
+ 
+   it.effect("applies NVIDIA tracking headers only to nvidia", () =>
+diff --git a/packages/core/test/plugin/provider-openrouter.test.ts b/packages/core/test/plugin/provider-openrouter.test.ts
+--- a/packages/core/test/plugin/provider-openrouter.test.ts
++++ b/packages/core/test/plugin/provider-openrouter.test.ts
+@@ -22,7 +22,7 @@
+ 
+ describe("OpenRouterPlugin", () => {
+   it.effect("is registered so legacy OpenRouter behavior can be applied", () =>
+-    Effect.sync(() => expect(ProviderPlugins.map((item) => item.id)).toContain(PluginV2.ID.make("openrouter"))),
++    Effect.sync(() => expect(ProviderPlugins().map((item) => item.id)).toContain(PluginV2.ID.make("openrouter"))),
+   )
+ 
+   it.effect("applies legacy referer headers only to openrouter", () =>
+diff --git a/packages/core/test/plugin/provider-snowflake-cortex.test.ts b/packages/core/test/plugin/provider-snowflake-cortex.test.ts
+--- a/packages/core/test/plugin/provider-snowflake-cortex.test.ts
++++ b/packages/core/test/plugin/provider-snowflake-cortex.test.ts
+@@ -43,8 +43,8 @@
+ describe("SnowflakeCortexPlugin", () => {
+   it.effect("is registered in ProviderPlugins before OpenAICompatiblePlugin", () =>
+     Effect.sync(() => {
+-      expect(ProviderPlugins.map((item) => item.id)).toContain(PluginV2.ID.make("snowflake-cortex"))
+-      const ids = ProviderPlugins.map((p) => p.id)
++      expect(ProviderPlugins().map((item) => item.id)).toContain(PluginV2.ID.make("snowflake-cortex"))
++      const ids = ProviderPlugins().map((p) => p.id)
+       expect(ids.indexOf("snowflake-cortex")).toBeLessThan(ids.indexOf("openai-compatible"))
+     }),
+   )
+diff --git a/packages/core/test/plugin/provider-zenmux.test.ts b/packages/core/test/plugin/provider-zenmux.test.ts
+--- a/packages/core/test/plugin/provider-zenmux.test.ts
++++ b/packages/core/test/plugin/provider-zenmux.test.ts
+@@ -24,7 +24,7 @@
+ 
+ describe("ZenmuxPlugin", () => {
+   it.effect("is registered so legacy referer headers can be applied", () =>
+-    Effect.sync(() => expect(ProviderPlugins.map((item) => item.id)).toContain(PluginV2.ID.make("zenmux"))),
++    Effect.sync(() => expect(ProviderPlugins().map((item) => item.id)).toContain(PluginV2.ID.make("zenmux"))),
+   )
+ 
+   it.effect("applies the exact legacy Zenmux headers", () =>

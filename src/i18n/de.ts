@@ -1072,6 +1072,7 @@ export const drift = {
   "drift.remote.statusStarting": "Wird gestartet",
   "drift.remote.statusError": "Fehler",
   "drift.remote.clipboardError": "Kopieren fehlgeschlagen",
+  "drift.settings.prompts.astraDescription": "GPT-6 verwendet seinen Astra-Standardprompt, sofern du hier keinen eigenen Prompt speicherst. Gespeicherte eigene Prompts gelten für alle Modelle dieser Familie.",
   "drift.settings.shellTimeout.scope": "Shell-Zeitlimits beenden Prozessbäume. Modelle, MCP-Server und Netzwerkaufrufe sind nicht betroffen.",
   "drift.settings.toolExecution": "Werkzeugausführung",
   "drift.settings.shellTimeout.title": "Shell-Zeitlimit",

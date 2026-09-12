@@ -1113,6 +1113,7 @@ export const drift = {
   "drift.remote.statusStarting": "正在启动",
   "drift.remote.statusError": "错误",
   "drift.remote.clipboardError": "无法复制",
+  "drift.settings.prompts.astraDescription": "除非你在此保存自定义提示词，否则 GPT-6 会使用其默认的 Astra 提示词。保存的自定义提示词将应用于此系列的所有模型。",
   "drift.settings.shellTimeout.scope": "Shell 超时会终止进程树，但不会影响模型、MCP 服务器或网络调用。",
   "drift.settings.toolExecution": "工具执行",
   "drift.settings.shellTimeout.title": "Shell 超时",

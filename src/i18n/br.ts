@@ -1063,6 +1063,7 @@ export const drift = {
   "drift.remote.statusStarting": "Iniciando",
   "drift.remote.statusError": "Erro",
   "drift.remote.clipboardError": "Não foi possível copiar",
+  "drift.settings.prompts.astraDescription": "O GPT-6 usa o prompt padrão Astra, a menos que você salve uma substituição aqui. As substituições salvas se aplicam a todos os modelos desta família.",
   "drift.settings.shellTimeout.scope": "Os limites do shell encerram árvores de processos. Não afetam modelos, servidores MCP ou chamadas de rede.",
   "drift.settings.toolExecution": "Execução de ferramentas",
   "drift.settings.shellTimeout.title": "Tempo limite do shell",

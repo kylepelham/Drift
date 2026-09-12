@@ -1141,6 +1141,7 @@ export const drift = {
   "drift.remote.statusStarting": "Başlatılıyor",
   "drift.remote.statusError": "Hata",
   "drift.remote.clipboardError": "Kopyalanamadı",
+  "drift.settings.prompts.astraDescription": "Burada özel bir istem kaydetmediğiniz sürece GPT-6, varsayılan Astra istemini kullanır. Kaydedilen özel istemler bu ailedeki tüm modeller için geçerlidir.",
   "drift.settings.shellTimeout.scope": "Kabuk zaman aşımları işlem ağaçlarını sonlandırır. Modelleri, MCP sunucularını veya ağ çağrılarını etkilemez.",
   "drift.settings.toolExecution": "Araç yürütme",
   "drift.settings.shellTimeout.title": "Kabuk zaman aşımı",

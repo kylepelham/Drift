@@ -374,6 +374,7 @@ export const drift = {
   "drift.settings.prompts.agents": "Agents and subagents",
   "drift.settings.prompts.behavior": "Behavior configuration (JSON)",
   "drift.settings.prompts.familyDescription": "Edit Drift's effective base prompt for this model family.",
+  "drift.settings.prompts.astraDescription": "GPT-6 uses its Astra default unless you save an override here. Saved overrides apply to all models in this family.",
   "drift.settings.prompts.inheritsFamily": "Empty agents inherit the selected model family's prompt.",
   "drift.settings.prompts.invalidJson": "Agent behavior must be a JSON object.",
   "drift.settings.prompts.modelFamilies": "Model-family system prompts",

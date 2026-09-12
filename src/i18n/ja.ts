@@ -1055,6 +1055,7 @@ export const drift = {
   "drift.remote.statusStarting": "起動中",
   "drift.remote.statusError": "エラー",
   "drift.remote.clipboardError": "コピーできませんでした",
+  "drift.settings.prompts.astraDescription": "ここでカスタムプロンプトを保存しない限り、GPT-6 はデフォルトの Astra プロンプトを使用します。保存したカスタムプロンプトは、このファミリーのすべてのモデルに適用されます。",
   "drift.settings.shellTimeout.scope": "シェルのタイムアウトはプロセスツリーを終了します。モデル、MCP、ネットワーク呼び出しには影響しません。",
   "drift.settings.toolExecution": "ツール実行",
   "drift.settings.shellTimeout.title": "シェルのタイムアウト",

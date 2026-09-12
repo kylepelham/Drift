@@ -131,11 +131,18 @@ protocol findings, the limits of the installed-app inspection, and follow-up wor
 
 ## Engine update runbook
 
-The 2026-09-06 update imports OpenCode 1.18.29 at `5b1e31988ed74b821b3a7ca6647188446992aafc`.
-This is upstream's version-sync commit on `dev`. Its complete tree equals the `v1.18.29`
-release tag's tree, including the 1.18.29 manifests. The marker stays pinned to the `dev`
+The 2026-09-12 update imports OpenCode 1.18.30 at `830d5eb5354874105cc31599635a80c1662609e8`.
+This is upstream's version-sync commit on `dev`. Its complete tree equals the `v1.18.30`
+release tag's tree, including the 1.18.30 manifests. The marker stays pinned to the `dev`
 sync commit so future updates can validate ancestry along `dev`, rather than the separate release commit.
 The snapshot is imported without upstream history, and overlays remain separate.
+
+This release updates the OpenAI, Azure, and GitLab provider dependencies, preserves Bedrock
+ARN/DeepSeek identifiers, and adds the GPT-6 Astra prompt. Drift includes Astra as a template
+variant while retaining saved GPT/Codex override keys. Explicit OpenAI service tiers now reach
+the provider rather than being silently dropped by the SDK's model allowlist.
+`zz-provider-plugin-init.patch` defers reading provider plugin exports until registration,
+fixing a circular-import failure exposed by running the core Bedrock suite independently.
 
 The temporary Astra catalog and allowlist workaround was removed after verifying models.dev's
 native entry and upstream's integer GPT-version filter. `zz-codex-context-limits.patch` retains

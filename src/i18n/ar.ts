@@ -1047,6 +1047,7 @@ export const drift = {
   "drift.remote.statusStarting": "جارٍ البدء",
   "drift.remote.statusError": "خطأ",
   "drift.remote.clipboardError": "تعذر النسخ",
+  "drift.settings.prompts.astraDescription": "يستخدم GPT-6 موجه Astra الافتراضي ما لم تحفظ موجهًا بديلًا هنا. تنطبق الموجهات البديلة المحفوظة على جميع النماذج في هذه العائلة.",
   "drift.settings.shellTimeout.scope": "تنهي مهل الصدفة أشجار العمليات. ولا تؤثر على النماذج أو خوادم MCP أو اتصالات الشبكة.",
   "drift.settings.toolExecution": "تنفيذ الأدوات",
   "drift.settings.shellTimeout.title": "مهلة الصدفة",

@@ -5,6 +5,7 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { buildExtensions } from "../scripts/build-extensions"
 import { SpawnThread } from "../engine/opencode/plugin/spawn-thread"
+import type { PromptCatalog } from "../src/state/prompts"
 
 const args = {
   title: "Child thread",
@@ -197,6 +198,66 @@ test("release extensions load without workspace node_modules", async () => {
     )
     expect(customSystem.system[0]).toContain(customAnthropic)
     expect(customSystem.system[0]).toEndWith("workspace context")
+  } finally {
+    rmSync(output, { recursive: true, force: true })
+  }
+})
+
+test("bundled GPT-6 prompts retain Astra defaults and existing GPT/Codex overrides", async () => {
+  const output = mkdtempSync(path.join(tmpdir(), "drift-astra-extensions-"))
+  try {
+    await buildExtensions(output)
+    const catalogPath = path.join(output, "prompt-catalog.json")
+    const catalog: PromptCatalog = await Bun.file(catalogPath).json()
+    const prompt = await import(pathToFileURL(path.join(output, "plugin", "prompt-overrides.js")).href)
+    const settingsPath = path.join(output, "prompt-overrides.json")
+    const astra = catalog.families.find((item) => item.id === "gpt")!.variants![0]
+    expect(astra.id).toBe("gpt-astra")
+    expect(astra.original).toBe(
+      (await Bun.file("engine/upstream/packages/opencode/src/session/prompt/gpt-astra.txt").text()).trim(),
+    )
+    expect(astra.default).toBe(astra.original.replace(
+      "You are an AI agent powered by OpenCode, a coding agent harness.",
+      "You are Drift, an AI coding agent powered by OpenCode.",
+    ))
+    expect(catalog.families.find((item) => item.id === "codex")!.variants![0]).toEqual(astra)
+
+    const settings: Record<string, string>[] = [
+      {},
+      { gpt: "Saved GPT instructions" },
+      { codex: "Saved Codex instructions" },
+      { gpt: "Saved GPT instructions", codex: "Saved Codex instructions" },
+      { gpt: "", codex: "" },
+      {}, // Reset removes overrides and restores model-specific defaults.
+    ]
+    const cases = [
+      ["gpt-5.4", "gpt", false],
+      ["gpt-5.3-codex", "codex", false],
+      ["gpt-6", "gpt", true],
+      ["gpt-6-astra", "gpt", true],
+      ["gpt-6-mini", "gpt", true],
+      ["gpt-6-codex", "codex", true],
+    ] as const
+    for (const families of settings) {
+      await Bun.write(settingsPath, JSON.stringify({ version: 1, families }))
+      const hooks = await prompt.PromptOverrides({} as never, { catalogPath, settingsPath })
+      for (const [modelID, familyID, usesAstra] of cases) {
+        const family = catalog.families.find((item) => item.id === familyID)!
+        const template = usesAstra ? astra : family
+        const suffix = "\n\nWorkspace rules\nSkills\nMCP instructions\nUser system text"
+        const system = { system: [template.original + suffix, "Additional system message"] }
+        await hooks["experimental.chat.system.transform"]({ model: { api: { id: modelID } } }, system)
+        expect(system.system).toEqual([
+          (families[familyID] ?? template.default) + suffix,
+          "Additional system message",
+        ])
+
+        const agent = { system: ["Custom agent prompt\n" + template.original + suffix] }
+        const original = [...agent.system]
+        await hooks["experimental.chat.system.transform"]({ model: { api: { id: modelID } } }, agent)
+        expect(agent.system).toEqual(original)
+      }
+    }
   } finally {
     rmSync(output, { recursive: true, force: true })
   }

@@ -1126,6 +1126,7 @@ export const drift = {
   "drift.remote.statusStarting": "กำลังเริ่ม",
   "drift.remote.statusError": "ข้อผิดพลาด",
   "drift.remote.clipboardError": "คัดลอกไม่ได้",
+  "drift.settings.prompts.astraDescription": "GPT-6 จะใช้พรอมต์ Astra เริ่มต้น เว้นแต่คุณจะบันทึกพรอมต์ที่กำหนดเองไว้ที่นี่ พรอมต์ที่กำหนดเองที่บันทึกไว้จะใช้กับทุกโมเดลในตระกูลนี้",
   "drift.settings.shellTimeout.scope": "การหมดเวลาของเชลล์จะยุติผังกระบวนการ โดยไม่กระทบโมเดล เซิร์ฟเวอร์ MCP หรือการเรียกเครือข่าย",
   "drift.settings.toolExecution": "การเรียกใช้เครื่องมือ",
   "drift.settings.shellTimeout.title": "หมดเวลาของเชลล์",

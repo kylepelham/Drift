@@ -1144,6 +1144,7 @@ export const drift = {
   "drift.remote.statusStarting": "Запуск",
   "drift.remote.statusError": "Помилка",
   "drift.remote.clipboardError": "Не вдалося скопіювати",
+  "drift.settings.prompts.astraDescription": "GPT-6 використовує стандартний промпт Astra, якщо ви не збережете тут власний. Збережені власні промпти застосовуються до всіх моделей цієї родини.",
   "drift.settings.shellTimeout.scope": "Час очікування оболонки завершує дерева процесів. Він не впливає на моделі, сервери MCP чи мережеві виклики.",
   "drift.settings.toolExecution": "Виконання інструментів",
   "drift.settings.shellTimeout.title": "Тайм-аут оболонки",

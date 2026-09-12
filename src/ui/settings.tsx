@@ -1525,6 +1525,9 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
                     }}
                   />
                 </div>
+                <Show when={data().catalog.families.find((item) => item.id === familyID())?.variants?.length}>
+                  <p class="text-xs text-ink-faint">{t("drift.settings.prompts.astraDescription")}</p>
+                </Show>
                 <textarea
                   aria-label={t("drift.settings.prompts.systemPrompt")}
                   class="h-64 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
@@ -1543,6 +1546,16 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
                     {data().catalog.families.find((item) => item.id === familyID())?.original}
                   </pre>
                 </details>
+                <For each={data().catalog.families.find((item) => item.id === familyID())?.variants}>
+                  {(variant) => (
+                    <details class="text-xs text-ink-faint">
+                      <summary class="cursor-pointer select-none">GPT-6 (Astra): {t("drift.settings.prompts.upstreamOriginal")}</summary>
+                      <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-bg/40 p-3 font-mono text-[0.68rem] leading-relaxed">
+                        {variant.original}
+                      </pre>
+                    </details>
+                  )}
+                </For>
                 <PromptActions
                   disabled={saving()}
                   dirty={familyDirty()}

@@ -1147,6 +1147,7 @@ export const drift = {
   "drift.remote.statusStarting": "Starter",
   "drift.remote.statusError": "Feil",
   "drift.remote.clipboardError": "Kunne ikke kopiere",
+  "drift.settings.prompts.astraDescription": "GPT-6 bruker sin standardprompt for Astra med mindre du lagrer en overstyring her. Lagrede overstyringer gjelder alle modeller i denne familien.",
   "drift.settings.shellTimeout.scope": "Shell-tidsavbrudd avslutter prosesstrær. De påvirker ikke modeller, MCP-servere eller nettverkskall.",
   "drift.settings.toolExecution": "Verktøykjøring",
   "drift.settings.shellTimeout.title": "Tidsavbrudd for shell",

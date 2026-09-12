@@ -1139,6 +1139,7 @@ export const drift = {
   "drift.remote.statusStarting": "Pokretanje",
   "drift.remote.statusError": "Greška",
   "drift.remote.clipboardError": "Kopiranje nije uspjelo",
+  "drift.settings.prompts.astraDescription": "GPT-6 koristi zadani Astra prompt osim ako ovdje ne sačuvate zamjenski prompt. Sačuvani zamjenski promptovi primjenjuju se na sve modele u ovoj porodici.",
   "drift.settings.shellTimeout.scope": "Ograničenja ljuske prekidaju stabla procesa. Ne utiču na modele, MCP servere ili mrežne pozive.",
   "drift.settings.toolExecution": "Izvršavanje alata",
   "drift.settings.shellTimeout.title": "Vremensko ograničenje ljuske",

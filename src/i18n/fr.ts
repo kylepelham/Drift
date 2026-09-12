@@ -1076,6 +1076,7 @@ export const drift = {
   "drift.remote.statusStarting": "Démarrage",
   "drift.remote.statusError": "Erreur",
   "drift.remote.clipboardError": "Copie impossible",
+  "drift.settings.prompts.astraDescription": "GPT-6 utilise son prompt Astra par défaut, sauf si vous enregistrez un prompt personnalisé ici. Les prompts personnalisés enregistrés s'appliquent à tous les modèles de cette famille.",
   "drift.settings.shellTimeout.scope": "Les délais du shell arrêtent les arborescences de processus. Ils n’affectent pas les modèles, MCP ou appels réseau.",
   "drift.settings.toolExecution": "Exécution des outils",
   "drift.settings.shellTimeout.title": "Délai du shell",

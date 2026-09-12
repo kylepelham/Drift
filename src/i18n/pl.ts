@@ -1063,6 +1063,7 @@ export const drift = {
   "drift.remote.statusStarting": "Uruchamianie",
   "drift.remote.statusError": "Błąd",
   "drift.remote.clipboardError": "Nie udało się skopiować",
+  "drift.settings.prompts.astraDescription": "GPT-6 używa domyślnego promptu Astra, chyba że zapiszesz tutaj własny. Zapisane własne prompty obowiązują wszystkie modele z tej rodziny.",
   "drift.settings.shellTimeout.scope": "Limity powłoki kończą drzewa procesów. Nie wpływają na modele, serwery MCP ani wywołania sieciowe.",
   "drift.settings.toolExecution": "Wykonywanie narzędzi",
   "drift.settings.shellTimeout.title": "Limit czasu powłoki",

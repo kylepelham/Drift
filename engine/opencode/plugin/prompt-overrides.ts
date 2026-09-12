@@ -1,6 +1,6 @@
 import type { Plugin, PluginOptions } from "@opencode-ai/plugin"
 
-type Family = { id: string; original: string; default: string }
+type Family = { id: string; original: string; default: string; variants?: Family[] }
 type Catalog = { version: number; families: Family[] }
 type Settings = { version: number; families: Record<string, string> }
 type Options = { catalogPath: string; settingsPath: string }
@@ -13,10 +13,14 @@ export const PromptOverrides: Plugin = async (_input, options) => {
   return {
     async "experimental.chat.system.transform"(input, output) {
       const family = catalog?.families.find((item) => item.id === familyFor(input.model.api.id))
+      // GPT-6 changes the upstream template, not the persisted GPT/Codex override key.
+      const template = (family?.id === "gpt" || family?.id === "codex") && input.model.api.id.includes("gpt-6")
+        ? family?.variants?.find((item) => item.id === "gpt-astra")
+        : family
       const system = output.system[0]
-      if (!family || !system?.startsWith(family.original)) return
-      const replacement = settings?.families[family.id] ?? family.default
-      output.system[0] = compatibleIdentity(family.id, replacement, family.default) + system.slice(family.original.length)
+      if (!family || !template || !system?.startsWith(template.original)) return
+      const replacement = settings?.families[family.id] ?? template.default
+      output.system[0] = compatibleIdentity(family.id, replacement, template.default) + system.slice(template.original.length)
     },
   }
 }

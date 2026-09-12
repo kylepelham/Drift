@@ -12,6 +12,7 @@ export function driftIdentity(prompt: string) {
   return prompt
     .replace(/^You are OpenCode\b/, "You are Drift")
     .replace(/^You are opencode\b/, "You are Drift")
+    .replace(/^You are an AI agent powered by OpenCode, a coding agent harness\./, "You are Drift, an AI coding agent powered by OpenCode.")
     .replace("identify yourself as OpenCode powered by", "identify yourself as Drift powered by")
     .replace("When the user directly asks about OpenCode", "When the user directly asks about Drift")
     .replace("When the user directly asks about opencode", "When the user directly asks about Drift")
@@ -20,11 +21,16 @@ export function driftIdentity(prompt: string) {
 export function promptCatalog() {
   const sessionPrompts = path.join(root, "engine", "upstream", "packages", "opencode", "src", "session", "prompt")
   const agentSource = path.join(root, "engine", "upstream", "packages", "opencode", "src", "agent", "prompt")
+  const astraOriginal = readFileSync(path.join(sessionPrompts, "gpt-astra.txt"), "utf8").trim()
+  const astra = { id: "gpt-astra", original: astraOriginal, default: driftIdentity(astraOriginal) }
   return {
     version: 1,
     families: promptFamilies.map((id) => {
       const original = readFileSync(path.join(sessionPrompts, `${id}.txt`), "utf8").trim()
-      return { id, original, default: driftIdentity(original) }
+      return {
+        id, original, default: driftIdentity(original),
+        ...(id === "gpt" || id === "codex" ? { variants: [astra] } : {}),
+      }
     }),
     agents: agentPrompts.map((name) => ({
       name,

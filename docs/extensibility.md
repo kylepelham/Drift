@@ -123,6 +123,13 @@ The Anthropic identity paragraph retains an OpenCode compatibility marker becaus
 bundled OAuth transport removes that paragraph before adding its required Claude identity.
 API-key requests keep the paragraph and still identify the product as Drift.
 
+GPT-6 models use upstream's Astra template by default, including GPT-6 Codex models.
+Existing `family:gpt` overrides still apply to non-Codex GPT-6, and `family:codex` overrides
+still apply to GPT-6 Codex. No saved settings are migrated or merged. Reset removes the
+family override and restores each model's own default: Astra for GPT-6, the existing GPT
+or Codex template for older models. Settings exposes Astra's upstream original alongside
+the older family template; a saved family edit applies across both templates.
+
 Settings stores only user edits in Drift SQLite. Model-family edits are materialized to
 the plugin settings file; agent and subagent prompt/behavior edits are materialized as
 the highest-precedence Drift agent config. Reset removes that layer and reveals the

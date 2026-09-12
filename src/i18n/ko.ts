@@ -1054,6 +1054,7 @@ export const drift = {
   "drift.remote.statusStarting": "시작 중",
   "drift.remote.statusError": "오류",
   "drift.remote.clipboardError": "복사할 수 없음",
+  "drift.settings.prompts.astraDescription": "여기에 재정의할 프롬프트를 저장하지 않으면 GPT-6는 기본 Astra 프롬프트를 사용합니다. 저장된 재정의는 이 계열의 모든 모델에 적용됩니다.",
   "drift.settings.shellTimeout.scope": "셸 시간 제한은 프로세스 트리를 종료합니다. 모델, MCP 서버 또는 네트워크 호출에는 영향을 주지 않습니다.",
   "drift.settings.toolExecution": "도구 실행",
   "drift.settings.shellTimeout.title": "셸 시간 제한",

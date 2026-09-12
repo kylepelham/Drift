@@ -1,6 +1,6 @@
 import { backendInvoke } from "../backend"
 
-export type PromptFamily = { id: string; original: string; default: string }
+export type PromptFamily = { id: string; original: string; default: string; variants?: PromptFamily[] }
 export type PromptCatalogAgent = { name: string; prompt: string }
 export type PromptCatalog = { version: number; families: PromptFamily[]; agents: PromptCatalogAgent[] }
 export type PromptOverride = { key: string; value: unknown; original?: unknown; updatedAt: number }
