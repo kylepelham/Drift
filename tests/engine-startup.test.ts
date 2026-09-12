@@ -225,6 +225,45 @@ test.each(["restart", "dispose"])("%s cancels health and rejects stale version a
   }
 })
 
+test.each([
+  ["response", "before"], ["response", "after"], ["body", "before"], ["body", "after"],
+] as const)("reconnect supersedes pending health %s resolved %s replacement", async (phase, order) => {
+  const staleFirst = order === "before"
+  const view = setup()
+  await settle()
+  view.set("version", "known")
+  const old = view.health[0]
+  const body = deferred<{ version: string }>()
+  if (phase === "body") {
+    old.result.resolve({ ok: true, json: () => body.promise } as Response)
+    await settle()
+  }
+  view.reconnect()
+  view.requests[1].sessions.resolve({ data: [] })
+  await settle()
+  expect(old.signal.aborted).toBeTrue()
+  expect(view.health).toHaveLength(2)
+  expect(view.state.bootstrappedDirectory).toBe("C:/work")
+  expect(view.state.version).toBe("known")
+
+  const finishOld = async () => {
+    if (phase === "body") body.resolve({ version: "stale" })
+    else old.result.resolve(Response.json({ version: "stale" }))
+    await settle()
+  }
+  const fresh = view.health[1]
+  if (staleFirst) {
+    await finishOld()
+    expect(view.state.version).toBe("known")
+    expect(fresh.signal.aborted).toBeFalse()
+  }
+  fresh.result.resolve(Response.json({ version: "replacement" }))
+  await settle()
+  if (!staleFirst) await finishOld()
+  expect(view.state.version).toBe("replacement")
+  expect(view.timers.size).toBe(0)
+})
+
 test.each(["restart", "reconnect", "restart without workspace"])("%s refreshes an already known engine version", async (change) => {
   const view = setup()
   await settle()

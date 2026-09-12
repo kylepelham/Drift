@@ -284,6 +284,9 @@ export function EngineProvider(props: ParentProps) {
       try {
         await streamEvents(target, signal, (event, eventDirectory) => {
           if (event.type === "server.connected") {
+            // Reconnect can reuse the target and engine epoch while an old health read is pending.
+            versionAbort?.abort()
+            versionAbort = undefined
             set("sessionSnapshotDirectory", "")
             set("sessionSnapshotAll", false)
             set("sessionSnapshotEpoch", state.sessionSnapshotEpoch + 1)
