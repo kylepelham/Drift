@@ -112,7 +112,7 @@ await withEngineOverlays(async () => {
   await run("packages/opencode", ["test/mcp/lifecycle.test.ts", "-t", "required Drift mode"], {
     DRIFT_MCP_APPROVAL_REQUIRED: "1",
   })
-  await run("packages/opencode", ["test/session/messages-pagination.test.ts", "-t", "active fork"])
+  await run("packages/opencode", ["test/session/messages-pagination.test.ts", "-t", "active fork|full fork"])
   await run("packages/opencode", ["test/session/compaction-row-scan.test.ts"])
   await run("packages/opencode", [
     "test/mcp/lifecycle.test.ts",

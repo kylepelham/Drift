@@ -218,6 +218,26 @@ release tags could otherwise trigger Drift's own `v*` release workflow if pushed
 | Events | `GET /global/event` (SSE, all instances; frames are `{ directory, payload }`) |
 | Statuses | `GET /session/status` (per-instance map of non-idle sessions) |
 
+## Forking long sessions
+
+The sidebar fork button and `/fork` copy the stable active context: the latest completed
+compaction summary, its retained tail, and completed turns since it. Earlier history stays in
+the source session. The sidebar button remains disabled while its fork request is pending.
+Use `/fork all` when the new session needs the entire completed history.
+
+`bounded-fork.patch` copies full histories in forward pages of 25 message headers and loads
+parts for one message at a time. It fixes the upper bound before copying, so new source turns
+are excluded. The ID map retains only message IDs for parent and compaction-tail remapping.
+Forks still copy historical payloads into independent durable storage, so full-history copying
+takes time proportional to the history size.
+
+Copied events still pass through the durable event log and projectors. Their internal
+`driftFork` metadata prevents the global event bridge from broadcasting historical payloads
+to the WebView. One final session update announces completion; opening it loads transcript
+pages normally. Errors or interruption clean up the partial copy without modifying the source.
+Engine tests cover multi-page copies, timestamp ties, busy-turn exclusion, appended source
+messages, reference remapping, bounded global-event payloads, and interruption cleanup.
+
 ## Events reduced into the store
 
 `message.updated`, `message.removed`, `message.part.updated`, `message.part.removed`,

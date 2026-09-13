@@ -1,0 +1,308 @@
+diff --git a/packages/opencode/src/session/fork-history.ts b/packages/opencode/src/session/fork-history.ts
+new file mode 100644
+--- /dev/null
++++ b/packages/opencode/src/session/fork-history.ts
+@@ -0,0 +1,65 @@
++import { and, asc, desc, eq, gt, lt, lte, or, sql, type SQL } from "drizzle-orm"
++import { Effect } from "effect"
++import { Database } from "@opencode-ai/core/database/database"
++import { MessageTable } from "@opencode-ai/core/session/sql"
++import type { SessionV1 } from "@opencode-ai/core/v1/session"
++import { MessageV2 } from "./message-v2"
++import type { MessageID, SessionID } from "./schema"
++
++// Only message headers for one page are retained. Tool output and attachments are read one
++// message at a time, instead of materializing the entire source transcript before copying.
++export const copyFullFork = Effect.fn("Session.copyFullFork")(function* <R>(
++  input: { sessionID: SessionID; messageID?: MessageID; mode?: "active" | "full" },
++  busy: boolean,
++  copy: (message: SessionV1.WithParts) => Effect.Effect<void, never, R>,
++) {
++  const { db } = yield* Database.Service
++  const source = eq(MessageTable.session_id, input.sessionID)
++  let cutoff = input.messageID
++  if (!cutoff && busy) {
++    const user = yield* db.select({ id: MessageTable.id }).from(MessageTable)
++      .where(and(source, sql`json_extract(${MessageTable.data}, '$.role') = 'user'`))
++      .orderBy(desc(MessageTable.time_created), desc(MessageTable.id)).limit(1).get().pipe(Effect.orDie)
++    cutoff = user?.id
++  }
++  const bounded = cutoff ? and(source, lt(MessageTable.id, cutoff))! : source
++  // Freeze the last eligible message before copying. New turns appended during the copy are
++  // excluded, and an unfinished trailing turn is omitted for Drift's explicit full mode.
++  const terminal = input.mode === "full"
++    ? and(bounded,
++        sql`json_extract(${MessageTable.data}, '$.role') = 'assistant'`,
++        sql`(json_extract(${MessageTable.data}, '$.time.completed') IS NOT NULL
++          OR json_extract(${MessageTable.data}, '$.finish') IS NOT NULL
++          OR json_extract(${MessageTable.data}, '$.error') IS NOT NULL)`)
++    : bounded
++  let last = input.mode === "full"
++    ? yield* db.select({ id: MessageTable.id }).from(MessageTable).where(terminal)
++      .orderBy(desc(MessageTable.time_created), desc(MessageTable.id)).limit(1).get().pipe(Effect.orDie)
++    : undefined
++  // Preserve legacy behavior when no completed assistant exists, including user-only histories.
++  if (!last)
++    last = yield* db.select({ id: MessageTable.id }).from(MessageTable).where(bounded)
++      .orderBy(desc(MessageTable.id)).limit(1).get().pipe(Effect.orDie)
++  if (!last) return
++  const upper = and(bounded, lte(MessageTable.id, last.id))!
++  let after: { id: MessageID; time: number } | undefined
++  while (true) {
++    const conditions: SQL[] = [upper]
++    if (after) conditions.push(or(
++      gt(MessageTable.time_created, after.time),
++      and(eq(MessageTable.time_created, after.time), gt(MessageTable.id, after.id)),
++    )!)
++    const rows = yield* db.select().from(MessageTable).where(and(...conditions))
++      .orderBy(asc(MessageTable.time_created), asc(MessageTable.id)).limit(25).all().pipe(Effect.orDie)
++    if (!rows.length) return
++    for (const row of rows) {
++      yield* copy({
++        info: { ...row.data, id: row.id, sessionID: row.session_id } as SessionV1.Info,
++        parts: yield* MessageV2.parts(row.id),
++      })
++    }
++    const tail = rows[rows.length - 1]!
++    after = { id: tail.id, time: tail.time_created }
++    yield* Effect.yieldNow
++  }
++})
+diff --git a/packages/opencode/src/session/session.ts b/packages/opencode/src/session/session.ts
+--- a/packages/opencode/src/session/session.ts
++++ b/packages/opencode/src/session/session.ts
+@@ -31,2 +31,3 @@
+ import { MessageV2 } from "./message-v2"
++import { copyFullFork } from "./fork-history"
+ import { SessionStatus } from "./status"
+@@ -502,2 +503,3 @@
+     const createNext = Effect.fn("Session.createNext")(function* (input: {
++      silent?: boolean
+       id?: SessionID
+@@ -535,3 +537,7 @@
+ 
+-      yield* events.publish(SessionV1.Event.Created, { sessionID: result.id, info: result })
++      yield* events.publish(
++        SessionV1.Event.Created,
++        { sessionID: result.id, info: result },
++        input.silent ? { metadata: { driftFork: true } } : undefined,
++      )
+ 
+@@ -696,2 +702,3 @@
+       const session = yield* createNext({
++        silent: true,
+         directory: ctx.directory,
+@@ -706,3 +713,4 @@
+         metadata: structuredClone(original.metadata),
+       })
++      return yield* Effect.gen(function* () {
+       const currentStatus = input.mode ? yield* status.get(input.sessionID) : { type: "idle" as const }
+@@ -747,17 +755,4 @@
+             })
+-          : yield* messages({ sessionID: input.sessionID })
++          : []
+-      const cutoff =
+-        input.mode === "active"
+-          ? undefined
+-          : input.messageID ??
+-            (currentStatus.type !== "idle" ? history.findLast((msg) => msg.info.role === "user")?.info.id : undefined)
+-      const bounded = cutoff ? history.filter((msg) => msg.info.id < cutoff) : history
+-      const completed = input.mode === "full"
+-        ? bounded.findLast(
+-            (msg) =>
+-              msg.info.role === "assistant" &&
+-              (msg.info.time.completed !== undefined || msg.info.finish !== undefined || msg.info.error !== undefined),
+-          )
+-        : undefined
+-      const msgs = completed ? bounded.filter((msg) => msg.info.id <= completed.info.id) : bounded
++      const msgs = history
+       const idMap = new Map<string, MessageID>()
+@@ -765,3 +773,3 @@
+ 
+-      for (const msg of msgs) {
++      const copy = Effect.fn("Session.copyForkMessage")(function* (msg: SessionV1.WithParts) {
+         const newID = MessageID.ascending()
+@@ -770,8 +778,13 @@
+         const parentID = msg.info.role === "assistant" && msg.info.parentID ? idMap.get(msg.info.parentID) : undefined
+-        const cloned = yield* updateMessage({
++        const cloned = {
+           ...msg.info,
+           sessionID: session.id,
+           id: newID,
+           ...(parentID && { parentID }),
+-        })
++        }
++        yield* events.publish(
++          SessionV1.Event.MessageUpdated,
++          { sessionID: session.id, info: cloned },
++          { metadata: { driftFork: true } },
++        )
+ 
+@@ -798,5 +810,19 @@
+-          yield* updatePart(p)
++          yield* events.publish(
++            SessionV1.Event.PartUpdated,
++            { sessionID: session.id, part: p, time: Date.now() },
++            { metadata: { driftFork: true } },
++          )
+         }
+-      }
+-      return session
++      })
++      if (input.mode === "active") {
++        for (const msg of msgs) yield* copy(msg)
++      } else {
++        yield* copyFullFork(input, currentStatus.type !== "idle", copy).pipe(
++          Effect.provideService(Database.Service, database),
++        )
++      }
++      const forked = yield* get(session.id)
++      yield* events.publish(SessionV1.Event.Updated, { sessionID: session.id, info: forked })
++      return forked
++      }).pipe(Effect.onError(() => remove(session.id).pipe(Effect.orDie)))
+     })
+diff --git a/packages/opencode/src/event-v2-bridge.ts b/packages/opencode/src/event-v2-bridge.ts
+--- a/packages/opencode/src/event-v2-bridge.ts
++++ b/packages/opencode/src/event-v2-bridge.ts
+@@ -35,3 +35,6 @@
+     const unsubscribe = yield* events.listen((event) =>
+       Effect.gen(function* () {
++        // Fork history is already durable and projected. Announce the finished session once;
++        // replaying months of copied tool output over the live stream can exhaust the WebView.
++        if (event.metadata?.driftFork === true) return
+         const ctx = yield* InstanceRef
+diff --git a/packages/opencode/test/session/messages-pagination.test.ts b/packages/opencode/test/session/messages-pagination.test.ts
+--- a/packages/opencode/test/session/messages-pagination.test.ts
++++ b/packages/opencode/test/session/messages-pagination.test.ts
+@@ -1,2 +1,5 @@
+ import { describe, expect, test } from "bun:test"
++import { GlobalBus, type GlobalEvent } from "@/bus/global"
++import { copyFullFork } from "@/session/fork-history"
++import { EventV2Bridge } from "@/event-v2-bridge"
+ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+@@ -16,3 +19,3 @@
+ 
+-const it = testEffect(LayerNode.compile(LayerNode.group([SessionNs.node, MessageV2.node, SessionProjector.node, SessionStatus.node])))
++const it = testEffect(LayerNode.compile(LayerNode.group([SessionNs.node, MessageV2.node, SessionProjector.node, SessionStatus.node, EventV2Bridge.node])))
+ 
+@@ -868,3 +871,120 @@
++  it.instance("full fork pages long history without broadcasting cloned transcript payloads", () =>
++    withSession(({ session, sessionID }) => Effect.gen(function* () {
++      const expected: string[] = []
++      let retained: MessageID | undefined
++      for (let index = 0; index < 80; index++) {
++        const text = `${index}:${"large retained output ".repeat(2048)}`
++        expected.push(text)
++        const user = yield* addUser(sessionID, text)
++        if (index === 60) retained = user
++        const assistant = yield* addAssistant(sessionID, user, { finish: "end_turn" })
++        yield* session.updatePart({
++          id: PartID.ascending(), sessionID, messageID: assistant, type: "tool", tool: "bash", callID: `call-${index}`,
++          state: {
++            status: "completed", input: { command: "fixture" }, output: text, title: "fixture", metadata: {},
++            time: { start: 1, end: 2 },
++          },
++        })
++      }
++      const boundary = yield* addUser(sessionID)
++      yield* addCompactionPart(sessionID, boundary, retained)
++      yield* addAssistant(sessionID, boundary, { summary: true, finish: "end_turn" })
++      const unfinished = yield* addUser(sessionID, "unfinished")
++      yield* addAssistant(sessionID, unfinished)
++      const frames: GlobalEvent[] = []
++      const listener = (event: GlobalEvent) => { frames.push(event) }
++      GlobalBus.on("event", listener)
++      yield* Effect.addFinalizer(() => Effect.sync(() => { GlobalBus.off("event", listener) }))
++      const forked = yield* session.fork({ sessionID, mode: "full" })
++      const copied = yield* session.messages({ sessionID: forked.id })
++      expect(copied).toHaveLength(162)
++      const tools = copied.flatMap((message) => message.parts).filter((part) => part.type === "tool")
++      expect(tools).toHaveLength(80)
++      expect(tools[0]?.state.status === "completed" && tools[0].state.output).toBe(expected[0])
++      expect(copied.flatMap((message) => message.parts.flatMap((part) => part.type === "text" ? [part.text] : [])))
++        .toEqual(expected)
++      const ids = new Set(copied.map((message) => message.info.id))
++      for (const message of copied) {
++        if (message.info.role === "assistant") expect(ids.has(message.info.parentID)).toBe(true)
++      }
++      const compaction = copied.flatMap((message) => message.parts).find((part) => part.type === "compaction")
++      expect(compaction?.type).toBe("compaction")
++      if (compaction?.type === "compaction") expect(ids.has(compaction.tail_start_id!)).toBe(true)
++      const published = frames.filter(({ payload }) =>
++        payload.properties?.info?.id === forked.id || payload.properties?.sessionID === forked.id ||
++        payload.syncEvent?.aggregateID === forked.id,
++      )
++      expect(published.map(({ payload }) => payload.type)).toEqual(["session.updated", "sync"])
++      expect(Buffer.byteLength(JSON.stringify(published))).toBeLessThan(16_384)
++      const page = yield* MessageV2.page({ sessionID: forked.id, limit: 25 })
++      expect(page.items).toHaveLength(25)
++      expect(page.more).toBe(true)
++      const activeFork = yield* session.fork({ sessionID, mode: "active" })
++      const activeMessages = yield* session.messages({ sessionID: activeFork.id })
++      expect(activeMessages).toHaveLength(42)
++      expect(activeMessages.flatMap((message) => message.parts.flatMap((part) => part.type === "text" ? [part.text] : [])))
++        .toEqual(expected.slice(60))
++      yield* session.remove(activeFork.id)
++      expect((yield* session.messages({ sessionID })).some((message) => message.info.id === unfinished)).toBe(true)
++      yield* session.remove(forked.id)
++    })),
++  )
++
++  it.instance("full fork cursor preserves timestamp ties and excludes new appends", () =>
++    withSession(({ sessionID }) => Effect.gen(function* () {
++      const expected = yield* fill(sessionID, 60, () => 1234)
++      const copied: MessageID[] = []
++      yield* copyFullFork({ sessionID }, false, (message) => Effect.gen(function* () {
++        copied.push(message.info.id)
++        if (copied.length === 1) yield* fill(sessionID, 1, () => 1235)
++      }))
++      expect(copied).toEqual(expected)
++      const cutoff: MessageID[] = []
++      yield* copyFullFork({ sessionID, messageID: expected[30] }, false, (message) => Effect.sync(() => {
++        cutoff.push(message.info.id)
++      }))
++      expect(cutoff).toEqual(expected.slice(0, 30))
++    })),
++  )
++
++  it.instance("full fork excludes the busy user turn", () =>
++    withSession(({ session, sessionID }) => Effect.gen(function* () {
++      const stable = yield* addUser(sessionID, "stable")
++      yield* addAssistant(sessionID, stable, { finish: "end_turn" })
++      const active = yield* addUser(sessionID, "active")
++      yield* addAssistant(sessionID, active, { finish: "tool-calls" })
++      const status = yield* SessionStatus.Service
++      yield* status.set(sessionID, { type: "busy" })
++      const forked = yield* session.fork({ sessionID, mode: "full" })
++      const copied = yield* session.messages({ sessionID: forked.id })
++      expect(copied).toHaveLength(2)
++      expect(copied[0]?.parts[0]?.type).toBe("text")
++      yield* status.set(sessionID, { type: "idle" })
++      yield* session.remove(forked.id)
++    })),
++  )
++
++  it.instance("interrupted full fork removes its partial copy and leaves the source intact", () =>
++    withSession(({ session, sessionID }) => Effect.gen(function* () {
++      const user = yield* addUser(sessionID, "keep source")
++      yield* addAssistant(sessionID, user, { finish: "end_turn" })
++      const events = yield* EventV2Bridge.Service
++      const unsubscribe = yield* events.listen((event) =>
++        event.metadata?.driftFork === true && event.type === "message.part.updated"
++          ? Effect.interrupt
++          : Effect.void,
++      )
++      const result = yield* session.fork({ sessionID, mode: "full" }).pipe(Effect.exit)
++      yield* unsubscribe
++      expect(result._tag).toBe("Failure")
++      expect((yield* session.list()).map((entry) => entry.id)).toEqual([sessionID])
++      expect((yield* session.messages({ sessionID }))).toHaveLength(2)
++      const retry = yield* session.fork({ sessionID, mode: "full" })
++      expect((yield* session.messages({ sessionID: retry.id }))).toHaveLength(2)
++      yield* session.remove(retry.id)
++    })),
++  )
++
+   it.instance("retains an assistant tail when compaction starts inside a turn", () =>
+     withSession(({ session, sessionID }) =>
+       Effect.gen(function* () {
