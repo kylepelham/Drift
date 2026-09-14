@@ -2,7 +2,7 @@ diff --git a/packages/opencode/src/session/fork-history.ts b/packages/opencode/s
 new file mode 100644
 --- /dev/null
 +++ b/packages/opencode/src/session/fork-history.ts
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,72 @@
 +import { and, asc, desc, eq, gt, lt, lte, or, sql, type SQL } from "drizzle-orm"
 +import { Effect } from "effect"
 +import { Database } from "@opencode-ai/core/database/database"
@@ -41,7 +41,14 @@ new file mode 100644
 +    ? yield* db.select({ id: MessageTable.id }).from(MessageTable).where(terminal)
 +      .orderBy(desc(MessageTable.time_created), desc(MessageTable.id)).limit(1).get().pipe(Effect.orDie)
 +    : undefined
-+  // Preserve legacy behavior when no completed assistant exists, including user-only histories.
++  // A full fork must not resume an unfinished first response after an engine interruption.
++  if (!last && input.mode === "full") {
++    const assistant = yield* db.select({ id: MessageTable.id }).from(MessageTable)
++      .where(and(bounded, sql`json_extract(${MessageTable.data}, '$.role') = 'assistant'`))
++      .limit(1).get().pipe(Effect.orDie)
++    if (assistant) return
++  }
++  // Preserve user-only histories and the legacy API's unrestricted-history behavior.
 +  if (!last)
 +    last = yield* db.select({ id: MessageTable.id }).from(MessageTable).where(bounded)
 +      .orderBy(desc(MessageTable.id)).limit(1).get().pipe(Effect.orDie)
@@ -185,7 +192,7 @@ diff --git a/packages/opencode/test/session/messages-pagination.test.ts b/packag
 -const it = testEffect(LayerNode.compile(LayerNode.group([SessionNs.node, MessageV2.node, SessionProjector.node, SessionStatus.node])))
 +const it = testEffect(LayerNode.compile(LayerNode.group([SessionNs.node, MessageV2.node, SessionProjector.node, SessionStatus.node, EventV2Bridge.node])))
  
-@@ -868,3 +871,120 @@
+@@ -868,3 +871,139 @@
 +  it.instance("full fork pages long history without broadcasting cloned transcript payloads", () =>
 +    withSession(({ session, sessionID }) => Effect.gen(function* () {
 +      const expected: string[] = []
@@ -300,6 +307,25 @@ diff --git a/packages/opencode/test/session/messages-pagination.test.ts b/packag
 +      const retry = yield* session.fork({ sessionID, mode: "full" })
 +      expect((yield* session.messages({ sessionID: retry.id }))).toHaveLength(2)
 +      yield* session.remove(retry.id)
++    })),
++  )
++
++  it.instance("full fork preserves user-only history but excludes an unfinished first response", () =>
++    withSession(({ session, sessionID }) => Effect.gen(function* () {
++      const user = yield* addUser(sessionID, "first prompt")
++      const userOnly = yield* session.fork({ sessionID, mode: "full" })
++      expect((yield* session.messages({ sessionID: userOnly.id }))).toHaveLength(1)
++      yield* session.remove(userOnly.id)
++      yield* addAssistant(sessionID, user)
++      const interrupted = yield* session.fork({ sessionID, mode: "full" })
++      expect((yield* session.messages({ sessionID: interrupted.id }))).toHaveLength(0)
++      expect((yield* session.messages({ sessionID }))).toHaveLength(2)
++      yield* session.remove(interrupted.id)
++      const legacy: MessageID[] = []
++      yield* copyFullFork({ sessionID }, false, (message) => Effect.sync(() => {
++        legacy.push(message.info.id)
++      }))
++      expect(legacy).toHaveLength(2)
 +    })),
 +  )
 +
