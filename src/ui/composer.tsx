@@ -54,6 +54,7 @@ import { appendDictation, formatDictationElapsed } from "../voice/transcript"
 import { openSettings } from "./settings"
 import { createMentionAutocomplete, mentionFiles } from "./composer-mentions"
 import { createSlashMenu } from "./composer-slash"
+import { ComposerSlashMenu } from "./composer-slash-menu"
 import { openLightbox } from "./lightbox"
 import { Picker, type PickerItem } from "./picker"
 import { defaultVisibleModelIds, ModelManager } from "./model-manager"
@@ -453,6 +454,7 @@ export function Composer() {
   }
 
   function onKey(event: KeyboardEvent) {
+    if (event.isComposing) return
     if (event.key === "Enter" && !event.shiftKey && submitting()) {
       event.preventDefault()
       return
@@ -689,50 +691,7 @@ export function Composer() {
           </div>
         </Show>
         <Show when={slash.open()}>
-          <div class="pop-in absolute bottom-full left-3 z-20 mb-2 w-80 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
-            <Show
-              when={slash.argumentItem()}
-              fallback={
-                <For each={slash.matches()}>
-                  {(item, index) => (
-                    <button
-                      class="flex w-full items-baseline gap-2.5 px-3 py-1.5 text-left text-sm transition-colors"
-                      classList={{ "bg-raised": index() === slash.activeMatchIndex() }}
-                      onMouseEnter={() => slash.setCursor(index())}
-                      onClick={() => void slash.pick(item)}
-                    >
-                      <span class="shrink-0 font-mono text-xs text-accent">/{item.name}</span>
-                      <span class="min-w-0 truncate text-xs text-ink-faint">{item.description}</span>
-                      <Show when={item.usage}>
-                        <span class="ml-auto shrink-0 font-mono text-[0.65rem] text-ink-faint">{item.usage}</span>
-                      </Show>
-                    </button>
-                  )}
-                </For>
-              }
-            >
-              {(item) => (
-                <Show
-                  when={slash.argumentPresets().length > 0}
-                  fallback={<div class="px-3 py-2 text-xs text-ink-faint">{item().usage}</div>}
-                >
-                  <For each={slash.argumentPresets()}>
-                    {(preset, index) => (
-                      <button
-                        class="flex w-full items-start gap-2.5 px-3 py-1.5 text-left transition-colors"
-                        classList={{ "bg-raised": index() === slash.activePresetIndex() }}
-                        onMouseEnter={() => slash.setCursor(index())}
-                        onClick={() => void slash.pickPreset(item(), preset)}
-                      >
-                        <span class="shrink-0 font-mono text-xs text-accent">{preset.label}</span>
-                        <span class="min-w-0 text-xs text-ink-faint">{preset.description}</span>
-                      </button>
-                    )}
-                  </For>
-                </Show>
-              )}
-            </Show>
-          </div>
+          <ComposerSlashMenu menu={slash} />
         </Show>
         <Show when={staged().length > 0 || fileError()}>
           <div class="flex flex-wrap items-center gap-2 px-3 pt-2.5">
@@ -772,6 +731,11 @@ export function Composer() {
         <div ref={areaFrame} class="w-full">
           <textarea
             ref={area}
+            role={slash.open() ? "combobox" : undefined}
+            aria-expanded={slash.open()}
+            aria-autocomplete="list"
+            aria-controls={slash.open() ? slash.id : undefined}
+            aria-activedescendant={slash.activeOptionId()}
             rows={1}
             class="max-h-50 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[0.925rem] outline-none placeholder:text-ink-faint"
             placeholder={placeholder()}

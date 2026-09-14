@@ -1103,6 +1103,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.slash.keyboardHint": "Tab dopunjava. Enter potvrđuje.",
   "drift.markdown.ambiguousCitation": "Dvosmislena veza do datoteke \"{{href}}\". Koristite dužu putanju za odabir između: {{files}}",
   "drift.preview.settings.title": "Pregledi datoteka",
   "drift.preview.settings.mode": "Način pregleda",

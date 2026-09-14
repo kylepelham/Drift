@@ -1111,6 +1111,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.slash.keyboardHint": "Tab completa. Enter confirma.",
   "drift.markdown.ambiguousCitation": "Enlace de archivo ambiguo \"{{href}}\". Usa una ruta más completa para elegir entre: {{files}}",
   "drift.preview.settings.title": "Vistas previas de archivos",
   "drift.preview.settings.mode": "Modo de vista previa",

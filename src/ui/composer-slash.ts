@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal } from "solid-js"
+import { createEffect, createMemo, createSignal, createUniqueId, on } from "solid-js"
 import type { Engine } from "../engine"
 import { isDesktopShell } from "../shell"
 import { parseSlash, runSlash, slashItem, slashItems, slashPresets, type SlashItem, type SlashPreset } from "./slash"
@@ -21,10 +21,12 @@ export type SlashMenuOptions = {
  * argument presets instead, so `cursor` indexes whichever list is currently showing.
  */
 export function createSlashMenu(options: SlashMenuOptions) {
+  const id = `slash-${createUniqueId()}`
   // Set when the user dismisses the menu with Escape or navigates history; cleared on the next edit
   // so the menu does not immediately reopen for text that still starts with "/".
   const [dismissed, setDismissed] = createSignal(false)
   const [cursor, setCursor] = createSignal(0)
+  createEffect(on(options.draft, () => setCursor(0)))
 
   const parsed = () => (dismissed() ? null : parseSlash(options.draft()))
   let slashOpen = false
@@ -48,11 +50,31 @@ export function createSlashMenu(options: SlashMenuOptions) {
   const argumentPresets = createMemo(() => {
     const current = parsed()
     const item = argumentItem()
+    // Once a subcommand is completed, keep its help visible while the user supplies its target.
+    if (current?.args && (/\s/.test(current.args) || /\s$/.test(options.draft()))) return []
     return current && item ? slashPresets(item, current.args) : []
+  })
+
+  const argumentHelp = createMemo(() => {
+    const item = argumentItem()
+    const first = parsed()?.args.split(/\s/)[0]
+    const preset = item && slashPresets(item, "").find((preset) => preset.value.trim().toLowerCase() === first?.toLowerCase())
+    return { usage: preset?.usage ?? item?.usage, description: preset?.description ?? item?.description }
   })
 
   const activeMatchIndex = () => Math.min(cursor(), matches().length - 1)
   const activePresetIndex = () => Math.min(cursor(), argumentPresets().length - 1)
+
+  function complete(item: SlashItem, preset?: SlashPreset) {
+    const text = `/${item.name} ${preset?.value ?? parsed()?.args ?? ""}`
+    options.setDraft(text)
+    setCursor(0)
+    queueMicrotask(() => {
+      options.resize()
+      options.area().focus()
+      options.area().setSelectionRange(text.length, text.length)
+    })
+  }
 
   async function execute(item: SlashItem, args: string) {
     try {
@@ -69,10 +91,8 @@ export function createSlashMenu(options: SlashMenuOptions) {
   /** Runs a command, or fills in its name and waits when it still needs arguments. */
   async function pick(item: SlashItem) {
     const args = parsed()?.args ?? ""
-    if ((item.requiredArgs || item.presets?.length) && !args) {
-      options.setDraft(`/${item.name} `)
-      setCursor(0)
-      queueMicrotask(() => options.area().focus())
+    if ((item.requiredArgs || item.presets?.length || item.usage) && !args) {
+      complete(item)
       return
     }
     options.setDraft("")
@@ -83,12 +103,7 @@ export function createSlashMenu(options: SlashMenuOptions) {
   /** Runs a preset, or fills it into the draft when the preset is meant to be edited first. */
   async function pickPreset(item: SlashItem, preset: SlashPreset) {
     if (!preset.execute) {
-      options.setDraft(`/${item.name} ${preset.value}`)
-      setCursor(0)
-      queueMicrotask(() => {
-        options.resize()
-        options.area().focus()
-      })
+      complete(item, preset)
       return
     }
     options.setDraft("")
@@ -98,11 +113,20 @@ export function createSlashMenu(options: SlashMenuOptions) {
 
   /** Returns true when the key was consumed by the menu. */
   function handleKey(event: KeyboardEvent) {
+    if (event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return false
     // Shift+Enter inserts a newline rather than accepting the highlighted entry.
     if (event.key === "Enter" && event.shiftKey) return false
     const item = argumentItem()
     const presets = argumentPresets()
-    const accept = event.key === "Enter" || event.key === "Tab"
+    if (event.key === "Tab") {
+      if (event.shiftKey) return false
+      const command = item ?? matches()[activeMatchIndex()]
+      if (!command) return false
+      // Tab is completion only, including presets whose Enter action executes immediately.
+      if (!item || presets.length) complete(command, item ? presets[activePresetIndex()] : undefined)
+      event.preventDefault()
+      return true
+    }
     // When a command is fixed the menu shows its presets, but a command with no presets still
     // occupies one row so the cursor has something to sit on.
     const count = item ? Math.max(1, presets.length) : matches().length
@@ -110,9 +134,12 @@ export function createSlashMenu(options: SlashMenuOptions) {
     if (event.key === "ArrowDown") setCursor(Math.min(cursor() + 1, count - 1))
     else if (event.key === "ArrowUp") setCursor(Math.max(cursor() - 1, 0))
     else if (event.key === "Escape") setDismissed(true)
-    else if (!accept) return false
-    else if (!item) void pick(matches()[activeMatchIndex()])
-    else if (presets.length) void pickPreset(item, presets[activePresetIndex()])
+    else if (event.key !== "Enter") return false
+    else if (!item) {
+      const match = matches()[activeMatchIndex()]
+      if (!match) return false
+      void pick(match)
+    } else if (presets.length) void pickPreset(item, presets[activePresetIndex()])
     // With arguments already typed, or a command that needs none, accepting runs it directly.
     else if (parsed()?.args || !item.requiredArgs) void pick(item)
     else return false
@@ -123,12 +150,20 @@ export function createSlashMenu(options: SlashMenuOptions) {
 
   /** True when the menu is showing entries and should receive arrow/enter keys. */
   const open = () => matches().length > 0
+  const activeOptionId = () => {
+    if (!open()) return undefined
+    if (argumentItem()) return argumentPresets().length ? `${id}-arg-${activePresetIndex()}` : undefined
+    return `${id}-command-${activeMatchIndex()}`
+  }
 
   return {
+    id,
+    activeOptionId,
     parsed,
     matches,
     argumentItem,
     argumentPresets,
+    argumentHelp,
     cursor,
     setCursor,
     activeMatchIndex,

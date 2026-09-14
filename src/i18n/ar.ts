@@ -1011,6 +1011,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.slash.keyboardHint": "Tab للإكمال. Enter للتأكيد.",
   "drift.markdown.ambiguousCitation": "رابط الملف \"{{href}}\" غير محدد. استخدم مسارًا أطول للاختيار بين: {{files}}",
   "drift.preview.settings.title": "معاينات الملفات",
   "drift.preview.settings.mode": "وضع المعاينة",

@@ -74,6 +74,7 @@ await withEngineOverlays(async () => {
   await run("packages/opencode", ["test/session/instruction.test.ts"])
   await run("packages/core", ["test/event.test.ts"])
   await run("packages/opencode", ["test/plugin/codex.test.ts"])
+  await run("packages/opencode", ["test/command/arguments.test.ts", "test/skill/skill.test.ts"])
   await run("packages/opencode", [
     "test/config/v2-compat.test.ts",
     "test/config/v2-mcp-compat.test.ts",

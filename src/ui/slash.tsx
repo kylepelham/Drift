@@ -10,7 +10,7 @@ import { t } from "../state/i18n"
 import { openMcpServers } from "./mcp"
 import { restoreReverted } from "./revert"
 
-export type SlashPreset = { value: string; label: string; description: string; execute?: boolean }
+export type SlashPreset = { value: string; label: string; description: string; usage?: string; execute?: boolean; literal?: boolean }
 export type SlashItem = {
   name: string
   description: string
@@ -69,11 +69,18 @@ export function slashItems(engine: Engine, query: string): SlashItem[] {
     name: command.name,
     description: command.description ?? t("drift.slash.workspaceCommand"),
     engine: true,
+    usage: command.usage,
+    presets: command.subcommands?.map((subcommand) => ({
+      value: `${subcommand.name} `,
+      label: subcommand.name,
+      description: subcommand.description,
+      usage: subcommand.usage,
+      literal: true,
+    })),
   }))
   return [...builtins.map((item) => ({ ...item, description: t(item.description) })), ...engineItems]
     .filter((item) => !item.needsSession || selectedSession())
     .filter((item) => item.name.toLowerCase().startsWith(needle))
-    .slice(0, 8)
 }
 
 export function slashItem(engine: Engine, name: string) {
@@ -83,7 +90,7 @@ export function slashItem(engine: Engine, name: string) {
 export function slashPresets(item: SlashItem, query: string) {
   const value = query.toLowerCase()
   return (item.presets ?? [])
-    .map((preset) => ({ ...preset, label: t(preset.label), description: t(preset.description) }))
+    .map((preset) => preset.literal ? preset : { ...preset, label: t(preset.label), description: t(preset.description) })
     .filter((preset) => !value || preset.value.trim().toLowerCase().startsWith(value))
 }
 

@@ -1019,6 +1019,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.slash.keyboardHint": "Tab で補完。Enter で確定。",
   "drift.markdown.ambiguousCitation": "ファイルリンク \"{{href}}\" を特定できません。次の候補から選べるよう、より詳しいパスを指定してください: {{files}}",
   "drift.preview.settings.title": "ファイルプレビュー",
   "drift.preview.settings.mode": "プレビューモード",

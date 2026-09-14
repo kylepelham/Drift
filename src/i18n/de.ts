@@ -1036,6 +1036,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.slash.keyboardHint": "Tab vervollständigt. Enter bestätigt.",
   "drift.markdown.ambiguousCitation": "Mehrdeutiger Dateilink \"{{href}}\". Verwende einen längeren Pfad, um zwischen diesen Dateien zu wählen: {{files}}",
   "drift.preview.settings.title": "Dateivorschauen",
   "drift.preview.settings.mode": "Vorschaumodus",

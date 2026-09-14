@@ -1111,6 +1111,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.slash.keyboardHint": "Tab fullfører. Enter bekrefter.",
   "drift.markdown.ambiguousCitation": "Tvetydig fillenke \"{{href}}\". Bruk en lengre sti for å velge mellom: {{files}}",
   "drift.preview.settings.title": "Filforhåndsvisninger",
   "drift.preview.settings.mode": "Forhåndsvisningsmodus",
