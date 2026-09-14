@@ -460,7 +460,7 @@ export function Composer() {
       return
     }
     if (mention.open() && mention.handleKey(event)) return
-    if (slash.open() && slash.handleKey(event)) return
+    if (slash.active() && slash.handleKey(event)) return
     if ((event.key === "ArrowUp" || event.key === "ArrowDown") && browseHistory(event)) return
     if (event.key === "Tab") {
       event.preventDefault()
@@ -731,7 +731,7 @@ export function Composer() {
         <div ref={areaFrame} class="w-full">
           <textarea
             ref={area}
-            role={slash.open() ? "combobox" : undefined}
+            role={slash.active() ? "combobox" : undefined}
             aria-expanded={slash.open()}
             aria-autocomplete="list"
             aria-controls={slash.open() ? slash.id : undefined}

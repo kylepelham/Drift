@@ -131,3 +131,24 @@ test("argument details start collapsed and expand independently from command exe
   view.setDraft("/impeccable pol")
   expect(view.menu.expandedArgument()).toBeUndefined()
 })
+
+test("a completed subcommand without more arguments closes the popup but still executes on Enter", () => {
+  const view = setup("/impeccable extra-0")
+  view.key("Tab")
+  expect(view.draft()).toBe("/impeccable extra-0 ")
+  expect(view.menu.argumentHelp().usage).toBeUndefined()
+  expect(view.menu.open()).toBe(false)
+  expect(view.menu.active()).toBe(true)
+  expect(view.key("ArrowLeft").consumed).toBe(false)
+  view.key("Tab")
+  expect(view.execute).not.toHaveBeenCalled()
+  view.key("Enter")
+  expect(view.execute.mock.calls[0][2]).toBe("extra-0")
+})
+
+test("unknown skill arguments do not fall back to the entire top-level argument hint", () => {
+  const view = setup("/impeccable custom instructions")
+  expect(view.menu.open()).toBe(false)
+  expect(view.menu.argumentHelp().usage).toBeUndefined()
+  expect(view.menu.active()).toBe(true)
+})

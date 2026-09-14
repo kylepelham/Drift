@@ -63,7 +63,9 @@ export function createSlashMenu(options: SlashMenuOptions) {
     const item = argumentItem()
     const first = parsed()?.args.split(/\s/)[0]
     const preset = item && slashPresets(item, "").find((preset) => preset.value.trim().toLowerCase() === first?.toLowerCase())
-    return { usage: preset?.usage ?? item?.usage, description: preset?.description ?? item?.description }
+    if (preset) return { usage: preset.usage, description: preset.description }
+    if (first && item?.presets?.length) return { usage: undefined, description: undefined }
+    return { usage: item?.usage, description: item?.description }
   })
 
   const activeMatchIndex = () => Math.min(cursor(), matches().length - 1)
@@ -122,6 +124,7 @@ export function createSlashMenu(options: SlashMenuOptions) {
   /** Returns true when the key was consumed by the menu. */
   function handleKey(event: KeyboardEvent) {
     if (event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return false
+    if (!open() && event.key !== "Enter" && event.key !== "Tab" && event.key !== "Escape") return false
     // Shift+Enter inserts a newline rather than accepting the highlighted entry.
     if (event.key === "Enter" && event.shiftKey) return false
     const item = argumentItem()
@@ -161,8 +164,9 @@ export function createSlashMenu(options: SlashMenuOptions) {
     return true
   }
 
-  /** True when the menu is showing entries and should receive arrow/enter keys. */
-  const open = () => matches().length > 0
+  /** Completed commands still accept Enter even after their suggestion popup closes. */
+  const active = () => matches().length > 0
+  const open = () => active() && (!argumentItem() || argumentPresets().length > 0 || !!argumentHelp().usage)
   const activeOptionId = () => {
     if (!open()) return undefined
     if (argumentItem()) return argumentPresets().length ? `${id}-arg-${activePresetIndex()}` : undefined
@@ -185,6 +189,7 @@ export function createSlashMenu(options: SlashMenuOptions) {
     activePresetIndex,
     dismissed,
     setDismissed,
+    active,
     open,
     pick,
     pickPreset,
