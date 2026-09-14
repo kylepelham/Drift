@@ -23,7 +23,8 @@ function setup(initial: string) {
   const area = { focus: mock(() => {}), setSelectionRange: mock(() => {}) }
   const engine = {
     state: { commands: [{
-      name: "impeccable", description: "Design tools", source: "skill", usage: "[audit|polish] [target]",
+      name: "impeccable", description: "Design tools", source: "command", usage: "[audit|polish] [target]",
+      agent: "build", subtask: true, template: 'Call skill({ name: "impeccable" }) and handle $ARGUMENTS.',
       subcommands: [
         { name: "audit", description: "Check accessibility", usage: "[target]" },
         { name: "polish", description: "Final quality pass", usage: "[target]" },

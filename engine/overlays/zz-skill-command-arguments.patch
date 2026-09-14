@@ -2,8 +2,14 @@ diff --git a/packages/opencode/src/command/arguments.ts b/packages/opencode/src/
 new file mode 100644
 --- /dev/null
 +++ b/packages/opencode/src/command/arguments.ts
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,74 @@
 +export type Subcommand = { name: string; description: string; usage?: string }
++
++export function referencedSkill(template: string) {
++  const names = [...template.matchAll(/\bskill\s*\(\s*\{\s*["']?name["']?\s*:\s*(["'])([\w.-]+)\1\s*\}\s*\)/g)]
++    .map((match) => match[2])
++  return new Set(names).size === 1 ? names[0] : undefined
++}
 +
 +function plain(value: string) {
 +  return value.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[`*]/g, "").trim()
@@ -93,7 +99,7 @@ diff --git a/packages/opencode/src/command/index.ts b/packages/opencode/src/comm
 +++ b/packages/opencode/src/command/index.ts
 @@ -12,2 +12,3 @@
  import { LegacyEvent } from "@opencode-ai/schema/legacy-event"
-+import { skillArguments } from "./arguments"
++import { referencedSkill, skillArguments } from "./arguments"
  
 @@ -24,3 +25,9 @@
    description: Schema.optional(Schema.String),
@@ -105,12 +111,28 @@ diff --git a/packages/opencode/src/command/index.ts b/packages/opencode/src/comm
 +  }))),
    agent: Schema.optional(Schema.String),
    model: Schema.optional(Schema.String),
-@@ -149,4 +156,5 @@
+@@ -134,3 +141,4 @@
+-      for (const item of yield* skill.all()) {
++      const skills = yield* skill.all()
++      for (const item of skills) {
+         if (commands[item.name]) continue
+         const dir = item.location === "<built-in>" ? undefined : path.dirname(item.location)
+@@ -149,6 +157,15 @@
            },
            hints: [],
 +          ...skillArguments(item.name, item.content, item.argumentHint),
          }
        }
+ 
++      // Installed command wrappers shadow skill names. Keep their execution settings while
++      // inheriting completion metadata from the explicitly referenced skill, including aliases.
++      for (const [name, command] of Object.entries(cfg.command ?? {})) {
++        const target = referencedSkill(command.template)
++        const item = skills.find((candidate) => candidate.name === target)
++        if (item && commands[name]?.source === "command")
++          Object.assign(commands[name], skillArguments(item.name, item.content, item.argumentHint))
++      }
+       return {
 diff --git a/packages/opencode/test/command/arguments.test.ts b/packages/opencode/test/command/arguments.test.ts
 new file mode 100644
 --- /dev/null
@@ -160,6 +182,54 @@ new file mode 100644
 diff --git a/packages/opencode/test/skill/skill.test.ts b/packages/opencode/test/skill/skill.test.ts
 --- a/packages/opencode/test/skill/skill.test.ts
 +++ b/packages/opencode/test/skill/skill.test.ts
+@@ -3,3 +3,4 @@
+-import { Effect, Layer } from "effect"
++import { Effect, Layer, Schema } from "effect"
+ import { Skill } from "../../src/skill"
++import { Command } from "../../src/command"
+ import { Discovery } from "../../src/skill/discovery"
+@@ -19,2 +20,2 @@
+-const it = testEffect(Layer.mergeAll(LayerNode.compile(Skill.node), node, testInstanceStoreLayer))
++const it = testEffect(Layer.mergeAll(LayerNode.compile(LayerNode.group([Skill.node, Command.node])), node, testInstanceStoreLayer))
+ const itWithoutClaudeCodeSkills = testEffect(
+@@ -66,2 +67,37 @@
+ describe("skill", () => {
++  it.live("command wrappers inherit skill arguments through the command list schema", () =>
++    provideTmpdirInstance((dir) => Effect.gen(function* () {
++      const content = [
++        "---", "name: test-skill", "description: Skill description",
++        'argument-hint: "[audit|polish] [target]"', "---",
++        "| Command | Description |", "|---|---|",
++        "| audit [target] | Check accessibility |", "| polish [target] | Final quality pass |",
++      ].join("\n")
++      const template = 'Call skill({ name: "test-skill" }) and follow its Setup and Commands sections to handle $ARGUMENTS.'
++      const wrapper = ["---", "description: Wrapper description", "agent: build", "subtask: true", "---", template].join("\n")
++      yield* Effect.promise(() => Promise.all([
++        Bun.write(path.join(dir, ".opencode", "skills", "test-skill", "SKILL.md"), content),
++        Bun.write(path.join(dir, ".opencode", "commands", "test-skill.md"), wrapper),
++        Bun.write(path.join(dir, ".opencode", "commands", "design.md"), wrapper),
++        Bun.write(path.join(dir, ".opencode", "commands", "ordinary.md"), "---\ndescription: Ordinary command\n---\nDo ordinary work."),
++        Bun.write(path.join(dir, ".opencode", "skills", "ordinary", "SKILL.md"), content.replace("name: test-skill", "name: ordinary")),
++      ]))
++      const command = yield* Command.Service
++      const list = yield* command.list()
++      for (const name of ["test-skill", "design"]) {
++        const item = list.find((item) => item.name === name)!
++        const wire = Schema.encodeSync(Command.Info)(item)
++        expect(wire).toMatchObject({
++          name, source: "command", agent: "build", subtask: true,
++          template, description: "Wrapper description", usage: "[audit|polish] [target]",
++          subcommands: [
++            { name: "audit", description: "Check accessibility", usage: "[target]" },
++            { name: "polish", description: "Final quality pass", usage: "[target]" },
++          ],
++        })
++      }
++      expect(list.find((item) => item.name === "ordinary")?.subcommands).toBeUndefined()
++    }), { git: true }),
++  )
++
+   it.effect("formats verbose locations as XML-safe filesystem paths", () =>
 @@ -102,3 +102,4 @@
  name: test-skill
  description: A test skill for verification.

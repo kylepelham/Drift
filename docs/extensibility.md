@@ -106,6 +106,10 @@ columns, and inline invocations such as `/my-skill audit [target]`. Fenced examp
 commands are excluded. This metadata is exposed as optional `usage` and `subcommands` fields on the
 legacy command endpoint by `zz-skill-command-arguments.patch`; no skill needs to execute for its
 argument list to appear. Free-form hints such as `[target]` remain usage help, not invented choices.
+Command wrappers that explicitly call `skill({ name: "..." })` inherit that skill's completion
+metadata, even when the wrapper shadows the skill name or uses an alias. The wrapper's template,
+agent, model, and subtask settings remain authoritative. Ordinary same-name commands do not inherit
+unrelated skill choices. Argument choices use the same compact rows as `/fork`.
 
 Drift shows every matching command and subcommand, with descriptions and usage where documented.
 For example, `/impeccable` followed by Tab opens its documented actions, including audit, critique,

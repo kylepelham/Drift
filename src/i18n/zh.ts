@@ -1077,7 +1077,6 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.slash.keyboardHint": "Tab 补全，Enter 确认。",
   "drift.markdown.ambiguousCitation": "文件链接 \"{{href}}\" 不明确。请使用更完整的路径来选择以下文件之一：{{files}}",
   "drift.preview.settings.title": "文件预览",
   "drift.preview.settings.mode": "预览模式",

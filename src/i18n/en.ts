@@ -314,7 +314,6 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.slash.keyboardHint": "Tab completes. Enter confirms.",
   "drift.markdown.ambiguousCitation": "Ambiguous file link \"{{href}}\". Use a longer path to choose between: {{files}}",
   "drift.preview.settings.title": "File previews",
   "drift.preview.settings.mode": "Preview mode",

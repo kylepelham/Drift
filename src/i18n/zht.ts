@@ -1073,7 +1073,6 @@ export const dict = {
 }
 
 export const drift = {
-  "drift.slash.keyboardHint": "Tab 補全，Enter 確認。",
   "drift.markdown.ambiguousCitation": "檔案連結 \"{{href}}\" 不明確。請使用更完整的路徑來選擇以下檔案之一：{{files}}",
   "drift.preview.settings.title": "檔案預覽",
   "drift.preview.settings.mode": "預覽模式",
