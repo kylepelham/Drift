@@ -145,8 +145,13 @@ the provider rather than being silently dropped by the SDK's model allowlist.
 fixing a circular-import failure exposed by running the core Bedrock suite independently.
 
 The temporary Astra catalog and allowlist workaround was removed after verifying models.dev's
-native entry and upstream's integer GPT-version filter. `zz-codex-context-limits.patch` retains
-only the GPT-6 OAuth limits of 400k context, 272k input, and 128k output; API-key limits remain native.
+native entry and upstream's integer GPT-version filter. GPT-6 OAuth and API-key connections retain
+the catalog limits. The GPT-6 OAuth clamp shipped in 1.3.5 has been removed;
+`zz-codex-context-limits.patch` now contains regression tests only. The current GPT-6 Astra catalog
+matches [OpenAI's model reference](https://developers.openai.com/api/docs/models/gpt-6-astra):
+1,050,000 context, 922,000 input, and 128,000 output tokens. With the default 20,000-token reserve,
+automatic compaction starts at 902,000 reported tokens. Both the engine and context meter use the
+input limit for this threshold. Explicit compaction reserve settings can change the engine threshold.
 Upstream now preserves running tool timestamps, replacing that hunk in `shell-timeout.patch`.
 `zz-v2-mcp-compat.patch` preserves existing camelCase MCP OAuth fields when V2 fields trigger
 normalization. Ordinary V1 configs retain their shape. Drift's external MCP editor still expects
@@ -212,6 +217,26 @@ release tags could otherwise trigger Drift's own `v*` release workflow if pushed
 | File search | `GET /find/file` (fuzzy paths for composer @-mentions; mention parts use `file://` URLs + `source.text`, content read engine-side) |
 | Events | `GET /global/event` (SSE, all instances; frames are `{ directory, payload }`) |
 | Statuses | `GET /session/status` (per-instance map of non-idle sessions) |
+
+## Forking long sessions
+
+The sidebar fork button and `/fork` copy the stable active context: the latest completed
+compaction summary, its retained tail, and completed turns since it. Earlier history stays in
+the source session. The sidebar button remains disabled while its fork request is pending.
+Use `/fork all` when the new session needs the entire completed history.
+
+`bounded-fork.patch` copies full histories in forward pages of 25 message headers and loads
+parts for one message at a time. It fixes the upper bound before copying, so new source turns
+are excluded. The ID map retains only message IDs for parent and compaction-tail remapping.
+Forks still copy historical payloads into independent durable storage, so full-history copying
+takes time proportional to the history size.
+
+Copied events still pass through the durable event log and projectors. Their internal
+`driftFork` metadata prevents the global event bridge from broadcasting historical payloads
+to the WebView. One final session update announces completion; opening it loads transcript
+pages normally. Errors or interruption clean up the partial copy without modifying the source.
+Engine tests cover multi-page copies, timestamp ties, busy-turn exclusion, appended source
+messages, reference remapping, bounded global-event payloads, and interruption cleanup.
 
 ## Events reduced into the store
 

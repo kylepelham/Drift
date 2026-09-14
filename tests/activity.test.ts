@@ -974,6 +974,28 @@ test("context usage skips a trailing zero-token assistant message", async () => 
   expect(contextStats(state, "s1")?.percent).toBe(50)
 })
 
+test("GPT-6 context meter retains catalog input headroom past the old OAuth threshold", async () => {
+  const { contextStats } = await import("../src/engine/store")
+  const [state, set] = createEngineState()
+  set("providers", [{
+    id: "openai",
+    name: "OpenAI",
+    models: { "gpt-6-astra": { id: "gpt-6-astra", limit: { context: 1_050_000, input: 922_000, output: 128_000 } } },
+  }] as never)
+  for (const count of [252_000, 901_999, 902_000]) {
+    set("transcripts", "s1", [{
+      info: {
+        id: "a1", sessionID: "s1", role: "assistant", providerID: "openai", modelID: "gpt-6-astra",
+        tokens: { total: count, input: count, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      },
+      parts: [],
+    }] as never)
+    expect(contextStats(state, "s1")).toMatchObject({
+      context: 1_050_000, count, untilCompaction: 902_000 - count,
+    })
+  }
+})
+
 test("activity counts distinct tool parts and tracks the running tool", () => {
   const [state, set] = createEngineState()
   reduce(set, toolEvent("p1", "grep", "running"))

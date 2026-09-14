@@ -187,12 +187,13 @@ function markWorkspaceDragged() {
   setTimeout(() => (dragged = false), 0)
 }
 
-function RowButton(props: { title: string; navigation?: boolean; onClick: (event: MouseEvent) => void; children: JSX.Element }) {
+function RowButton(props: { title: string; navigation?: boolean; disabled?: boolean; onClick: (event: MouseEvent) => void; children: JSX.Element }) {
   return (
     <button
       title={props.title}
+      disabled={props.disabled}
       data-sidebar-navigation={props.navigation ? "" : undefined}
-      class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+      class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-overlay hover:text-ink disabled:cursor-wait disabled:opacity-40"
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation()
@@ -213,6 +214,7 @@ function ThreadItem(props: {
 }) {
   const engine = useEngine()
   const active = () => selectedSession() === props.sessionId
+  const [forking, setForking] = createSignal(false)
   return (
     <div
       data-sidebar-navigation
@@ -234,12 +236,15 @@ function ThreadItem(props: {
       <span class="shrink-0 text-[0.65rem] text-ink-faint group-hover:hidden">{ago(props.updated)}</span>
       <span class="hidden shrink-0 items-center group-hover:flex">
         <RowButton
-          title={t("drift.slash.fork.all.description")}
+          title={forking() ? t("common.loading") : t("drift.slash.fork.active.description")}
+          disabled={forking()}
           onClick={() => {
+            if (forking()) return
+            setForking(true)
             selectWorkspace(props.workspace.id)
             const selection = selectedSession()
             void engine.actions
-              .fork(props.sessionId, "full")
+              .fork(props.sessionId, "active")
               .then(
                 (session) =>
                   session &&
@@ -247,6 +252,7 @@ function ThreadItem(props: {
                   selectedSession() === selection &&
                   selectSession(session.id),
               )
+              .finally(() => setForking(false))
           }}
         >
           <IconBranch />
