@@ -26,7 +26,11 @@ export function createSlashMenu(options: SlashMenuOptions) {
   // so the menu does not immediately reopen for text that still starts with "/".
   const [dismissed, setDismissed] = createSignal(false)
   const [cursor, setCursor] = createSignal(0)
-  createEffect(on(options.draft, () => setCursor(0)))
+  const [expandedArgument, setExpandedArgument] = createSignal<string>()
+  createEffect(on(options.draft, () => {
+    setCursor(0)
+    setExpandedArgument(undefined)
+  }))
 
   const parsed = () => (dismissed() ? null : parseSlash(options.draft()))
   let slashOpen = false
@@ -64,6 +68,10 @@ export function createSlashMenu(options: SlashMenuOptions) {
 
   const activeMatchIndex = () => Math.min(cursor(), matches().length - 1)
   const activePresetIndex = () => Math.min(cursor(), argumentPresets().length - 1)
+
+  function toggleArgumentHelp(preset: SlashPreset) {
+    setExpandedArgument((current) => current === preset.value ? undefined : preset.value)
+  }
 
   function complete(item: SlashItem, preset?: SlashPreset) {
     const text = `/${item.name} ${preset?.value ?? parsed()?.args ?? ""}`
@@ -131,7 +139,12 @@ export function createSlashMenu(options: SlashMenuOptions) {
     // occupies one row so the cursor has something to sit on.
     const count = item ? Math.max(1, presets.length) : matches().length
 
-    if (event.key === "ArrowDown") setCursor(Math.min(cursor() + 1, count - 1))
+    if (event.key === "ArrowRight" && presets.length &&
+      options.area().selectionStart === options.draft().length &&
+      options.area().selectionEnd === options.draft().length) {
+      setExpandedArgument(presets[activePresetIndex()].value)
+    } else if (event.key === "ArrowLeft" && expandedArgument()) setExpandedArgument(undefined)
+    else if (event.key === "ArrowDown") setCursor(Math.min(cursor() + 1, count - 1))
     else if (event.key === "ArrowUp") setCursor(Math.max(cursor() - 1, 0))
     else if (event.key === "Escape") setDismissed(true)
     else if (event.key !== "Enter") return false
@@ -164,6 +177,8 @@ export function createSlashMenu(options: SlashMenuOptions) {
     argumentItem,
     argumentPresets,
     argumentHelp,
+    expandedArgument,
+    toggleArgumentHelp,
     cursor,
     setCursor,
     activeMatchIndex,

@@ -20,7 +20,10 @@ function setup(initial: string) {
   cleanups.push(() => applyMirroredSession(previous))
   const [draft, setDraft] = solid.createSignal(initial)
   const execute = mock(async (..._args: unknown[]) => {})
-  const area = { focus: mock(() => {}), setSelectionRange: mock(() => {}) }
+  const area = {
+    focus: mock(() => {}), setSelectionRange: mock(() => {}),
+    get selectionStart() { return draft().length }, get selectionEnd() { return draft().length },
+  }
   const engine = {
     state: { commands: [{
       name: "impeccable", description: "Design tools", source: "command", usage: "[audit|polish] [target]",
@@ -111,4 +114,20 @@ test("command matching and exact lookup are not limited to the first eight entri
   const view = setup("/")
   expect(view.menu.matches().length).toBeGreaterThan(8)
   expect(slashItem(view.engine, "impeccable")?.name).toBe("impeccable")
+})
+
+test("argument details start collapsed and expand independently from command execution", () => {
+  const view = setup("/impeccable ")
+  expect(view.menu.expandedArgument()).toBeUndefined()
+  view.key("ArrowRight")
+  expect(view.menu.expandedArgument()).toBe("audit ")
+  expect(view.draft()).toBe("/impeccable ")
+  expect(view.execute).not.toHaveBeenCalled()
+  view.key("ArrowLeft")
+  expect(view.menu.expandedArgument()).toBeUndefined()
+  view.menu.toggleArgumentHelp(view.menu.argumentPresets()[1])
+  expect(view.menu.expandedArgument()).toBe("polish ")
+  expect(view.execute).not.toHaveBeenCalled()
+  view.setDraft("/impeccable pol")
+  expect(view.menu.expandedArgument()).toBeUndefined()
 })

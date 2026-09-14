@@ -110,6 +110,9 @@ Command wrappers that explicitly call `skill({ name: "..." })` inherit that skil
 metadata, even when the wrapper shadows the skill name or uses an alias. The wrapper's template,
 agent, model, and subtask settings remain authoritative. Ordinary same-name commands do not inherit
 unrelated skill choices. Argument choices use the same compact rows as `/fork`.
+Argument names and descriptions stay on one line with ellipses. The disclosure arrow expands
+the full details without selecting or running the command. At the end of the input, Right Arrow
+expands the highlighted argument and Left Arrow collapses it. Editing the draft resets expansion.
 
 Drift shows every matching command and subcommand, with descriptions and usage where documented.
 For example, `/impeccable` followed by Tab opens its documented actions, including audit, critique,
