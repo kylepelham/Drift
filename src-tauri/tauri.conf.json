@@ -21,8 +21,8 @@
         "dragDropEnabled": false,
         "theme": "Dark",
         "backgroundColor": "#141517",
-        "x": -32000,
-        "y": -32000
+        "visible": false,
+        "center": true
       }
     ],
     "security": {

@@ -52,6 +52,14 @@ fn opencode_data_dir() -> Result<PathBuf, String> {
 }
 
 fn merge_sessions(source: &Path, target: &Path) -> rusqlite::Result<usize> {
+    merge_sessions_with_verifier(source, target, verify_foreign_keys)
+}
+
+fn merge_sessions_with_verifier(
+    source: &Path,
+    target: &Path,
+    verify: impl FnOnce(&Transaction<'_>) -> rusqlite::Result<()>,
+) -> rusqlite::Result<usize> {
     let mut conn = Connection::open_with_flags(target, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     conn.busy_timeout(Duration::from_secs(10))?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -218,7 +226,11 @@ fn merge_sessions(source: &Path, target: &Path) -> rusqlite::Result<usize> {
     }
     imported += copy_table(&tx, "todo", false, Some(SESSION_PARENT_EXISTS))?;
     imported += copy_table(&tx, "session_share", false, Some(SESSION_PARENT_EXISTS))?;
-    verify_foreign_keys(&tx)?;
+    // Reopening an already imported channel is normally a no-op. Auditing the entire shared
+    // transcript/event database here makes every launch proportional to years of history.
+    if imported > 0 {
+        verify(&tx)?;
+    }
     tx.commit()?;
     Ok(imported)
 }

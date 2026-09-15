@@ -121,17 +121,12 @@
       </div>
     </div>
     <script>
-      // Native setup hides the window before the event loop can paint its empty webview. Reveal it
-      // after the preload splash's first committed frame: the second animation frame only fires
-      // once the first has painted. Browser and remote-mirror runtimes have no window to show.
+      // The preload DOM is ready. Hidden WebViews can suspend animation frames, so reveal directly
+      // rather than waiting for a paint that cannot happen until the window is visible.
       ;(function () {
         var tauri = window.__TAURI__
         if (!tauri) return
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () {
-            tauri.core.invoke("show_main_window").catch(function () {})
-          })
-        })
+        tauri.core.invoke("show_main_window").catch(function () {})
       })()
     </script>
     <script type="module" src="/src/main.tsx"></script>

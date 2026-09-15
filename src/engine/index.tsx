@@ -4,6 +4,7 @@ import { produce } from "solid-js/store"
 import { shellEvents, shellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
+import { refreshWorkspaces } from "../state/workspaces"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
 import { reportShellTimeoutError, shellTimeoutMs } from "../state/prefs"
 import { applyProviderCatalog, seedProviderCatalog } from "../state/provider-cache"
@@ -139,12 +140,20 @@ export function EngineProvider(props: ParentProps) {
         syncSkillWatchPaths(bootDirectory, config.data)
     }).catch(() => undefined)
     void refreshVersion()
+    // Provider/plugin discovery can be slow. Publish the saved threads as soon as their own
+    // requests finish, and fill in runtime metadata independently.
+    void api.provider.list().then((providers) => {
+      if (current() && state.providerSnapshotEpoch === providerEpoch) applyProviderCatalog(set, providers.data)
+    }).catch(() => undefined)
+    void api.app.agents().then((agents) => {
+      if (current() && agents.data !== undefined) set("agents", agents.data)
+    }).catch(() => undefined)
     try {
       const stale = Object.keys(state.loaded)
       const captured = captureRevisions(state)
-      const [sessions, [statuses, providers, agents]] = await Promise.all([
+      const [sessions, statuses] = await Promise.all([
         api.session.list(),
-        Promise.all([api.session.status(), api.provider.list(), api.app.agents()]),
+        api.session.status(),
       ])
       if (!current()) return
       const list = sessions.data ?? []
@@ -161,8 +170,6 @@ export function EngineProvider(props: ParentProps) {
       // Pending permissions/questions exist only as events; a bounded SSE buffer can drop the ask
       // frame under load, which would strand the session busy forever without this refetch.
       if (bootDirectory) void actions.refreshPermissions([bootDirectory])
-      if (state.providerSnapshotEpoch === providerEpoch) applyProviderCatalog(set, providers.data)
-      set("agents", agents.data ?? [])
       // The visible session refreshes first so a reconnect never leaves the open transcript
       // waiting behind bulk refetches; the rest trickle in small batches to avoid saturating
       // the handful of HTTP connections a remote browser gives the proxy.
@@ -431,6 +438,9 @@ export function EngineProvider(props: ParentProps) {
       base = target
       syncShellTimeout(target)
       set("engineError", "")
+      // Native workspace import finishes before the engine listens, after the app has already
+      // painted its saved workspace list. Reconcile newly imported projects without blocking it.
+      void refreshWorkspaces(true).catch(() => undefined)
       if (directory) startPump(directory)
       void refreshVersion()
     })

@@ -84,6 +84,21 @@ The shell uses `POST /global/config/reload` for config and skill changes. MCP ed
 the approval policy before `POST /global/mcp/reload`, which publishes the same kind of revision.
 Explicit engine restarts, disposal requests, shutdown, and user cancellation still stop work.
 
+### Startup
+
+The native window starts hidden and the inline preload reveals it directly once its DOM exists.
+It does not wait for animation frames from a hidden WebView, engine readiness, or thread hydration.
+A one-second fallback reveals the window if the preload fails. Native setup never hides a window
+that has already appeared.
+
+Legacy database import and OpenCode workspace discovery run on the engine launch worker, outside
+the UI event loop. A no-op import skips the full shared-database foreign-key audit; imports that
+write rows still validate before committing. The existing launch generation also covers preparation,
+so shutdown or replacement invalidates a pending launch. The frontend refreshes imported workspaces
+once the engine is available and loads thread/status snapshots independently of provider and agent
+discovery. Captured stderr includes monotonic `drift startup:` milestones for window, database,
+workspace import, and engine timing.
+
 ## Async questions
 
 The question tool defaults to `async: true`. It registers a pending request and returns

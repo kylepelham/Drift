@@ -35,21 +35,23 @@ async function settle() {
 const cleanups: (() => void)[] = []
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup() })
 
-function setup() {
+function setup(holdRuntimeMetadata = false) {
   const [state, set] = createEngineState()
   const requests: ReturnType<typeof request>[] = []
   function request(directory: string) {
     const commands = deferred<{ data?: { name: string }[] }>()
     const config = deferred<{ data: { skills: { paths: string[] } } }>()
     const sessions = deferred<{ data: never[] }>()
+    const providers = deferred<{ data: { all: never[]; connected: never[]; default: Record<string, string> } }>()
+    const agents = deferred<{ data: { name: string }[] }>()
     const api = {
       command: { list: mock(() => commands.promise) },
       config: { get: mock(() => config.promise) },
       session: { list: () => sessions.promise, status: async () => ({ data: {} }) },
-      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
-      app: { agents: async () => ({ data: [{ name: "build" }] }) },
+      provider: { list: () => holdRuntimeMetadata ? providers.promise : Promise.resolve({ data: { all: [], connected: [], default: {} } }) },
+      app: { agents: () => holdRuntimeMetadata ? agents.promise : Promise.resolve({ data: [{ name: "build" }] }) },
     }
-    const result = { directory, commands, config, sessions, api }
+    const result = { directory, commands, config, sessions, providers, agents, api }
     requests.push(result)
     return result
   }
@@ -69,6 +71,7 @@ function setup() {
     shellTimeoutMs: () => null, reportShellTimeoutError: () => {},
     seedProviderCatalog: () => {}, applyProviderCatalog: () => {},
     selectedSession: () => null, clearPermissionAttentionFor: () => {},
+    refreshWorkspaces: async () => {},
     shellInvoke: () => invoke, shellEvents: () => undefined,
     sleep: async () => {},
     fetch: (_url: string, { signal }: { signal: AbortSignal }) => {
@@ -128,6 +131,32 @@ test("startup and core hydration finish while MCP commands, config, and health a
   expect(view.invoke).toHaveBeenCalledWith("watcher_set_skill_paths", { directory: "C:/work", paths: ["skills"] })
   expect(view.state.version).toBe("1.2.3")
   expect(view.timers.size).toBe(0)
+})
+
+test("thread hydration finishes while provider and agent discovery remain blocked", async () => {
+  const view = setup(true)
+  await settle()
+  view.requests[0].sessions.resolve({ data: [] })
+  await settle()
+  expect(view.state.bootstrappedDirectory).toBe("C:/work")
+  expect(view.state.agents).toEqual([])
+  view.requests[0].agents.resolve({ data: [{ name: "late-agent" }] })
+  await settle()
+  expect(view.state.agents).toEqual([{ name: "late-agent" }])
+})
+
+test("late runtime discovery from an old workspace cannot replace the current agents", async () => {
+  const view = setup(true)
+  await settle()
+  view.engine.setDirectory("C:/other")
+  await settle()
+  view.requests[1].sessions.resolve({ data: [] })
+  view.requests[1].agents.resolve({ data: [{ name: "current-agent" }] })
+  await settle()
+  view.requests[0].agents.resolve({ data: [{ name: "stale-agent" }] })
+  await settle()
+  expect(view.state.agents).toEqual([{ name: "current-agent" }])
+  expect(view.state.bootstrappedDirectory).toBe("C:/other")
 })
 
 test.each(["reject", "missing"])("optional metadata %s does not block readiness or erase commands", async (failure) => {

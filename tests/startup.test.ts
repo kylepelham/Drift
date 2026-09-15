@@ -166,3 +166,18 @@ test("frontend mount removes the static first-paint placeholder", async () => {
   expect(entry).toContain("root.replaceChildren()")
   expect(entry.indexOf("root.replaceChildren()")).toBeLessThan(entry.indexOf("render(() => <App />, root)"))
 })
+
+test("native preload reveals the window even when hidden WebView animation frames never run", async () => {
+  const document = await Bun.file("index.html").text()
+  const script = [...document.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)![1]
+  const commands: string[] = []
+  let frames = 0
+  const run = new Function("window", "requestAnimationFrame", script)
+  run({ __TAURI__: { core: { invoke: (command: string) => {
+    commands.push(command)
+    return Promise.resolve()
+  } } } }, () => { frames += 1 })
+  expect(commands).toEqual(["show_main_window"])
+  expect(frames).toBe(0)
+  run({}, () => { throw new Error("browser preload must not wait for a native reveal") })
+})
