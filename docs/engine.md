@@ -131,14 +131,19 @@ protocol findings, the limits of the installed-app inspection, and follow-up wor
 
 ## Engine update runbook
 
-The 2026-09-12 update imports OpenCode 1.18.30 at `830d5eb5354874105cc31599635a80c1662609e8`.
-This is upstream's version-sync commit on `dev`. Its complete tree equals the `v1.18.30`
-release tag's tree, including the 1.18.30 manifests. The marker stays pinned to the `dev`
+The 2026-09-15 update imports OpenCode 1.18.31 at `a74c472ffb941e6b027e5348be50cfe2225c6c56`.
+This is upstream's version-sync commit on `dev`. Its complete tree equals the `v1.18.31`
+release tag's tree, including the 1.18.31 manifests. The marker stays pinned to the `dev`
 sync commit so future updates can validate ancestry along `dev`, rather than the separate release commit.
 The snapshot is imported without upstream history, and overlays remain separate.
 
-This release updates the OpenAI, Azure, and GitLab provider dependencies, preserves Bedrock
-ARN/DeepSeek identifiers, and adds the GPT-6 Astra prompt. Drift includes Astra as a template
+The 1.18.31 release restores ACP session model, effort, mode, and reasoning boundaries when
+loading, resuming, or forking. It requests summarized adaptive thinking for GitHub Copilot,
+surfaces remote-config authentication errors during TUI startup, and updates `@ai-sdk/gateway`
+to 3.0.191. Drift's JavaScript SDK dependency is updated to 1.18.31 alongside the engine.
+
+The previous 1.18.30 update updated the OpenAI, Azure, and GitLab provider dependencies, preserved Bedrock
+ARN/DeepSeek identifiers, and added the GPT-6 Astra prompt. Drift includes Astra as a template
 variant while retaining saved GPT/Codex override keys. Explicit OpenAI service tiers now reach
 the provider rather than being silently dropped by the SDK's model allowlist.
 `zz-provider-plugin-init.patch` defers reading provider plugin exports until registration,
