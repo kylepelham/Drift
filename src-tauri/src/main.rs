@@ -34,8 +34,8 @@ static WINDOW_REVEALED: std::sync::atomic::AtomicBool = std::sync::atomic::Atomi
 
 /// Brings the launch window on screen.
 ///
-/// The window starts hidden and is revealed by the preload document without waiting for the
-/// engine or for animation frames, which WebView2 can suspend while a window is hidden.
+/// The window starts hidden and is revealed only after the preload reports painted content.
+/// Engine preparation proceeds independently of that first-frame handoff.
 fn position_main_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     let Some(monitor) = window.primary_monitor()? else {
         return window.center();
@@ -81,6 +81,9 @@ fn main() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
             if let Some(window) = app.webview_windows().values().next() {
                 reveal_main_window(window);
             }
@@ -159,9 +162,6 @@ fn main() {
         ])
         .setup(|app| {
             startup::mark("setup-start");
-            let launch_window = app
-                .get_webview_window("main")
-                .ok_or_else(|| std::io::Error::other("main window was not created"))?;
             let data_dir = app.path().app_data_dir().expect("no app data dir");
             let config_dir = app.path().app_config_dir().expect("no app config dir");
             std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
@@ -208,14 +208,6 @@ fn main() {
                     }
                 });
             }
-            // Recover if the preload script fails. Database preparation runs separately and cannot
-            // hold this timer or the window's event loop hostage.
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst) {
-                    reveal_main_window(&launch_window);
-                }
-            });
             startup::mark("setup-complete");
             Ok(())
         })

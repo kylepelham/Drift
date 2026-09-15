@@ -86,10 +86,13 @@ Explicit engine restarts, disposal requests, shutdown, and user cancellation sti
 
 ### Startup
 
-The native window starts hidden and the inline preload reveals it directly once its DOM exists.
-It does not wait for animation frames from a hidden WebView, engine readiness, or thread hydration.
-A one-second fallback reveals the window if the preload fails. Native setup never hides a window
-that has already appeared.
+The native window starts hidden. The inline preload waits for the splash image to decode and for
+the renderer's first contentful paint, then lets the completed splash frame settle before revealing
+the window. The preload remains mounted through reveal and two visible animation frames; bootstrap
+does not replace it with a connection placeholder. When the splash is disabled, the app or error
+screen renders first and its contentful paint triggers reveal. Engine readiness and thread hydration
+do not gate the splash. Native setup never hides a window that has already appeared, and no timer
+bypasses the painted-content requirement.
 
 Legacy database import and OpenCode workspace discovery run on the engine launch worker, outside
 the UI event loop. A no-op import skips the full shared-database foreign-key audit; imports that

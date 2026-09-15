@@ -38,71 +38,84 @@ export function ChatHeader() {
     return current.parentID ?? engine.state.links[current.id]
   }
   return (
-    <div
-      ref={observe}
-      class="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-11 items-center gap-2 border-b px-4 transition-colors"
-      classList={{
-        "border-edge bg-bg": !transparent(),
-        "border-transparent bg-transparent": transparent(),
-      }}
-    >
-      <div class="pointer-events-auto flex min-w-0 max-w-[60%] items-center gap-2">
+    <Show
+      when={session()}
+      fallback={
         <button
-          class="mobile-menu-button hidden size-11 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-raised hover:text-ink"
+          class="mobile-menu-button absolute top-0 left-2 z-10 hidden size-11 items-center justify-center rounded-md text-ink-muted hover:bg-raised hover:text-ink"
           title={t("drift.mobile.openNavigation")}
           onClick={openMobileDrawer}
         >
           <IconMenu />
         </button>
+      }
+    >
+      <div
+        ref={observe}
+        class="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-11 items-center gap-2 border-b px-4 transition-colors"
+        classList={{
+          "border-edge bg-bg": !transparent(),
+          "border-transparent bg-transparent": transparent(),
+        }}
+      >
+        <div class="pointer-events-auto flex min-w-0 max-w-[60%] items-center gap-2">
+          <button
+            class="mobile-menu-button hidden size-11 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-raised hover:text-ink"
+            title={t("drift.mobile.openNavigation")}
+            onClick={openMobileDrawer}
+          >
+            <IconMenu />
+          </button>
+          <Show when={session()}>
+            {(current) => (
+              <>
+                <Show when={backTarget()}>
+                  {(target) => (
+                    <button
+                      class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+                      title={t("drift.thread.backToParent")}
+                      onClick={() => selectSession(target())}
+                    >
+                      <IconArrowUp />
+                    </button>
+                  )}
+                </Show>
+                <Title id={current().id} title={current().title} />
+              </>
+            )}
+          </Show>
+        </div>
+        <div class="pointer-events-none min-w-4 flex-1" />
         <Show when={session()}>
           {(current) => (
-            <>
-              <Show when={backTarget()}>
-                {(target) => (
+            <div class="pointer-events-auto flex shrink-0 items-center gap-2">
+              <TranscriptFindBar />
+              <Show when={!transcriptFindOpen()}>
+                <button
+                  class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+                  title={t("drift.search.transcript")}
+                  onClick={openTranscriptFind}
+                >
+                  <IconSearch class="size-3.5" />
+                </button>
+              </Show>
+              <ContextMeter sessionId={current().id} />
+              <Show when={current().share?.url}>
+                {(url) => (
                   <button
-                    class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-                    title={t("drift.thread.backToParent")}
-                    onClick={() => selectSession(target())}
+                    class="shrink-0 rounded-full border border-edge px-2 py-0.5 text-[0.65rem] text-ink-faint transition-colors hover:border-edge-strong hover:text-ink"
+                    title={t("drift.thread.copyShareLink", { url: url() })}
+                    onClick={() => void navigator.clipboard.writeText(url())}
                   >
-                    <IconArrowUp />
+                    {t("drift.thread.shared")}
                   </button>
                 )}
               </Show>
-              <Title id={current().id} title={current().title} />
-            </>
+            </div>
           )}
         </Show>
       </div>
-      <div class="pointer-events-none min-w-4 flex-1" />
-      <Show when={session()}>
-        {(current) => (
-          <div class="pointer-events-auto flex shrink-0 items-center gap-2">
-            <TranscriptFindBar />
-            <Show when={!transcriptFindOpen()}>
-              <button
-                class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-                title={t("drift.search.transcript")}
-                onClick={openTranscriptFind}
-              >
-                <IconSearch class="size-3.5" />
-              </button>
-            </Show>
-            <ContextMeter sessionId={current().id} />
-            <Show when={current().share?.url}>
-              {(url) => (
-                <button
-                  class="shrink-0 rounded-full border border-edge px-2 py-0.5 text-[0.65rem] text-ink-faint transition-colors hover:border-edge-strong hover:text-ink"
-                  title={t("drift.thread.copyShareLink", { url: url() })}
-                  onClick={() => void navigator.clipboard.writeText(url())}
-                >
-                  {t("drift.thread.shared")}
-                </button>
-              )}
-            </Show>
-          </div>
-        )}
-      </Show>
-    </div>
+    </Show>
   )
 }
 
