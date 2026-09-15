@@ -61,10 +61,28 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   second and hashes a bounded set of `SKILL.md` contents, so ordinary additions, removals, renames, and in-place edits
   under `.agents/skills`, `.claude/skills`, OpenCode `skill`/`skills` directories, and
   configured local `skills.paths` (up to 4,096 skill files, 16 directory levels, and
-  the first 1 MiB of each file)
-  invalidate directory-scoped engine caches without restarting the sidecar. The resulting
-  `skill-config-changed` event refreshes Drift's slash-command snapshot after disposal has
-  completed. Remote clients also refresh command/config metadata whenever the slash menu opens.
+  the first 1 MiB of each file) publish a new runtime configuration snapshot. JSON config,
+  Markdown agents/commands, and custom tool/plugin files are also polled. The resulting
+  `skill-config-changed` event refreshes Drift's slash-command metadata. Remote clients also
+  refresh command/config metadata whenever the slash menu opens.
+
+### Configuration changes during active work
+
+`zzzzz-runtime-config-snapshots.patch` retains a configuration revision for each running session.
+That revision owns its parsed config, skills, agents, commands, providers, plugins, tool registry,
+MCP clients, formatters, and LSP clients. Model turns, tool calls, and permission/question waits
+continue using those resources until the run ends. Detached title/summary work retains its own
+reference until it finishes.
+
+File changes and config API writes publish a new revision without disposing instances. An idle
+session selects the latest revision when its next run starts, independently of sessions still
+running on older revisions. Repeated edits replace the pending revision; unused intermediate
+revisions are released. Retired clients and plugin hooks close only after their final reader exits.
+Session runners, pending questions, permission requests, and other live instance state stay intact.
+
+The shell uses `POST /global/config/reload` for config and skill changes. MCP edits still synchronize
+the approval policy before `POST /global/mcp/reload`, which publishes the same kind of revision.
+Explicit engine restarts, disposal requests, shutdown, and user cancellation still stop work.
 
 ## Async questions
 

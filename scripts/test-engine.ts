@@ -68,9 +68,10 @@ await withEngineOverlays(async () => {
     "test/question/async-question.test.ts",
     "test/tool/question.test.ts",
     "test/effect/runner.test.ts",
+    "test/effect/runtime-config.test.ts",
     "test/effect/async-question.test.ts",
   ])
-  await run("packages/opencode", ["test/session/prompt.test.ts", "-t", "async question"])
+  await run("packages/opencode", ["test/session/prompt.test.ts", "-t", "async question|runtime reload"])
   await run("packages/opencode", ["test/session/instruction.test.ts"])
   await run("packages/core", ["test/event.test.ts"])
   await run("packages/opencode", ["test/plugin/codex.test.ts"])
@@ -99,6 +100,7 @@ await withEngineOverlays(async () => {
   await run("packages/core", ["test/move-session.test.ts"])
   await run("packages/core", ["test/session-compaction.test.ts"])
   await run("packages/opencode", ["test/server/httpapi-control-plane.test.ts"])
+  await run("packages/opencode", ["test/server/httpapi-config.test.ts", "test/server/httpapi-global.test.ts"])
   await verifyAuthCapture()
   await run("packages/opencode", [
     "test/project/instance-bootstrap.test.ts",
@@ -125,7 +127,7 @@ await withEngineOverlays(async () => {
   await run("packages/opencode", [
     "test/mcp/lifecycle.test.ts",
     "-t",
-    "restores tools|newer reconnect wins|ordinary MCP request failures|reload\\(\\) picks up config edits",
+    "restores tools|newer reconnect wins|ordinary MCP request failures|reload\\(\\) picks up config edits|reload keeps",
   ])
   await run("packages/opencode", [
     "test/session/compaction.test.ts",

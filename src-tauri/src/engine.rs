@@ -321,19 +321,16 @@ pub(crate) fn respawn_engine(app: &tauri::AppHandle) {
     }
 }
 
-pub(crate) fn stop_engine_instances(app: &tauri::AppHandle) -> Result<(), String> {
+/// Publishes changed configuration and skills for each session's next idle boundary.
+pub(crate) fn reload_engine_config(app: &tauri::AppHandle) -> Result<(), String> {
     post_to_engine(
         app,
-        "/global/dispose",
-        "embedded engine refused global disposal",
+        "/global/config/reload",
+        "embedded engine refused the configuration reload",
     )
 }
 
-/// Reconnects every instance's MCP servers from the config on disk.
-///
-/// Unlike disposal this leaves the instances standing, so an edited MCP config does not interrupt
-/// the sessions running inside them. The engine rebuilds its config as part of the reload, which is
-/// what re-applies the approval policy to the servers it reconnects.
+/// Publishes updated MCP definitions. Active sessions retain their clients until their work ends.
 pub(crate) fn reload_engine_mcp(app: &tauri::AppHandle) -> Result<(), String> {
     post_to_engine(
         app,

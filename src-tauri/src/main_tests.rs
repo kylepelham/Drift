@@ -7,8 +7,8 @@ use crate::editor::{editor_arguments, editor_kind, EditorKind};
 use crate::engine::{basic_authorization, Engine};
 use crate::updater::installed_alongside_uninstaller;
 use crate::watcher::{
-    file_signatures, mcp_signatures, resolve_skill_path, watched_mcp_paths, watched_skill_paths,
-    SkillWatchRoots,
+    file_signatures, mcp_signatures, resolve_skill_path, watched_mcp_paths, watched_runtime_paths,
+    watched_skill_paths, SkillWatchRoots,
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -143,8 +143,7 @@ fn only_mcp_relevant_config_edits_count_as_a_change() {
     .unwrap();
     let original = sign();
 
-    // Reloading disposes every instance, so an edit that cannot change MCP behaviour must not
-    // register as one. Whitespace, comments and unrelated settings all qualify.
+    // General config edits publish a runtime snapshot separately, without redoing MCP policy.
     std::fs::write(
         &config,
         "{\n  // now with a comment\n  \"theme\": \"midnight\",\n  \"model\": \"anthropic/claude\",\n  \"mcp\": { \"docs\": { \"type\": \"remote\", \"url\": \"https://example.com/mcp\" } }\n}\n",
@@ -208,6 +207,36 @@ fn skill_watch_paths_detect_additions_removals_and_content_changes() {
     let removed = file_signatures(watched_skill_paths(vec![skills]));
     assert_ne!(added, removed);
     assert_eq!(removed.len(), 1);
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn runtime_watch_detects_config_agent_command_and_tool_changes() {
+    let root = std::env::temp_dir()
+        .join(format!("drift-runtime-watch-test-{}", std::process::id()))
+        .join(".opencode");
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::create_dir_all(&root).unwrap();
+    let config = root.join("opencode.json");
+    std::fs::write(&config, r#"{"model":"test/one"}"#).unwrap();
+    let sign = || file_signatures(watched_runtime_paths(vec![root.clone()]));
+    let mut previous = sign();
+    std::fs::write(&config, r#"{"model":"test/two"}"#).unwrap();
+    assert_ne!(previous, sign());
+    previous = sign();
+    for name in ["agents/build.md", "commands/check.md", "tools/custom.ts"] {
+        let file = root.join(name);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "first").unwrap();
+        assert_ne!(previous, sign());
+        previous = sign();
+        std::fs::write(&file, "second").unwrap();
+        assert_ne!(previous, sign());
+        previous = sign();
+        std::fs::remove_file(&file).unwrap();
+        assert_ne!(previous, sign());
+        previous = sign();
+    }
     std::fs::remove_dir_all(root).ok();
 }
 

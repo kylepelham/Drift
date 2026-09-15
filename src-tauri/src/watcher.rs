@@ -1,6 +1,6 @@
-//! Polls engine configuration and skill files, then invalidates cached instances on change.
+//! Polls runtime files and publishes updates without tearing down active session resources.
 
-use crate::engine::{reload_engine_mcp, stop_engine_instances};
+use crate::engine::{reload_engine_config, reload_engine_mcp};
 use crate::mcp;
 use crate::store::Store;
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
@@ -80,6 +80,9 @@ pub(crate) fn resolve_skill_path(directory: &str, value: &str) -> Result<PathBuf
 pub(crate) fn watch_engine_configs(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let mut previous_mcp = external_mcp_signature(&app.state::<Store>());
+        let mut previous_config = file_signatures(watched_runtime_paths(external_config_roots(
+            &app.state::<Store>(),
+        )));
         let mut previous_skills = external_skill_signature(
             &app.state::<Store>(),
             &app.state::<SkillWatchRoots>(),
@@ -87,39 +90,39 @@ pub(crate) fn watch_engine_configs(app: tauri::AppHandle) {
         loop {
             std::thread::sleep(CONFIG_POLL_INTERVAL);
             let current_mcp = external_mcp_signature(&app.state::<Store>());
+            let current_config = file_signatures(watched_runtime_paths(external_config_roots(
+                &app.state::<Store>(),
+            )));
             let current_skills = external_skill_signature(
                 &app.state::<Store>(),
                 &app.state::<SkillWatchRoots>(),
             );
             let mcp_changed = current_mcp != previous_mcp;
             let skills_changed = current_skills != previous_skills;
-            if !mcp_changed && !skills_changed {
+            let config_changed = current_config != previous_config;
+            if !mcp_changed && !skills_changed && !config_changed {
                 continue;
             }
 
-            if mcp_changed {
-                // Reconnecting the servers in place leaves running sessions alone, so this no
-                // longer stands in for the disposal a skill change still needs.
-                let reloaded = app
-                    .state::<mcp::McpRuntime>()
-                    .reload(&app.state::<Store>(), || reload_engine_mcp(&app));
-                match reloaded {
-                    Ok(()) => {
-                        previous_mcp = current_mcp;
-                        let _ = app.emit("mcp-config-changed", ());
-                    }
-                    Err(error) => {
-                        eprintln!("failed to reload changed MCP configuration: {error}");
-                    }
-                }
+            // One publication covers all changes observed in this poll. MCP policy synchronization
+            // remains serialized with edits, while the engine retains active readers' clients.
+            let reloaded = if mcp_changed {
+                app.state::<mcp::McpRuntime>()
+                    .reload(&app.state::<Store>(), || reload_engine_mcp(&app))
+            } else {
+                reload_engine_config(&app)
+            };
+            if let Err(error) = reloaded {
+                eprintln!("failed to publish changed runtime configuration: {error}");
+                continue;
             }
-
-            if skills_changed {
-                if let Err(error) = stop_engine_instances(&app) {
-                    eprintln!("failed to reload changed skills: {error}");
-                    continue;
-                }
-                previous_skills = current_skills;
+            previous_mcp = current_mcp;
+            previous_config = current_config;
+            previous_skills = current_skills;
+            if mcp_changed {
+                let _ = app.emit("mcp-config-changed", ());
+            }
+            if skills_changed || config_changed {
                 let _ = app.emit("skill-config-changed", ());
             }
         }
@@ -243,9 +246,8 @@ fn external_mcp_signature(store: &Store) -> Vec<(PathBuf, u64, u128, u64)> {
 
 /// Signs each watched path, comparing config files by their MCP content rather than their bytes.
 ///
-/// A reload disposes every engine instance, which interrupts whatever those sessions are doing, so
-/// it must only happen when MCP behaviour actually changed. Config files carry unrelated settings
-/// that the user edits far more often than their servers; those edits leave this signature alone.
+/// This signature decides whether MCP approval policy must be synchronized. General config changes
+/// use a separate whole-file signature and publish a new runtime snapshot without touching policy.
 /// Everything else, including plugin sources and files that will not parse, is still compared
 /// whole, because there is no smaller unit that can be trusted.
 pub(crate) fn mcp_signatures(
@@ -304,6 +306,30 @@ pub(crate) fn watched_mcp_paths(mut configs: Vec<PathBuf>, mut plugin_roots: Vec
     paths.dedup();
     paths.truncate(MAX_WATCHED_MCP_FILES);
     paths
+}
+
+/// Runtime config includes Markdown commands/agents and custom tools as well as JSON settings.
+pub(crate) fn watched_runtime_paths(mut roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    roots.sort();
+    roots.dedup();
+    roots.truncate(MAX_WATCHED_MCP_FILES);
+    let configs = roots
+        .iter()
+        .flat_map(|root| {
+            [root.join("opencode.json"), root.join("opencode.jsonc"), root.join("config.json")]
+        })
+        .collect();
+    let directories = roots
+        .into_iter()
+        .filter(|root| {
+            root.file_name().is_some_and(|name| name == "opencode" || name == ".opencode")
+        })
+        .flat_map(|root| {
+            ["agent", "agents", "command", "commands", "mode", "modes", "tool", "tools", "plugin", "plugins"]
+                .map(|name| root.join(name))
+        })
+        .collect();
+    watched_mcp_paths(configs, directories)
 }
 
 fn config_file_references(contents: &str, parent: &Path) -> Vec<PathBuf> {
