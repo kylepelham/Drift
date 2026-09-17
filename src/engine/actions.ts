@@ -76,6 +76,7 @@ export function createActions(
   state: EngineState,
   set: SetStoreFunction<EngineState>,
   target: () => EngineTarget | undefined,
+  globalClient: () => OpencodeClient = requireClient,
   abortWait: { waitMs: number; pollMs: number } = defaultAbortWait,
 ) {
   const pageSize = 100
@@ -546,14 +547,20 @@ export function createActions(
     return epoch
   }
 
+  // Provider catalog and credentials are engine-global. Without an active workspace there is no
+  // scoped client, so these flows fall back to a directory-less client instead of failing.
+  function providerClient() {
+    return state.directory ? requireClient() : globalClient()
+  }
+
   async function refreshProvidersFor(client: OpencodeClient, directory: string, epoch: number) {
-    if (normalizeDir(state.directory) !== normalizeDir(directory) || requireClient() !== client) return null
+    if (normalizeDir(state.directory) !== normalizeDir(directory) || providerClient() !== client) return null
     const result = await client.provider.list().catch(() => null)
     if (!result?.data) return null
     if (
       state.providerSnapshotEpoch !== epoch ||
       normalizeDir(state.directory) !== normalizeDir(directory) ||
-      requireClient() !== client
+      providerClient() !== client
     )
       return null
     applyProviderCatalog(set, result.data)
@@ -561,7 +568,7 @@ export function createActions(
   }
 
   async function refreshProviders() {
-    return refreshProvidersFor(requireClient(), state.directory, beginProviderSnapshot())
+    return refreshProvidersFor(providerClient(), state.directory, beginProviderSnapshot())
   }
 
   async function refreshAgents() {
@@ -589,7 +596,7 @@ export function createActions(
 
   async function reloadProviders() {
     const directory = state.directory
-    const client = requireClient()
+    const client = providerClient()
     const epoch = beginProviderSnapshot()
     if (!(await reloadProviderInstances(directory))) return false
     return (await refreshProvidersFor(client, directory, epoch)) !== null
@@ -618,18 +625,18 @@ export function createActions(
   }
 
   async function providerAuthMethods() {
-    const result = await requireClient().provider.auth().catch(() => null)
+    const result = await providerClient().provider.auth().catch(() => null)
     return result?.data ?? {}
   }
 
   async function providerAuthorize(id: string, method: number) {
-    const result = await requireClient().provider.oauth.authorize({ path: { id }, body: { method } })
+    const result = await providerClient().provider.oauth.authorize({ path: { id }, body: { method } })
     return result.data ?? null
   }
 
   async function providerCallback(id: string, method: number, code?: string) {
     const directory = state.directory
-    const client = requireClient()
+    const client = providerClient()
     const epoch = beginProviderSnapshot()
     const result = await client
       .provider.oauth.callback({ path: { id }, body: { method, ...(code ? { code } : {}) } })
@@ -639,7 +646,7 @@ export function createActions(
 
   async function setProviderKey(id: string, key: string) {
     const directory = state.directory
-    const client = requireClient()
+    const client = providerClient()
     const epoch = beginProviderSnapshot()
     const result = await client
       .auth.set({ path: { id }, body: { type: "api", key } })
@@ -649,7 +656,7 @@ export function createActions(
 
   async function disconnectProvider(id: string) {
     const directory = state.directory
-    const client = requireClient()
+    const client = providerClient()
     const epoch = beginProviderSnapshot()
     const control = controlClient(directory)
     if (!control) return { ok: false, connected: state.connected.includes(id) }

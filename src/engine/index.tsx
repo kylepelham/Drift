@@ -82,7 +82,34 @@ export function EngineProvider(props: ParentProps) {
     if (!client) throw new Error("engine offline")
     return client
   }
-  const actions = createActions(requireClient, state, set, () => base)
+  let globalClient: OpencodeClient | undefined
+  let globalClientTarget: EngineTarget | undefined
+  // Provider catalog and credential flows must work before any workspace is selected, when no
+  // scoped client exists; they use a directory-less client keyed to the engine target instead.
+  const globalApi = () => {
+    if (!base) throw new Error("engine offline")
+    if (!globalClient || globalClientTarget !== base) {
+      globalClient = createOpencodeClient({ baseUrl: base.url, headers: base.headers })
+      globalClientTarget = base
+    }
+    return globalClient
+  }
+  const actions = createActions(requireClient, state, set, () => base, () => globalApi())
+
+  // Without a workspace the event pump never starts, so hydrate never runs and the provider
+  // catalog would never load (the Providers settings page would stay empty forever). Fetch it
+  // globally instead; a later scoped hydrate bumps the snapshot epoch and supersedes this result.
+  function refreshGlobalProviders() {
+    const epoch = state.providerSnapshotEpoch + 1
+    set("providerSnapshotEpoch", epoch)
+    return globalApi()
+      .provider.list()
+      .then((providers) => {
+        if (disposed || state.providerSnapshotEpoch !== epoch) return
+        applyProviderCatalog(set, providers.data)
+      })
+      .catch(() => undefined)
+  }
 
   function syncShellTimeout(target = base) {
     if (!target) return
@@ -386,6 +413,7 @@ export function EngineProvider(props: ParentProps) {
           }),
         )
         if (directory) startPump(directory)
+        else void refreshGlobalProviders()
         void refreshVersion()
         return true
       })
@@ -442,6 +470,7 @@ export function EngineProvider(props: ParentProps) {
       // painted its saved workspace list. Reconcile newly imported projects without blocking it.
       void refreshWorkspaces(true).catch(() => undefined)
       if (directory) startPump(directory)
+      else void refreshGlobalProviders()
       void refreshVersion()
     })
     .catch((error: unknown) => {

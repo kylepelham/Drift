@@ -853,7 +853,10 @@ function ProvidersSection() {
   const [query, setQuery] = createSignal("")
   const [notice, setNotice] = createSignal<ProviderNotice | null>(null)
   createEffect(() => {
-    if (engine.state.connection !== "online") return
+    // A fresh install can open this panel before any workspace exists: the engine answers health
+    // but the event pump is not running, so `connection` stays idle. Treat a known engine
+    // version as an equally valid readiness signal so auth methods load there too.
+    if (engine.state.connection !== "online" && !engine.state.version) return
     void engine.actions
       .providerAuthMethods()
       .then((map) => setMethods({ ...map }))
