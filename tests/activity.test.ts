@@ -497,20 +497,31 @@ test("provider setup works through the global client before any workspace exists
   const { createActions } = await import("../src/engine/actions")
   const [state, set] = createEngineState()
   const requests: string[] = []
-  let connected: string[] = ["opencode"]
+  let connected: string[] = []
+  let failProviderList = false
   const client = {
     auth: {
-      set: async () => ({ data: true }),
+      set: async () => {
+        connected = ["opencode"]
+        failProviderList = true
+        return { data: true }
+      },
     },
     provider: {
       auth: async () => ({ data: { opencode: [{ type: "api", label: "API key" }] } }),
-      list: async () => ({
-        data: {
-          all: [{ id: "opencode", name: "OpenCode", models: {} }],
-          connected,
-          default: {},
-        },
-      }),
+      list: async () => {
+        if (failProviderList) {
+          failProviderList = false
+          throw new Error("transient provider failure")
+        }
+        return {
+          data: {
+            all: [{ id: "opencode", name: "OpenCode", models: {} }],
+            connected,
+            default: {},
+          },
+        }
+      },
     },
   }
   const originalFetch = globalThis.fetch
@@ -533,7 +544,7 @@ test("provider setup works through the global client before any workspace exists
       () => client as never,
     )
     expect(await actions.providerAuthMethods()).toEqual({ opencode: [{ type: "api", label: "API key" }] })
-    expect(await actions.refreshProviders()).toEqual(["opencode"])
+    expect(await actions.refreshProviders()).toEqual([])
     expect(state.providers[0]?.id).toBe("opencode")
     expect(await actions.setProviderKey("opencode", "test-key")).toEqual({ ok: true, connected: true })
     expect(state.connected).toEqual(["opencode"])

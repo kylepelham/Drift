@@ -20,9 +20,10 @@ function setup(initial: string) {
   cleanups.push(() => applyMirroredSession(previous))
   const [draft, setDraft] = solid.createSignal(initial)
   const execute = mock(async (..._args: unknown[]) => {})
+  let selection: number | undefined
   const area = {
     focus: mock(() => {}), setSelectionRange: mock(() => {}),
-    get selectionStart() { return draft().length }, get selectionEnd() { return draft().length },
+    get selectionStart() { return selection ?? draft().length }, get selectionEnd() { return selection ?? draft().length },
   }
   const engine = {
     state: { commands: [{
@@ -48,7 +49,7 @@ function setup(initial: string) {
     const event = { key: name, preventDefault: mock(() => {}), ...modifiers } as unknown as KeyboardEvent
     return { consumed: menu.handleKey(event), event }
   }
-  return { menu, key, draft, setDraft, execute, engine, area }
+  return { menu, key, draft, setDraft, execute, engine, area, setSelection: (value?: number) => { selection = value } }
 }
 
 test.each(["/new", "/plain", "/impecc"])("Tab completes %s without execution or clearing the draft", async (draft) => {
@@ -123,6 +124,10 @@ test("argument details start collapsed and expand independently from command exe
   expect(view.menu.expandedArgument()).toBe("audit ")
   expect(view.draft()).toBe("/impeccable ")
   expect(view.execute).not.toHaveBeenCalled()
+  view.setSelection(2)
+  expect(view.key("ArrowLeft").consumed).toBe(false)
+  expect(view.menu.expandedArgument()).toBe("audit ")
+  view.setSelection()
   view.key("ArrowLeft")
   expect(view.menu.expandedArgument()).toBeUndefined()
   view.menu.toggleArgumentHelp(view.menu.argumentPresets()[1])

@@ -269,3 +269,10 @@ test("browser preload does not wait for a native reveal", async () => {
   const script = [...document.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)![1]
   new Function("window", script)({})
 })
+
+test("native startup keeps a bounded fallback for failed preload reveals", async () => {
+  const source = await Bun.file(new URL("../src-tauri/src/main.rs", import.meta.url)).text()
+  expect(source).toContain("tokio::time::sleep(std::time::Duration::from_secs(5))")
+  expect(source).toContain("if !WINDOW_REVEALED.load")
+  expect(source).toContain("reveal_main_window(&launch_window)")
+})

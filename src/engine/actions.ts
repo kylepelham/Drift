@@ -616,7 +616,7 @@ export function createActions(
       return { ok: true, connected: state.connected.includes(id) }
     }
     try {
-      if (requireClient() !== client) return { ok: true, connected: state.connected.includes(id) }
+      if (providerClient() !== client) return { ok: true, connected: state.connected.includes(id) }
     } catch {
       return { ok: true, connected: state.connected.includes(id) }
     }

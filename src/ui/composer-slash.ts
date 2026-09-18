@@ -141,12 +141,12 @@ export function createSlashMenu(options: SlashMenuOptions) {
     // When a command is fixed the menu shows its presets, but a command with no presets still
     // occupies one row so the cursor has something to sit on.
     const count = item ? Math.max(1, presets.length) : matches().length
+    const atEnd = options.area().selectionStart === options.draft().length &&
+      options.area().selectionEnd === options.draft().length
 
-    if (event.key === "ArrowRight" && presets.length &&
-      options.area().selectionStart === options.draft().length &&
-      options.area().selectionEnd === options.draft().length) {
+    if (event.key === "ArrowRight" && presets.length && atEnd) {
       setExpandedArgument(presets[activePresetIndex()].value)
-    } else if (event.key === "ArrowLeft" && expandedArgument()) setExpandedArgument(undefined)
+    } else if (event.key === "ArrowLeft" && expandedArgument() && atEnd) setExpandedArgument(undefined)
     else if (event.key === "ArrowDown") setCursor(Math.min(cursor() + 1, count - 1))
     else if (event.key === "ArrowUp") setCursor(Math.max(cursor() - 1, 0))
     else if (event.key === "Escape") setDismissed(true)
