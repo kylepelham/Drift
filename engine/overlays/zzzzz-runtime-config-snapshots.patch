@@ -1,0 +1,1203 @@
+diff --git a/packages/opencode/src/agent/agent.ts b/packages/opencode/src/agent/agent.ts
+index 536a642..37674c3 100644
+--- a/packages/opencode/src/agent/agent.ts
++++ b/packages/opencode/src/agent/agent.ts
+@@ -95,7 +95,7 @@ const layer = Layer.effect(
+     const provider = yield* Provider.Service
+     const locations = yield* LocationServiceMap.Service
+ 
+-    const state = yield* InstanceState.make<State>(
++    const state = yield* InstanceState.makeReloadable<State>(
+       Effect.fn("Agent.state")(function* (ctx) {
+         const cfg = yield* config.get()
+         const skillDirs = yield* skill.dirs()
+diff --git a/packages/opencode/src/command/index.ts b/packages/opencode/src/command/index.ts
+index 8289af2..eaa5f9b 100644
+--- a/packages/opencode/src/command/index.ts
++++ b/packages/opencode/src/command/index.ts
+@@ -173,7 +173,7 @@ const layer = Layer.effect(
+       }
+     })
+ 
+-    const state = yield* InstanceState.make<State>((ctx) => init(ctx))
++    const state = yield* InstanceState.makeReloadable<State>((ctx) => init(ctx))
+ 
+     const get = Effect.fn("Command.get")(function* (name: string) {
+       const s = yield* InstanceState.get(state)
+diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
+index 240467b..59a74e7 100644
+--- a/packages/opencode/src/config/config.ts
++++ b/packages/opencode/src/config/config.ts
+@@ -18,7 +18,8 @@ import { isRecord } from "@/util/record"
+ import type { ConsoleState } from "@opencode-ai/core/v1/config/console-state"
+ import { FSUtil } from "@opencode-ai/core/fs-util"
+ import { InstanceState } from "@/effect/instance-state"
+-import { Context, Duration, Effect, Exit, Fiber, Layer, Option, Schema, ScopedCache } from "effect"
++import { Context, Effect, Exit, Fiber, Layer, Option, Schema } from "effect"
++import { RuntimeConfig } from "@/effect/runtime-config"
+ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
+ import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
+ import { containsPath, type InstanceContext } from "../project/instance-context"
+@@ -293,14 +294,13 @@ const layer = Layer.effect(
+       return result
+     })
+ 
+-    const [cachedGlobal, invalidateGlobal] = yield* Effect.cachedInvalidateWithTTL(
++    const cachedGlobal = yield* RuntimeConfig.cached(
+       loadGlobal().pipe(
+         Effect.tapError((error) =>
+           Effect.logError("failed to load global config, using defaults", { error: String(error) }),
+         ),
+         Effect.orElseSucceed((): Info => ({})),
+       ),
+-      Duration.infinity,
+     )
+ 
+     const getGlobal = Effect.fn("Config.getGlobal")(function* () {
+@@ -612,7 +612,7 @@ const layer = Layer.effect(
+       Effect.provideService(FSUtil.Service, fs),
+     )
+ 
+-    const state = yield* InstanceState.make<State>(
++    const state = yield* InstanceState.makeReloadable<State>(
+       Effect.fn("Config.state")(function* (ctx) {
+         return yield* loadInstanceState(ctx).pipe(Effect.orDie)
+       }),
+@@ -648,20 +648,19 @@ const layer = Layer.effect(
+           JSON.stringify(mergeDeep(isRecord(original) ? original : writable(existing), writable(config)), null, 2),
+         )
+         .pipe(Effect.orDie)
++      yield* RuntimeConfig.refresh
+     })
+ 
+     const invalidate = Effect.fn("Config.invalidate")(function* () {
+-      yield* invalidateGlobal
++      yield* RuntimeConfig.refresh
+     })
+ 
+     /**
+-     * Drops every instance's merged config as well as the global one, so the next read reflects the
+-     * files on disk and re-runs the plugin hooks that shape them. `invalidate` deliberately leaves
+-     * the instance states alone; callers reacting to an edited config file want both.
++     * Publish new config/skill/tool caches for idle sessions. Active runners retain their revision
++     * and its resources until their own work finishes.
+      */
+     const reload = Effect.fn("Config.reload")(function* () {
+-      yield* invalidateGlobal
+-      yield* ScopedCache.invalidateAll(state.cache)
++      yield* RuntimeConfig.refresh
+     })
+ 
+     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
+diff --git a/packages/opencode/src/effect/bridge.ts b/packages/opencode/src/effect/bridge.ts
+index a51c293..c3723e8 100644
+--- a/packages/opencode/src/effect/bridge.ts
++++ b/packages/opencode/src/effect/bridge.ts
+@@ -3,6 +3,7 @@ import { WorkspaceContext } from "@/control-plane/workspace-context"
+ import type { WorkspaceV2 } from "@opencode-ai/core/workspace"
+ import { InstanceRef, WorkspaceRef } from "./instance-ref"
+ import { attachWith } from "./run-service"
++import { RuntimeConfig } from "./runtime-config"
+ 
+ export interface Shape {
+   readonly promise: <A, E, R>(effect: Effect.Effect<A, E, R>) => Promise<A>
+@@ -21,7 +22,8 @@ function captureSync() {
+   const instance = fiber ? Context.getReferenceUnsafe(fiber.context, InstanceRef) : undefined
+   const workspace =
+     (fiber ? Context.getReferenceUnsafe(fiber.context, WorkspaceRef) : undefined) ?? WorkspaceContext.workspaceID
+-  return { instance, workspace }
++  const config = fiber ? Context.getReferenceUnsafe(fiber.context, RuntimeConfig.Ref) : undefined
++  return { instance, workspace, config }
+ }
+ 
+ export const bind = <Args extends readonly unknown[], Result>(fn: (...args: Args) => Result) => {
+@@ -54,10 +56,13 @@ export function make(): Effect.Effect<Shape> {
+   return Effect.gen(function* () {
+     const ctx = yield* Effect.context()
+     const captured = captureSync()
++    const config = captured.config
+     const instance = (yield* InstanceRef) ?? captured.instance
+     const workspace = (yield* WorkspaceRef) ?? captured.workspace
+-    const wrap = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+-      attachWith(effect.pipe(Effect.provide(ctx)) as Effect.Effect<A, E, never>, { instance, workspace })
++    const wrap = <A, E, R>(effect: Effect.Effect<A, E, R>) => {
++      const attached = attachWith(effect.pipe(Effect.provide(ctx)) as Effect.Effect<A, E, never>, { instance, workspace, config })
++      return config ? RuntimeConfig.withRevision(config, attached) : attached
++    }
+ 
+     return {
+       promise: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+diff --git a/packages/opencode/src/effect/instance-state.ts b/packages/opencode/src/effect/instance-state.ts
+index b40168f..70fc412 100644
+--- a/packages/opencode/src/effect/instance-state.ts
++++ b/packages/opencode/src/effect/instance-state.ts
+@@ -3,12 +3,14 @@ import type { InstanceContext } from "@/project/instance-context"
+ import { InstanceRef, WorkspaceRef } from "./instance-ref"
+ import { registerDisposer } from "./instance-registry"
+ import { WorkspaceContext } from "@/control-plane/workspace-context"
++import { RuntimeConfig } from "./runtime-config"
+ 
+ const TypeId = "~opencode/InstanceState"
+ 
+ export interface InstanceState<A, E = never, R = never> {
+   readonly [TypeId]: typeof TypeId
+   readonly cache: ScopedCache.ScopedCache<string, A, E, R>
++  readonly reloadable?: boolean
+ }
+ 
+ export const context = Effect.gen(function* () {
+@@ -25,29 +27,51 @@ export const directory = Effect.map(context, (ctx) => ctx.directory)
+ 
+ export const make = <A, E = never, R = never>(
+   init: (ctx: InstanceContext) => Effect.Effect<A, E, R | Scope.Scope>,
++  options?: { reloadable: boolean },
+ ): Effect.Effect<InstanceState<A, E, Exclude<R, Scope.Scope>>, never, R | Scope.Scope> =>
+   Effect.gen(function* () {
+-    const cache = yield* ScopedCache.make<string, A, E, R>({
++    const keys = new Map<string, string>()
++    const cache: ScopedCache.ScopedCache<string, A, E, Exclude<R, Scope.Scope>> = yield* ScopedCache.make<string, A, E, R>({
+       capacity: Number.POSITIVE_INFINITY,
+-      lookup: () =>
++      lookup: (key) =>
+         Effect.gen(function* () {
++          if (options?.reloadable) {
++            keys.set(key, yield* directory)
++            yield* Effect.addFinalizer(() => Effect.sync(() => { keys.delete(key) }))
++            yield* RuntimeConfig.onRetire(ScopedCache.invalidate(cache, key))
++          }
+           return yield* init(yield* context)
+         }),
+     })
+ 
+-    const off = registerDisposer((directory) => Effect.runPromise(ScopedCache.invalidate(cache, directory)))
++    const off = registerDisposer((directory) => Effect.runPromise(
++      options?.reloadable
++        ? Effect.forEach([...keys].filter((entry) => entry[1] === directory),
++            ([key]) => ScopedCache.invalidate(cache, key), { discard: true })
++        : ScopedCache.invalidate(cache, directory),
++    ))
+     yield* Effect.addFinalizer(() => Effect.sync(off))
+ 
+     return {
+       [TypeId]: TypeId,
+       cache,
++      reloadable: options?.reloadable,
+     }
+   })
+ 
++export const makeReloadable = <A, E = never, R = never>(
++  init: (ctx: InstanceContext) => Effect.Effect<A, E, R | Scope.Scope>,
++) => make(init, { reloadable: true })
++
++const key = <A, E, R>(self: InstanceState<A, E, R>) => Effect.gen(function* () {
++  const dir = yield* directory
++  return self.reloadable ? JSON.stringify([dir, (yield* RuntimeConfig.current).id]) : dir
++})
++
+ export const get = <A, E, R>(self: InstanceState<A, E, R>) =>
+-  Effect.gen(function* () {
+-    return yield* ScopedCache.get(self.cache, yield* directory)
+-  })
++  self.reloadable
++    ? RuntimeConfig.use(Effect.flatMap(key(self), (key) => ScopedCache.get(self.cache, key)))
++    : Effect.flatMap(directory, (directory) => ScopedCache.get(self.cache, directory))
+ 
+ export const use = <A, E, R, B>(self: InstanceState<A, E, R>, select: (value: A) => B) => Effect.map(get(self), select)
+ 
+@@ -58,12 +82,12 @@ export const useEffect = <A, E, R, B, E2, R2>(
+ 
+ export const has = <A, E, R>(self: InstanceState<A, E, R>) =>
+   Effect.gen(function* () {
+-    return yield* ScopedCache.has(self.cache, yield* directory)
++    return yield* ScopedCache.has(self.cache, yield* key(self))
+   })
+ 
+ export const invalidate = <A, E, R>(self: InstanceState<A, E, R>) =>
+   Effect.gen(function* () {
+-    return yield* ScopedCache.invalidate(self.cache, yield* directory)
++    return yield* ScopedCache.invalidate(self.cache, yield* key(self))
+   })
+ 
+ export * as InstanceState from "./instance-state"
+diff --git a/packages/opencode/src/effect/run-service.ts b/packages/opencode/src/effect/run-service.ts
+index cfcc500..347a5f5 100644
+--- a/packages/opencode/src/effect/run-service.ts
++++ b/packages/opencode/src/effect/run-service.ts
+@@ -1,6 +1,7 @@
+ import { Effect, Fiber, Layer, ManagedRuntime } from "effect"
+ import * as Context from "effect/Context"
+ import { InstanceRef, WorkspaceRef } from "./instance-ref"
++import { RuntimeConfig } from "./runtime-config"
+ import * as Observability from "@opencode-ai/core/observability"
+ import { WorkspaceContext } from "@/control-plane/workspace-context"
+ import type { InstanceContext } from "@/project/instance-context"
+@@ -9,9 +10,11 @@ import { memoMap } from "@opencode-ai/core/effect/memo-map"
+ type Refs = {
+   instance?: InstanceContext
+   workspace?: string
++  config?: RuntimeConfig.Revision
+ }
+ 
+ export function attachWith<A, E, R>(effect: Effect.Effect<A, E, R>, refs: Refs): Effect.Effect<A, E, R> {
++  if (refs.config) effect = effect.pipe(Effect.provideService(RuntimeConfig.Ref, refs.config))
+   if (!refs.instance && !refs.workspace) return effect
+   if (!refs.instance) return effect.pipe(Effect.provideService(WorkspaceRef, refs.workspace))
+   if (!refs.workspace) return effect.pipe(Effect.provideService(InstanceRef, refs.instance))
+@@ -26,6 +29,7 @@ export function attach<A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A
+   const fiber = Fiber.getCurrent()
+   return attachWith(effect, {
+     instance: fiber ? Context.getReferenceUnsafe(fiber.context, InstanceRef) : undefined,
++    config: fiber ? Context.getReferenceUnsafe(fiber.context, RuntimeConfig.Ref) : undefined,
+     workspace: workspace ?? (fiber ? Context.getReferenceUnsafe(fiber.context, WorkspaceRef) : undefined),
+   })
+ }
+diff --git a/packages/opencode/src/effect/runner.ts b/packages/opencode/src/effect/runner.ts
+index 5a918c9..c1758e9 100644
+--- a/packages/opencode/src/effect/runner.ts
++++ b/packages/opencode/src/effect/runner.ts
+@@ -1,4 +1,5 @@
+ import { Cause, Deferred, Effect, Exit, Fiber, Latch, Schema, Scope, SynchronizedRef } from "effect"
++import { RuntimeConfig } from "./runtime-config"
+ 
+ export interface Runner<A, E = never> {
+   readonly state: State<A, E>
+@@ -116,6 +117,7 @@ export const make = <A, E = never>(
+     Effect.gen(function* () {
+       const id = next()
+       const fiber = yield* work.pipe(
++        RuntimeConfig.run,
+         Effect.onExit((exit) => finishRun(id, done, exit)),
+         Effect.forkIn(scope),
+       )
+@@ -218,7 +220,7 @@ export const make = <A, E = never>(
+         yield* onBusy
+         const id = next()
+         const cancelled = yield* Deferred.make<void>()
+-        const fiber = yield* work.pipe(Effect.ensuring(finishShell(id)), Effect.forkChild)
++        const fiber = yield* work.pipe(RuntimeConfig.run, Effect.ensuring(finishShell(id)), Effect.forkChild)
+         const shell = { id, cancelled, ready, fiber } satisfies ShellHandle<A, E>
+         return [
+           Effect.gen(function* () {
+diff --git a/packages/opencode/src/effect/runtime-config.ts b/packages/opencode/src/effect/runtime-config.ts
+new file mode 100644
+index 0000000..1b0f0d3
+--- /dev/null
++++ b/packages/opencode/src/effect/runtime-config.ts
+@@ -0,0 +1,104 @@
++import { Context, Effect, Scope, ScopedCache } from "effect"
++
++export interface Revision {
++  readonly id: number
++  readers: number
++  retired: boolean
++  closed: boolean
++  readonly finalizers: Set<Effect.Effect<void>>
++}
++
++const revision = (id: number): Revision => ({ id, readers: 0, retired: false, closed: false, finalizers: new Set() })
++let latest = revision(0)
++
++export const Ref = Context.Reference<Revision | undefined>("@drift/RuntimeConfig", { defaultValue: () => undefined })
++export const current = Effect.map(Ref, (value) => value ?? latest)
++
++const collect = (value: Revision) =>
++  Effect.suspend(() => {
++    if (!value.retired || value.readers !== 0 || value.closed) return Effect.void
++    value.closed = true
++    const finalizers = [...value.finalizers]
++    value.finalizers.clear()
++    return Effect.forEach(
++      finalizers,
++      (finalizer) => finalizer.pipe(Effect.catchCause((cause) => Effect.logError("retired config cleanup failed", { cause }))),
++      { discard: true },
++    )
++  })
++
++const retain = (value: Revision) => {
++  // Retain synchronously because publication can race admission.
++  if (value.closed) throw new Error("Runtime config snapshot has already been released")
++  value.readers++
++  return value
++}
++
++const acquire = Effect.map(current, retain)
++
++const release = (value: Revision) =>
++  Effect.suspend(() => {
++    value.readers--
++    return collect(value)
++  })
++
++/** Keep a captured revision available only while a deferred callback is running. */
++export const withRevision = <A, E, R>(value: Revision, work: Effect.Effect<A, E, R>) =>
++  Effect.suspend(() => value.closed ? Effect.interrupt : use(work).pipe(Effect.provideService(Ref, value)))
++
++/** Pin resources for the entire operation, including model turns, tools and approval waits. */
++export const use = <A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
++  Effect.acquireUseRelease(acquire, (value) => work.pipe(Effect.provideService(Ref, value)), release)
++
++/** A newly admitted runner selects the latest snapshot independently of every other session. */
++export const run = <A, E, R>(work: Effect.Effect<A, E, R>) => use(work).pipe(Effect.provideService(Ref, undefined))
++
++export const method = <Args extends unknown[], A, E, R>(fn: (...args: Args) => Effect.Effect<A, E, R>) =>
++  (...args: Args) => use(Effect.suspend(() => fn(...args)))
++
++/** Acquire before forking so a detached child cannot lose its parent's resources before it starts. */
++export const forkIn = (scope: Scope.Scope) => <A, E, R>(work: Effect.Effect<A, E, R>) =>
++  Effect.uninterruptibleMask((restore) =>
++    Effect.gen(function* () {
++      const lease = yield* Scope.fork(scope)
++      const value = yield* acquire
++      // A closed parent may reject a fork before the work's own finalizers can run.
++      yield* Scope.addFinalizer(lease, release(value))
++      return yield* restore(work).pipe(
++        Effect.provideService(Ref, value),
++        Effect.onExit((exit) => Scope.close(lease, exit)),
++        Effect.forkIn(scope),
++      )
++    }),
++  )
++
++/** Publishing never waits for active readers. Only retired resources wait for their final reader. */
++export const refresh = Effect.uninterruptible(
++  Effect.suspend(() => {
++    const previous = latest
++    latest = revision(previous.id + 1)
++    previous.retired = true
++    return collect(previous)
++  }),
++)
++
++export const onRetire = (finalizer: Effect.Effect<void>) =>
++  Effect.gen(function* () {
++    const value = yield* current
++    value.finalizers.add(finalizer)
++    yield* Effect.addFinalizer(() => Effect.sync(() => { value.finalizers.delete(finalizer) }))
++  })
++
++/** Generation-scoped global data, such as the parsed global config. */
++export const cached = <A, E, R>(load: Effect.Effect<A, E, R>) => Effect.gen(function* () {
++  const cache: ScopedCache.ScopedCache<number, A, E, R> = yield* ScopedCache.make({
++    capacity: Number.POSITIVE_INFINITY,
++    lookup: (key: number) => Effect.gen(function* () {
++      yield* onRetire(ScopedCache.invalidate(cache, key))
++      return yield* load
++    }),
++  })
++  return use(Effect.flatMap(current, (value) => ScopedCache.get(cache, value.id)))
++})
++
++export * as RuntimeConfig from "./runtime-config"
+diff --git a/packages/opencode/src/format/index.ts b/packages/opencode/src/format/index.ts
+index 4288f83..37ebdd7 100644
+--- a/packages/opencode/src/format/index.ts
++++ b/packages/opencode/src/format/index.ts
+@@ -4,6 +4,7 @@ import { serviceUse } from "@opencode-ai/core/effect/service-use"
+ import { ChildProcess } from "effect/unstable/process"
+ import { AppProcess } from "@opencode-ai/core/process"
+ import { InstanceState } from "@/effect/instance-state"
++import { RuntimeConfig } from "@/effect/runtime-config"
+ import path from "path"
+ import { mergeDeep } from "remeda"
+ import { Config } from "@/config/config"
+@@ -35,7 +36,7 @@ const layer = Layer.effect(
+     const appProcess = yield* AppProcess.Service
+     const flags = yield* RuntimeFlags.Service
+ 
+-    const state = yield* InstanceState.make(
++    const state = yield* InstanceState.makeReloadable(
+       Effect.fn("Format.state")(function* (ctx) {
+         const commands: Record<string, string[] | false> = {}
+         const formatters: Record<string, Formatter.Info> = {}
+@@ -190,7 +191,7 @@ const layer = Layer.effect(
+       return yield* formatFile(filepath)
+     })
+ 
+-    return Service.of({ init, status, file })
++    return Service.of({ init: RuntimeConfig.method(init), status: RuntimeConfig.method(status), file: RuntimeConfig.method(file) })
+   }),
+ )
+ 
+diff --git a/packages/opencode/src/lsp/lsp.ts b/packages/opencode/src/lsp/lsp.ts
+index 1ab3a0b..71707d4 100644
+--- a/packages/opencode/src/lsp/lsp.ts
++++ b/packages/opencode/src/lsp/lsp.ts
+@@ -10,6 +10,7 @@ import { Process } from "@/util/process"
+ import { spawn as lspspawn } from "./launch"
+ import { Effect, Layer, Context, Schema } from "effect"
+ import { InstanceState } from "@/effect/instance-state"
++import { RuntimeConfig } from "@/effect/runtime-config"
+ import { containsPath } from "@/project/instance-context"
+ import { NonNegativeInt } from "@opencode-ai/core/schema"
+ import { RuntimeFlags } from "@/effect/runtime-flags"
+@@ -142,7 +143,7 @@ const layer = Layer.effect(
+     const flags = yield* RuntimeFlags.Service
+     const events = yield* EventV2Bridge.Service
+ 
+-    const state = yield* InstanceState.make<State>(
++    const state = yield* InstanceState.makeReloadable<State>(
+       Effect.fn("LSP.state")(function* (ctx) {
+         const cfg = yield* config.get()
+ 
+@@ -478,20 +479,20 @@ const layer = Layer.effect(
+     })
+ 
+     return Service.of({
+-      init,
+-      status,
+-      hasClients,
+-      touchFile,
+-      diagnostics,
+-      hover,
+-      definition,
+-      references,
+-      implementation,
+-      documentSymbol,
+-      workspaceSymbol,
+-      prepareCallHierarchy,
+-      incomingCalls,
+-      outgoingCalls,
++      init: RuntimeConfig.method(init),
++      status: RuntimeConfig.method(status),
++      hasClients: RuntimeConfig.method(hasClients),
++      touchFile: RuntimeConfig.method(touchFile),
++      diagnostics: RuntimeConfig.method(diagnostics),
++      hover: RuntimeConfig.method(hover),
++      definition: RuntimeConfig.method(definition),
++      references: RuntimeConfig.method(references),
++      implementation: RuntimeConfig.method(implementation),
++      documentSymbol: RuntimeConfig.method(documentSymbol),
++      workspaceSymbol: RuntimeConfig.method(workspaceSymbol),
++      prepareCallHierarchy: RuntimeConfig.method(prepareCallHierarchy),
++      incomingCalls: RuntimeConfig.method(incomingCalls),
++      outgoingCalls: RuntimeConfig.method(outgoingCalls),
+     })
+   }),
+ )
+diff --git a/packages/opencode/src/mcp/index.ts b/packages/opencode/src/mcp/index.ts
+index 3befe79..8889499 100644
+--- a/packages/opencode/src/mcp/index.ts
++++ b/packages/opencode/src/mcp/index.ts
+@@ -26,7 +26,8 @@ import { McpOAuthCallback } from "./oauth-callback"
+ import { McpAuth } from "./auth"
+ import { EventV2Bridge } from "@/event-v2-bridge"
+ import { TuiEvent } from "@/server/tui-event"
+-import { Cause, Effect, Exit, Fiber, Layer, Context, Schema, ScopedCache, Stream } from "effect"
++import { Cause, Effect, Exit, Fiber, Layer, Context, Schema, Stream } from "effect"
++import { RuntimeConfig } from "@/effect/runtime-config"
+ import { EffectBridge } from "@/effect/bridge"
+ import { InstanceState } from "@/effect/instance-state"
+ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+@@ -523,7 +524,7 @@ const layer = Layer.effect(
+       }
+     }
+ 
+-    const state = yield* InstanceState.make<State>(
++    const state = yield* InstanceState.makeReloadable<State>(
+       Effect.fn("MCP.state")(function* () {
+         const cfg = yield* cfgSvc.get()
+         const bridge = yield* EffectBridge.make()
+@@ -668,17 +669,11 @@ const layer = Layer.effect(
+     })
+ 
+     /**
+-     * Drops every instance's MCP clients and the config they were built from, so the next access
+-     * reconnects from what is on disk now. Invalidating the state runs its finalizer, which closes
+-     * the clients and reaps stdio children.
+-     *
+-     * Disposing the instances would also reconnect, but it ends whatever sessions they are running.
+-     * Config is invalidated alongside the clients because server definitions can be filtered while
+-     * the config is assembled, and a plugin doing that filtering only reruns when config is rebuilt.
++     * New readers connect using the latest definitions. Active runners keep their old clients,
++     * including outstanding tool calls, until their snapshot's final reader exits.
+      */
+     const reload = Effect.fn("MCP.reload")(function* () {
+       yield* cfgSvc.reload()
+-      yield* ScopedCache.invalidateAll(state.cache)
+     })
+ 
+     const clients = Effect.fn("MCP.clients")(function* () {
+@@ -1099,26 +1094,26 @@ const layer = Layer.effect(
+     })
+ 
+     return Service.of({
+-      status,
++      status: RuntimeConfig.method(status),
+       reload,
+-      clients,
+-      instructions,
+-      tools,
+-      prompts,
+-      resources,
+-      resourceTemplates,
+-      add,
+-      connect,
+-      disconnect,
+-      getPrompt,
+-      readResource,
+-      startAuth,
+-      authenticate,
+-      finishAuth,
+-      removeAuth,
+-      supportsOAuth,
+-      hasStoredTokens,
+-      getAuthStatus,
++      clients: RuntimeConfig.method(clients),
++      instructions: RuntimeConfig.method(instructions),
++      tools: RuntimeConfig.method(tools),
++      prompts: RuntimeConfig.method(prompts),
++      resources: RuntimeConfig.method(resources),
++      resourceTemplates: RuntimeConfig.method(resourceTemplates),
++      add: RuntimeConfig.method(add),
++      connect: RuntimeConfig.method(connect),
++      disconnect: RuntimeConfig.method(disconnect),
++      getPrompt: RuntimeConfig.method(getPrompt),
++      readResource: RuntimeConfig.method(readResource),
++      startAuth: RuntimeConfig.method(startAuth),
++      authenticate: RuntimeConfig.method(authenticate),
++      finishAuth: RuntimeConfig.method(finishAuth),
++      removeAuth: RuntimeConfig.method(removeAuth),
++      supportsOAuth: RuntimeConfig.method(supportsOAuth),
++      hasStoredTokens: RuntimeConfig.method(hasStoredTokens),
++      getAuthStatus: RuntimeConfig.method(getAuthStatus),
+     })
+   }),
+ )
+diff --git a/packages/opencode/src/plugin/index.ts b/packages/opencode/src/plugin/index.ts
+index 6f05329..77b9479 100644
+--- a/packages/opencode/src/plugin/index.ts
++++ b/packages/opencode/src/plugin/index.ts
+@@ -25,6 +25,7 @@ import { SnowflakeCortexAuthPlugin } from "./snowflake-cortex"
+ import { Effect, Layer, Context } from "effect"
+ import { EffectBridge } from "@/effect/bridge"
+ import { InstanceState } from "@/effect/instance-state"
++import { RuntimeConfig } from "@/effect/runtime-config"
+ import { errorMessage } from "@/util/error"
+ import { PluginLoader } from "./loader"
+ import { parsePluginSpecifier, readPluginId, readV1Plugin, resolvePluginId } from "./shared"
+@@ -131,9 +132,10 @@ const layer = Layer.effect(
+     const config = yield* Config.Service
+     const flags = yield* RuntimeFlags.Service
+ 
+-    const state = yield* InstanceState.make<State>(
++    const state = yield* InstanceState.makeReloadable<State>(
+       Effect.fn("Plugin.state")(function* (ctx) {
+         const hooks: Hooks[] = []
++        const revision = yield* RuntimeConfig.current
+         const bridge = yield* EffectBridge.make()
+ 
+         function publishPluginError(message: string) {
+@@ -254,7 +256,9 @@ const layer = Layer.effect(
+ 
+         const unsubscribe = yield* events.listen((event) => {
+           if (event.location?.directory !== ctx.directory) return Effect.void
+-          return Effect.sync(() => {
++          return Effect.gen(function* () {
++            // Retained plugin generations must not both handle the same event.
++            if ((yield* RuntimeConfig.current) !== revision) return
+             for (const hook of hooks) {
+               void hook["event"]?.({ event: { id: event.id, type: event.type, properties: event.data } as any })
+             }
+@@ -305,7 +309,7 @@ const layer = Layer.effect(
+       yield* InstanceState.get(state)
+     })
+ 
+-    return Service.of({ trigger, list, init })
++    return Service.of({ trigger: RuntimeConfig.method(trigger), list: RuntimeConfig.method(list), init: RuntimeConfig.method(init) })
+   }),
+ )
+ 
+diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
+index 7801edb..739c094 100644
+--- a/packages/opencode/src/provider/provider.ts
++++ b/packages/opencode/src/provider/provider.ts
+@@ -18,7 +18,7 @@ import { iife } from "@/util/iife"
+ import { Global } from "@opencode-ai/core/global"
+ import path from "path"
+ import { pathToFileURL } from "url"
+-import { Effect, Layer, Context, Schema, ScopedCache, Types } from "effect"
++import { Effect, Layer, Context, Schema, Types } from "effect"
+ import { EffectBridge } from "@/effect/bridge"
+ import { InstanceState } from "@/effect/instance-state"
+ import { EffectPromise } from "@/effect/promise"
+@@ -1513,7 +1513,7 @@ const layer = Layer.effect(
+     const modelsDevSvc = yield* ModelsDev.Service
+     const runtimeFlags = yield* RuntimeFlags.Service
+ 
+-    const state = yield* InstanceState.make<State>(() =>
++    const state = yield* InstanceState.makeReloadable<State>(() =>
+       Effect.gen(function* () {
+         const bridge = yield* EffectBridge.make()
+         const cfg = yield* config.get()
+@@ -1850,7 +1850,7 @@ const layer = Layer.effect(
+     )
+ 
+     const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
+-    const reload = Effect.fn("Provider.reload")(() => ScopedCache.invalidateAll(state.cache))
++    const reload = Effect.fn("Provider.reload")(() => config.reload())
+ 
+     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
+       try {
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/groups/global.ts b/packages/opencode/src/server/routes/instance/httpapi/groups/global.ts
+index d7d995d..99d5753 100644
+--- a/packages/opencode/src/server/routes/instance/httpapi/groups/global.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/groups/global.ts
+@@ -71,6 +71,7 @@ export const GlobalPaths = {
+   config: "/global/config",
+   dispose: "/global/dispose",
+   mcpReload: "/global/mcp/reload",
++  configReload: "/global/config/reload",
+   upgrade: "/global/upgrade",
+ } as const
+ 
+@@ -131,9 +132,16 @@ export const GlobalApi = HttpApi.make("global").add(
+           identifier: "global.mcp.reload",
+           summary: "Reload MCP servers",
+           description:
+-            "Reconnect every instance's Model Context Protocol (MCP) servers from the config on disk, without disposing the instances or interrupting their sessions.",
++            "Publish updated MCP definitions for idle sessions while retaining active sessions' clients until their work finishes.",
+         }),
+       ),
++      HttpApiEndpoint.post("configReload", GlobalPaths.configReload, {
++        success: described(Schema.Boolean, "Runtime configuration published"),
++      }).annotateMerge(OpenApi.annotations({
++        identifier: "global.config.reload",
++        summary: "Reload configuration and skills",
++        description: "Publish configuration, skills and tools for idle sessions without interrupting active work.",
++      })),
+       HttpApiEndpoint.post("upgrade", GlobalPaths.upgrade, {
+         payload: GlobalUpgradeInput,
+         success: described(GlobalUpgradeResult, "Upgrade result"),
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/config.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/config.ts
+index 3d0e8a0..061c226 100644
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/config.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/config.ts
+@@ -1,10 +1,8 @@
+ import { Config } from "@/config/config"
+ import { Provider } from "@/provider/provider"
+-import * as InstanceState from "@/effect/instance-state"
+ import { Effect } from "effect"
+ import { HttpApiBuilder } from "effect/unstable/httpapi"
+ import { InstanceHttpApi } from "../api"
+-import { markInstanceForDisposal } from "../lifecycle"
+ 
+ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (handlers) =>
+   Effect.gen(function* () {
+@@ -17,7 +15,6 @@ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (h
+ 
+     const update = Effect.fn("ConfigHttpApi.update")(function* (ctx) {
+       yield* configSvc.update(ctx.payload)
+-      yield* markInstanceForDisposal(yield* InstanceState.context)
+       return ctx.payload
+     })
+ 
+diff --git a/packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts b/packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts
+index ace5088..7f20211 100644
+--- a/packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts
++++ b/packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts
+@@ -80,7 +80,6 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
+     const config = yield* Config.Service
+     const installation = yield* Installation.Service
+     const mcp = yield* MCP.Service
+-    const bridge = yield* EffectBridge.make()
+ 
+     const health = Effect.fn("GlobalHttpApi.health")(function* () {
+       return { healthy: true as const, version: InstallationVersion }
+@@ -96,7 +95,6 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
+ 
+     const configUpdate = Effect.fn("GlobalHttpApi.configUpdate")(function* (ctx) {
+       const result = yield* config.updateGlobal(ctx.payload)
+-      if (result.changed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
+       return result.info
+     })
+ 
+@@ -146,6 +144,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
+       .handle("configUpdate", configUpdate)
+       .handle("dispose", dispose)
+       .handle("mcpReload", mcpReload)
++      .handle("configReload", () => config.reload().pipe(Effect.as(true)))
+       .handle("upgrade", upgrade)
+   }),
+ )
+diff --git a/packages/opencode/src/session/processor.ts b/packages/opencode/src/session/processor.ts
+index 45fbe5f..7f587c9 100644
+--- a/packages/opencode/src/session/processor.ts
++++ b/packages/opencode/src/session/processor.ts
+@@ -6,6 +6,7 @@ import { Cause, Deferred, Effect, Exit, Layer, Context, Scope, Schema } from "ef
+ import * as Stream from "effect/Stream"
+ import { Agent } from "@/agent/agent"
+ import { Config } from "@/config/config"
++import { RuntimeConfig } from "@/effect/runtime-config"
+ import { Permission } from "@/permission"
+ import { Plugin } from "@/plugin"
+ import { Snapshot } from "@/snapshot"
+@@ -490,7 +491,7 @@ const layer = Layer.effect(
+                 sessionID: ctx.sessionID,
+                 messageID: ctx.assistantMessage.parentID,
+               })
+-              .pipe(Effect.ignore, Effect.forkIn(scope))
++              .pipe(Effect.ignore, RuntimeConfig.forkIn(scope))
+             if (
+               !ctx.assistantMessage.summary &&
+               isOverflow({ cfg: yield* config.get(), tokens: usage.tokens, model: ctx.model })
+diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
+index 9cf663d..ed5962d 100644
+--- a/packages/opencode/src/session/prompt.ts
++++ b/packages/opencode/src/session/prompt.ts
+@@ -45,6 +45,7 @@ import { decodeDataUrl } from "@/util/data-url"
+ import { Process } from "@/util/process"
+ import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
+ import { InstanceState } from "@/effect/instance-state"
++import { RuntimeConfig } from "@/effect/runtime-config"
+ import { TaskTool, type TaskPromptOps } from "@/tool/task"
+ import { SessionRunState } from "./run-state"
+ import { RuntimeFlags } from "@/effect/runtime-flags"
+@@ -1238,7 +1239,7 @@ const layer = Layer.effect(
+               modelID: lastUser.model.modelID,
+               providerID: lastUser.model.providerID,
+               history: msgs,
+-            }).pipe(Effect.ignore, Effect.forkIn(scope))
++            }).pipe(Effect.ignore, RuntimeConfig.forkIn(scope))
+ 
+           // Reassigned when a parked retry accepts a model switch mid-turn.
+           let model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+@@ -1363,7 +1364,7 @@ const layer = Layer.effect(
+               if (first && step === 1)
+                 yield* summary
+                   .summarize({ sessionID, messageID: lastUser.id })
+-                  .pipe(Effect.ignore, Effect.forkIn(scope))
++                  .pipe(Effect.ignore, RuntimeConfig.forkIn(scope))
+ 
+               if (first) yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+ 
+@@ -1477,7 +1478,7 @@ const layer = Layer.effect(
+           continue
+         }
+ 
+-        yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
++        yield* compaction.prune({ sessionID }).pipe(Effect.ignore, RuntimeConfig.forkIn(scope))
+         return yield* lastAssistant(sessionID)
+       },
+     )
+diff --git a/packages/opencode/src/skill/index.ts b/packages/opencode/src/skill/index.ts
+index 6faa613..e5e9b91 100644
+--- a/packages/opencode/src/skill/index.ts
++++ b/packages/opencode/src/skill/index.ts
+@@ -260,7 +260,7 @@ const layer = Layer.effect(
+     const fsys = yield* FSUtil.Service
+     const global = yield* Global.Service
+     const flags = yield* RuntimeFlags.Service
+-    const discovered = yield* InstanceState.make(
++    const discovered = yield* InstanceState.makeReloadable(
+       Effect.fn("Skill.discovery")(function* (ctx) {
+         return yield* discoverSkills(
+           config,
+@@ -274,7 +274,7 @@ const layer = Layer.effect(
+         )
+       }),
+     )
+-    const state = yield* InstanceState.make(
++    const state = yield* InstanceState.makeReloadable(
+       Effect.fn("Skill.state")(function* () {
+         const s: State = { skills: {}, dirs: new Set() }
+         // Register the built-in skill BEFORE disk discovery so a user-disk
+diff --git a/packages/opencode/src/tool/registry.ts b/packages/opencode/src/tool/registry.ts
+index 1e559f1..c0e244d 100644
+--- a/packages/opencode/src/tool/registry.ts
++++ b/packages/opencode/src/tool/registry.ts
+@@ -118,7 +118,7 @@ const layer = Layer.effect(
+     const codeMode = yield* Effect.promise(() => import("./code-mode"))
+     const codeModeTool = yield* codeMode.CodeModeTool
+ 
+-    const state = yield* InstanceState.make<State>(
++    const state = yield* InstanceState.makeReloadable<State>(
+       Effect.fn("ToolRegistry.state")(function* (ctx) {
+         const custom: Tool.Def[] = []
+ 
+diff --git a/packages/opencode/test/effect/runtime-config.test.ts b/packages/opencode/test/effect/runtime-config.test.ts
+new file mode 100644
+index 0000000..4414341
+--- /dev/null
++++ b/packages/opencode/test/effect/runtime-config.test.ts
+@@ -0,0 +1,179 @@
++import path from "node:path"
++import { expect } from "bun:test"
++import { LayerNode } from "@opencode-ai/core/effect/layer-node"
++import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
++import { Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect"
++import { Config } from "../../src/config/config"
++import { Skill } from "../../src/skill"
++import { Command } from "../../src/command"
++import { EffectBridge } from "../../src/effect/bridge"
++import { InstanceState } from "../../src/effect/instance-state"
++import { RuntimeConfig } from "../../src/effect/runtime-config"
++import { Runner } from "../../src/effect/runner"
++import { TestInstance, provideInstance, tmpdirScoped } from "../fixture/fixture"
++import { testEffect } from "../lib/effect"
++
++const it = testEffect(LayerNode.compile(LayerNode.group([Config.node, Skill.node, Command.node, CrossSpawnSpawner.node])))
++const unit = testEffect(Layer.empty)
++
++it.instance("running sessions retain skills and config while each idle session adopts the latest edit", () => Effect.gen(function* () {
++  const config = yield* Config.Service
++  const skill = yield* Skill.Service
++  const command = yield* Command.Service
++  const test = yield* TestInstance
++  const scope = yield* Scope.Scope
++  const other = yield* tmpdirScoped()
++  const write = (directory: string, version: string) => Effect.promise(async () => {
++    await Bun.write(path.join(directory, "opencode.json"), JSON.stringify({ username: version, command: { check: { template: version } } }))
++    await Bun.write(path.join(directory, ".opencode/skills/reload-test/SKILL.md"), `---\nname: reload-test\ndescription: ${version}\n---\n${version}\n`)
++  })
++  yield* write(test.directory, "first")
++  yield* write(other, "other-first")
++  const snapshot = Effect.gen(function* () {
++    const item = yield* command.get("check")
++    return {
++      username: (yield* config.get()).username,
++      skill: (yield* skill.require("reload-test").pipe(Effect.orDie)).content.trim(),
++      command: item ? yield* Effect.promise(() => Promise.resolve(item.template)) : undefined,
++    }
++  })
++  type Snapshot = Effect.Success<typeof snapshot>
++  const start = (directory: string) => Effect.gen(function* () {
++    const ready = yield* Deferred.make<Snapshot>()
++    const finish = yield* Deferred.make<void>()
++    const runner = Runner.make<Snapshot>(scope)
++    const fiber = yield* provideInstance(directory)(runner.ensureRunning(Effect.gen(function* () {
++      const before = yield* snapshot
++      yield* Deferred.succeed(ready, before)
++      yield* Deferred.await(finish)
++      expect(yield* snapshot).toEqual(before)
++      return before
++    }))).pipe(Effect.forkScoped)
++    return { runner, fiber, finish, before: yield* Deferred.await(ready) }
++  })
++  const first = yield* start(test.directory)
++  const second = yield* start(test.directory)
++  const third = yield* start(other)
++  expect(first.before).toEqual({ username: "first", skill: "first", command: "first" })
++  yield* write(test.directory, "second")
++  yield* write(other, "other-second")
++  yield* config.reload()
++  expect(first.runner.busy && second.runner.busy && third.runner.busy).toBe(true)
++  expect((yield* skill.require("reload-test")).content.trim()).toBe("second")
++  yield* Deferred.succeed(first.finish, undefined)
++  yield* Fiber.join(first.fiber)
++  expect(second.runner.busy && third.runner.busy).toBe(true)
++  expect(yield* first.runner.ensureRunning(snapshot)).toEqual({ username: "second", skill: "second", command: "second" })
++  yield* write(test.directory, "third")
++  yield* config.reload()
++  yield* Deferred.succeed(second.finish, undefined)
++  yield* Fiber.join(second.fiber)
++  expect(third.runner.busy).toBe(true)
++  expect(yield* second.runner.ensureRunning(snapshot)).toEqual({ username: "third", skill: "third", command: "third" })
++  yield* Deferred.succeed(third.finish, undefined)
++  yield* Fiber.join(third.fiber)
++  expect(yield* provideInstance(other)(third.runner.ensureRunning(snapshot))).toEqual({ username: "other-second", skill: "other-second", command: "other-second" })
++}))
++
++unit.instance("reload retains active resources and persistent instance state, then releases retired generations", () => Effect.gen(function* () {
++  const scope = yield* Scope.Scope
++  const closed: number[] = []
++  const resources = yield* InstanceState.makeReloadable(() => Effect.gen(function* () {
++    const value = (yield* RuntimeConfig.current).id
++    yield* Effect.addFinalizer(() => Effect.sync(() => { closed.push(value) }))
++    return value
++  }))
++  const persistent = yield* InstanceState.make(() => Effect.succeed({ pending: "approval" }))
++  const initial = yield* InstanceState.get(persistent)
++  const ready = yield* Deferred.make<number>()
++  const finish = yield* Deferred.make<void>()
++  const runner = Runner.make<number>(scope)
++  const first = yield* runner.ensureRunning(Effect.gen(function* () {
++    const before = yield* InstanceState.get(resources)
++    yield* Deferred.succeed(ready, before)
++    yield* Deferred.await(finish)
++    expect(yield* InstanceState.get(resources)).toBe(before)
++    return before
++  })).pipe(Effect.forkScoped)
++  const old = yield* Deferred.await(ready)
++  for (let i = 0; i < 20; i++) yield* RuntimeConfig.refresh
++  const fresh = yield* InstanceState.get(resources)
++  expect(fresh).toBeGreaterThan(old)
++  expect(closed).not.toContain(old)
++  expect(yield* InstanceState.get(persistent)).toBe(initial)
++  yield* Deferred.succeed(finish, undefined)
++  yield* Fiber.join(first)
++  expect(closed).toEqual([old])
++  expect(yield* runner.ensureRunning(InstanceState.get(resources))).toBe(fresh)
++}))
++
++unit.instance("detached follow-up work keeps its snapshot alive beyond the main runner", () => Effect.gen(function* () {
++  const scope = yield* Scope.Scope
++  const ready = yield* Deferred.make<RuntimeConfig.Revision>()
++  const finish = yield* Deferred.make<void>()
++  const child = yield* RuntimeConfig.run(Effect.gen(function* () {
++    const revision = yield* RuntimeConfig.current
++    return yield* Effect.gen(function* () {
++      yield* Deferred.succeed(ready, revision)
++      yield* Deferred.await(finish)
++      expect((yield* RuntimeConfig.current).closed).toBe(false)
++    }).pipe(RuntimeConfig.forkIn(scope))
++  }))
++  const old = yield* Deferred.await(ready)
++  yield* RuntimeConfig.refresh
++  expect(old.closed).toBe(false)
++  yield* Deferred.succeed(finish, undefined)
++  yield* Fiber.join(child)
++  expect(old.closed).toBe(true)
++}))
++
++unit.instance("effect bridges retain captured snapshots while deferred callbacks run", () => Effect.gen(function* () {
++  const ready = yield* Deferred.make<void>()
++  const finish = yield* Deferred.make<void>()
++  const old = yield* RuntimeConfig.current
++  const bridge = yield* RuntimeConfig.use(EffectBridge.make())
++  const callback = yield* bridge.run(Effect.gen(function* () {
++    expect(yield* RuntimeConfig.current).toBe(old)
++    yield* Deferred.succeed(ready, undefined)
++    yield* Deferred.await(finish)
++  })).pipe(Effect.forkScoped)
++  yield* Deferred.await(ready)
++  yield* RuntimeConfig.refresh
++  expect(old.closed).toBe(false)
++  yield* Deferred.succeed(finish, undefined)
++  yield* Fiber.join(callback)
++  expect(old.closed).toBe(true)
++}))
++
++unit.instance("failed and explicitly cancelled runners release their retired snapshots", () => Effect.gen(function* () {
++  const scope = yield* Scope.Scope
++  for (const failure of ["error", "cancel"] as const) {
++    const ready = yield* Deferred.make<RuntimeConfig.Revision>()
++    const finish = yield* Deferred.make<void>()
++    const runner = Runner.make<void, string>(scope, { onInterrupt: Effect.void })
++    const fiber = yield* runner.ensureRunning(Effect.gen(function* () {
++      yield* Deferred.succeed(ready, yield* RuntimeConfig.current)
++      yield* Deferred.await(finish)
++      return yield* Effect.fail("expected")
++    })).pipe(Effect.exit, Effect.forkScoped)
++    const old = yield* Deferred.await(ready)
++    yield* RuntimeConfig.refresh
++    expect(old.closed).toBe(false)
++    if (failure === "cancel") yield* runner.cancel
++    else yield* Deferred.succeed(finish, undefined)
++    const exit = yield* Fiber.join(fiber)
++    expect(Exit.isSuccess(exit)).toBe(failure === "cancel")
++    expect(old.closed).toBe(true)
++  }
++}))
++
++unit.instance("forking into a closed scope does not leak the retained snapshot", () => Effect.gen(function* () {
++  const scope = yield* Scope.make()
++  yield* Scope.close(scope, Exit.void)
++  const old = yield* RuntimeConfig.current
++  const fiber = yield* Effect.void.pipe(RuntimeConfig.forkIn(scope))
++  yield* Fiber.await(fiber)
++  yield* RuntimeConfig.refresh
++  expect(old.readers).toBe(0)
++  expect(old.closed).toBe(true)
++}))
+diff --git a/packages/opencode/test/mcp/lifecycle.test.ts b/packages/opencode/test/mcp/lifecycle.test.ts
+index d50adda..32aa4cc 100644
+--- a/packages/opencode/test/mcp/lifecycle.test.ts
++++ b/packages/opencode/test/mcp/lifecycle.test.ts
+@@ -40,6 +40,8 @@ interface LifecycleServerState {
+   toolRequests: number
+   toolResponsesCompleted: number
+   requestDelay?: number
++  resourceGate?: Promise<void>
++  resourceStarted?: () => void
+   roots?: Array<{ uri: string; name?: string }>
+   requests: string[]
+   aborted: number
+@@ -104,6 +106,8 @@ function lifecycleServer(input?: { capabilities?: ServerCapabilities; instructio
+             })
+           })
+           protocol.setRequestHandler(ReadResourceRequestSchema, async (request) => {
++            state.resourceStarted?.()
++            if (state.resourceGate) await state.resourceGate
+             if (state.requestDelay) await Bun.sleep(state.requestDelay)
+             return { contents: [{ uri: request.params.uri, text: "resource result" }] }
+           })
+@@ -397,6 +401,33 @@ it.instance("ordinary MCP request failures leave the connection enabled", () =>
+   }),
+ )
+ 
++it.instance("reload keeps an outstanding MCP request alive while new readers use the replacement server", () =>
++  Effect.gen(function* () {
++    const first = yield* lifecycleServer()
++    const second = yield* lifecycleServer()
++    const mcp = yield* MCP.Service
++    const test = yield* TestInstance
++    const ready = Promise.withResolvers<void>()
++    const finish = Promise.withResolvers<void>()
++    first.state.resourceStarted = () => ready.resolve()
++    first.state.resourceGate = finish.promise
++    const write = (url: string) => Effect.promise(() => Bun.write(path.join(test.directory, "opencode.json"), JSON.stringify({ mcp: { configured: remote(url) } })))
++    yield* write(first.url)
++    const pending = yield* mcp.readResource("configured", "test://held").pipe(Effect.forkScoped)
++    yield* Effect.promise(() => ready.promise)
++    const aborted = first.state.aborted
++    yield* write(second.url)
++    yield* mcp.reload()
++    expect((yield* mcp.status()).configured?.status).toBe("connected")
++    expect(second.state.requests.length).toBeGreaterThan(0)
++    expect(first.state.aborted).toBe(aborted)
++    finish.resolve()
++    expect(yield* Fiber.join(pending)).toMatchObject({ contents: [{ uri: "test://held", text: "resource result" }] })
++    yield* pollWithTimeout(Effect.sync(() => first.state.aborted > aborted ? true : undefined), "retired MCP client was not released")
++    expect((yield* mcp.status()).configured?.status).toBe("connected")
++  }),
++)
++
+ it.instance("reload() picks up config edits and closes the old sessions", () =>
+   Effect.gen(function* () {
+     const first = yield* lifecycleServer()
+diff --git a/packages/opencode/test/server/httpapi-config.test.ts b/packages/opencode/test/server/httpapi-config.test.ts
+index 91281b4..df7ace7 100644
+--- a/packages/opencode/test/server/httpapi-config.test.ts
++++ b/packages/opencode/test/server/httpapi-config.test.ts
+@@ -1,23 +1,16 @@
+ import { afterEach, describe, expect } from "bun:test"
+ import path from "path"
+ import { Server } from "../../src/server/server"
+-import { Effect, Fiber } from "effect"
++import { Effect } from "effect"
+ import { resetDatabase } from "../fixture/db"
+ import { disposeAllInstances, tmpdir } from "../fixture/fixture"
+ import { it } from "../lib/effect"
+-import { waitGlobalBusEvent } from "./global-bus"
++import { GlobalBus } from "../../src/bus/global"
+ 
+ function app() {
+   return Server.Default().app
+ }
+ 
+-function waitDisposed(directory: string) {
+-  return waitGlobalBusEvent({
+-    message: "timed out waiting for instance disposal",
+-    predicate: (event) => event.payload.type === "server.instance.disposed" && event.directory === directory,
+-  })
+-}
+-
+ const tmpdirEffect = (options: Parameters<typeof tmpdir>[0]) =>
+   Effect.acquireRelease(
+     Effect.promise(() => tmpdir(options)),
+@@ -34,7 +27,12 @@ describe("config HttpApi", () => {
+     "serves config update through the default server app",
+     Effect.gen(function* () {
+       const tmp = yield* tmpdirEffect({ config: { formatter: false, lsp: false } })
+-      const disposed = yield* waitDisposed(tmp.path).pipe(Effect.forkScoped({ startImmediately: true }))
++      const disposed: string[] = []
++      const listen = (event: { directory?: string; payload: { type: string } }) => {
++        if (event.payload.type === "server.instance.disposed" && event.directory === tmp.path) disposed.push(event.directory)
++      }
++      GlobalBus.on("event", listen)
++      yield* Effect.addFinalizer(() => Effect.sync(() => { GlobalBus.off("event", listen) }))
+ 
+       const response = yield* Effect.promise(() =>
+         Promise.resolve(
+@@ -55,7 +53,7 @@ describe("config HttpApi", () => {
+         formatter: false,
+         lsp: false,
+       })
+-      yield* Fiber.join(disposed)
++      expect(disposed).toEqual([])
+       expect(yield* Effect.promise(() => Bun.file(path.join(tmp.path, "config.json")).json())).toMatchObject({
+         username: "patched-user",
+         formatter: false,
+diff --git a/packages/opencode/test/server/httpapi-global.test.ts b/packages/opencode/test/server/httpapi-global.test.ts
+index 78723d6..01d1e7f 100644
+--- a/packages/opencode/test/server/httpapi-global.test.ts
++++ b/packages/opencode/test/server/httpapi-global.test.ts
+@@ -5,6 +5,7 @@ import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/unst
+ import { HttpApiBuilder } from "effect/unstable/httpapi"
+ import { Auth } from "../../src/auth"
+ import { Config } from "../../src/config/config"
++import { RuntimeConfig } from "../../src/effect/runtime-config"
+ import { Installation } from "../../src/installation"
+ import { MCP } from "../../src/mcp"
+ import { Provider } from "../../src/provider/provider"
+@@ -37,7 +38,7 @@ const apiLayer = HttpRouter.serve(
+   Layer.provide(Layer.mock(Auth.Service)({})),
+   Layer.provide(Layer.mock(Provider.Service)({ reload: () => Effect.void })),
+   Layer.provide(Layer.mock(MCP.Service)({ reload: () => Effect.void })),
+-  Layer.provide(Layer.mock(Config.Service)({})),
++  Layer.provide(Layer.mock(Config.Service)({ reload: () => RuntimeConfig.refresh })),
+   Layer.provide(Layer.mock(MoveSession.Service)({})),
+   Layer.provide(Layer.mock(Session.Service)({})),
+   Layer.provide(Layer.mock(SessionRunState.Service)({})),
+@@ -55,6 +56,17 @@ const apiLayer = HttpRouter.serve(
+ const it = testEffect(apiLayer)
+ 
+ describe("global HttpApi", () => {
++  it.live("publishes config reload without closing a retained snapshot", () =>
++    RuntimeConfig.use(Effect.gen(function* () {
++      const previous = yield* RuntimeConfig.current
++      const response = yield* HttpClientRequest.post(GlobalPaths.configReload).pipe(HttpClient.execute)
++      expect(response.status).toBe(200)
++      expect(yield* response.json).toBe(true)
++      expect(previous.retired).toBe(true)
++      expect(previous.closed).toBe(false)
++      expect(yield* RuntimeConfig.run(Effect.map(RuntimeConfig.current, (value) => value.id))).toBeGreaterThan(previous.id)
++    })),
++  )
+   it.live("upgrades to the requested version", () =>
+     Effect.gen(function* () {
+       const response = yield* HttpClientRequest.post(GlobalPaths.upgrade).pipe(
+diff --git a/packages/opencode/test/session/prompt.test.ts b/packages/opencode/test/session/prompt.test.ts
+index ec18dc2..775a99a 100644
+--- a/packages/opencode/test/session/prompt.test.ts
++++ b/packages/opencode/test/session/prompt.test.ts
+@@ -450,6 +450,49 @@ const boot = Effect.fn("test.boot")(function* (input?: { title?: string }) {
+ 
+ // Loop semantics
+ 
++it.instance("runtime reload keeps concurrent provider streams alive and updates sessions independently", () =>
++  Effect.gen(function* () {
++    const { dir, llm } = yield* useServerConfig((url) => ({ ...providerCfg(url), agent: { build: { prompt: "runtime-marker-first" } } }))
++    const config = yield* Config.Service
++    const prompt = yield* SessionPrompt.Service
++    const sessions = yield* Session.Service
++    const status = yield* SessionStatus.Service
++    const first = yield* sessions.create({ title: "First" })
++    const second = yield* sessions.create({ title: "Second" })
++    const finishFirst = yield* Deferred.make<void>()
++    const finishSecond = yield* Deferred.make<void>()
++    yield* llm.hold("first completed", deferredAsPromise(finishFirst))
++    yield* llm.hold("second completed", deferredAsPromise(finishSecond))
++    yield* user(first.id, "first prompt")
++    yield* user(second.id, "second prompt")
++    const a = yield* prompt.loop({ sessionID: first.id }).pipe(Effect.forkChild)
++    yield* llm.wait(1)
++    const b = yield* prompt.loop({ sessionID: second.id }).pipe(Effect.forkChild)
++    yield* llm.wait(2)
++    yield* writeConfig(dir, { ...providerCfg(llm.url), agent: { build: { prompt: "runtime-marker-second" } } })
++    yield* config.reload()
++    expect((yield* status.get(first.id)).type).toBe("busy")
++    expect((yield* status.get(second.id)).type).toBe("busy")
++    yield* Deferred.succeed(finishFirst, undefined)
++    const completed = yield* Fiber.join(a)
++    expect(completed.info.role === "assistant" && completed.info.finish).toBe("stop")
++    expect((yield* status.get(second.id)).type).toBe("busy")
++    yield* llm.text("fresh config completed")
++    yield* user(first.id, "next prompt")
++    const fresh = yield* prompt.loop({ sessionID: first.id })
++    expect(fresh.info.role === "assistant" && fresh.info.finish).toBe("stop")
++    const hits = yield* llm.hits
++    expect(hits).toHaveLength(3)
++    expect(JSON.stringify(hits[0]?.body)).toContain("runtime-marker-first")
++    expect(JSON.stringify(hits[1]?.body)).toContain("runtime-marker-first")
++    expect(JSON.stringify(hits[2]?.body)).toContain("runtime-marker-second")
++    expect((yield* status.get(second.id)).type).toBe("busy")
++    yield* Deferred.succeed(finishSecond, undefined)
++    const last = yield* Fiber.join(b)
++    expect(last.info.role === "assistant" && last.info.finish).toBe("stop")
++  }),
++)
++
+ noLLMServer.instance(
+   "loop exits immediately when last assistant has stop finish",
+   () =>

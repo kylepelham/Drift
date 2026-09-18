@@ -493,6 +493,69 @@ test("fixed menus convert visual coordinates and viewport bounds through CSS zoo
   expect(fixedMenuPosition(1170, 870, 200, 100, metrics)).toEqual({ left: 592, top: 492, viewportHeight: 600 })
 })
 
+test("provider setup works through the global client before any workspace exists", async () => {
+  const { createActions } = await import("../src/engine/actions")
+  const [state, set] = createEngineState()
+  const requests: string[] = []
+  let connected: string[] = []
+  let failProviderList = false
+  const client = {
+    auth: {
+      set: async () => {
+        connected = ["opencode"]
+        failProviderList = true
+        return { data: true }
+      },
+    },
+    provider: {
+      auth: async () => ({ data: { opencode: [{ type: "api", label: "API key" }] } }),
+      list: async () => {
+        if (failProviderList) {
+          failProviderList = false
+          throw new Error("transient provider failure")
+        }
+        return {
+          data: {
+            all: [{ id: "opencode", name: "OpenCode", models: {} }],
+            connected,
+            default: {},
+          },
+        }
+      },
+    },
+  }
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    const url = new URL(request.url)
+    requests.push(`${request.method} ${url.pathname}${url.search}`)
+    if (request.method === "DELETE") connected = []
+    return new Response("true", { status: 200, headers: { "content-type": "application/json" } })
+  }) as typeof fetch
+
+  try {
+    const actions = createActions(
+      (() => {
+        throw new Error("engine offline")
+      }) as never,
+      state,
+      set,
+      () => ({ url: "http://engine.test" }),
+      () => client as never,
+    )
+    expect(await actions.providerAuthMethods()).toEqual({ opencode: [{ type: "api", label: "API key" }] })
+    expect(await actions.refreshProviders()).toEqual([])
+    expect(state.providers[0]?.id).toBe("opencode")
+    expect(await actions.setProviderKey("opencode", "test-key")).toEqual({ ok: true, connected: true })
+    expect(state.connected).toEqual(["opencode"])
+    expect(await actions.disconnectProvider("opencode")).toEqual({ ok: true, connected: false })
+    expect(state.connected).toEqual([])
+    expect(requests).toEqual(["DELETE /auth/opencode"])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test("provider credentials refresh provider state without disposing active instances", async () => {
   const { createActions } = await import("../src/engine/actions")
   const [state, set] = createEngineState()

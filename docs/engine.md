@@ -61,10 +61,46 @@ servers, plugins, providers) applies unchanged. Users do not install opencode.
   second and hashes a bounded set of `SKILL.md` contents, so ordinary additions, removals, renames, and in-place edits
   under `.agents/skills`, `.claude/skills`, OpenCode `skill`/`skills` directories, and
   configured local `skills.paths` (up to 4,096 skill files, 16 directory levels, and
-  the first 1 MiB of each file)
-  invalidate directory-scoped engine caches without restarting the sidecar. The resulting
-  `skill-config-changed` event refreshes Drift's slash-command snapshot after disposal has
-  completed. Remote clients also refresh command/config metadata whenever the slash menu opens.
+  the first 1 MiB of each file) publish a new runtime configuration snapshot. JSON config,
+  Markdown agents/commands, and custom tool/plugin files are also polled. The resulting
+  `skill-config-changed` event refreshes Drift's slash-command metadata. Remote clients also
+  refresh command/config metadata whenever the slash menu opens.
+
+### Configuration changes during active work
+
+`zzzzz-runtime-config-snapshots.patch` retains a configuration revision for each running session.
+That revision owns its parsed config, skills, agents, commands, providers, plugins, tool registry,
+MCP clients, formatters, and LSP clients. Model turns, tool calls, and permission/question waits
+continue using those resources until the run ends. Detached title/summary work retains its own
+reference until it finishes.
+
+File changes and config API writes publish a new revision without disposing instances. An idle
+session selects the latest revision when its next run starts, independently of sessions still
+running on older revisions. Repeated edits replace the pending revision; unused intermediate
+revisions are released. Retired clients and plugin hooks close only after their final reader exits.
+Session runners, pending questions, permission requests, and other live instance state stay intact.
+
+The shell uses `POST /global/config/reload` for config and skill changes. MCP edits still synchronize
+the approval policy before `POST /global/mcp/reload`, which publishes the same kind of revision.
+Explicit engine restarts, disposal requests, shutdown, and user cancellation still stop work.
+
+### Startup
+
+The native window starts hidden. The inline preload waits for the splash image to decode and for
+the renderer's first contentful paint, then lets the completed splash frame settle before revealing
+the window. The preload remains mounted through reveal and two visible animation frames; bootstrap
+does not replace it with a connection placeholder. When the splash is disabled, the app or error
+screen renders first and its contentful paint triggers reveal. Engine readiness and thread hydration
+do not gate the splash. Native setup never hides a window that has already appeared, and no timer
+bypasses the painted-content requirement.
+
+Legacy database import and OpenCode workspace discovery run on the engine launch worker, outside
+the UI event loop. A no-op import skips the full shared-database foreign-key audit; imports that
+write rows still validate before committing. The existing launch generation also covers preparation,
+so shutdown or replacement invalidates a pending launch. The frontend refreshes imported workspaces
+once the engine is available and loads thread/status snapshots independently of provider and agent
+discovery. Captured stderr includes monotonic `drift startup:` milestones for window, database,
+workspace import, and engine timing.
 
 ## Async questions
 
@@ -131,14 +167,19 @@ protocol findings, the limits of the installed-app inspection, and follow-up wor
 
 ## Engine update runbook
 
-The 2026-09-12 update imports OpenCode 1.18.30 at `830d5eb5354874105cc31599635a80c1662609e8`.
-This is upstream's version-sync commit on `dev`. Its complete tree equals the `v1.18.30`
-release tag's tree, including the 1.18.30 manifests. The marker stays pinned to the `dev`
+The 2026-09-15 update imports OpenCode 1.18.31 at `a74c472ffb941e6b027e5348be50cfe2225c6c56`.
+This is upstream's version-sync commit on `dev`. Its complete tree equals the `v1.18.31`
+release tag's tree, including the 1.18.31 manifests. The marker stays pinned to the `dev`
 sync commit so future updates can validate ancestry along `dev`, rather than the separate release commit.
 The snapshot is imported without upstream history, and overlays remain separate.
 
-This release updates the OpenAI, Azure, and GitLab provider dependencies, preserves Bedrock
-ARN/DeepSeek identifiers, and adds the GPT-6 Astra prompt. Drift includes Astra as a template
+The 1.18.31 release restores ACP session model, effort, mode, and reasoning boundaries when
+loading, resuming, or forking. It requests summarized adaptive thinking for GitHub Copilot,
+surfaces remote-config authentication errors during TUI startup, and updates `@ai-sdk/gateway`
+to 3.0.191. Drift's JavaScript SDK dependency is updated to 1.18.31 alongside the engine.
+
+The previous 1.18.30 update updated the OpenAI, Azure, and GitLab provider dependencies, preserved Bedrock
+ARN/DeepSeek identifiers, and added the GPT-6 Astra prompt. Drift includes Astra as a template
 variant while retaining saved GPT/Codex override keys. Explicit OpenAI service tiers now reach
 the provider rather than being silently dropped by the SDK's model allowlist.
 `zz-provider-plugin-init.patch` defers reading provider plugin exports until registration,

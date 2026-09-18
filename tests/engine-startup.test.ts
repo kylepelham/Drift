@@ -35,21 +35,27 @@ async function settle() {
 const cleanups: (() => void)[] = []
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup() })
 
-function setup() {
+function setup(holdRuntimeMetadata = false, options: { withoutWorkspace?: boolean } = {}) {
   const [state, set] = createEngineState()
   const requests: ReturnType<typeof request>[] = []
   function request(directory: string) {
     const commands = deferred<{ data?: { name: string }[] }>()
     const config = deferred<{ data: { skills: { paths: string[] } } }>()
     const sessions = deferred<{ data: never[] }>()
+    const providers = deferred<{ data: { all: never[]; connected: never[]; default: Record<string, string> } }>()
+    const agents = deferred<{ data: { name: string }[] }>()
     const api = {
       command: { list: mock(() => commands.promise) },
       config: { get: mock(() => config.promise) },
       session: { list: () => sessions.promise, status: async () => ({ data: {} }) },
-      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
-      app: { agents: async () => ({ data: [{ name: "build" }] }) },
+      provider: {
+        list: mock(() =>
+          holdRuntimeMetadata ? providers.promise : Promise.resolve({ data: { all: [], connected: [], default: {} } }),
+        ),
+      },
+      app: { agents: () => holdRuntimeMetadata ? agents.promise : Promise.resolve({ data: [{ name: "build" }] }) },
     }
-    const result = { directory, commands, config, sessions, api }
+    const result = { directory, commands, config, sessions, providers, agents, api }
     requests.push(result)
     return result
   }
@@ -58,6 +64,7 @@ function setup() {
   const health: { signal: AbortSignal; result: ReturnType<typeof deferred<Response>> }[] = []
   const timers = new Map<symbol, { callback: () => void; ms: number }>()
   const invoke = mock(async () => undefined)
+  const appliedCatalogs: unknown[] = []
   const dependencies = {
     ...solid, produce, createEngineState: () => [state, set], captureRevisions,
     applySessionSnapshot, applyStatusSnapshot, sessionSnapshotLimit,
@@ -67,8 +74,9 @@ function setup() {
     restartShellEngine: async () => ({ url: "http://replacement.test" }),
     configureShellTimeout: async () => undefined,
     shellTimeoutMs: () => null, reportShellTimeoutError: () => {},
-    seedProviderCatalog: () => {}, applyProviderCatalog: () => {},
+    seedProviderCatalog: () => {}, applyProviderCatalog: (_set: unknown, data: unknown) => appliedCatalogs.push(data),
     selectedSession: () => null, clearPermissionAttentionFor: () => {},
+    refreshWorkspaces: async () => {},
     shellInvoke: () => invoke, shellEvents: () => undefined,
     sleep: async () => {},
     fetch: (_url: string, { signal }: { signal: AbortSignal }) => {
@@ -101,8 +109,8 @@ function setup() {
     engine: run(...Object.values(dependencies)) as Engine, dispose,
   }))
   cleanups.push(root.dispose)
-  root.engine.setDirectory("C:/work")
-  return { ...root, state, set, requests, health, timers, invoke, reconnect: () => connected() }
+  if (!options.withoutWorkspace) root.engine.setDirectory("C:/work")
+  return { ...root, state, set, requests, health, timers, invoke, appliedCatalogs, reconnect: () => connected() }
 }
 
 test("startup and core hydration finish while MCP commands, config, and health are pending", async () => {
@@ -128,6 +136,32 @@ test("startup and core hydration finish while MCP commands, config, and health a
   expect(view.invoke).toHaveBeenCalledWith("watcher_set_skill_paths", { directory: "C:/work", paths: ["skills"] })
   expect(view.state.version).toBe("1.2.3")
   expect(view.timers.size).toBe(0)
+})
+
+test("thread hydration finishes while provider and agent discovery remain blocked", async () => {
+  const view = setup(true)
+  await settle()
+  view.requests[0].sessions.resolve({ data: [] })
+  await settle()
+  expect(view.state.bootstrappedDirectory).toBe("C:/work")
+  expect(view.state.agents).toEqual([])
+  view.requests[0].agents.resolve({ data: [{ name: "late-agent" }] })
+  await settle()
+  expect(view.state.agents).toEqual([{ name: "late-agent" }])
+})
+
+test("late runtime discovery from an old workspace cannot replace the current agents", async () => {
+  const view = setup(true)
+  await settle()
+  view.engine.setDirectory("C:/other")
+  await settle()
+  view.requests[1].sessions.resolve({ data: [] })
+  view.requests[1].agents.resolve({ data: [{ name: "current-agent" }] })
+  await settle()
+  view.requests[0].agents.resolve({ data: [{ name: "stale-agent" }] })
+  await settle()
+  expect(view.state.agents).toEqual([{ name: "current-agent" }])
+  expect(view.state.bootstrappedDirectory).toBe("C:/other")
 })
 
 test.each(["reject", "missing"])("optional metadata %s does not block readiness or erase commands", async (failure) => {
@@ -290,4 +324,41 @@ test.each(["restart", "reconnect", "restart without workspace"])("%s refreshes a
   await settle()
   expect(view.state.version).toBe("1.18.30")
   expect(view.timers.size).toBe(0)
+})
+
+test("a fresh install with no workspace still loads the provider catalog globally", async () => {
+  const view = setup(false, { withoutWorkspace: true })
+  await settle()
+  expect(view.state.connection).toBe("idle")
+  expect(view.requests).toHaveLength(1)
+  expect(view.requests[0].directory).toBeUndefined()
+  expect(view.requests[0].api.provider.list).toHaveBeenCalledTimes(1)
+  expect(view.appliedCatalogs).toEqual([{ all: [], connected: [], default: {} }])
+  expect(view.state.bootstrappedDirectory).toBe("")
+})
+
+test("a late global provider response cannot overwrite a scoped workspace snapshot", async () => {
+  const view = setup(true, { withoutWorkspace: true })
+  await settle()
+  expect(view.requests[0].api.provider.list).toHaveBeenCalledTimes(1)
+  view.engine.setDirectory("C:/work")
+  await settle()
+  view.requests[1].sessions.resolve({ data: [] })
+  view.requests[1].providers.resolve({ data: { all: [], connected: ["scoped"], default: {} } })
+  await settle()
+  view.requests[0].providers.resolve({ data: { all: [], connected: ["stale-global"], default: {} } })
+  await settle()
+  expect(view.appliedCatalogs).toEqual([{ all: [], connected: ["scoped"], default: {} }])
+})
+
+test("restarting the engine without a workspace refreshes the global provider catalog", async () => {
+  const view = setup(false, { withoutWorkspace: true })
+  await settle()
+  expect(view.requests[0].api.provider.list).toHaveBeenCalledTimes(1)
+  expect(await view.engine.restartEngine()).toBeTrue()
+  await settle()
+  expect(view.requests).toHaveLength(2)
+  expect(view.requests[1].directory).toBeUndefined()
+  expect(view.requests[1].api.provider.list).toHaveBeenCalledTimes(1)
+  expect(view.state.bootstrappedDirectory).toBe("")
 })

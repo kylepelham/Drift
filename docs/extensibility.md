@@ -94,6 +94,31 @@ permissions. The `question.requested` hook fires when the engine asks.
 Hooks are registered by Drift plugins loaded from Drift's config directory. No remote
 code; local files only.
 
+## Slash completion and skill arguments
+
+Tab completes a command or subcommand in the composer without executing it. Enter confirms the
+highlighted choice or runs the completed command. Skill subcommand selections fill the draft first,
+leaving room to add a target. Arrow keys navigate the scrollable list; Escape dismisses it.
+
+The engine preserves a skill's `argument-hint` frontmatter as command usage. It discovers subcommands
+from explicit alternatives such as `[audit|polish]`, Markdown tables with `Command` and `Description`
+columns, and inline invocations such as `/my-skill audit [target]`. Fenced examples and unrelated
+commands are excluded. This metadata is exposed as optional `usage` and `subcommands` fields on the
+legacy command endpoint by `zz-skill-command-arguments.patch`; no skill needs to execute for its
+argument list to appear. Free-form hints such as `[target]` remain usage help, not invented choices.
+Command wrappers that explicitly call `skill({ name: "..." })` inherit that skill's completion
+metadata, even when the wrapper shadows the skill name or uses an alias. The wrapper's template,
+agent, model, and subtask settings remain authoritative. Ordinary same-name commands do not inherit
+unrelated skill choices. Argument choices use the same compact rows as `/fork`.
+Argument names and descriptions stay on one line with ellipses. The disclosure arrow expands
+the full details without selecting or running the command. At the end of the input, Right Arrow
+expands the highlighted argument and Left Arrow collapses it. Editing the draft resets expansion.
+
+Drift shows every matching command and subcommand, with descriptions and usage where documented.
+For example, `/impeccable` followed by Tab opens its documented actions, including audit, critique,
+polish, layout, and the other installed skill commands. Skills without argument metadata still
+support completion and manually typed arguments.
+
 ## Spawned threads (shipped)
 
 The claude-code Task tool spawns subagents that die with their result. Drift adds a

@@ -12,6 +12,7 @@ mod mcp_external;
 mod permissions;
 mod remote;
 mod session_search;
+mod startup;
 mod storage;
 mod store;
 mod ui_state;
@@ -33,10 +34,8 @@ static WINDOW_REVEALED: std::sync::atomic::AtomicBool = std::sync::atomic::Atomi
 
 /// Brings the launch window on screen.
 ///
-/// Tauri creates configured windows before `setup` runs, so hiding there still flashes an
-/// unpainted rectangle. The window is instead configured off-screen and hidden, then centered
-/// here on its first reveal. Creating it with `visible: false` would be the obvious alternative,
-/// but that path can break Tauri's outbound event channel on Windows.
+/// The window starts hidden and is revealed only after the preload reports painted content.
+/// Engine preparation proceeds independently of that first-frame handoff.
 fn position_main_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     let Some(monitor) = window.primary_monitor()? else {
         return window.center();
@@ -59,7 +58,9 @@ fn reveal_main_window(window: &tauri::WebviewWindow) {
     if window.show().is_err() {
         return;
     }
-    WINDOW_REVEALED.store(true, std::sync::atomic::Ordering::SeqCst);
+    if !WINDOW_REVEALED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        startup::mark("window-visible");
+    }
     let _ = window.unminimize();
     let _ = window.set_focus();
 }
@@ -75,10 +76,14 @@ fn open_webview_devtools(window: tauri::WebviewWindow) {
 }
 
 fn main() {
+    startup::mark("process-start");
     // Reqwest is built without a bundled provider so the release build needs no extra C toolchain.
     let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
             if let Some(window) = app.webview_windows().values().next() {
                 reveal_main_window(window);
             }
@@ -156,32 +161,14 @@ fn main() {
             ui_state::shell_timeout_update
         ])
         .setup(|app| {
+            startup::mark("setup-start");
             let launch_window = app
                 .get_webview_window("main")
                 .ok_or_else(|| std::io::Error::other("main window was not created"))?;
-            let _ = launch_window.hide();
             let data_dir = app.path().app_data_dir().expect("no app data dir");
             let config_dir = app.path().app_config_dir().expect("no app config dir");
             std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
             app.manage(ConfigRoot(config_dir));
-            let shared_database = if cfg!(debug_assertions) {
-                false
-            } else {
-                engine::engine_binary()
-                    .map(|_| match engine_db::prepare_shared() {
-                        Ok(imported) => {
-                            if imported > 0 {
-                                eprintln!("imported {imported} Drift database rows into the shared OpenCode database");
-                            }
-                            true
-                        }
-                        Err(error) => {
-                            eprintln!("keeping Drift's channel database: {error}");
-                            false
-                        }
-                    })
-                    .unwrap_or(false)
-            };
             let store = store::open(&data_dir).expect("failed to open drift store");
             let ui_state = ui_state::UiStateAuthority::load(&store)
                 .expect("failed to load UI mirror state");
@@ -190,11 +177,6 @@ fn main() {
             let dictation_enabled = store.dictation_enabled().unwrap_or(false);
             app.state::<permissions::DictationConsent>()
                 .set(dictation_enabled);
-            if let Ok(database) = engine_db::database_path(shared_database) {
-                if let Err(error) = store.import_opencode_workspaces(&database) {
-                    eprintln!("failed to import OpenCode workspaces: {error}");
-                }
-            }
             let extensions = engine::engine_extensions().expect("embedded engine extensions not found");
             let mcp_runtime = mcp::McpRuntime::new(&data_dir, extensions);
             mcp_runtime
@@ -212,7 +194,7 @@ fn main() {
                 .expect("failed to load remote access settings");
             let start_remote = remote_access.should_start();
             app.manage(remote_access);
-            engine::spawn_engine(app.handle().clone(), shared_database, engine_config);
+            engine::start_engine(app.handle().clone(), engine_config);
             watcher::watch_engine_configs(app.handle().clone());
             if start_remote {
                 let app = app.handle().clone();
@@ -229,8 +211,8 @@ fn main() {
                     }
                 });
             }
-            // Once setup releases the event loop, recover from a preload script that failed to
-            // invoke `show_main_window`. Normal startup reveals much earlier, after its first paint.
+            startup::mark("setup-complete");
+            // Recover if the preload script never observes paint or cannot invoke the reveal.
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst) {

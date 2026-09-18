@@ -166,3 +166,113 @@ test("frontend mount removes the static first-paint placeholder", async () => {
   expect(entry).toContain("root.replaceChildren()")
   expect(entry.indexOf("root.replaceChildren()")).toBeLessThan(entry.indexOf("render(() => <App />, root)"))
 })
+
+async function preload(splash = true) {
+  const document = await Bun.file("index.html").text()
+  const script = [...document.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)![1]
+  const commands: string[] = []
+  const frames: (() => void)[] = []
+  let decoded!: () => void
+  const image = new Promise<void>((resolve) => { decoded = resolve })
+  let revealed!: () => void
+  const reveal = new Promise<void>((resolve) => { revealed = resolve })
+  let publish!: (entries: { name: string }[]) => void
+  let disconnected = false
+  let images = 0
+  const window = { __TAURI__: { core: { invoke: (command: string) => {
+    commands.push(command)
+    return reveal
+  } } } } as unknown as Window & { __TAURI__: unknown }
+  const observer = class {
+    static supportedEntryTypes = ["paint"]
+    constructor(callback: (list: { getEntries(): { name: string }[] }) => void) {
+      publish = (entries) => callback({ getEntries: () => entries })
+    }
+    observe() {}
+    disconnect() { disconnected = true }
+  }
+  Object.assign(window, { PerformanceObserver: observer })
+  const run = new Function("window", "document", "requestAnimationFrame", "performance", "PerformanceObserver", "Image", script)
+  run(window, {
+    documentElement: { dataset: { splash: splash ? undefined : "hidden" } },
+    getElementById: () => ({ href: "logo.svg" }),
+  }, (callback: () => void) => frames.push(callback), { getEntriesByType: () => [], mark: () => {} }, observer, class {
+    constructor() { images++ }
+    decode() { return image }
+  })
+  const settle = async () => { for (let i = 0; i < 8; i++) await Promise.resolve() }
+  const frame = async () => { frames.shift()?.(); await settle() }
+  return { window, commands, frames, decoded, revealed, publish, frame, settle, disconnected: () => disconnected, images: () => images }
+}
+
+test("native reveal waits for contentful paint, decoded splash, and settled frames", async () => {
+  const view = await preload()
+  expect(view.commands).toEqual([])
+  view.publish([{ name: "first-paint" }])
+  view.decoded()
+  await view.settle()
+  expect(view.frames).toHaveLength(0)
+  expect(view.commands).toEqual([])
+  view.publish([{ name: "first-contentful-paint" }])
+  await view.settle()
+  expect(view.disconnected()).toBe(true)
+  await view.frame()
+  expect(view.commands).toEqual([])
+  await view.frame()
+  expect(view.commands).toEqual(["show_main_window"])
+  let ready = false
+  void view.window.__DRIFT_PRELOAD_READY__!.then(() => { ready = true })
+  await view.settle()
+  expect(ready).toBe(false)
+  view.revealed()
+  await view.settle()
+  await view.frame()
+  expect(ready).toBe(false)
+  await view.frame()
+  expect(ready).toBe(true)
+})
+
+test("a painted text splash cannot reveal before the logo finishes decoding", async () => {
+  const view = await preload()
+  view.publish([{ name: "first-contentful-paint" }])
+  await view.settle()
+  expect(view.frames).toHaveLength(0)
+  expect(view.commands).toEqual([])
+  view.decoded()
+  await view.settle()
+  await view.frame()
+  await view.frame()
+  expect(view.commands).toEqual(["show_main_window"])
+  view.revealed()
+  await view.settle()
+  await view.frame()
+  await view.frame()
+})
+
+test("disabled splash waits for app content to paint without loading the splash image", async () => {
+  const view = await preload(false)
+  expect(view.images()).toBe(0)
+  expect(view.commands).toEqual([])
+  view.publish([{ name: "first-contentful-paint" }])
+  await view.settle()
+  await view.frame()
+  await view.frame()
+  expect(view.commands).toEqual(["show_main_window"])
+  view.revealed()
+  await view.settle()
+  await view.frame()
+  await view.frame()
+})
+
+test("browser preload does not wait for a native reveal", async () => {
+  const document = await Bun.file("index.html").text()
+  const script = [...document.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)![1]
+  new Function("window", script)({})
+})
+
+test("native startup keeps a bounded fallback for failed preload reveals", async () => {
+  const source = await Bun.file(new URL("../src-tauri/src/main.rs", import.meta.url)).text()
+  expect(source).toContain("tokio::time::sleep(std::time::Duration::from_secs(5))")
+  expect(source).toContain("if !WINDOW_REVEALED.load")
+  expect(source).toContain("reveal_main_window(&launch_window)")
+})

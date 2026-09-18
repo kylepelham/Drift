@@ -109,6 +109,7 @@ test("a session that stays busy after the abort wait blocks the move", async () 
       state,
       set,
       () => ({ url: "http://engine.test" }),
+      undefined,
       { waitMs: 200, pollMs: 25 },
     )
     const result = await actions.moveSession("root", "C:/two")
@@ -158,6 +159,7 @@ test("a busy session confirmed idle after abort moves successfully", async () =>
       state,
       set,
       () => ({ url: "http://engine.test" }),
+      undefined,
       { waitMs: 200, pollMs: 25 },
     )
     expect(await actions.moveSession("root", destination)).toEqual({ ok: true, moved: ["root"] })

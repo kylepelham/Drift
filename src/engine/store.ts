@@ -16,6 +16,10 @@ import type { Connection } from "./connection"
 export type ModelInfo = Model & { family?: string; release_date?: string; variants?: Record<string, unknown> }
 export type ProviderInfo = { id: string; name: string; models: Record<string, ModelInfo> }
 export type ModelRef = { providerID: string; modelID: string }
+export type CommandInfo = Command & {
+  usage?: string
+  subcommands?: { name: string; description: string; usage?: string }[]
+}
 export type MessageEntry = { info: Message; parts: Part[] }
 
 export function interruptStaleTools(entries: MessageEntry[], liveTools: Readonly<Record<string, string>>, error = "Interrupted") {
@@ -122,7 +126,7 @@ export type EngineState = {
   connected: string[]
   defaultModels: Record<string, string>
   agents: Agent[]
-  commands: Command[]
+  commands: CommandInfo[]
   errors: Record<string, string>
   sessionModels: Record<string, ModelRef & { messageId?: string }>
   notices: Notice[]

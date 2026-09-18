@@ -79,7 +79,7 @@ export function hydratedWorkspaceSelection(items: Workspace[], selected: string 
   return items[0]?.id ?? null
 }
 
-async function refreshWorkspaces(repairSelection = false) {
+export async function refreshWorkspaces(repairSelection = false) {
   const [active, removed] = await Promise.all([driftStore.workspaces(), driftStore.removedWorkspaces()])
   setWorkspaces(active)
   setRemovedWorkspaces(removed)

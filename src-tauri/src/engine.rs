@@ -1,6 +1,7 @@
 //! Supervising the embedded opencode engine process.
 
 use crate::engine_db;
+use crate::{startup, store::Store};
 #[cfg(windows)]
 use crate::CREATE_NO_WINDOW;
 use serde::Serialize;
@@ -30,9 +31,16 @@ pub(crate) struct Engine {
     /// Random per run; the frontend receives it from `engine_status` and uses it for basic auth.
     pub(crate) password: String,
     /// How the engine was launched, so a caller that stops it can start an equivalent one.
-    launch: Mutex<Option<(bool, PathBuf)>>,
+    launch: Mutex<Option<(DatabaseMode, PathBuf)>>,
     /// Bumped per spawn so a stopped engine's reader cannot publish over its replacement.
     generation: AtomicU64,
+}
+
+#[derive(Clone, Copy)]
+enum DatabaseMode {
+    Prepare,
+    Shared,
+    Channel,
 }
 
 impl Default for Engine {
@@ -150,10 +158,14 @@ pub(crate) fn engine_extensions() -> Option<std::path::PathBuf> {
     source.exists().then_some(source)
 }
 
-pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_dir: PathBuf) {
+pub(crate) fn start_engine(app: tauri::AppHandle, config_dir: PathBuf) {
+    spawn_engine(app, DatabaseMode::Prepare, config_dir);
+}
+
+fn spawn_engine(app: tauri::AppHandle, database_mode: DatabaseMode, config_dir: PathBuf) {
     let generation = {
         let engine = app.state::<Engine>();
-        *engine.launch.lock().unwrap() = Some((shared_database, config_dir.clone()));
+        *engine.launch.lock().unwrap() = Some((database_mode, config_dir.clone()));
         let generation = engine.generation.fetch_add(1, Ordering::SeqCst) + 1;
         {
             let mut url = engine.url.lock().unwrap();
@@ -178,6 +190,47 @@ pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_
             }
             return;
         };
+        let shared_database = match database_mode {
+            DatabaseMode::Shared => true,
+            DatabaseMode::Channel => false,
+            DatabaseMode::Prepare => {
+                startup::mark("database-prepare-start");
+                let shared = !cfg!(debug_assertions) && match engine_db::prepare_shared() {
+                    Ok(imported) => {
+                        if imported > 0 {
+                            eprintln!("imported {imported} Drift database rows into the shared OpenCode database");
+                        }
+                        true
+                    }
+                    Err(error) => {
+                        eprintln!("keeping Drift's channel database: {error}");
+                        false
+                    }
+                };
+                startup::mark("database-prepare-complete");
+                if app.state::<Engine>().generation.load(Ordering::SeqCst) != generation {
+                    return;
+                }
+                if let Ok(database) = engine_db::database_path(shared) {
+                    if let Err(error) = app.state::<Store>().import_opencode_workspaces(&database) {
+                        eprintln!("failed to import OpenCode workspaces: {error}");
+                    }
+                }
+                startup::mark("workspace-import-complete");
+                shared
+            }
+        };
+        {
+            let engine = app.state::<Engine>();
+            let mut launch = engine.launch.lock().unwrap();
+            if engine.generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            *launch = Some((
+                if shared_database { DatabaseMode::Shared } else { DatabaseMode::Channel },
+                config_dir.clone(),
+            ));
+        }
         let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME"));
         let password = app.state::<Engine>().password.clone();
         let mut command = Command::new(binary);
@@ -213,6 +266,7 @@ pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_
                 return;
             }
         };
+        startup::mark("engine-process-started");
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let engine = app.state::<Engine>();
@@ -251,6 +305,7 @@ pub(crate) fn spawn_engine(app: tauri::AppHandle, shared_database: bool, config_
                 let mut url = engine.url.lock().unwrap();
                 if engine.generation.load(Ordering::SeqCst) == generation {
                     *url = Some(line[index..].trim().to_string());
+                    startup::mark("engine-listening");
                 }
             }
         }
@@ -321,19 +376,16 @@ pub(crate) fn respawn_engine(app: &tauri::AppHandle) {
     }
 }
 
-pub(crate) fn stop_engine_instances(app: &tauri::AppHandle) -> Result<(), String> {
+/// Publishes changed configuration and skills for each session's next idle boundary.
+pub(crate) fn reload_engine_config(app: &tauri::AppHandle) -> Result<(), String> {
     post_to_engine(
         app,
-        "/global/dispose",
-        "embedded engine refused global disposal",
+        "/global/config/reload",
+        "embedded engine refused the configuration reload",
     )
 }
 
-/// Reconnects every instance's MCP servers from the config on disk.
-///
-/// Unlike disposal this leaves the instances standing, so an edited MCP config does not interrupt
-/// the sessions running inside them. The engine rebuilds its config as part of the reload, which is
-/// what re-applies the approval policy to the servers it reconnects.
+/// Publishes updated MCP definitions. Active sessions retain their clients until their work ends.
 pub(crate) fn reload_engine_mcp(app: &tauri::AppHandle) -> Result<(), String> {
     post_to_engine(
         app,

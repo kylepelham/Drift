@@ -303,6 +303,44 @@ fn assert_foreign_keys(conn: &Connection) {
 }
 
 #[test]
+fn unchanged_channel_skips_the_full_shared_database_audit() {
+    let databases = databases(CURRENT_SCHEMA);
+    let source = Connection::open(&databases.source).unwrap();
+    insert_project(&source, "/source");
+    insert_session(&source, "imported", "Original");
+    insert_aggregate(&source, "imported", "source");
+    drop(source);
+    let mut audits = 0;
+    let imported = merge_sessions_with_verifier(&databases.source, &databases.target, |tx| {
+        audits += 1;
+        verify_foreign_keys(tx)
+    }).unwrap();
+    assert!(imported > 0);
+    assert_eq!(audits, 1);
+    let target = Connection::open(&databases.target).unwrap();
+    target.execute("UPDATE session SET title = 'User edit' WHERE id = 'imported'", []).unwrap();
+    assert_eq!(merge_sessions_with_verifier(&databases.source, &databases.target, |_| {
+        panic!("unchanged startup must not scan the shared event/transcript database")
+    }).unwrap(), 0);
+    assert_eq!(target.query_row("SELECT title FROM session WHERE id = 'imported'", [], |row| row.get::<_, String>(0)).unwrap(), "User edit");
+}
+
+#[test]
+fn failed_import_audit_rolls_back_all_imported_rows() {
+    let databases = databases(CURRENT_SCHEMA);
+    let source = Connection::open(&databases.source).unwrap();
+    insert_project(&source, "/source");
+    insert_session(&source, "imported", "Original");
+    drop(source);
+    assert!(merge_sessions_with_verifier(&databases.source, &databases.target, |_| {
+        Err(rusqlite::Error::InvalidQuery)
+    }).is_err());
+    let target = Connection::open(&databases.target).unwrap();
+    assert_eq!(target.query_row("SELECT COUNT(*) FROM session", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    assert_eq!(target.query_row("SELECT COUNT(*) FROM project", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+}
+
+#[test]
 fn imports_a_complete_current_aggregate_and_continues_its_sequence() {
     let databases = databases(CURRENT_SCHEMA);
     let source = Connection::open(&databases.source).unwrap();
