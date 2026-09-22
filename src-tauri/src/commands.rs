@@ -2,7 +2,7 @@
 //!
 //! Each exists only to adapt an error type into the String the frontend receives.
 
-use crate::engine::reload_engine_mcp;
+use crate::engine::{reload_engine_config, reload_engine_mcp};
 use crate::mcp;
 use crate::session_search::{self, SessionMatch};
 use crate::storage::{self, PruneResult, PruneRules, RuleEstimate, StorageStats};
@@ -161,22 +161,32 @@ pub(crate) fn prompt_snapshot(
 
 #[tauri::command]
 pub(crate) fn prompt_save(
+    app: tauri::AppHandle,
     runtime: State<mcp::McpRuntime>,
     store: State<Store>,
     key: String,
     value: Value,
     original: Option<Value>,
 ) -> Result<(), String> {
-    runtime.save_prompt(&store, &key, value, original)
+    runtime.save_prompt(&store, &key, value, original)?;
+    publish_prompt_change(&app)
 }
 
 #[tauri::command]
 pub(crate) fn prompt_reset(
+    app: tauri::AppHandle,
     runtime: State<mcp::McpRuntime>,
     store: State<Store>,
     key: String,
 ) -> Result<(), String> {
-    runtime.reset_prompt(&store, &key)
+    runtime.reset_prompt(&store, &key)?;
+    publish_prompt_change(&app)
+}
+
+fn publish_prompt_change(app: &tauri::AppHandle) -> Result<(), String> {
+    reload_engine_config(app).map_err(|error| {
+        format!("Settings saved, but the engine reload failed. Retry Save or restart Drift: {error}")
+    })
 }
 
 #[tauri::command]

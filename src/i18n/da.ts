@@ -1095,6 +1095,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Aktuel model",
   "drift.slash.argumentDetails": "Detaljer om {{name}}",
   "drift.markdown.ambiguousCitation": "Tvetydigt fillink \"{{href}}\". Brug en længere sti til at vælge mellem: {{files}}",
   "drift.preview.settings.title": "Filforhåndsvisninger",

@@ -27,6 +27,7 @@ import {
   type SyntaxThemePreset,
 } from "../state/code"
 import { t } from "../state/i18n"
+import { agentBehaviorModel, subagentModelOptions, withAgentModel } from "../state/agent-models"
 import { comboFor, eventCombo, formatCombo, keybindDefs, setCombo, type KeybindAction } from "../state/keybinds"
 import { language, languages, setLanguage, type LanguageId } from "../state/language"
 import { formatModelContext, lmStudioMinimumContext, lmStudioModelReady } from "../state/lm-studio"
@@ -1365,9 +1366,7 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   const [agentPromptBaseline, setAgentPromptBaseline] = createSignal("")
   const [agentBehaviorBaseline, setAgentBehaviorBaseline] = createSignal("{}")
   const [familyDirty, setFamilyDirty] = createSignal(false)
-  // Prompt and agent overrides are read by the engine at startup, so a successful write only
-  // takes effect after a restart. This flag drives that notice, nothing else.
-  const [showRestartNotice, setShowRestartNotice] = createSignal(false)
+  const [showSavedNotice, setShowSavedNotice] = createSignal(false)
   const [error, setError] = createSignal("")
   const [saving, setSaving] = createSignal(false)
   const override = (key: string) => snapshot()?.overrides.find((item) => item.key === key)
@@ -1383,6 +1382,20 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   const agentPromptModified = () => agentPrompt() !== agentPromptBaseline() || "prompt" in agentOverrideFields()
   const agentBehaviorModified = () =>
     agentBehavior() !== agentBehaviorBaseline() || Object.keys(agentOverrideFields()).some((key) => key !== "prompt")
+  const agentModels = createMemo(() => [
+    { id: "", label: t("drift.settings.agents.currentModel") },
+    ...subagentModelOptions(engine.state),
+  ])
+  const selectedAgentModel = () => agentBehaviorModel(agentBehavior())
+
+  function selectAgentModel(model: string) {
+    try {
+      setAgentBehavior(withAgentModel(agentBehavior(), model))
+      setError("")
+    } catch {
+      setError(t("drift.settings.prompts.invalidJson"))
+    }
+  }
 
   async function load() {
     const next = await loadPromptSnapshot().catch((cause) => {
@@ -1428,12 +1441,13 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   async function mutate(action: () => Promise<void>, clean: () => void) {
     setSaving(true)
     setError("")
-    setShowRestartNotice(false)
+    setShowSavedNotice(false)
     try {
       await action()
+      if (props.view === "agents") await engine.actions.refreshAgents()
       clean()
       await load()
-      setShowRestartNotice(true)
+      setShowSavedNotice(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -1593,6 +1607,19 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
                     }}
                   />
                 </div>
+                <Show when={currentAgent()?.mode === "subagent" || currentAgent()?.mode === "all"}>
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-xs text-ink-faint">{t("command.category.model")}</span>
+                    <Picker
+                      label={t("command.category.model")}
+                      items={agentModels()}
+                      selected={selectedAgentModel()}
+                      fallbackLabel={selectedAgentModel() || t("drift.settings.agents.currentModel")}
+                      floating bordered chevronAtEnd placement="below" width="11rem"
+                      onPick={selectAgentModel}
+                    />
+                  </div>
+                </Show>
                 <label class="block text-xs text-ink-faint">
                   <span class="mb-1 block">{t("drift.settings.prompts.agentPrompt")}</span>
                   <textarea
@@ -1633,8 +1660,8 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
           </>
         )}
       </Show>
-      <Show when={showRestartNotice()}>
-        <div class="text-xs text-accent">{t("drift.settings.prompts.restart")}</div>
+      <Show when={showSavedNotice()}>
+        <div class="text-xs text-accent">{t("drift.settings.prompts.saved")}</div>
       </Show>
       <Show when={error()}>
         <div class="text-xs text-danger">{error()}</div>

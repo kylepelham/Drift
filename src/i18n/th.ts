@@ -1090,6 +1090,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "โมเดลปัจจุบัน",
   "drift.slash.argumentDetails": "รายละเอียดของ {{name}}",
   "drift.markdown.ambiguousCitation": "ลิงก์ไฟล์ \"{{href}}\" ไม่ชัดเจน ใช้พาธที่เจาะจงขึ้นเพื่อเลือกระหว่าง: {{files}}",
   "drift.preview.settings.title": "ตัวอย่างไฟล์",

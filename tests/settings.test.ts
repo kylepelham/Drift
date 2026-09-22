@@ -96,6 +96,25 @@ test("agent overrides retain only values changed from upstream", async () => {
   ).toEqual({ prompt: "Custom", mode: "subagent" })
 })
 
+test("prompt saves and resets publish a runtime reload for desktop and companion callers", async () => {
+  const commands = await Bun.file("src-tauri/src/commands.rs").text()
+  const remote = await Bun.file("src-tauri/src/remote.rs").text()
+  for (const [command, method] of [["prompt_save", "save_prompt"], ["prompt_reset", "reset_prompt"]]) {
+    const body = commands.slice(commands.indexOf(`pub(crate) fn ${command}(`)).split("\n}")[0]!
+    expect(body).toContain("app: tauri::AppHandle")
+    expect(body).toContain(`runtime.${method}(`)
+    expect(body).toContain("?;\n    publish_prompt_change(&app)")
+    expect(body.indexOf(`runtime.${method}(`)).toBeLessThan(body.indexOf("publish_prompt_change(&app)"))
+    expect(remote).toContain(`commands::${command}(\n            app.clone(),`)
+  }
+  expect(commands).toContain("reload_engine_config(app).map_err")
+  expect(commands).toContain("Settings saved, but the engine reload failed.")
+  const ui = await Bun.file("src/ui/settings.tsx").text()
+  expect(ui).toContain('if (props.view === "agents") await engine.actions.refreshAgents()')
+  expect(ui).toContain('t("drift.settings.prompts.saved")')
+  expect(ui).not.toContain("showRestartNotice")
+})
+
 const pendingKeys = (prefix: string, suffixes: string) =>
   suffixes
     .trim()
@@ -163,7 +182,7 @@ const pendingTranslation = new Set([
     "drift.settings.prompts",
     `
       agentDescription agentPrompt agents behavior familyDescription inheritsFamily invalidJson
-      modelFamilies restart saveBeforeSwitch systemPrompt upstreamOriginal
+      modelFamilies saved saveBeforeSwitch systemPrompt upstreamOriginal
     `,
   ),
   "drift.settings.prompts",

@@ -158,9 +158,34 @@ the older family template; a saved family edit applies across both templates.
 Settings stores only user edits in Drift SQLite. Model-family edits are materialized to
 the plugin settings file; agent and subagent prompt/behavior edits are materialized as
 the highest-precedence Drift agent config. Reset removes that layer and reveals the
-generated Drift default or the user's underlying OpenCode agent config. Applying changes
-is disabled while any session is active because reloading engine instances mid-turn
-would interrupt work.
+generated Drift default or the user's underlying OpenCode agent config. Saving or resetting
+publishes a runtime configuration reload for both desktop and companion clients. Idle and
+new sessions use the new settings; active sessions retain their configuration until they
+finish. The agent catalog refreshes after saving. A failed publication reports that the
+settings were saved but need a retry or restart, rather than claiming they are live.
+
+### Subagent models
+
+In Settings > Agents, select a subagent type such as `explore`, `general`, or a custom
+agent, then choose its Model. The compact row aligns with the agent selector. The searchable list includes tool-capable models
+from connected providers, including models hidden from the composer. LM Studio models
+must meet its loaded-context requirement. Save the agent to apply to new tasks from idle
+sessions. Tasks launched by an already active session keep that session's configuration
+until its current work finishes.
+
+Current model is the default for unpinned subagents. It uses the model of the session
+invoking each task, not a snapshot of the model selected when the setting was saved.
+An explicit choice stores the engine's `provider/model-id` under the existing SQLite
+`agent:<name>` override. Selecting Current model stores an empty model string, which
+masks any lower-precedence agent model and restores task model inheritance. Reset removes
+the whole Drift agent override and restores the underlying agent configuration instead.
+Prompt and behavior edits are preserved when changing the model. The picker and behavior
+JSON edit the same value; unavailable saved models remain visible by ID until changed.
+
+The engine applies the agent model to both foreground and background tasks, including
+resumed tasks. A pinned model does not inherit the parent's reasoning variant. Agent
+types with mode `all` share this configuration when invoked directly too. Spawned sibling
+threads continue to use the spawning session's model.
 
 ## Workflows (design open)
 

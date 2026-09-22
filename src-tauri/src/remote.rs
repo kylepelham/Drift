@@ -861,6 +861,7 @@ remote_commands! {
         )?),
         "prompt_snapshot" => value(commands::prompt_snapshot(runtime(), store())?),
         "prompt_save" => value(commands::prompt_save(
+            app.clone(),
             runtime(),
             store(),
             arg(args, "key")?,
@@ -868,6 +869,7 @@ remote_commands! {
             optional(args, "original")?,
         )?),
         "prompt_reset" => value(commands::prompt_reset(
+            app.clone(),
             runtime(),
             store(),
             arg(args, "key")?,

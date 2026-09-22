@@ -1103,6 +1103,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Trenutni model",
   "drift.slash.argumentDetails": "Detalji za {{name}}",
   "drift.markdown.ambiguousCitation": "Dvosmislena veza do datoteke \"{{href}}\". Koristite dužu putanju za odabir između: {{files}}",
   "drift.preview.settings.title": "Pregledi datoteka",

@@ -72,6 +72,7 @@ await withEngineOverlays(async () => {
     "test/effect/async-question.test.ts",
   ])
   await run("packages/opencode", ["test/session/prompt.test.ts", "-t", "async question|runtime reload"])
+  await run("packages/opencode", ["test/tool/task.test.ts", "-t", "runtime reload applies subagent model"])
   await run("packages/opencode", ["test/session/instruction.test.ts"])
   await run("packages/core", ["test/event.test.ts"])
   await run("packages/opencode", ["test/plugin/codex.test.ts"])

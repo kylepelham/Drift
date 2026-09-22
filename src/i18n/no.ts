@@ -1111,6 +1111,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Gjeldende modell",
   "drift.slash.argumentDetails": "Detaljer om {{name}}",
   "drift.markdown.ambiguousCitation": "Tvetydig fillenke \"{{href}}\". Bruk en lengre sti for å velge mellom: {{files}}",
   "drift.preview.settings.title": "Filforhåndsvisninger",
