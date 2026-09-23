@@ -6,8 +6,11 @@
    (injected via `OPENCODE_CONFIG_DIR`, which the engine treats as an extra config dir:
    it auto-discovers `plugin/*.ts`, reads its `opencode.json`, and installs
    `@opencode-ai/plugin` there). That `opencode.json` also pins npm plugins Drift ships
-   by default, currently `@ex-machina/opencode-anthropic-auth` so Claude Pro/Max plan
+   by default, currently `@ex-machina/opencode-anthropic-auth@1.8.5` so Claude Pro/Max plan
    sign-ins work out of the box (installed on demand into the opencode package cache).
+   Version 1.8.5 reports Claude Code 2.1.280 for Anthropic's model-access gate. The
+   plugin does not itself add new models to the provider catalog; Opus 5.5 availability
+   still depends on the account, provider catalog, and Anthropic's server-side access.
     User plugins in `.opencode/` and global config work unchanged, but execute arbitrary
     engine-process code and are therefore outside the MCP approval trust boundary. Prefer
     a plugin for engine behavior. If an internal semantic cannot be expressed through the plugin API,
