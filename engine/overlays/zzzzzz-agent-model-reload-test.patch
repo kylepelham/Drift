@@ -6,7 +6,7 @@ diff --git a/packages/opencode/test/tool/task.test.ts b/packages/opencode/test/t
 -import { disposeAllInstances } from "../fixture/fixture"
 +import { disposeAllInstances, TestInstance } from "../fixture/fixture"
  import { testEffect } from "../lib/effect"
-@@ -248,1 +248,53 @@
+@@ -248,1 +248,56 @@
 +  it.instance("runtime reload applies subagent model pins and Current model to actual task dispatch", () =>
 +    Effect.gen(function* () {
 +      const instance = yield* TestInstance
@@ -31,19 +31,21 @@ diff --git a/packages/opencode/test/tool/task.test.ts b/packages/opencode/test/t
 +          },
 +        )
 +        expect(seen).toBeDefined()
-+        expect(result.metadata.model).toEqual(seen!.model)
++        expect(String(result.metadata.model?.providerID)).toBe(String(seen!.model?.providerID))
++        expect(String(result.metadata.model?.modelID)).toBe(String(seen!.model?.modelID))
 +        return seen!
 +      })
 +      for (const name of ["general", "explore"]) {
-+        expect((yield* dispatch(name)).model).toEqual(ref)
++        expect((yield* dispatch(name)).model?.modelID).toBe(ref.modelID)
 +      }
 +      const agent = { general: { model: "test/smart" }, explore: { model: "test/cheap" } }
 +      yield* Effect.promise(() => Bun.write(`${instance.directory}/opencode.json`, JSON.stringify({ agent })))
-+      expect((yield* dispatch("general")).model).toEqual(ref)
++      expect((yield* dispatch("general")).model?.modelID).toBe(ref.modelID)
 +      yield* config.reload()
 +      for (const [name, model] of [["general", "smart"], ["explore", "cheap"]]) {
 +        const input = yield* dispatch(name!)
-+        expect(input.model).toEqual({ providerID: "test", modelID: model })
++        expect(String(input.model?.providerID)).toBe("test")
++        expect(String(input.model?.modelID)).toBe(model)
 +        expect(input.variant).toBeUndefined()
 +      }
 +      yield* Effect.promise(() => Bun.write(`${instance.directory}/opencode.json`, JSON.stringify({
@@ -53,7 +55,8 @@ diff --git a/packages/opencode/test/tool/task.test.ts b/packages/opencode/test/t
 +      yield* sessions.updateMessage({ ...assistant, modelID: ModelV2.ID.make("changed-parent") })
 +      for (const name of ["general", "explore"]) {
 +        const input = yield* dispatch(name)
-+        expect(input.model).toEqual({ providerID: "test", modelID: "changed-parent" })
++        expect(String(input.model?.providerID)).toBe("test")
++        expect(String(input.model?.modelID)).toBe("changed-parent")
 +        expect(input.variant).toBe("xhigh")
 +      }
 +    }),

@@ -1,16 +1,15 @@
 diff --git a/packages/opencode/test/plugin/codex.test.ts b/packages/opencode/test/plugin/codex.test.ts
 --- a/packages/opencode/test/plugin/codex.test.ts
 +++ b/packages/opencode/test/plugin/codex.test.ts
-@@ -289,7 +289,7 @@ describe("CodexAuthPlugin", () => {
-       models: {
-         ...Object.fromEntries(
--          ["gpt-5.4", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.7-pro"].map((id) => [
-+          ["gpt-5.4", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.7-pro", "gpt-6-astra"].map((id) => [
-             id,
-             { id, api: { id }, limit, cost: {}, options: {} },
-           ]),
+@@ -297,6 +297,7 @@ describe("CodexAuthPlugin", () => {
+             "gpt-5.7-pro",
+             "gpt-6-sol",
+             "gpt-6-luna",
++            "gpt-6-astra",
+           ].map((id) => [id, { id, api: { id }, limit, cost: {}, options: {} }]),
          ),
-@@ -318,6 +318,17 @@ describe("CodexAuthPlugin", () => {
+         "gpt-5.4-pro": {
+@@ -324,6 +325,17 @@ describe("CodexAuthPlugin", () => {
      expect(models["gpt-5.6-sol"]?.limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
      expect(models["gpt-5.6-terra"]?.limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
      expect(models["gpt-5.6-luna"]?.limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
@@ -25,6 +24,6 @@ diff --git a/packages/opencode/test/plugin/codex.test.ts b/packages/opencode/tes
 +        tokens: { total, input: total, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
 +      })).toBe(total >= 902_000)
 +    }
+     expect(models["gpt-6-sol"]).toBeDefined()
+     expect(models["gpt-6-luna"]).toBeDefined()
      expect(models["gpt-5.4-pro"]).toBeUndefined()
-     expect(models["gpt-5.7-pro"]).toBeDefined()
-     expect(models["gpt-5.6-sol-high"]).toBeDefined()

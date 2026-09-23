@@ -167,7 +167,19 @@ protocol findings, the limits of the installed-app inspection, and follow-up wor
 
 ## Engine update runbook
 
-The 2026-09-15 update imports OpenCode 1.18.31 at `a74c472ffb941e6b027e5348be50cfe2225c6c56`.
+The 2026-09-23 update imports OpenCode 1.18.32 at `18ef3cc7c5a25b82114c953a80ccc09f4988f74e`.
+The snapshot includes Codex OAuth support for GPT-6 Sol and Luna, restricts Bedrock image
+tool-output hoisting to supported model families, fixes Node package entrypoint resolution,
+and updates TogetherAI and GitLab provider dependencies. The 1.18.32 SDK is aligned with
+the embedded engine. The GPT-6 Astra context-limit regression overlay was refreshed to
+retain upstream's new Sol and Luna coverage.
+
+The upstream Vertex Anthropic wire test still expects `block_binding`, but the pinned
+`@ai-sdk/google-vertex` transport omits that field. It fails on the pristine upstream
+snapshot without Drift overlays; the other engine suites and overlay tests pass.
+
+The previous 2026-09-15 update imported OpenCode 1.18.31 at
+`a74c472ffb941e6b027e5348be50cfe2225c6c56`.
 This is upstream's version-sync commit on `dev`. Its complete tree equals the `v1.18.31`
 release tag's tree, including the 1.18.31 manifests. The marker stays pinned to the `dev`
 sync commit so future updates can validate ancestry along `dev`, rather than the separate release commit.
