@@ -138,6 +138,7 @@ import { readDataUrl } from "./files"
 import { Jellyfish } from "./jellyfish"
 import { SettingsGroup, SettingsRow } from "./settings-controls"
 import { StorageSection } from "./settings-storage"
+import { ToolRoutingSetting } from "./settings-tool-routing"
 import { VoiceSection } from "./settings-voice"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import { McpManagement } from "./mcp"
@@ -672,6 +673,7 @@ function ToolExecutionSection() {
   return (
     <div class="space-y-5">
       <SettingsGroup title={t("drift.settings.toolExecution")}>
+        <ToolRoutingSetting />
         <SettingsRow
           title={t("drift.settings.shellTimeout.title")}
           description={t("drift.settings.shellTimeout.description")}
@@ -729,7 +731,6 @@ function ToolExecutionSection() {
           </SettingsRow>
         </Show>
       </SettingsGroup>
-      <p class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.settings.shellTimeout.scope")}</p>
       <Show when={error()}><div class="text-xs text-danger">{error()}</div></Show>
     </div>
   )

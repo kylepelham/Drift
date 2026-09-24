@@ -240,10 +240,14 @@ fn spawn_engine(app: tauri::AppHandle, database_mode: DatabaseMode, config_dir: 
             .env("OPENCODE_SERVER_USERNAME", ENGINE_USERNAME)
             .env_remove("OPENCODE_CONFIG")
             .env_remove("OPENCODE_CONFIG_CONTENT")
+            .env("DRIFT_TOOL_ROUTING_POLICY", config_dir.join("tool-routing.json"))
             .env("OPENCODE_CONFIG_DIR", config_dir)
             .env("DRIFT_MCP_APPROVAL_REQUIRED", "1")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some(extensions) = engine_extensions() {
+            command.env("DRIFT_TOOL_ROUTING_MODULE", extensions.join("tool-routing.js"));
+        }
         if shared_database {
             engine_db::configure_shared(&mut command);
         }

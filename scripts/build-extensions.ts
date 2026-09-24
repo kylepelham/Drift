@@ -58,6 +58,11 @@ export async function buildExtensions(output = defaultOutput) {
     minify: true,
   })
   if (!result.success) throw new AggregateError(result.logs, "failed to bundle Drift engine extensions")
+  const routing = await Bun.build({
+    entrypoints: [path.join(source, "tool-routing.ts")],
+    outdir: output, target: "bun", format: "esm", minify: true,
+  })
+  if (!routing.success) throw new AggregateError(routing.logs, "failed to bundle tool routing")
   cpSync(path.join(source, "opencode.json"), path.join(output, "opencode.json"))
   await Bun.write(path.join(output, "prompt-catalog.json"), `${JSON.stringify(promptCatalog(), null, 2)}\n`)
   await Bun.write(

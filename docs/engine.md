@@ -102,6 +102,36 @@ once the engine is available and loads thread/status snapshots independently of 
 discovery. Captured stderr includes monotonic `drift startup:` milestones for window, database,
 workspace import, and engine timing.
 
+## Optional Jev tool routing
+
+Tool execution settings can enable Jev routing through OpenCode Zen. It is off by default.
+The native shell persists the choice in SQLite and atomically publishes `tool-routing.json`.
+The bundled `tool-routing.js` reads it at each model step, so changing the setting requires
+no restart. A small `zzzzzzz-jev-tool-routing.patch` bridge runs after permission filtering
+and before either LLM transport. It obtains the existing Zen API credential from engine
+auth only when routing is enabled. No credentials enter the UI or routing cache.
+
+Jev receives up to four recent conversational text excerpts, each capped at 2,000 characters,
+and tool names/descriptions grouped by MCP server, with descriptions capped at 256 characters.
+It receives neither reasoning parts nor tool outputs or parameter schemas. Built-ins,
+custom tools without an unambiguous MCP prefix,
+and previously used tools remain visible. Code-mode catalogs with no direct MCP tools bypass
+routing. Fewer than two groups, more than 24 groups, or a catalog over 96,000 characters also bypass it.
+
+One `jev-1.13` request batches a Noul relevance question per group. A group is retained at
+0.8 or higher and excluded at 0.15 or lower. Intermediate scores, more than four relevant
+groups, malformed responses, missing auth, HTTP failures, and a 1.2-second timeout keep all
+tools. These conservative thresholds are experimental, not measured accuracy guarantees.
+Decisions and failures are shared for one session/user-turn/catalog key in a bounded 128-entry
+cache. A new user turn or changed catalog triggers reevaluation. No network retries are added
+to the model's critical path. Stable ordering preserves caching within a turn where possible.
+
+Filtered requests include `drift_expand_tools`, which restores the full already-permitted
+set on the next step for the rest of that turn. Expansion never restores tools excluded by
+permissions or the user's tool settings. Routing does not grant execution approval. Existing
+permission checks still run when a selected tool executes. End-to-end latency and task-success
+improvements have not yet been benchmarked on Drift workloads.
+
 ## Async questions
 
 The question tool defaults to `async: true`. It registers a pending request and returns

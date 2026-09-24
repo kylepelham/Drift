@@ -15,6 +15,7 @@ mod session_search;
 mod startup;
 mod storage;
 mod store;
+mod tool_routing;
 mod ui_state;
 mod updater;
 mod voice;
@@ -158,7 +159,9 @@ fn main() {
             ui_state::ui_state_update,
             ui_state::shell_timeout_initialize,
             ui_state::shell_timeout_snapshot,
-            ui_state::shell_timeout_update
+            ui_state::shell_timeout_update,
+            tool_routing::tool_routing_snapshot,
+            tool_routing::tool_routing_update
         ])
         .setup(|app| {
             startup::mark("setup-start");
@@ -183,6 +186,9 @@ fn main() {
                 .materialize(&store)
                 .expect("failed to prepare Drift MCP policy");
             let engine_config = mcp_runtime.config_dir().to_path_buf();
+            let tool_routing = tool_routing::ToolRouting::new(&engine_config, &store)
+                .expect("failed to prepare tool routing policy");
+            app.manage(tool_routing);
             app.manage(store);
             app.manage(ui_state);
             app.manage(shell_timeout);

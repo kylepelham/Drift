@@ -81,6 +81,15 @@ test("prompt and agent editors are separate Server settings with inherited-value
   expect(source).toContain("{variant.original}")
 })
 
+test("tool execution exposes optional Jev routing without its old footer", async () => {
+  const source = await Bun.file("src/ui/settings.tsx").text()
+  expect(source).toContain("<ToolRoutingSetting />")
+  expect(source).not.toContain('t("drift.settings.shellTimeout.scope")')
+  const routing = await Bun.file("src/ui/settings-tool-routing.tsx").text()
+  expect(routing).toContain("checked={toolRouting().enabled}")
+  expect(routing).toContain("disabled={busy()}")
+})
+
 test("agent overrides retain only values changed from upstream", async () => {
   const { agentOverrideValue } = await import("../src/state/prompts")
   const inherited = { prompt: "Upstream", mode: "primary", tools: { bash: true, read: true } }
@@ -123,6 +132,7 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 
 /** Keys that deliberately fall back to English until locale-specific translations ship. */
 const pendingTranslation = new Set([
+  ...pendingKeys("drift.settings.toolRouting", "title description connect"),
   "drift.markdown.linkFailed",
   "drift.mobile.openNavigation",
   "drift.settings.code",

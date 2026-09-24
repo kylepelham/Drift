@@ -155,6 +155,8 @@ test("release extensions load without workspace node_modules", async () => {
     expect(typeof approval.McpApproval).toBe("function")
     expect(Object.values(approval).filter((value) => typeof value === "function")).toHaveLength(1)
     const prompt = await import(pathToFileURL(promptPath).href)
+    const routing = await import(pathToFileURL(path.join(output, "tool-routing.js")).href)
+    expect(typeof routing.routeTools).toBe("function")
     expect(typeof prompt.PromptOverrides).toBe("function")
     const catalog = await Bun.file(path.join(output, "prompt-catalog.json")).json()
     expect(catalog.families).toHaveLength(9)

@@ -1,4 +1,4 @@
-use crate::{commands, config, editor, engine, file_preview, mcp, store::Store, ui_state, voice};
+use crate::{commands, config, editor, engine, file_preview, mcp, store::Store, tool_routing, ui_state, voice};
 use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, Extension, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
@@ -979,6 +979,8 @@ remote_commands! {
         "shell_timeout_snapshot" => {
             value(ui_state::shell_timeout_snapshot(app.state())?)
         },
+        "tool_routing_snapshot" => value(tool_routing::tool_routing_snapshot(store())?),
+        "tool_routing_update" => value(tool_routing::tool_routing_update(app.clone(), app.state(), store(), arg(args, "policy")?)?),
         "shell_timeout_update" => value(ui_state::shell_timeout_update(
             app.clone(),
             app.state(),

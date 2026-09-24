@@ -314,6 +314,9 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.toolRouting.title": "Jev tool routing (experimental)",
+  "drift.settings.toolRouting.description": "Shortlist MCP groups using task context sent to OpenCode Zen.",
+  "drift.settings.toolRouting.connect": "Connect OpenCode Zen in Providers. Until then, all tools stay available.",
   "drift.slash.argumentDetails": "Details for {{name}}",
   "drift.markdown.ambiguousCitation": "Ambiguous file link \"{{href}}\". Use a longer path to choose between: {{files}}",
   "drift.preview.settings.title": "File previews",
