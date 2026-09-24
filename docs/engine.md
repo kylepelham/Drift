@@ -129,10 +129,12 @@ custom tools without an unambiguous MCP prefix,
 and previously used tools remain visible. Code-mode catalogs with no direct MCP tools bypass
 routing. Fewer than two groups, more than 24 groups, or a catalog over 96,000 characters also bypass it.
 
-One `jev-1.13` request batches a Noul relevance question per group. A group is retained at
-0.8 or higher and excluded at 0.15 or lower. Intermediate scores, more than four relevant
-groups, malformed responses, missing auth, HTTP failures, and a 1.2-second timeout keep all
-tools. These conservative thresholds are experimental, not measured accuracy guarantees.
+One `jev-1.13` request batches a Noul relevance question per group. Only groups scored 0.15 or
+lower are hidden; every other group stays, however unsure the score. An earlier rule that also
+required a 0.8 score to keep anything let one middling group cancel the whole turn: replaying
+"what is apophis status?" scored Apophis 0.61 and kept all 161 MCP tools, while hiding only the
+confident misses drops three servers. Malformed responses, missing auth, HTTP failures, and a
+1.2-second timeout keep all tools. The threshold is experimental, not a measured accuracy guarantee.
 Decisions and failures are shared for one session/user-turn/catalog key in a bounded 128-entry
 cache. A new user turn or changed catalog triggers reevaluation. No network retries are added
 to the model's critical path. Stable ordering preserves caching within a turn where possible.

@@ -87,9 +87,8 @@ function decisions(response: unknown, groups: Group[]): Decision {
   if (!answers || typeof answers !== "object" || Array.isArray(answers)) return { outcome: "invalid-response" }
   const scores = groups.map((_, index) => relevance((answers as Record<string, unknown>)[`g${index}`]))
   if (scores.some((score) => score === undefined)) return { outcome: "invalid-response" }
-  if (scores.some((score) => score! > 0.15 && score! < 0.8)) return { outcome: "uncertain" }
-  const selected = new Set(groups.filter((_, index) => scores[index]! >= 0.8).map((group) => group.name))
-  return selected.size > 4 ? { outcome: "uncertain" } : { outcome: "routed", selected }
+  const selected = new Set(groups.filter((_, index) => scores[index]! > 0.15).map((group) => group.name))
+  return selected.size === groups.length ? { outcome: "uncertain" } : { outcome: "routed", selected }
 }
 
 function httpOutcome(status: number): Outcome {

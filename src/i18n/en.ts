@@ -324,7 +324,7 @@ export const drift = {
   "drift.settings.toolRouting.outcome.timeout": "Jev timed out, so all tools stayed available.",
   "drift.settings.toolRouting.outcome.network": "Jev was unreachable, so all tools stayed available.",
   "drift.settings.toolRouting.outcome.invalid-response": "Jev sent an unreadable answer, so all tools stayed available.",
-  "drift.settings.toolRouting.outcome.uncertain": "Jev was unsure, so all tools stayed available.",
+  "drift.settings.toolRouting.outcome.uncertain": "Jev found no clearly unrelated MCP server, so none were hidden.",
   "drift.settings.toolRouting.outcome.no-context": "No text to route on, so all tools stayed available.",
   "drift.settings.toolRouting.outcome.too-few-groups": "Fewer than two MCP servers, so there is nothing to route.",
   "drift.settings.toolRouting.outcome.catalog-too-large": "Too many MCP tools to route, so all stay available.",

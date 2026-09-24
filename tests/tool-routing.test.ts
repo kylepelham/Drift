@@ -88,13 +88,34 @@ test("previously used tools remain exposed for history replay", async () => {
 })
 
 test.each([
-  undefined, {}, { g0: { type: "noul", noul: 0.5 }, g1: { type: "noul", noul: 0.01 } },
+  undefined, {},
   { g0: { type: "choice", noul: 0.99 }, g1: { type: "noul", noul: 0.01 } },
   { g0: { type: "noul", noul: 2 }, g1: { type: "noul", noul: 0.01 } },
-])("uncertain or malformed responses keep all tools: %j", async (scores) => {
+])("malformed responses keep all tools: %j", async (scores) => {
   const view = setup(scores === undefined ? null : scores)
   expect(await view.router(view.input)).toBe(tools)
-  expect(view.outcomes()).toEqual([JSON.stringify(scores ?? {}).includes('"noul":0.5') ? "uncertain" : "invalid-response"])
+  expect(view.outcomes()).toEqual(["invalid-response"])
+})
+
+test("only confidently irrelevant groups are hidden, unsure groups stay", async () => {
+  const view = setup({ g0: { type: "noul", noul: 0.5 }, g1: { type: "noul", noul: 0.15 } })
+  const routed = await view.router(view.input)
+  expect(Object.keys(routed)).toEqual(["read", "bash", "docs_search", "docs_fetch", "drift_expand_tools"])
+})
+
+test("when no group is clearly unrelated every tool stays and the turn reports uncertain", async () => {
+  const view = setup({ g0: { type: "noul", noul: 0.2 }, g1: { type: "noul", noul: 0.61 } })
+  expect(await view.router(view.input)).toBe(tools)
+  expect(view.outcomes()).toEqual(["uncertain"])
+})
+
+test("many relevant groups no longer cancel routing", async () => {
+  const servers = ["a", "b", "c", "d", "e", "f"]
+  const many = Object.fromEntries(servers.map((server) => [`${server}_tool`, { description: server }]))
+  const scores = Object.fromEntries(servers.map((_, index) => [`g${index}`, { type: "noul", noul: index === 5 ? 0.01 : 0.9 }]))
+  const view = setup(scores)
+  const routed = await view.router({ ...view.input, servers, tools: many })
+  expect(Object.keys(routed)).toEqual(["a_tool", "b_tool", "c_tool", "d_tool", "e_tool", "drift_expand_tools"])
 })
 
 test("absent credentials, HTTP failures, and network failures keep all tools and report why", async () => {
