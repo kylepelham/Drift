@@ -1,5 +1,5 @@
 import { expect, mock, test } from "bun:test"
-import { createToolRouter } from "../engine/opencode/tool-routing"
+import { createToolRouter, type Status } from "../engine/opencode/tool-routing"
 
 type TestTool = { description: string; execute?: () => Promise<unknown> }
 const tools: Record<string, TestTool> = {
@@ -9,15 +9,19 @@ const tools: Record<string, TestTool> = {
 }
 function setup(scores: unknown = { g0: { type: "noul", noul: 0.99 }, g1: { type: "noul", noul: 0.01 } }) {
   let enabled = true
-  const fetcher = mock(async (_url: string | URL | Request, _init?: RequestInit) => Response.json({ answers: scores }))
-  const getApiKey = mock(async (): Promise<string | undefined> => "test-key")
-  const router = createToolRouter({ policy: async () => ({ enabled }), fetch: fetcher as typeof fetch, timeoutMs: 25 })
+  const fetcher = mock(async (_url: string, _init: RequestInit) => Response.json({ answers: scores }))
+  const credential = mock(async (providerID: string): Promise<string | undefined> => providerID === "opencode" ? "test-key" : undefined)
+  const reports: Status[] = []
+  const router = createToolRouter({
+    policy: async () => ({ enabled }), fetch: fetcher, timeoutMs: 25, report: (status) => reports.push(status),
+  })
   const input = {
     tools, servers: ["docs", "github"], sessionID: "s1", turnID: "u1", abort: new AbortController().signal,
-    messages: [{ role: "user", content: "Look up Solid documentation" }], getApiKey,
+    messages: [{ role: "user", content: "Look up Solid documentation" }], credential,
     expandTool: (execute: () => Promise<unknown>): TestTool => ({ description: "Expand tools", execute }),
   }
-  return { router, input, fetcher, getApiKey, enable: (value: boolean) => { enabled = value } }
+  const outcomes = () => reports.map((status) => status.outcome)
+  return { router, input, fetcher, credential, reports, outcomes, enable: (value: boolean) => { enabled = value } }
 }
 
 test("off makes no routing request or credential read", async () => {
@@ -25,7 +29,8 @@ test("off makes no routing request or credential read", async () => {
   view.enable(false)
   expect(await view.router(view.input)).toBe(tools)
   expect(view.fetcher).not.toHaveBeenCalled()
-  expect(view.getApiKey).not.toHaveBeenCalled()
+  expect(view.credential).not.toHaveBeenCalled()
+  expect(view.reports).toEqual([])
 })
 
 test("shortlists groups without removing core tools and recovery expands on the next step", async () => {
@@ -89,18 +94,53 @@ test.each([
 ])("uncertain or malformed responses keep all tools: %j", async (scores) => {
   const view = setup(scores === undefined ? null : scores)
   expect(await view.router(view.input)).toBe(tools)
+  expect(view.outcomes()).toEqual([JSON.stringify(scores ?? {}).includes('"noul":0.5') ? "uncertain" : "invalid-response"])
 })
 
-test("absent credentials, HTTP failures, and network failures keep all tools", async () => {
+test("absent credentials, HTTP failures, and network failures keep all tools and report why", async () => {
   const view = setup()
-  view.getApiKey.mockImplementation(async () => undefined)
+  view.credential.mockImplementation(async () => undefined)
   expect(await view.router(view.input)).toBe(tools)
   expect(view.fetcher).not.toHaveBeenCalled()
-  view.getApiKey.mockImplementation(async () => "test-key")
-  view.fetcher.mockImplementation(async () => new Response(null, { status: 429 }))
-  expect(await view.router({ ...view.input, turnID: "u2" })).toBe(tools)
+  view.credential.mockImplementation(async () => "test-key")
+  const statuses = [[401, "u2"], [402, "u3"], [429, "u4"]] as const
+  for (const [status, turnID] of statuses) {
+    view.fetcher.mockImplementation(async () => new Response(null, { status }))
+    expect(await view.router({ ...view.input, turnID })).toBe(tools)
+  }
   view.fetcher.mockImplementation(async () => { throw new Error("offline") })
-  expect(await view.router({ ...view.input, turnID: "u3" })).toBe(tools)
+  expect(await view.router({ ...view.input, turnID: "u5" })).toBe(tools)
+  expect(view.outcomes()).toEqual(["no-key", "unauthorized", "insufficient-funds", "http-error", "network"])
+  expect(view.reports[3]!.httpStatus).toBe(429)
+})
+
+test("an OpenCode Go key is used when no Zen key is stored", async () => {
+  const view = setup()
+  view.credential.mockImplementation(async (providerID) => providerID === "opencode-go" ? "go-key" : undefined)
+  await view.router(view.input)
+  expect(view.credential.mock.calls.map(([providerID]) => providerID)).toEqual(["opencode", "opencode-go"])
+  expect(view.fetcher.mock.calls[0]![1]!.headers).toMatchObject({ Authorization: "Bearer go-key" })
+})
+
+test("each turn reports once, with the hidden tool count, across model steps", async () => {
+  const view = setup()
+  await view.router(view.input)
+  await view.router(view.input)
+  expect(view.reports).toEqual([{ outcome: "routed", hidden: 2, at: expect.any(Number) }])
+  const status = JSON.stringify(view.reports[0])
+  expect(status).not.toContain("Solid")
+  expect(status).not.toContain("test-key")
+})
+
+test("catalogs routing cannot help report a single skip until something changes", async () => {
+  const view = setup()
+  const input = { ...view.input, servers: ["docs"], tools: { read: tools.read!, docs_search: tools.docs_search! } }
+  await view.router(input)
+  await view.router({ ...input, turnID: "u2" })
+  expect(view.outcomes()).toEqual(["too-few-groups"])
+  await view.router(view.input)
+  await view.router(input)
+  expect(view.outcomes()).toEqual(["too-few-groups", "routed", "too-few-groups"])
 })
 
 test("routing times out once, and does not retry on subsequent model steps", async () => {
@@ -111,6 +151,7 @@ test("routing times out once, and does not retry on subsequent model steps", asy
   expect(await view.router(view.input)).toBe(tools)
   expect(await view.router(view.input)).toBe(tools)
   expect(view.fetcher).toHaveBeenCalledTimes(1)
+  expect(view.outcomes()).toEqual(["timeout"])
 })
 
 test("disabling routing takes effect without restart and clears cached choices", async () => {

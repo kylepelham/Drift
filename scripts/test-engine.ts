@@ -7,6 +7,7 @@ function engineEnvironment(extra: Record<string, string> = {}) {
     "DRIFT_MCP_APPROVAL_REQUIRED",
     "DRIFT_TOOL_ROUTING_MODULE",
     "DRIFT_TOOL_ROUTING_POLICY",
+    "DRIFT_TOOL_ROUTING_STATUS",
     "OPENCODE_CONFIG",
     "OPENCODE_CONFIG_CONTENT",
     "OPENCODE_CONFIG_DIR",

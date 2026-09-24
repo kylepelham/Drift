@@ -980,6 +980,7 @@ remote_commands! {
             value(ui_state::shell_timeout_snapshot(app.state())?)
         },
         "tool_routing_snapshot" => value(tool_routing::tool_routing_snapshot(store())?),
+        "tool_routing_status" => value(tool_routing::tool_routing_status(app.state())),
         "tool_routing_update" => value(tool_routing::tool_routing_update(app.clone(), app.state(), store(), arg(args, "policy")?)?),
         "shell_timeout_update" => value(ui_state::shell_timeout_update(
             app.clone(),

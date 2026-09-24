@@ -90,6 +90,17 @@ test("tool execution exposes optional Jev routing without its old footer", async
   expect(routing).toContain("disabled={busy()}")
 })
 
+test("Jev routing reports the engine's last outcome instead of guessing from provider connections", async () => {
+  const routing = await Bun.file("src/ui/settings-tool-routing.tsx").text()
+  expect(routing).not.toContain("engine.state.connected")
+  expect(routing).toContain("loadToolRoutingStatus")
+  const english = (await import("../src/i18n/en")).drift as Record<string, string>
+  const outcomes = routing.match(/const outcomes = new Set\(\[([^\]]+)\]/)![1]!.match(/"[^"]+"/g)!.map((item) => JSON.parse(item))
+  for (const outcome of outcomes) expect(english[`drift.settings.toolRouting.outcome.${outcome}`]).toBeString()
+  const engine = await Bun.file("src-tauri/src/engine.rs").text()
+  expect(engine).toContain('.env("DRIFT_TOOL_ROUTING_STATUS"')
+})
+
 test("agent overrides retain only values changed from upstream", async () => {
   const { agentOverrideValue } = await import("../src/state/prompts")
   const inherited = { prompt: "Upstream", mode: "primary", tools: { bash: true, read: true } }
@@ -132,7 +143,15 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 
 /** Keys that deliberately fall back to English until locale-specific translations ship. */
 const pendingTranslation = new Set([
-  ...pendingKeys("drift.settings.toolRouting", "title description connect"),
+  ...pendingKeys(
+    "drift.settings.toolRouting",
+    `
+      title description
+      outcome.routed outcome.no-key outcome.unauthorized outcome.insufficient-funds outcome.http-error
+      outcome.timeout outcome.network outcome.invalid-response outcome.uncertain outcome.no-context
+      outcome.too-few-groups outcome.catalog-too-large
+    `,
+  ),
   "drift.markdown.linkFailed",
   "drift.mobile.openNavigation",
   "drift.settings.code",

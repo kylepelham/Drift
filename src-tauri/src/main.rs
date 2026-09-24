@@ -161,6 +161,7 @@ fn main() {
             ui_state::shell_timeout_snapshot,
             ui_state::shell_timeout_update,
             tool_routing::tool_routing_snapshot,
+            tool_routing::tool_routing_status,
             tool_routing::tool_routing_update
         ])
         .setup(|app| {

@@ -1,7 +1,12 @@
 type ToolInfo = { description?: string }
 type Message = { role: string; content: unknown }
 type Group = { name: string; tools: { name: string; description: string }[] }
-type Decision = Set<string> | null
+export type Outcome =
+  | "routed" | "no-key" | "no-context" | "unauthorized" | "insufficient-funds" | "http-error" | "timeout"
+  | "network" | "invalid-response" | "uncertain" | "too-few-groups" | "catalog-too-large" | "cancelled"
+export type Status = { outcome: Outcome; at: number; hidden?: number; httpStatus?: number }
+type Decision = { outcome: Outcome; selected?: Set<string>; httpStatus?: number }
+type Entry = { decision: Promise<Decision>; expanded: boolean; reported: boolean }
 type Input<T extends ToolInfo> = {
   tools: Record<string, T>
   servers: string[]
@@ -9,16 +14,18 @@ type Input<T extends ToolInfo> = {
   sessionID: string
   turnID: string
   abort: AbortSignal
-  getApiKey: () => Promise<string | undefined>
+  credential: (providerID: string) => Promise<string | undefined>
   expandTool: (execute: () => Promise<{ title: string; output: string; metadata: Record<string, never> }>) => T
 }
 type Dependencies = {
   policy: () => Promise<{ enabled: boolean }>
   fetch: (url: string, init: RequestInit) => Promise<Response>
+  report?: (status: Status) => void
   timeoutMs?: number
 }
 const expandName = "drift_expand_tools"
 const endpoint = "https://opencode.ai/zen/v1/systemone"
+const credentialProviders = ["opencode", "opencode-go"]
 const coreTools = new Set([
   "read", "glob", "grep", "bash", "shell", "edit", "write", "apply_patch", "task", "todowrite",
   "webfetch", "websearch", "question", "skill", "invalid", "plan_enter", "plan_exit", "lsp", "execute", "spawn_thread",
@@ -76,30 +83,44 @@ function relevance(answer: unknown) {
 }
 
 function decisions(response: unknown, groups: Group[]): Decision {
-  if (!response || typeof response !== "object" || !("answers" in response)) return null
-  const answers = response.answers
-  if (!answers || typeof answers !== "object" || Array.isArray(answers)) return null
-  const selected = new Set<string>()
-  for (const [index, group] of groups.entries()) {
-    const probability = relevance((answers as Record<string, unknown>)[`g${index}`])
-    if (probability === undefined) return null
-    if (probability > 0.15 && probability < 0.8) return null
-    if (probability >= 0.8) selected.add(group.name)
-  }
-  return selected.size > 4 ? null : selected
+  const answers = response && typeof response === "object" && "answers" in response ? response.answers : undefined
+  if (!answers || typeof answers !== "object" || Array.isArray(answers)) return { outcome: "invalid-response" }
+  const scores = groups.map((_, index) => relevance((answers as Record<string, unknown>)[`g${index}`]))
+  if (scores.some((score) => score === undefined)) return { outcome: "invalid-response" }
+  if (scores.some((score) => score! > 0.15 && score! < 0.8)) return { outcome: "uncertain" }
+  const selected = new Set(groups.filter((_, index) => scores[index]! >= 0.8).map((group) => group.name))
+  return selected.size > 4 ? { outcome: "uncertain" } : { outcome: "routed", selected }
 }
 
-function withinRoutingBudget(groups: Group[], serialized: string) {
-  return groups.length >= 2 && groups.length <= 24 && serialized.length <= 96000
+function httpOutcome(status: number): Outcome {
+  if (status === 401 || status === 403) return "unauthorized"
+  if (status === 402) return "insufficient-funds"
+  return "http-error"
+}
+
+function budgetOutcome(groups: Group[], serialized: string): Outcome | undefined {
+  if (groups.length < 2) return "too-few-groups"
+  if (groups.length > 24 || serialized.length > 96000) return "catalog-too-large"
+}
+
+async function apiKey(credential: (providerID: string) => Promise<string | undefined>) {
+  for (const providerID of credentialProviders) {
+    const key = await credential(providerID).catch(() => undefined)
+    if (key) return key
+  }
 }
 
 export function createToolRouter(deps: Dependencies) {
-  const cache = new Map<string, { decision: Promise<Decision>; expanded: boolean }>()
+  const cache = new Map<string, Entry>()
+  let lastSkip = ""
+  const report = (status: Omit<Status, "at">) => { try { deps.report?.({ ...status, at: Date.now() }) } catch {} }
 
   async function evaluate<T extends ToolInfo>(input: Input<T>, groups: Group[]): Promise<Decision> {
-    const key = await input.getApiKey()
     const context = taskContext(input.messages)
-    if (!key || !context.length || input.abort.aborted) return null
+    if (!context.length) return { outcome: "no-context" }
+    const key = await apiKey(input.credential)
+    if (!key) return { outcome: "no-key" }
+    if (input.abort.aborted) return { outcome: "cancelled" }
     const timeout = new AbortController()
     const timer = setTimeout(() => timeout.abort(), deps.timeoutMs ?? 1200)
     try {
@@ -108,35 +129,59 @@ export function createToolRouter(deps: Dependencies) {
         headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model: "jev-1.13", state: { context }, questions: questions(groups) }),
       })
-      if (!response.ok) return null
-      return decisions(await response.json(), groups)
+      if (!response.ok) return { outcome: httpOutcome(response.status), httpStatus: response.status }
+      return decisions(await response.json().catch(() => undefined), groups)
+    } catch {
+      if (timeout.signal.aborted) return { outcome: "timeout" }
+      return { outcome: input.abort.aborted ? "cancelled" : "network" }
     } finally { clearTimeout(timer) }
+  }
+
+  function once(entry: Entry, status: Omit<Status, "at">) {
+    if (entry.reported || status.outcome === "cancelled") return
+    entry.reported = true
+    lastSkip = ""
+    report(status)
+  }
+
+  function skip(outcome: Outcome) {
+    if (lastSkip === outcome) return
+    lastSkip = outcome
+    report({ outcome })
+  }
+
+  function lookup<T extends ToolInfo>(input: Input<T>, groups: Group[], serialized: string) {
+    const key = JSON.stringify([input.sessionID, input.turnID, serialized])
+    const existing = cache.get(key)
+    if (existing) return { key, entry: existing }
+    const entry: Entry = { decision: evaluate(input, groups), expanded: false, reported: false }
+    cache.set(key, entry)
+    while (cache.size > 128) cache.delete(cache.keys().next().value!)
+    return { key, entry }
   }
 
   return async function route<T extends ToolInfo>(input: Input<T>): Promise<Record<string, T>> {
     const policy = await deps.policy().catch(() => ({ enabled: false }))
-    if (!policy.enabled) { cache.clear(); return input.tools }
+    if (!policy.enabled) { cache.clear(); lastSkip = ""; return input.tools }
+    if (input.abort.aborted || expandName in input.tools) return input.tools
     const groups = catalog(input.tools, input.servers)
     const serialized = JSON.stringify(groups)
-    if (input.abort.aborted || !withinRoutingBudget(groups, serialized) || expandName in input.tools) return input.tools
-    const key = JSON.stringify([input.sessionID, input.turnID, serialized])
-    let entry = cache.get(key)
-    if (!entry) {
-      entry = { decision: evaluate(input, groups).catch(() => null), expanded: false }
-      cache.set(key, entry)
-      while (cache.size > 128) cache.delete(cache.keys().next().value!)
-    }
-    const selected = await entry.decision
-    if (!selected || entry.expanded || input.abort.aborted) return input.tools
+    const excluded = budgetOutcome(groups, serialized)
+    if (excluded) { skip(excluded); return input.tools }
+    const { key, entry } = lookup(input, groups, serialized)
+    const decision = await entry.decision
+    if (!decision.selected) { once(entry, { outcome: decision.outcome, httpStatus: decision.httpStatus }); return input.tools }
+    if (entry.expanded || input.abort.aborted) return input.tools
     const used = historyTools(input.messages)
-    const hidden = new Set(groups.filter((group) => !selected.has(group.name)).flatMap((group) => group.tools.map((tool) => tool.name)))
+    const hidden = new Set(groups.filter((group) => !decision.selected!.has(group.name)).flatMap((group) => group.tools.map((tool) => tool.name)))
     const tools = Object.fromEntries(Object.entries(input.tools).filter(([name]) => !hidden.has(name) || used.has(name)))
-    if (Object.keys(tools).length === Object.keys(input.tools).length) return input.tools
-    const current = entry
+    const count = Object.keys(input.tools).length - Object.keys(tools).length
+    once(entry, { outcome: "routed", hidden: count })
+    if (!count) return input.tools
     tools[expandName] = input.expandTool(async () => {
-      current.expanded = true
-      cache.set(key, current)
-      while (cache.size > 128) cache.delete(cache.keys().next().value!)
+      entry.expanded = true
+      cache.delete(key)
+      cache.set(key, entry)
       return { title: "All tools available", output: "The full permitted tool set is available on your next step. Choose the tool you need.", metadata: {} }
     })
     return tools
@@ -151,4 +196,8 @@ export const routeTools = createToolRouter({
     return { enabled: value?.enabled === true }
   },
   fetch: (...args) => fetch(...args),
+  report: (status) => {
+    const file = process.env.DRIFT_TOOL_ROUTING_STATUS
+    if (file) void Bun.write(file, JSON.stringify(status)).catch(() => undefined)
+  },
 })

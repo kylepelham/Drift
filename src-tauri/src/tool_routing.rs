@@ -5,6 +5,8 @@ use std::sync::Mutex;
 use tauri::{Emitter, State};
 
 const KEY: &str = "tool_routing_policy";
+pub(crate) const POLICY_FILE: &str = "tool-routing.json";
+pub(crate) const STATUS_FILE: &str = "tool-routing-status.json";
 
 #[derive(Clone, Default, Deserialize, Serialize, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
@@ -12,19 +14,36 @@ pub(crate) struct Policy {
     pub enabled: bool,
 }
 
+#[derive(Clone, Deserialize, Serialize, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Status {
+    outcome: String,
+    at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hidden: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    http_status: Option<u16>,
+}
+
 pub(crate) struct ToolRouting {
     file: PathBuf,
+    status: PathBuf,
     mutation: Mutex<()>,
 }
 
 impl ToolRouting {
     pub(crate) fn new(directory: &Path, store: &Store) -> Result<Self, String> {
         let routing = Self {
-            file: directory.join("tool-routing.json"),
+            file: directory.join(POLICY_FILE),
+            status: directory.join(STATUS_FILE),
             mutation: Mutex::new(()),
         };
         routing.write(&load(store)?)?;
         Ok(routing)
+    }
+
+    fn read_status(&self) -> Option<Status> {
+        serde_json::from_slice(&std::fs::read(&self.status).ok()?).ok()
     }
 
     fn write(&self, policy: &Policy) -> Result<(), String> {
@@ -44,6 +63,7 @@ impl ToolRouting {
             self.write(&previous)?;
             return Err(error.to_string());
         }
+        let _ = std::fs::remove_file(&self.status);
         Ok(policy)
     }
 }
@@ -58,6 +78,11 @@ fn load(store: &Store) -> Result<Policy, String> {
 #[tauri::command]
 pub(crate) fn tool_routing_snapshot(store: State<Store>) -> Result<Policy, String> {
     load(&store)
+}
+
+#[tauri::command]
+pub(crate) fn tool_routing_status(routing: State<ToolRouting>) -> Option<Status> {
+    routing.read_status()
 }
 
 #[tauri::command]
@@ -114,6 +139,24 @@ mod tests {
         assert!(
             serde_json::from_str::<Policy>(r#"{"enabled":true,"url":"https://other"}"#).is_err()
         );
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn routing_status_reads_engine_reports_and_clears_on_toggle() {
+        let root = directory();
+        let store = crate::store::open(&root).unwrap();
+        let routing = ToolRouting::new(&root, &store).unwrap();
+        assert_eq!(routing.read_status(), None);
+        std::fs::write(&routing.status, r#"{"outcome":"insufficient-funds","at":5,"httpStatus":402}"#).unwrap();
+        let status = routing.read_status().unwrap();
+        assert_eq!(status.outcome, "insufficient-funds");
+        assert_eq!(status.http_status, Some(402));
+        std::fs::write(&routing.status, "{partial").unwrap();
+        assert_eq!(routing.read_status(), None);
+        routing.update(&store, Policy { enabled: true }).unwrap();
+        assert!(!routing.status.exists());
         drop(store);
         std::fs::remove_dir_all(root).unwrap();
     }

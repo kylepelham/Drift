@@ -108,8 +108,19 @@ Tool execution settings can enable Jev routing through OpenCode Zen. It is off b
 The native shell persists the choice in SQLite and atomically publishes `tool-routing.json`.
 The bundled `tool-routing.js` reads it at each model step, so changing the setting requires
 no restart. A small `zzzzzzz-jev-tool-routing.patch` bridge runs after permission filtering
-and before either LLM transport. It obtains the existing Zen API credential from engine
-auth only when routing is enabled. No credentials enter the UI or routing cache.
+and before either LLM transport. It reads a stored `opencode` (Zen) API key from engine
+auth, falling back to an `opencode-go` key, only when routing is enabled. No credentials
+enter the UI or routing cache.
+
+Free Zen models work without a key because the engine sends the anonymous `public` key, so a
+connected `opencode` provider does not mean Jev is usable. Jev rejects the anonymous key with
+401 ("rate-limited Zen models require a workspace") and bills the workspace's Zen balance,
+which Go plans do not cover, answering 402 when it is empty. The router therefore reports what
+actually happened instead of guessing: each turn writes one `{ outcome, at, hidden?, httpStatus? }`
+record to `tool-routing-status.json` (path in `DRIFT_TOOL_ROUTING_STATUS`), and settings poll it
+through `tool_routing_status`. Outcomes cover routed, no key, unauthorized, insufficient funds,
+other HTTP errors, timeout, network, invalid or uncertain answers, and catalogs outside the
+routing budget. Toggling the setting deletes the stale record.
 
 Jev receives up to four recent conversational text excerpts, each capped at 2,000 characters,
 and tool names/descriptions grouped by MCP server, with descriptions capped at 256 characters.

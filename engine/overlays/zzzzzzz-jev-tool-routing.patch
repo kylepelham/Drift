@@ -23,9 +23,9 @@ diff --git a/packages/opencode/src/session/llm.ts b/packages/opencode/src/sessio
 +            return routeTools({
 +              tools: prepared.tools, messages: input.messages, servers: Object.keys(cfg.mcp ?? {}),
 +              sessionID: input.sessionID, turnID: input.user.id, abort: input.abort,
-+              getApiKey: async () => {
-+                const credential = await bridge.promise(auth.get(ProviderV2.ID.make("opencode")))
-+                return credential?.type === "api" ? credential.key : undefined
++              credential: async (providerID: string) => {
++                const stored = await bridge.promise(auth.get(ProviderV2.ID.make(providerID)))
++                return stored?.type === "api" ? stored.key : undefined
 +              },
 +              expandTool: (execute: () => Promise<unknown>) => aiTool({
 +                description: "MCP tools are shortlisted for this turn. If a tool you need is missing, call this to expose all permitted tools on the next step.",
@@ -59,7 +59,7 @@ diff --git a/packages/opencode/test/session/llm.test.ts b/packages/opencode/test
 +        const route = createToolRouter({ policy: async () => ({ enabled: true }), fetch: async () => Response.json({
 +          answers: { g0: { type: "noul", noul: 0.99 }, g1: { type: "noul", noul: 0.01 } }
 +        }) });
-+        export const routeTools = (input) => route({ ...input, getApiKey: async () => "fixture-only" });
++        export const routeTools = (input) => route({ ...input, credential: async () => "fixture-only" });
 +      `))
 +      const previous = process.env.DRIFT_TOOL_ROUTING_MODULE
 +      process.env.DRIFT_TOOL_ROUTING_MODULE = modulePath
