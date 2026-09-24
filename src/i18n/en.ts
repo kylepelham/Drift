@@ -730,6 +730,7 @@ export const drift = {
   "drift.tool.fetch": "Fetch",
   "drift.tool.asyncQuestion": "Async Question",
   "drift.tool.spawn": "Spawn",
+  "drift.tool.readThread": "Checked thread",
   "drift.tool.subtask": "Subtask",
   "drift.tool.task": "Task",
   "drift.titlebar.maximize": "Maximize",

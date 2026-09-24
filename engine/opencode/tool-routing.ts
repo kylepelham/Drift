@@ -28,7 +28,7 @@ const endpoint = "https://opencode.ai/zen/v1/systemone"
 const credentialProviders = ["opencode", "opencode-go"]
 const coreTools = new Set([
   "read", "glob", "grep", "bash", "shell", "edit", "write", "apply_patch", "task", "todowrite",
-  "webfetch", "websearch", "question", "skill", "invalid", "plan_enter", "plan_exit", "lsp", "execute", "spawn_thread",
+  "webfetch", "websearch", "question", "skill", "invalid", "plan_enter", "plan_exit", "lsp", "execute", "spawn_thread", "read_thread",
 ])
 
 function catalog<T extends ToolInfo>(tools: Record<string, T>, servers: string[]): Group[] {

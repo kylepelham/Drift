@@ -134,6 +134,26 @@ appears in the sidebar like any other chat; the tool card links to it. `/spawn <
 creates the same kind of sibling directly from the last stable active context without
 interrupting or steering the source thread.
 
+The same plugin provides `read_thread` for an explicitly requested peek at a thread created
+with `spawn_thread`. It takes the returned thread ID and makes one read-only snapshot.
+It never waits for completion, subscribes to updates, or sends another message. The tool's
+instructions prohibit repeated polling unless the user explicitly asks for it. Subagents
+remain the mechanism for delegated work whose result the parent needs to wait for.
+
+The snapshot includes runtime status, pending permissions/questions, todos, recent tool-call
+names/statuses, and the latest assistant text. Reasoning and tool-result bodies are excluded.
+It reads the latest 50 child messages, shows at most 20 todos and 10 tool calls, caps the reply
+at 4,000 characters, and bounds the entire result to 10,000 characters. API reads use the
+invoking tool's cancellation signal. Idle describes the runtime, not a guarantee the task
+succeeded; the latest assistant error is shown when present.
+
+Before reading the child, the plugin requires a completed `spawn_thread` receipt with that
+ID in the caller's history. This supports model-spawned threads even after restarting Drift.
+It does not support `/spawn` or arbitrary sessions: those UI-created links live in Drift's
+SQLite rather than the caller's transcript. The v1 SDK lacks pending permission/question
+methods, so those two reads use its internal authenticated HTTP client. Jev preserves
+`read_thread` as a core tool, and its card is a snapshot rather than a live child-progress row.
+
 Manual forks use the same stable active-context projection by default: completed
 compaction summary, retained tail, and completed turns after it. The in-flight turn and
 task/spawn session links are excluded. `/fork all` is the explicit slower operation that

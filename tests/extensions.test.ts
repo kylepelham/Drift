@@ -57,6 +57,129 @@ async function spawnTool(options?: {
   return { deleted, prompted, execute: () => execute(args, context) }
 }
 
+const spawnedPart = (id: string, status = "completed") => ({ type: "tool", tool: "spawn_thread", state: { status, metadata: { sessionId: id } } })
+
+async function readTool(options: {
+  parent?: unknown[]
+  child?: unknown[]
+  status?: Record<string, unknown>
+  todos?: unknown[]
+  permissions?: unknown[]
+  questions?: unknown[]
+} = {}) {
+  const calls: string[] = []
+  const client = {
+    _client: {
+      async get({ url }: { url: string }) {
+        calls.push(url)
+        return { data: url === "/permission" ? options.permissions ?? [] : options.questions ?? [] }
+      },
+    },
+    session: {
+      async messages({ path: input }: { path: { id: string } }) {
+        calls.push(`messages:${input.id}`)
+        return { data: input.id === "parent" ? options.parent ?? [{ info: { role: "assistant" }, parts: [spawnedPart("child")] }] : options.child ?? [] }
+      },
+      async get() { return { data: { id: "child", title: "Child thread" } } },
+      async status() { return { data: options.status ?? {} } },
+      async todo() { return { data: options.todos ?? [] } },
+    },
+  }
+  const plugin = await SpawnThread({ client } as never)
+  const execute = plugin.tool?.read_thread.execute
+  if (!execute) throw new Error("read_thread tool was not registered")
+  const run = async (id = "child") => {
+    const result = await execute({ id }, context)
+    return typeof result === "string" ? result : result.output
+  }
+  return { calls, run }
+}
+
+test("read_thread refuses threads this conversation did not spawn", async () => {
+  const other = await readTool()
+  await expect(other.run("elsewhere")).rejects.toThrow("was not spawned from this conversation")
+  expect(other.calls).toEqual(["messages:parent"])
+  const failed = await readTool({ parent: [{ info: { role: "assistant" }, parts: [spawnedPart("child", "error")] }] })
+  await expect(failed.run()).rejects.toThrow("was not spawned")
+})
+
+test("read_thread snapshots status, todos, recent tools and the latest reply without waiting", async () => {
+  const view = await readTool({
+    status: { child: { type: "busy" } },
+    todos: [{ content: "Plan", status: "completed" }, { content: "Build", status: "in_progress" }, { content: "Ship", status: "pending" }],
+    child: [
+      { info: { role: "user" }, parts: [{ type: "text", text: "seed" }] },
+      { info: { role: "assistant", time: { created: 0, completed: 1000 } }, parts: [
+        { type: "reasoning", text: "PRIVATE_REASONING" },
+        { type: "tool", tool: "bash", state: { status: "completed", title: "bun test", output: "SECRET_TOOL_OUTPUT" } },
+        { type: "text", text: "Tests pass." },
+      ] },
+      { info: { role: "assistant" }, parts: [{ type: "tool", tool: "edit", state: { status: "running" } }] },
+    ],
+  })
+  const output = await view.run()
+  expect(output).toContain('Thread "Child thread" (child)')
+  expect(output).toContain("Status: working")
+  expect(output).toContain("- [x] Plan\n- [~] Build\n- [ ] Ship")
+  expect(output).toContain("- bash completed: bun test\n- edit running")
+  expect(output).toContain("Latest reply:\nTests pass.")
+  expect(output).not.toContain("PRIVATE_REASONING")
+  expect(output).not.toContain("SECRET_TOOL_OUTPUT")
+})
+
+test("read_thread reports pending approvals and questions for that thread only", async () => {
+  const view = await readTool({
+    status: { child: { type: "busy" } },
+    permissions: [
+      { sessionID: "child", permission: "bash", patterns: ["rm -rf dist"] },
+      { sessionID: "someone-else", permission: "edit", patterns: ["x"] },
+    ],
+    questions: [{ sessionID: "child", questions: [{ question: "Which database?" }] }],
+  })
+  const output = await view.run()
+  expect(output).toContain("waiting for the user to approve bash rm -rf dist")
+  expect(output).toContain("waiting for the user to answer: Which database?")
+  expect(output).not.toContain("edit x")
+  expect(output).not.toContain("Status: working")
+})
+
+test("read_thread surfaces failures and caps long replies", async () => {
+  const view = await readTool({ child: [
+    { info: { role: "assistant" }, parts: [{ type: "text", text: "y".repeat(5000) }] },
+    { info: { role: "assistant", error: { name: "APIError", data: { message: "rate limited" } } }, parts: [] },
+  ] })
+  const output = await view.run()
+  expect(output).toContain("Status: stopped with an error: rate limited")
+  expect(output).toContain(`${"y".repeat(4000)}\n[1000 more characters`)
+})
+
+test("read_thread bounds large snapshots and keeps only recent tool activity", async () => {
+  const view = await readTool({
+    todos: Array.from({ length: 100 }, (_, i) => ({ content: `${i} ${"x".repeat(1000)}`, status: "pending" })),
+    child: [{ info: { role: "assistant" }, parts: [
+      ...Array.from({ length: 30 }, (_, i) => ({ type: "tool", tool: `tool_${i}`, state: { status: "completed", title: "t".repeat(1000) } })),
+      { type: "text", text: "answer ".repeat(1000) },
+    ] }],
+  })
+  const output = await view.run()
+  expect(output.length).toBeLessThanOrEqual(10000)
+  expect(output).toContain("[80 more todos]")
+  expect(output).toContain("- tool_20 completed")
+  expect(output).not.toContain("- tool_19 completed")
+  expect(output).not.toContain("x".repeat(201))
+})
+
+test("read_thread exposes retries and does not use synthetic text as a reply", async () => {
+  const view = await readTool({
+    status: { child: { type: "retry", attempt: 2, message: "Provider unavailable" } },
+    child: [{ info: { role: "assistant" }, parts: [{ type: "text", text: "INTERNAL", synthetic: true }] }],
+  })
+  const output = await view.run()
+  expect(output).toContain("retrying (attempt 2): Provider unavailable")
+  expect(output).toContain("(no reply yet)")
+  expect(output).not.toContain("INTERNAL")
+})
+
 test("spawn_thread reports only prompt admission after a successful 204", async () => {
   const spawn = await spawnTool()
   const result = await spawn.execute()

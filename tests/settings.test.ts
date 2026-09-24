@@ -153,6 +153,7 @@ const pendingTranslation = new Set([
     `,
   ),
   "drift.markdown.linkFailed",
+  "drift.tool.readThread",
   "drift.mobile.openNavigation",
   "drift.settings.code",
   ...pendingKeys("drift.chat.retry", "switchModel switchingModel"),
