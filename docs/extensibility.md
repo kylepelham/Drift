@@ -187,7 +187,7 @@ new sessions use the new settings; active sessions retain their configuration un
 finish. The agent catalog refreshes after saving. A failed publication reports that the
 settings were saved but need a retry or restart, rather than claiming they are live.
 
-### Subagent models
+### Agent models
 
 In Settings > Agents, select a subagent type such as `explore`, `general`, or a custom
 agent, then choose its Model. The compact row aligns with the agent selector. The searchable list includes tool-capable models
@@ -209,6 +209,11 @@ The engine applies the agent model to both foreground and background tasks, incl
 resumed tasks. A pinned model does not inherit the parent's reasoning variant. Agent
 types with mode `all` share this configuration when invoked directly too. Spawned sibling
 threads continue to use the spawning session's model.
+
+The hidden `title` and `compaction` agents expose the same model picker. Title defaults
+to OpenCode's automatic small-model selection, while compaction defaults to the current
+session model. Their picker includes connected text-generation models even when they do
+not support tool calls. The `summary` agent has no runtime call sites and remains unpinned.
 
 ## Workflows (design open)
 

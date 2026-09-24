@@ -1,16 +1,35 @@
 import { expect, test } from "bun:test"
 import type { ModelInfo, ProviderInfo } from "../src/engine/store"
-import { agentBehaviorModel, subagentModelOptions, withAgentModel } from "../src/state/agent-models"
+import {
+  agentBehaviorModel,
+  agentModelCapability,
+  agentModelOptions,
+  withAgentModel,
+} from "../src/state/agent-models"
 import { agentOverrideValue } from "../src/state/prompts"
 import { hiddenModelIds, setHiddenModelIds } from "../src/state/prefs"
 
-function model(id: string, name = id, toolcall = true, context = 65536): ModelInfo {
-  return { id, name, capabilities: { toolcall }, limit: { context } } as ModelInfo
+function model(id: string, name = id, toolcall = true, context = 65536, text = true): ModelInfo {
+  return {
+    id,
+    name,
+    capabilities: { toolcall, input: { text }, output: { text } },
+    limit: { context },
+  } as ModelInfo
 }
 
 function provider(id: string, models: ModelInfo[]): ProviderInfo {
   return { id, name: id.toUpperCase(), models: Object.fromEntries(models.map((item) => [item.id, item])) }
 }
+
+test("model selection is available for subagents and active utility agents", () => {
+  expect(agentModelCapability({ name: "general", mode: "subagent" })).toBe("tools")
+  expect(agentModelCapability({ name: "custom", mode: "all" })).toBe("tools")
+  expect(agentModelCapability({ name: "title", mode: "primary" })).toBe("text")
+  expect(agentModelCapability({ name: "compaction", mode: "primary" })).toBe("text")
+  expect(agentModelCapability({ name: "summary", mode: "primary" })).toBeUndefined()
+  expect(agentModelCapability({ name: "build", mode: "primary" })).toBeUndefined()
+})
 
 test("subagent model choices include hidden tool models and preserve provider-qualified IDs", () => {
   const hidden = hiddenModelIds()
@@ -21,7 +40,7 @@ test("subagent model choices include hidden tool models and preserve provider-qu
       provider("two", [model("cheap", "Cheap")]),
       provider("offline", [model("unavailable")]),
     ]
-    expect(subagentModelOptions({ providers, connected: ["one", "two"] })).toEqual([
+    expect(agentModelOptions({ providers, connected: ["one", "two"] })).toEqual([
       { id: "one/cheap", label: "Cheap", group: "ONE", detail: "cheap" },
       { id: "one/vendor/review", label: "Smart", group: "ONE", detail: "vendor/review" },
       { id: "two/cheap", label: "Cheap", group: "TWO", detail: "cheap" },
@@ -33,8 +52,27 @@ test("subagent model choices include hidden tool models and preserve provider-qu
 
 test("subagent model choices respect LM Studio context readiness and disconnected providers", () => {
   const providers = [provider("lmstudio", [model("small", "Small", true, 4096), model("ready")])]
-  expect(subagentModelOptions({ providers, connected: ["lmstudio"] }).map((item) => item.id)).toEqual(["lmstudio/ready"])
-  expect(subagentModelOptions({ providers, connected: [] })).toEqual([])
+  expect(agentModelOptions({ providers, connected: ["lmstudio"] }).map((item) => item.id)).toEqual(["lmstudio/ready"])
+  expect(agentModelOptions({ providers, connected: [] })).toEqual([])
+})
+
+test("utility agent choices include text models without tool calling and exclude non-text models", () => {
+  const providers = [
+    provider("one", [
+      model("tools", "Tools"),
+      model("cheap-text", "Cheap text", false),
+      model("embedding", "Embedding", false, 65536, false),
+    ]),
+  ]
+  expect(agentModelOptions({ providers, connected: ["one"] }, "text").map((item) => item.id)).toEqual([
+    "one/cheap-text",
+    "one/tools",
+  ])
+
+  const local = [provider("lmstudio", [model("small", "Small", false, 4096), model("local-text", "Local text", false)])]
+  expect(agentModelOptions({ providers: local, connected: ["lmstudio"] }, "text").map((item) => item.id)).toEqual([
+    "lmstudio/local-text",
+  ])
 })
 
 test("model selection preserves prompt, permissions, and custom behavior", () => {

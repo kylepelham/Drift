@@ -81,6 +81,36 @@ test("prompt and agent editors are separate Server settings with inherited-value
   expect(source).toContain("{variant.original}")
 })
 
+test("settings search covers every category and finds feature descriptions", async () => {
+  const { loadDictionary } = await import("../src/state/i18n")
+  const { settingsSearchResults } = await import("../src/ui/settings")
+  await loadDictionary("en")
+
+  const categories = [
+    "General",
+    "Appearance",
+    "Code",
+    "Notifications",
+    "Voice",
+    "Shortcuts",
+    "Tools",
+    "Providers",
+    "MCP",
+    "Prompts",
+    "Agents",
+    "Storage",
+    "Remote Access",
+    "About",
+  ] as const
+  for (const category of categories) {
+    expect(settingsSearchResults(category).some((item) => item.section === category), category).toBeTrue()
+  }
+
+  expect(settingsSearchResults("shell commands child processes")[0]?.section).toBe("Tools")
+  expect(settingsSearchResults("compact database")[0]?.section).toBe("Storage")
+  expect(settingsSearchResults("engine version")[0]?.section).toBe("About")
+})
+
 test("tool execution exposes optional Jev routing without its old footer", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
   expect(source).toContain("<ToolRoutingSetting />")
@@ -155,7 +185,10 @@ const pendingTranslation = new Set([
   "drift.markdown.linkFailed",
   "drift.tool.readThread",
   "drift.mobile.openNavigation",
+  "drift.settings.agents.automaticSmallModel",
+  "drift.settings.agents.currentSessionModel",
   "drift.settings.code",
+  ...pendingKeys("drift.settings.search", "empty placeholder"),
   ...pendingKeys("drift.chat.retry", "switchModel switchingModel"),
   ...pendingKeys(
     "drift.code",

@@ -27,7 +27,7 @@ import {
   type SyntaxThemePreset,
 } from "../state/code"
 import { t } from "../state/i18n"
-import { agentBehaviorModel, subagentModelOptions, withAgentModel } from "../state/agent-models"
+import { agentBehaviorModel, agentModelCapability, agentModelOptions, withAgentModel } from "../state/agent-models"
 import { comboFor, eventCombo, formatCombo, keybindDefs, setCombo, type KeybindAction } from "../state/keybinds"
 import { language, languages, setLanguage, type LanguageId } from "../state/language"
 import { formatModelContext, lmStudioMinimumContext, lmStudioModelReady } from "../state/lm-studio"
@@ -130,6 +130,7 @@ import {
   IconMic,
   IconPalette,
   IconPlus,
+  IconSearch,
   IconShieldCheck,
   IconSliders,
   IconX,
@@ -196,6 +197,157 @@ const keybindLabels: Record<KeybindAction, string> = {
   zoomReset: "drift.shortcuts.zoomReset",
 }
 
+type SettingsSearchDefinition = { title: string; description?: string }
+export type SettingsSearchItem = { section: Section; sectionLabel: string; title: string; description: string }
+
+const settingsSearchDefinitions = {
+  General: [
+    { title: "settings.general.row.language.title", description: "settings.general.row.language.description" },
+    { title: "drift.settings.responseAnimation.title", description: "drift.settings.responseAnimation.description" },
+    { title: "drift.settings.responseAnimation.speed.title", description: "drift.settings.responseAnimation.speed.description" },
+    { title: "drift.preview.settings.title", description: "drift.preview.settings.description" },
+    { title: "command.permissions.autoaccept.enable", description: "toast.permissions.autoaccept.on.description" },
+    { title: "settings.general.row.reasoningSummaries.title", description: "settings.general.row.reasoningSummaries.description" },
+    { title: "drift.settings.toolErrors.title", description: "drift.settings.toolErrors.description" },
+    { title: "drift.settings.summaries.collapsible.title", description: "drift.settings.summaries.collapsible.description" },
+    { title: "drift.settings.summaries.collapsed.title", description: "drift.settings.summaries.collapsed.description" },
+    { title: "settings.updates.row.startup.title", description: "settings.updates.row.startup.description" },
+  ],
+  Appearance: [
+    { title: "settings.general.row.theme.title" },
+    ...Object.values(themeMeta).map((item) => ({ title: item.label })),
+    { title: "drift.settings.customPalette" },
+    { title: "settings.general.row.uiFont.title", description: "settings.general.row.uiFont.description" },
+    { title: "startup.settings.show.title", description: "startup.settings.show.description" },
+    { title: "startup.settings.mascot.title", description: "startup.settings.mascot.description" },
+    { title: "startup.settings.exit.title", description: "startup.settings.exit.description" },
+    { title: "startup.settings.duration.title", description: "startup.settings.duration.description" },
+    { title: "startup.settings.font.title", description: "startup.settings.font.description" },
+    { title: "drift.settings.customCss", description: "drift.settings.customCss.description" },
+  ],
+  Code: [
+    { title: "drift.code.syntaxTheme.title", description: "drift.code.syntaxTheme.description" },
+    { title: "settings.general.row.font.title", description: "settings.general.row.font.description" },
+    { title: "drift.code.fontSize.title", description: "drift.code.fontSize.description" },
+    { title: "drift.code.tabWidth.title", description: "drift.code.tabWidth.description" },
+    { title: "drift.code.wordWrap.title", description: "drift.code.wordWrap.description" },
+    { title: "drift.code.diffWordWrap.title", description: "drift.code.diffWordWrap.description" },
+    { title: "drift.code.lineNumbers.title", description: "drift.code.lineNumbers.description" },
+    { title: "drift.code.diffIndicator.title", description: "drift.code.diffIndicator.description" },
+  ],
+  Notifications: [
+    ...["agent", "permissions", "errors"].flatMap((kind) => [
+      { title: `settings.general.notifications.${kind}.title`, description: `settings.general.notifications.${kind}.description` },
+      { title: `settings.general.sounds.${kind}.title`, description: `settings.general.sounds.${kind}.description` },
+    ]),
+    { title: "drift.settings.sound.chooseCustom" },
+  ],
+  Voice: [
+    { title: "drift.voice.dictation.enabled.title", description: "drift.voice.dictation.enabled.description" },
+    { title: "drift.voice.input.title", description: "drift.voice.input.description" },
+    { title: "drift.voice.model.title", description: "drift.voice.model.description" },
+    { title: "drift.voice.model.storage.title", description: "drift.voice.model.storage.ready" },
+    { title: "drift.voice.acceleration.title", description: "drift.voice.acceleration.gpu" },
+    { title: "drift.voice.dictation.language.title", description: "drift.voice.dictation.language.description" },
+    { title: "drift.voice.dictation.keyterms.title", description: "drift.voice.dictation.keyterms.description" },
+  ],
+  Shortcuts: Object.values(keybindLabels).map((title) => ({ title })),
+  Tools: [
+    { title: "drift.settings.toolRouting.title", description: "drift.settings.toolRouting.description" },
+    { title: "drift.settings.shellTimeout.title", description: "drift.settings.shellTimeout.description" },
+    { title: "drift.settings.shellTimeout.customMinutes", description: "drift.settings.shellTimeout.customDescription" },
+  ],
+  Providers: [
+    { title: "dialog.provider.search.placeholder" },
+    { title: "settings.providers.section.connected" },
+    { title: "provider.connect.method.apiKey" },
+    { title: "provider.connect.oauth.code.placeholder" },
+    { title: "drift.lmStudio.apiToken", description: "drift.lmStudio.description" },
+    { title: "drift.lmStudio.refresh" },
+  ],
+  MCP: [
+    { title: "drift.mcp.servers" },
+    { title: "drift.mcp.registry" },
+    { title: "drift.mcp.add" },
+    { title: "drift.mcp.name" },
+    { title: "drift.mcp.form.command" },
+    { title: "drift.mcp.form.cwd" },
+    { title: "drift.mcp.form.environment" },
+    { title: "drift.mcp.form.url" },
+    { title: "drift.mcp.form.headers" },
+    { title: "drift.mcp.form.oauth" },
+  ],
+  Prompts: [
+    { title: "drift.settings.prompts.modelFamilies", description: "drift.settings.prompts.familyDescription" },
+    { title: "drift.settings.prompts.systemPrompt" },
+    { title: "drift.settings.prompts.astraDescription" },
+    { title: "drift.settings.prompts.upstreamOriginal" },
+  ],
+  Agents: [
+    { title: "drift.settings.prompts.agents", description: "drift.settings.prompts.agentDescription" },
+    { title: "command.category.model" },
+    { title: "drift.settings.prompts.agentPrompt", description: "drift.settings.prompts.inheritsFamily" },
+    { title: "drift.settings.prompts.behavior" },
+  ],
+  Storage: [
+    { title: "drift.storage.sessions.total", description: "drift.storage.sessions.total.description" },
+    { title: "drift.storage.sessions.subagent", description: "drift.storage.sessions.subagent.description" },
+    { title: "drift.storage.sessions.archived", description: "drift.storage.sessions.archived.description" },
+    { title: "drift.storage.auto", description: "drift.storage.auto.description" },
+    { title: "drift.storage.rule.superseded", description: "drift.storage.rule.superseded.description" },
+    { title: "drift.storage.rule.subagent", description: "drift.storage.rule.subagent.description" },
+    { title: "drift.storage.rule.archived", description: "drift.storage.rule.archived.description" },
+    { title: "drift.storage.rule.orphan", description: "drift.storage.rule.orphan.description" },
+    { title: "drift.storage.analyze", description: "drift.storage.analyze.description" },
+    { title: "drift.storage.prune", description: "drift.storage.prune.description" },
+    { title: "drift.storage.compact", description: "drift.storage.compact.description" },
+  ],
+  "Remote Access": [
+    { title: "drift.remote.enable", description: "drift.remote.enableDescription" },
+    { title: "drift.remote.address" },
+    { title: "drift.remote.connectionUrl", description: "drift.remote.noLanAddress" },
+    { title: "drift.remote.rotate" },
+    { title: "drift.remote.securityWarning" },
+  ],
+  About: [
+    { title: "drift.about.row.app.title", description: "drift.about.row.app.description" },
+    { title: "drift.about.row.engine.title", description: "drift.about.row.engine.description" },
+    { title: "drift.about.row.updates.title", description: "drift.about.row.updates.installed" },
+    { title: "drift.about.row.website.title", description: "drift.about.row.website.description" },
+    { title: "drift.about.group.credits", description: "drift.about.credits.engine" },
+  ],
+} satisfies Record<Section, SettingsSearchDefinition[]>
+
+const normalizeSettingsSearch = (value: string) => value.trim().toLocaleLowerCase()
+
+export function settingsSearchResults(query: string): SettingsSearchItem[] {
+  const value = normalizeSettingsSearch(query)
+  if (!value) return []
+  const terms = value.split(/\s+/)
+  return sections
+    .flatMap((section) => {
+      const sectionLabel = t(sectionLabels[section])
+      const definitions: readonly SettingsSearchDefinition[] = settingsSearchDefinitions[section]
+      return definitions.map((definition) => ({
+        section,
+        sectionLabel,
+        title: t(definition.title),
+        description: definition.description ? t(definition.description) : "",
+      }))
+    })
+    .filter((item) => {
+      const text = normalizeSettingsSearch(`${item.section} ${item.sectionLabel} ${item.title} ${item.description}`)
+      return terms.every((term) => text.includes(term))
+    })
+    .sort((left, right) => {
+      const leftTitle = normalizeSettingsSearch(left.title)
+      const rightTitle = normalizeSettingsSearch(right.title)
+      const rank = (title: string) => title === value ? 0 : title.startsWith(value) ? 1 : title.includes(value) ? 2 : 3
+      return rank(leftTitle) - rank(rightTitle)
+    })
+    .slice(0, 40)
+}
+
 const [settingsOpen, setSettingsOpen] = createSignal(false)
 const [settingsSection, setSettingsSection] = createSignal<Section>("General")
 const [updateSupported, setUpdateSupported] = createSignal<boolean | undefined>()
@@ -244,8 +396,15 @@ export function SettingsHost() {
 
 function SettingsModal(props: { onClose: () => void }) {
   let dialog!: HTMLDivElement
+  let searchInput!: HTMLInputElement
   const section = settingsSection
   const [contentScrolled, setContentScrolled] = createSignal(false)
+  const [query, setQuery] = createSignal("")
+  const results = createMemo(() => settingsSearchResults(query()))
+  const selectSection = (next: Section) => {
+    setSettingsSection(next)
+    setQuery("")
+  }
   onMount(() => onCleanup(activateModal(dialog, props.onClose)))
 
   return (
@@ -278,7 +437,7 @@ function SettingsModal(props: { onClose: () => void }) {
                           "bg-raised text-ink": section() === name,
                           "text-ink-muted hover:bg-raised/60 hover:text-ink": section() !== name,
                         }}
-                        onClick={() => setSettingsSection(name)}
+                        onClick={() => selectSection(name)}
                       >
                         <SectionIcon section={name} />
                         <span class="hidden min-w-0 truncate sm:inline" title={t(sectionLabels[name])}>
@@ -297,7 +456,40 @@ function SettingsModal(props: { onClose: () => void }) {
             class="settings-header z-10 flex items-center justify-between px-5 py-3.5"
             classList={{ "settings-header-scrolled": contentScrolled() }}
           >
-            <span class="min-w-0 truncate text-sm font-semibold text-ink">{t(sectionLabels[section()])}</span>
+            <span class="hidden min-w-0 flex-1 truncate text-sm font-semibold text-ink sm:block">{t(sectionLabels[section()])}</span>
+            <div class="mr-2 flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-edge bg-raised/45 px-2 transition-colors focus-within:border-accent sm:max-w-56">
+              <IconSearch class="size-3.5 shrink-0 text-ink-faint" />
+              <input
+                ref={searchInput}
+                type="text"
+                inputMode="search"
+                autocomplete="off"
+                autofocus
+                class="min-w-0 flex-1 bg-transparent py-1.5 text-sm text-ink outline-none placeholder:text-ink-faint"
+                aria-label={t("drift.settings.search.placeholder")}
+                placeholder={t("drift.settings.search.placeholder")}
+                value={query()}
+                onInput={(event) => setQuery(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && results()[0]) {
+                    event.preventDefault()
+                    selectSection(results()[0]!.section)
+                  }
+                }}
+              />
+              <Show when={query()}>
+                <button
+                  class="flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:text-ink"
+                  title={t("drift.search.clear")}
+                  onClick={() => {
+                    setQuery("")
+                    searchInput.focus()
+                  }}
+                >
+                  <IconX class="size-3" />
+                </button>
+              </Show>
+            </div>
             <button
               title={t("common.close")}
               class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
@@ -310,54 +502,91 @@ function SettingsModal(props: { onClose: () => void }) {
             class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4"
             onScroll={(event) => setContentScrolled(event.currentTarget.scrollTop > 1)}
           >
-            <Switch>
-              <Match when={section() === "General"}>
-                <GeneralSection />
-              </Match>
-              <Match when={section() === "Appearance"}>
-                <AppearanceSection />
-              </Match>
-              <Match when={section() === "Code"}>
-                <CodeSection />
-              </Match>
-              <Match when={section() === "Notifications"}>
-                <NotificationsSection />
-              </Match>
-              <Match when={section() === "Voice"}>
-                <VoiceSection />
-              </Match>
-              <Match when={section() === "Tools"}>
-                <ToolExecutionSection />
-              </Match>
-              <Match when={section() === "Providers"}>
-                <ProvidersSection />
-              </Match>
-              <Match when={section() === "MCP"}>
-                <McpManagement embedded />
-              </Match>
-              <Match when={section() === "Shortcuts"}>
-                <KeybindsSection />
-              </Match>
-              <Match when={section() === "Prompts"}>
-                <PromptEditorSection view="prompts" />
-              </Match>
-              <Match when={section() === "Agents"}>
-                <PromptEditorSection view="agents" />
-              </Match>
-              <Match when={section() === "Storage"}>
-                <StorageSection />
-              </Match>
-              <Match when={section() === "Remote Access"}>
-                <RemoteAccessSection />
-              </Match>
-              <Match when={section() === "About"}>
-                <AboutSection />
-              </Match>
-            </Switch>
+            <Show
+              when={query().trim()}
+              fallback={
+                <Switch>
+                  <Match when={section() === "General"}>
+                    <GeneralSection />
+                  </Match>
+                  <Match when={section() === "Appearance"}>
+                    <AppearanceSection />
+                  </Match>
+                  <Match when={section() === "Code"}>
+                    <CodeSection />
+                  </Match>
+                  <Match when={section() === "Notifications"}>
+                    <NotificationsSection />
+                  </Match>
+                  <Match when={section() === "Voice"}>
+                    <VoiceSection />
+                  </Match>
+                  <Match when={section() === "Tools"}>
+                    <ToolExecutionSection />
+                  </Match>
+                  <Match when={section() === "Providers"}>
+                    <ProvidersSection />
+                  </Match>
+                  <Match when={section() === "MCP"}>
+                    <McpManagement embedded />
+                  </Match>
+                  <Match when={section() === "Shortcuts"}>
+                    <KeybindsSection />
+                  </Match>
+                  <Match when={section() === "Prompts"}>
+                    <PromptEditorSection view="prompts" />
+                  </Match>
+                  <Match when={section() === "Agents"}>
+                    <PromptEditorSection view="agents" />
+                  </Match>
+                  <Match when={section() === "Storage"}>
+                    <StorageSection />
+                  </Match>
+                  <Match when={section() === "Remote Access"}>
+                    <RemoteAccessSection />
+                  </Match>
+                  <Match when={section() === "About"}>
+                    <AboutSection />
+                  </Match>
+                </Switch>
+              }
+            >
+              <SettingsSearchResults items={results()} onSelect={selectSection} />
+            </Show>
           </div>
         </div>
       </div>
     </div>
+  )
+}
+
+function SettingsSearchResults(props: { items: SettingsSearchItem[]; onSelect: (section: Section) => void }) {
+  return (
+    <Show
+      when={props.items.length}
+      fallback={<div class="px-2 py-8 text-center text-sm text-ink-faint">{t("drift.settings.search.empty")}</div>}
+    >
+      <div class="space-y-1">
+        <For each={props.items}>
+          {(item) => (
+            <button
+              type="button"
+              class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-raised/60 focus-visible:bg-raised/60 focus-visible:outline-none"
+              onClick={() => props.onSelect(item.section)}
+            >
+              <SectionIcon section={item.section} />
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-medium text-ink">{item.title}</span>
+                <Show when={item.description}>
+                  <span class="mt-0.5 block text-[0.72rem] leading-relaxed text-ink-faint">{item.description}</span>
+                </Show>
+              </span>
+              <span class="shrink-0 text-[0.68rem] text-ink-faint">{item.sectionLabel}</span>
+            </button>
+          )}
+        </For>
+      </div>
+    </Show>
   )
 }
 
@@ -1383,9 +1612,16 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   const agentPromptModified = () => agentPrompt() !== agentPromptBaseline() || "prompt" in agentOverrideFields()
   const agentBehaviorModified = () =>
     agentBehavior() !== agentBehaviorBaseline() || Object.keys(agentOverrideFields()).some((key) => key !== "prompt")
+  const modelCapability = () => agentModelCapability(currentAgent())
+  const inheritedModelLabel = () =>
+    currentAgent()?.name === "title"
+      ? t("drift.settings.agents.automaticSmallModel")
+      : currentAgent()?.name === "compaction"
+        ? t("drift.settings.agents.currentSessionModel")
+        : t("drift.settings.agents.currentModel")
   const agentModels = createMemo(() => [
-    { id: "", label: t("drift.settings.agents.currentModel") },
-    ...subagentModelOptions(engine.state),
+    { id: "", label: inheritedModelLabel() },
+    ...agentModelOptions(engine.state, modelCapability() ?? "tools"),
   ])
   const selectedAgentModel = () => agentBehaviorModel(agentBehavior())
 
@@ -1608,14 +1844,14 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
                     }}
                   />
                 </div>
-                <Show when={currentAgent()?.mode === "subagent" || currentAgent()?.mode === "all"}>
+                <Show when={modelCapability()}>
                   <div class="flex items-center justify-between gap-3">
                     <span class="text-xs text-ink-faint">{t("command.category.model")}</span>
                     <Picker
                       label={t("command.category.model")}
                       items={agentModels()}
                       selected={selectedAgentModel()}
-                      fallbackLabel={selectedAgentModel() || t("drift.settings.agents.currentModel")}
+                      fallbackLabel={selectedAgentModel() || inheritedModelLabel()}
                       floating bordered chevronAtEnd placement="below" width="11rem"
                       onPick={selectAgentModel}
                     />
