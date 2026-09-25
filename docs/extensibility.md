@@ -148,7 +148,11 @@ invoking tool's cancellation signal. Idle describes the runtime, not a guarantee
 succeeded; the latest assistant error is shown when present.
 
 Before reading the child, the plugin requires a completed `spawn_thread` receipt with that
-ID in the caller's history. This supports model-spawned threads even after restarting Drift.
+ID in the caller's history. It searches newest-to-oldest in 50-message pages using the
+engine's opaque `X-Next-Cursor`/`before` pagination, stopping at the first matching receipt.
+Older receipts remain reachable without loading the entire parent history into memory.
+Page failures or repeated cursors fail the lookup rather than granting access. This supports
+model-spawned threads even after restarting Drift.
 It does not support `/spawn` or arbitrary sessions: those UI-created links live in Drift's
 SQLite rather than the caller's transcript. The v1 SDK lacks pending permission/question
 methods, so those two reads use its internal authenticated HTTP client. Jev preserves

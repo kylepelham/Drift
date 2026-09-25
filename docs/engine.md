@@ -106,8 +106,12 @@ workspace import, and engine timing.
 
 Tool execution settings can enable Jev routing through OpenCode Zen. It is off by default.
 The native shell persists the choice in SQLite and atomically publishes `tool-routing.json`.
+Policy-change events are emitted under the persistence lock so concurrent desktop/companion
+updates cannot publish an older value after a newer one.
 The bundled `tool-routing.js` reads it at each model step, so changing the setting requires
-no restart. A small `zzzzzzz-jev-tool-routing.patch` bridge runs after permission filtering
+no restart. The launcher selects an existing `tool-routing.js`, falling back to
+`tool-routing.ts` for source extensions. If neither exists, it leaves the module environment
+variable unset, clearing any inherited value. A small `zzzzzzz-jev-tool-routing.patch` bridge runs after permission filtering
 and before either LLM transport. It reads a stored `opencode` (Zen) API key from engine
 auth, falling back to an `opencode-go` key, only when routing is enabled. No credentials
 enter the UI or routing cache.

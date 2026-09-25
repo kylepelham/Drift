@@ -5,6 +5,7 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { buildExtensions } from "../scripts/build-extensions"
 import { SpawnThread } from "../engine/opencode/plugin/spawn-thread"
+import { createOpencodeClient } from "@opencode-ai/sdk"
 import type { PromptCatalog } from "../src/state/prompts"
 
 const args = {
@@ -61,6 +62,7 @@ const spawnedPart = (id: string, status = "completed") => ({ type: "tool", tool:
 
 async function readTool(options: {
   parent?: unknown[]
+  parentPages?: { data?: unknown[]; cursor?: string; error?: unknown }[]
   child?: unknown[]
   status?: Record<string, unknown>
   todos?: unknown[]
@@ -68,6 +70,7 @@ async function readTool(options: {
   questions?: unknown[]
 } = {}) {
   const calls: string[] = []
+  const parentQueries: { directory: string; limit?: number; before?: string }[] = []
   const client = {
     _client: {
       async get({ url }: { url: string }) {
@@ -76,9 +79,16 @@ async function readTool(options: {
       },
     },
     session: {
-      async messages({ path: input }: { path: { id: string } }) {
+      async messages({ path: input, query }: { path: { id: string }; query: { directory: string; limit?: number; before?: string } }) {
         calls.push(`messages:${input.id}`)
-        return { data: input.id === "parent" ? options.parent ?? [{ info: { role: "assistant" }, parts: [spawnedPart("child")] }] : options.child ?? [] }
+        if (input.id !== "parent") return { data: options.child ?? [] }
+        parentQueries.push(query)
+        const page = options.parentPages?.[parentQueries.length - 1]
+        return {
+          data: page ? page.data : options.parent ?? [{ info: { role: "assistant" }, parts: [spawnedPart("child")] }],
+          error: page?.error,
+          response: new Response(null, { headers: page?.cursor ? { "x-next-cursor": page.cursor } : {} }),
+        }
       },
       async get() { return { data: { id: "child", title: "Child thread" } } },
       async status() { return { data: options.status ?? {} } },
@@ -92,8 +102,66 @@ async function readTool(options: {
     const result = await execute({ id }, context)
     return typeof result === "string" ? result : result.output
   }
-  return { calls, run }
+  return { calls, run, parentQueries }
 }
+
+test("read_thread searches older receipt pages and stops as soon as it finds the child", async () => {
+  const view = await readTool({ parentPages: [
+    { data: Array.from({ length: 50 }, () => ({ info: { role: "assistant" }, parts: [] })), cursor: "older-page" },
+    { data: [{ info: { role: "assistant" }, parts: [spawnedPart("child")] }], cursor: "unneeded-page" },
+  ] })
+  expect(await view.run()).toContain('Thread "Child thread"')
+  expect(view.parentQueries).toEqual([
+    { directory: context.directory, limit: 50, before: undefined },
+    { directory: context.directory, limit: 50, before: "older-page" },
+  ])
+})
+
+test("read_thread scans to exhaustion before rejecting an unrelated child", async () => {
+  const view = await readTool({ parentPages: [
+    { data: [], cursor: "older-page" },
+    { data: [{ info: { role: "assistant" }, parts: [spawnedPart("other")] }] },
+  ] })
+  await expect(view.run()).rejects.toThrow("was not spawned")
+  expect(view.calls).toEqual(["messages:parent", "messages:parent"])
+})
+
+test("read_thread fails on page errors or repeating cursors without reading the child", async () => {
+  for (const last of [{ error: { message: "history unavailable" } }, { data: [], cursor: "same" }]) {
+    const view = await readTool({ parentPages: [{ data: [], cursor: "same" }, last] })
+    await expect(view.run()).rejects.toThrow("Could not read spawn receipts")
+    expect(view.calls).toEqual(["messages:parent", "messages:parent"])
+  }
+})
+
+test("read_thread pagination survives the real SDK query serializer and preserves auth", async () => {
+  const requests: URL[] = []
+  const client = createOpencodeClient({
+    baseUrl: "http://thread-test.invalid",
+    headers: { Authorization: "Bearer fixture" },
+    fetch: async (request) => {
+      const req = request as Request
+      const url = new URL(req.url)
+      requests.push(url)
+      expect(req.method).toBe("GET")
+      expect(req.headers.get("authorization")).toBe("Bearer fixture")
+      expect(url.searchParams.get("directory")).toBe(context.directory)
+      if (url.pathname === "/session/parent/message") {
+        expect(url.searchParams.get("limit")).toBe("50")
+        if (!url.searchParams.has("before")) return Response.json([], { headers: { "X-Next-Cursor": "opaque+/=" } })
+        expect(url.searchParams.get("before")).toBe("opaque+/=")
+        return Response.json([{ info: { role: "assistant" }, parts: [spawnedPart("child")] }])
+      }
+      if (url.pathname === "/session/child") return Response.json({ title: "Child" })
+      if (url.pathname === "/session/status") return Response.json({})
+      return Response.json([])
+    },
+  })
+  const plugin = await SpawnThread({ client } as never)
+  const result = await plugin.tool!.read_thread!.execute({ id: "child" }, context)
+  expect(result).toHaveProperty("output", expect.stringContaining("Status: idle"))
+  expect(requests.filter((url) => url.pathname === "/session/parent/message")).toHaveLength(2)
+})
 
 test("read_thread refuses threads this conversation did not spawn", async () => {
   const other = await readTool()

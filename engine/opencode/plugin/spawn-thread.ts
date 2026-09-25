@@ -36,7 +36,9 @@ const replyLimit = 4000
 const recentTools = 10
 const todoMarks: Record<string, string> = { completed: "x", in_progress: "~", cancelled: "-" }
 
-async function data<T>(request: Promise<{ data?: T; error?: unknown }>, what: string): Promise<T> {
+type Result<T> = { data?: T; error?: unknown }
+
+async function data<T>(request: Promise<Result<T>> | Result<T>, what: string): Promise<T> {
   const response = await request
   if (response.error !== undefined || response.data === undefined) throw new Error(`Could not read ${what}: ${errorMessage(response.error, "no data")}`)
   return response.data
@@ -46,6 +48,21 @@ function spawnedBy(history: Entry[], id: string) {
   return history.some((entry) => entry.info.role === "assistant" && entry.parts.some((part) =>
     part.type === "tool" && part.tool === "spawn_thread" && part.state?.status === "completed" && part.state.metadata?.sessionId === id,
   ))
+}
+
+async function verifySpawn(client: Client, parentID: string, childID: string, directory: string, signal: AbortSignal) {
+  const seen = new Set<string>()
+  let before: string | undefined
+  do {
+    signal.throwIfAborted()
+    const query = { directory, limit: 50, before }
+    const page = await client.session.messages({ path: { id: parentID }, query, signal })
+    if (spawnedBy(await data(page, "spawn receipts") as Entry[], childID)) return true
+    before = page.response.headers.get("x-next-cursor") ?? undefined
+    if (before && seen.has(before)) throw new Error("Could not read spawn receipts: pagination did not advance")
+    if (before) seen.add(before)
+  } while (before)
+  return false
 }
 
 async function snapshot(client: Client, id: string, directory: string, signal: AbortSignal): Promise<Snapshot> {
@@ -124,8 +141,9 @@ function readThread(client: Client) {
     ].join(" "),
     args: { id: tool.schema.string().describe("Thread id returned by spawn_thread") },
     async execute(args, ctx) {
-      const parent = await data(client.session.messages({ path: { id: ctx.sessionID }, query: { directory: ctx.directory }, signal: ctx.abort }), "this conversation")
-      if (!spawnedBy(parent as Entry[], args.id)) throw new Error(`Thread ${args.id} was not spawned from this conversation with spawn_thread.`)
+      if (!await verifySpawn(client, ctx.sessionID, args.id, ctx.directory, ctx.abort)) {
+        throw new Error(`Thread ${args.id} was not spawned from this conversation with spawn_thread.`)
+      }
       const view = await snapshot(client, args.id, ctx.directory, ctx.abort)
       return { title: view.title, output: render(args.id, view), metadata: { threadId: args.id } }
     },

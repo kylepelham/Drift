@@ -8,6 +8,13 @@ const KEY: &str = "tool_routing_policy";
 pub(crate) const POLICY_FILE: &str = "tool-routing.json";
 pub(crate) const STATUS_FILE: &str = "tool-routing-status.json";
 
+pub(crate) fn module_path(extensions: &Path) -> Option<PathBuf> {
+    ["tool-routing.js", "tool-routing.ts"]
+        .into_iter()
+        .map(|name| extensions.join(name))
+        .find(|path| path.is_file())
+}
+
 #[derive(Clone, Default, Deserialize, Serialize, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Policy {
@@ -51,7 +58,7 @@ impl ToolRouting {
         mcp::write_raw(&self.file, &contents)
     }
 
-    fn update(&self, store: &Store, policy: Policy) -> Result<Policy, String> {
+    fn update(&self, store: &Store, policy: Policy, publish: impl FnOnce(&Policy)) -> Result<Policy, String> {
         let _lock = self
             .mutation
             .lock()
@@ -64,6 +71,7 @@ impl ToolRouting {
             return Err(error.to_string());
         }
         let _ = std::fs::remove_file(&self.status);
+        publish(&policy);
         Ok(policy)
     }
 }
@@ -92,9 +100,9 @@ pub(crate) fn tool_routing_update(
     store: State<Store>,
     policy: Policy,
 ) -> Result<Policy, String> {
-    let policy = routing.update(&store, policy)?;
-    let _ = app.emit("tool-routing-changed", &policy);
-    Ok(policy)
+    routing.update(&store, policy, |saved| {
+        let _ = app.emit("tool-routing-changed", saved);
+    })
 }
 
 #[cfg(test)]
@@ -108,19 +116,58 @@ mod tests {
     }
 
     #[test]
+    fn module_resolution_prefers_bundle_and_supports_source_fallback() {
+        let root = directory();
+        std::fs::create_dir_all(&root).unwrap();
+        assert_eq!(module_path(&root), None);
+        let source = root.join("tool-routing.ts");
+        let bundle = root.join("tool-routing.js");
+        std::fs::write(&source, "export {}").unwrap();
+        assert_eq!(module_path(&root), Some(source.clone()));
+        std::fs::create_dir(&bundle).unwrap();
+        assert_eq!(module_path(&root), Some(source.clone()));
+        std::fs::remove_dir(&bundle).unwrap();
+        std::fs::write(&bundle, "export {}").unwrap();
+        assert_eq!(module_path(&root), Some(bundle.clone()));
+        std::fs::remove_file(&bundle).unwrap();
+        assert_eq!(module_path(&root), Some(source));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn policy_publication_holds_mutation_lock_and_follows_persistence() {
+        let root = directory();
+        let store = crate::store::open(&root).unwrap();
+        let routing = ToolRouting::new(&root, &store).unwrap();
+        let mut published = Vec::new();
+        for enabled in [true, false] {
+            routing.update(&store, Policy { enabled }, |saved| {
+                assert!(matches!(routing.mutation.try_lock(), Err(std::sync::TryLockError::WouldBlock)));
+                assert_eq!(load(&store).unwrap(), *saved);
+                let materialized: Policy = serde_json::from_slice(&std::fs::read(&routing.file).unwrap()).unwrap();
+                assert_eq!(materialized, *saved);
+                published.push(saved.enabled);
+            }).unwrap();
+        }
+        assert_eq!(published, vec![true, false]);
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn routing_policy_defaults_off_persists_and_materializes() {
         let root = directory();
         let store = crate::store::open(&root).unwrap();
         let routing = ToolRouting::new(&root, &store).unwrap();
         assert_eq!(load(&store).unwrap(), Policy { enabled: false });
-        routing.update(&store, Policy { enabled: true }).unwrap();
+        routing.update(&store, Policy { enabled: true }, |_| {}).unwrap();
         drop(store);
         let store = crate::store::open(&root).unwrap();
         let routing = ToolRouting::new(&root, &store).unwrap();
         let contents: Policy =
             serde_json::from_slice(&std::fs::read(&routing.file).unwrap()).unwrap();
         assert_eq!(contents, Policy { enabled: true });
-        routing.update(&store, Policy { enabled: false }).unwrap();
+        routing.update(&store, Policy { enabled: false }, |_| {}).unwrap();
         assert!(!load(&store).unwrap().enabled);
         drop(store);
         std::fs::remove_dir_all(root).unwrap();
@@ -133,7 +180,7 @@ mod tests {
         let routing = ToolRouting::new(&root, &store).unwrap();
         std::fs::remove_file(&routing.file).unwrap();
         std::fs::create_dir(&routing.file).unwrap();
-        assert!(routing.update(&store, Policy { enabled: true }).is_err());
+        assert!(routing.update(&store, Policy { enabled: true }, |_| panic!("failed updates must not publish")).is_err());
         assert!(!load(&store).unwrap().enabled);
         assert!(serde_json::from_str::<Policy>(r#"{"enabled":"yes"}"#).is_err());
         assert!(
@@ -155,7 +202,7 @@ mod tests {
         assert_eq!(status.http_status, Some(402));
         std::fs::write(&routing.status, "{partial").unwrap();
         assert_eq!(routing.read_status(), None);
-        routing.update(&store, Policy { enabled: true }).unwrap();
+        routing.update(&store, Policy { enabled: true }, |_| {}).unwrap();
         assert!(!routing.status.exists());
         drop(store);
         std::fs::remove_dir_all(root).unwrap();
