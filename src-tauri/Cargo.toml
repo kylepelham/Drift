@@ -19,13 +19,24 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 getrandom = "0.3"
 sha2 = "0.10"
+# Remote Access password sign-in; PBKDF2 is the vetted, dependency-light choice alongside sha2.
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+# Renders the non-secret Remote Access address as a scannable SVG for phones.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+# Remote Access HTTPS: a per-install CA and per-address leaf certificates, served with rustls.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
+time = "0.3"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+hyper = "1"
+hyper-util = { version = "0.1", features = ["server-auto", "service", "tokio"] }
+tower = { version = "0.5", features = ["util"] }
 sha1 = "0.10"
 base64 = "0.22"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "rustls-native-certs", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 url = "2"
 axum = "0.8"
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 futures-util = "0.3"
 mime_guess = "2"
 rust-embed = "8"

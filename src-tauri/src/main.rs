@@ -11,6 +11,8 @@ mod mcp;
 mod mcp_external;
 mod permissions;
 mod remote;
+mod remote_auth;
+mod remote_tls;
 mod session_search;
 mod startup;
 mod storage;
@@ -152,8 +154,9 @@ fn main() {
             remote::remote_access_status,
             remote::remote_access_enable,
             remote::remote_access_disable,
-            remote::remote_access_rotate_token,
-            remote::remote_access_urls,
+            remote::remote_access_link,
+            remote::remote_access_revoke,
+            remote::remote_access_set_password,
             ui_state::ui_state_initialize,
             ui_state::ui_state_snapshot,
             ui_state::ui_state_update,
@@ -197,7 +200,7 @@ fn main() {
             app.manage(watcher::SkillWatchRoots::default());
             #[cfg(windows)]
             permissions::install(app)?;
-            let remote_access = remote::RemoteAccess::load(&app.state::<store::Store>())
+            let remote_access = remote::RemoteAccess::load(&app.state::<store::Store>(), &data_dir)
                 .expect("failed to load remote access settings");
             let start_remote = remote_access.should_start();
             app.manage(remote_access);

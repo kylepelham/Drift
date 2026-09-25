@@ -229,9 +229,15 @@ const pendingTranslation = new Set([
   ...pendingKeys(
     "drift.remote",
     `
-      address connected connectionUrl copied copy deckHelp enable
-      enableDescription gateway listening manageOnDesktop noLanAddress rotate rotated
-      securityWarning title
+      address connected copied copy enable enableDescription gateway listening manageOnDesktop
+      noLanAddress title scan securityNote open.title open.description
+      link.title link.description link.action link.linked link.waiting
+      devices.title devices.empty devices.link devices.password devices.lastSeen devices.revoke devices.revokeAll
+      password.title password.description password.on password.off password.setUp password.change
+      password.turnOff password.username password.password password.confirm password.mismatch
+      password.save password.cancel password.note
+      encryption.title encryption.https encryption.description encryption.fingerprint
+      device.title device.signedIn device.signOut toast.title toast.message toast.open
     `,
   ),
   ...pendingKeys(

@@ -17,6 +17,8 @@ export function backendInvoke(): ShellInvoke | undefined {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ command, args }),
     })
+    // A revoked or expired device session returns to the sign-in page.
+    if (response.status === 401) window.location.replace("/companion")
     const value = (await response.json().catch(() => null)) as T | { error?: string } | null
     if (!response.ok) {
       const message = value && typeof value === "object" && "error" in value ? value.error : undefined

@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack, type JSX } from "solid-js"
 import { useEngine, type Engine } from "../engine"
 import {
   alertSounds,
@@ -119,7 +119,7 @@ export function AttentionNotifier(props: { engine: Engine }) {
   return null
 }
 
-export function NoticeHost() {
+export function NoticeHost(props: { children?: JSX.Element }) {
   const engine = useEngine()
   const [now, setNow] = createSignal(Date.now())
   const [dismissed, setDismissed] = createSignal(new Set<string>())
@@ -176,6 +176,7 @@ export function NoticeHost() {
             </button>
           </div>
         </Show>
+        {props.children}
         <For each={pendingMcp().filter((target) => !hiddenMcp().has(mcpPromptKey(target)))}>
           {(target) => (
             <div class="rounded-lg border border-warn/40 bg-surface/95 px-3 py-2 shadow-xl backdrop-blur" role="status">

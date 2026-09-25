@@ -69,16 +69,6 @@ import { shellInvoke } from "../shell"
 import { isRemoteRuntime } from "../runtime"
 import { parseNavigationHash, pushRemoteOverlay } from "../state/navigation"
 import {
-  refreshRemoteAccess,
-  remoteAccessBusy,
-  remoteAccessError,
-  remoteAccessStatus,
-  nextRemoteAccessEnabled,
-  remoteStatusTone,
-  rotateRemoteAccessToken,
-  setRemoteAccess,
-} from "../state/remote-access"
-import {
   setSplashDuration,
   setSplashEnabled,
   setSplashExitAnimation,
@@ -138,6 +128,7 @@ import {
 import { readDataUrl } from "./files"
 import { Jellyfish } from "./jellyfish"
 import { SettingsGroup, SettingsRow } from "./settings-controls"
+import { RemoteAccessSection } from "./settings-remote-access"
 import { StorageSection } from "./settings-storage"
 import { ToolRoutingSetting } from "./settings-tool-routing"
 import { VoiceSection } from "./settings-voice"
@@ -305,9 +296,12 @@ const settingsSearchDefinitions = {
   "Remote Access": [
     { title: "drift.remote.enable", description: "drift.remote.enableDescription" },
     { title: "drift.remote.address" },
-    { title: "drift.remote.connectionUrl", description: "drift.remote.noLanAddress" },
-    { title: "drift.remote.rotate" },
-    { title: "drift.remote.securityWarning" },
+    { title: "drift.remote.open.title", description: "drift.remote.open.description" },
+    { title: "drift.remote.link.title", description: "drift.remote.link.description" },
+    { title: "drift.remote.devices.title", description: "drift.remote.devices.revokeAll" },
+    { title: "drift.remote.password.title", description: "drift.remote.password.description" },
+    { title: "drift.remote.encryption.title", description: "drift.remote.encryption.description" },
+    { title: "drift.remote.securityNote" },
   ],
   About: [
     { title: "drift.about.row.app.title", description: "drift.about.row.app.description" },
@@ -764,113 +758,6 @@ function GeneralSection() {
           </SettingsRow>
         </SettingsGroup>
       </Show>
-    </div>
-  )
-}
-
-function RemoteAccessSection() {
-  const remote = isRemoteRuntime()
-  const status = remoteAccessStatus
-  const [copied, setCopied] = createSignal(false)
-  const [rotated, setRotated] = createSignal(false)
-  const [clipboardError, setClipboardError] = createSignal("")
-  onMount(() => !remote && void refreshRemoteAccess())
-
-  async function copyConnectionUrl() {
-    const url = status()?.connectionUrls[0]
-    if (!url) return
-    setClipboardError("")
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1800)
-    } catch (cause) {
-      setClipboardError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }
-
-  async function rotate() {
-    setRotated(false)
-    await rotateRemoteAccessToken()
-    if (!remoteAccessError()) {
-      setRotated(true)
-      setTimeout(() => setRotated(false), 2400)
-    }
-  }
-
-  const statusLabel = () =>
-    status()?.error
-      ? t("drift.remote.statusError")
-      : status()?.listening
-        ? t("drift.remote.listening")
-        : status()?.enabled
-          ? t("drift.remote.statusStarting")
-          : t("drift.remote.statusOff")
-
-  return (
-    <div class="space-y-5">
-      <Show
-        when={!remote}
-        fallback={
-          <SettingsGroup title={t("drift.remote.gateway")}>
-            <SettingsRow title={t("drift.remote.connected")} description={t("drift.remote.manageOnDesktop")}>
-              <span class="size-2 rounded-full bg-ok" />
-            </SettingsRow>
-          </SettingsGroup>
-        }
-      >
-        <SettingsGroup title={t("drift.remote.gateway")}>
-          <SettingsRow title={t("drift.remote.enable")} description={t("drift.remote.enableDescription")}>
-            <Toggle
-              label={t("drift.remote.enable")}
-              checked={!!status()?.enabled}
-              disabled={remoteAccessBusy()}
-              onChange={() => void setRemoteAccess(nextRemoteAccessEnabled(status()))}
-            />
-          </SettingsRow>
-          <SettingsRow title={t("drift.remote.address")} description={statusLabel()}>
-            <div class="flex items-center gap-2">
-              <span
-                class="size-2 rounded-full"
-                classList={{
-                  "bg-ink-faint": remoteStatusTone(status()) === "idle" || remoteStatusTone(status()) === "offline",
-                  "bg-warn": remoteStatusTone(status()) === "offline" && !!status()?.enabled,
-                  "bg-ok": remoteStatusTone(status()) === "online",
-                  "bg-danger": remoteStatusTone(status()) === "error",
-                }}
-              />
-              <span class="font-mono text-[0.75rem] text-ink-muted">{status()?.listeningAddress ?? "—"}</span>
-            </div>
-          </SettingsRow>
-          <Show when={status()?.enabled && status()?.listening}>
-            <SettingsRow title={t("drift.remote.connectionUrl")} description={status()?.urls[0] || t("drift.remote.noLanAddress")}>
-              <div class="flex flex-wrap justify-end gap-2">
-                <button
-                  class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
-                  onClick={() => void copyConnectionUrl()}
-                >
-                  {copied() ? t("drift.remote.copied") : t("drift.remote.copy")}
-                </button>
-                <button
-                  class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
-                  disabled={remoteAccessBusy()}
-                  onClick={() => void rotate()}
-                >
-                  {t("drift.remote.rotate")}
-                </button>
-              </div>
-            </SettingsRow>
-          </Show>
-        </SettingsGroup>
-        <Show when={rotated()}><div class="text-xs text-ok">{t("drift.remote.rotated")}</div></Show>
-        <Show when={clipboardError()}><div class="text-xs text-danger">{t("drift.remote.clipboardError")}: {clipboardError()}</div></Show>
-      </Show>
-
-      <Show when={remoteAccessError() || status()?.error}>
-        <div class="text-xs text-danger">{remoteAccessError() || status()?.error}</div>
-      </Show>
-      <p class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.remote.securityWarning")}</p>
-      <p class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.remote.deckHelp")}</p>
     </div>
   )
 }
