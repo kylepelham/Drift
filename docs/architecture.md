@@ -96,9 +96,15 @@ generated image markers. External HTTP(S) and data images retain transcript beha
 `src/ui/markdown-images.ts` shares local loading with document previews, caching at most
 12 unique paths within a conservative 20 MiB byte budget. Streaming replacements reuse
 cached results; workspace or preference changes dispose the cache and revoke its blob URLs.
-Unlinked images open the lightbox by click, Enter, or Space; explicit image links retain
-navigation. Local lightbox images own a separate blob URL so transcript cleanup cannot
+Unlinked images open the lightbox by click, Enter, or Space; images wrapped in a link follow
+the link. Local lightbox images own a separate blob URL so transcript cleanup cannot
 invalidate an open viewer. Closing or replacing the lightbox revokes that URL.
+
+A link whose target is an image file (with image previews enabled) opens the lightbox, not the
+file preview dialog. Because the user explicitly clicked it, its read boundary is the image's own
+folder rather than the session workspace, so screenshots a tool saved to the temp directory
+open. This does not widen any server-side grant: the reader's root is already request-supplied.
+Automatic reads (embedded images and nested document links) keep the original workspace root.
 
 Spawned-thread tool rows finish when the spawn call succeeds, independently of the
 sibling's later activity or errors. Only subagent task rows display live child tool
