@@ -1018,6 +1018,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "현재 모델",
   "drift.slash.argumentDetails": "{{name}} 세부 정보",
   "drift.markdown.ambiguousCitation": "파일 링크 \"{{href}}\"가 모호합니다. 다음 파일 중에서 선택할 수 있도록 더 구체적인 경로를 사용하세요: {{files}}",
   "drift.preview.settings.title": "파일 미리보기",

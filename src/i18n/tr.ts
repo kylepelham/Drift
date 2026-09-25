@@ -1105,6 +1105,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Geçerli model",
   "drift.slash.argumentDetails": "{{name}} ayrıntıları",
   "drift.markdown.ambiguousCitation": "Belirsiz dosya bağlantısı \"{{href}}\". Şunlar arasından seçim yapmak için daha ayrıntılı bir yol kullanın: {{files}}",
   "drift.preview.settings.title": "Dosya önizlemeleri",

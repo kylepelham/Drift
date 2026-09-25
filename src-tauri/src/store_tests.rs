@@ -313,3 +313,39 @@ fn mcp_decisions_are_global_and_survive_definition_changes() {
     assert_eq!(store.mcp_state().unwrap().decisions[0].decision, "rejected");
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn legacy_remote_access_key_survives_for_older_builds_and_devices_round_trip() {
+    let dir = test_dir("remote-legacy");
+    {
+        let conn = Connection::open(dir.join(DATABASE_FILE)).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE remote_access(id INTEGER PRIMARY KEY CHECK(id = 1), enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)), token TEXT NOT NULL) STRICT;
+             INSERT INTO remote_access(id, enabled, token) VALUES(1, 1, 'old-shared-key');",
+        )
+        .unwrap();
+    }
+    let store = open(&dir).unwrap();
+    assert!(store.remote_access_enabled().unwrap());
+    store.save_remote_access(false).unwrap();
+    assert!(!store.remote_access_enabled().unwrap());
+    let kept: String = store.0.lock().unwrap().query_row("SELECT token FROM remote_access", [], |row| row.get(0)).unwrap();
+    assert_eq!(kept, "old-shared-key");
+    let device = RemoteDevice {
+        id: "d1".into(),
+        name: "Phone".into(),
+        token_hash: "hash".into(),
+        method: "link".into(),
+        created_at: 1,
+        last_seen_at: 1,
+    };
+    store.insert_remote_device(&device).unwrap();
+    store.touch_remote_device("d1", 5).unwrap();
+    assert_eq!(store.remote_devices().unwrap()[0].last_seen_at, 5);
+    store.delete_remote_devices(None, Some("password")).unwrap();
+    assert_eq!(store.remote_devices().unwrap().len(), 1);
+    store.delete_remote_devices(Some("d1"), None).unwrap();
+    assert!(store.remote_devices().unwrap().is_empty());
+    drop(store);
+    std::fs::remove_dir_all(dir).ok();
+}

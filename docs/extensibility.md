@@ -6,8 +6,11 @@
    (injected via `OPENCODE_CONFIG_DIR`, which the engine treats as an extra config dir:
    it auto-discovers `plugin/*.ts`, reads its `opencode.json`, and installs
    `@opencode-ai/plugin` there). That `opencode.json` also pins npm plugins Drift ships
-   by default, currently `@ex-machina/opencode-anthropic-auth` so Claude Pro/Max plan
+   by default, currently `@ex-machina/opencode-anthropic-auth@1.8.5` so Claude Pro/Max plan
    sign-ins work out of the box (installed on demand into the opencode package cache).
+   Version 1.8.5 reports Claude Code 2.1.280 for Anthropic's model-access gate. The
+   plugin does not itself add new models to the provider catalog; Opus 5.5 availability
+   still depends on the account, provider catalog, and Anthropic's server-side access.
     User plugins in `.opencode/` and global config work unchanged, but execute arbitrary
     engine-process code and are therefore outside the MCP approval trust boundary. Prefer
     a plugin for engine behavior. If an internal semantic cannot be expressed through the plugin API,
@@ -131,6 +134,30 @@ appears in the sidebar like any other chat; the tool card links to it. `/spawn <
 creates the same kind of sibling directly from the last stable active context without
 interrupting or steering the source thread.
 
+The same plugin provides `read_thread` for an explicitly requested peek at a thread created
+with `spawn_thread`. It takes the returned thread ID and makes one read-only snapshot.
+It never waits for completion, subscribes to updates, or sends another message. The tool's
+instructions prohibit repeated polling unless the user explicitly asks for it. Subagents
+remain the mechanism for delegated work whose result the parent needs to wait for.
+
+The snapshot includes runtime status, pending permissions/questions, todos, recent tool-call
+names/statuses, and the latest assistant text. Reasoning and tool-result bodies are excluded.
+It reads the latest 50 child messages, shows at most 20 todos and 10 tool calls, caps the reply
+at 4,000 characters, and bounds the entire result to 10,000 characters. API reads use the
+invoking tool's cancellation signal. Idle describes the runtime, not a guarantee the task
+succeeded; the latest assistant error is shown when present.
+
+Before reading the child, the plugin requires a completed `spawn_thread` receipt with that
+ID in the caller's history. It searches newest-to-oldest in 50-message pages using the
+engine's opaque `X-Next-Cursor`/`before` pagination, stopping at the first matching receipt.
+Older receipts remain reachable without loading the entire parent history into memory.
+Page failures or repeated cursors fail the lookup rather than granting access. This supports
+model-spawned threads even after restarting Drift.
+It does not support `/spawn` or arbitrary sessions: those UI-created links live in Drift's
+SQLite rather than the caller's transcript. The v1 SDK lacks pending permission/question
+methods, so those two reads use its internal authenticated HTTP client. Jev preserves
+`read_thread` as a core tool, and its card is a snapshot rather than a live child-progress row.
+
 Manual forks use the same stable active-context projection by default: completed
 compaction summary, retained tail, and completed turns after it. The in-flight turn and
 task/spawn session links are excluded. `/fork all` is the explicit slower operation that
@@ -158,9 +185,39 @@ the older family template; a saved family edit applies across both templates.
 Settings stores only user edits in Drift SQLite. Model-family edits are materialized to
 the plugin settings file; agent and subagent prompt/behavior edits are materialized as
 the highest-precedence Drift agent config. Reset removes that layer and reveals the
-generated Drift default or the user's underlying OpenCode agent config. Applying changes
-is disabled while any session is active because reloading engine instances mid-turn
-would interrupt work.
+generated Drift default or the user's underlying OpenCode agent config. Saving or resetting
+publishes a runtime configuration reload for both desktop and companion clients. Idle and
+new sessions use the new settings; active sessions retain their configuration until they
+finish. The agent catalog refreshes after saving. A failed publication reports that the
+settings were saved but need a retry or restart, rather than claiming they are live.
+
+### Agent models
+
+In Settings > Agents, select a subagent type such as `explore`, `general`, or a custom
+agent, then choose its Model. The compact row aligns with the agent selector. The searchable list includes tool-capable models
+from connected providers, including models hidden from the composer. LM Studio models
+must meet its loaded-context requirement. Save the agent to apply to new tasks from idle
+sessions. Tasks launched by an already active session keep that session's configuration
+until its current work finishes.
+
+Current model is the default for unpinned subagents. It uses the model of the session
+invoking each task, not a snapshot of the model selected when the setting was saved.
+An explicit choice stores the engine's `provider/model-id` under the existing SQLite
+`agent:<name>` override. Selecting Current model stores an empty model string, which
+masks any lower-precedence agent model and restores task model inheritance. Reset removes
+the whole Drift agent override and restores the underlying agent configuration instead.
+Prompt and behavior edits are preserved when changing the model. The picker and behavior
+JSON edit the same value; unavailable saved models remain visible by ID until changed.
+
+The engine applies the agent model to both foreground and background tasks, including
+resumed tasks. A pinned model does not inherit the parent's reasoning variant. Agent
+types with mode `all` share this configuration when invoked directly too. Spawned sibling
+threads continue to use the spawning session's model.
+
+The hidden `title` and `compaction` agents expose the same model picker. Title defaults
+to OpenCode's automatic small-model selection, while compaction defaults to the current
+session model. Their picker includes connected text-generation models even when they do
+not support tool calls. The `summary` agent has no runtime call sites and remains unpinned.
 
 ## Workflows (design open)
 

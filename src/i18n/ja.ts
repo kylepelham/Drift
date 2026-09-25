@@ -1019,6 +1019,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "現在のモデル",
   "drift.slash.argumentDetails": "{{name}} の詳細",
   "drift.markdown.ambiguousCitation": "ファイルリンク \"{{href}}\" を特定できません。次の候補から選べるよう、より詳しいパスを指定してください: {{files}}",
   "drift.preview.settings.title": "ファイルプレビュー",

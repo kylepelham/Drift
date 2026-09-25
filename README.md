@@ -90,9 +90,10 @@ third-party plugins only when you trust their source. See the
 [architecture](docs/architecture.md), [MCP trust boundary](docs/mcp.md), and
 [security policy](SECURITY.md) for details.
 
-Optional [Remote Access](docs/remote.md) adds a Tauri-owned authenticated LAN gateway on
-port `41718` and credential-free address discovery on UDP `41717`. It is disabled by default; LAN
-HTTP is not encrypted and must be used only on a trusted private network.
+Optional [Remote Access](docs/remote.md) adds a Tauri-owned HTTPS gateway on port `41718` and
+credential-free address discovery on UDP `41717`. It is disabled by default. Devices join by
+entering a one-time code on the desktop (or an optional password), and traffic is encrypted
+with a certificate authority that this computer creates and constrains to private addresses.
 
 ## Development
 

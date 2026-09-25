@@ -102,6 +102,53 @@ once the engine is available and loads thread/status snapshots independently of 
 discovery. Captured stderr includes monotonic `drift startup:` milestones for window, database,
 workspace import, and engine timing.
 
+## Optional Jev tool routing
+
+Tool execution settings can enable Jev routing through OpenCode Zen. It is off by default.
+The native shell persists the choice in SQLite and atomically publishes `tool-routing.json`.
+Policy-change events are emitted under the persistence lock so concurrent desktop/companion
+updates cannot publish an older value after a newer one.
+The bundled `tool-routing.js` reads it at each model step, so changing the setting requires
+no restart. The launcher selects an existing `tool-routing.js`, falling back to
+`tool-routing.ts` for source extensions. If neither exists, it leaves the module environment
+variable unset, clearing any inherited value. A small `zzzzzzz-jev-tool-routing.patch` bridge runs after permission filtering
+and before either LLM transport. It reads a stored `opencode` (Zen) API key from engine
+auth, falling back to an `opencode-go` key, only when routing is enabled. No credentials
+enter the UI or routing cache.
+
+Free Zen models work without a key because the engine sends the anonymous `public` key, so a
+connected `opencode` provider does not mean Jev is usable. Jev rejects the anonymous key with
+401 ("rate-limited Zen models require a workspace") and bills the workspace's Zen balance,
+which Go plans do not cover, answering 402 when it is empty. The router therefore reports what
+actually happened instead of guessing: each turn writes one `{ outcome, at, hidden?, httpStatus? }`
+record to `tool-routing-status.json` (path in `DRIFT_TOOL_ROUTING_STATUS`), and settings poll it
+through `tool_routing_status`. Outcomes cover routed, no key, unauthorized, insufficient funds,
+other HTTP errors, timeout, network, invalid or uncertain answers, and catalogs outside the
+routing budget. Toggling the setting deletes the stale record.
+
+Jev receives up to four recent conversational text excerpts, each capped at 2,000 characters,
+and tool names/descriptions grouped by MCP server, with descriptions capped at 256 characters.
+It receives neither reasoning parts nor tool outputs or parameter schemas. Built-ins,
+custom tools without an unambiguous MCP prefix,
+and previously used tools remain visible. Code-mode catalogs with no direct MCP tools bypass
+routing. Fewer than two groups, more than 24 groups, or a catalog over 96,000 characters also bypass it.
+
+One `jev-1.13` request batches a Noul relevance question per group. Only groups scored 0.15 or
+lower are hidden; every other group stays, however unsure the score. An earlier rule that also
+required a 0.8 score to keep anything let one middling group cancel the whole turn: replaying
+"what is apophis status?" scored Apophis 0.61 and kept all 161 MCP tools, while hiding only the
+confident misses drops three servers. Malformed responses, missing auth, HTTP failures, and a
+1.2-second timeout keep all tools. The threshold is experimental, not a measured accuracy guarantee.
+Decisions and failures are shared for one session/user-turn/catalog key in a bounded 128-entry
+cache. A new user turn or changed catalog triggers reevaluation. No network retries are added
+to the model's critical path. Stable ordering preserves caching within a turn where possible.
+
+Filtered requests include `drift_expand_tools`, which restores the full already-permitted
+set on the next step for the rest of that turn. Expansion never restores tools excluded by
+permissions or the user's tool settings. Routing does not grant execution approval. Existing
+permission checks still run when a selected tool executes. End-to-end latency and task-success
+improvements have not yet been benchmarked on Drift workloads.
+
 ## Async questions
 
 The question tool defaults to `async: true`. It registers a pending request and returns
@@ -167,7 +214,19 @@ protocol findings, the limits of the installed-app inspection, and follow-up wor
 
 ## Engine update runbook
 
-The 2026-09-15 update imports OpenCode 1.18.31 at `a74c472ffb941e6b027e5348be50cfe2225c6c56`.
+The 2026-09-23 update imports OpenCode 1.18.32 at `18ef3cc7c5a25b82114c953a80ccc09f4988f74e`.
+The snapshot includes Codex OAuth support for GPT-6 Sol and Luna, restricts Bedrock image
+tool-output hoisting to supported model families, fixes Node package entrypoint resolution,
+and updates TogetherAI and GitLab provider dependencies. The 1.18.32 SDK is aligned with
+the embedded engine. The GPT-6 Astra context-limit regression overlay was refreshed to
+retain upstream's new Sol and Luna coverage.
+
+The upstream Vertex Anthropic wire test still expects `block_binding`, but the pinned
+`@ai-sdk/google-vertex` transport omits that field. It fails on the pristine upstream
+snapshot without Drift overlays; the other engine suites and overlay tests pass.
+
+The previous 2026-09-15 update imported OpenCode 1.18.31 at
+`a74c472ffb941e6b027e5348be50cfe2225c6c56`.
 This is upstream's version-sync commit on `dev`. Its complete tree equals the `v1.18.31`
 release tag's tree, including the 1.18.31 manifests. The marker stays pinned to the `dev`
 sync commit so future updates can validate ancestry along `dev`, rather than the separate release commit.

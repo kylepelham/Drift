@@ -4,6 +4,8 @@ import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { shellInvoke } from "../shell"
 import { backendInvoke } from "../backend"
+import { previewParentDirectory, readFilePreview } from "../file-preview"
+import { filePreviewMime, filePreviewType } from "../file-preview-types"
 import { shouldPreviewFile } from "../state/file-preview-prefs"
 import { openFilePreview } from "../state/file-preview"
 import { openFile } from "../tool-actions"
@@ -13,6 +15,7 @@ import { syntaxTheme } from "../state/code"
 import { animateResponses, responseAnimationSpeed } from "../state/prefs"
 import { AmbiguousCitationError, citationHref, classifyMarkdownLink, resolveMarkdownCitation } from "./markdown-links"
 import { markdownImageAttribute, observeMarkdownImages } from "./markdown-images"
+import { openLightbox } from "./lightbox"
 import {
   responseAnimationInterruptEvent,
   responseBurstSize,
@@ -603,11 +606,19 @@ export async function openMarkdownLink(event: MouseEvent, directory?: string, wo
   if (link.kind === "unsupported") throw new Error("The link is invalid or its workspace directory is unavailable")
   if (fileGroups) link = resolveMarkdownCitation(href, directory, fileGroups())
   if (link.kind !== "file") return
+  if (filePreviewType(link.path) === "image" && shouldPreviewFile(link.path) && backendInvoke()) return openImageLink(link.path)
   if (workspaceDirectory && shouldPreviewFile(link.path) && backendInvoke()) {
     openFilePreview({ ...link, directory: workspaceDirectory, hash: href.includes("#") ? decodeURIComponent(href.slice(href.indexOf("#") + 1)) : undefined })
     return
   }
   await openFile(link.path, { line: link.line, column: link.column, editorOnly: true })
+}
+
+// Explicit image links read within their own folder, so screenshots outside the workspace open.
+async function openImageLink(path: string) {
+  const { bytes } = await readFilePreview({ path, directory: previewParentDirectory(path) })
+  const mime = filePreviewMime(path)
+  openLightbox({ url: "", blob: new Blob([bytes], { type: mime }), filename: path.slice(path.lastIndexOf("/") + 1), mime })
 }
 
 export function decorateCodeBlocks(root: HTMLElement) {

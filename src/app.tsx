@@ -36,6 +36,7 @@ import { FilePreviewHost } from "./ui/file-preview"
 import { McpServersModal } from "./ui/mcp"
 import { AttentionNotifier, NoticeHost } from "./ui/notifications"
 import { PaletteHost } from "./ui/palette"
+import { RemoteLinkNotice } from "./ui/remote-link-notice"
 import { SettingsHost } from "./ui/settings"
 import { Sidebar } from "./ui/sidebar"
 import { StartupSplash } from "./ui/startup"
@@ -94,7 +95,9 @@ export function App() {
         <SettingsHost />
         <PaletteHost />
         <ToolContextMenuHost />
-        <NoticeHost />
+        <NoticeHost>
+          <RemoteLinkNotice />
+        </NoticeHost>
         <MirrorConnectionNotice />
       </div>
       <StartupSplash />

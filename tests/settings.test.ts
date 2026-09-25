@@ -81,6 +81,56 @@ test("prompt and agent editors are separate Server settings with inherited-value
   expect(source).toContain("{variant.original}")
 })
 
+test("settings search covers every category and finds feature descriptions", async () => {
+  const { loadDictionary } = await import("../src/state/i18n")
+  const { settingsSearchResults } = await import("../src/ui/settings")
+  await loadDictionary("en")
+
+  const categories = [
+    "General",
+    "Appearance",
+    "Code",
+    "Notifications",
+    "Voice",
+    "Shortcuts",
+    "Tools",
+    "Providers",
+    "MCP",
+    "Prompts",
+    "Agents",
+    "Storage",
+    "Remote Access",
+    "About",
+  ] as const
+  for (const category of categories) {
+    expect(settingsSearchResults(category).some((item) => item.section === category), category).toBeTrue()
+  }
+
+  expect(settingsSearchResults("shell commands child processes")[0]?.section).toBe("Tools")
+  expect(settingsSearchResults("compact database")[0]?.section).toBe("Storage")
+  expect(settingsSearchResults("engine version")[0]?.section).toBe("About")
+})
+
+test("tool execution exposes optional Jev routing without its old footer", async () => {
+  const source = await Bun.file("src/ui/settings.tsx").text()
+  expect(source).toContain("<ToolRoutingSetting />")
+  expect(source).not.toContain('t("drift.settings.shellTimeout.scope")')
+  const routing = await Bun.file("src/ui/settings-tool-routing.tsx").text()
+  expect(routing).toContain("checked={toolRouting().enabled}")
+  expect(routing).toContain("disabled={busy()}")
+})
+
+test("Jev routing reports the engine's last outcome instead of guessing from provider connections", async () => {
+  const routing = await Bun.file("src/ui/settings-tool-routing.tsx").text()
+  expect(routing).not.toContain("engine.state.connected")
+  expect(routing).toContain("loadToolRoutingStatus")
+  const english = (await import("../src/i18n/en")).drift as Record<string, string>
+  const outcomes = routing.match(/const outcomes = new Set\(\[([^\]]+)\]/)![1]!.match(/"[^"]+"/g)!.map((item) => JSON.parse(item))
+  for (const outcome of outcomes) expect(english[`drift.settings.toolRouting.outcome.${outcome}`]).toBeString()
+  const engine = await Bun.file("src-tauri/src/engine.rs").text()
+  expect(engine).toContain('.env("DRIFT_TOOL_ROUTING_STATUS"')
+})
+
 test("agent overrides retain only values changed from upstream", async () => {
   const { agentOverrideValue } = await import("../src/state/prompts")
   const inherited = { prompt: "Upstream", mode: "primary", tools: { bash: true, read: true } }
@@ -96,6 +146,25 @@ test("agent overrides retain only values changed from upstream", async () => {
   ).toEqual({ prompt: "Custom", mode: "subagent" })
 })
 
+test("prompt saves and resets publish a runtime reload for desktop and companion callers", async () => {
+  const commands = await Bun.file("src-tauri/src/commands.rs").text()
+  const remote = await Bun.file("src-tauri/src/remote.rs").text()
+  for (const [command, method] of [["prompt_save", "save_prompt"], ["prompt_reset", "reset_prompt"]]) {
+    const body = commands.slice(commands.indexOf(`pub(crate) fn ${command}(`)).split("\n}")[0]!
+    expect(body).toContain("app: tauri::AppHandle")
+    expect(body).toContain(`runtime.${method}(`)
+    expect(body).toContain("?;\n    publish_prompt_change(&app)")
+    expect(body.indexOf(`runtime.${method}(`)).toBeLessThan(body.indexOf("publish_prompt_change(&app)"))
+    expect(remote).toContain(`commands::${command}(\n            app.clone(),`)
+  }
+  expect(commands).toContain("reload_engine_config(app).map_err")
+  expect(commands).toContain("Settings saved, but the engine reload failed.")
+  const ui = await Bun.file("src/ui/settings.tsx").text()
+  expect(ui).toContain('if (props.view === "agents") await engine.actions.refreshAgents()')
+  expect(ui).toContain('t("drift.settings.prompts.saved")')
+  expect(ui).not.toContain("showRestartNotice")
+})
+
 const pendingKeys = (prefix: string, suffixes: string) =>
   suffixes
     .trim()
@@ -104,9 +173,22 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 
 /** Keys that deliberately fall back to English until locale-specific translations ship. */
 const pendingTranslation = new Set([
+  ...pendingKeys(
+    "drift.settings.toolRouting",
+    `
+      title description
+      outcome.routed outcome.no-key outcome.unauthorized outcome.insufficient-funds outcome.http-error
+      outcome.timeout outcome.network outcome.invalid-response outcome.uncertain outcome.no-context
+      outcome.too-few-groups outcome.catalog-too-large
+    `,
+  ),
   "drift.markdown.linkFailed",
+  "drift.tool.readThread",
   "drift.mobile.openNavigation",
+  "drift.settings.agents.automaticSmallModel",
+  "drift.settings.agents.currentSessionModel",
   "drift.settings.code",
+  ...pendingKeys("drift.settings.search", "empty placeholder"),
   ...pendingKeys("drift.chat.retry", "switchModel switchingModel"),
   ...pendingKeys(
     "drift.code",
@@ -147,9 +229,15 @@ const pendingTranslation = new Set([
   ...pendingKeys(
     "drift.remote",
     `
-      address connected connectionUrl copied copy deckHelp enable
-      enableDescription gateway listening manageOnDesktop noLanAddress rotate rotated
-      securityWarning title
+      address connected copied copy enable enableDescription gateway listening manageOnDesktop
+      noLanAddress title scan securityNote open.title open.description
+      link.title link.description link.action link.linked link.waiting
+      devices.title devices.empty devices.link devices.password devices.lastSeen devices.revoke devices.revokeAll
+      password.title password.description password.on password.off password.setUp password.change
+      password.turnOff password.username password.password password.confirm password.mismatch
+      password.save password.cancel password.note
+      encryption.title encryption.https encryption.description encryption.fingerprint
+      device.title device.signedIn device.signOut toast.title toast.message toast.open
     `,
   ),
   ...pendingKeys(
@@ -163,7 +251,7 @@ const pendingTranslation = new Set([
     "drift.settings.prompts",
     `
       agentDescription agentPrompt agents behavior familyDescription inheritsFamily invalidJson
-      modelFamilies restart saveBeforeSwitch systemPrompt upstreamOriginal
+      modelFamilies saved saveBeforeSwitch systemPrompt upstreamOriginal
     `,
   ),
   "drift.settings.prompts",

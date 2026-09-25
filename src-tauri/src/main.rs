@@ -11,10 +11,13 @@ mod mcp;
 mod mcp_external;
 mod permissions;
 mod remote;
+mod remote_auth;
+mod remote_tls;
 mod session_search;
 mod startup;
 mod storage;
 mod store;
+mod tool_routing;
 mod ui_state;
 mod updater;
 mod voice;
@@ -151,14 +154,18 @@ fn main() {
             remote::remote_access_status,
             remote::remote_access_enable,
             remote::remote_access_disable,
-            remote::remote_access_rotate_token,
-            remote::remote_access_urls,
+            remote::remote_access_link,
+            remote::remote_access_revoke,
+            remote::remote_access_set_password,
             ui_state::ui_state_initialize,
             ui_state::ui_state_snapshot,
             ui_state::ui_state_update,
             ui_state::shell_timeout_initialize,
             ui_state::shell_timeout_snapshot,
-            ui_state::shell_timeout_update
+            ui_state::shell_timeout_update,
+            tool_routing::tool_routing_snapshot,
+            tool_routing::tool_routing_status,
+            tool_routing::tool_routing_update
         ])
         .setup(|app| {
             startup::mark("setup-start");
@@ -183,6 +190,9 @@ fn main() {
                 .materialize(&store)
                 .expect("failed to prepare Drift MCP policy");
             let engine_config = mcp_runtime.config_dir().to_path_buf();
+            let tool_routing = tool_routing::ToolRouting::new(&engine_config, &store)
+                .expect("failed to prepare tool routing policy");
+            app.manage(tool_routing);
             app.manage(store);
             app.manage(ui_state);
             app.manage(shell_timeout);
@@ -190,7 +200,7 @@ fn main() {
             app.manage(watcher::SkillWatchRoots::default());
             #[cfg(windows)]
             permissions::install(app)?;
-            let remote_access = remote::RemoteAccess::load(&app.state::<store::Store>())
+            let remote_access = remote::RemoteAccess::load(&app.state::<store::Store>(), &data_dir)
                 .expect("failed to load remote access settings");
             let start_remote = remote_access.should_start();
             app.manage(remote_access);

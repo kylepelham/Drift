@@ -336,9 +336,6 @@ test.each([
   ["./docs/notes.md#design%20notes", "docs/notes.md", undefined, undefined, "design notes"],
   ["./docs/notes.md#L42C7", "docs/notes.md", 42, 7, "L42C7"],
   ["./report.pdf#page=3", "report.pdf", undefined, undefined, "page=3"],
-  ["./photo.png", "photo.png", undefined, undefined, undefined],
-  ["./photo.JPG", "photo.JPG", undefined, undefined, undefined],
-  ["./icon.svg", "icon.svg", undefined, undefined, undefined],
   ["./docs/design%23notes.md", "docs/design#notes.md", undefined, undefined, undefined],
 ])("All routes %s to the modal without opening an editor", async (raw, relativePath, line, column, hash) => {
   native()
@@ -361,7 +358,7 @@ test.each([
 })
 
 test.each([
-  ["markdown", "notes.md"], ["pdf", "report.pdf"], ["image", "photo.png"],
+  ["markdown", "notes.md"], ["pdf", "report.pdf"],
   ["text", "main.ts"], ["table", "data.csv"], ["audio", "sound.mp3"], ["video", "movie.mp4"],
 ] as [FilePreviewType, string][])("Custom routes selected %s to the modal, disabled to the editor", async (type, filename) => {
   native()
@@ -473,6 +470,61 @@ test("All middle-clicks use the modal and still cancel auxiliary navigation", as
   await openMarkdownLink(link.event, directory)
   expect(previewFile()).toMatchObject({ path: contractPath, directory })
   expect(invoke).not.toHaveBeenCalled()
+  expectStopped(link)
+})
+
+function imageReads() {
+  const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+  invoke.mockImplementation(async (command: string) => command === "read_file_preview"
+    ? { content: Buffer.from(bytes).toString("base64"), size: bytes.length }
+    : { positioned: true })
+  const created: Blob[] = []
+  const original = URL.createObjectURL
+  URL.createObjectURL = mock((blob: Blob) => { created.push(blob); return `blob:image-${created.length}` })
+  return { bytes, created, restore: () => { URL.createObjectURL = original } }
+}
+
+test.each([
+  ["./photo.png", "C:/Users/Kyle/Desktop/C++/Drift/photo.png", "C:/Users/Kyle/Desktop/C++/Drift", "image/png"],
+  ["./photo.JPG", "C:/Users/Kyle/Desktop/C++/Drift/photo.JPG", "C:/Users/Kyle/Desktop/C++/Drift", "image/jpeg"],
+  ["./icon.svg", "C:/Users/Kyle/Desktop/C++/Drift/icon.svg", "C:/Users/Kyle/Desktop/C++/Drift", "image/svg+xml"],
+  ["C:/Users/Kyle/AppData/Local/Temp/opencode/writ-review.png", "C:/Users/Kyle/AppData/Local/Temp/opencode/writ-review.png",
+    "C:/Users/Kyle/AppData/Local/Temp/opencode", "image/png"],
+])("image link %s opens the lightbox, reading within the image's own folder", async (raw, path, folder, type) => {
+  native()
+  prefs.setFilePreviewMode("all")
+  const reads = imageReads()
+  try {
+    const link = click(raw)
+    await openMarkdownLink(link.event, directory)
+    expect(invoke.mock.calls).toEqual([["read_file_preview", { path, directory: folder, maxBytes: expect.any(Number) }]])
+    expect(previewFile()).toBeUndefined()
+    expect(reads.created).toHaveLength(1)
+    expect(reads.created[0]!.type).toBe(type)
+    expect(new Uint8Array(await reads.created[0]!.arrayBuffer())).toEqual(reads.bytes)
+    expectStopped(link)
+  } finally {
+    reads.restore()
+  }
+})
+
+test("disabled image previews keep image links in the editor", async () => {
+  native()
+  prefs.setFilePreviewMode("custom")
+  for (const type of filePreviewTypes) prefs.setFilePreviewType(type, type !== "image")
+  const link = click("./photo.png")
+  await openMarkdownLink(link.event, directory)
+  expect(invoke.mock.calls).toEqual([["open_file_in_editor", { path: "C:/Users/Kyle/Desktop/C++/Drift/photo.png", line: undefined, column: undefined }]])
+  expect(previewFile()).toBeUndefined()
+})
+
+test("image read failures reject so the transcript shows the link error", async () => {
+  native()
+  prefs.setFilePreviewMode("all")
+  invoke.mockRejectedValue(new Error("File preview file or directory is missing"))
+  const link = click("./photo.png")
+  await expect(openMarkdownLink(link.event, directory)).rejects.toThrow("missing")
+  expect(previewFile()).toBeUndefined()
   expectStopped(link)
 })
 

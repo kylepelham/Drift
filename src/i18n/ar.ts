@@ -1011,6 +1011,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "النموذج الحالي",
   "drift.slash.argumentDetails": "تفاصيل {{name}}",
   "drift.markdown.ambiguousCitation": "رابط الملف \"{{href}}\" غير محدد. استخدم مسارًا أطول للاختيار بين: {{files}}",
   "drift.preview.settings.title": "معاينات الملفات",

@@ -5,6 +5,7 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { buildExtensions } from "../scripts/build-extensions"
 import { SpawnThread } from "../engine/opencode/plugin/spawn-thread"
+import { createOpencodeClient } from "@opencode-ai/sdk"
 import type { PromptCatalog } from "../src/state/prompts"
 
 const args = {
@@ -56,6 +57,196 @@ async function spawnTool(options?: {
   if (!execute) throw new Error("spawn_thread tool was not registered")
   return { deleted, prompted, execute: () => execute(args, context) }
 }
+
+const spawnedPart = (id: string, status = "completed") => ({ type: "tool", tool: "spawn_thread", state: { status, metadata: { sessionId: id } } })
+
+async function readTool(options: {
+  parent?: unknown[]
+  parentPages?: { data?: unknown[]; cursor?: string; error?: unknown }[]
+  child?: unknown[]
+  status?: Record<string, unknown>
+  todos?: unknown[]
+  permissions?: unknown[]
+  questions?: unknown[]
+} = {}) {
+  const calls: string[] = []
+  const parentQueries: { directory: string; limit?: number; before?: string }[] = []
+  const client = {
+    _client: {
+      async get({ url }: { url: string }) {
+        calls.push(url)
+        return { data: url === "/permission" ? options.permissions ?? [] : options.questions ?? [] }
+      },
+    },
+    session: {
+      async messages({ path: input, query }: { path: { id: string }; query: { directory: string; limit?: number; before?: string } }) {
+        calls.push(`messages:${input.id}`)
+        if (input.id !== "parent") return { data: options.child ?? [] }
+        parentQueries.push(query)
+        const page = options.parentPages?.[parentQueries.length - 1]
+        return {
+          data: page ? page.data : options.parent ?? [{ info: { role: "assistant" }, parts: [spawnedPart("child")] }],
+          error: page?.error,
+          response: new Response(null, { headers: page?.cursor ? { "x-next-cursor": page.cursor } : {} }),
+        }
+      },
+      async get() { return { data: { id: "child", title: "Child thread" } } },
+      async status() { return { data: options.status ?? {} } },
+      async todo() { return { data: options.todos ?? [] } },
+    },
+  }
+  const plugin = await SpawnThread({ client } as never)
+  const execute = plugin.tool?.read_thread.execute
+  if (!execute) throw new Error("read_thread tool was not registered")
+  const run = async (id = "child") => {
+    const result = await execute({ id }, context)
+    return typeof result === "string" ? result : result.output
+  }
+  return { calls, run, parentQueries }
+}
+
+test("read_thread searches older receipt pages and stops as soon as it finds the child", async () => {
+  const view = await readTool({ parentPages: [
+    { data: Array.from({ length: 50 }, () => ({ info: { role: "assistant" }, parts: [] })), cursor: "older-page" },
+    { data: [{ info: { role: "assistant" }, parts: [spawnedPart("child")] }], cursor: "unneeded-page" },
+  ] })
+  expect(await view.run()).toContain('Thread "Child thread"')
+  expect(view.parentQueries).toEqual([
+    { directory: context.directory, limit: 50, before: undefined },
+    { directory: context.directory, limit: 50, before: "older-page" },
+  ])
+})
+
+test("read_thread scans to exhaustion before rejecting an unrelated child", async () => {
+  const view = await readTool({ parentPages: [
+    { data: [], cursor: "older-page" },
+    { data: [{ info: { role: "assistant" }, parts: [spawnedPart("other")] }] },
+  ] })
+  await expect(view.run()).rejects.toThrow("was not spawned")
+  expect(view.calls).toEqual(["messages:parent", "messages:parent"])
+})
+
+test("read_thread fails on page errors or repeating cursors without reading the child", async () => {
+  for (const last of [{ error: { message: "history unavailable" } }, { data: [], cursor: "same" }]) {
+    const view = await readTool({ parentPages: [{ data: [], cursor: "same" }, last] })
+    await expect(view.run()).rejects.toThrow("Could not read spawn receipts")
+    expect(view.calls).toEqual(["messages:parent", "messages:parent"])
+  }
+})
+
+test("read_thread pagination survives the real SDK query serializer and preserves auth", async () => {
+  const requests: URL[] = []
+  const client = createOpencodeClient({
+    baseUrl: "http://thread-test.invalid",
+    headers: { Authorization: "Bearer fixture" },
+    fetch: async (request) => {
+      const req = request as Request
+      const url = new URL(req.url)
+      requests.push(url)
+      expect(req.method).toBe("GET")
+      expect(req.headers.get("authorization")).toBe("Bearer fixture")
+      expect(url.searchParams.get("directory")).toBe(context.directory)
+      if (url.pathname === "/session/parent/message") {
+        expect(url.searchParams.get("limit")).toBe("50")
+        if (!url.searchParams.has("before")) return Response.json([], { headers: { "X-Next-Cursor": "opaque+/=" } })
+        expect(url.searchParams.get("before")).toBe("opaque+/=")
+        return Response.json([{ info: { role: "assistant" }, parts: [spawnedPart("child")] }])
+      }
+      if (url.pathname === "/session/child") return Response.json({ title: "Child" })
+      if (url.pathname === "/session/status") return Response.json({})
+      return Response.json([])
+    },
+  })
+  const plugin = await SpawnThread({ client } as never)
+  const result = await plugin.tool!.read_thread!.execute({ id: "child" }, context)
+  expect(result).toHaveProperty("output", expect.stringContaining("Status: idle"))
+  expect(requests.filter((url) => url.pathname === "/session/parent/message")).toHaveLength(2)
+})
+
+test("read_thread refuses threads this conversation did not spawn", async () => {
+  const other = await readTool()
+  await expect(other.run("elsewhere")).rejects.toThrow("was not spawned from this conversation")
+  expect(other.calls).toEqual(["messages:parent"])
+  const failed = await readTool({ parent: [{ info: { role: "assistant" }, parts: [spawnedPart("child", "error")] }] })
+  await expect(failed.run()).rejects.toThrow("was not spawned")
+})
+
+test("read_thread snapshots status, todos, recent tools and the latest reply without waiting", async () => {
+  const view = await readTool({
+    status: { child: { type: "busy" } },
+    todos: [{ content: "Plan", status: "completed" }, { content: "Build", status: "in_progress" }, { content: "Ship", status: "pending" }],
+    child: [
+      { info: { role: "user" }, parts: [{ type: "text", text: "seed" }] },
+      { info: { role: "assistant", time: { created: 0, completed: 1000 } }, parts: [
+        { type: "reasoning", text: "PRIVATE_REASONING" },
+        { type: "tool", tool: "bash", state: { status: "completed", title: "bun test", output: "SECRET_TOOL_OUTPUT" } },
+        { type: "text", text: "Tests pass." },
+      ] },
+      { info: { role: "assistant" }, parts: [{ type: "tool", tool: "edit", state: { status: "running" } }] },
+    ],
+  })
+  const output = await view.run()
+  expect(output).toContain('Thread "Child thread" (child)')
+  expect(output).toContain("Status: working")
+  expect(output).toContain("- [x] Plan\n- [~] Build\n- [ ] Ship")
+  expect(output).toContain("- bash completed: bun test\n- edit running")
+  expect(output).toContain("Latest reply:\nTests pass.")
+  expect(output).not.toContain("PRIVATE_REASONING")
+  expect(output).not.toContain("SECRET_TOOL_OUTPUT")
+})
+
+test("read_thread reports pending approvals and questions for that thread only", async () => {
+  const view = await readTool({
+    status: { child: { type: "busy" } },
+    permissions: [
+      { sessionID: "child", permission: "bash", patterns: ["rm -rf dist"] },
+      { sessionID: "someone-else", permission: "edit", patterns: ["x"] },
+    ],
+    questions: [{ sessionID: "child", questions: [{ question: "Which database?" }] }],
+  })
+  const output = await view.run()
+  expect(output).toContain("waiting for the user to approve bash rm -rf dist")
+  expect(output).toContain("waiting for the user to answer: Which database?")
+  expect(output).not.toContain("edit x")
+  expect(output).not.toContain("Status: working")
+})
+
+test("read_thread surfaces failures and caps long replies", async () => {
+  const view = await readTool({ child: [
+    { info: { role: "assistant" }, parts: [{ type: "text", text: "y".repeat(5000) }] },
+    { info: { role: "assistant", error: { name: "APIError", data: { message: "rate limited" } } }, parts: [] },
+  ] })
+  const output = await view.run()
+  expect(output).toContain("Status: stopped with an error: rate limited")
+  expect(output).toContain(`${"y".repeat(4000)}\n[1000 more characters`)
+})
+
+test("read_thread bounds large snapshots and keeps only recent tool activity", async () => {
+  const view = await readTool({
+    todos: Array.from({ length: 100 }, (_, i) => ({ content: `${i} ${"x".repeat(1000)}`, status: "pending" })),
+    child: [{ info: { role: "assistant" }, parts: [
+      ...Array.from({ length: 30 }, (_, i) => ({ type: "tool", tool: `tool_${i}`, state: { status: "completed", title: "t".repeat(1000) } })),
+      { type: "text", text: "answer ".repeat(1000) },
+    ] }],
+  })
+  const output = await view.run()
+  expect(output.length).toBeLessThanOrEqual(10000)
+  expect(output).toContain("[80 more todos]")
+  expect(output).toContain("- tool_20 completed")
+  expect(output).not.toContain("- tool_19 completed")
+  expect(output).not.toContain("x".repeat(201))
+})
+
+test("read_thread exposes retries and does not use synthetic text as a reply", async () => {
+  const view = await readTool({
+    status: { child: { type: "retry", attempt: 2, message: "Provider unavailable" } },
+    child: [{ info: { role: "assistant" }, parts: [{ type: "text", text: "INTERNAL", synthetic: true }] }],
+  })
+  const output = await view.run()
+  expect(output).toContain("retrying (attempt 2): Provider unavailable")
+  expect(output).toContain("(no reply yet)")
+  expect(output).not.toContain("INTERNAL")
+})
 
 test("spawn_thread reports only prompt admission after a successful 204", async () => {
   const spawn = await spawnTool()
@@ -155,6 +346,8 @@ test("release extensions load without workspace node_modules", async () => {
     expect(typeof approval.McpApproval).toBe("function")
     expect(Object.values(approval).filter((value) => typeof value === "function")).toHaveLength(1)
     const prompt = await import(pathToFileURL(promptPath).href)
+    const routing = await import(pathToFileURL(path.join(output, "tool-routing.js")).href)
+    expect(typeof routing.routeTools).toBe("function")
     expect(typeof prompt.PromptOverrides).toBe("function")
     const catalog = await Bun.file(path.join(output, "prompt-catalog.json")).json()
     expect(catalog.families).toHaveLength(9)

@@ -1111,6 +1111,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Modelo actual",
   "drift.slash.argumentDetails": "Detalles de {{name}}",
   "drift.markdown.ambiguousCitation": "Enlace de archivo ambiguo \"{{href}}\". Usa una ruta más completa para elegir entre: {{files}}",
   "drift.preview.settings.title": "Vistas previas de archivos",

@@ -1108,6 +1108,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Поточна модель",
   "drift.slash.argumentDetails": "Докладніше про {{name}}",
   "drift.markdown.ambiguousCitation": "Неоднозначне посилання на файл \"{{href}}\". Укажіть повніший шлях, щоб вибрати з: {{files}}",
   "drift.preview.settings.title": "Попередній перегляд файлів",

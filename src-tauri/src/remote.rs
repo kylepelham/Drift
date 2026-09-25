@@ -1,4 +1,6 @@
-use crate::{commands, config, editor, engine, file_preview, mcp, store::Store, ui_state, voice};
+use crate::remote_auth::{self, Auth, PendingLink};
+use crate::store::{RemoteDevice, Store};
+use crate::{commands, config, editor, engine, file_preview, mcp, tool_routing, ui_state, voice};
 use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, Extension, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
@@ -13,17 +15,27 @@ use rust_embed::RustEmbed;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use crate::remote_tls::Tls;
+use axum::extract::ConnectInfo;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::service::TowerToHyperService;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Component, Path};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::Manager;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, watch, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
+use tokio_rustls::TlsAcceptor;
+use tower::ServiceExt;
 
 pub(crate) const HTTP_PORT: u16 = 41718;
 pub(crate) const DISCOVERY_PORT: u16 = 41717;
 const DISCOVERY_PROBE: &[u8] = b"OPENCODE_COMPANION_DISCOVERY";
-const COOKIE_NAME: &str = "drift_remote";
+const MAX_CONCURRENT_PASSWORD_CHECKS: usize = 2;
+const TLS_HANDSHAKE_RECORD: u8 = 0x16;
+const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const MAX_PROXY_BODY: usize = 32 * 1024 * 1024;
 const MAX_RPC_BODY: usize = 10 * 1024 * 1024;
 
@@ -34,7 +46,6 @@ struct FrontendAssets;
 #[derive(Clone)]
 struct RemoteConfig {
     enabled: bool,
-    token: String,
     error: Option<String>,
 }
 
@@ -46,6 +57,9 @@ struct Running {
 
 pub(crate) struct RemoteAccess {
     config: Mutex<RemoteConfig>,
+    auth: Mutex<Auth>,
+    tls: Arc<Tls>,
+    password_checks: tokio::sync::Semaphore,
     running: AsyncMutex<Option<Running>>,
     transition: AsyncMutex<()>,
     auth_revision: watch::Sender<u64>,
@@ -60,11 +74,16 @@ pub(crate) struct RemoteStatus {
     discovery_port: u16,
     listening_address: Option<String>,
     urls: Vec<String>,
-    connection_urls: Vec<String>,
+    address_qr: Option<String>,
+    devices: Vec<RemoteDevice>,
+    pending_links: Vec<PendingLink>,
+    password_username: Option<String>,
+    certificate_fingerprint: String,
     error: Option<String>,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DiscoveryDescriptor {
     kind: &'static str,
     name: &'static str,
@@ -74,19 +93,18 @@ struct DiscoveryDescriptor {
     url: String,
     host: String,
     port: u16,
+    certificate_sha256: String,
 }
 
 impl RemoteAccess {
-    pub(crate) fn load(store: &Store) -> Result<Self, String> {
-        let saved = store.remote_access().map_err(|error| error.to_string())?;
-        let (enabled, token) = saved.unwrap_or_else(|| (false, random_token()));
+    pub(crate) fn load(store: &Store, data_dir: &Path) -> Result<Self, String> {
+        let enabled = store.remote_access_enabled().map_err(|error| error.to_string())?;
         let (auth_revision, _) = watch::channel(0);
         Ok(Self {
-            config: Mutex::new(RemoteConfig {
-                enabled,
-                token,
-                error: None,
-            }),
+            config: Mutex::new(RemoteConfig { enabled, error: None }),
+            auth: Mutex::new(Auth::load(store)?),
+            tls: Arc::new(Tls::load_or_create(&data_dir.join("remote-tls"))?),
+            password_checks: tokio::sync::Semaphore::new(MAX_CONCURRENT_PASSWORD_CHECKS),
             running: AsyncMutex::new(None),
             transition: AsyncMutex::new(()),
             auth_revision,
@@ -116,16 +134,9 @@ impl RemoteAccess {
             .map_err(|error| error.to_string())?;
         let (shutdown, http_shutdown) = watch::channel(false);
         let discovery_shutdown = shutdown.subscribe();
-        let http_app = router(app.clone());
-        let http = tokio::spawn(async move {
-            let result = axum::serve(http_listener, http_app)
-                .with_graceful_shutdown(wait_for_shutdown(http_shutdown))
-                .await;
-            if let Err(error) = result {
-                eprintln!("remote access HTTP listener stopped: {error}");
-            }
-        });
-        let discovery = tokio::spawn(discovery_loop(discovery_socket, discovery_shutdown));
+        let http = tokio::spawn(accept_loop(http_listener, router(app.clone()), self.tls.clone(), http_shutdown));
+        let fingerprint = self.tls.fingerprint().to_string();
+        let discovery = tokio::spawn(discovery_loop(discovery_socket, fingerprint, discovery_shutdown));
         *running = Some(Running {
             shutdown,
             http,
@@ -168,19 +179,33 @@ impl RemoteAccess {
     async fn status(&self) -> RemoteStatus {
         let config = self.config.lock().unwrap().clone();
         let listening = self.running.lock().await.is_some();
-        status_for(&config, listening)
+        let mut status = status_for(&config, listening);
+        let mut auth = self.auth();
+        status.devices = auth.devices();
+        status.pending_links = auth.pending();
+        status.password_username = auth.password_username();
+        status.certificate_fingerprint = self.tls.fingerprint().to_string();
+        status
     }
 
-    fn token_if_enabled(&self) -> Option<String> {
-        let config = self.config.lock().unwrap();
-        config.enabled.then(|| config.token.clone())
+    pub(crate) fn certificate(&self) -> Vec<u8> {
+        self.tls.ca_der().to_vec()
     }
 
-    fn authorize(&self, headers: &HeaderMap) -> Option<watch::Receiver<u64>> {
-        let config = self.config.lock().unwrap();
-        let supplied = supplied_bearer(headers).or_else(|| supplied_cookie(headers))?;
-        (config.enabled && constant_time_eq(supplied.as_bytes(), config.token.as_bytes()))
-            .then(|| self.auth_changes())
+    pub(crate) fn auth(&self) -> std::sync::MutexGuard<'_, Auth> {
+        self.auth.lock().unwrap()
+    }
+
+    pub(crate) fn password_checks(&self) -> &tokio::sync::Semaphore {
+        &self.password_checks
+    }
+
+    fn authorize(&self, headers: &HeaderMap, store: &Store) -> Option<(watch::Receiver<u64>, RemoteDevice)> {
+        if !self.config.lock().unwrap().enabled {
+            return None;
+        }
+        let device = self.auth().device(remote_auth::supplied_token(headers)?, store)?;
+        Some((self.auth_changes(), device))
     }
 
     pub(crate) fn set_error(&self, error: String) {
@@ -191,40 +216,109 @@ impl RemoteAccess {
         self.auth_revision.subscribe()
     }
 
-    fn invalidate_streams(&self) {
+    pub(crate) fn invalidate_streams(&self) {
         let next = self.auth_revision.borrow().wrapping_add(1);
         let _ = self.auth_revision.send(next);
     }
 }
 
-async fn wait_for_shutdown(mut shutdown: watch::Receiver<bool>) {
-    if !*shutdown.borrow() {
-        let _ = shutdown.changed().await;
+/// Serves HTTPS; dropping the connection set on shutdown aborts every open connection.
+async fn accept_loop(listener: TcpListener, router: Router, tls: Arc<Tls>, mut shutdown: watch::Receiver<bool>) {
+    let mut connections = tokio::task::JoinSet::new();
+    loop {
+        tokio::select! {
+            _ = shutdown.changed() => return,
+            accepted = listener.accept() => {
+                let Ok((stream, peer)) = accepted else { continue };
+                connections.spawn(serve_connection(stream, peer, router.clone(), tls.clone()));
+            }
+            Some(_) = connections.join_next(), if !connections.is_empty() => {}
+        }
     }
+}
+
+async fn serve_connection(stream: TcpStream, peer: SocketAddr, router: Router, tls: Arc<Tls>) {
+    let mut first = [0u8; 1];
+    let peeked = tokio::time::timeout(HANDSHAKE_TIMEOUT, stream.peek(&mut first)).await;
+    let Ok(local) = stream.local_addr() else { return };
+    if !matches!(peeked, Ok(Ok(1))) || first[0] != TLS_HANDSHAKE_RECORD {
+        return redirect_plain(stream, local).await;
+    }
+    let Ok(config) = tls.config_for(local.ip()) else { return };
+    let accepted = tokio::time::timeout(HANDSHAKE_TIMEOUT, TlsAcceptor::from(config).accept(stream)).await;
+    let Ok(Ok(stream)) = accepted else { return };
+    let service = router.map_request(move |mut request: Request<hyper::body::Incoming>| {
+        request.extensions_mut().insert(ConnectInfo(peer));
+        request
+    });
+    let _ = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new())
+        .serve_connection_with_upgrades(TokioIo::new(stream), TowerToHyperService::new(service))
+        .await;
+}
+
+/// Plain-HTTP visitors (a typed address defaults to http://) are sent to the HTTPS origin.
+async fn redirect_plain(mut stream: TcpStream, local: SocketAddr) {
+    let mut head = vec![0u8; 8192];
+    let Ok(Ok(read)) = tokio::time::timeout(HANDSHAKE_TIMEOUT, stream.read(&mut head)).await else {
+        return;
+    };
+    let response = plain_redirect(&String::from_utf8_lossy(&head[..read]), &local.to_string());
+    let _ = stream.write_all(response.as_bytes()).await;
+    let _ = stream.shutdown().await;
+}
+
+fn plain_redirect(head: &str, fallback_host: &str) -> String {
+    let safe = |value: &str| !value.is_empty() && value.chars().all(|c| c.is_ascii_graphic());
+    let target = head
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .filter(|target| target.starts_with('/') && safe(target))
+        .unwrap_or("/");
+    let host = head
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.trim().eq_ignore_ascii_case("host"))
+        .map(|(_, value)| value.trim())
+        .filter(|host| safe(host) && !host.contains(['/', '\\', '@']))
+        .unwrap_or(fallback_host);
+    format!(
+        "HTTP/1.1 308 Permanent Redirect\r\nLocation: https://{host}{target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )
 }
 
 fn status_for(config: &RemoteConfig, listening: bool) -> RemoteStatus {
     let ip = local_ipv4().filter(|ip| !ip.is_loopback());
     let urls = if config.enabled && listening {
-        ip.map(|ip| vec![format!("http://{ip}:{HTTP_PORT}/companion")])
+        ip.map(|ip| vec![format!("https://{ip}:{HTTP_PORT}/companion")])
             .unwrap_or_default()
     } else {
         Vec::new()
     };
-    let connection_urls = urls
-        .iter()
-        .map(|url| format!("{url}?token={}", config.token))
-        .collect();
     RemoteStatus {
         enabled: config.enabled,
         listening,
         port: HTTP_PORT,
         discovery_port: DISCOVERY_PORT,
         listening_address: (config.enabled && listening).then(|| format!("0.0.0.0:{HTTP_PORT}")),
+        address_qr: urls.first().and_then(|url| address_qr(url)),
         urls,
-        connection_urls,
+        devices: Vec::new(),
+        pending_links: Vec::new(),
+        password_username: None,
+        certificate_fingerprint: String::new(),
         error: config.error.clone(),
     }
+}
+
+/// The address carries no credential, so it is safe to show as a scannable code.
+fn address_qr(url: &str) -> Option<String> {
+    let code = qrcode::QrCode::new(url.as_bytes()).ok()?;
+    Some(
+        code.render::<qrcode::render::svg::Color<'_>>()
+            .min_dimensions(168, 168)
+            .build(),
+    )
 }
 
 #[tauri::command]
@@ -241,19 +335,10 @@ pub(crate) async fn remote_access_enable(
     store: tauri::State<'_, Store>,
 ) -> Result<RemoteStatus, String> {
     let _transition = access.transition.lock().await;
-    let token = {
-        let config = access.config.lock().unwrap();
-        (!config.token.is_empty())
-            .then(|| config.token.clone())
-            .unwrap_or_else(random_token)
-    };
-    store
-        .save_remote_access(true, &token)
-        .map_err(|error| error.to_string())?;
+    store.save_remote_access(true).map_err(|error| error.to_string())?;
     {
         let mut config = access.config.lock().unwrap();
         config.enabled = true;
-        config.token = token.clone();
         config.error = None;
     }
     if let Err(error) = access.start(app).await {
@@ -262,7 +347,7 @@ pub(crate) async fn remote_access_enable(
             config.enabled = false;
             config.error = Some(error.clone());
         }
-        let _ = store.save_remote_access(false, &token);
+        let _ = store.save_remote_access(false);
         return Err(error);
     }
     Ok(access.status().await)
@@ -274,10 +359,7 @@ pub(crate) async fn remote_access_disable(
     store: tauri::State<'_, Store>,
 ) -> Result<RemoteStatus, String> {
     let _transition = access.transition.lock().await;
-    let token = access.config.lock().unwrap().token.clone();
-    store
-        .save_remote_access(false, &token)
-        .map_err(|error| error.to_string())?;
+    store.save_remote_access(false).map_err(|error| error.to_string())?;
     {
         let mut config = access.config.lock().unwrap();
         config.enabled = false;
@@ -288,37 +370,59 @@ pub(crate) async fn remote_access_disable(
     Ok(access.status().await)
 }
 
+/// Approves the device showing `code`; returns that device's name.
 #[tauri::command]
-pub(crate) async fn remote_access_rotate_token(
+pub(crate) fn remote_access_link(access: tauri::State<'_, RemoteAccess>, code: String) -> Result<String, String> {
+    access.auth().approve(&code)
+}
+
+/// Signs out one linked device, or all of them when `id` is omitted.
+#[tauri::command]
+pub(crate) async fn remote_access_revoke(
     access: tauri::State<'_, RemoteAccess>,
     store: tauri::State<'_, Store>,
+    id: Option<String>,
 ) -> Result<RemoteStatus, String> {
-    let _transition = access.transition.lock().await;
-    let enabled = access.config.lock().unwrap().enabled;
-    let token = random_token();
-    store
-        .save_remote_access(enabled, &token)
-        .map_err(|error| error.to_string())?;
-    {
-        let mut config = access.config.lock().unwrap();
-        config.token = token;
-        config.error = None;
-        access.invalidate_streams();
-    }
+    access.auth().revoke(id.as_deref(), &store)?;
+    access.invalidate_streams();
     Ok(access.status().await)
 }
 
+/// Enables password sign-in with these credentials, or turns it off when both are omitted.
 #[tauri::command]
-pub(crate) async fn remote_access_urls(
+pub(crate) async fn remote_access_set_password(
     access: tauri::State<'_, RemoteAccess>,
-) -> Result<Vec<String>, String> {
-    Ok(access.status().await.connection_urls)
+    store: tauri::State<'_, Store>,
+    username: Option<String>,
+    password: Option<String>,
+) -> Result<RemoteStatus, String> {
+    let credentials = match (username, password) {
+        (Some(username), Some(password)) => {
+            remote_auth::validate_credentials(&username, &password)?;
+            let hash = tokio::task::spawn_blocking(move || remote_auth::new_password_hash(&password))
+                .await
+                .map_err(|error| error.to_string())?;
+            Some((username.trim().to_string(), hash))
+        }
+        (None, None) => None,
+        _ => return Err("Enter both a username and a password.".into()),
+    };
+    access.auth().set_password(credentials, &store)?;
+    access.invalidate_streams();
+    Ok(access.status().await)
 }
 
 fn router(app: tauri::AppHandle) -> Router {
     Router::new()
         .route("/", get(|| async { Redirect::temporary("/companion") }))
         .route("/companion", get(static_asset))
+        .route("/auth/options", get(remote_auth::options))
+        .route("/auth/certificate", get(remote_auth::certificate))
+        .route("/auth/link", post(remote_auth::start_link))
+        .route("/auth/link/{id}", get(remote_auth::poll_link))
+        .route("/auth/login", post(remote_auth::login))
+        .route("/auth/logout", post(remote_auth::logout))
+        .route("/auth/me", get(remote_auth::me))
         .route("/engine", any(proxy_engine))
         .route("/engine/{*path}", any(proxy_engine))
         .route("/api/invoke", post(invoke_rpc))
@@ -383,67 +487,23 @@ async fn gateway_middleware(
     mut request: Request,
     next: Next,
 ) -> Response {
+    let access = app.state::<RemoteAccess>();
+    let path = request.uri().path().to_string();
+    let enabled = access.config.lock().unwrap().enabled;
     let response = if !valid_host_origin(request.headers()) {
         (StatusCode::FORBIDDEN, "invalid host or origin").into_response()
-    } else if let Some(response) = cookie_exchange(&app, request.uri()) {
-        response
-    } else if let Some(auth) = app.state::<RemoteAccess>().authorize(request.headers()) {
-        request.extensions_mut().insert(auth);
+    } else if enabled && remote_auth::public_path(&path) {
         next.run(request).await
+    } else if let Some((auth, device)) = access.authorize(request.headers(), &app.state::<Store>()) {
+        request.extensions_mut().insert(auth);
+        request.extensions_mut().insert(device);
+        next.run(request).await
+    } else if enabled && request.method() == axum::http::Method::GET && remote_auth::sign_in_path(&path) {
+        remote_auth::sign_in_page()
     } else {
-        (
-            StatusCode::UNAUTHORIZED,
-            "remote access authentication required",
-        )
-            .into_response()
+        (StatusCode::UNAUTHORIZED, "remote access authentication required").into_response()
     };
     secure(response)
-}
-
-fn cookie_exchange(app: &tauri::AppHandle, uri: &Uri) -> Option<Response> {
-    let token = app.state::<RemoteAccess>().token_if_enabled();
-    cookie_exchange_with_token(uri, token.as_deref())
-}
-
-fn cookie_exchange_with_token(uri: &Uri, token: Option<&str>) -> Option<Response> {
-    if uri.path() != "/companion" {
-        return None;
-    }
-    let supplied = uri.query().and_then(|query| {
-        url::form_urlencoded::parse(query.as_bytes())
-            .find_map(|(key, value)| (key == "token").then(|| value.into_owned()))
-    })?;
-    let token = token?;
-    if !constant_time_eq(supplied.as_bytes(), token.as_bytes()) {
-        return Some((StatusCode::UNAUTHORIZED, "invalid access key").into_response());
-    }
-    let mut response = Redirect::to("/companion").into_response();
-    response.headers_mut().insert(
-        header::SET_COOKIE,
-        HeaderValue::from_str(&format!(
-            "{COOKIE_NAME}={token}; HttpOnly; SameSite=Strict; Path=/"
-        ))
-        .unwrap(),
-    );
-    Some(response)
-}
-
-fn supplied_bearer(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get(header::AUTHORIZATION)?
-        .to_str()
-        .ok()?
-        .strip_prefix("Bearer ")
-}
-
-fn supplied_cookie(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get(header::COOKIE)?
-        .to_str()
-        .ok()?
-        .split(';')
-        .map(str::trim)
-        .find_map(|value| value.strip_prefix(&format!("{COOKIE_NAME}=")))
 }
 
 fn valid_host_origin(headers: &HeaderMap) -> bool {
@@ -465,7 +525,7 @@ fn valid_host_origin(headers: &HeaderMap) -> bool {
     let Ok(origin) = url::Url::parse(origin) else {
         return false;
     };
-    origin.scheme() == "http"
+    origin.scheme() == "https"
         && origin[url::Position::BeforeHost..url::Position::AfterPort] == *host
 }
 
@@ -861,6 +921,7 @@ remote_commands! {
         )?),
         "prompt_snapshot" => value(commands::prompt_snapshot(runtime(), store())?),
         "prompt_save" => value(commands::prompt_save(
+            app.clone(),
             runtime(),
             store(),
             arg(args, "key")?,
@@ -868,6 +929,7 @@ remote_commands! {
             optional(args, "original")?,
         )?),
         "prompt_reset" => value(commands::prompt_reset(
+            app.clone(),
             runtime(),
             store(),
             arg(args, "key")?,
@@ -977,6 +1039,9 @@ remote_commands! {
         "shell_timeout_snapshot" => {
             value(ui_state::shell_timeout_snapshot(app.state())?)
         },
+        "tool_routing_snapshot" => value(tool_routing::tool_routing_snapshot(store())?),
+        "tool_routing_status" => value(tool_routing::tool_routing_status(app.state())),
+        "tool_routing_update" => value(tool_routing::tool_routing_update(app.clone(), app.state(), store(), arg(args, "policy")?)?),
         "shell_timeout_update" => value(ui_state::shell_timeout_update(
             app.clone(),
             app.state(),
@@ -1005,7 +1070,7 @@ fn value<T: Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|error| error.to_string())
 }
 
-async fn discovery_loop(socket: tokio::net::UdpSocket, mut shutdown: watch::Receiver<bool>) {
+async fn discovery_loop(socket: tokio::net::UdpSocket, fingerprint: String, mut shutdown: watch::Receiver<bool>) {
     let mut buffer = [0u8; 256];
     loop {
         tokio::select! {
@@ -1014,7 +1079,7 @@ async fn discovery_loop(socket: tokio::net::UdpSocket, mut shutdown: watch::Rece
                 let Ok((size, peer)) = received else { continue };
                 if &buffer[..size] != DISCOVERY_PROBE { continue; }
                 let Some(ip) = local_ipv4_for(peer) else { continue };
-                let descriptor = discovery_descriptor(ip);
+                let descriptor = discovery_descriptor(ip, &fingerprint);
                 if let Ok(payload) = serde_json::to_vec(&descriptor) {
                     let _ = socket.send_to(&payload, peer).await;
                 }
@@ -1023,16 +1088,18 @@ async fn discovery_loop(socket: tokio::net::UdpSocket, mut shutdown: watch::Rece
     }
 }
 
-fn discovery_descriptor(ip: Ipv4Addr) -> DiscoveryDescriptor {
+/// Version 2 moved to HTTPS; clients may pin `certificateSha256`, the gateway CA fingerprint.
+fn discovery_descriptor(ip: Ipv4Addr, fingerprint: &str) -> DiscoveryDescriptor {
     DiscoveryDescriptor {
         kind: "drift-companion",
         name: "Drift",
         brand: "Drift",
         protocol: "drift-remote",
-        version: 1,
-        url: format!("http://{ip}:{HTTP_PORT}/companion"),
+        version: 2,
+        url: format!("https://{ip}:{HTTP_PORT}/companion"),
         host: ip.to_string(),
         port: HTTP_PORT,
+        certificate_sha256: fingerprint.into(),
     }
 }
 
@@ -1049,13 +1116,7 @@ fn local_ipv4() -> Option<Ipv4Addr> {
     local_ipv4_for(SocketAddr::from(([8, 8, 8, 8], 53)))
 }
 
-fn random_token() -> String {
-    let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes).expect("failed to generate remote access key");
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     let mut difference = left.len() ^ right.len();
     for index in 0..left.len().max(right.len()) {
         difference |= left.get(index).copied().unwrap_or(0) as usize
@@ -1069,62 +1130,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bearer_auth_is_parsed_without_accepting_basic() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::AUTHORIZATION,
-            HeaderValue::from_static("Bearer secret"),
-        );
-        assert_eq!(supplied_bearer(&headers), Some("secret"));
-        headers.insert(
-            header::AUTHORIZATION,
-            HeaderValue::from_static("Basic secret"),
-        );
-        assert_eq!(supplied_bearer(&headers), None);
-    }
-
-    #[test]
-    fn cookie_exchange_sets_a_strict_http_only_cookie_and_redirects() {
-        let companion: Uri = "/companion?token=secret".parse().unwrap();
-        let engine: Uri = "/engine/global/event?token=secret".parse().unwrap();
-        let response = cookie_exchange_with_token(&companion, Some("secret")).unwrap();
-        assert_eq!(response.status(), StatusCode::SEE_OTHER);
-        assert_eq!(response.headers()[header::LOCATION], "/companion");
-        assert_eq!(
-            response.headers()[header::SET_COOKIE],
-            "drift_remote=secret; HttpOnly; SameSite=Strict; Path=/"
-        );
-        assert!(cookie_exchange_with_token(&engine, Some("secret")).is_none());
-        assert_eq!(
-            cookie_exchange_with_token(&companion, Some("wrong"))
-                .unwrap()
-                .status(),
-            StatusCode::UNAUTHORIZED
-        );
-    }
-
-    #[test]
-    fn disabled_status_has_no_listening_urls() {
-        let status = status_for(
-            &RemoteConfig {
-                enabled: false,
-                token: "secret".into(),
-                error: None,
-            },
-            false,
-        );
+    fn disabled_status_has_no_listening_urls_or_code() {
+        let status = status_for(&RemoteConfig { enabled: false, error: None }, false);
         assert!(!status.enabled);
         assert!(!status.listening);
         assert!(status.urls.is_empty());
-        assert!(status.connection_urls.is_empty());
+        assert!(status.address_qr.is_none());
     }
 
     #[test]
-    fn token_rotation_source_is_random() {
-        let first = random_token();
-        let second = random_token();
-        assert_eq!(first.len(), 64);
-        assert_ne!(first, second);
+    fn address_qr_is_an_svg_of_the_plain_address() {
+        let svg = address_qr("https://192.168.1.20:41718/companion").unwrap();
+        assert!(svg.contains("<svg"));
+        assert!(!svg.contains("token"));
+    }
+
+    #[test]
+    fn remote_access_management_is_not_remotely_invokable() {
+        for command in [
+            "remote_access_enable",
+            "remote_access_link",
+            "remote_access_revoke",
+            "remote_access_set_password",
+            "remote_access_status",
+        ] {
+            assert!(!rpc_allowed(command), "{command} must stay desktop-only");
+        }
     }
 
     #[tokio::test]
@@ -1231,13 +1262,85 @@ mod tests {
 
     #[test]
     fn discovery_is_branded_without_disclosing_credentials() {
-        let descriptor = discovery_descriptor(Ipv4Addr::new(192, 168, 1, 20));
+        let descriptor = discovery_descriptor(Ipv4Addr::new(192, 168, 1, 20), "AB:CD");
         let value = serde_json::to_value(descriptor).unwrap();
         assert_eq!(value["kind"], "drift-companion");
         assert_eq!(value["brand"], "Drift");
-        assert_eq!(value["version"], 1);
-        assert_eq!(value["url"], "http://192.168.1.20:41718/companion");
-        assert!(!value.to_string().contains("secret"));
+        assert_eq!(value["version"], 2);
+        assert_eq!(value["url"], "https://192.168.1.20:41718/companion");
+        assert_eq!(value["certificateSha256"], "AB:CD");
+        assert!(!value.to_string().contains("token"));
+    }
+
+    #[tokio::test]
+    async fn the_gateway_listener_serves_https_and_redirects_plain_http() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut bytes = [0u8; 8];
+        getrandom::fill(&mut bytes).unwrap();
+        let directory = std::env::temp_dir().join(format!("drift-gateway-{}", u64::from_ne_bytes(bytes)));
+        let tls = Arc::new(Tls::load_or_create(&directory).unwrap());
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let router = Router::new().route(
+            "/peer",
+            get(|ConnectInfo(peer): ConnectInfo<SocketAddr>| async move { peer.ip().to_string() }),
+        );
+        let (shutdown, receiver) = watch::channel(false);
+        let server = tokio::spawn(accept_loop(listener, router, tls.clone(), receiver));
+
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(rustls::pki_types::CertificateDer::from(tls.ca_der().to_vec())).unwrap();
+        let mut config = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
+        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        let client = reqwest::Client::builder().use_preconfigured_tls(config).redirect(Policy::none()).build().unwrap();
+        let secure = client.get(format!("https://127.0.0.1:{port}/peer")).send().await.unwrap();
+        assert_eq!(secure.version(), reqwest::Version::HTTP_2);
+        assert_eq!(secure.text().await.unwrap(), "127.0.0.1");
+
+        let plain = client.get(format!("http://127.0.0.1:{port}/companion?a=1")).send().await.unwrap();
+        assert_eq!(plain.status(), reqwest::StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(plain.headers()["location"], format!("https://127.0.0.1:{port}/companion?a=1"));
+
+        let untrusted = reqwest::Client::builder()
+            .use_preconfigured_tls(
+                rustls::ClientConfig::builder()
+                    .with_root_certificates(rustls::RootCertStore::empty())
+                    .with_no_client_auth(),
+            )
+            .build()
+            .unwrap();
+        assert!(untrusted.get(format!("https://127.0.0.1:{port}/peer")).send().await.is_err());
+
+        shutdown.send(true).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), server).await.unwrap().unwrap();
+        assert!(client.get(format!("https://127.0.0.1:{port}/peer")).send().await.is_err());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn plain_http_redirects_to_the_same_path_over_https() {
+        let head = "GET /companion?x=1 HTTP/1.1\r\nHost: 192.168.1.20:41718\r\n\r\n";
+        let response = plain_redirect(head, "10.0.0.2:41718");
+        assert!(response.starts_with("HTTP/1.1 308"));
+        assert!(response.contains("Location: https://192.168.1.20:41718/companion?x=1\r\n"));
+        let injected = "GET /\r\nSet-Cookie:x HTTP/1.1\r\nHost: evil\r\n x\r\n\r\n";
+        assert!(plain_redirect(injected, "10.0.0.2:41718").contains("Location: https://evil/\r\n"));
+        let hostless = plain_redirect("GET http://elsewhere/ HTTP/1.1\r\n\r\n", "10.0.0.2:41718");
+        assert!(hostless.contains("Location: https://10.0.0.2:41718/\r\n"));
+        assert!(plain_redirect("garbage", "10.0.0.2:41718").contains("https://10.0.0.2:41718/"));
+    }
+
+    #[test]
+    fn origins_must_match_the_https_host() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, HeaderValue::from_static("192.168.1.20:41718"));
+        assert!(valid_host_origin(&headers));
+        headers.insert(header::ORIGIN, HeaderValue::from_static("https://192.168.1.20:41718"));
+        assert!(valid_host_origin(&headers));
+        headers.insert(header::ORIGIN, HeaderValue::from_static("http://192.168.1.20:41718"));
+        assert!(!valid_host_origin(&headers));
+        headers.insert(header::ORIGIN, HeaderValue::from_static("https://evil.example"));
+        assert!(!valid_host_origin(&headers));
     }
 
     #[test]

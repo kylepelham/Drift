@@ -1,0 +1,102 @@
+diff --git a/packages/opencode/src/session/llm.ts b/packages/opencode/src/session/llm.ts
+--- a/packages/opencode/src/session/llm.ts
++++ b/packages/opencode/src/session/llm.ts
+@@ -8,3 +8,5 @@
+ import * as Stream from "effect/Stream"
+-import { streamText, wrapLanguageModel, type ModelMessage, type Tool } from "ai"
++import { streamText, wrapLanguageModel, tool as aiTool, jsonSchema, type ModelMessage, type Tool } from "ai"
++import { pathToFileURL } from "node:url"
++import { ProviderV2 } from "@opencode-ai/core/provider"
+ import type { LLMEvent } from "@opencode-ai/llm"
+@@ -105,3 +107,3 @@
+       const isWorkflow = language instanceof GitLabWorkflowLanguageModel
+-      const prepared = yield* LLMRequestPrep.prepare({
++      let prepared = yield* LLMRequestPrep.prepare({
+         ...input,
+@@ -118,2 +120,25 @@
+       const bridge = yield* EffectBridge.make()
++      const routingModule = process.env.DRIFT_TOOL_ROUTING_MODULE
++      if (routingModule && !input.small && !isWorkflow) {
++        const tools = yield* Effect.tryPromise({
++          try: async () => {
++            const { routeTools } = await import(pathToFileURL(routingModule).href)
++            return routeTools({
++              tools: prepared.tools, messages: input.messages, servers: Object.keys(cfg.mcp ?? {}),
++              sessionID: input.sessionID, turnID: input.user.id, abort: input.abort,
++              credential: async (providerID: string) => {
++                const stored = await bridge.promise(auth.get(ProviderV2.ID.make(providerID)))
++                return stored?.type === "api" ? stored.key : undefined
++              },
++              expandTool: (execute: () => Promise<unknown>) => aiTool({
++                description: "MCP tools are shortlisted for this turn. If a tool you need is missing, call this to expose all permitted tools on the next step.",
++                inputSchema: jsonSchema({ type: "object", properties: {}, additionalProperties: false }),
++                execute,
++              }),
++            })
++          },
++          catch: () => undefined,
++        }).pipe(Effect.orElseSucceed(() => prepared.tools))
++        prepared = { ...prepared, tools }
++      }
+       if (language instanceof GitLabWorkflowLanguageModel) {
+diff --git a/packages/opencode/test/session/llm.test.ts b/packages/opencode/test/session/llm.test.ts
+--- a/packages/opencode/test/session/llm.test.ts
++++ b/packages/opencode/test/session/llm.test.ts
+@@ -5,3 +5,5 @@
+ import path from "path"
++import { pathToFileURL } from "node:url"
++import { TestInstance } from "../fixture/fixture"
+ import { tool, type ModelMessage } from "ai"
+ import { Cause, Effect, Exit, Fiber, Layer, Stream } from "effect"
+@@ -759,1 +761,51 @@
++  it.instance("Jev routing filters provider tool schemas after permission checks", () =>
++    Effect.gen(function* () {
++      const instance = yield* TestInstance
++      const modulePath = path.join(instance.directory, "routing.mjs")
++      const routerPath = pathToFileURL(path.resolve(import.meta.dir, "../../../../../opencode/tool-routing.ts")).href
++      yield* Effect.promise(() => Bun.write(modulePath, `
++        import { createToolRouter } from ${JSON.stringify(routerPath)};
++        const route = createToolRouter({ policy: async () => ({ enabled: true }), fetch: async () => Response.json({
++          answers: { g0: { type: "noul", noul: 0.99 }, g1: { type: "noul", noul: 0.01 } }
++        }) });
++        export const routeTools = (input) => route({ ...input, credential: async () => "fixture-only" });
++      `))
++      const previous = process.env.DRIFT_TOOL_ROUTING_MODULE
++      process.env.DRIFT_TOOL_ROUTING_MODULE = modulePath
++      yield* Effect.addFinalizer(() => Effect.sync(() => {
++        if (previous === undefined) delete process.env.DRIFT_TOOL_ROUTING_MODULE
++        else process.env.DRIFT_TOOL_ROUTING_MODULE = previous
++      }))
++      const request = waitRequest("/chat/completions", new Response(createChatStream("Hello"), {
++        status: 200, headers: { "Content-Type": "text/event-stream" },
++      }))
++      const resolved = yield* Provider.use.getModel(ProviderV2.ID.make(vivgridFixture.providerID), ModelV2.ID.make(vivgridFixture.modelID))
++      const sessionID = SessionID.make("session-jev")
++      const agent = {
++        name: "test", mode: "primary", options: {},
++        permission: [{ permission: "*", pattern: "*", action: "allow" }, { permission: "blocked", pattern: "*", action: "deny" }],
++      } satisfies Agent.Info
++      const user = {
++        id: MessageID.make("msg_jev"), sessionID, role: "user", time: { created: Date.now() }, agent: agent.name,
++        model: { providerID: resolved.providerID, modelID: resolved.id }, tools: { docs_forbidden: false },
++      } satisfies SessionV1.User
++      const definition = tool({ description: "Example tool", inputSchema: z.object({}), execute: async () => "ok" })
++      yield* drain({ user, sessionID, model: resolved, agent, system: [],
++        messages: [{ role: "user", content: "Look up documentation" }],
++        tools: { read: definition, docs_find: definition, github_list: definition, blocked: definition, docs_forbidden: definition },
++      })
++      const captured = yield* Effect.promise(() => request)
++      const tools = captured.body.tools as { function: { name: string } }[]
++      expect(tools.map((item) => item.function.name).sort()).toEqual(["docs_find", "drift_expand_tools", "read"])
++    }),
++    { config: () => ({
++      enabled_providers: [vivgridFixture.providerID],
++      provider: { [vivgridFixture.providerID]: { options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` } } },
++      mcp: {
++        docs: { type: "local", command: ["unused"], enabled: false },
++        github: { type: "local", command: ["unused"], enabled: false },
++      },
++    }) },
++  )
++
+   it.instance(
