@@ -518,8 +518,10 @@ export function Composer() {
     const current = area.offsetHeight
     areaFrame.style.height = `${current}px`
     area.style.height = "auto"
-    const next = Math.min(area.scrollHeight, maxComposerHeightPx)
+    const scrollHeight = area.scrollHeight
+    const next = Math.min(scrollHeight, maxComposerHeightPx)
     area.style.height = `${next}px`
+    area.style.overflowY = scrollHeight > maxComposerHeightPx ? "auto" : "hidden"
     if (next !== current) areaFrame.style.height = `${next}px`
   }
 
@@ -737,7 +739,7 @@ export function Composer() {
             aria-controls={slash.open() ? slash.id : undefined}
             aria-activedescendant={slash.activeOptionId()}
             rows={1}
-            class="max-h-50 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[0.925rem] outline-none placeholder:text-ink-faint"
+            class="max-h-50 w-full resize-none overflow-y-hidden bg-transparent px-4 pt-3 pb-1 text-[0.925rem] outline-none placeholder:text-ink-faint"
             placeholder={placeholder()}
             disabled={!ready()}
             value={draft()}
