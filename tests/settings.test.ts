@@ -183,11 +183,11 @@ const pendingTranslation = new Set([
     `,
   ),
   "drift.markdown.linkFailed",
-  ...pendingKeys("drift.context", "window systemAndTools user assistant tool detailedBreakdown"),
+  ...pendingKeys("drift.context", "window systemAndTools user assistant tool"),
   ...pendingKeys(
     "drift.usage",
     `
-      title session weekly weeklyModel monthly period premium chat resetsInMinutes resetsInHours resetsAt
+      title session weekly weeklyModel monthly period premium chat resetsInMinutes resetsInHours resetsInDays resetsAt
       resetsSoon loading expired unsubscribed failed empty
     `,
   ),

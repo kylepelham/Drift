@@ -15,7 +15,6 @@ const dangerPercent = 90
 const minuteMs = 60_000
 const hourMs = 60 * minuteMs
 const dayMs = 24 * hourMs
-const weekMs = 7 * dayMs
 
 const [entries, setEntries] = createStore<Record<string, UsageEntry>>({})
 
@@ -60,8 +59,12 @@ export function resetLabel(resetsAt: number | null, now = Date.now()) {
     const hours = Math.floor(remaining / hourMs)
     return t("drift.usage.resetsInHours", { hours, minutes: Math.round((remaining % hourMs) / minuteMs) })
   }
-  const options: Intl.DateTimeFormatOptions =
-    remaining < weekMs ? { weekday: "short", hour: "numeric", minute: "2-digit" } : { month: "short", day: "numeric" }
+  return t("drift.usage.resetsInDays", { days: Math.floor(remaining / dayMs), hours: Math.floor((remaining % dayMs) / hourMs) })
+}
+
+export function resetTitle(resetsAt: number | null) {
+  if (resetsAt === null) return undefined
+  const options: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }
   return t("drift.usage.resetsAt", { time: new Intl.DateTimeFormat(undefined, options).format(resetsAt) })
 }
 

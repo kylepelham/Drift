@@ -4,11 +4,13 @@ import { estimateContextBreakdown, type BreakdownKey, type BreakdownSegment } fr
 import { contextStats, resolveModel } from "../engine/store"
 import { t } from "../state/i18n"
 import { toggleDebugPanel } from "../state/panels"
+import { ProviderIcon } from "./provider-icon"
 import { prefsFor } from "../state/prefs"
 import {
   planLabel,
   refreshUsage,
   resetLabel,
+  resetTitle,
   usageFor,
   usageTone,
   windowLabel,
@@ -59,12 +61,6 @@ export function ContextMeter(props: { sessionId: string }) {
           <Show when={model()?.providerID}>
             {(provider) => <UsageSection provider={provider()} />}
           </Show>
-          <button
-            class="w-full border-t border-edge px-3 pt-2 pb-1.5 text-left text-xs text-ink-muted transition-colors hover:text-ink"
-            onClick={toggleDebugPanel}
-          >
-            {t("drift.context.detailedBreakdown")}
-          </button>
         </div>
       </div>
     </div>
@@ -189,7 +185,10 @@ export function UsageSection(props: { provider: string }) {
             {t("drift.usage.title")}
             <Show when={plan()}>{(name) => ` · ${planLabel(name())}`}</Show>
           </span>
-          <span class="truncate text-ink-faint">{providerName()}</span>
+          <span class="flex min-w-0 items-center gap-1.5 text-ink-faint">
+            <ProviderIcon id={props.provider} class="size-3.5 shrink-0" />
+            <span class="truncate">{providerName()}</span>
+          </span>
         </div>
         <Show when={usageMessage(entry())} fallback={<For each={entry()?.usage?.windows}>{(window) => <LimitRow window={window} />}</For>}>
           {(message) => <div class="text-ink-faint">{message()}</div>}
@@ -207,7 +206,7 @@ function LimitRow(props: { window: UsageWindow }) {
       <div class="flex items-center justify-between gap-2">
         <span class="font-medium text-ink">{windowLabel(props.window)}</span>
         <span class="flex shrink-0 items-center gap-2 text-ink-faint">
-          {resetLabel(props.window.resetsAt)}
+          <span title={resetTitle(props.window.resetsAt)}>{resetLabel(props.window.resetsAt)}</span>
           <span class="text-ink tabular-nums">{percent()}%</span>
         </span>
       </div>

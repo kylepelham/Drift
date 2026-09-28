@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test"
 import type { MessageEntry } from "../src/engine/store"
 import { estimateContextBreakdown } from "../src/engine/context-breakdown"
-import { refreshUsage, resetLabel, usageFor, usageTone, windowLabel } from "../src/state/usage-limits"
+import { refreshUsage, resetLabel, resetTitle, usageFor, usageTone, windowLabel } from "../src/state/usage-limits"
 
 const minute = 60_000
 const now = Date.UTC(2026, 8, 28, 12, 0)
@@ -28,13 +28,15 @@ test("limit bars turn amber at 70 percent and red at 90 percent", () => {
   expect(usageTone(100)).toBe("danger")
 })
 
-test("reset labels count down within a day and name the time beyond it", () => {
+test("reset labels always count down and the hover title names the exact time", () => {
   expect(resetLabel(null, now)).toBe("")
   expect(resetLabel(now - 1, now)).toBe("Resetting now")
   expect(resetLabel(now + 49 * minute, now)).toBe("Resets in 49 min")
   expect(resetLabel(now + 20 * 1000, now)).toBe("Resets in 1 min")
   expect(resetLabel(now + (3 * 60 + 12) * minute, now)).toBe("Resets in 3 hr 12 min")
-  expect(resetLabel(now + 3 * 24 * 60 * minute, now)).toMatch(/^Resets \S+/)
+  expect(resetLabel(now + (3 * 24 * 60 + 5 * 60 + 30) * minute, now)).toBe("Resets in 3 d 5 hr")
+  expect(resetTitle(null)).toBeUndefined()
+  expect(resetTitle(now)).toMatch(/^Resets \S+/)
 })
 
 test("window labels follow the window kind and any model scope", () => {
@@ -110,6 +112,8 @@ test("the context meter shows usage limits and the breakdown, and remote access 
   expect(keys.length).toBeGreaterThan(5)
   expect(keys.filter((key) => !(key in english))).toEqual([])
   expect(meter).toContain("<UsageSection provider=")
+  expect(meter).toContain("<ProviderIcon id={props.provider}")
+  expect(meter).not.toContain("detailedBreakdown")
   expect(meter).toContain("onMouseEnter={refresh}")
   expect(await Bun.file("src/ui/header.tsx").text()).toContain("<ContextMeter sessionId=")
   expect(await Bun.file("src/ui/debug.tsx").text()).toContain("<ContextSection sessionId=")
