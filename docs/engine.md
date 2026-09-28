@@ -214,8 +214,19 @@ protocol findings, the limits of the installed-app inspection, and follow-up wor
 
 ## Engine update runbook
 
-The 2026-09-23 update imports OpenCode 1.18.32 at `18ef3cc7c5a25b82114c953a80ccc09f4988f74e`.
-The snapshot includes Codex OAuth support for GPT-6 Sol and Luna, restricts Bedrock image
+The 2026-09-28 update imports OpenCode 1.18.33 at `7f964bbb00e505178847e2c08721b0fff56208f9`.
+It catches MCP OAuth browser launchers that exit before OpenCode attaches its exit listener
+(seen on Windows), routes browser opening through one shared opener, redacts credentials in
+`opencode debug config`, fixes Gemini and Gemma thinking defaults, applies provider timeouts to
+Cloudflare AI Gateway models, and bumps `gitlab-ai-provider` to 6.18.0. All overlays applied
+unchanged and the SDK moves to 1.18.33.
+
+Upstream's ACP subprocess tests spawn `bun` by name. When `bun` on PATH is only a shell shim
+(for example `bun.ps1` from nvm4w), put the directory holding `bun.exe` first on PATH before
+`bun run test:engine`, or those tests fail with `ENOENT`.
+
+The previous 2026-09-23 update imported OpenCode 1.18.32 at `18ef3cc7c5a25b82114c953a80ccc09f4988f74e`.
+That snapshot includes Codex OAuth support for GPT-6 Sol and Luna, restricts Bedrock image
 tool-output hoisting to supported model families, fixes Node package entrypoint resolution,
 and updates TogetherAI and GitLab provider dependencies. The 1.18.32 SDK is aligned with
 the embedded engine. The GPT-6 Astra context-limit regression overlay was refreshed to
