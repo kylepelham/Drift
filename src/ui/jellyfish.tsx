@@ -29,6 +29,24 @@ function canAnimate() {
   return !globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches
 }
 
+// Frames are capped at 60 fps; this many consecutive frames slower than 40 fps drops to 30 fps at 1x.
+const frameMs = 1000 / 60
+const slowFrameMs = 1000 / 40
+const slowFrameLimit = 12
+const degradedFrameMs = 1000 / 30
+
+let modules: Promise<[typeof import("three"), typeof import("./jelly/jellyfish")]> | undefined
+
+/** three.js is ~740 KB to parse, so Settings warms it before About is opened. */
+export function preloadJellyfish() {
+  if (!canAnimate()) return
+  modules ??= Promise.all([import("three"), import("./jelly/jellyfish")]).catch((error: unknown) => {
+    modules = undefined
+    throw error
+  })
+  return modules
+}
+
 /** Disposes a scene that finishes loading after its host has unmounted. */
 export function mountScene(load: () => Promise<(() => void) | undefined>, onFallback: () => void) {
   let dispose: (() => void) | undefined
@@ -62,12 +80,10 @@ function accentColor(host: HTMLElement) {
 }
 
 async function createScene(host: HTMLElement, ready: () => void) {
-  const [THREE, { applyAccent, createJellyfish }] = await Promise.all([
-    import("three"),
-    import("./jelly/jellyfish"),
-  ])
-  if (!host.isConnected) return undefined
-  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true })
+  const loaded = await preloadJellyfish()
+  if (!loaded || !host.isConnected) return undefined
+  const [THREE, { applyAccent, createJellyfish }] = loaded
+  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "low-power" })
   const canvas = renderer.domElement
   if (!renderer.getContext()) {
     renderer.dispose()
@@ -114,11 +130,23 @@ async function createScene(host: HTMLElement, ready: () => void) {
   let frame = 0
   let running = false
   let revealed = false
+  let last = 0
+  let interval = frameMs
+  let slowFrames = 0
   const started = performance.now()
   const start = () => {
     if (running || document.hidden) return
     running = true
+    last = 0
     frame = requestAnimationFrame(render)
+  }
+  const degrade = (elapsed: number) => {
+    if (interval === degradedFrameMs || !revealed) return
+    slowFrames = elapsed > slowFrameMs ? slowFrames + 1 : 0
+    if (slowFrames < slowFrameLimit) return
+    interval = degradedFrameMs
+    renderer.setPixelRatio(1)
+    resize()
   }
   const stop = () => {
     running = false
@@ -128,6 +156,11 @@ async function createScene(host: HTMLElement, ready: () => void) {
 
   function render(now: number) {
     if (!running || !jelly) return
+    frame = requestAnimationFrame(render)
+    // High-refresh displays would otherwise redraw a slow ambient animation 144 times a second.
+    if (last && now - last < interval - 1) return
+    if (last) degrade(now - last)
+    last = now
     const time = (now - started) / 1000
     pointerSmooth.lerp(pointer, 0.08)
     jelly.group.position.y = 0.65 + Math.sin(time * 0.8) * 0.05
@@ -143,7 +176,6 @@ async function createScene(host: HTMLElement, ready: () => void) {
       canvas.style.opacity = "1"
       ready()
     }
-    frame = requestAnimationFrame(render)
   }
   const dispose = () => {
     canvas.remove()
@@ -173,7 +205,8 @@ async function createScene(host: HTMLElement, ready: () => void) {
     scene.add(jelly.group)
     resize()
     jelly.update(0, pointerSmooth)
-    renderer.render(scene, camera)
+    // Parallel shader compilation keeps a slow GPU driver from freezing the page on the first frame.
+    await renderer.compileAsync(scene, camera)
     if (!host.isConnected) {
       dispose()
       return undefined

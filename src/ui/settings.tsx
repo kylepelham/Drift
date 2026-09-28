@@ -127,7 +127,7 @@ import {
   IconX,
 } from "./icons"
 import { readDataUrl } from "./files"
-import { Jellyfish } from "./jellyfish"
+import { Jellyfish, preloadJellyfish } from "./jellyfish"
 import { SettingsGroup, SettingsRow } from "./settings-controls"
 import { RemoteAccessSection } from "./settings-remote-access"
 import { StorageSection } from "./settings-storage"
@@ -438,6 +438,8 @@ function SettingsModal(props: { onClose: () => void }) {
                           "text-ink-muted hover:bg-raised/60 hover:text-ink": section() !== name,
                         }}
                         onClick={() => selectSection(name)}
+                        onPointerEnter={() => name === "About" && void preloadJellyfish()?.catch(() => undefined)}
+                        onFocus={() => name === "About" && void preloadJellyfish()?.catch(() => undefined)}
                       >
                         <SectionIcon section={name} />
                         <span class="hidden min-w-0 truncate sm:inline" title={t(sectionLabels[name])}>

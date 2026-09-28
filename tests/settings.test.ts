@@ -576,3 +576,24 @@ test("provider sign-in hides raw URLs, surfaces device codes, and keeps disconne
   expect(connect.indexOf("props.methods.length > 1 || props.connected")).toBeLessThan(connect.indexOf('t("common.disconnect")'))
   expect(connect.indexOf('t("common.disconnect")')).toBeLessThan(connect.indexOf('method()?.type === "api"'))
 })
+
+test("the About mascot stays light: preloaded from the nav, compiled off-thread, paced, and low-poly", async () => {
+  const jelly = await Bun.file("src/ui/jellyfish.tsx").text()
+  expect(jelly).toContain("await renderer.compileAsync(scene, camera)")
+  expect(jelly).toContain('powerPreference: "low-power"')
+  expect(jelly).toMatch(/if \(last && now - last < interval - 1\) return/)
+  expect(jelly).toContain("renderer.setPixelRatio(1)")
+  const settings = await Bun.file("src/ui/settings.tsx").text()
+  expect(settings).toContain('onPointerEnter={() => name === "About" && void preloadJellyfish()')
+  const { createJellyfish } = await import("../src/ui/jelly/jellyfish")
+  const seen = new Set<unknown>()
+  let vertices = 0
+  createJellyfish().group.traverse((object) => {
+    const geometry = (object as { geometry?: { attributes: { position: { count: number } } } }).geometry
+    if (!geometry || seen.has(geometry)) return
+    seen.add(geometry)
+    vertices += geometry.attributes.position.count
+  })
+  expect(vertices).toBeGreaterThan(5_000)
+  expect(vertices).toBeLessThan(12_000)
+})
