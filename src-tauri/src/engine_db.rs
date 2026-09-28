@@ -40,7 +40,7 @@ pub fn database_path(shared: bool) -> Result<PathBuf, String> {
     }))
 }
 
-fn opencode_data_dir() -> Result<PathBuf, String> {
+pub(crate) fn opencode_data_dir() -> Result<PathBuf, String> {
     if let Some(path) = env::var_os("XDG_DATA_HOME") {
         return Ok(PathBuf::from(path).join("opencode"));
     }

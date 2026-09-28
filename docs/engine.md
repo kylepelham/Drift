@@ -212,6 +212,44 @@ rerun instead of 128. This measures reactive work, not provider token speed or e
 See [the async question comparison](async-question-comparison.md) for the public Codex
 protocol findings, the limits of the installed-app inspection, and follow-up work.
 
+## Context meter and plan usage limits
+
+The context meter in the chat header shows the context window as one bar split by
+category: system prompt and tool definitions, user messages, assistant replies, and tool
+results. The total is the last reply's reported token count. The categories are estimated
+at four characters per token from messages since the latest compaction summary. Whatever
+that estimate leaves over is counted as system prompt and tools, which in practice is
+mostly tool schemas.
+
+Below the context window, the popover shows the plan limits of the provider behind the
+current model, in the style of the Codex and Claude Code desktop apps. Each window has a
+bar that turns amber at 70% and red at 90%. The ring in the header uses the same colors
+for context usage.
+
+`provider_usage` (`src-tauri/src/usage_limits.rs`) reads the engine's `auth.json`, calls the
+provider's usage endpoint, and returns normalized windows (kind, optional label, percent
+used, and reset time in epoch milliseconds). Tokens never reach the webview or a remote
+device. Expired OAuth tokens are not refreshed here, because the engine owns refresh and
+refresh tokens can rotate; the popover says the sign-in refreshes on the next request.
+The frontend asks at most once a minute per provider, when the popover opens or a
+session goes idle.
+
+| Engine provider | Credential | Endpoint | Windows |
+|---|---|---|---|
+| `anthropic` | Claude Pro/Max OAuth | `api.anthropic.com/api/oauth/usage` | 5-hour, weekly, active per-model weekly caps |
+| `openai` | ChatGPT OAuth | `chatgpt.com/backend-api/wham/usage` | classified by `limit_window_seconds` |
+| `zai-coding-plan`, `zhipuai-coding-plan` | Coding Plan key | `/api/monitor/usage/quota/limit` | 5-hour and weekly token limits |
+| `opencode-go` | Go key | `opencode.ai/zen/go/v1/usage` | rolling, weekly, monthly |
+| `xai` | Grok OAuth | `cli-chat-proxy.grok.com/v1/billing?format=credits` | current credit period |
+| `kimi-code-plan-global` | Kimi Code key | `api.kimi.com/coding/v1/usages` | 5-hour, weekly, monthly |
+| `github-copilot` | GitHub OAuth | `api.github.com/copilot_internal/user` | monthly premium requests and chat |
+
+These are private product endpoints, so response shapes can change without notice. The
+Anthropic, OpenAI, and z.ai parsers were checked against live responses on 2026-09-28. The
+other parsers follow CodexBar's source and fixtures. API keys for Anthropic and OpenAI
+have no plan windows, so no section is shown for them. MiniMax is left out because its
+wire units are unconfirmed, and Gemini because it has no suitable endpoint.
+
 ## Engine update runbook
 
 The 2026-09-28 update imports OpenCode 1.18.33 at `7f964bbb00e505178847e2c08721b0fff56208f9`.

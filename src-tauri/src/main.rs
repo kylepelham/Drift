@@ -20,6 +20,7 @@ mod store;
 mod tool_routing;
 mod ui_state;
 mod updater;
+mod usage_limits;
 mod voice;
 mod watcher;
 
@@ -104,6 +105,7 @@ fn main() {
             engine::restart_engine,
             updater::check_update,
             updater::install_update,
+            usage_limits::provider_usage,
             updater::update_support,
             clipboard::clipboard_write_text,
             config::config_read,

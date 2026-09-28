@@ -870,6 +870,7 @@ remote_commands! {
             )
             .await?,
         ),
+        "provider_usage" => value(crate::usage_limits::provider_usage(arg(args, "provider")?).await?),
         "store_workspaces" => value(commands::store_workspaces(store())?),
         "store_removed_workspaces" => {
             value(commands::store_removed_workspaces(store())?)

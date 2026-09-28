@@ -183,6 +183,14 @@ const pendingTranslation = new Set([
     `,
   ),
   "drift.markdown.linkFailed",
+  ...pendingKeys("drift.context", "window systemAndTools estimated detailedBreakdown"),
+  ...pendingKeys(
+    "drift.usage",
+    `
+      title session weekly weeklyModel monthly period premium chat resetsInMinutes resetsInHours resetsAt
+      resetsSoon loading expired unsubscribed failed empty
+    `,
+  ),
   "drift.tool.readThread",
   "drift.mobile.openNavigation",
   "drift.settings.agents.automaticSmallModel",
