@@ -27,7 +27,7 @@ const FREE_FAILURES: u32 = 5;
 const MAX_LOCK: Duration = Duration::from_secs(900);
 const TOUCH_INTERVAL_MS: i64 = 60_000;
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
 struct Password {
     username: String,
     hash: String,
@@ -113,6 +113,11 @@ impl Auth {
                 requested_at: link.requested_at,
             })
             .collect()
+    }
+
+    /// A check that finished after the password changed must not sign anyone in.
+    fn password_is_current(&self, verified: &Password) -> bool {
+        self.password.as_ref() == Some(verified)
     }
 
     pub(crate) fn password_username(&self) -> Option<String> {
@@ -455,6 +460,9 @@ pub(crate) async fn login(
     let mut auth = access.auth();
     if !valid {
         auth.fail(address, Instant::now());
+        return failure(StatusCode::UNAUTHORIZED, "Wrong username or password.");
+    }
+    if !auth.password_is_current(&password) {
         return failure(StatusCode::UNAUTHORIZED, "Wrong username or password.");
     }
     auth.failures.remove(&address);

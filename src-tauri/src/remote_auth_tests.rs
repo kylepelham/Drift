@@ -122,6 +122,21 @@ fn changing_the_password_signs_out_only_password_sessions() {
 }
 
 #[test]
+fn a_password_verified_before_a_change_is_no_longer_current() {
+    let (store, directory) = store();
+    let mut auth = Auth::load(&store).unwrap();
+    auth.set_password(Some(("kyle".into(), hash_password("first-pass", b"salt", 1))), &store).unwrap();
+    let verified = auth.password.clone().unwrap();
+    assert!(auth.password_is_current(&verified));
+    auth.set_password(Some(("kyle".into(), hash_password("second-pass", b"salt", 1))), &store).unwrap();
+    assert!(!auth.password_is_current(&verified), "a rotated password rejects the in-flight check");
+    auth.set_password(None, &store).unwrap();
+    assert!(!auth.password_is_current(&verified), "turning sign-in off rejects it too");
+    drop(store);
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
 fn repeated_failures_lock_an_address_with_growing_delays() {
     let (store, directory) = store();
     let mut auth = Auth::load(&store).unwrap();
