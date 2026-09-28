@@ -232,7 +232,8 @@ used, and reset time in epoch milliseconds). Tokens never reach the webview or a
 device. Expired OAuth tokens are not refreshed here, because the engine owns refresh and
 refresh tokens can rotate; the popover says the sign-in refreshes on the next request.
 The frontend asks at most once a minute per provider, when the popover opens or a
-session goes idle.
+session goes idle. **Settings > Usage limits** lists every linked provider that reports
+limits, and its Refresh button bypasses the one-minute cache.
 
 | Engine provider | Credential | Endpoint | Windows |
 |---|---|---|---|

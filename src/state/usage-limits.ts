@@ -22,9 +22,9 @@ export function usageFor(provider: string): UsageEntry | undefined {
   return entries[provider]
 }
 
-export async function refreshUsage(provider: string, now = Date.now()) {
+export async function refreshUsage(provider: string, now = Date.now(), force = false) {
   const current = entries[provider]
-  if (current?.loading || (current && now - current.fetchedAt < freshMs)) return
+  if (current?.loading || (!force && current && now - current.fetchedAt < freshMs)) return
   const invoke = backendInvoke()
   if (!invoke) return
   setEntries(provider, { usage: current?.usage ?? null, failed: false, fetchedAt: current?.fetchedAt ?? 0, loading: true })

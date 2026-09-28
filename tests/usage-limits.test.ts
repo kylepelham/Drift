@@ -121,3 +121,18 @@ test("the context meter shows usage limits and the breakdown, and remote access 
   expect(remote).toContain('"provider_usage" => value(crate::usage_limits::provider_usage(arg(args, "provider")?).await?)')
   expect(await Bun.file("src-tauri/src/main.rs").text()).toContain("usage_limits::provider_usage,")
 })
+
+test("settings lists usage for every linked provider and forced refresh skips the one-minute cache", async () => {
+  await refreshUsage("zai-coding-plan")
+  const calls = invoke.mock.calls.length
+  await refreshUsage("zai-coding-plan")
+  expect(invoke.mock.calls.length).toBe(calls)
+  await refreshUsage("zai-coding-plan", Date.now(), true)
+  expect(invoke.mock.calls.length).toBe(calls + 1)
+  const settings = await Bun.file("src/ui/settings.tsx").text()
+  expect(settings).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents"]')
+  expect(settings).toContain("<UsageLimitsSection />")
+  const section = await Bun.file("src/ui/settings-usage.tsx").text()
+  expect(section).toContain("engine.state.connected.includes(provider.id)")
+  expect(section).toContain("usageFor(provider.id)?.usage !== null")
+})

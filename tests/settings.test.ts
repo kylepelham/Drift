@@ -69,7 +69,7 @@ test("selected language dictionaries translate settings without loading every lo
 
 test("prompt and agent editors are separate Server settings with inherited-value styling", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
-  expect(source).toContain('items: ["Tools", "Providers", "MCP", "Prompts", "Agents"]')
+  expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents"]')
   expect(source).toContain('<PromptEditorSection view="prompts" />')
   expect(source).toContain('<PromptEditorSection view="agents" />')
   expect(source).toContain('"text-ink-faint": !familyModified()')
@@ -188,7 +188,7 @@ const pendingTranslation = new Set([
   ...pendingKeys(
     "drift.usage",
     `
-      title session weekly weeklyModel monthly period premium chat resetsInMinutes resetsInHours resetsInDays resetsAt
+      title settingsDescription none refresh session weekly weeklyModel monthly period premium chat resetsInMinutes resetsInHours resetsInDays resetsAt
       resetsSoon loading expired unsubscribed failed empty
     `,
   ),

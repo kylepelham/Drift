@@ -163,7 +163,7 @@ function BreakdownBar(props: { segments: BreakdownSegment[]; context: number }) 
   )
 }
 
-function usageMessage(entry: UsageEntry | undefined) {
+export function usageMessage(entry: UsageEntry | undefined) {
   if (!entry || (entry.loading && !entry.usage)) return t("drift.usage.loading")
   if (entry.usage?.status === "expired") return t("drift.usage.expired")
   if (entry.usage?.status === "unsubscribed") return t("drift.usage.unsubscribed")
@@ -198,7 +198,7 @@ export function UsageSection(props: { provider: string }) {
   )
 }
 
-function LimitRow(props: { window: UsageWindow }) {
+export function LimitRow(props: { window: UsageWindow }) {
   const percent = () => Math.round(props.window.usedPercent)
   const tone = () => usageTone(props.window.usedPercent)
   return (
