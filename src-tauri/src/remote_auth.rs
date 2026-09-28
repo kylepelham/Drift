@@ -442,6 +442,10 @@ pub(crate) async fn login(
         return failure(StatusCode::NOT_FOUND, "Password sign-in is turned off.");
     };
     let _permit = access.password_checks().acquire().await;
+    if let Some(wait) = access.auth().locked_for(address, Instant::now()) {
+        let message = format!("Too many attempts. Try again in {} seconds.", wait.as_secs().max(1));
+        return failure(StatusCode::TOO_MANY_REQUESTS, &message);
+    }
     let supplied = request.password;
     let hash = password.hash.clone();
     let matches = tokio::task::spawn_blocking(move || verify_password(&supplied, &hash))

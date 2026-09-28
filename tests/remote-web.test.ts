@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test"
-import { backendRoute } from "../src/backend"
+import { afterEach, beforeEach, expect, mock, test } from "bun:test"
+import { backendInvoke, backendRoute } from "../src/backend"
 import { isNarrowWidth, navigationHash, parseNavigationHash } from "../src/state/navigation"
 import { nextRemoteAccessEnabled, normalizeLinkCode, remoteStatusTone, type RemoteAccessStatus } from "../src/state/remote-access"
 import { remoteEngineBase, remoteRuntimeFrom, runtimeNameFrom } from "../src/runtime"
@@ -22,6 +22,48 @@ test("host backend routing prefers Tauri and otherwise uses remote RPC", () => {
   expect(backendRoute(true, true)).toBe("tauri")
   expect(backendRoute(false, true)).toBe("rpc")
   expect(backendRoute(false, false)).toBe("browser")
+})
+
+let fetchMock: ReturnType<typeof mock>
+let replaceMock: ReturnType<typeof mock>
+const globalNames = ["window", "location", "fetch"] as const
+let originalGlobals: (PropertyDescriptor | undefined)[]
+
+function setGlobal(name: (typeof globalNames)[number], value: unknown) {
+  Object.defineProperty(globalThis, name, { configurable: true, writable: true, value })
+}
+
+beforeEach(() => {
+  originalGlobals = globalNames.map((name) => Object.getOwnPropertyDescriptor(globalThis, name))
+  fetchMock = mock(async (url: string) => Response.json(url === "/auth/me" ? { id: "device" } : { error: "remote access credentials changed" }, { status: url === "/auth/me" ? 200 : 401 }))
+  replaceMock = mock(() => {})
+  const location = { ...new URL("https://192.168.1.8:41718/companion"), pathname: "/companion", origin: "https://192.168.1.8:41718", replace: replaceMock }
+  setGlobal("fetch", fetchMock)
+  setGlobal("location", location)
+  setGlobal("window", { location })
+})
+
+afterEach(() => {
+  for (const [index, name] of globalNames.entries()) {
+    const descriptor = originalGlobals[index]
+    if (descriptor) Object.defineProperty(globalThis, name, descriptor)
+    else delete (globalThis as Record<string, unknown>)[name]
+  }
+})
+
+test("remote RPC 401 confirms the current session before redirecting", async () => {
+  const invoke = backendInvoke()!
+  await expect(invoke("read_file_preview", { path: "C:/tmp/a.png" })).rejects.toThrow("remote access credentials changed")
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/invoke", "/auth/me"])
+  expect(replaceMock).not.toHaveBeenCalled()
+})
+
+test("remote RPC redirects only when the current session is invalid", async () => {
+  fetchMock.mockImplementation(async (url: string) => Response.json(url === "/auth/me" ? {} : { error: "remote access credentials changed" }, { status: 401 }))
+  const invoke = backendInvoke()!
+  await expect(invoke("read_file_preview", { path: "C:/tmp/a.png" })).rejects.toThrow("remote access credentials changed")
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/invoke", "/auth/me"])
+  expect(replaceMock.mock.calls).toEqual([["/companion"]])
 })
 
 test("responsive navigation state round-trips and uses the narrow breakpoint", () => {
@@ -129,5 +171,5 @@ test("the shared access-key flow is gone and management stays desktop-only", asy
     expect(source).not.toContain("?token=")
   }
   expect(section).toContain('<Show when={!isRemoteRuntime()} fallback={<ThisDevice />}>')
-  expect(await Bun.file("src/backend.ts").text()).toContain('if (response.status === 401) window.location.replace("/companion")')
+  expect(await Bun.file("src/backend.ts").text()).toContain('if (response.status === 401 && await remoteSessionExpired()) window.location.replace("/companion")')
 })

@@ -31,9 +31,13 @@ fn the_authority_is_created_once_and_reloaded() {
     let again = Tls::load_or_create(&root).unwrap();
     assert_eq!(first.fingerprint(), again.fingerprint());
     assert_eq!(first.fingerprint().split(':').count(), 32);
+    std::fs::write(root.join(CA_FILE), "corrupt").unwrap();
+    let replaced = Tls::load_or_create(&root).unwrap();
+    assert_ne!(replaced.fingerprint(), first.fingerprint(), "an unreadable certificate is regenerated");
+    let replaced_fingerprint = replaced.fingerprint().to_string();
     std::fs::write(root.join(CA_KEY_FILE), "corrupt").unwrap();
     let replaced = Tls::load_or_create(&root).unwrap();
-    assert_ne!(replaced.fingerprint(), first.fingerprint(), "an unreadable key pair is regenerated");
+    assert_ne!(replaced.fingerprint(), replaced_fingerprint, "an unreadable key pair is regenerated");
     std::fs::remove_dir_all(root).unwrap();
 }
 

@@ -18,7 +18,7 @@ export function backendInvoke(): ShellInvoke | undefined {
       body: JSON.stringify({ command, args }),
     })
     // A revoked or expired device session returns to the sign-in page.
-    if (response.status === 401) window.location.replace("/companion")
+    if (response.status === 401 && await remoteSessionExpired()) window.location.replace("/companion")
     const value = (await response.json().catch(() => null)) as T | { error?: string } | null
     if (!response.ok) {
       const message = value && typeof value === "object" && "error" in value ? value.error : undefined
@@ -26,4 +26,9 @@ export function backendInvoke(): ShellInvoke | undefined {
     }
     return value as T
   }
+}
+
+async function remoteSessionExpired() {
+  const response = await fetch("/auth/me", { credentials: "same-origin" }).catch(() => undefined)
+  return response?.status === 401
 }

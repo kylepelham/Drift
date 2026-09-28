@@ -126,6 +126,7 @@ fn read_pair(directory: &Path) -> Option<(String, String)> {
     let ca = std::fs::read_to_string(directory.join(CA_FILE)).ok()?;
     let key = std::fs::read_to_string(directory.join(CA_KEY_FILE)).ok()?;
     KeyPair::from_pem(&key).ok()?;
+    CertificateDer::from_pem_slice(ca.as_bytes()).ok()?;
     Some((ca, key))
 }
 
