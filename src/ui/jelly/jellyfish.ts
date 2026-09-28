@@ -62,7 +62,7 @@ function bellMaterial(side: THREE.Side, depthWrite: boolean): THREE.ShaderMateri
 }
 
 function makeBell(): THREE.Mesh[] {
-  const geo = new THREE.SphereGeometry(1, 128, 96, 0, Math.PI * 2, 0, Math.PI * 0.62)
+  const geo = new THREE.SphereGeometry(1, 64, 40, 0, Math.PI * 2, 0, Math.PI * 0.62)
   geo.translate(0, 0.12, 0)
   const back = new THREE.Mesh(geo, bellMaterial(THREE.BackSide, false))
   const front = new THREE.Mesh(geo, bellMaterial(THREE.FrontSide, false))
@@ -72,7 +72,7 @@ function makeBell(): THREE.Mesh[] {
 }
 
 function makeFrill(): THREE.Mesh {
-  const geo = new THREE.SphereGeometry(0.82, 96, 48, 0, Math.PI * 2, Math.PI * 0.3, Math.PI * 0.4)
+  const geo = new THREE.SphereGeometry(0.82, 64, 20, 0, Math.PI * 2, Math.PI * 0.3, Math.PI * 0.4)
   geo.translate(0, 0.06, 0)
   const mat = bellMaterial(THREE.DoubleSide, false)
   mat.uniforms.uTop!.value = AQUA
@@ -103,7 +103,7 @@ function tentacleMaterial(phase: number, amp: number, len: number): THREE.Shader
 }
 
 function makeTentacle(radius: number, len: number, angle: number, dist: number, phase: number, amp: number): THREE.Mesh {
-  const geo = new THREE.CylinderGeometry(radius, radius * 0.28, len, 10, 72, true)
+  const geo = new THREE.CylinderGeometry(radius, radius * 0.28, len, 8, 40, true)
   geo.translate(0, -len / 2, 0)
   const mesh = new THREE.Mesh(geo, tentacleMaterial(phase, amp, len))
   mesh.position.set(Math.cos(angle) * dist, -0.15, Math.sin(angle) * dist)
@@ -124,7 +124,7 @@ function makeTentacles(): THREE.Mesh[] {
 }
 
 function makeCore(): THREE.Mesh {
-  const geo = new THREE.SphereGeometry(0.5, 48, 32)
+  const geo = new THREE.SphereGeometry(0.5, 32, 16)
   geo.translate(0, 0.28, 0)
   const mat = new THREE.ShaderMaterial({
     vertexShader: glowVertex,
@@ -140,7 +140,7 @@ function makeCore(): THREE.Mesh {
 }
 
 function flatCircle(radius: number, color: THREE.Color, blush: boolean): THREE.Mesh {
-  const geo = new THREE.CircleGeometry(radius, 48)
+  const geo = new THREE.CircleGeometry(radius, 24)
   const mat = blush
     ? new THREE.ShaderMaterial({
         vertexShader: faceVertex,

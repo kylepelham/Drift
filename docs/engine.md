@@ -102,6 +102,53 @@ once the engine is available and loads thread/status snapshots independently of 
 discovery. Captured stderr includes monotonic `drift startup:` milestones for window, database,
 workspace import, and engine timing.
 
+## Optional Jev tool routing
+
+Tool execution settings can enable Jev routing through OpenCode Zen. It is off by default.
+The native shell persists the choice in SQLite and atomically publishes `tool-routing.json`.
+Policy-change events are emitted under the persistence lock so concurrent desktop/companion
+updates cannot publish an older value after a newer one.
+The bundled `tool-routing.js` reads it at each model step, so changing the setting requires
+no restart. The launcher selects an existing `tool-routing.js`, falling back to
+`tool-routing.ts` for source extensions. If neither exists, it leaves the module environment
+variable unset, clearing any inherited value. A small `zzzzzzz-jev-tool-routing.patch` bridge runs after permission filtering
+and before either LLM transport. It reads a stored `opencode` (Zen) API key from engine
+auth, falling back to an `opencode-go` key, only when routing is enabled. No credentials
+enter the UI or routing cache.
+
+Free Zen models work without a key because the engine sends the anonymous `public` key, so a
+connected `opencode` provider does not mean Jev is usable. Jev rejects the anonymous key with
+401 ("rate-limited Zen models require a workspace") and bills the workspace's Zen balance,
+which Go plans do not cover, answering 402 when it is empty. The router therefore reports what
+actually happened instead of guessing: each turn writes one `{ outcome, at, hidden?, httpStatus? }`
+record to `tool-routing-status.json` (path in `DRIFT_TOOL_ROUTING_STATUS`), and settings poll it
+through `tool_routing_status`. Outcomes cover routed, no key, unauthorized, insufficient funds,
+other HTTP errors, timeout, network, invalid or uncertain answers, and catalogs outside the
+routing budget. Toggling the setting deletes the stale record.
+
+Jev receives up to four recent conversational text excerpts, each capped at 2,000 characters,
+and tool names/descriptions grouped by MCP server, with descriptions capped at 256 characters.
+It receives neither reasoning parts nor tool outputs or parameter schemas. Built-ins,
+custom tools without an unambiguous MCP prefix,
+and previously used tools remain visible. Code-mode catalogs with no direct MCP tools bypass
+routing. Fewer than two groups, more than 24 groups, or a catalog over 96,000 characters also bypass it.
+
+One `jev-1.13` request batches a Noul relevance question per group. Only groups scored 0.15 or
+lower are hidden; every other group stays, however unsure the score. An earlier rule that also
+required a 0.8 score to keep anything let one middling group cancel the whole turn: replaying
+"what is apophis status?" scored Apophis 0.61 and kept all 161 MCP tools, while hiding only the
+confident misses drops three servers. Malformed responses, missing auth, HTTP failures, and a
+1.2-second timeout keep all tools. The threshold is experimental, not a measured accuracy guarantee.
+Decisions and failures are shared for one session/user-turn/catalog key in a bounded 128-entry
+cache. A new user turn or changed catalog triggers reevaluation. No network retries are added
+to the model's critical path. Stable ordering preserves caching within a turn where possible.
+
+Filtered requests include `drift_expand_tools`, which restores the full already-permitted
+set on the next step for the rest of that turn. Expansion never restores tools excluded by
+permissions or the user's tool settings. Routing does not grant execution approval. Existing
+permission checks still run when a selected tool executes. End-to-end latency and task-success
+improvements have not yet been benchmarked on Drift workloads.
+
 ## Async questions
 
 The question tool defaults to `async: true`. It registers a pending request and returns
@@ -165,9 +212,71 @@ rerun instead of 128. This measures reactive work, not provider token speed or e
 See [the async question comparison](async-question-comparison.md) for the public Codex
 protocol findings, the limits of the installed-app inspection, and follow-up work.
 
+## Context meter and plan usage limits
+
+The context meter in the chat header shows the context window as one bar split by
+category: system prompt and tool definitions, user messages, assistant replies, and tool
+results. The total is the last reply's reported token count. The categories are estimated
+at four characters per token from messages since the latest compaction summary. Whatever
+that estimate leaves over is counted as system prompt and tools, which in practice is
+mostly tool schemas.
+
+Below the context window, the popover shows the plan limits of the provider behind the
+current model, in the style of the Codex and Claude Code desktop apps. Each window has a
+bar that turns amber at 70% and red at 90%. The ring in the header uses the same colors
+for context usage.
+
+`provider_usage` (`src-tauri/src/usage_limits.rs`) reads the engine's `auth.json`, calls the
+provider's usage endpoint, and returns normalized windows (kind, optional label, percent
+used, and reset time in epoch milliseconds). Tokens never reach the webview or a remote
+device. Expired OAuth tokens are not refreshed here, because the engine owns refresh and
+refresh tokens can rotate; the popover says the sign-in refreshes on the next request.
+The frontend asks at most once a minute per provider, when the popover opens or a
+session goes idle. **Settings > Usage limits** lists every linked provider that reports
+limits, and its Refresh button bypasses the one-minute cache.
+
+| Engine provider | Credential | Endpoint | Windows |
+|---|---|---|---|
+| `anthropic` | Claude Pro/Max OAuth | `api.anthropic.com/api/oauth/usage` | 5-hour, weekly, active per-model weekly caps |
+| `openai` | ChatGPT OAuth | `chatgpt.com/backend-api/wham/usage` | classified by `limit_window_seconds` |
+| `zai-coding-plan`, `zhipuai-coding-plan` | Coding Plan key | `/api/monitor/usage/quota/limit` | 5-hour and weekly token limits |
+| `opencode-go` | Go key | `opencode.ai/zen/go/v1/usage` | rolling, weekly, monthly |
+| `xai` | Grok OAuth | `cli-chat-proxy.grok.com/v1/billing?format=credits` | current credit period |
+| `kimi-code-plan-global` | Kimi Code key | `api.kimi.com/coding/v1/usages` | 5-hour, weekly, monthly |
+| `github-copilot` | GitHub OAuth | `api.github.com/copilot_internal/user` | monthly premium requests and chat |
+
+These are private product endpoints, so response shapes can change without notice. The
+Anthropic, OpenAI, and z.ai parsers were checked against live responses on 2026-09-28. The
+other parsers follow CodexBar's source and fixtures. API keys for Anthropic and OpenAI
+have no plan windows, so no section is shown for them. MiniMax is left out because its
+wire units are unconfirmed, and Gemini because it has no suitable endpoint.
+
 ## Engine update runbook
 
-The 2026-09-15 update imports OpenCode 1.18.31 at `a74c472ffb941e6b027e5348be50cfe2225c6c56`.
+The 2026-09-28 update imports OpenCode 1.18.33 at `7f964bbb00e505178847e2c08721b0fff56208f9`.
+It catches MCP OAuth browser launchers that exit before OpenCode attaches its exit listener
+(seen on Windows), routes browser opening through one shared opener, redacts credentials in
+`opencode debug config`, fixes Gemini and Gemma thinking defaults, applies provider timeouts to
+Cloudflare AI Gateway models, and bumps `gitlab-ai-provider` to 6.18.0. All overlays applied
+unchanged and the SDK moves to 1.18.33.
+
+Upstream's ACP subprocess tests spawn `bun` by name. When `bun` on PATH is only a shell shim
+(for example `bun.ps1` from nvm4w), put the directory holding `bun.exe` first on PATH before
+`bun run test:engine`, or those tests fail with `ENOENT`.
+
+The previous 2026-09-23 update imported OpenCode 1.18.32 at `18ef3cc7c5a25b82114c953a80ccc09f4988f74e`.
+That snapshot includes Codex OAuth support for GPT-6 Sol and Luna, restricts Bedrock image
+tool-output hoisting to supported model families, fixes Node package entrypoint resolution,
+and updates TogetherAI and GitLab provider dependencies. The 1.18.32 SDK is aligned with
+the embedded engine. The GPT-6 Astra context-limit regression overlay was refreshed to
+retain upstream's new Sol and Luna coverage.
+
+The upstream Vertex Anthropic wire test still expects `block_binding`, but the pinned
+`@ai-sdk/google-vertex` transport omits that field. It fails on the pristine upstream
+snapshot without Drift overlays; the other engine suites and overlay tests pass.
+
+The previous 2026-09-15 update imported OpenCode 1.18.31 at
+`a74c472ffb941e6b027e5348be50cfe2225c6c56`.
 This is upstream's version-sync commit on `dev`. Its complete tree equals the `v1.18.31`
 release tag's tree, including the 1.18.31 manifests. The marker stays pinned to the `dev`
 sync commit so future updates can validate ancestry along `dev`, rather than the separate release commit.

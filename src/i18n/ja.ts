@@ -1019,6 +1019,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "現在のモデル",
   "drift.slash.argumentDetails": "{{name}} の詳細",
   "drift.markdown.ambiguousCitation": "ファイルリンク \"{{href}}\" を特定できません。次の候補から選べるよう、より詳しいパスを指定してください: {{files}}",
   "drift.preview.settings.title": "ファイルプレビュー",
@@ -1053,7 +1054,6 @@ export const drift = {
   "drift.preview.tableTruncated": "最初の{{rows}}行を表示しています",
   "drift.preview.mediaError": "このメディアファイルを再生できませんでした。",
   "drift.preview.pdfPassword": "パスワードで保護されたPDFはプレビューできません。",
-  "drift.remote.statusOff": "オフ",
   "drift.remote.statusStarting": "起動中",
   "drift.remote.statusError": "エラー",
   "drift.remote.clipboardError": "コピーできませんでした",
@@ -1227,7 +1227,6 @@ export const drift = {
   "drift.provider.connectFailed": "{{provider}}に接続できませんでした。認証情報を確認して、もう一度お試しください。",
   "drift.provider.connected": "{{provider}}に接続しました。認証情報を保存しました。",
   "drift.provider.credentialRemovedStillConnected": "保存済みの{{provider}}の認証情報は削除されましたが、環境変数または設定を通じて接続中です。",
-  "drift.provider.disconnectDescription": "切断すると、Driftに保存された認証情報が削除されます。",
   "drift.provider.disconnectFailed": "{{provider}}を切断できませんでした。もう一度お試しください。",
   "drift.provider.disconnected": "{{provider}}を切断しました。保存済みの認証情報を削除しました。",
   "drift.provider.disconnecting": "切断中...",

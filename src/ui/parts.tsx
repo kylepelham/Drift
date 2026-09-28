@@ -308,6 +308,8 @@ export function toolInfo(part: ToolPart): ToolInfo {
       const title = text("title")
       return { title: title ? `${t("drift.tool.spawn")} ${title}` : t("drift.tool.spawn") }
     }
+    case "read_thread":
+      return { title: t("drift.tool.readThread"), subtitle: part.state.status === "completed" ? part.state.title : undefined }
     case "question":
       return {
         title: t(meta.async === true || input?.async === true ? "drift.tool.asyncQuestion" : "notification.question.title"),

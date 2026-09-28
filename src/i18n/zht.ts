@@ -1073,6 +1073,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "目前模型",
   "drift.slash.argumentDetails": "{{name}} 的詳細說明",
   "drift.markdown.ambiguousCitation": "檔案連結 \"{{href}}\" 不明確。請使用更完整的路徑來選擇以下檔案之一：{{files}}",
   "drift.preview.settings.title": "檔案預覽",
@@ -1107,7 +1108,6 @@ export const drift = {
   "drift.preview.tableTruncated": "僅顯示前 {{rows}} 列",
   "drift.preview.mediaError": "無法播放此媒體檔案。",
   "drift.preview.pdfPassword": "無法預覽受密碼保護的 PDF。",
-  "drift.remote.statusOff": "已關閉",
   "drift.remote.statusStarting": "正在啟動",
   "drift.remote.statusError": "錯誤",
   "drift.remote.clipboardError": "無法複製",
@@ -1280,7 +1280,6 @@ export const drift = {
   "drift.provider.connectFailed": "無法連線 {{provider}}。請檢查憑證後再試一次。",
   "drift.provider.connected": "{{provider}} 已連線。憑證已儲存。",
   "drift.provider.credentialRemovedStillConnected": "已移除 {{provider}} 儲存的憑證，但仍透過環境或設定保持連線。",
-  "drift.provider.disconnectDescription": "中斷連線會移除 Drift 儲存的憑證。",
   "drift.provider.disconnectFailed": "無法中斷 {{provider}} 的連線。請再試一次。",
   "drift.provider.disconnected": "{{provider}} 已中斷連線。儲存的憑證已移除。",
   "drift.provider.disconnecting": "正在中斷連線...",

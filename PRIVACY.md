@@ -20,6 +20,9 @@ installing or operating it:
 - Prompts, relevant context, tool results, and model settings are sent to the model
   provider selected by the user. That provider's privacy policy and terms apply.
 - Provider authentication may connect to the provider's OAuth or API endpoints.
+- When you open the context meter, Drift asks the current model's provider for your plan's
+  usage limits with the credential you already signed in with. The request goes only to
+  that provider.
 - MCP servers and plugins explicitly configured by the user may receive data or make
   network requests according to their own implementation and policies.
 

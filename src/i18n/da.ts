@@ -1095,6 +1095,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Aktuel model",
   "drift.slash.argumentDetails": "Detaljer om {{name}}",
   "drift.markdown.ambiguousCitation": "Tvetydigt fillink \"{{href}}\". Brug en længere sti til at vælge mellem: {{files}}",
   "drift.preview.settings.title": "Filforhåndsvisninger",
@@ -1129,7 +1130,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Viser de første {{rows}} rækker",
   "drift.preview.mediaError": "Denne mediefil kunne ikke afspilles.",
   "drift.preview.pdfPassword": "Adgangskodebeskyttede PDF-filer kan ikke forhåndsvises.",
-  "drift.remote.statusOff": "Fra",
   "drift.remote.statusStarting": "Starter",
   "drift.remote.statusError": "Fejl",
   "drift.remote.clipboardError": "Kunne ikke kopiere",
@@ -1302,7 +1302,6 @@ export const drift = {
   "drift.provider.connectFailed": "Kunne ikke forbinde {{provider}}. Kontrollér legitimationsoplysningerne, og prøv igen.",
   "drift.provider.connected": "{{provider}} er forbundet. Legitimationsoplysningerne er gemt.",
   "drift.provider.credentialRemovedStillConnected": "De gemte legitimationsoplysninger til {{provider}} blev fjernet, men forbindelsen er stadig aktiv via miljøet eller konfigurationen.",
-  "drift.provider.disconnectDescription": "Når forbindelsen afbrydes, fjernes Drifts gemte legitimationsoplysninger.",
   "drift.provider.disconnectFailed": "Kunne ikke afbryde forbindelsen til {{provider}}. Prøv igen.",
   "drift.provider.disconnected": "Forbindelsen til {{provider}} er afbrudt. De gemte legitimationsoplysninger er fjernet.",
   "drift.provider.disconnecting": "Afbryder forbindelsen...",

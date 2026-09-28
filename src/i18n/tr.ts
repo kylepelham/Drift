@@ -1105,6 +1105,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Geçerli model",
   "drift.slash.argumentDetails": "{{name}} ayrıntıları",
   "drift.markdown.ambiguousCitation": "Belirsiz dosya bağlantısı \"{{href}}\". Şunlar arasından seçim yapmak için daha ayrıntılı bir yol kullanın: {{files}}",
   "drift.preview.settings.title": "Dosya önizlemeleri",
@@ -1139,7 +1140,6 @@ export const drift = {
   "drift.preview.tableTruncated": "İlk {{rows}} satır gösteriliyor",
   "drift.preview.mediaError": "Bu medya dosyası oynatılamadı.",
   "drift.preview.pdfPassword": "Parola korumalı PDF dosyaları önizlenemez.",
-  "drift.remote.statusOff": "Kapalı",
   "drift.remote.statusStarting": "Başlatılıyor",
   "drift.remote.statusError": "Hata",
   "drift.remote.clipboardError": "Kopyalanamadı",
@@ -1312,7 +1312,6 @@ export const drift = {
   "drift.provider.connectFailed": "{{provider}} bağlanamadı. Kimlik bilgilerini kontrol edip yeniden deneyin.",
   "drift.provider.connected": "{{provider}} bağlandı. Kimlik bilgisi kaydedildi.",
   "drift.provider.credentialRemovedStillConnected": "{{provider}} için kayıtlı kimlik bilgisi kaldırıldı ancak ortam veya yapılandırma üzerinden bağlı kalıyor.",
-  "drift.provider.disconnectDescription": "Bağlantıyı kesmek, Drift'in sakladığı kimlik bilgisini kaldırır.",
   "drift.provider.disconnectFailed": "{{provider}} bağlantısı kesilemedi. Yeniden deneyin.",
   "drift.provider.disconnected": "{{provider}} bağlantısı kesildi. Kayıtlı kimlik bilgisi kaldırıldı.",
   "drift.provider.disconnecting": "Bağlantı kesiliyor...",

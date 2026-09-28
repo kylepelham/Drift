@@ -1018,6 +1018,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "현재 모델",
   "drift.slash.argumentDetails": "{{name}} 세부 정보",
   "drift.markdown.ambiguousCitation": "파일 링크 \"{{href}}\"가 모호합니다. 다음 파일 중에서 선택할 수 있도록 더 구체적인 경로를 사용하세요: {{files}}",
   "drift.preview.settings.title": "파일 미리보기",
@@ -1052,7 +1053,6 @@ export const drift = {
   "drift.preview.tableTruncated": "처음 {{rows}}개 행 표시 중",
   "drift.preview.mediaError": "이 미디어 파일을 재생하지 못했습니다.",
   "drift.preview.pdfPassword": "암호로 보호된 PDF는 미리볼 수 없습니다.",
-  "drift.remote.statusOff": "꺼짐",
   "drift.remote.statusStarting": "시작 중",
   "drift.remote.statusError": "오류",
   "drift.remote.clipboardError": "복사할 수 없음",
@@ -1225,7 +1225,6 @@ export const drift = {
   "drift.provider.connectFailed": "{{provider}}에 연결할 수 없습니다. 자격 증명을 확인하고 다시 시도하세요.",
   "drift.provider.connected": "{{provider}}에 연결되었습니다. 자격 증명이 저장되었습니다.",
   "drift.provider.credentialRemovedStillConnected": "{{provider}}의 저장된 자격 증명은 삭제되었지만 환경 또는 구성으로 계속 연결되어 있습니다.",
-  "drift.provider.disconnectDescription": "연결을 해제하면 Drift에 저장된 자격 증명이 삭제됩니다.",
   "drift.provider.disconnectFailed": "{{provider}}의 연결을 해제할 수 없습니다. 다시 시도하세요.",
   "drift.provider.disconnected": "{{provider}}의 연결이 해제되었습니다. 저장된 자격 증명이 삭제되었습니다.",
   "drift.provider.disconnecting": "연결 해제 중...",

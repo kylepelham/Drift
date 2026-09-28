@@ -1,20 +1,26 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
-import { contextStats, resolveModel, type MessageEntry } from "../engine/store"
+import { resolveModel, type MessageEntry } from "../engine/store"
 import { prefsFor } from "../state/prefs"
 import { debugPanelOpen, setDebugPanelOpen } from "../state/panels"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
 import { lightTheme } from "../state/theme"
+import { refreshUsage } from "../state/usage-limits"
+import { ContextSection, UsageSection } from "./context-meter"
 import { IconX } from "./icons"
 
 export function DebugPanel() {
   const engine = useEngine()
   const entries = () => engine.state.transcripts[selectedSession() ?? ""] ?? []
-  const stats = () => {
+  const provider = () => {
     const id = selectedSession()
-    return id ? contextStats(engine.state, id, resolveModel(engine.state, prefsFor(id).model)) : null
+    return id ? resolveModel(engine.state, prefsFor(id).model)?.providerID : undefined
   }
+  createEffect(() => {
+    const id = provider()
+    if (debugPanelOpen() && id) void refreshUsage(id)
+  })
   return (
     <Show when={debugPanelOpen() && selectedSession()}>
       <div class="debug-panel flex min-h-0 min-w-0 w-[26rem] shrink-0 flex-col overflow-hidden border-l border-edge bg-surface">
@@ -29,32 +35,10 @@ export function DebugPanel() {
           </button>
         </div>
         <div class="debug-panel-scroll min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
-          <Show when={stats()}>
-            {(usage) => (
-              <div class="space-y-1 border-b border-edge px-3 py-2.5 text-xs text-ink-muted select-text">
-                <div class="flex justify-between">
-                  <span>{t("context.usage.usage")}</span>
-                  <span class="text-ink">{usage().percent}%</span>
-                </div>
-                <div class="flex justify-between">
-                  <span>{t("context.usage.tokens")}</span>
-                  <span class="text-ink">
-                    {usage().count.toLocaleString()} / {usage().context.toLocaleString()}
-                  </span>
-                </div>
-                <div class="flex justify-between">
-                  <span>{t("drift.context.untilCompaction")}</span>
-                  <span class="text-ink">{usage().untilCompaction.toLocaleString()}</span>
-                </div>
-                <Show when={usage().cost > 0}>
-                  <div class="flex justify-between">
-                    <span>{t("context.usage.cost")}</span>
-                    <span class="text-ink">${usage().cost.toFixed(2)}</span>
-                  </div>
-                </Show>
-              </div>
-            )}
-          </Show>
+          <div class="border-b border-edge select-text">
+            <ContextSection sessionId={selectedSession()!} />
+            <Show when={provider()}>{(id) => <UsageSection provider={id()} />}</Show>
+          </div>
           <For each={entries()}>{(entry) => <DebugRow entry={entry} />}</For>
         </div>
       </div>

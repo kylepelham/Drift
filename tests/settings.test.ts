@@ -69,7 +69,7 @@ test("selected language dictionaries translate settings without loading every lo
 
 test("prompt and agent editors are separate Server settings with inherited-value styling", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
-  expect(source).toContain('items: ["Tools", "Providers", "MCP", "Prompts", "Agents"]')
+  expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents"]')
   expect(source).toContain('<PromptEditorSection view="prompts" />')
   expect(source).toContain('<PromptEditorSection view="agents" />')
   expect(source).toContain('"text-ink-faint": !familyModified()')
@@ -79,6 +79,56 @@ test("prompt and agent editors are separate Server settings with inherited-value
   expect(source).toContain('t("drift.settings.prompts.astraDescription")')
   expect(source).toContain('GPT-6 (Astra): {t("drift.settings.prompts.upstreamOriginal")}')
   expect(source).toContain("{variant.original}")
+})
+
+test("settings search covers every category and finds feature descriptions", async () => {
+  const { loadDictionary } = await import("../src/state/i18n")
+  const { settingsSearchResults } = await import("../src/ui/settings")
+  await loadDictionary("en")
+
+  const categories = [
+    "General",
+    "Appearance",
+    "Code",
+    "Notifications",
+    "Voice",
+    "Shortcuts",
+    "Tools",
+    "Providers",
+    "MCP",
+    "Prompts",
+    "Agents",
+    "Storage",
+    "Remote Access",
+    "About",
+  ] as const
+  for (const category of categories) {
+    expect(settingsSearchResults(category).some((item) => item.section === category), category).toBeTrue()
+  }
+
+  expect(settingsSearchResults("shell commands child processes")[0]?.section).toBe("Tools")
+  expect(settingsSearchResults("compact database")[0]?.section).toBe("Storage")
+  expect(settingsSearchResults("engine version")[0]?.section).toBe("About")
+})
+
+test("tool execution exposes optional Jev routing without its old footer", async () => {
+  const source = await Bun.file("src/ui/settings.tsx").text()
+  expect(source).toContain("<ToolRoutingSetting />")
+  expect(source).not.toContain('t("drift.settings.shellTimeout.scope")')
+  const routing = await Bun.file("src/ui/settings-tool-routing.tsx").text()
+  expect(routing).toContain("checked={toolRouting().enabled}")
+  expect(routing).toContain("disabled={busy()}")
+})
+
+test("Jev routing reports the engine's last outcome instead of guessing from provider connections", async () => {
+  const routing = await Bun.file("src/ui/settings-tool-routing.tsx").text()
+  expect(routing).not.toContain("engine.state.connected")
+  expect(routing).toContain("loadToolRoutingStatus")
+  const english = (await import("../src/i18n/en")).drift as Record<string, string>
+  const outcomes = routing.match(/const outcomes = new Set\(\[([^\]]+)\]/)![1]!.match(/"[^"]+"/g)!.map((item) => JSON.parse(item))
+  for (const outcome of outcomes) expect(english[`drift.settings.toolRouting.outcome.${outcome}`]).toBeString()
+  const engine = await Bun.file("src-tauri/src/engine.rs").text()
+  expect(engine).toContain('.env("DRIFT_TOOL_ROUTING_STATUS"')
 })
 
 test("agent overrides retain only values changed from upstream", async () => {
@@ -96,6 +146,25 @@ test("agent overrides retain only values changed from upstream", async () => {
   ).toEqual({ prompt: "Custom", mode: "subagent" })
 })
 
+test("prompt saves and resets publish a runtime reload for desktop and companion callers", async () => {
+  const commands = await Bun.file("src-tauri/src/commands.rs").text()
+  const remote = await Bun.file("src-tauri/src/remote.rs").text()
+  for (const [command, method] of [["prompt_save", "save_prompt"], ["prompt_reset", "reset_prompt"]]) {
+    const body = commands.slice(commands.indexOf(`pub(crate) fn ${command}(`)).split("\n}")[0]!
+    expect(body).toContain("app: tauri::AppHandle")
+    expect(body).toContain(`runtime.${method}(`)
+    expect(body).toContain("?;\n    publish_prompt_change(&app)")
+    expect(body.indexOf(`runtime.${method}(`)).toBeLessThan(body.indexOf("publish_prompt_change(&app)"))
+    expect(remote).toContain(`commands::${command}(\n            app.clone(),`)
+  }
+  expect(commands).toContain("reload_engine_config(app).map_err")
+  expect(commands).toContain("Settings saved, but the engine reload failed.")
+  const ui = await Bun.file("src/ui/settings.tsx").text()
+  expect(ui).toContain('if (props.view === "agents") await engine.actions.refreshAgents()')
+  expect(ui).toContain('t("drift.settings.prompts.saved")')
+  expect(ui).not.toContain("showRestartNotice")
+})
+
 const pendingKeys = (prefix: string, suffixes: string) =>
   suffixes
     .trim()
@@ -104,9 +173,31 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 
 /** Keys that deliberately fall back to English until locale-specific translations ship. */
 const pendingTranslation = new Set([
+  ...pendingKeys(
+    "drift.settings.toolRouting",
+    `
+      title description
+      outcome.routed outcome.no-key outcome.unauthorized outcome.insufficient-funds outcome.http-error
+      outcome.timeout outcome.network outcome.invalid-response outcome.uncertain outcome.no-context
+      outcome.too-few-groups outcome.catalog-too-large
+    `,
+  ),
   "drift.markdown.linkFailed",
+  ...pendingKeys("drift.provider", "pasteCode enterCode copyCode openAgain copyLink linkCopied"),
+  ...pendingKeys("drift.context", "window systemAndTools user assistant tool"),
+  ...pendingKeys(
+    "drift.usage",
+    `
+      title settingsDescription none refresh session weekly weeklyModel monthly period premium chat resetsInMinutes resetsInHours resetsInDays resetsAt
+      resetsSoon loading expired unsubscribed failed empty
+    `,
+  ),
+  "drift.tool.readThread",
   "drift.mobile.openNavigation",
+  "drift.settings.agents.automaticSmallModel",
+  "drift.settings.agents.currentSessionModel",
   "drift.settings.code",
+  ...pendingKeys("drift.settings.search", "empty placeholder"),
   ...pendingKeys("drift.chat.retry", "switchModel switchingModel"),
   ...pendingKeys(
     "drift.code",
@@ -147,9 +238,15 @@ const pendingTranslation = new Set([
   ...pendingKeys(
     "drift.remote",
     `
-      address connected connectionUrl copied copy deckHelp enable
-      enableDescription gateway listening manageOnDesktop noLanAddress rotate rotated
-      securityWarning title
+      connected copied copy enable enableDescription manageOnDesktop noLanAddress title
+      connect.title connect.open connect.warning connect.code
+      link.action link.linked link.waiting
+      devices.title devices.empty devices.link devices.password devices.lastSeen devices.revoke devices.revokeAll
+      password.title password.description password.on password.off password.setUp password.change
+      password.turnOff password.username password.password password.confirm password.mismatch
+      password.save password.cancel password.note
+      certificate.title certificate.description encryption.fingerprint
+      device.title device.signedIn device.signOut toast.title toast.message toast.open
     `,
   ),
   ...pendingKeys(
@@ -163,7 +260,7 @@ const pendingTranslation = new Set([
     "drift.settings.prompts",
     `
       agentDescription agentPrompt agents behavior familyDescription inheritsFamily invalidJson
-      modelFamilies restart saveBeforeSwitch systemPrompt upstreamOriginal
+      modelFamilies saved saveBeforeSwitch systemPrompt upstreamOriginal
     `,
   ),
   "drift.settings.prompts",
@@ -462,4 +559,41 @@ test("the mascot takes the theme accent and the logo mark never flashes as a blo
   expect(jelly).toMatch(/renderer\.render\(scene, camera\)\s*\n[\s\S]*?if \(!revealed\) \{\s*\n\s*revealed = true\s*\n\s*canvas\.style\.opacity = "1"\s*\n\s*ready\(\)/)
   // No reveal may happen next to the append, before any frame exists.
   expect(jelly).not.toMatch(/host\.append\(canvas\)\s*\n\s*ready\(\)/)
+})
+
+test("provider sign-in hides raw URLs, surfaces device codes, and keeps disconnect beside the methods", async () => {
+  const { authorizationPrompt } = await import("../src/engine/provider-auth")
+  const long = "https://claude.ai/oauth/authorize?code=true&client_id=9d1c&state=" + "x".repeat(400)
+  expect(authorizationPrompt(`Paste the authorization code here: ${long}`)).toEqual({ text: "Paste the authorization code here" })
+  expect(authorizationPrompt("Enter code: ABCD-1234")).toEqual({ code: "ABCD-1234" })
+  expect(authorizationPrompt("Open https://accounts.x.ai/device on any device and enter code: WXYZ-9876")).toEqual({ code: "WXYZ-9876" })
+  expect(authorizationPrompt("Sign in with `az login` before continuing.")).toEqual({ text: "Sign in with `az login` before continuing." })
+  expect(authorizationPrompt("")).toEqual({})
+  const source = await Bun.file("src/ui/settings.tsx").text()
+  expect(source).not.toContain("{auth().url}")
+  expect(source).not.toContain("disconnectDescription")
+  const connect = source.slice(source.indexOf("function ProviderConnect("), source.indexOf("function AuthorizationHint("))
+  expect(connect.indexOf("props.methods.length > 1 || props.connected")).toBeLessThan(connect.indexOf('t("common.disconnect")'))
+  expect(connect.indexOf('t("common.disconnect")')).toBeLessThan(connect.indexOf('method()?.type === "api"'))
+})
+
+test("the About mascot stays light: preloaded from the nav, compiled off-thread, paced, and low-poly", async () => {
+  const jelly = await Bun.file("src/ui/jellyfish.tsx").text()
+  expect(jelly).toContain("await renderer.compileAsync(scene, camera)")
+  expect(jelly).toContain('powerPreference: "low-power"')
+  expect(jelly).toMatch(/if \(last && now - last < interval - 1\) return/)
+  expect(jelly).toContain("renderer.setPixelRatio(1)")
+  const settings = await Bun.file("src/ui/settings.tsx").text()
+  expect(settings).toContain('onPointerEnter={() => name === "About" && void preloadJellyfish()')
+  const { createJellyfish } = await import("../src/ui/jelly/jellyfish")
+  const seen = new Set<unknown>()
+  let vertices = 0
+  createJellyfish().group.traverse((object) => {
+    const geometry = (object as { geometry?: { attributes: { position: { count: number } } } }).geometry
+    if (!geometry || seen.has(geometry)) return
+    seen.add(geometry)
+    vertices += geometry.attributes.position.count
+  })
+  expect(vertices).toBeGreaterThan(5_000)
+  expect(vertices).toBeLessThan(12_000)
 })

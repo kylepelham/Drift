@@ -1036,6 +1036,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Aktuelles Modell",
   "drift.slash.argumentDetails": "Details zu {{name}}",
   "drift.markdown.ambiguousCitation": "Mehrdeutiger Dateilink \"{{href}}\". Verwende einen längeren Pfad, um zwischen diesen Dateien zu wählen: {{files}}",
   "drift.preview.settings.title": "Dateivorschauen",
@@ -1070,7 +1071,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Die ersten {{rows}} Zeilen werden angezeigt",
   "drift.preview.mediaError": "Diese Mediendatei konnte nicht abgespielt werden.",
   "drift.preview.pdfPassword": "Passwortgeschützte PDFs können nicht in der Vorschau angezeigt werden.",
-  "drift.remote.statusOff": "Aus",
   "drift.remote.statusStarting": "Wird gestartet",
   "drift.remote.statusError": "Fehler",
   "drift.remote.clipboardError": "Kopieren fehlgeschlagen",
@@ -1243,7 +1243,6 @@ export const drift = {
   "drift.provider.connectFailed": "{{provider}} konnte nicht verbunden werden. Anmeldedaten prüfen und erneut versuchen.",
   "drift.provider.connected": "{{provider}} verbunden. Anmeldedaten gespeichert.",
   "drift.provider.credentialRemovedStillConnected": "Die gespeicherten Anmeldedaten von {{provider}} wurden entfernt, die Verbindung über Umgebung oder Konfiguration bleibt jedoch bestehen.",
-  "drift.provider.disconnectDescription": "Beim Trennen werden die von Drift gespeicherten Anmeldedaten entfernt.",
   "drift.provider.disconnectFailed": "{{provider}} konnte nicht getrennt werden. Erneut versuchen.",
   "drift.provider.disconnected": "{{provider}} getrennt. Gespeicherte Anmeldedaten entfernt.",
   "drift.provider.disconnecting": "Verbindung wird getrennt...",

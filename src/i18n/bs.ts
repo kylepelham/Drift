@@ -1103,6 +1103,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Trenutni model",
   "drift.slash.argumentDetails": "Detalji za {{name}}",
   "drift.markdown.ambiguousCitation": "Dvosmislena veza do datoteke \"{{href}}\". Koristite dužu putanju za odabir između: {{files}}",
   "drift.preview.settings.title": "Pregledi datoteka",
@@ -1137,7 +1138,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Prikazano je prvih {{rows}} redova",
   "drift.preview.mediaError": "Ovu medijsku datoteku nije moguće reproducirati.",
   "drift.preview.pdfPassword": "PDF datoteke zaštićene lozinkom nije moguće pregledati.",
-  "drift.remote.statusOff": "Isključeno",
   "drift.remote.statusStarting": "Pokretanje",
   "drift.remote.statusError": "Greška",
   "drift.remote.clipboardError": "Kopiranje nije uspjelo",
@@ -1310,7 +1310,6 @@ export const drift = {
   "drift.provider.connectFailed": "Nije moguće povezati {{provider}}. Provjerite pristupne podatke i pokušajte ponovo.",
   "drift.provider.connected": "{{provider}} je povezan. Pristupni podaci su sačuvani.",
   "drift.provider.credentialRemovedStillConnected": "Sačuvani pristupni podaci za {{provider}} su uklonjeni, ali veza ostaje aktivna putem okruženja ili konfiguracije.",
-  "drift.provider.disconnectDescription": "Prekid veze uklanja pristupne podatke koje čuva Drift.",
   "drift.provider.disconnectFailed": "Nije moguće prekinuti vezu s {{provider}}. Pokušajte ponovo.",
   "drift.provider.disconnected": "Veza s {{provider}} je prekinuta. Sačuvani pristupni podaci su uklonjeni.",
   "drift.provider.disconnecting": "Prekidanje veze...",

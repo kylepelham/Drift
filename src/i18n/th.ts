@@ -1090,6 +1090,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "โมเดลปัจจุบัน",
   "drift.slash.argumentDetails": "รายละเอียดของ {{name}}",
   "drift.markdown.ambiguousCitation": "ลิงก์ไฟล์ \"{{href}}\" ไม่ชัดเจน ใช้พาธที่เจาะจงขึ้นเพื่อเลือกระหว่าง: {{files}}",
   "drift.preview.settings.title": "ตัวอย่างไฟล์",
@@ -1124,7 +1125,6 @@ export const drift = {
   "drift.preview.tableTruncated": "แสดง {{rows}} แถวแรก",
   "drift.preview.mediaError": "ไม่สามารถเล่นไฟล์สื่อนี้ได้",
   "drift.preview.pdfPassword": "ไม่สามารถแสดงตัวอย่าง PDF ที่ป้องกันด้วยรหัสผ่านได้",
-  "drift.remote.statusOff": "ปิด",
   "drift.remote.statusStarting": "กำลังเริ่ม",
   "drift.remote.statusError": "ข้อผิดพลาด",
   "drift.remote.clipboardError": "คัดลอกไม่ได้",
@@ -1297,7 +1297,6 @@ export const drift = {
   "drift.provider.connectFailed": "ไม่สามารถเชื่อมต่อ {{provider}} ตรวจสอบข้อมูลรับรองแล้วลองอีกครั้ง",
   "drift.provider.connected": "เชื่อมต่อ {{provider}} แล้ว บันทึกข้อมูลรับรองแล้ว",
   "drift.provider.credentialRemovedStillConnected": "ลบข้อมูลรับรองที่บันทึกไว้ของ {{provider}} แล้ว แต่ยังเชื่อมต่อผ่านสภาพแวดล้อมหรือการกำหนดค่าอยู่",
-  "drift.provider.disconnectDescription": "การตัดการเชื่อมต่อจะลบข้อมูลรับรองที่ Drift จัดเก็บไว้",
   "drift.provider.disconnectFailed": "ไม่สามารถตัดการเชื่อมต่อ {{provider}} ลองอีกครั้ง",
   "drift.provider.disconnected": "ตัดการเชื่อมต่อ {{provider}} แล้ว ลบข้อมูลรับรองที่จัดเก็บไว้แล้ว",
   "drift.provider.disconnecting": "กำลังตัดการเชื่อมต่อ...",

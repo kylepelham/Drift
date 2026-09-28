@@ -1077,6 +1077,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "当前模型",
   "drift.slash.argumentDetails": "{{name}} 的详细说明",
   "drift.markdown.ambiguousCitation": "文件链接 \"{{href}}\" 不明确。请使用更完整的路径来选择以下文件之一：{{files}}",
   "drift.preview.settings.title": "文件预览",
@@ -1111,7 +1112,6 @@ export const drift = {
   "drift.preview.tableTruncated": "仅显示前 {{rows}} 行",
   "drift.preview.mediaError": "无法播放此媒体文件。",
   "drift.preview.pdfPassword": "无法预览受密码保护的 PDF。",
-  "drift.remote.statusOff": "已关闭",
   "drift.remote.statusStarting": "正在启动",
   "drift.remote.statusError": "错误",
   "drift.remote.clipboardError": "无法复制",
@@ -1284,7 +1284,6 @@ export const drift = {
   "drift.provider.connectFailed": "无法连接 {{provider}}。请检查凭据后重试。",
   "drift.provider.connected": "{{provider}} 已连接。凭据已保存。",
   "drift.provider.credentialRemovedStillConnected": "已删除 {{provider}} 保存的凭据，但仍通过环境或配置保持连接。",
-  "drift.provider.disconnectDescription": "断开连接会删除 Drift 存储的凭据。",
   "drift.provider.disconnectFailed": "无法断开 {{provider}}。请重试。",
   "drift.provider.disconnected": "{{provider}} 已断开连接。存储的凭据已删除。",
   "drift.provider.disconnecting": "正在断开连接...",

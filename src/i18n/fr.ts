@@ -1040,6 +1040,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Modèle actuel",
   "drift.slash.argumentDetails": "Détails de {{name}}",
   "drift.markdown.ambiguousCitation": "Lien de fichier ambigu \"{{href}}\". Utilisez un chemin plus complet pour choisir parmi : {{files}}",
   "drift.preview.settings.title": "Aperçus des fichiers",
@@ -1074,7 +1075,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Affichage des {{rows}} premières lignes",
   "drift.preview.mediaError": "Impossible de lire ce fichier multimédia.",
   "drift.preview.pdfPassword": "Les PDF protégés par un mot de passe ne peuvent pas être prévisualisés.",
-  "drift.remote.statusOff": "Désactivé",
   "drift.remote.statusStarting": "Démarrage",
   "drift.remote.statusError": "Erreur",
   "drift.remote.clipboardError": "Copie impossible",
@@ -1249,7 +1249,6 @@ export const drift = {
   "drift.provider.connectFailed": "Impossible de connecter {{provider}}. Vérifiez l'identifiant et réessayez.",
   "drift.provider.connected": "{{provider}} connecté. Identifiant enregistré.",
   "drift.provider.credentialRemovedStillConnected": "L'identifiant enregistré de {{provider}} a été supprimé, mais la connexion reste active via l'environnement ou la configuration.",
-  "drift.provider.disconnectDescription": "La déconnexion supprime l'identifiant stocké par Drift.",
   "drift.provider.disconnectFailed": "Impossible de déconnecter {{provider}}. Réessayez.",
   "drift.provider.disconnected": "{{provider}} déconnecté. Identifiant stocké supprimé.",
   "drift.provider.disconnecting": "Déconnexion...",

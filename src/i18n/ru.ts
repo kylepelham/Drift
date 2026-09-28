@@ -1106,6 +1106,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Текущая модель",
   "drift.slash.argumentDetails": "Подробности о {{name}}",
   "drift.markdown.ambiguousCitation": "Неоднозначная ссылка на файл \"{{href}}\". Укажите более полный путь, чтобы выбрать из: {{files}}",
   "drift.preview.settings.title": "Предпросмотр файлов",
@@ -1140,7 +1141,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Показаны первые {{rows}} строк",
   "drift.preview.mediaError": "Не удалось воспроизвести этот медиафайл.",
   "drift.preview.pdfPassword": "Предпросмотр PDF, защищённых паролем, недоступен.",
-  "drift.remote.statusOff": "Выключено",
   "drift.remote.statusStarting": "Запуск",
   "drift.remote.statusError": "Ошибка",
   "drift.remote.clipboardError": "Не удалось скопировать",
@@ -1316,7 +1316,6 @@ export const drift = {
   "drift.provider.connectFailed": "Не удалось подключить {{provider}}. Проверьте учётные данные и повторите попытку.",
   "drift.provider.connected": "{{provider}} подключён. Учётные данные сохранены.",
   "drift.provider.credentialRemovedStillConnected": "Сохранённые учётные данные {{provider}} удалены, но подключение через окружение или конфигурацию осталось.",
-  "drift.provider.disconnectDescription": "При отключении сохранённые в Drift учётные данные удаляются.",
   "drift.provider.disconnectFailed": "Не удалось отключить {{provider}}. Повторите попытку.",
   "drift.provider.disconnected": "{{provider}} отключён. Сохранённые учётные данные удалены.",
   "drift.provider.disconnecting": "Отключение...",

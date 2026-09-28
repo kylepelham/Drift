@@ -1,0 +1,65 @@
+diff --git a/packages/opencode/test/tool/task.test.ts b/packages/opencode/test/tool/task.test.ts
+--- a/packages/opencode/test/tool/task.test.ts
++++ b/packages/opencode/test/tool/task.test.ts
+@@ -22,3 +22,3 @@
+ import { RuntimeFlags } from "@/effect/runtime-flags"
+-import { disposeAllInstances } from "../fixture/fixture"
++import { disposeAllInstances, TestInstance } from "../fixture/fixture"
+ import { testEffect } from "../lib/effect"
+@@ -248,1 +248,56 @@
++  it.instance("runtime reload applies subagent model pins and Current model to actual task dispatch", () =>
++    Effect.gen(function* () {
++      const instance = yield* TestInstance
++      const config = yield* Config.Service
++      const sessions = yield* Session.Service
++      const { chat, assistant } = yield* seed()
++      const task = yield* TaskTool
++      const dispatch = Effect.fn("dispatch")(function* (name: string) {
++        const def = yield* task.init()
++        let seen: SessionPrompt.PromptInput | undefined
++        const result = yield* def.execute(
++          { description: "model routing smoke test", prompt: "Reply OK", subagent_type: name },
++          {
++            sessionID: chat.id,
++            messageID: assistant.id,
++            agent: "build",
++            abort: new AbortController().signal,
++            extra: { promptOps: stubOps({ onPrompt: (input) => { seen = input } }) },
++            messages: [],
++            metadata: () => Effect.void,
++            ask: () => Effect.void,
++          },
++        )
++        expect(seen).toBeDefined()
++        expect(String(result.metadata.model?.providerID)).toBe(String(seen!.model?.providerID))
++        expect(String(result.metadata.model?.modelID)).toBe(String(seen!.model?.modelID))
++        return seen!
++      })
++      for (const name of ["general", "explore"]) {
++        expect((yield* dispatch(name)).model?.modelID).toBe(ref.modelID)
++      }
++      const agent = { general: { model: "test/smart" }, explore: { model: "test/cheap" } }
++      yield* Effect.promise(() => Bun.write(`${instance.directory}/opencode.json`, JSON.stringify({ agent })))
++      expect((yield* dispatch("general")).model?.modelID).toBe(ref.modelID)
++      yield* config.reload()
++      for (const [name, model] of [["general", "smart"], ["explore", "cheap"]]) {
++        const input = yield* dispatch(name!)
++        expect(String(input.model?.providerID)).toBe("test")
++        expect(String(input.model?.modelID)).toBe(model)
++        expect(input.variant).toBeUndefined()
++      }
++      yield* Effect.promise(() => Bun.write(`${instance.directory}/opencode.json`, JSON.stringify({
++        agent: { general: { model: "" }, explore: { model: "" } },
++      })))
++      yield* config.reload()
++      yield* sessions.updateMessage({ ...assistant, modelID: ModelV2.ID.make("changed-parent") })
++      for (const name of ["general", "explore"]) {
++        const input = yield* dispatch(name)
++        expect(String(input.model?.providerID)).toBe("test")
++        expect(String(input.model?.modelID)).toBe("changed-parent")
++        expect(input.variant).toBe("xhigh")
++      }
++    }),
++  )
++
+   it.instance("execute resumes an existing task session from task_id", () =>

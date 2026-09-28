@@ -367,3 +367,62 @@ fn windows_directory_normalization_is_ascii_only() {
     };
     assert_eq!(normalize_directory(input), expected);
 }
+
+#[test]
+fn subagent_models_persist_and_materialize_independently() {
+    let (root, store, runtime) = fixture();
+    let prompt = json!({ "prompt": "Keep this prompt", "permission": { "edit": "deny" } });
+    for (name, model) in [
+        ("explore", "provider/cheap"),
+        ("general", "provider/smart"),
+        ("code-review", "other/vendor/reviewer"),
+    ] {
+        let mut value = prompt.clone();
+        value["model"] = json!(model);
+        runtime
+            .save_prompt(&store, &format!("agent:{name}"), value, None)
+            .unwrap();
+    }
+    let reopened = crate::store::open(&root.join("data")).unwrap();
+    runtime.materialize(&reopened).unwrap();
+    let config: Value =
+        serde_json::from_slice(&std::fs::read(runtime.config_dir().join(CONFIG_FILE)).unwrap())
+            .unwrap();
+    assert_eq!(config["agent"]["explore"]["model"], "provider/cheap");
+    assert_eq!(config["agent"]["general"]["model"], "provider/smart");
+    assert_eq!(
+        config["agent"]["code-review"]["model"],
+        "other/vendor/reviewer"
+    );
+
+    let mut current = prompt.clone();
+    current["model"] = json!("");
+    runtime
+        .save_prompt(&reopened, "agent:explore", current.clone(), None)
+        .unwrap();
+    let config: Value =
+        serde_json::from_slice(&std::fs::read(runtime.config_dir().join(CONFIG_FILE)).unwrap())
+            .unwrap();
+    assert_eq!(config["agent"]["explore"], current);
+    assert_eq!(config["agent"]["general"]["model"], "provider/smart");
+    assert_eq!(
+        reopened
+            .prompt_overrides()
+            .unwrap()
+            .iter()
+            .find(|item| item.key == "agent:explore")
+            .unwrap()
+            .value,
+        current
+    );
+
+    runtime.reset_prompt(&reopened, "agent:explore").unwrap();
+    let config: Value =
+        serde_json::from_slice(&std::fs::read(runtime.config_dir().join(CONFIG_FILE)).unwrap())
+            .unwrap();
+    assert!(config["agent"].get("explore").is_none());
+    assert_eq!(config["agent"]["general"]["model"], "provider/smart");
+    drop(reopened);
+    drop(store);
+    std::fs::remove_dir_all(root).ok();
+}

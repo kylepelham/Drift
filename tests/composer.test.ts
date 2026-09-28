@@ -26,6 +26,12 @@ test("composer clipboard publishing uses the exact selected text", async () => {
   expect(composerSelection("abcdef", 3, 3)).toBe("")
 })
 
+test("composer hides fractional textarea overflow until the autosize ceiling", async () => {
+  const source = await Bun.file("src/ui/composer.tsx").text()
+  expect(source).toContain("resize-none overflow-y-hidden")
+  expect(source).toContain('area.style.overflowY = scrollHeight > maxComposerHeightPx ? "auto" : "hidden"')
+})
+
 test("slash parsing preserves command argument mode", async () => {
   const { parseSlash, slashPresets } = await import("../src/ui/slash")
   expect(parseSlash("/fork")).toEqual({ query: "fork", args: "", separated: false })

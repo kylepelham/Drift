@@ -1027,6 +1027,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Bieżący model",
   "drift.slash.argumentDetails": "Szczegóły {{name}}",
   "drift.markdown.ambiguousCitation": "Niejednoznaczny link do pliku \"{{href}}\". Użyj dłuższej ścieżki, aby wybrać spośród: {{files}}",
   "drift.preview.settings.title": "Podglądy plików",
@@ -1061,7 +1062,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Wyświetlono pierwsze {{rows}} wierszy",
   "drift.preview.mediaError": "Nie udało się odtworzyć tego pliku multimedialnego.",
   "drift.preview.pdfPassword": "Nie można wyświetlić podglądu plików PDF chronionych hasłem.",
-  "drift.remote.statusOff": "Wyłączony",
   "drift.remote.statusStarting": "Uruchamianie",
   "drift.remote.statusError": "Błąd",
   "drift.remote.clipboardError": "Nie udało się skopiować",
@@ -1236,7 +1236,6 @@ export const drift = {
   "drift.provider.connectFailed": "Nie można połączyć z {{provider}}. Sprawdź dane logowania i spróbuj ponownie.",
   "drift.provider.connected": "Połączono z {{provider}}. Dane logowania zapisano.",
   "drift.provider.credentialRemovedStillConnected": "Zapisane dane logowania do {{provider}} zostały usunięte, ale połączenie przez środowisko lub konfigurację nadal jest aktywne.",
-  "drift.provider.disconnectDescription": "Rozłączenie usuwa dane logowania zapisane przez Drift.",
   "drift.provider.disconnectFailed": "Nie można rozłączyć {{provider}}. Spróbuj ponownie.",
   "drift.provider.disconnected": "Rozłączono {{provider}}. Zapisane dane logowania usunięto.",
   "drift.provider.disconnecting": "Rozłączanie...",

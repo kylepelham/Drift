@@ -51,6 +51,19 @@ pub struct McpDecision {
     pub decided_at: i64,
 }
 
+/// A browser or app signed in to Remote Access. Only the SHA-256 of its session token is stored.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteDevice {
+    pub id: String,
+    pub name: String,
+    #[serde(skip)]
+    pub token_hash: String,
+    pub method: String,
+    pub created_at: i64,
+    pub last_seen_at: i64,
+}
+
 #[derive(Clone)]
 pub struct McpState {
     pub generation: i64,
@@ -124,6 +137,14 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
             id INTEGER PRIMARY KEY CHECK(id = 1),
             enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
             token TEXT NOT NULL
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS remote_device(
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            method TEXT NOT NULL CHECK(method IN ('link', 'password')),
+            created_at INTEGER NOT NULL,
+            last_seen_at INTEGER NOT NULL
         ) STRICT;",
     )?;
     // The removed model-recovery workflow used this table. Drop legacy rows during upgrade so
@@ -225,23 +246,76 @@ impl Store {
         self.save_app_setting("dictation_enabled", if enabled { "true" } else { "false" })
     }
 
-    pub fn remote_access(&self) -> rusqlite::Result<Option<(bool, String)>> {
-        self.0
+    pub fn remote_access_enabled(&self) -> rusqlite::Result<bool> {
+        let enabled = self
+            .0
             .lock()
             .unwrap()
-            .query_row(
-                "SELECT enabled, token FROM remote_access WHERE id = 1",
-                [],
-                |row| Ok((row.get::<_, i64>(0)? != 0, row.get(1)?)),
-            )
-            .optional()
+            .query_row("SELECT enabled FROM remote_access WHERE id = 1", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .optional()?;
+        Ok(enabled == Some(1))
     }
 
-    pub fn save_remote_access(&self, enabled: bool, token: &str) -> rusqlite::Result<()> {
+    /// `token` is the retired shared access key, left untouched so older builds still open this database.
+    pub fn save_remote_access(&self, enabled: bool) -> rusqlite::Result<()> {
         self.0.lock().unwrap().execute(
-            "INSERT INTO remote_access(id, enabled, token) VALUES(1, ?1, ?2)
-                 ON CONFLICT(id) DO UPDATE SET enabled = ?1, token = ?2",
-            params![enabled as i64, token],
+            "INSERT INTO remote_access(id, enabled, token) VALUES(1, ?1, '')
+                 ON CONFLICT(id) DO UPDATE SET enabled = ?1",
+            [enabled as i64],
+        )?;
+        Ok(())
+    }
+
+    pub fn remote_devices(&self) -> rusqlite::Result<Vec<RemoteDevice>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT id, name, token_hash, method, created_at, last_seen_at
+             FROM remote_device ORDER BY created_at",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(RemoteDevice {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                token_hash: row.get(2)?,
+                method: row.get(3)?,
+                created_at: row.get(4)?,
+                last_seen_at: row.get(5)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn insert_remote_device(&self, device: &RemoteDevice) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().execute(
+            "INSERT INTO remote_device(id, name, token_hash, method, created_at, last_seen_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                device.id,
+                device.name,
+                device.token_hash,
+                device.method,
+                device.created_at,
+                device.last_seen_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn touch_remote_device(&self, id: &str, at: i64) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().execute(
+            "UPDATE remote_device SET last_seen_at = ?2 WHERE id = ?1",
+            params![id, at],
+        )?;
+        Ok(())
+    }
+
+    /// Deletes one device, every device (`None`), or every device signed in with `method`.
+    pub fn delete_remote_devices(&self, id: Option<&str>, method: Option<&str>) -> rusqlite::Result<()> {
+        self.0.lock().unwrap().execute(
+            "DELETE FROM remote_device WHERE (?1 IS NULL OR id = ?1) AND (?2 IS NULL OR method = ?2)",
+            params![id, method],
         )?;
         Ok(())
     }

@@ -5,6 +5,9 @@ function engineEnvironment(extra: Record<string, string> = {}) {
   const env = { ...process.env }
   for (const key of [
     "DRIFT_MCP_APPROVAL_REQUIRED",
+    "DRIFT_TOOL_ROUTING_MODULE",
+    "DRIFT_TOOL_ROUTING_POLICY",
+    "DRIFT_TOOL_ROUTING_STATUS",
     "OPENCODE_CONFIG",
     "OPENCODE_CONFIG_CONTENT",
     "OPENCODE_CONFIG_DIR",
@@ -72,6 +75,8 @@ await withEngineOverlays(async () => {
     "test/effect/async-question.test.ts",
   ])
   await run("packages/opencode", ["test/session/prompt.test.ts", "-t", "async question|runtime reload"])
+  await run("packages/opencode", ["test/tool/task.test.ts", "-t", "runtime reload applies subagent model"])
+  await run("packages/opencode", ["test/session/llm.test.ts", "-t", "Jev routing"])
   await run("packages/opencode", ["test/session/instruction.test.ts"])
   await run("packages/core", ["test/event.test.ts"])
   await run("packages/opencode", ["test/plugin/codex.test.ts"])

@@ -1011,6 +1011,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "النموذج الحالي",
   "drift.slash.argumentDetails": "تفاصيل {{name}}",
   "drift.markdown.ambiguousCitation": "رابط الملف \"{{href}}\" غير محدد. استخدم مسارًا أطول للاختيار بين: {{files}}",
   "drift.preview.settings.title": "معاينات الملفات",
@@ -1045,7 +1046,6 @@ export const drift = {
   "drift.preview.tableTruncated": "عرض أول {{rows}} صفًا",
   "drift.preview.mediaError": "تعذر تشغيل ملف الوسائط هذا.",
   "drift.preview.pdfPassword": "لا يمكن معاينة ملفات PDF المحمية بكلمة مرور.",
-  "drift.remote.statusOff": "متوقف",
   "drift.remote.statusStarting": "جارٍ البدء",
   "drift.remote.statusError": "خطأ",
   "drift.remote.clipboardError": "تعذر النسخ",
@@ -1218,7 +1218,6 @@ export const drift = {
   "drift.provider.connectFailed": "تعذر الاتصال بـ {{provider}}. تحقق من بيانات الاعتماد وحاول مجددًا.",
   "drift.provider.connected": "تم توصيل {{provider}}. حُفظت بيانات الاعتماد.",
   "drift.provider.credentialRemovedStillConnected": "أُزيلت بيانات اعتماد {{provider}} المحفوظة، لكنه لا يزال متصلًا عبر البيئة أو التكوين.",
-  "drift.provider.disconnectDescription": "يؤدي قطع الاتصال إلى إزالة بيانات الاعتماد التي خزّنها Drift.",
   "drift.provider.disconnectFailed": "تعذر قطع الاتصال بـ {{provider}}. حاول مجددًا.",
   "drift.provider.disconnected": "تم قطع اتصال {{provider}}. أُزيلت بيانات الاعتماد المخزنة.",
   "drift.provider.disconnecting": "جارٍ قطع الاتصال...",

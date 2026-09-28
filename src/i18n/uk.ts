@@ -1108,6 +1108,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Поточна модель",
   "drift.slash.argumentDetails": "Докладніше про {{name}}",
   "drift.markdown.ambiguousCitation": "Неоднозначне посилання на файл \"{{href}}\". Укажіть повніший шлях, щоб вибрати з: {{files}}",
   "drift.preview.settings.title": "Попередній перегляд файлів",
@@ -1142,7 +1143,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Показано перші {{rows}} рядків",
   "drift.preview.mediaError": "Не вдалося відтворити цей медіафайл.",
   "drift.preview.pdfPassword": "Попередній перегляд PDF, захищених паролем, недоступний.",
-  "drift.remote.statusOff": "Вимкнено",
   "drift.remote.statusStarting": "Запуск",
   "drift.remote.statusError": "Помилка",
   "drift.remote.clipboardError": "Не вдалося скопіювати",
@@ -1315,7 +1315,6 @@ export const drift = {
   "drift.provider.connectFailed": "Не вдалося підключити {{provider}}. Перевірте облікові дані й повторіть спробу.",
   "drift.provider.connected": "{{provider}} підключено. Облікові дані збережено.",
   "drift.provider.credentialRemovedStillConnected": "Збережені облікові дані {{provider}} видалено, але підключення через середовище або конфігурацію залишається активним.",
-  "drift.provider.disconnectDescription": "Відключення видаляє облікові дані, збережені Drift.",
   "drift.provider.disconnectFailed": "Не вдалося відключити {{provider}}. Повторіть спробу.",
   "drift.provider.disconnected": "{{provider}} відключено. Збережені облікові дані видалено.",
   "drift.provider.disconnecting": "Відключення...",

@@ -91,9 +91,10 @@ async function openaiNotes(prompt: string) {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: process.env.RELEASE_NOTES_MODEL || "gpt-5.6-luna",
-      temperature: 0.2,
-      max_tokens: 2200,
+      model: process.env.RELEASE_NOTES_MODEL || "gpt-6-luna",
+      // Luna is a reasoning model: no temperature, and reasoning tokens share the completion budget.
+      reasoning_effort: process.env.RELEASE_NOTES_REASONING || "high",
+      max_completion_tokens: 32000,
       messages: [
         { role: "system", content: "You are a precise release-note editor. Never invent changes." },
         { role: "user", content: prompt },

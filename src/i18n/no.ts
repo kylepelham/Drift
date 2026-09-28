@@ -1111,6 +1111,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Gjeldende modell",
   "drift.slash.argumentDetails": "Detaljer om {{name}}",
   "drift.markdown.ambiguousCitation": "Tvetydig fillenke \"{{href}}\". Bruk en lengre sti for å velge mellom: {{files}}",
   "drift.preview.settings.title": "Filforhåndsvisninger",
@@ -1145,7 +1146,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Viser de første {{rows}} radene",
   "drift.preview.mediaError": "Denne mediefilen kunne ikke spilles av.",
   "drift.preview.pdfPassword": "Passordbeskyttede PDF-filer kan ikke forhåndsvises.",
-  "drift.remote.statusOff": "Av",
   "drift.remote.statusStarting": "Starter",
   "drift.remote.statusError": "Feil",
   "drift.remote.clipboardError": "Kunne ikke kopiere",
@@ -1319,7 +1319,6 @@ export const drift = {
   "drift.provider.connectFailed": "Kunne ikke koble til {{provider}}. Kontroller legitimasjonen og prøv igjen.",
   "drift.provider.connected": "{{provider}} er tilkoblet. Legitimasjonen er lagret.",
   "drift.provider.credentialRemovedStillConnected": "Den lagrede legitimasjonen for {{provider}} ble fjernet, men tilkoblingen via miljø eller konfigurasjon er fortsatt aktiv.",
-  "drift.provider.disconnectDescription": "Frakobling fjerner legitimasjonen som er lagret i Drift.",
   "drift.provider.disconnectFailed": "Kunne ikke koble fra {{provider}}. Prøv igjen.",
   "drift.provider.disconnected": "{{provider}} er frakoblet. Lagret legitimasjon er fjernet.",
   "drift.provider.disconnecting": "Kobler fra...",

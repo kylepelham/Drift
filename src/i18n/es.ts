@@ -1111,6 +1111,7 @@ export const dict = {
 }
 
 export const drift = {
+  "drift.settings.agents.currentModel": "Modelo actual",
   "drift.slash.argumentDetails": "Detalles de {{name}}",
   "drift.markdown.ambiguousCitation": "Enlace de archivo ambiguo \"{{href}}\". Usa una ruta más completa para elegir entre: {{files}}",
   "drift.preview.settings.title": "Vistas previas de archivos",
@@ -1145,7 +1146,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Se muestran las primeras {{rows}} filas",
   "drift.preview.mediaError": "No se pudo reproducir este archivo multimedia.",
   "drift.preview.pdfPassword": "No se pueden previsualizar los PDF protegidos con contraseña.",
-  "drift.remote.statusOff": "Desactivado",
   "drift.remote.statusStarting": "Iniciando",
   "drift.remote.statusError": "Error",
   "drift.remote.clipboardError": "No se pudo copiar",
@@ -1317,7 +1317,6 @@ export const drift = {
   "drift.provider.connectFailed": "No se pudo conectar {{provider}}. Comprueba la credencial e inténtalo de nuevo.",
   "drift.provider.connected": "{{provider}} conectado. Credencial guardada.",
   "drift.provider.credentialRemovedStillConnected": "Se eliminó la credencial guardada de {{provider}}, pero sigue conectado mediante el entorno o la configuración.",
-  "drift.provider.disconnectDescription": "Al desconectar se elimina la credencial almacenada por Drift.",
   "drift.provider.disconnectFailed": "No se pudo desconectar {{provider}}. Inténtalo de nuevo.",
   "drift.provider.disconnected": "{{provider}} desconectado. Credencial almacenada eliminada.",
   "drift.provider.disconnecting": "Desconectando...",

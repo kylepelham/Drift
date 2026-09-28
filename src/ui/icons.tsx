@@ -299,6 +299,17 @@ export function IconChip(props: IconProps) {
   )
 }
 
+export function IconGauge(props: IconProps) {
+  return frame(
+    props,
+    <>
+      <path d="M4 18a9 9 0 1 1 16 0" />
+      <path d="M12 14l4-5" />
+      <circle cx="12" cy="14" r="1.2" />
+    </>,
+  )
+}
+
 export function IconCode(props: IconProps) {
   return frame(
     props,
