@@ -1141,7 +1141,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Показаны первые {{rows}} строк",
   "drift.preview.mediaError": "Не удалось воспроизвести этот медиафайл.",
   "drift.preview.pdfPassword": "Предпросмотр PDF, защищённых паролем, недоступен.",
-  "drift.remote.statusOff": "Выключено",
   "drift.remote.statusStarting": "Запуск",
   "drift.remote.statusError": "Ошибка",
   "drift.remote.clipboardError": "Не удалось скопировать",

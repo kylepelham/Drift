@@ -1062,7 +1062,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Wyświetlono pierwsze {{rows}} wierszy",
   "drift.preview.mediaError": "Nie udało się odtworzyć tego pliku multimedialnego.",
   "drift.preview.pdfPassword": "Nie można wyświetlić podglądu plików PDF chronionych hasłem.",
-  "drift.remote.statusOff": "Wyłączony",
   "drift.remote.statusStarting": "Uruchamianie",
   "drift.remote.statusError": "Błąd",
   "drift.remote.clipboardError": "Nie udało się skopiować",

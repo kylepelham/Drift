@@ -173,3 +173,20 @@ test("the shared access-key flow is gone and management stays desktop-only", asy
   expect(section).toContain('<Show when={!isRemoteRuntime()} fallback={<ThisDevice />}>')
   expect(await Bun.file("src/backend.ts").text()).toContain('if (response.status === 401 && await remoteSessionExpired()) window.location.replace("/companion")')
 })
+
+test("device activity reads as relative time", async () => {
+  const { lastSeenLabel } = await import("../src/state/remote-access")
+  const now = Date.UTC(2026, 8, 28, 12)
+  const english = (at: number) => lastSeenLabel(at, now)
+  expect(english(now - 20_000)).toBe(new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(0, "minute"))
+  expect(english(now - 5 * 60_000)).toBe(new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(-5, "minute"))
+  expect(english(now - 3 * 86_400_000)).toBe(new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(-3, "day"))
+})
+
+test("remote settings drop the redundant gateway rows and keep linking in numbered steps", async () => {
+  const section = await Bun.file("src/ui/settings-remote-access.tsx").text()
+  expect(section).not.toContain("listeningAddress")
+  expect(section).not.toContain("drift.remote.encryption.https")
+  expect(section).toContain('id="remote-link-code"')
+  expect(section.match(/<Step number=\{\d\}>/g)).toHaveLength(3)
+})

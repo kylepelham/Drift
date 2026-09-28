@@ -1,7 +1,8 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { isRemoteRuntime } from "../runtime"
 import { t } from "../state/i18n"
 import {
+  lastSeenLabel,
   linkRemoteDevice,
   listenRemoteAccess,
   loadRemoteSession,
@@ -31,18 +32,17 @@ export function RemoteAccessSection() {
   return (
     <div class="space-y-5">
       <Show when={!isRemoteRuntime()} fallback={<ThisDevice />}>
-        <Gateway />
-        <Show when={remoteAccessStatus()?.enabled}>
-          <LinkDevice />
-          <LinkedDevices />
+        <EnableRow />
+        <Show when={remoteAccessStatus()?.enabled && remoteAccessStatus()?.listening}>
+          <ConnectDevice />
+          <Devices />
           <PasswordSignIn />
-          <Encryption />
+          <Certificate />
         </Show>
       </Show>
       <Show when={remoteAccessError() || remoteAccessStatus()?.error}>
-        <div class="text-xs text-danger">{remoteAccessError() || remoteAccessStatus()?.error}</div>
+        <div class="text-xs text-danger" role="alert">{remoteAccessError() || remoteAccessStatus()?.error}</div>
       </Show>
-      <p class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.remote.securityNote")}</p>
     </div>
   )
 }
@@ -61,98 +61,71 @@ function ThisDevice() {
   )
 }
 
-function Gateway() {
+function EnableRow() {
   const status = remoteAccessStatus
-  const [copied, setCopied] = createSignal(false)
-  const [clipboardError, setClipboardError] = createSignal("")
   onMount(() => {
     void refreshRemoteAccess()
     const stop = listenRemoteAccess()
     onCleanup(() => void stop?.then((release) => release()))
   })
-
-  async function copyAddress() {
-    const url = status()?.urls[0]
-    if (!url) return
-    setClipboardError("")
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1800)
-    } catch (cause) {
-      setClipboardError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }
-
-  const statusLabel = () =>
-    status()?.error
-      ? t("drift.remote.statusError")
-      : status()?.listening
-        ? t("drift.remote.listening")
-        : status()?.enabled
-          ? t("drift.remote.statusStarting")
-          : t("drift.remote.statusOff")
-
+  const starting = () => status()?.enabled && !status()?.listening && !status()?.error
   return (
-    <>
-      <SettingsGroup title={t("drift.remote.gateway")}>
-        <SettingsRow title={t("drift.remote.enable")} description={t("drift.remote.enableDescription")}>
+    <SettingsGroup title={t("drift.remote.title")}>
+      <SettingsRow title={t("drift.remote.enable")} description={t("drift.remote.enableDescription")}>
+        <div class="flex items-center gap-3">
+          <Show when={starting() || remoteStatusTone(status()) === "error"}>
+            <span class="text-[0.72rem] text-ink-faint">
+              {remoteStatusTone(status()) === "error" ? t("drift.remote.statusError") : t("drift.remote.statusStarting")}
+            </span>
+          </Show>
           <Toggle
             label={t("drift.remote.enable")}
             checked={!!status()?.enabled}
             disabled={remoteAccessBusy()}
             onChange={() => void setRemoteAccess(nextRemoteAccessEnabled(status()))}
           />
-        </SettingsRow>
-        <SettingsRow title={t("drift.remote.address")} description={statusLabel()}>
-          <div class="flex items-center gap-2">
-            <span
-              class="size-2 rounded-full"
-              classList={{
-                "bg-ink-faint": remoteStatusTone(status()) === "idle" || (remoteStatusTone(status()) === "offline" && !status()?.enabled),
-                "bg-warn": remoteStatusTone(status()) === "offline" && !!status()?.enabled,
-                "bg-ok": remoteStatusTone(status()) === "online",
-                "bg-danger": remoteStatusTone(status()) === "error",
-              }}
-            />
-            <span class="font-mono text-[0.75rem] text-ink-muted">{status()?.listeningAddress ?? "-"}</span>
-          </div>
-        </SettingsRow>
-        <Show when={status()?.enabled && status()?.listening}>
-          <SettingsRow title={t("drift.remote.open.title")} description={t("drift.remote.open.description")}>
-            <div class="flex flex-col items-end gap-2">
-              <span class="font-mono text-[0.75rem] text-ink select-all">{status()?.urls[0] || t("drift.remote.noLanAddress")}</span>
-              <Show when={status()?.urls[0]}>
-                <button class={button} onClick={() => void copyAddress()}>
-                  {copied() ? t("drift.remote.copied") : t("drift.remote.copy")}
-                </button>
-              </Show>
-            </div>
-          </SettingsRow>
-          <Show when={status()?.addressQr}>
-            {(svg) => (
-              <div class="flex items-center gap-4 px-1 py-3">
-                <div class="size-36 shrink-0 rounded-md bg-white p-1.5 [&>svg]:size-full" role="img" aria-label={t("drift.remote.scan")} innerHTML={svg()} />
-                <p class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.remote.scan")}</p>
-              </div>
-            )}
-          </Show>
-        </Show>
-      </SettingsGroup>
-      <Show when={clipboardError()}><div class="text-xs text-danger">{t("drift.remote.clipboardError")}: {clipboardError()}</div></Show>
-    </>
+        </div>
+      </SettingsRow>
+    </SettingsGroup>
   )
 }
 
-function LinkDevice() {
+function Step(props: { number: number; children: JSX.Element }) {
+  return (
+    <li class="flex gap-2.5">
+      <span class="flex size-5 shrink-0 items-center justify-center rounded-full bg-raised text-[0.68rem] font-semibold text-ink-muted">
+        {props.number}
+      </span>
+      <div class="min-w-0 flex-1 space-y-1.5 text-xs leading-relaxed text-ink-muted">{props.children}</div>
+    </li>
+  )
+}
+
+function ConnectDevice() {
+  const url = () => remoteAccessStatus()?.urls[0]
+  const pending = () => remoteAccessStatus()?.pendingLinks ?? []
+  const [copied, setCopied] = createSignal(false)
+  const [copyError, setCopyError] = createSignal(false)
   const [code, setCode] = createSignal("")
   const [linked, setLinked] = createSignal("")
   const [error, setError] = createSignal("")
   const [working, setWorking] = createSignal(false)
-  const pending = () => remoteAccessStatus()?.pendingLinks ?? []
   const complete = () => normalizeLinkCode(code()).length === 8
 
-  async function submit(event: Event) {
+  async function copyAddress() {
+    const value = url()
+    if (!value) return
+    setCopyError(false)
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    } catch {
+      setCopyError(true)
+    }
+  }
+
+  async function link(event: Event) {
     event.preventDefault()
     if (!complete() || working()) return
     setWorking(true)
@@ -169,47 +142,76 @@ function LinkDevice() {
   }
 
   return (
-    <SettingsGroup title={t("drift.remote.link.title")}>
-      <form onSubmit={(event) => void submit(event)}>
-        <SettingsRow title={t("drift.remote.link.title")} description={t("drift.remote.link.description")}>
-          <div class="flex items-center gap-2">
-            <input
-              class={`${field} font-mono tracking-widest uppercase sm:w-36`}
-              aria-label={t("drift.remote.link.title")}
-              placeholder="ABCD-EFGH"
-              autocomplete="off"
-              spellcheck={false}
-              maxLength={12}
-              value={code()}
-              onInput={(event) => setCode(event.currentTarget.value)}
+    <SettingsGroup title={t("drift.remote.connect.title")}>
+      <div class="flex flex-col gap-4 px-1 py-3 sm:flex-row">
+        <Show when={remoteAccessStatus()?.addressQr}>
+          {(svg) => (
+            <div
+              class="size-32 shrink-0 self-center rounded-lg bg-white p-1.5 sm:self-start [&>svg]:size-full"
+              role="img"
+              aria-label={url()}
+              innerHTML={svg()}
             />
-            <button type="submit" class={button} disabled={!complete() || working()}>{t("drift.remote.link.action")}</button>
-          </div>
-        </SettingsRow>
-      </form>
-      <Show when={pending().length}>
-        <div class="px-1 py-2 text-xs text-warn" role="status">
-          {t("drift.remote.link.waiting", { devices: pending().map((link) => `${link.name} (${link.address})`).join(", ") })}
-        </div>
-      </Show>
-      <Show when={linked()}><div class="px-1 py-2 text-xs text-ok" role="status">{t("drift.remote.link.linked", { name: linked() })}</div></Show>
-      <Show when={error()}><div class="px-1 py-2 text-xs text-danger" role="alert">{error()}</div></Show>
+          )}
+        </Show>
+        <ol class="min-w-0 flex-1 space-y-3">
+          <Step number={1}>
+            <div>{t("drift.remote.connect.open")}</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-mono text-[0.75rem] text-ink select-all">{url() ?? t("drift.remote.noLanAddress")}</span>
+              <Show when={url()}>
+                <button class="text-[0.72rem] text-ink-faint underline-offset-2 hover:text-ink hover:underline" onClick={() => void copyAddress()}>
+                  {copyError() ? t("drift.remote.clipboardError") : copied() ? t("drift.remote.copied") : t("drift.remote.copy")}
+                </button>
+              </Show>
+            </div>
+          </Step>
+          <Step number={2}>{t("drift.remote.connect.warning")}</Step>
+          <Step number={3}>
+            <div>{t("drift.remote.connect.code")}</div>
+            <form class="flex items-center gap-2" onSubmit={(event) => void link(event)}>
+              <input
+                id="remote-link-code"
+                class={`${field} font-mono tracking-widest uppercase sm:w-36`}
+                aria-label={t("drift.remote.connect.code")}
+                placeholder="ABCD-EFGH"
+                autocomplete="off"
+                spellcheck={false}
+                maxLength={12}
+                value={code()}
+                ref={(element) => pending().length && queueMicrotask(() => element.focus())}
+                onInput={(event) => setCode(event.currentTarget.value)}
+              />
+              <button type="submit" class={button} disabled={!complete() || working()}>{t("drift.remote.link.action")}</button>
+            </form>
+            <For each={pending()}>
+              {(device) => (
+                <div class="flex items-center gap-1.5 text-warn" role="status">
+                  <span class="pulse-soft size-1.5 rounded-full bg-warn" />
+                  {t("drift.remote.link.waiting", { name: device.name, address: device.address })}
+                </div>
+              )}
+            </For>
+            <Show when={linked()}><div class="text-ok" role="status">{t("drift.remote.link.linked", { name: linked() })}</div></Show>
+            <Show when={error()}><div class="text-danger" role="alert">{error()}</div></Show>
+          </Step>
+        </ol>
+      </div>
     </SettingsGroup>
   )
 }
 
-function LinkedDevices() {
+function Devices() {
   const devices = () => remoteAccessStatus()?.devices ?? []
-  const method = (device: RemoteDevice) =>
-    device.method === "password" ? t("drift.remote.devices.password") : t("drift.remote.devices.link")
+  const describe = (device: RemoteDevice) => {
+    const method = device.method === "password" ? t("drift.remote.devices.password") : t("drift.remote.devices.link")
+    return `${method} · ${t("drift.remote.devices.lastSeen", { time: lastSeenLabel(device.lastSeenAt) })}`
+  }
   return (
     <SettingsGroup title={t("drift.remote.devices.title")}>
       <For each={devices()} fallback={<div class="px-1 py-3 text-xs text-ink-faint">{t("drift.remote.devices.empty")}</div>}>
         {(device) => (
-          <SettingsRow
-            title={device.name}
-            description={`${method(device)} · ${t("drift.remote.devices.lastSeen", { time: new Date(device.lastSeenAt).toLocaleString() })}`}
-          >
+          <SettingsRow title={device.name} description={describe(device)}>
             <button class={button} disabled={remoteAccessBusy()} onClick={() => void revokeRemoteDevice(device.id)}>
               {t("drift.remote.devices.revoke")}
             </button>
@@ -294,16 +296,17 @@ function PasswordSignIn() {
   )
 }
 
-function Encryption() {
+function Certificate() {
   return (
-    <SettingsGroup title={t("drift.remote.encryption.title")}>
-      <SettingsRow title={t("drift.remote.encryption.https")} description={t("drift.remote.encryption.description")}>
-        <span class="size-2 rounded-full bg-ok" />
-      </SettingsRow>
-      <div class="px-1 py-2.5">
-        <div class="text-[0.72rem] text-ink-faint">{t("drift.remote.encryption.fingerprint")}</div>
-        <div class="mt-1 font-mono text-[0.68rem] break-all text-ink-muted select-all">{remoteAccessStatus()?.certificateFingerprint}</div>
+    <details class="group rounded-lg border border-edge/80 px-3 py-2 text-xs">
+      <summary class="cursor-pointer text-ink-muted select-none hover:text-ink">{t("drift.remote.certificate.title")}</summary>
+      <div class="mt-2 space-y-2 leading-relaxed text-ink-faint">
+        <p>{t("drift.remote.certificate.description")}</p>
+        <div>
+          <div class="text-[0.72rem]">{t("drift.remote.encryption.fingerprint")}</div>
+          <div class="mt-1 font-mono text-[0.68rem] break-all text-ink-muted select-all">{remoteAccessStatus()?.certificateFingerprint}</div>
+        </div>
       </div>
-    </SettingsGroup>
+    </details>
   )
 }

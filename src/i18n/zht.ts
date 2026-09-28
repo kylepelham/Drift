@@ -1108,7 +1108,6 @@ export const drift = {
   "drift.preview.tableTruncated": "僅顯示前 {{rows}} 列",
   "drift.preview.mediaError": "無法播放此媒體檔案。",
   "drift.preview.pdfPassword": "無法預覽受密碼保護的 PDF。",
-  "drift.remote.statusOff": "已關閉",
   "drift.remote.statusStarting": "正在啟動",
   "drift.remote.statusError": "錯誤",
   "drift.remote.clipboardError": "無法複製",

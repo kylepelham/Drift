@@ -304,13 +304,10 @@ const settingsSearchDefinitions = {
   ],
   "Remote Access": [
     { title: "drift.remote.enable", description: "drift.remote.enableDescription" },
-    { title: "drift.remote.address" },
-    { title: "drift.remote.open.title", description: "drift.remote.open.description" },
-    { title: "drift.remote.link.title", description: "drift.remote.link.description" },
+    { title: "drift.remote.connect.title", description: "drift.remote.connect.open" },
     { title: "drift.remote.devices.title", description: "drift.remote.devices.revokeAll" },
     { title: "drift.remote.password.title", description: "drift.remote.password.description" },
-    { title: "drift.remote.encryption.title", description: "drift.remote.encryption.description" },
-    { title: "drift.remote.securityNote" },
+    { title: "drift.remote.certificate.title", description: "drift.remote.certificate.description" },
   ],
   About: [
     { title: "drift.about.row.app.title", description: "drift.about.row.app.description" },

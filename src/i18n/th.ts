@@ -1125,7 +1125,6 @@ export const drift = {
   "drift.preview.tableTruncated": "แสดง {{rows}} แถวแรก",
   "drift.preview.mediaError": "ไม่สามารถเล่นไฟล์สื่อนี้ได้",
   "drift.preview.pdfPassword": "ไม่สามารถแสดงตัวอย่าง PDF ที่ป้องกันด้วยรหัสผ่านได้",
-  "drift.remote.statusOff": "ปิด",
   "drift.remote.statusStarting": "กำลังเริ่ม",
   "drift.remote.statusError": "ข้อผิดพลาด",
   "drift.remote.clipboardError": "คัดลอกไม่ได้",

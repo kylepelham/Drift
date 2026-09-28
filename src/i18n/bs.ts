@@ -1138,7 +1138,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Prikazano je prvih {{rows}} redova",
   "drift.preview.mediaError": "Ovu medijsku datoteku nije moguće reproducirati.",
   "drift.preview.pdfPassword": "PDF datoteke zaštićene lozinkom nije moguće pregledati.",
-  "drift.remote.statusOff": "Isključeno",
   "drift.remote.statusStarting": "Pokretanje",
   "drift.remote.statusError": "Greška",
   "drift.remote.clipboardError": "Kopiranje nije uspjelo",

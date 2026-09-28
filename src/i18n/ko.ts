@@ -1053,7 +1053,6 @@ export const drift = {
   "drift.preview.tableTruncated": "처음 {{rows}}개 행 표시 중",
   "drift.preview.mediaError": "이 미디어 파일을 재생하지 못했습니다.",
   "drift.preview.pdfPassword": "암호로 보호된 PDF는 미리볼 수 없습니다.",
-  "drift.remote.statusOff": "꺼짐",
   "drift.remote.statusStarting": "시작 중",
   "drift.remote.statusError": "오류",
   "drift.remote.clipboardError": "복사할 수 없음",

@@ -1112,7 +1112,6 @@ export const drift = {
   "drift.preview.tableTruncated": "仅显示前 {{rows}} 行",
   "drift.preview.mediaError": "无法播放此媒体文件。",
   "drift.preview.pdfPassword": "无法预览受密码保护的 PDF。",
-  "drift.remote.statusOff": "已关闭",
   "drift.remote.statusStarting": "正在启动",
   "drift.remote.statusError": "错误",
   "drift.remote.clipboardError": "无法复制",

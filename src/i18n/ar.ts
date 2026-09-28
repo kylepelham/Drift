@@ -1046,7 +1046,6 @@ export const drift = {
   "drift.preview.tableTruncated": "عرض أول {{rows}} صفًا",
   "drift.preview.mediaError": "تعذر تشغيل ملف الوسائط هذا.",
   "drift.preview.pdfPassword": "لا يمكن معاينة ملفات PDF المحمية بكلمة مرور.",
-  "drift.remote.statusOff": "متوقف",
   "drift.remote.statusStarting": "جارٍ البدء",
   "drift.remote.statusError": "خطأ",
   "drift.remote.clipboardError": "تعذر النسخ",

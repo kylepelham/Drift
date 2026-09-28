@@ -1054,7 +1054,6 @@ export const drift = {
   "drift.preview.tableTruncated": "最初の{{rows}}行を表示しています",
   "drift.preview.mediaError": "このメディアファイルを再生できませんでした。",
   "drift.preview.pdfPassword": "パスワードで保護されたPDFはプレビューできません。",
-  "drift.remote.statusOff": "オフ",
   "drift.remote.statusStarting": "起動中",
   "drift.remote.statusError": "エラー",
   "drift.remote.clipboardError": "コピーできませんでした",

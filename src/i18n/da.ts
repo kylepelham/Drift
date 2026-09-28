@@ -1130,7 +1130,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Viser de første {{rows}} rækker",
   "drift.preview.mediaError": "Denne mediefil kunne ikke afspilles.",
   "drift.preview.pdfPassword": "Adgangskodebeskyttede PDF-filer kan ikke forhåndsvises.",
-  "drift.remote.statusOff": "Fra",
   "drift.remote.statusStarting": "Starter",
   "drift.remote.statusError": "Fejl",
   "drift.remote.clipboardError": "Kunne ikke kopiere",

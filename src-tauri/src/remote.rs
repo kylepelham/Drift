@@ -433,6 +433,7 @@ fn router(app: tauri::AppHandle) -> Router {
             app.clone(),
             gateway_middleware,
         ))
+        .layer(middleware::from_fn(host_guard))
         .with_state(app)
 }
 
@@ -490,9 +491,7 @@ async fn gateway_middleware(
     let access = app.state::<RemoteAccess>();
     let path = request.uri().path().to_string();
     let enabled = access.config.lock().unwrap().enabled;
-    let response = if !valid_host_origin(request.headers()) {
-        (StatusCode::FORBIDDEN, "invalid host or origin").into_response()
-    } else if enabled && remote_auth::public_path(&path) {
+    let response = if enabled && remote_auth::public_path(&path) {
         next.run(request).await
     } else if let Some((auth, device)) = access.authorize(request.headers(), &app.state::<Store>()) {
         request.extensions_mut().insert(auth);
@@ -506,11 +505,19 @@ async fn gateway_middleware(
     secure(response)
 }
 
-fn valid_host_origin(headers: &HeaderMap) -> bool {
-    let Some(host) = headers
-        .get(header::HOST)
-        .and_then(|value| value.to_str().ok())
-    else {
+/// Runs before authentication so a DNS-rebound page cannot reach even the sign-in routes.
+async fn host_guard(request: Request, next: Next) -> Response {
+    let authority = request.uri().authority().map(|authority| authority.as_str().to_owned());
+    if valid_host_origin(request.headers(), authority.as_deref()) {
+        return next.run(request).await;
+    }
+    secure((StatusCode::FORBIDDEN, "invalid host or origin").into_response())
+}
+
+/// HTTP/2 carries the host in the :authority pseudo-header, which hyper puts in the URI, not in Host.
+fn valid_host_origin(headers: &HeaderMap, authority: Option<&str>) -> bool {
+    let header_host = headers.get(header::HOST).and_then(|value| value.to_str().ok());
+    let Some(host) = authority.or(header_host) else {
         return false;
     };
     if host.is_empty() || host.contains(['/', '\\', '@']) {
@@ -1282,10 +1289,12 @@ mod tests {
         let tls = Arc::new(Tls::load_or_create(&directory).unwrap());
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let port = listener.local_addr().unwrap().port();
-        let router = Router::new().route(
-            "/peer",
-            get(|ConnectInfo(peer): ConnectInfo<SocketAddr>| async move { peer.ip().to_string() }),
-        );
+        let router = Router::new()
+            .route(
+                "/peer",
+                get(|ConnectInfo(peer): ConnectInfo<SocketAddr>| async move { peer.ip().to_string() }),
+            )
+            .layer(middleware::from_fn(host_guard));
         let (shutdown, receiver) = watch::channel(false);
         let server = tokio::spawn(accept_loop(listener, router, tls.clone(), receiver));
 
@@ -1296,7 +1305,26 @@ mod tests {
         let client = reqwest::Client::builder().use_preconfigured_tls(config).redirect(Policy::none()).build().unwrap();
         let secure = client.get(format!("https://127.0.0.1:{port}/peer")).send().await.unwrap();
         assert_eq!(secure.version(), reqwest::Version::HTTP_2);
-        assert_eq!(secure.text().await.unwrap(), "127.0.0.1");
+        assert_eq!(secure.text().await.unwrap(), "127.0.0.1", "HTTP/2 requests pass the host guard");
+        let forged = client
+            .get(format!("https://127.0.0.1:{port}/peer"))
+            .header(header::ORIGIN, "https://evil.example")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(forged.status(), reqwest::StatusCode::FORBIDDEN);
+        let http1 = reqwest::Client::builder()
+            .use_preconfigured_tls({
+                let mut roots = rustls::RootCertStore::empty();
+                roots.add(rustls::pki_types::CertificateDer::from(tls.ca_der().to_vec())).unwrap();
+                rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth()
+            })
+            .http1_only()
+            .build()
+            .unwrap();
+        let legacy = http1.get(format!("https://127.0.0.1:{port}/peer")).send().await.unwrap();
+        assert_eq!(legacy.version(), reqwest::Version::HTTP_11);
+        assert_eq!(legacy.status(), reqwest::StatusCode::OK, "HTTP/1.1 requests pass with a Host header");
 
         let plain = client.get(format!("http://127.0.0.1:{port}/companion?a=1")).send().await.unwrap();
         assert_eq!(plain.status(), reqwest::StatusCode::PERMANENT_REDIRECT);
@@ -1334,14 +1362,19 @@ mod tests {
     #[test]
     fn origins_must_match_the_https_host() {
         let mut headers = HeaderMap::new();
+        assert!(!valid_host_origin(&headers, None), "a request without any host is rejected");
         headers.insert(header::HOST, HeaderValue::from_static("192.168.1.20:41718"));
-        assert!(valid_host_origin(&headers));
+        assert!(valid_host_origin(&headers, None));
         headers.insert(header::ORIGIN, HeaderValue::from_static("https://192.168.1.20:41718"));
-        assert!(valid_host_origin(&headers));
+        assert!(valid_host_origin(&headers, None));
         headers.insert(header::ORIGIN, HeaderValue::from_static("http://192.168.1.20:41718"));
-        assert!(!valid_host_origin(&headers));
+        assert!(!valid_host_origin(&headers, None));
         headers.insert(header::ORIGIN, HeaderValue::from_static("https://evil.example"));
-        assert!(!valid_host_origin(&headers));
+        assert!(!valid_host_origin(&headers, None));
+        let mut h2 = HeaderMap::new();
+        h2.insert(header::ORIGIN, HeaderValue::from_static("https://192.168.1.20:41718"));
+        assert!(valid_host_origin(&h2, Some("192.168.1.20:41718")), "HTTP/2 sends the host as :authority");
+        assert!(!valid_host_origin(&h2, Some("evil.example")));
     }
 
     #[test]

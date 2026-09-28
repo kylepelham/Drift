@@ -1062,7 +1062,6 @@ export const drift = {
   "drift.preview.tableTruncated": "Exibindo as primeiras {{rows}} linhas",
   "drift.preview.mediaError": "Não foi possível reproduzir este arquivo de mídia.",
   "drift.preview.pdfPassword": "Não é possível pré-visualizar PDFs protegidos por senha.",
-  "drift.remote.statusOff": "Desativado",
   "drift.remote.statusStarting": "Iniciando",
   "drift.remote.statusError": "Erro",
   "drift.remote.clipboardError": "Não foi possível copiar",

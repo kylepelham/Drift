@@ -29,6 +29,15 @@ export function nextRemoteAccessEnabled(status: RemoteAccessStatus | null) {
   return !status?.enabled
 }
 
+const relativeUnits = [["day", 86_400], ["hour", 3_600], ["minute", 60]] as const
+
+export function lastSeenLabel(at: number, now = Date.now()) {
+  const seconds = Math.round((at - now) / 1000)
+  const format = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" })
+  const unit = relativeUnits.find(([, size]) => Math.abs(seconds) >= size)
+  return unit ? format.format(Math.round(seconds / unit[1]), unit[0]) : format.format(0, "minute")
+}
+
 /** A typed code in any case or grouping; only the 8 code characters are compared. */
 export function normalizeLinkCode(input: string) {
   return input.replace(/[^a-z0-9]/gi, "").toUpperCase()

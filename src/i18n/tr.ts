@@ -1140,7 +1140,6 @@ export const drift = {
   "drift.preview.tableTruncated": "İlk {{rows}} satır gösteriliyor",
   "drift.preview.mediaError": "Bu medya dosyası oynatılamadı.",
   "drift.preview.pdfPassword": "Parola korumalı PDF dosyaları önizlenemez.",
-  "drift.remote.statusOff": "Kapalı",
   "drift.remote.statusStarting": "Başlatılıyor",
   "drift.remote.statusError": "Hata",
   "drift.remote.clipboardError": "Kopyalanamadı",
