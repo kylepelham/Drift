@@ -183,7 +183,7 @@ const pendingTranslation = new Set([
     `,
   ),
   "drift.markdown.linkFailed",
-  ...pendingKeys("drift.context", "window systemAndTools estimated detailedBreakdown"),
+  ...pendingKeys("drift.context", "window systemAndTools user assistant tool detailedBreakdown"),
   ...pendingKeys(
     "drift.usage",
     `

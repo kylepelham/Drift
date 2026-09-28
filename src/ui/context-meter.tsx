@@ -1,6 +1,6 @@
-import { createEffect, createMemo, For, on, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
 import { useEngine } from "../engine"
-import { estimateContextBreakdown, type BreakdownKey } from "../engine/context-breakdown"
+import { estimateContextBreakdown, type BreakdownKey, type BreakdownSegment } from "../engine/context-breakdown"
 import { contextStats, resolveModel } from "../engine/store"
 import { t } from "../state/i18n"
 import { toggleDebugPanel } from "../state/panels"
@@ -20,14 +20,14 @@ import {
 const segmentColor: Record<BreakdownKey, string> = {
   system: "var(--accent)",
   user: "var(--ok)",
-  assistant: "color-mix(in oklab, var(--accent) 45%, var(--danger))",
+  assistant: "var(--ink-muted)",
   tool: "var(--warn)",
 }
 const segmentLabel: Record<BreakdownKey, string> = {
   system: "drift.context.systemAndTools",
-  user: "context.breakdown.user",
-  assistant: "context.breakdown.assistant",
-  tool: "context.breakdown.tool",
+  user: "drift.context.user",
+  assistant: "drift.context.assistant",
+  tool: "drift.context.tool",
 }
 const toneColor: Record<UsageTone, string> = { normal: "var(--accent)", warn: "var(--warn)", danger: "var(--danger)" }
 const toneText: Record<UsageTone, string> = { normal: "text-ink-faint", warn: "text-warn", danger: "text-danger" }
@@ -107,27 +107,7 @@ export function ContextSection(props: { sessionId: string }) {
               {compact.format(usage().count)} / {compact.format(usage().context)} ({usage().percent}%)
             </span>
           </div>
-          <div class="flex h-1.5 w-full overflow-hidden rounded-full bg-edge-strong" data-context-bar>
-            <For each={segments()}>
-              {(segment) => (
-                <div
-                  class="h-full"
-                  style={{ width: `${(segment.tokens / usage().context) * 100}%`, "background-color": segmentColor[segment.key] }}
-                />
-              )}
-            </For>
-          </div>
-          <div class="flex flex-wrap gap-x-3 gap-y-1 text-[0.68rem] text-ink-muted" title={t("drift.context.estimated")}>
-            <For each={segments()}>
-              {(segment) => (
-                <span class="flex items-center gap-1">
-                  <span class="size-2 rounded-sm" style={{ "background-color": segmentColor[segment.key] }} />
-                  {t(segmentLabel[segment.key])}
-                  <span class="text-ink-faint tabular-nums">{compact.format(segment.tokens)}</span>
-                </span>
-              )}
-            </For>
-          </div>
+          <BreakdownBar segments={segments()} context={usage().context} />
           <div class="flex justify-between text-ink-muted">
             <span>{t("drift.context.untilCompaction")}</span>
             <span class="text-ink tabular-nums">{usage().untilCompaction.toLocaleString()}</span>
@@ -141,6 +121,49 @@ export function ContextSection(props: { sessionId: string }) {
         </div>
       )}
     </Show>
+  )
+}
+
+function BreakdownBar(props: { segments: BreakdownSegment[]; context: number }) {
+  const [hovered, setHovered] = createSignal<number>()
+  const share = (tokens: number) => (tokens / props.context) * 100
+  const offset = (index: number) => props.segments.slice(0, index).reduce((sum, segment) => sum + share(segment.tokens), 0)
+  const tip = () => {
+    const index = hovered()
+    const segment = index === undefined ? undefined : props.segments[index]
+    if (index === undefined || !segment) return undefined
+    return { segment, center: Math.min(85, Math.max(15, offset(index) + share(segment.tokens) / 2)) }
+  }
+  return (
+    <div class="relative" onMouseLeave={() => setHovered(undefined)}>
+      <Show when={tip()}>
+        {(current) => (
+          <div
+            class="pointer-events-none absolute bottom-full z-10 mb-1 -translate-x-1/2 rounded-md border border-edge bg-raised px-2 py-1 text-[0.68rem] whitespace-nowrap text-ink shadow-lg shadow-black/30"
+            style={{ left: `${current().center}%` }}
+          >
+            {t(segmentLabel[current().segment.key])}
+            <span class="ml-1.5 text-ink-faint tabular-nums">
+              {compact.format(current().segment.tokens)} · {Math.round(share(current().segment.tokens))}%
+            </span>
+          </div>
+        )}
+      </Show>
+      <div class="flex h-3 w-full items-center" data-context-bar>
+        <div class="flex h-1.5 w-full overflow-hidden rounded-full bg-edge-strong">
+          <For each={props.segments}>
+            {(segment, index) => (
+              <div
+                class="h-full transition-opacity"
+                classList={{ "opacity-50": hovered() !== undefined && hovered() !== index() }}
+                style={{ width: `${share(segment.tokens)}%`, "background-color": segmentColor[segment.key] }}
+                onMouseEnter={() => setHovered(index())}
+              />
+            )}
+          </For>
+        </div>
+      </div>
+    </div>
   )
 }
 

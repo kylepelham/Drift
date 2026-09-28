@@ -104,6 +104,11 @@ test("the breakdown ignores messages before the latest compaction and scales dow
 test("the context meter shows usage limits and the breakdown, and remote access can ask for usage", async () => {
   const meter = await Bun.file("src/ui/context-meter.tsx").text()
   expect(meter).toContain("data-context-bar")
+  const { dict, drift } = await import("../src/i18n/en")
+  const english: Record<string, string> = { ...dict, ...drift }
+  const keys = [...meter.matchAll(/"((?:drift|context)\.[a-zA-Z.]+)"/g)].map((match) => match[1]!)
+  expect(keys.length).toBeGreaterThan(5)
+  expect(keys.filter((key) => !(key in english))).toEqual([])
   expect(meter).toContain("<UsageSection provider=")
   expect(meter).toContain("onMouseEnter={refresh}")
   expect(await Bun.file("src/ui/header.tsx").text()).toContain("<ContextMeter sessionId=")
