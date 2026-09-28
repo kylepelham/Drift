@@ -1285,7 +1285,6 @@ export const drift = {
   "drift.provider.connectFailed": "无法连接 {{provider}}。请检查凭据后重试。",
   "drift.provider.connected": "{{provider}} 已连接。凭据已保存。",
   "drift.provider.credentialRemovedStillConnected": "已删除 {{provider}} 保存的凭据，但仍通过环境或配置保持连接。",
-  "drift.provider.disconnectDescription": "断开连接会删除 Drift 存储的凭据。",
   "drift.provider.disconnectFailed": "无法断开 {{provider}}。请重试。",
   "drift.provider.disconnected": "{{provider}} 已断开连接。存储的凭据已删除。",
   "drift.provider.disconnecting": "正在断开连接...",

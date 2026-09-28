@@ -1298,7 +1298,6 @@ export const drift = {
   "drift.provider.connectFailed": "ไม่สามารถเชื่อมต่อ {{provider}} ตรวจสอบข้อมูลรับรองแล้วลองอีกครั้ง",
   "drift.provider.connected": "เชื่อมต่อ {{provider}} แล้ว บันทึกข้อมูลรับรองแล้ว",
   "drift.provider.credentialRemovedStillConnected": "ลบข้อมูลรับรองที่บันทึกไว้ของ {{provider}} แล้ว แต่ยังเชื่อมต่อผ่านสภาพแวดล้อมหรือการกำหนดค่าอยู่",
-  "drift.provider.disconnectDescription": "การตัดการเชื่อมต่อจะลบข้อมูลรับรองที่ Drift จัดเก็บไว้",
   "drift.provider.disconnectFailed": "ไม่สามารถตัดการเชื่อมต่อ {{provider}} ลองอีกครั้ง",
   "drift.provider.disconnected": "ตัดการเชื่อมต่อ {{provider}} แล้ว ลบข้อมูลรับรองที่จัดเก็บไว้แล้ว",
   "drift.provider.disconnecting": "กำลังตัดการเชื่อมต่อ...",

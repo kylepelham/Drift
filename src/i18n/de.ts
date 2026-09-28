@@ -1244,7 +1244,6 @@ export const drift = {
   "drift.provider.connectFailed": "{{provider}} konnte nicht verbunden werden. Anmeldedaten prüfen und erneut versuchen.",
   "drift.provider.connected": "{{provider}} verbunden. Anmeldedaten gespeichert.",
   "drift.provider.credentialRemovedStillConnected": "Die gespeicherten Anmeldedaten von {{provider}} wurden entfernt, die Verbindung über Umgebung oder Konfiguration bleibt jedoch bestehen.",
-  "drift.provider.disconnectDescription": "Beim Trennen werden die von Drift gespeicherten Anmeldedaten entfernt.",
   "drift.provider.disconnectFailed": "{{provider}} konnte nicht getrennt werden. Erneut versuchen.",
   "drift.provider.disconnected": "{{provider}} getrennt. Gespeicherte Anmeldedaten entfernt.",
   "drift.provider.disconnecting": "Verbindung wird getrennt...",

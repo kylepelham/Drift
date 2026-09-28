@@ -1250,7 +1250,6 @@ export const drift = {
   "drift.provider.connectFailed": "Impossible de connecter {{provider}}. Vérifiez l'identifiant et réessayez.",
   "drift.provider.connected": "{{provider}} connecté. Identifiant enregistré.",
   "drift.provider.credentialRemovedStillConnected": "L'identifiant enregistré de {{provider}} a été supprimé, mais la connexion reste active via l'environnement ou la configuration.",
-  "drift.provider.disconnectDescription": "La déconnexion supprime l'identifiant stocké par Drift.",
   "drift.provider.disconnectFailed": "Impossible de déconnecter {{provider}}. Réessayez.",
   "drift.provider.disconnected": "{{provider}} déconnecté. Identifiant stocké supprimé.",
   "drift.provider.disconnecting": "Déconnexion...",

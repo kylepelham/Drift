@@ -1228,7 +1228,6 @@ export const drift = {
   "drift.provider.connectFailed": "{{provider}}に接続できませんでした。認証情報を確認して、もう一度お試しください。",
   "drift.provider.connected": "{{provider}}に接続しました。認証情報を保存しました。",
   "drift.provider.credentialRemovedStillConnected": "保存済みの{{provider}}の認証情報は削除されましたが、環境変数または設定を通じて接続中です。",
-  "drift.provider.disconnectDescription": "切断すると、Driftに保存された認証情報が削除されます。",
   "drift.provider.disconnectFailed": "{{provider}}を切断できませんでした。もう一度お試しください。",
   "drift.provider.disconnected": "{{provider}}を切断しました。保存済みの認証情報を削除しました。",
   "drift.provider.disconnecting": "切断中...",

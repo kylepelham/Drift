@@ -1237,7 +1237,6 @@ export const drift = {
   "drift.provider.connectFailed": "Nie można połączyć z {{provider}}. Sprawdź dane logowania i spróbuj ponownie.",
   "drift.provider.connected": "Połączono z {{provider}}. Dane logowania zapisano.",
   "drift.provider.credentialRemovedStillConnected": "Zapisane dane logowania do {{provider}} zostały usunięte, ale połączenie przez środowisko lub konfigurację nadal jest aktywne.",
-  "drift.provider.disconnectDescription": "Rozłączenie usuwa dane logowania zapisane przez Drift.",
   "drift.provider.disconnectFailed": "Nie można rozłączyć {{provider}}. Spróbuj ponownie.",
   "drift.provider.disconnected": "Rozłączono {{provider}}. Zapisane dane logowania usunięto.",
   "drift.provider.disconnecting": "Rozłączanie...",

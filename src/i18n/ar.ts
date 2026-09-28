@@ -1219,7 +1219,6 @@ export const drift = {
   "drift.provider.connectFailed": "تعذر الاتصال بـ {{provider}}. تحقق من بيانات الاعتماد وحاول مجددًا.",
   "drift.provider.connected": "تم توصيل {{provider}}. حُفظت بيانات الاعتماد.",
   "drift.provider.credentialRemovedStillConnected": "أُزيلت بيانات اعتماد {{provider}} المحفوظة، لكنه لا يزال متصلًا عبر البيئة أو التكوين.",
-  "drift.provider.disconnectDescription": "يؤدي قطع الاتصال إلى إزالة بيانات الاعتماد التي خزّنها Drift.",
   "drift.provider.disconnectFailed": "تعذر قطع الاتصال بـ {{provider}}. حاول مجددًا.",
   "drift.provider.disconnected": "تم قطع اتصال {{provider}}. أُزيلت بيانات الاعتماد المخزنة.",
   "drift.provider.disconnecting": "جارٍ قطع الاتصال...",

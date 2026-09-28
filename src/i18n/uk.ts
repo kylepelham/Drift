@@ -1316,7 +1316,6 @@ export const drift = {
   "drift.provider.connectFailed": "Не вдалося підключити {{provider}}. Перевірте облікові дані й повторіть спробу.",
   "drift.provider.connected": "{{provider}} підключено. Облікові дані збережено.",
   "drift.provider.credentialRemovedStillConnected": "Збережені облікові дані {{provider}} видалено, але підключення через середовище або конфігурацію залишається активним.",
-  "drift.provider.disconnectDescription": "Відключення видаляє облікові дані, збережені Drift.",
   "drift.provider.disconnectFailed": "Не вдалося відключити {{provider}}. Повторіть спробу.",
   "drift.provider.disconnected": "{{provider}} відключено. Збережені облікові дані видалено.",
   "drift.provider.disconnecting": "Відключення...",

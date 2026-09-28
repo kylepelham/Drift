@@ -1320,7 +1320,6 @@ export const drift = {
   "drift.provider.connectFailed": "Kunne ikke koble til {{provider}}. Kontroller legitimasjonen og prøv igjen.",
   "drift.provider.connected": "{{provider}} er tilkoblet. Legitimasjonen er lagret.",
   "drift.provider.credentialRemovedStillConnected": "Den lagrede legitimasjonen for {{provider}} ble fjernet, men tilkoblingen via miljø eller konfigurasjon er fortsatt aktiv.",
-  "drift.provider.disconnectDescription": "Frakobling fjerner legitimasjonen som er lagret i Drift.",
   "drift.provider.disconnectFailed": "Kunne ikke koble fra {{provider}}. Prøv igjen.",
   "drift.provider.disconnected": "{{provider}} er frakoblet. Lagret legitimasjon er fjernet.",
   "drift.provider.disconnecting": "Kobler fra...",

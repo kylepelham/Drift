@@ -1313,7 +1313,6 @@ export const drift = {
   "drift.provider.connectFailed": "{{provider}} bağlanamadı. Kimlik bilgilerini kontrol edip yeniden deneyin.",
   "drift.provider.connected": "{{provider}} bağlandı. Kimlik bilgisi kaydedildi.",
   "drift.provider.credentialRemovedStillConnected": "{{provider}} için kayıtlı kimlik bilgisi kaldırıldı ancak ortam veya yapılandırma üzerinden bağlı kalıyor.",
-  "drift.provider.disconnectDescription": "Bağlantıyı kesmek, Drift'in sakladığı kimlik bilgisini kaldırır.",
   "drift.provider.disconnectFailed": "{{provider}} bağlantısı kesilemedi. Yeniden deneyin.",
   "drift.provider.disconnected": "{{provider}} bağlantısı kesildi. Kayıtlı kimlik bilgisi kaldırıldı.",
   "drift.provider.disconnecting": "Bağlantı kesiliyor...",

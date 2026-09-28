@@ -1311,7 +1311,6 @@ export const drift = {
   "drift.provider.connectFailed": "Nije moguće povezati {{provider}}. Provjerite pristupne podatke i pokušajte ponovo.",
   "drift.provider.connected": "{{provider}} je povezan. Pristupni podaci su sačuvani.",
   "drift.provider.credentialRemovedStillConnected": "Sačuvani pristupni podaci za {{provider}} su uklonjeni, ali veza ostaje aktivna putem okruženja ili konfiguracije.",
-  "drift.provider.disconnectDescription": "Prekid veze uklanja pristupne podatke koje čuva Drift.",
   "drift.provider.disconnectFailed": "Nije moguće prekinuti vezu s {{provider}}. Pokušajte ponovo.",
   "drift.provider.disconnected": "Veza s {{provider}} je prekinuta. Sačuvani pristupni podaci su uklonjeni.",
   "drift.provider.disconnecting": "Prekidanje veze...",

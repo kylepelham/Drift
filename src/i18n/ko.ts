@@ -1226,7 +1226,6 @@ export const drift = {
   "drift.provider.connectFailed": "{{provider}}에 연결할 수 없습니다. 자격 증명을 확인하고 다시 시도하세요.",
   "drift.provider.connected": "{{provider}}에 연결되었습니다. 자격 증명이 저장되었습니다.",
   "drift.provider.credentialRemovedStillConnected": "{{provider}}의 저장된 자격 증명은 삭제되었지만 환경 또는 구성으로 계속 연결되어 있습니다.",
-  "drift.provider.disconnectDescription": "연결을 해제하면 Drift에 저장된 자격 증명이 삭제됩니다.",
   "drift.provider.disconnectFailed": "{{provider}}의 연결을 해제할 수 없습니다. 다시 시도하세요.",
   "drift.provider.disconnected": "{{provider}}의 연결이 해제되었습니다. 저장된 자격 증명이 삭제되었습니다.",
   "drift.provider.disconnecting": "연결 해제 중...",

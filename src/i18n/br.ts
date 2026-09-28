@@ -1235,7 +1235,6 @@ export const drift = {
   "drift.provider.connectFailed": "Não foi possível conectar {{provider}}. Verifique a credencial e tente novamente.",
   "drift.provider.connected": "{{provider}} conectado. Credencial salva.",
   "drift.provider.credentialRemovedStillConnected": "A credencial salva de {{provider}} foi removida, mas a conexão continua pelo ambiente ou pela configuração.",
-  "drift.provider.disconnectDescription": "A desconexão remove a credencial armazenada pelo Drift.",
   "drift.provider.disconnectFailed": "Não foi possível desconectar {{provider}}. Tente novamente.",
   "drift.provider.disconnected": "{{provider}} desconectado. Credencial armazenada removida.",
   "drift.provider.disconnecting": "Desconectando...",

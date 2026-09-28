@@ -136,6 +136,7 @@ import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import { McpManagement } from "./mcp"
 import { Toggle } from "./controls"
 import { ProviderIcon } from "./provider-icon"
+import { authorizationPrompt } from "../engine/provider-auth"
 import { Picker } from "./picker"
 import { Chevron } from "./controls"
 import { playAlertSound, soundOptions } from "./sounds"
@@ -1284,6 +1285,11 @@ function ProviderConnect(props: {
     await finish(engine.actions.providerCallback(props.providerId, methodIndex(), code().trim()))
   }
 
+  function cancelAuthorization() {
+    setAuthorization(null)
+    setPending(null)
+  }
+
   async function disconnect() {
     setPending("disconnect")
     setError("")
@@ -1305,26 +1311,39 @@ function ProviderConnect(props: {
 
   return (
     <div class="mx-3 mb-3 space-y-3 rounded-lg border border-edge bg-surface/55 p-3 shadow-sm shadow-black/5">
-      <Show when={props.methods.length > 1}>
-        <div class="flex flex-wrap gap-1 rounded-lg border border-edge bg-overlay/50 p-1">
-          <For each={props.methods}>
-            {(item, index) => (
-              <button
-                class="rounded-md px-2.5 py-1 text-xs transition-colors"
-                classList={{
-                  "bg-raised text-ink shadow-sm shadow-black/10": index() === methodIndex(),
-                  "text-ink-faint hover:bg-raised/60 hover:text-ink-muted": index() !== methodIndex(),
-                }}
-                onClick={() => {
-                  setMethodIndex(index())
-                  setAuthorization(null)
-                  setError("")
-                }}
-              >
-                {item.label}
-              </button>
-            )}
-          </For>
+      <Show when={props.methods.length > 1 || props.connected}>
+        <div class="flex items-center gap-2">
+          <Show when={props.methods.length > 1} fallback={<div class="flex-1" />}>
+            <div class="flex min-w-0 flex-1 flex-wrap gap-1 rounded-lg border border-edge bg-overlay/50 p-1">
+              <For each={props.methods}>
+                {(item, index) => (
+                  <button
+                    class="rounded-md px-2.5 py-1 text-xs transition-colors"
+                    classList={{
+                      "bg-raised text-ink shadow-sm shadow-black/10": index() === methodIndex(),
+                      "text-ink-faint hover:bg-raised/60 hover:text-ink-muted": index() !== methodIndex(),
+                    }}
+                    onClick={() => {
+                      setMethodIndex(index())
+                      setAuthorization(null)
+                      setError("")
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+          <Show when={props.connected}>
+            <button
+              class="h-8 shrink-0 rounded-md border border-danger/40 px-3 text-xs font-medium text-danger transition-colors hover:border-danger/60 hover:bg-danger/10 disabled:opacity-40"
+              disabled={pending() !== null}
+              onClick={() => void disconnect()}
+            >
+              {pending() === "disconnect" ? t("drift.provider.disconnecting") : t("common.disconnect")}
+            </button>
+          </Show>
         </div>
       </Show>
       <Show when={method()?.type === "api"}>
@@ -1363,8 +1382,7 @@ function ProviderConnect(props: {
         >
           {(auth) => (
             <div class="space-y-2">
-              <div class="text-xs text-ink-muted">{auth().instructions || t("drift.provider.finishInBrowser")}</div>
-              <div class="text-xs break-all text-ink-faint select-text">{auth().url}</div>
+              <AuthorizationHint auth={auth()} onCancel={cancelAuthorization} />
               <Show when={auth().method === "code"}>
                 <div class="flex gap-2">
                   <input
@@ -1393,18 +1411,42 @@ function ProviderConnect(props: {
       <Show when={error()}>
         <div class="text-xs text-danger">{error()}</div>
       </Show>
-      <Show when={props.connected}>
-        <div class="flex items-center justify-between gap-4 border-t border-edge pt-3">
-          <span class="min-w-0 text-xs leading-relaxed text-ink-faint">{t("drift.provider.disconnectDescription")}</span>
-          <button
-            class="h-8 shrink-0 rounded-md border border-danger/40 px-3 text-xs font-medium text-danger transition-colors hover:border-danger/60 hover:bg-danger/10 disabled:opacity-40"
-            disabled={pending() !== null}
-            onClick={() => void disconnect()}
-          >
-            {pending() === "disconnect" ? t("drift.provider.disconnecting") : t("common.disconnect")}
-          </button>
-        </div>
+    </div>
+  )
+}
+
+function AuthorizationHint(props: { auth: { url: string; method: string; instructions: string }; onCancel: () => void }) {
+  const prompt = () => authorizationPrompt(props.auth.instructions)
+  const [copied, setCopied] = createSignal(false)
+  const fallback = () => (props.auth.method === "code" ? t("drift.provider.pasteCode") : t("drift.provider.finishInBrowser"))
+  const copyLink = () => {
+    void navigator.clipboard.writeText(props.auth.url).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    })
+  }
+  const link = "text-xs text-ink-faint underline-offset-2 transition-colors hover:text-ink hover:underline"
+  return (
+    <div class="space-y-2">
+      <Show when={prompt().code} fallback={<div class="text-xs text-ink-muted">{prompt().text ?? fallback()}</div>}>
+        {(code) => (
+          <div class="flex items-center gap-3">
+            <span class="text-xs text-ink-muted">{t("drift.provider.enterCode")}</span>
+            <button
+              class="rounded-md border border-edge bg-overlay/60 px-2.5 py-1 font-mono text-sm tracking-widest text-ink select-text"
+              title={t("drift.provider.copyCode")}
+              onClick={() => void navigator.clipboard.writeText(code())}
+            >
+              {code()}
+            </button>
+          </div>
+        )}
       </Show>
+      <div class="flex items-center gap-3">
+        <button class={link} onClick={() => openExternal(props.auth.url)}>{t("drift.provider.openAgain")}</button>
+        <button class={link} onClick={copyLink}>{copied() ? t("drift.provider.linkCopied") : t("drift.provider.copyLink")}</button>
+        <button class={link} onClick={props.onCancel}>{t("common.cancel")}</button>
+      </div>
     </div>
   )
 }

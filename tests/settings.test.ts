@@ -183,6 +183,7 @@ const pendingTranslation = new Set([
     `,
   ),
   "drift.markdown.linkFailed",
+  ...pendingKeys("drift.provider", "pasteCode enterCode copyCode openAgain copyLink linkCopied"),
   ...pendingKeys("drift.context", "window systemAndTools user assistant tool"),
   ...pendingKeys(
     "drift.usage",
@@ -558,4 +559,20 @@ test("the mascot takes the theme accent and the logo mark never flashes as a blo
   expect(jelly).toMatch(/renderer\.render\(scene, camera\)\s*\n[\s\S]*?if \(!revealed\) \{\s*\n\s*revealed = true\s*\n\s*canvas\.style\.opacity = "1"\s*\n\s*ready\(\)/)
   // No reveal may happen next to the append, before any frame exists.
   expect(jelly).not.toMatch(/host\.append\(canvas\)\s*\n\s*ready\(\)/)
+})
+
+test("provider sign-in hides raw URLs, surfaces device codes, and keeps disconnect beside the methods", async () => {
+  const { authorizationPrompt } = await import("../src/engine/provider-auth")
+  const long = "https://claude.ai/oauth/authorize?code=true&client_id=9d1c&state=" + "x".repeat(400)
+  expect(authorizationPrompt(`Paste the authorization code here: ${long}`)).toEqual({ text: "Paste the authorization code here" })
+  expect(authorizationPrompt("Enter code: ABCD-1234")).toEqual({ code: "ABCD-1234" })
+  expect(authorizationPrompt("Open https://accounts.x.ai/device on any device and enter code: WXYZ-9876")).toEqual({ code: "WXYZ-9876" })
+  expect(authorizationPrompt("Sign in with `az login` before continuing.")).toEqual({ text: "Sign in with `az login` before continuing." })
+  expect(authorizationPrompt("")).toEqual({})
+  const source = await Bun.file("src/ui/settings.tsx").text()
+  expect(source).not.toContain("{auth().url}")
+  expect(source).not.toContain("disconnectDescription")
+  const connect = source.slice(source.indexOf("function ProviderConnect("), source.indexOf("function AuthorizationHint("))
+  expect(connect.indexOf("props.methods.length > 1 || props.connected")).toBeLessThan(connect.indexOf('t("common.disconnect")'))
+  expect(connect.indexOf('t("common.disconnect")')).toBeLessThan(connect.indexOf('method()?.type === "api"'))
 })

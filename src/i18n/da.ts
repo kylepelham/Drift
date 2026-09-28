@@ -1303,7 +1303,6 @@ export const drift = {
   "drift.provider.connectFailed": "Kunne ikke forbinde {{provider}}. Kontrollér legitimationsoplysningerne, og prøv igen.",
   "drift.provider.connected": "{{provider}} er forbundet. Legitimationsoplysningerne er gemt.",
   "drift.provider.credentialRemovedStillConnected": "De gemte legitimationsoplysninger til {{provider}} blev fjernet, men forbindelsen er stadig aktiv via miljøet eller konfigurationen.",
-  "drift.provider.disconnectDescription": "Når forbindelsen afbrydes, fjernes Drifts gemte legitimationsoplysninger.",
   "drift.provider.disconnectFailed": "Kunne ikke afbryde forbindelsen til {{provider}}. Prøv igen.",
   "drift.provider.disconnected": "Forbindelsen til {{provider}} er afbrudt. De gemte legitimationsoplysninger er fjernet.",
   "drift.provider.disconnecting": "Afbryder forbindelsen...",

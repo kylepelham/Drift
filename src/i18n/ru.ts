@@ -1317,7 +1317,6 @@ export const drift = {
   "drift.provider.connectFailed": "Не удалось подключить {{provider}}. Проверьте учётные данные и повторите попытку.",
   "drift.provider.connected": "{{provider}} подключён. Учётные данные сохранены.",
   "drift.provider.credentialRemovedStillConnected": "Сохранённые учётные данные {{provider}} удалены, но подключение через окружение или конфигурацию осталось.",
-  "drift.provider.disconnectDescription": "При отключении сохранённые в Drift учётные данные удаляются.",
   "drift.provider.disconnectFailed": "Не удалось отключить {{provider}}. Повторите попытку.",
   "drift.provider.disconnected": "{{provider}} отключён. Сохранённые учётные данные удалены.",
   "drift.provider.disconnecting": "Отключение...",
