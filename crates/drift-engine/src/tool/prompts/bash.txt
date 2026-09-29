@@ -1,0 +1,7 @@
+Runs a command in {shell} from the workspace root and returns its combined output.
+
+- Use it for builds, tests, git and package managers. Use `read`, `glob` and `grep` for looking at files; they are faster and need no permission.
+- Quote paths that contain spaces. Chain dependent steps with `&&`; run independent commands as separate calls.
+- Commands are killed after `timeout` milliseconds (default two minutes, maximum ten). Never start long-lived servers or watchers here.
+- Output over 30,000 characters is clipped in the middle.
+- Give a short `description` of what the command does; it is shown to the user while it runs.

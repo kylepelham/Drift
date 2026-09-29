@@ -6,6 +6,7 @@ pub mod id;
 pub mod llm;
 pub mod session;
 pub mod store;
+pub mod tool;
 
 use std::net::SocketAddr;
 use std::path::Path;

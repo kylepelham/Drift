@@ -8,11 +8,18 @@ axum = { workspace = true, features = ["ws"] }
 bytes = "1"
 futures-util = { workspace = true }
 getrandom = { workspace = true }
+# ripgrep's engine and gitignore-aware walker: search quality is the tool's whole value.
+globset = "0.4"
+grep = "0.4"
+ignore = "0.4"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "rustls-native-certs", "stream"] }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+# Unified diffs shown to the model and the user after edits.
+similar = "2"
+tokio = { workspace = true, features = ["process", "fs"] }
+tokio-util = "0.7"
 utoipa = { version = "6", features = ["axum_extras"] }
 utoipa-axum = "0.3"
 

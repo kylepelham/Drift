@@ -1,0 +1,6 @@
+Writes a whole file, creating it or replacing its contents. Parent directories are created.
+
+- Prefer `edit` for changes to existing files; use `write` for new files or complete rewrites.
+- An existing file must have been read this session before it can be overwritten.
+- Existing line endings are preserved.
+- Returns a unified diff of what changed.
