@@ -219,9 +219,20 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
 
 ## Effect on the app
 
-- `src/engine/`: `connection.ts`, `sse.ts` and `actions.ts` are replaced by the generated
-  client plus thin actions. `store.ts` and `events.ts` keep their shape and consume the
-  new event types. UI components change only where types change.
+- `src/engine/` talks only to the native engine. `native/client.ts` wraps the generated
+  types, `native/events.ts` runs the socket, `actions.ts` implements every action the UI
+  calls. Actions the engine cannot serve yet (fork, spawn, move, share, compaction,
+  questions, revert, MCP, commands) raise a "not available yet" notice and return the
+  neutral value their callers expect; each comes back native in the milestone that owns it.
+- `native/adapt.ts` maps native sessions, messages, parts, permissions, providers and events
+  onto the legacy store shapes (`@opencode-ai/sdk` types) that `store.ts`, `events.ts` and
+  the components were written against. That keeps the whole UI working on the new engine
+  without touching a component. At M4 the store adopts the generated types, the adapter
+  goes, and `@opencode-ai/sdk` leaves `package.json`.
+- Reasoning effort names from the composer (`low`, `medium`, `high`, `max`) become thinking
+  budgets of 4k, 10k, 20k and 32k tokens.
+- Workspace ids are shared: the shell's `workspace` table is the engine's, so the UI's
+  workspace list resolves session workspace ids to directories without a second lookup.
 - `src-tauri/`: `engine.rs`, `engine_db.rs`, `tool_routing.rs` and `usage_limits.rs` go.
   `remote.rs` loses its proxy half. `mcp.rs` shrinks as approval state moves into the
   engine.

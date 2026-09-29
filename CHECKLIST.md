@@ -24,7 +24,7 @@ change the plan there when a decision changes.
 - [x] Persistence
 - [x] One `drift.db` connection shared by engine and shell
 - [x] Real turns against Anthropic through `drift-engined` (read, edit with ask, bash with ask)
-- [ ] Drift UI against the new API
+- [x] Drift UI against the new API (adapter over the legacy store shapes; engine-side verified, shell run pending)
 - [ ] Conformance suite with recorded Anthropic fixtures
 
 ## M2: breadth
