@@ -11,7 +11,7 @@ import type {
   ToolPart,
 } from "@opencode-ai/sdk/client"
 import { createStore, produce, type SetStoreFunction } from "solid-js/store"
-import type { Connection } from "./connection"
+export type Connection = "idle" | "connecting" | "online" | "offline"
 
 export type ModelInfo = Model & { family?: string; release_date?: string; variants?: Record<string, unknown> }
 export type ProviderInfo = { id: string; name: string; models: Record<string, ModelInfo> }

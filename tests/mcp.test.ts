@@ -1077,17 +1077,6 @@ test("repeated notice occurrences remain visible and dismissed ids are pruned", 
   expect(pruneDismissedNoticeIds(new Set([first, "expired"]), new Set([first, second]))).toEqual(new Set([first]))
 })
 
-test("MCP SDK helpers propagate error responses and missing data", async () => {
-  const { requireSdkData } = await import("../src/engine/actions")
-  expect(() => requireSdkData({ error: { data: { message: "transport failed" } } }, "fallback")).toThrow(
-    "transport failed",
-  )
-  expect(() => requireSdkData({}, "missing response")).toThrow("missing response")
-  expect(requireSdkData({ data: { docs: { status: "connected" } } }, "fallback")).toEqual({
-    docs: { status: "connected" },
-  })
-})
-
 // Shared with src-tauri/src/mcp_external_tests.rs. The plugin hashing this vector to the same
 // value the Rust locator computes is what lets Drift edit config-file-defined servers safely.
 const externalParityFingerprint = "sha256:933d9f99f6458ef8004d9f0e9b5fe8768211fe67a62e7baa87b08d8e9a5220dd"

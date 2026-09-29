@@ -1,0 +1,85 @@
+import { expect, test } from "bun:test"
+import { adaptEvent, adaptMessage, adaptPart, adaptPermission, adaptSession } from "../src/engine/native/adapt"
+import type { components } from "../src/engine/native/types"
+
+const workspaces = { path: (id: string) => (id === "w1" ? "C:/repo" : undefined), id: () => "w1" }
+
+const session: components["schemas"]["Session"] = {
+  id: "ses_1",
+  workspaceId: "w1",
+  visibility: "sibling",
+  title: "Fix bug",
+  agent: "build",
+  model: { provider: "anthropic", model: "claude" },
+  createdAt: 10,
+  updatedAt: 20,
+}
+
+test("sessions map workspace ids to directories and keep archive time", () => {
+  const legacy = adaptSession({ ...session, archivedAt: 30 }, workspaces)
+  expect(legacy.directory).toBe("C:/repo")
+  expect(legacy.projectID).toBe("w1")
+  expect(legacy.time).toEqual({ created: 10, updated: 20, archived: 30 })
+  expect((legacy as { model?: { providerID: string; id: string } }).model).toEqual({ providerID: "anthropic", id: "claude" })
+})
+
+test("assistant messages carry tokens, cost and errors in the legacy shape", () => {
+  const info = adaptMessage(
+    {
+      id: "msg_1",
+      sessionId: "ses_1",
+      role: "assistant",
+      status: "error",
+      model: { provider: "anthropic", model: "claude" },
+      usage: { input: 5, output: 7, cacheRead: 1, cacheWrite: 2 },
+      cost: 0.5,
+      error: "boom",
+      createdAt: 1,
+      finishedAt: 2,
+    },
+    "C:/repo",
+  )
+  if (info.role !== "assistant") throw new Error("expected assistant")
+  expect(info.tokens).toEqual({ input: 5, output: 7, reasoning: 0, cache: { read: 1, write: 2 } })
+  expect(info.cost).toBe(0.5)
+  expect(info.error).toEqual({ name: "UnknownError", data: { message: "boom" } })
+  expect(info.time).toEqual({ created: 1, completed: 2 })
+})
+
+test("tool call statuses become legacy tool states", () => {
+  const base = { id: "prt_1", messageId: "msg_1", sessionId: "ses_1", type: "tool_call" as const, callId: "t", name: "read", input: { path: "a" } }
+  const done = adaptPart({ ...base, status: "done", output: "1: a", title: "a", startedAt: 1, finishedAt: 2 })
+  if (done.type !== "tool") throw new Error("expected tool")
+  expect(done.tool).toBe("read")
+  expect(done.state).toEqual({ status: "completed", input: { path: "a" }, output: "1: a", title: "a", metadata: {}, time: { start: 1, end: 2 } })
+  const denied = adaptPart({ ...base, status: "denied", output: "Permission denied by the user." })
+  if (denied.type !== "tool") throw new Error("expected tool")
+  expect(denied.state.status).toBe("error")
+  const pending = adaptPart({ ...base, status: "pending" })
+  if (pending.type !== "tool") throw new Error("expected tool")
+  expect(pending.state).toEqual({ status: "pending", input: { path: "a" }, raw: "" })
+})
+
+test("events translate to the legacy reducer's vocabulary", () => {
+  expect(adaptEvent({ type: "session.status", sessionId: "ses_1", status: "running" }, workspaces)).toEqual({
+    type: "session.status",
+    properties: { sessionID: "ses_1", status: { type: "busy" } },
+  })
+  const delta = adaptEvent({ type: "part.delta", sessionId: "s", messageId: "m", partId: "p", delta: "hi" }, workspaces)
+  expect(delta).toEqual({ type: "message.part.delta", properties: { sessionID: "s", messageID: "m", partID: "p", field: "text", delta: "hi" } })
+  const request: components["schemas"]["Request"] = {
+    id: "perm_1",
+    sessionId: "ses_1",
+    messageId: "msg_1",
+    callId: "t",
+    tool: "bash",
+    kind: "bash",
+    pattern: "cargo test",
+    title: "Run tests",
+    createdAt: 5,
+  }
+  const asked = adaptEvent({ type: "permission.asked", request }, workspaces)
+  expect(asked?.type).toBe("permission.updated")
+  expect(adaptPermission(request, "C:/repo")).toMatchObject({ id: "perm_1", type: "bash", pattern: ["cargo test"], callID: "t", metadata: { directory: "C:/repo", tool: "bash" } })
+  expect(adaptEvent({ type: "workspace.created", workspace: { id: "w", path: "p", name: "n", icon: "", lastUsed: 0 } }, workspaces)).toBeUndefined()
+})

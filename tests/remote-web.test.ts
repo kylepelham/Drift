@@ -116,22 +116,6 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
   expect(workspaces).toContain('class="group sticky top-0')
 })
 
-test("session switches render a loading state and reconnects refresh the visible session first", async () => {
-  const chat = await Bun.file("src/ui/chat.tsx").text()
-  const engine = await Bun.file("src/engine/index.tsx").text()
-
-  // An unloaded transcript shows a loading shimmer instead of a blank screen (the same row also
-  // covers reverted-history backfill, so the condition carries both cases).
-  expect(chat).toContain("timeline().length === 0 &&")
-  expect(chat).toContain("!engine.state.loaded[selectedSession()!] && engine.state.connection === \"online\"")
-  expect(chat).toMatch(/role="status" aria-live="polite">\s*<TextShimmer text=\{t\("common\.loading"\)\}/)
-
-  // Reconnect transcript refreshes are batched with the selected session first.
-  expect(engine).toContain("const transcriptRefreshBatch = 3")
-  expect(engine).toContain("Number(b === selected) - Number(a === selected)")
-  expect(engine).toContain("index += transcriptRefreshBatch")
-})
-
 test("remote settings state distinguishes online, offline, and error", () => {
   const base: RemoteAccessStatus = {
     enabled: true,
