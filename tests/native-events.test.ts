@@ -203,3 +203,51 @@ test("a resync during hydration folds into the same run instead of dropping held
   expect(seen).toEqual([6])
   expect(stream.cursor()).toBe(6)
 })
+
+test("held events from an old engine instance never apply after the instance changes", async () => {
+  const engine = fakeEngine()
+  const hydrated: number[] = []
+  const seen: number[] = []
+  const finishers: (() => void)[] = []
+  const stream = connectEvents(engine.target, {
+    hydrate: (seq) => {
+      hydrated.push(seq)
+      return new Promise<void>((resolve) => finishers.push(resolve))
+    },
+    event: (envelope) => seen.push(envelope.seq),
+  })
+  stops.push(engine.stop, stream.close)
+  await until(() => engine.cursors.length === 1)
+  engine.hello(1, "first")
+  await until(() => finishers.length === 1)
+  engine.send(workspaceEvent(2))
+  engine.latest().close()
+  await until(() => engine.cursors.length === 2)
+  engine.hello(0, "second")
+  await until(() => finishers.length === 2)
+  engine.send(workspaceEvent(1))
+  finishers[0]!()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  expect(seen).toEqual([])
+  expect(stream.cursor()).toBeUndefined()
+  finishers[1]!()
+  await until(() => seen.length === 1)
+  expect(seen).toEqual([1])
+  expect(hydrated).toEqual([1, 0])
+})
+
+test("closing during hydration drops the held events", async () => {
+  const engine = fakeEngine()
+  const seen: number[] = []
+  let finish!: () => void
+  const stream = connectEvents(engine.target, { hydrate: () => new Promise<void>((resolve) => (finish = resolve)), event: (e) => seen.push(e.seq) })
+  stops.push(engine.stop)
+  await until(() => engine.cursors.length === 1)
+  engine.hello(0)
+  await until(() => Boolean(finish))
+  engine.send(workspaceEvent(1))
+  stream.close()
+  finish()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  expect(seen).toEqual([])
+})

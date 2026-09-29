@@ -56,7 +56,7 @@ fn assistant_blocks(message: &MessageWithParts) -> Vec<Block> {
             Part::Reasoning { text, signature, redacted } if signature.is_some() || redacted.is_some() => {
                 Some(Block::Reasoning { text: text.clone(), signature: signature.clone(), redacted: redacted.clone() })
             }
-            Part::ToolCall { call_id, name, input, .. } => {
+            Part::ToolCall { call_id, name, input, .. } if input.is_object() => {
                 Some(Block::ToolUse { id: call_id.clone(), name: name.clone(), input: input.clone() })
             }
             _ => None,
@@ -64,13 +64,14 @@ fn assistant_blocks(message: &MessageWithParts) -> Vec<Block> {
         .collect()
 }
 
-/// Every call needs a result or the provider rejects the transcript; unfinished ones say so.
+/// Every replayed call needs a result or the provider rejects the transcript; unfinished ones say so.
+/// Calls whose arguments never parsed were not replayed, so they get no result either.
 fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
     message
         .parts
         .iter()
         .filter_map(|row| match &row.part {
-            Part::ToolCall { call_id, status, output, .. } => {
+            Part::ToolCall { call_id, status, output, input, .. } if input.is_object() => {
                 let (content, is_error) = match (status, output) {
                     (ToolStatus::Done, Some(output)) => (output.clone(), false),
                     (ToolStatus::Error, Some(output)) => (output.clone(), true),
@@ -191,5 +192,39 @@ mod eligibility_tests {
         let out = messages(&transcript);
         let texts: Vec<String> = out.iter().flat_map(|m| m.blocks.iter()).filter_map(|b| match b { Block::Text(t) => Some(t.clone()), _ => None }).collect();
         assert_eq!(texts, ["q", "partial", "final"]);
+    }
+}
+
+#[cfg(test)]
+mod incomplete_block_tests {
+    use super::tests_support::*;
+    use super::*;
+    use crate::session::types::MessageStatus;
+
+    #[test]
+    fn aborted_rows_replay_only_their_valid_blocks() {
+        let broken = Part::ToolCall {
+            call_id: "c_bad".into(),
+            name: "read".into(),
+            input: serde_json::Value::String("{\"path".into()),
+            status: ToolStatus::Pending,
+            title: None,
+            output: None,
+            metadata: None,
+            started_at: None,
+            finished_at: None,
+        };
+        let transcript = vec![message_with(
+            Role::Assistant,
+            MessageStatus::Aborted,
+            vec![
+                Part::Reasoning { text: "cut off".into(), signature: None, redacted: None },
+                Part::Text { text: "partial".into() },
+                broken,
+            ],
+        )];
+        let out = messages(&transcript);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].blocks, vec![Block::Text("partial".into())]);
     }
 }

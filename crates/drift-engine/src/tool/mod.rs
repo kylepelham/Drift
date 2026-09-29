@@ -54,17 +54,59 @@ pub struct Context {
 }
 
 impl Context {
-    /// Relative paths are relative to the workspace; the result is absolute but not canonicalised.
+    /// The path a call really touches: absolute, `..` folded, symlinks followed. Permission rules see this.
     pub fn resolve(&self, path: &str) -> PathBuf {
         let path = Path::new(path);
-        if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            self.workspace.join(path)
+        canonical(&if path.is_absolute() { path.to_path_buf() } else { self.workspace.join(path) })
+    }
+
+    pub fn inside_workspace(&self, path: &Path) -> bool {
+        path.starts_with(&self.workspace)
+    }
+
+    /// An ask for anything outside the workspace; reads inside it are free.
+    pub fn ask_if_outside(&self, kind: &str, path: &Path, verb: &str) -> Option<Ask> {
+        if self.inside_workspace(path) {
+            return None;
         }
+        Some(Ask { kind: kind.into(), pattern: path.to_string_lossy().into(), title: format!("{verb} {}", path.display()) })
     }
 }
 
+/// Resolves through the deepest existing ancestor, so a file that does not exist yet still lands where it will.
+pub fn canonical(path: &Path) -> PathBuf {
+    let mut lexical = PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::ParentDir => {
+                lexical.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => lexical.push(other.as_os_str()),
+        }
+    }
+    let mut existing = lexical.as_path();
+    let mut rest = Vec::new();
+    while !existing.exists() {
+        let Some(parent) = existing.parent() else { return lexical };
+        rest.push(existing.file_name().map(|n| n.to_os_string()).unwrap_or_default());
+        existing = parent;
+    }
+    let mut out = existing.canonicalize().map(strip_verbatim).unwrap_or_else(|_| existing.to_path_buf());
+    for part in rest.into_iter().rev() {
+        out.push(part);
+    }
+    out
+}
+
+/// Windows canonical paths carry `\\?\`; nothing downstream wants it.
+fn strip_verbatim(path: PathBuf) -> PathBuf {
+    let text = path.to_string_lossy();
+    match text.strip_prefix(r"\\?\") {
+        Some(plain) if !plain.starts_with("UNC") => PathBuf::from(plain),
+        _ => path,
+    }
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Output {
     pub title: String,
@@ -177,6 +219,7 @@ pub(crate) mod tests {
             let root = std::env::temp_dir().join(format!("drift-tool-{name}-{}", crate::random_hex(4)));
             let workspace = root.join("ws");
             std::fs::create_dir_all(&workspace).unwrap();
+            let workspace = canonical(&workspace);
             let engine = crate::Engine::open_with(&root.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
             Self {
                 ctx: Context {

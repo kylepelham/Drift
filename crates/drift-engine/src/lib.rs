@@ -5,6 +5,7 @@ pub mod event;
 pub mod id;
 pub mod llm;
 pub mod permission;
+pub mod platform;
 pub mod question;
 pub mod session;
 pub mod store;

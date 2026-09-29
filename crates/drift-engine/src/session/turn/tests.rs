@@ -344,3 +344,53 @@ async fn submission_ids_survive_a_restart_and_reject_a_different_payload() {
     changed.submission_id = Some("sub_durable".into());
     assert_eq!(reopened.submit(&h.session.id, changed).await.err(), Some(TurnError::SubmissionReused));
 }
+
+#[tokio::test]
+async fn a_write_is_refused_when_the_snapshot_cannot_be_taken() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    // A file where the snapshot directory must go makes every snapshot fail.
+    std::fs::write(h._dir.join("data/snapshots"), "not a directory").unwrap();
+    h.provider.push(tool_call("write", r#"{"path": "new.txt", "content": "x\n"}"#)).push(text("noted"));
+    h.engine.submit(&h.session.id, prompt("write")).await.await_ok();
+    until_idle(&h).await;
+    assert!(!h._dir.join("ws/new.txt").exists(), "nothing may be written without a snapshot");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error);
+    assert!(output.as_deref().unwrap().contains("could not snapshot"));
+}
+
+#[tokio::test]
+async fn a_call_that_cannot_be_recorded_does_not_run() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    h.provider.push(tool_call("write", r#"{"path": "new.txt", "content": "x\n"}"#)).push(text("noted"));
+    h.engine.store.lock().execute("CREATE TRIGGER block BEFORE UPDATE ON part BEGIN SELECT RAISE(ABORT, 'disk full'); END", []).unwrap();
+    h.engine.submit(&h.session.id, prompt("write")).await.await_ok();
+    until_idle(&h).await;
+    h.engine.store.lock().execute("DROP TRIGGER block", []).unwrap();
+    assert!(!h._dir.join("ws/new.txt").exists(), "a write whose start could not be recorded must not happen");
+}
+
+#[tokio::test]
+async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
+    h.provider
+        .push(vec![Chunk::ToolUseStart { id: "t1".into(), name: "read".into() }, Chunk::ToolInputDelta(r#"{"path": "a.tx"#.into()), Chunk::BlockStop, Chunk::Stop(StopReason::ToolUse)])
+        .push(text("ok"));
+    h.engine.submit(&h.session.id, prompt("read")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error);
+    assert!(output.as_deref().unwrap().contains("not valid JSON"));
+
+    h.provider.push(vec![Chunk::ToolUseStart { id: "t2".into(), name: "read".into() }, Chunk::ToolInputDelta(r#"{"path": "a.txt"}"#.into()), Chunk::BlockStop, Chunk::Stop(StopReason::MaxTokens)]);
+    h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, .. } = &transcript.last().unwrap().parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Pending, "a max_tokens stop dispatches nothing");
+}

@@ -21,7 +21,10 @@ const engine = Bun.spawn([engineBinary, "serve", "--hostname", "127.0.0.1", "--p
 })
 // The native engine runs beside the legacy one until M1; browser dev reaches it through env.
 Bun.spawnSync(["cargo", "build", "-q", "-p", "drift-engined"], { cwd: root, stdout: "inherit", stderr: "inherit" })
-const native = Bun.spawn([path.join(root, "target", "debug", "drift-engined.exe"), "--data-dir", path.join(runtime, "native")], {
+// Run a copy so cargo can rebuild the real binary while dev is up.
+const nativeBinary = path.join(runtime, "drift-engined.exe")
+await Bun.write(nativeBinary, Bun.file(path.join(root, "target", "debug", "drift-engined.exe")))
+const native = Bun.spawn([nativeBinary, "--data-dir", path.join(runtime, "native")], {
   cwd: root,
   stdout: "pipe",
   stderr: "inherit",

@@ -28,8 +28,8 @@ impl Tool for Glob {
         }
     }
 
-    fn ask(&self, _ctx: &Context, _input: &Value) -> Option<Ask> {
-        None
+    fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
+        ctx.ask_if_outside("read", &ctx.resolve(input["path"].as_str().unwrap_or(".")), "Search")
     }
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {

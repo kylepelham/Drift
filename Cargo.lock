@@ -1217,6 +1217,7 @@ dependencies = [
  "htmd",
  "ignore",
  "keyring",
+ "libc",
  "reqwest",
  "rusqlite",
  "rustls",
@@ -1230,6 +1231,7 @@ dependencies = [
  "tower-http",
  "utoipa",
  "utoipa-axum",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3757,6 +3759,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-util",
+ "h2",
  "http",
  "http-body",
  "http-body-util",

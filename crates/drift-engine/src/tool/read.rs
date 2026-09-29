@@ -26,13 +26,8 @@ impl Tool for Read {
         }
     }
 
-    /// Reads inside the workspace are free; anything outside it is asked about.
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
-        let path = ctx.resolve(input["path"].as_str()?);
-        if path.starts_with(&ctx.workspace) {
-            return None;
-        }
-        Some(Ask { kind: "read".into(), pattern: path.to_string_lossy().into(), title: format!("Read {}", path.display()) })
+        ctx.ask_if_outside("read", &ctx.resolve(input["path"].as_str()?), "Read")
     }
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
@@ -127,4 +122,36 @@ mod tests {
         let outside = Read.ask(&sandbox.ctx, &json!({ "path": "C:/Windows/hosts" })).unwrap();
         assert_eq!(outside.kind, "read");
     }
+}
+
+#[cfg(test)]
+mod escape_tests {
+    use super::super::tests::Sandbox;
+    use super::*;
+
+    #[test]
+    fn dotdot_and_symlinks_resolve_to_the_real_target_before_the_ask() {
+        let sandbox = Sandbox::new("read-escape");
+        let outside = sandbox.ctx.workspace.parent().unwrap().join("outside.txt");
+        std::fs::write(&outside, "secret").unwrap();
+        let ask = Read.ask(&sandbox.ctx, &json!({ "path": "../outside.txt" })).expect("traversal must ask");
+        assert_eq!(std::path::PathBuf::from(&ask.pattern), outside);
+        assert!(Read.ask(&sandbox.ctx, &json!({ "path": "sub/../a.txt" })).is_none());
+        assert!(Glob.ask(&sandbox.ctx, &json!({ "pattern": "*", "path": ".." })).is_some());
+        assert!(Grep.ask(&sandbox.ctx, &json!({ "pattern": "x", "path": &outside.parent().unwrap().to_string_lossy() })).is_some());
+
+        let link = sandbox.ctx.workspace.join("link");
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(outside.parent().unwrap(), &link).is_ok();
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_dir(outside.parent().unwrap(), &link).is_ok();
+        if made {
+            let ask = Read.ask(&sandbox.ctx, &json!({ "path": "link/outside.txt" })).expect("symlink escape must ask");
+            assert_eq!(std::path::PathBuf::from(&ask.pattern), outside);
+        }
+        std::fs::remove_file(outside).ok();
+    }
+
+    use super::super::glob::Glob;
+    use super::super::grep::Grep;
 }

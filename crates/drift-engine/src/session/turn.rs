@@ -1,7 +1,7 @@
 //! One prompt, one turn: stream the model, run what it calls, repeat until it stops.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -191,7 +191,7 @@ impl Engine {
         let provider = self.provider_for(&model_ref.provider, api.as_deref()).ok_or(TurnError::UnknownModel)?;
         Ok(Plan {
             session,
-            workspace: PathBuf::from(workspace.path),
+            workspace: crate::tool::canonical(Path::new(&workspace.path)),
             model_ref,
             model,
             provider,
@@ -268,35 +268,43 @@ impl Engine {
             Ok(streamed) => streamed,
             Err(StreamError::Aborted) => {
                 message.status = MessageStatus::Aborted;
-                self.finish(&mut message);
+                let _ = self.finish(&mut message);
                 return Step::Done;
             }
             Err(StreamError::Provider(error)) => {
                 message.status = MessageStatus::Error;
                 message.error = Some(error.to_string());
-                self.finish(&mut message);
+                let _ = self.finish(&mut message);
                 return if matches!(error, llm::Error::Api { retryable: true, .. } | llm::Error::Transport(_)) { Step::Retry } else { Step::Done };
             }
         };
         message.usage = streamed.usage;
         message.cost = if matches!(plan.credential, Credential::OAuth { .. }) { 0.0 } else { cost(&plan.model, streamed.usage) };
         message.status = MessageStatus::Done;
-        self.finish(&mut message);
-        if streamed.calls.is_empty() {
+        if self.finish(&mut message).is_err() || streamed.calls.is_empty() {
+            return Step::Done;
+        }
+        // The model already said it ran out of room; running its calls would only invite a continuation it cannot make.
+        if streamed.stop == StopReason::MaxTokens {
             return Step::Done;
         }
         match self.run_calls(plan, &message, streamed.calls, abort).await {
             Outcome::Aborted => Step::Done,
-            _ if streamed.stop == StopReason::MaxTokens => Step::Done,
             _ => Step::Continue,
         }
     }
 
-    fn finish(&self, message: &mut Message) {
+    /// Persists the message's terminal state. On failure the published state is an error, and the caller stops.
+    fn finish(&self, message: &mut Message) -> rusqlite::Result<()> {
         message.finished_at = Some(id::now_ms());
-        let _ = self.store.save_message(message);
-        let _ = self.store.touch_session(&message.session_id);
+        let saved = self.store.save_message(message).and_then(|()| self.store.touch_session(&message.session_id));
+        if let Err(error) = &saved {
+            message.status = MessageStatus::Error;
+            message.error = Some(format!("response was not persisted ({error})"));
+            let _ = self.store.save_message(message);
+        }
         self.hub.publish(Event::MessageUpdated { message: message.clone() });
+        saved
     }
 
     async fn stream(&self, message: &Message, plan: &Plan, request: &Request, abort: &CancellationToken) -> Result<Streamed, StreamError> {
@@ -374,6 +382,10 @@ impl Engine {
             self.settle(&mut row, ToolStatus::Error, None, format!("unknown tool `{name}`"), None);
             return Outcome::Allowed;
         };
+        if !input.is_object() {
+            self.settle(&mut row, ToolStatus::Error, None, "call arguments were not valid JSON; the call did not run".into(), None);
+            return Outcome::Allowed;
+        }
         if let Some(ask) = tool.ask(&ctx, &input) {
             let request = permission::new_request(&scope.plan.session.id, &scope.message.id, &call_id, &name, ask);
             match self.permissions.check(&self.hub, request, scope.abort).await {
@@ -389,12 +401,22 @@ impl Engine {
             }
         }
         let snapshot_meta = if tool.mutates() {
-            let tree = scope.snapshot.get_or_init(|| async { self.snapshots.take(&scope.plan.workspace).await.ok() }).await;
-            tree.as_ref().map(|tree| json!({ "snapshot": tree }))
+            let taken = scope.snapshot.get_or_init(|| async { self.snapshots.take(&scope.plan.workspace).await.map_err(|e| e.to_string()) }).await;
+            match taken {
+                Ok(tree) => Some(json!({ "snapshot": tree })),
+                Err(error) => {
+                    // No snapshot means no way back, so the write does not happen.
+                    self.settle(&mut row, ToolStatus::Error, None, format!("refused to write: could not snapshot the workspace first ({error})"), None);
+                    return Outcome::Allowed;
+                }
+            }
         } else {
             None
         };
-        self.start_call(&mut row);
+        if let Err(error) = self.start_call(&mut row) {
+            self.settle(&mut row, ToolStatus::Error, None, format!("refused to run: could not record the call ({error})"), None);
+            return Outcome::Allowed;
+        }
         let result = tokio::select! {
             result = tool.run(&ctx, input) => result,
             () = scope.abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
@@ -406,15 +428,18 @@ impl Engine {
         if scope.abort.is_cancelled() { Outcome::Aborted } else { Outcome::Allowed }
     }
 
-    fn start_call(&self, row: &mut PartRow) {
+    /// Marks the call running in storage before it does anything; a call that cannot be recorded does not run.
+    fn start_call(&self, row: &mut PartRow) -> rusqlite::Result<()> {
         if let Part::ToolCall { status, started_at, .. } = &mut row.part {
             *status = ToolStatus::Running;
             *started_at = Some(id::now_ms());
         }
-        let _ = self.store.save_part(row);
+        self.store.save_part(row)?;
         self.hub.publish(Event::PartUpdated { part: row.clone() });
+        Ok(())
     }
 
+    /// Writes the outcome. If that write fails, what is published is the failure, never a success the store lacks.
     fn settle(&self, row: &mut PartRow, new_status: ToolStatus, new_title: Option<String>, text: String, meta: Option<serde_json::Value>) {
         if let Part::ToolCall { status, title, output, metadata, finished_at, .. } = &mut row.part {
             *status = new_status;
@@ -423,10 +448,15 @@ impl Engine {
             *metadata = meta;
             *finished_at = Some(id::now_ms());
         }
-        let _ = self.store.save_part(row);
+        if let Err(error) = self.store.save_part(row) {
+            if let Part::ToolCall { status, output, .. } = &mut row.part {
+                *status = ToolStatus::Error;
+                *output = Some(format!("result was not persisted ({error}); treat this call as failed"));
+            }
+            let _ = self.store.save_part(row);
+        }
         self.hub.publish(Event::PartUpdated { part: row.clone() });
     }
-
     async fn title_if_untitled(&self, session: &Session) {
         if !session.title.is_empty() {
             return;
@@ -456,7 +486,7 @@ struct CallScope<'a> {
     plan: &'a Plan,
     message: &'a Message,
     files: &'a Arc<SessionFiles>,
-    snapshot: &'a tokio::sync::OnceCell<Option<String>>,
+    snapshot: &'a tokio::sync::OnceCell<Result<String, String>>,
     abort: &'a CancellationToken,
 }
 

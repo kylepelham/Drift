@@ -24,6 +24,8 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
   let held: Envelope[] | undefined
   let hydrating: Promise<void> | undefined
   let wanted: number | undefined
+  // Bumped when the engine instance changes; a hydrate from an older generation must not land.
+  let generation = 0
 
   const applyEvent = (envelope: Envelope) => {
     if (cursor !== undefined && envelope.seq <= cursor) return
@@ -39,19 +41,22 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
     wanted = seq
     if (hydrating) return
     held ??= []
+    const mine = generation
+    const live = () => !closed && mine === generation
     hydrating = (async () => {
-      while (!closed && wanted !== undefined) {
+      while (live() && wanted !== undefined) {
         const target: number = wanted
         wanted = undefined
         try {
           await handlers.hydrate(target)
-          cursor = target
+          if (live()) cursor = target
         } catch {
-          if (closed) break
+          if (!live()) break
           await new Promise((resolve) => setTimeout(resolve, hydrateRetryMs))
           wanted ??= target
         }
       }
+      if (!live()) return
       const pending = held ?? []
       held = undefined
       hydrating = undefined
@@ -59,9 +64,20 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
     })()
   }
 
+  /** A different engine instance means nothing held or in flight from the old one may apply. */
+  const restart = () => {
+    generation += 1
+    held = undefined
+    hydrating = undefined
+    wanted = undefined
+    cursor = undefined
+  }
+
   const apply = (frame: Frame) => {
     if (frame.type === "hello") {
-      const fresh = cursor === undefined || frame.instance !== instance
+      const changed = instance !== undefined && frame.instance !== instance
+      if (changed) restart()
+      const fresh = cursor === undefined || changed
       instance = frame.instance
       if (fresh) hydrate(frame.seq)
       return
@@ -95,6 +111,7 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
   return {
     close() {
       closed = true
+      restart()
       if (retry) clearTimeout(retry)
       socket?.close()
     },

@@ -27,6 +27,12 @@ tower-http = { version = "0.6", features = ["cors"] }
 utoipa = { version = "6", features = ["axum_extras"] }
 utoipa-axum = "0.3"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # reqwest is built without a bundled provider; tests install ring themselves.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }

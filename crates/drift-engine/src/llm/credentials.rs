@@ -14,7 +14,7 @@ const FALLBACK_FILE: &str = "credentials.json";
 
 pub struct Credentials {
     backend: Backend,
-    /// Serialises read-then-write sequences; the backends themselves are single calls.
+    /// Every mutation holds this, so a compare-and-set cannot interleave with a login or logout.
     write_lock: Mutex<()>,
     /// Providers with a stored credential; keychains cannot enumerate, so we keep our own list.
     index: Mutex<BTreeSet<String>>,
@@ -57,6 +57,11 @@ impl Credentials {
     }
 
     pub fn set(&self, provider: &str, credential: &Credential) -> Result<(), String> {
+        let _held = self.write_lock.lock().unwrap();
+        self.set_locked(provider, credential)
+    }
+
+    fn set_locked(&self, provider: &str, credential: &Credential) -> Result<(), String> {
         self.write(provider, &serde_json::to_string(credential).unwrap())?;
         let mut index = self.index.lock().unwrap();
         index.insert(provider.into());
@@ -69,11 +74,12 @@ impl Credentials {
         if self.get(provider).as_ref() != Some(expected) {
             return Ok(false);
         }
-        self.set(provider, credential)?;
+        self.set_locked(provider, credential)?;
         Ok(true)
     }
 
     pub fn remove(&self, provider: &str) -> Result<(), String> {
+        let _held = self.write_lock.lock().unwrap();
         self.delete(provider)?;
         let mut index = self.index.lock().unwrap();
         index.remove(provider);
@@ -168,6 +174,25 @@ mod tests {
         store.remove("p").unwrap();
         assert!(!store.replace_if("p", &stale, &fresh).unwrap(), "a logout must not be undone");
         assert!(store.get("p").is_none());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn concurrent_logins_and_refreshes_never_resurrect_a_replaced_credential() {
+        use std::sync::Arc;
+        let path = std::env::temp_dir().join(format!("drift-cred-{}.json", crate::random_hex(4)));
+        let store = Arc::new(Credentials::in_file(path.clone()));
+        let stale = Credential::OAuth { access: "old".into(), refresh: "r".into(), expires_at: 1, account: None };
+        let refreshed = Credential::OAuth { access: "new".into(), refresh: "r2".into(), expires_at: 9, account: None };
+        for _ in 0..50 {
+            store.set("p", &stale).unwrap();
+            let refresher = { let store = store.clone(); let (stale, refreshed) = (stale.clone(), refreshed.clone()); std::thread::spawn(move || store.replace_if("p", &stale, &refreshed).unwrap()) };
+            let logout = { let store = store.clone(); std::thread::spawn(move || store.remove("p").unwrap()) };
+            let replaced = refresher.join().unwrap();
+            logout.join().unwrap();
+            // Whichever ran first, a logout is never undone by a refresh that read the old value earlier.
+            assert_eq!(store.get("p"), None, "replaced={replaced}");
+        }
         std::fs::remove_file(path).ok();
     }
 

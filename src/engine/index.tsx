@@ -63,7 +63,14 @@ export function EngineProvider(props: ParentProps) {
 
   async function hydrate() {
     if (!client || disposed) return
-    set("sessionSnapshotEpoch", state.sessionSnapshotEpoch + 1)
+    set(
+      produce((draft) => {
+        draft.sessionSnapshotEpoch += 1
+        // Cached transcripts may have missed events; going offline and back makes every open view refetch.
+        draft.connection = "connecting"
+        draft.loaded = {}
+      }),
+    )
     await hydrateFrom(actions, directory)
     if (!disposed) set("connection", "online")
   }
