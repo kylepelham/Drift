@@ -3,6 +3,7 @@
 pub mod api;
 pub mod event;
 pub mod id;
+pub mod llm;
 pub mod session;
 pub mod store;
 

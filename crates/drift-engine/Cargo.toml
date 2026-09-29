@@ -5,8 +5,10 @@ edition = "2021"
 
 [dependencies]
 axum = { workspace = true, features = ["ws"] }
+bytes = "1"
 futures-util = { workspace = true }
 getrandom = { workspace = true }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "rustls-native-certs", "stream"] }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -15,7 +17,6 @@ utoipa = { version = "6", features = ["axum_extras"] }
 utoipa-axum = "0.3"
 
 [dev-dependencies]
-reqwest = { version = "0.13", default-features = false, features = ["json"] }
-# The shell builds reqwest with rustls-no-provider; feature unification makes tests install one too.
+# reqwest is built without a bundled provider; tests install ring themselves.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tokio-tungstenite = "0.30"
