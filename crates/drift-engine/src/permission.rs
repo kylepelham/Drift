@@ -55,6 +55,7 @@ impl Policy {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[schema(as = PermissionRequest)]
 pub struct Request {
     pub id: String,
     pub session_id: String,

@@ -145,6 +145,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listQuestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/questions/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rejectQuestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/questions/{id}/reply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["answerQuestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions": {
         parameters: {
             query?: never;
@@ -209,6 +257,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/todos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listTodos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/turns": {
         parameters: {
             query?: never;
@@ -247,6 +311,10 @@ export interface components {
     schemas: {
         Aborted: {
             aborted: boolean;
+        };
+        AnswerBody: {
+            /** @description One list of chosen labels per question, in order. */
+            answers: string[][];
         };
         ApiKeyBody: {
             key: string;
@@ -333,7 +401,12 @@ export interface components {
             /** @enum {string} */
             type: "part.delta";
         } | {
-            request: components["schemas"]["Request"];
+            sessionId: string;
+            todos: components["schemas"]["Todo"][];
+            /** @enum {string} */
+            type: "todo.updated";
+        } | {
+            request: components["schemas"]["PermissionRequest"];
             /** @enum {string} */
             type: "permission.asked";
         } | {
@@ -342,6 +415,15 @@ export interface components {
             sessionId: string;
             /** @enum {string} */
             type: "permission.replied";
+        } | {
+            request: components["schemas"]["QuestionRequest"];
+            /** @enum {string} */
+            type: "question.asked";
+        } | {
+            requestId: string;
+            sessionId: string;
+            /** @enum {string} */
+            type: "question.replied";
         };
         /** @description Everything the server writes to the socket. */
         Frame: components["schemas"]["Control"] | components["schemas"]["Envelope"];
@@ -349,11 +431,16 @@ export interface components {
             version: string;
         };
         /** @description Replies can ride the socket so a permission prompt never waits on a new HTTP connection. */
-        Incoming: components["schemas"]["ReplyBody"] & {
+        Incoming: (components["schemas"]["ReplyBody"] & {
             requestId: string;
         } & {
             /** @enum {string} */
             type: "permission.reply";
+        }) | {
+            answers?: string[][] | null;
+            requestId: string;
+            /** @enum {string} */
+            type: "question.reply";
         };
         Limit: {
             /** Format: int64 */
@@ -421,6 +508,10 @@ export interface components {
             /** @description Open this in a browser; the user pastes back what the callback page shows. */
             url: string;
         };
+        Option_: {
+            description?: string;
+            label: string;
+        };
         Part: {
             text: string;
             /** @enum {string} */
@@ -463,6 +554,15 @@ export interface components {
             model?: components["schemas"]["ModelRef"] | null;
             title?: string | null;
         };
+        PermissionRequest: components["schemas"]["Ask"] & {
+            callId: string;
+            /** Format: int64 */
+            createdAt: number;
+            id: string;
+            messageId: string;
+            sessionId: string;
+            tool: string;
+        };
         Prompt: {
             model?: components["schemas"]["ModelRef"] | null;
             parts: components["schemas"]["Part"][];
@@ -480,6 +580,24 @@ export interface components {
             };
             name: string;
         };
+        Question: {
+            /** @description Whether the user may type an answer that is not one of the options. */
+            custom?: boolean;
+            /** @description Short label shown as the card title. */
+            header?: string;
+            multiple?: boolean;
+            options?: components["schemas"]["Option_"][];
+            question: string;
+        };
+        QuestionRequest: {
+            callId: string;
+            /** Format: int64 */
+            createdAt: number;
+            id: string;
+            messageId: string;
+            questions: components["schemas"]["Question"][];
+            sessionId: string;
+        };
         Receipt: {
             message: components["schemas"]["Message"];
             session: components["schemas"]["Session"];
@@ -489,15 +607,6 @@ export interface components {
         ReplyBody: {
             pattern?: string | null;
             reply: components["schemas"]["Reply"];
-        };
-        Request: components["schemas"]["Ask"] & {
-            callId: string;
-            /** Format: int64 */
-            createdAt: number;
-            id: string;
-            messageId: string;
-            sessionId: string;
-            tool: string;
         };
         /** @enum {string} */
         Role: "user" | "assistant";
@@ -518,6 +627,13 @@ export interface components {
         };
         /** @enum {string} */
         SessionStatus: "idle" | "running";
+        Todo: {
+            content: string;
+            priority?: string;
+            status: components["schemas"]["TodoStatus"];
+        };
+        /** @enum {string} */
+        TodoStatus: "pending" | "in_progress" | "completed" | "cancelled";
         /**
          * @description How a model edits files: what its training makes it good at, decided here and nowhere else.
          * @enum {string}
@@ -608,7 +724,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Request"][];
+                    "application/json": components["schemas"]["PermissionRequest"][];
                 };
             };
         };
@@ -775,6 +891,79 @@ export interface operations {
             };
         };
     };
+    listQuestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionRequest"][];
+                };
+            };
+        };
+    };
+    rejectQuestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    answerQuestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerBody"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listSessions: {
         parameters: {
             query?: {
@@ -925,6 +1114,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessageWithParts"][];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listTodos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Todo"][];
                 };
             };
             404: {

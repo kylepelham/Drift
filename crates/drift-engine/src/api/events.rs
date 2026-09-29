@@ -136,6 +136,9 @@ pub enum Incoming {
         #[serde(flatten)]
         body: crate::permission::ReplyBody,
     },
+    /// nswers absent means the user declined.
+    #[serde(rename = "question.reply", rename_all = "camelCase")]
+    QuestionReply { request_id: String, answers: Option<Vec<Vec<String>>> },
 }
 
 fn handle(engine: &Engine, text: &str) {
@@ -143,6 +146,9 @@ fn handle(engine: &Engine, text: &str) {
     match incoming {
         Incoming::PermissionReply { request_id, body } => {
             let _ = engine.permissions.reply(&engine.hub, &request_id, body);
+        }
+        Incoming::QuestionReply { request_id, answers } => {
+            let _ = engine.questions.reply(&engine.hub, &request_id, answers);
         }
     }
 }

@@ -7,6 +7,7 @@ mod events;
 mod health;
 mod permissions;
 mod providers;
+mod questions;
 mod sessions;
 mod workspaces;
 
@@ -43,6 +44,10 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(providers::oauth_finish))
         .routes(routes!(permissions::list))
         .routes(routes!(permissions::reply))
+        .routes(routes!(questions::list))
+        .routes(routes!(questions::reply))
+        .routes(routes!(questions::reject))
+        .routes(routes!(sessions::todos))
         .routes(routes!(events::get))
 }
 

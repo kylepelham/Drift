@@ -1,0 +1,5 @@
+Keeps the task list for this session. Call it with the complete list every time; it replaces what was there.
+
+- Use it for work with three or more steps, so the user can see progress. Skip it for trivial requests.
+- Mark exactly one item in_progress while you work on it, and mark it completed as soon as it is done. Do not batch completions.
+- Cancel items that turned out to be unnecessary instead of deleting them.

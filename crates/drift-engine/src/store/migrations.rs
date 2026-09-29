@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-const MIGRATIONS: [&str; 2] = [
+const MIGRATIONS: [&str; 3] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -46,6 +46,11 @@ const MIGRATIONS: [&str; 2] = [
         json TEXT NOT NULL
     ) STRICT;
     CREATE INDEX idx_part_message ON part(message_id, id);",
+    "CREATE TABLE todo(
+        session_id TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE,
+        json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+    ) STRICT;",
 ];
 
 #[cfg(test)]

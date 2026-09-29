@@ -12,7 +12,9 @@ export type Session = components["schemas"]["Session"]
 export type MessageWithParts = components["schemas"]["MessageWithParts"]
 export type Prompt = components["schemas"]["Prompt"]
 export type Receipt = components["schemas"]["Receipt"]
-export type PermissionRequest = components["schemas"]["Request"]
+export type PermissionRequest = components["schemas"]["PermissionRequest"]
+export type QuestionRequest = components["schemas"]["QuestionRequest"]
+export type Todo = components["schemas"]["Todo"]
 export type ReplyBody = components["schemas"]["ReplyBody"]
 export type ProviderStatus = components["schemas"]["ProviderStatus"]
 export type ErrorBody = components["schemas"]["ErrorBody"]
@@ -80,6 +82,10 @@ export function createClient(target: Target) {
     finishOAuth: (id: string, input: string) => request<void>("POST", `/providers/${id}/oauth/callback`, { input }),
     permissions: () => request<Json<"listPermissions", 200>>("GET", "/permissions"),
     replyPermission: (id: string, body: ReplyBody) => request<void>("POST", `/permissions/${id}/reply`, body),
+    questions: () => request<Json<"listQuestions", 200>>("GET", "/questions"),
+    answerQuestion: (id: string, answers: string[][]) => request<void>("POST", `/questions/${id}/reply`, { answers }),
+    rejectQuestion: (id: string) => request<void>("POST", `/questions/${id}/reject`),
+    todos: (id: string) => request<Json<"listTodos", 200>>("GET", `/sessions/${id}/todos`),
   }
 }
 

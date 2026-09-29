@@ -5,6 +5,7 @@ pub mod event;
 pub mod id;
 pub mod llm;
 pub mod permission;
+pub mod question;
 pub mod session;
 pub mod store;
 pub mod tool;
@@ -74,6 +75,7 @@ pub struct Engine {
     /// Every request must present this; the shell hands it to the UI, remote clients get it via the gateway.
     pub token: String,
     pub permissions: Permissions,
+    pub questions: question::Questions,
     pub tools: Registry,
     pub credentials: Credentials,
     pub catalog: RwLock<Catalog>,
@@ -98,6 +100,7 @@ impl Engine {
             hub: Hub::new(options.event_history),
             token: random_hex(32),
             permissions: Permissions::new(Policy::default()),
+            questions: question::Questions::default(),
             tools: Registry::builtin(),
             credentials: Credentials::open(data_dir, options.file_credentials),
             catalog: RwLock::new(Catalog::load(data_dir)),

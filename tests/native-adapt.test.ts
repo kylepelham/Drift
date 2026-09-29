@@ -67,7 +67,7 @@ test("events translate to the legacy reducer's vocabulary", () => {
   })
   const delta = adaptEvent({ type: "part.delta", sessionId: "s", messageId: "m", partId: "p", delta: "hi" }, workspaces)
   expect(delta).toEqual({ type: "message.part.delta", properties: { sessionID: "s", messageID: "m", partID: "p", field: "text", delta: "hi" } })
-  const request: components["schemas"]["Request"] = {
+  const request: components["schemas"]["PermissionRequest"] = {
     id: "perm_1",
     sessionId: "ses_1",
     messageId: "msg_1",

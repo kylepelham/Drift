@@ -295,9 +295,11 @@ impl Engine {
             let ctx = Context {
                 workspace: plan.workspace.clone(),
                 session_id: plan.session.id.clone(),
+                message_id: message.id.clone(),
                 call_id: call_id.clone(),
                 files: files.clone(),
                 abort: abort.clone(),
+                engine: self.clone(),
             };
             let Some(tool) = self.tools.get(&name) else {
                 self.settle(&mut row, ToolStatus::Error, None, format!("unknown tool `{name}`"), None);

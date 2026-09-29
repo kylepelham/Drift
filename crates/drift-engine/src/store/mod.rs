@@ -2,6 +2,7 @@
 
 mod migrations;
 mod sessions;
+mod todos;
 
 pub use sessions::{NewSession, SessionFilter};
 

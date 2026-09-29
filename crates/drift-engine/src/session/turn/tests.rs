@@ -90,7 +90,7 @@ async fn a_plain_reply_is_stored_costed_and_titles_the_session() {
     assert_eq!(session.model, Some(model()));
     let request = &h.provider.requests.lock().unwrap()[0];
     assert!(request.system.starts_with("You are Drift"));
-    assert_eq!(request.tools.len(), 6);
+    assert_eq!(request.tools.len(), 9);
 }
 
 #[tokio::test]

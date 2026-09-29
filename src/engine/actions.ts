@@ -4,7 +4,7 @@ import { produce, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
 import { applyProviderCatalog } from "../state/provider-cache"
 import { applySessionSnapshot, pushNotice } from "./events"
-import { adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptSession, type NativeMessageWithParts, type WorkspaceIndex } from "./native/adapt"
+import { adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptQuestion, adaptSession, adaptTodos, type NativeMessageWithParts, type WorkspaceIndex } from "./native/adapt"
 import { EngineError, type Client } from "./native/client"
 import {
   captureRevisions,
@@ -71,6 +71,8 @@ export function createActions(
     set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], loaded, id, captured, state.revisions))
     set("loaded", id, true)
     set("cursors", id, messages.length === pageSize ? messages[0]!.id : null)
+    const todos = await requireClient().todos(id).catch(() => undefined)
+    if (todos) set("todos", id, adaptTodos(todos))
   }
 
   function openSession(id: string) {
@@ -196,18 +198,31 @@ export function createActions(
     return true
   }
 
+  /// Pending asks of both kinds; a single fetch each, applied together so the UI never sees a gap.
   async function refreshPermissions(_directories: string[] = []) {
-    const pending = await requireClient().permissions()
+    const [permissions, questions] = await Promise.all([requireClient().permissions(), requireClient().questions()])
     set(
       produce((draft) => {
         draft.permissions = {}
-        for (const request of pending) {
+        draft.questions = {}
+        for (const request of permissions) {
           const directory = draft.sessions[request.sessionId]?.directory ?? ""
           const permission: Permission = adaptPermission(request, directory)
           ;(draft.permissions[request.sessionId] ??= []).push(permission)
         }
+        for (const request of questions) (draft.questions[request.sessionId] ??= []).push(adaptQuestion(request))
       }),
     )
+  }
+
+  async function answerQuestion(sessionID: string, requestID: string, answers: string[][] | null) {
+    try {
+      if (answers) await requireClient().answerQuestion(requestID, answers)
+      else await requireClient().rejectQuestion(requestID)
+    } catch (cause) {
+      if (!(cause instanceof EngineError && cause.status === 404)) throw cause
+    }
+    set(produce((draft) => void (draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter((q) => q.id !== requestID))))
   }
 
   async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
@@ -275,6 +290,7 @@ export function createActions(
     reloadProviders: refreshProviders,
     refreshPermissions,
     replyPermission,
+    answerQuestion,
     setProviderKey,
     disconnectProvider,
     providerAuthMethods,
@@ -300,7 +316,6 @@ export function createActions(
     },
     unshare: notYet("Sharing"),
     runCommand: notYet("Commands"),
-    answerQuestion: notYet("Questions"),
     revert: never("Revert"),
     unrevert: never("Revert"),
     mcpInitialize: async (_directory: string) => undefined,

@@ -1,13 +1,14 @@
 // Native engine shapes to the shapes the UI was built on. Dies at M4 when the UI adopts native types.
 import type { AssistantMessage, Event, Message, Part, Permission, Session, ToolPart } from "@opencode-ai/sdk/client"
-import type { ModelInfo, ProviderInfo } from "../store"
+import type { ModelInfo, ProviderInfo, QuestionRequest } from "../store"
 import type { components } from "./types"
 
 type NativeSession = components["schemas"]["Session"]
 type NativeMessage = components["schemas"]["Message"]
 type NativePartRow = components["schemas"]["PartRow"]
 type NativeEvent = components["schemas"]["Event"]
-type NativeRequest = components["schemas"]["Request"]
+type NativeRequest = components["schemas"]["PermissionRequest"]
+type NativeQuestion = components["schemas"]["QuestionRequest"]
 type NativeProvider = components["schemas"]["ProviderStatus"]
 type NativeModel = components["schemas"]["Model"]
 export type NativeMessageWithParts = components["schemas"]["MessageWithParts"]
@@ -102,7 +103,7 @@ function toolState(row: Extract<NativePartRow, { type: "tool_call" }>): ToolPart
   }
 }
 
-export function adaptPermission(request: components["schemas"]["Request"], directory: string): Permission {
+export function adaptPermission(request: NativeRequest, directory: string): Permission {
   return {
     id: request.id,
     type: request.kind,
@@ -173,8 +174,27 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
       return { type: "permission.updated", properties: adaptPermission(event.request, "") }
     case "permission.replied":
       return { type: "permission.replied", properties: { sessionID: event.sessionId, permissionID: event.requestId, response: event.decision } }
+    case "todo.updated":
+      return { type: "todo.updated", properties: { sessionID: event.sessionId, todos: adaptTodos(event.todos) } }
+    case "question.asked":
+      return { type: "question.asked", properties: adaptQuestion(event.request) } as unknown as Event
+    case "question.replied":
+      return { type: "question.replied", properties: { sessionID: event.sessionId, requestID: event.requestId } } as unknown as Event
     case "workspace.created":
       return undefined
+  }
+}
+
+export function adaptTodos(todos: components["schemas"]["Todo"][]) {
+  return todos.map((todo, index) => ({ id: String(index), content: todo.content, status: todo.status, priority: todo.priority ?? "medium" }))
+}
+
+export function adaptQuestion(request: NativeQuestion): QuestionRequest {
+  return {
+    id: request.id,
+    sessionID: request.sessionId,
+    questions: request.questions.map((q) => ({ question: q.question, header: q.header ?? "", options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description ?? "" })), multiple: q.multiple ?? false, custom: q.custom ?? true })),
+    tool: { messageID: request.messageId, callID: request.callId },
   }
 }
 

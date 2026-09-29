@@ -4,7 +4,10 @@ pub mod bash;
 pub mod edit;
 pub mod glob;
 pub mod grep;
+pub mod question;
 pub mod read;
+pub mod todo;
+pub mod webfetch;
 pub mod write;
 
 use std::collections::HashSet;
@@ -39,9 +42,12 @@ impl SessionFiles {
 pub struct Context {
     pub workspace: PathBuf,
     pub session_id: String,
+    pub message_id: String,
     pub call_id: String,
     pub files: Arc<SessionFiles>,
     pub abort: CancellationToken,
+    /// Session-level tools (todos, questions) read and write through the engine.
+    pub engine: Arc<crate::Engine>,
 }
 
 impl Context {
@@ -118,6 +124,9 @@ impl Registry {
                 Box::new(bash::Bash::detect()),
                 Box::new(glob::Glob),
                 Box::new(grep::Grep),
+                Box::new(webfetch::WebFetch),
+                Box::new(todo::TodoWrite),
+                Box::new(question::Question),
             ],
         }
     }
@@ -155,16 +164,32 @@ pub(crate) mod tests {
 
     impl Sandbox {
         pub(crate) fn new(name: &str) -> Self {
-            let workspace = std::env::temp_dir().join(format!("drift-tool-{name}-{}", crate::random_hex(4)));
+            let root = std::env::temp_dir().join(format!("drift-tool-{name}-{}", crate::random_hex(4)));
+            let workspace = root.join("ws");
             std::fs::create_dir_all(&workspace).unwrap();
+            let engine = crate::Engine::open_with(&root.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
             Self {
                 ctx: Context {
                     workspace,
                     session_id: "ses_test".into(),
+                    message_id: "msg_test".into(),
                     call_id: "call_test".into(),
                     files: Arc::new(SessionFiles::default()),
                     abort: CancellationToken::new(),
+                    engine,
                 },
+            }
+        }
+
+        pub(crate) fn ctx_clone(&self) -> Context {
+            Context {
+                workspace: self.ctx.workspace.clone(),
+                session_id: self.ctx.session_id.clone(),
+                message_id: self.ctx.message_id.clone(),
+                call_id: self.ctx.call_id.clone(),
+                files: self.ctx.files.clone(),
+                abort: self.ctx.abort.clone(),
+                engine: self.ctx.engine.clone(),
             }
         }
 
@@ -178,7 +203,7 @@ pub(crate) mod tests {
 
     impl Drop for Sandbox {
         fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.ctx.workspace);
+            let _ = std::fs::remove_dir_all(self.ctx.workspace.parent().unwrap());
         }
     }
 
@@ -186,7 +211,7 @@ pub(crate) mod tests {
     fn registry_exposes_every_builtin_with_a_schema() {
         let registry = Registry::builtin();
         let names: Vec<String> = registry.specs().into_iter().map(|spec| spec.name).collect();
-        assert_eq!(names, ["read", "write", "edit", "bash", "glob", "grep"]);
+        assert_eq!(names, ["read", "write", "edit", "bash", "glob", "grep", "webfetch", "todowrite", "question"]);
         for spec in registry.specs() {
             assert_eq!(spec.input_schema["type"], "object", "{}", spec.name);
             assert!(!spec.description.is_empty(), "{}", spec.name);

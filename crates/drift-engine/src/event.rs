@@ -8,7 +8,8 @@ use tokio::sync::broadcast;
 use utoipa::ToSchema;
 
 use crate::permission::{Decision, Request as PermissionRequest};
-use crate::session::types::{Message, PartRow, Session};
+use crate::question::Request as QuestionRequest;
+use crate::session::types::{Message, PartRow, Session, Todo};
 use crate::store::Workspace;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -40,10 +41,16 @@ pub enum Event {
     /// Streamed text appended to a `text` or `reasoning` part; the part itself is saved later.
     #[serde(rename = "part.delta", rename_all = "camelCase")]
     PartDelta { session_id: String, message_id: String, part_id: String, delta: String },
+    #[serde(rename = "todo.updated", rename_all = "camelCase")]
+    TodoUpdated { session_id: String, todos: Vec<Todo> },
     #[serde(rename = "permission.asked")]
     PermissionAsked { request: PermissionRequest },
     #[serde(rename = "permission.replied", rename_all = "camelCase")]
     PermissionReplied { request_id: String, session_id: String, decision: Decision },
+    #[serde(rename = "question.asked")]
+    QuestionAsked { request: QuestionRequest },
+    #[serde(rename = "question.replied", rename_all = "camelCase")]
+    QuestionReplied { request_id: String, session_id: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

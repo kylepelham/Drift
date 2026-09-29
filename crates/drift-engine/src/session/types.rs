@@ -139,6 +139,27 @@ pub enum Part {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Cancelled,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct Todo {
+    pub content: String,
+    pub status: TodoStatus,
+    #[serde(default = "default_priority")]
+    pub priority: String,
+}
+
+fn default_priority() -> String {
+    "medium".into()
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PartRow {

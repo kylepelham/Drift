@@ -126,3 +126,9 @@ pub async fn submit(State(engine): State<Arc<Engine>>, Path(id): Path<String>, J
 pub async fn abort(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Json<Aborted> {
     Json(Aborted { aborted: engine.abort(&id) })
 }
+
+#[utoipa::path(get, path = "/sessions/{id}/todos", operation_id = "listTodos", responses((status = 200, body = Vec<crate::session::types::Todo>), (status = 404)))]
+pub async fn todos(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Vec<crate::session::types::Todo>>, ApiError> {
+    engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;
+    Ok(Json(engine.store.todos(&id)?))
+}
