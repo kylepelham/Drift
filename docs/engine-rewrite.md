@@ -199,6 +199,29 @@ under it is true, not before.
   `Store` borrows it (`drift_engine::store::Store::lock`) for its own tables until they fold
   into the engine at M4. `workspace` is already the engine's table.
 
+## Failure-path contracts
+
+Settled after the first external review of M1; each has a regression test.
+
+- A provider stream that ends without a stop reason is an error, not a completed message.
+  Its tool calls stay `pending` and never run; the turn retries like any transport fault.
+- Prompt admission is one transaction (`Store::admit_prompt`). If it fails, the session's
+  busy reservation is released and nothing half-written remains. `Prompt.submissionId`
+  is optional; resubmitting with the same id returns the original receipt, and reusing an
+  id for a different session is rejected. The UI sends a fresh id with every prompt.
+- Only `done` and `aborted` assistant messages are replayed to the model. `error` and
+  `streaming` rows stay in the transcript as audit history and never enter a request.
+- Token refresh is single-flight per provider: the first turn to notice an expired token
+  refreshes it, later turns wait and reuse the stored result.
+- The socket client never advances its cursor on a failed hydrate; it retries and keeps
+  holding events. A `resync` that lands mid-hydrate folds into the same run.
+- Session listings page until a short page; a snapshot is only authoritative when complete.
+  Each listed session carries `running`, and the client sets status from it on hydrate.
+
+Open, deliberately: one credential slot per provider (an API key and a subscription sign-in
+replace each other; account profiles are M3 work), and the shell's `session_meta` archive
+table still exists beside the engine's `archived_at` until M4 folds shell tables in.
+
 ## Baselines
 
 Medians of five runs on the development machine, recorded at M0. The opencode numbers are

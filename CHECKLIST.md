@@ -25,15 +25,18 @@ change the plan there when a decision changes.
 - [x] One `drift.db` connection shared by engine and shell
 - [x] Real turns against Anthropic through `drift-engined` (read, edit with ask, bash with ask)
 - [x] Drift UI against the new API (adapter over the legacy store shapes; engine-side verified, shell run pending)
+- [x] Failure paths: terminal validation, atomic admission, replay eligibility, single-flight refresh, hydrate cursor safety, full listings
 - [ ] Conformance suite with recorded Anthropic fixtures
 
 ## M2: breadth
 
-- [ ] OpenAI Responses, Codex OAuth, `apply_patch` profile
-- [ ] Gemini
-- [ ] OpenAI-compatible generic with OpenRouter, LM Studio and Ollama presets
+- [x] OpenAI Responses, Codex OAuth, `apply_patch` profile
+- [x] Gemini (adapter only; not yet exercised against the live API)
+- [x] OpenAI-compatible generic with xAI, Z.ai, OpenRouter, LM Studio and Ollama presets
 - [ ] MCP through rmcp: stdio, HTTP, approval, reconnect, reload
-- [ ] `todowrite`, `skill`, `question`, `webfetch`
+- [x] `todowrite`, `question`, `webfetch`
+- [ ] `skill`
+- [x] Read-only tool calls run concurrently
 - [ ] Async questions
 - [ ] Formatter hooks
 - [ ] Config loading: `drift.json`, agents, commands, skills, instruction files
