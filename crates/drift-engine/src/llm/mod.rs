@@ -4,6 +4,7 @@ pub mod anthropic;
 pub mod catalog;
 pub mod compat;
 pub mod credentials;
+pub mod gemini;
 pub mod openai;
 mod sse;
 #[cfg(test)]
@@ -138,6 +139,7 @@ pub enum Provider {
     Anthropic(anthropic::Anthropic),
     OpenAi(openai::OpenAi),
     Compat(compat::Compat),
+    Gemini(gemini::Gemini),
     Scripted(scripted::Scripted),
 }
 
@@ -147,6 +149,7 @@ impl Provider {
             Self::Anthropic(provider) => provider.stream(request, credential).await,
             Self::OpenAi(provider) => provider.stream(request, credential).await,
             Self::Compat(provider) => provider.stream(request, credential).await,
+            Self::Gemini(provider) => provider.stream(request, credential).await,
             Self::Scripted(provider) => provider.stream(request),
         }
     }
@@ -160,6 +163,7 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
     Some(match id {
         "anthropic" => Provider::Anthropic(override_url.as_deref().map_or_else(anthropic::Anthropic::default, anthropic::Anthropic::new)),
         "openai" => Provider::OpenAi(override_url.as_deref().map_or_else(openai::OpenAi::default, openai::OpenAi::new)),
+        "google" => Provider::Gemini(override_url.as_deref().map_or_else(gemini::Gemini::default, gemini::Gemini::new)),
         "xai" => Provider::Compat(compat::Compat::new(&base("https://api.x.ai/v1"))),
         "zai" => Provider::Compat(compat::Compat::new(&base("https://api.z.ai/api/paas/v4"))),
         "openrouter" => Provider::Compat(compat::Compat::new(&base("https://openrouter.ai/api/v1"))),
