@@ -9,7 +9,8 @@ if (!existsSync(engineBinary)) {
   process.exit(1)
 }
 
-const port = process.env.DRIFT_ENGINE_PORT ?? "4096"
+// Off 4096 so a dev build runs beside an installed Drift.
+const port = process.env.DRIFT_ENGINE_PORT ?? "4196"
 const password = process.env.OPENCODE_SERVER_PASSWORD ?? randomBytes(32).toString("hex")
 const runtime = await prepareRuntime()
 const engine = Bun.spawn([engineBinary, "serve", "--hostname", "127.0.0.1", "--port", port], {

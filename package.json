@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bun scripts/dev.ts",
     "dev:ui": "vite",
+    "dev:shell": "tauri dev --no-watch -c src-tauri/dev.conf.json",
     "build": "bun run build:extensions && vite build",
     "build:tauri": "bun run build",
     "build:engine": "bun scripts/build-engine.ts",

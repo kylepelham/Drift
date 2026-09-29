@@ -169,8 +169,13 @@ under it is true, not before.
   `cargo clippy --workspace --all-targets -- -D warnings` before any commit.
 - `bun run gen:engine` regenerates `src/engine/native/types.ts` from the engine's OpenAPI
   (`drift-engined --openapi`). `tests/engine-client.test.ts` fails when it is stale.
-- `bun run dev` starts the legacy sidecar, `drift-engined`, and Vite; the browser reaches
-  the native engine through `VITE_NATIVE_ENGINE_URL` and `VITE_NATIVE_ENGINE_TOKEN`.
+- `bun run dev` starts the legacy sidecar (port 4196), `drift-engined`, and Vite; the
+  browser reaches the native engine through `VITE_NATIVE_ENGINE_URL` and
+  `VITE_NATIVE_ENGINE_TOKEN`.
+- `bun run dev:shell` (with `bun run dev` already running) launches the desktop build as
+  "Drift Dev" under the identifier `dev.drift.app.dev` (`src-tauri/dev.conf.json`). The
+  identifier gives it its own single-instance mutex and its own data directory, so it runs
+  beside an installed Drift and never touches that install's database.
 - `bun run bench:engine [opencode|native] [runs]` measures the baselines below against a
   stub provider that answers instantly, so only engine time is counted.
 - Every request carries `Authorization: Bearer <token>`; the socket takes `?token=` because

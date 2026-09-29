@@ -1,0 +1,11 @@
+{
+  "productName": "Drift Dev",
+  "identifier": "dev.drift.app.dev",
+  "app": {
+    "windows": [
+      {
+        "title": "Drift Dev"
+      }
+    ]
+  }
+}
