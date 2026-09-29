@@ -625,6 +625,8 @@ export interface components {
             id: string;
             model?: components["schemas"]["ModelRef"] | null;
             parentId?: string | null;
+            /** @description Whether a turn is in flight right now; set by the API, never stored. */
+            running?: boolean;
             title: string;
             /** Format: int64 */
             updatedAt: number;

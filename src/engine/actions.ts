@@ -3,7 +3,7 @@ import type { Permission, Session } from "@opencode-ai/sdk/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
 import { applyProviderCatalog } from "../state/provider-cache"
-import { applySessionSnapshot, pushNotice } from "./events"
+import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events"
 import { adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptQuestion, adaptSession, adaptTodos, type NativeMessageWithParts, type WorkspaceIndex } from "./native/adapt"
 import { EngineError, type Client } from "./native/client"
 import {
@@ -31,6 +31,7 @@ export type ProviderAuthResult = { ok: boolean; connected: boolean }
 export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
 
 const pageSize = 100
+const sessionPageSize = 200
 /** Reasoning effort names the composer offers, as thinking budgets in tokens. */
 const thinkingBudgets: Record<string, number> = { low: 4_000, medium: 10_000, high: 20_000, max: 32_000 }
 const oauthProviders = ["anthropic"]
@@ -109,20 +110,41 @@ export function createActions(
     return sorted.length > 0
   }
 
+  /** Every page of a listing; a truncated snapshot would purge sessions it never saw. */
+  async function allPages(params: { workspace?: string; archived?: boolean }) {
+    const all: Session[] = []
+    let before: string | undefined
+    for (;;) {
+      const page = await requireClient().sessions({ ...params, before, limit: sessionPageSize })
+      all.push(...page.map((s) => adaptSession(s, workspaces())))
+      if (page.length < sessionPageSize) return { sessions: all, running: page.filter((s) => s.running).map((s) => s.id) }
+      before = page[page.length - 1]!.id
+    }
+  }
+
+  /** The engine says which sessions have a turn in flight; everything else listed is idle. */
+  function reconcileStatus(sessions: Session[], running: Set<string>, captured: Record<string, number>) {
+    const statuses = Object.fromEntries(sessions.map((s) => [s.id, running.has(s.id) ? { type: "busy" as const } : { type: "idle" as const }]))
+    applyStatusSnapshot(set, { sessions, statuses, captured })
+  }
+
   async function loadSessions(directory: string) {
     const workspace = workspaces().id(directory)
     if (!workspace) return
     const captured = captureRevisions(state)
     const epoch = state.sessionSnapshotEpoch
-    const sessions = await requireClient().sessions({ workspace, limit: 200 })
+    const { sessions, running } = await allPages({ workspace })
     if (state.sessionSnapshotEpoch !== epoch) return
-    applySessionSnapshot(set, { sessions: sessions.map((s) => adaptSession(s, workspaces())), captured, scope: { directory } })
+    applySessionSnapshot(set, { sessions, captured, scope: { directory } })
+    reconcileStatus(sessions, new Set(running), captured)
   }
 
   async function loadAllSessions() {
     const captured = captureRevisions(state)
-    const [live, archived] = await Promise.all([requireClient().sessions({ limit: 200 }), requireClient().sessions({ archived: true, limit: 200 })])
-    applySessionSnapshot(set, { sessions: [...live, ...archived].map((s) => adaptSession(s, workspaces())), captured })
+    const [live, archived] = await Promise.all([allPages({}), allPages({ archived: true })])
+    const sessions = [...live.sessions, ...archived.sessions]
+    applySessionSnapshot(set, { sessions, captured })
+    reconcileStatus(sessions, new Set(live.running), captured)
     set("sessionSnapshotAll", true)
   }
 
@@ -152,6 +174,7 @@ export function createActions(
     if (parts.length === 0) return fail(id, "Prompt failed: the prompt is empty")
     try {
       await requireClient().submit(id, {
+        submissionId: submissionId(),
         parts,
         model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined,
         thinkingBudget: options.variant ? thinkingBudgets[options.variant] : undefined,
@@ -182,9 +205,15 @@ export function createActions(
     set(produce((draft) => purge(draft, id)))
   }
 
+  /// True only when the engine confirmed the archive; the caller decides what a failure means.
   async function purgeSession(id: string) {
-    await remove(id).catch(() => undefined)
-    return true
+    try {
+      await remove(id)
+      return true
+    } catch (cause) {
+      if (cause instanceof EngineError && cause.status === 404) return true
+      return false
+    }
   }
 
   async function refreshProviders() {
@@ -327,6 +356,11 @@ export function createActions(
 }
 
 export type EngineActions = ReturnType<typeof createActions>
+
+/** A retried send with the same id gets the original receipt instead of a second turn. */
+function submissionId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`
+}
 
 function purge(draft: EngineState, id: string) {
   delete draft.sessions[id]

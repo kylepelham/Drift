@@ -60,12 +60,15 @@ pub struct Aborted {
 
 #[utoipa::path(get, path = "/sessions", operation_id = "listSessions", params(ListQuery), responses((status = 200, body = Vec<Session>)))]
 pub async fn list(State(engine): State<Arc<Engine>>, Query(query): Query<ListQuery>) -> Result<Json<Vec<Session>>, ApiError> {
-    let sessions = engine.store.sessions(SessionFilter {
+    let mut sessions = engine.store.sessions(SessionFilter {
         workspace_id: query.workspace.as_deref(),
         archived: query.archived,
         before: query.before.as_deref(),
         limit: query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT),
     })?;
+    for session in &mut sessions {
+        session.running = engine.turns.is_running(&session.id);
+    }
     Ok(Json(sessions))
 }
 
@@ -86,7 +89,9 @@ pub async fn create(State(engine): State<Arc<Engine>>, Json(body): Json<NewSessi
 
 #[utoipa::path(get, path = "/sessions/{id}", operation_id = "getSession", responses((status = 200, body = Session), (status = 404)))]
 pub async fn get(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Session>, ApiError> {
-    Ok(Json(engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?))
+    let mut session = engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;
+    session.running = engine.turns.is_running(&id);
+    Ok(Json(session))
 }
 
 #[utoipa::path(patch, path = "/sessions/{id}", operation_id = "updateSession", request_body = PatchSession, responses((status = 200, body = Session), (status = 404)))]

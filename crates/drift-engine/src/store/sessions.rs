@@ -40,6 +40,7 @@ impl Store {
             created_at: now,
             updated_at: now,
             archived_at: None,
+            running: false,
         };
         self.lock().prepare_cached(
             "INSERT INTO session(id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at)
@@ -210,6 +211,7 @@ fn map_session(row: &Row) -> rusqlite::Result<Session> {
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
         archived_at: row.get(10)?,
+        running: false,
     })
 }
 

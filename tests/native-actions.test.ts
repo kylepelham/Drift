@@ -63,6 +63,9 @@ test("send maps model, files and reasoning effort onto the native prompt", async
     files: [{ mime: "image/png", url: "data:image/png;base64,AAAA", filename: "shot.png" }],
   })
   expect(result).toEqual({ ok: true })
+  const submitted = h.calls[0] as { method: string; args: [string, { submissionId?: string }] }
+  expect(typeof submitted.args[1].submissionId).toBe("string")
+  delete submitted.args[1].submissionId
   expect(h.calls[0]).toEqual({
     method: "submit",
     args: [
@@ -124,4 +127,41 @@ test("new sessions are created in the active workspace and removal archives", as
   await h.actions.remove("ses_new")
   expect(h.calls.at(-1)).toEqual({ method: "updateSession", args: ["ses_new", { archived: true }] })
   expect(h.state.sessions.ses_new).toBeUndefined()
+})
+
+test("session listings page to the end and restore running status", async () => {
+  const pages: unknown[][] = []
+  const full = Array.from({ length: 200 }, (_, i) => session(`ses_${i}`))
+  const h = harness({
+    sessions: ((params: { before?: string }) => {
+      pages.push([params])
+      const page = params.before ? [{ ...session("ses_tail"), running: true }] : full
+      return Promise.resolve(page)
+    }) as unknown as Client["sessions"],
+  })
+  await h.actions.loadSessions("C:/repo")
+  expect(pages.length).toBe(2)
+  expect(pages[1]).toEqual([{ workspace: "w1", before: "ses_199", limit: 200 }])
+  expect(Object.keys(h.state.sessions).length).toBe(201)
+  expect(h.state.status.ses_tail).toEqual({ type: "busy" })
+  expect(h.state.status.ses_0).toEqual({ type: "idle" })
+})
+
+test("purge only reports success when the engine archived the session", async () => {
+  const failing = harness({ updateSession: () => Promise.reject(new EngineError(500, "/sessions/x", "store")) })
+  failing.state.sessions.ses_1 = { id: "ses_1", directory: "C:/repo" } as never
+  expect(await failing.actions.purgeSession("ses_1")).toBe(false)
+  expect(failing.state.sessions.ses_1).toBeDefined()
+  const gone = harness({ updateSession: () => Promise.reject(new EngineError(404, "/sessions/x")) })
+  expect(await gone.actions.purgeSession("ses_1")).toBe(true)
+})
+
+test("every send carries a fresh submission id", async () => {
+  const h = harness()
+  await h.actions.send("ses_1", "a", { model: null, agent: "build" })
+  await h.actions.send("ses_1", "b", { model: null, agent: "build" })
+  const ids = h.calls.filter((c) => c.method === "submit").map((c) => (c.args[1] as { submissionId: string }).submissionId)
+  expect(ids).toHaveLength(2)
+  expect(ids[0]).toBeTruthy()
+  expect(ids[0]).not.toBe(ids[1])
 })

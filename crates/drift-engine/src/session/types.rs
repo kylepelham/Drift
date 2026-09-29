@@ -35,6 +35,9 @@ pub struct Session {
     pub updated_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<i64>,
+    /// Whether a turn is in flight right now; set by the API, never stored.
+    #[serde(default)]
+    pub running: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

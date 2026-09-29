@@ -12,6 +12,7 @@ export type EventStream = { close(): void; cursor(): number | undefined }
 
 const initialBackoffMs = 500
 const maxBackoffMs = 10_000
+const hydrateRetryMs = 1_000
 
 export function connectEvents(target: Target, handlers: EventHandlers): EventStream {
   let cursor: number | undefined
@@ -21,6 +22,8 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
   let backoff = initialBackoffMs
   let retry: ReturnType<typeof setTimeout> | undefined
   let held: Envelope[] | undefined
+  let hydrating: Promise<void> | undefined
+  let wanted: number | undefined
 
   const applyEvent = (envelope: Envelope) => {
     if (cursor !== undefined && envelope.seq <= cursor) return
@@ -28,27 +31,43 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
     handlers.event(envelope)
   }
 
-  const hydrate = async (seq: number) => {
-    held = []
-    try {
-      await handlers.hydrate(seq)
-    } finally {
-      const pending = held
+  /**
+   * Hydrates from `seq`. A request that lands while one is running is folded into the same held
+   * buffer and run afterwards; a failed hydrate keeps the cursor where it was and tries again.
+   */
+  const hydrate = (seq: number) => {
+    wanted = seq
+    if (hydrating) return
+    held ??= []
+    hydrating = (async () => {
+      while (!closed && wanted !== undefined) {
+        const target: number = wanted
+        wanted = undefined
+        try {
+          await handlers.hydrate(target)
+          cursor = target
+        } catch {
+          if (closed) break
+          await new Promise((resolve) => setTimeout(resolve, hydrateRetryMs))
+          wanted ??= target
+        }
+      }
+      const pending = held ?? []
       held = undefined
-      cursor = seq
+      hydrating = undefined
       for (const envelope of pending) applyEvent(envelope)
-    }
+    })()
   }
 
   const apply = (frame: Frame) => {
     if (frame.type === "hello") {
       const fresh = cursor === undefined || frame.instance !== instance
       instance = frame.instance
-      if (fresh) void hydrate(frame.seq)
+      if (fresh) hydrate(frame.seq)
       return
     }
     if (frame.type === "resync") {
-      void hydrate(frame.seq)
+      hydrate(frame.seq)
       return
     }
     if (held) held.push(frame)

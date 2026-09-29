@@ -153,3 +153,53 @@ test("close stops reconnecting", async () => {
   await new Promise((resolve) => setTimeout(resolve, 700))
   expect(engine.cursors.length).toBe(1)
 })
+
+test("a failed hydrate keeps the cursor and retries, applying held events once it succeeds", async () => {
+  const engine = fakeEngine()
+  let attempts = 0
+  const seen: number[] = []
+  const stream = connectEvents(engine.target, {
+    hydrate: () => {
+      attempts += 1
+      if (attempts === 1) throw new Error("engine hiccup")
+    },
+    event: (envelope) => seen.push(envelope.seq),
+  })
+  stops.push(engine.stop, stream.close)
+  await until(() => engine.cursors.length === 1)
+  engine.hello(3)
+  engine.send(workspaceEvent(4))
+  await until(() => attempts === 1)
+  expect(stream.cursor()).toBeUndefined()
+  expect(seen).toEqual([])
+  await until(() => attempts === 2 && seen.length === 1)
+  expect(seen).toEqual([4])
+  expect(stream.cursor()).toBe(4)
+})
+
+test("a resync during hydration folds into the same run instead of dropping held events", async () => {
+  const engine = fakeEngine()
+  const hydrated: number[] = []
+  const seen: number[] = []
+  let finish!: () => void
+  const stream = connectEvents(engine.target, {
+    hydrate: (seq) => {
+      hydrated.push(seq)
+      return hydrated.length === 1 ? new Promise<void>((resolve) => (finish = resolve)) : undefined
+    },
+    event: (envelope) => seen.push(envelope.seq),
+  })
+  stops.push(engine.stop, stream.close)
+  await until(() => engine.cursors.length === 1)
+  engine.hello(1)
+  await until(() => Boolean(finish))
+  engine.send(workspaceEvent(2))
+  engine.send({ type: "resync", seq: 5 })
+  engine.send(workspaceEvent(6))
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  finish()
+  await until(() => seen.length === 1)
+  expect(hydrated).toEqual([1, 5])
+  expect(seen).toEqual([6])
+  expect(stream.cursor()).toBe(6)
+})
