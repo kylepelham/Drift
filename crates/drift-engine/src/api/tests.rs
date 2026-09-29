@@ -315,6 +315,11 @@ async fn oauth_start_hands_back_a_url_and_bad_callbacks_are_rejected() {
     let unknown = h.post("/providers/anthropic/oauth/callback").json(&json!({ "input": "code#wrongstate" })).send().await.unwrap();
     assert_eq!(unknown.status(), 400);
     assert_eq!(h.post("/providers/openai/oauth").json(&json!({ "mode": "max" })).send().await.unwrap().status(), 404);
+    let codex: Value = h.post("/providers/openai/oauth").json(&json!({ "mode": "chatgpt" })).send().await.unwrap().json().await.unwrap();
+    assert_eq!(codex["method"], "auto");
+    assert!(codex["url"].as_str().unwrap().starts_with("https://auth.openai.com/oauth/authorize?"));
+    let missing = h.post("/providers/openai/oauth/callback").json(&json!({})).send().await.unwrap();
+    assert_eq!(missing.status(), 400);
 }
 
 #[tokio::test]

@@ -3,6 +3,7 @@
 pub mod anthropic;
 pub mod catalog;
 pub mod credentials;
+pub mod openai;
 mod sse;
 #[cfg(test)]
 mod tests;
@@ -19,7 +20,20 @@ use crate::session::types::Usage;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Credential {
     ApiKey { key: String },
-    OAuth { access: String, refresh: String, expires_at: i64 },
+    OAuth {
+        access: String,
+        refresh: String,
+        expires_at: i64,
+        /// ChatGPT account id for Codex; absent for Anthropic.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account: Option<String>,
+    },
+}
+
+impl Credential {
+    pub fn is_expired(&self) -> bool {
+        matches!(self, Self::OAuth { expires_at, .. } if *expires_at < crate::id::now_ms())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -39,6 +53,7 @@ pub enum Role {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Block {
     Text(String),
+    /// signature is whatever the provider needs to accept the block back: Anthropic's signature, OpenAI's encrypted content.
     Reasoning { text: String, signature: Option<String>, redacted: Option<String> },
     ToolUse { id: String, name: String, input: Value },
     ToolResult { call_id: String, content: String, is_error: bool },
@@ -120,6 +135,7 @@ pub type ChunkStream = Pin<Box<dyn Stream<Item = Result<Chunk, Error>> + Send>>;
 #[derive(Clone, Debug)]
 pub enum Provider {
     Anthropic(anthropic::Anthropic),
+    OpenAi(openai::OpenAi),
     Scripted(scripted::Scripted),
 }
 
@@ -127,6 +143,7 @@ impl Provider {
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
         match self {
             Self::Anthropic(provider) => provider.stream(request, credential).await,
+            Self::OpenAi(provider) => provider.stream(request, credential).await,
             Self::Scripted(provider) => provider.stream(request),
         }
     }

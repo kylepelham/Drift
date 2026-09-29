@@ -169,11 +169,16 @@ impl Engine {
 
     /// Expired subscription tokens are refreshed and the new pair stored before the turn starts.
     async fn fresh_credential(&self, provider: &str, credential: Credential) -> Result<Credential, TurnError> {
-        if provider != "anthropic" || !llm::anthropic::oauth::is_expired(&credential) {
+        let Credential::OAuth { refresh, .. } = &credential else { return Ok(credential) };
+        if !credential.is_expired() {
             return Ok(credential);
         }
-        let Credential::OAuth { refresh, .. } = &credential else { return Ok(credential) };
-        let fresh = llm::anthropic::oauth::refresh(&self.http, refresh).await.map_err(|_| TurnError::NoCredentials)?;
+        let refreshed = match provider {
+            "anthropic" => llm::anthropic::oauth::refresh(&self.http, refresh).await,
+            "openai" => llm::openai::oauth::refresh(&self.http, refresh).await,
+            _ => return Ok(credential),
+        };
+        let fresh = refreshed.map_err(|_| TurnError::NoCredentials)?;
         self.credentials.set(provider, &fresh).map_err(TurnError::Store)?;
         Ok(fresh)
     }
@@ -182,11 +187,10 @@ impl Engine {
         if let Some(provider) = self.turns.provider_override.lock().unwrap().clone() {
             return Some(provider);
         }
+        let base = |name: &str| std::env::var(name).ok();
         match id {
-            "anthropic" => Some(Provider::Anthropic(match std::env::var("DRIFT_ANTHROPIC_BASE_URL") {
-                Ok(url) => llm::anthropic::Anthropic::new(&url),
-                Err(_) => llm::anthropic::Anthropic::default(),
-            })),
+            "anthropic" => Some(Provider::Anthropic(base("DRIFT_ANTHROPIC_BASE_URL").map_or_else(llm::anthropic::Anthropic::default, |url| llm::anthropic::Anthropic::new(&url)))),
+            "openai" => Some(Provider::OpenAi(base("DRIFT_OPENAI_BASE_URL").map_or_else(llm::openai::OpenAi::default, |url| llm::openai::OpenAi::new(&url)))),
             _ => None,
         }
     }

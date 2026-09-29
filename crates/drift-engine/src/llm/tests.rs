@@ -107,7 +107,7 @@ async fn subscription_tokens_send_the_claude_code_shape_and_unprefix_tool_names(
         "event: message_stop\ndata: {}\n\n"
     );
     let (fake, url) = fake(200, reply).await;
-    let credential = Credential::OAuth { access: "tok".into(), refresh: String::new(), expires_at: 0 };
+    let credential = Credential::OAuth { access: "tok".into(), refresh: String::new(), expires_at: 0, account: None };
     let mut request = request();
     request.tools = vec![crate::llm::ToolSpec { name: "read".into(), description: "r".into(), input_schema: serde_json::json!({}) }];
     let stream = Anthropic::new(&url).stream(&request, &credential).await.unwrap();

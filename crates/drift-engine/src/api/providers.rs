@@ -9,6 +9,7 @@ use utoipa::ToSchema;
 
 use super::error::ApiError;
 use crate::llm::anthropic::oauth;
+use crate::llm::openai::oauth as codex;
 use crate::llm::catalog::{Model, ProviderInfo};
 use crate::llm::Credential;
 use crate::Engine;
@@ -76,8 +77,12 @@ pub async fn remove(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OAuthMode {
+    /// Claude Pro or Max.
     Max,
+    /// Anthropic Console.
     Console,
+    /// ChatGPT Plus, Pro or Team through Codex.
+    Chatgpt,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -87,39 +92,56 @@ pub struct OAuthStartBody {
 
 #[derive(Serialize, ToSchema)]
 pub struct OAuthStarted {
-    /// Open this in a browser; the user pastes back what the callback page shows.
+    /// Open this in a browser.
     pub url: String,
     pub state: String,
+    /// `code`: the user pastes what the callback page shows. `auto`: the engine catches the callback itself.
+    pub method: String,
 }
 
 #[derive(Deserialize, ToSchema)]
 pub struct OAuthFinishBody {
-    /// `code#state`, the callback URL, or its query string.
+    /// For `code` flows: `code#state`, the callback URL, or its query string. Empty for `auto` flows.
+    #[serde(default)]
     pub input: String,
+    /// The `state` from `startOAuth`; required for `auto` flows.
+    #[serde(default)]
+    pub state: Option<String>,
 }
 
 #[utoipa::path(post, path = "/providers/{id}/oauth", operation_id = "startOAuth", request_body = OAuthStartBody, responses((status = 200, body = OAuthStarted), (status = 404)))]
 pub async fn oauth_start(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<OAuthStartBody>) -> Result<Json<OAuthStarted>, ApiError> {
-    if id != "anthropic" {
-        return Err(ApiError::not_found("oauth provider"));
-    }
-    let mode = match body.mode {
-        OAuthMode::Max => oauth::Mode::Max,
-        OAuthMode::Console => oauth::Mode::Console,
+    let (started, method) = match (id.as_str(), body.mode) {
+        ("anthropic", OAuthMode::Max) => (oauth::start(oauth::Mode::Max), "code"),
+        ("anthropic", OAuthMode::Console) => (oauth::start(oauth::Mode::Console), "code"),
+        ("openai", OAuthMode::Chatgpt) => {
+            let started = codex::start();
+            (oauth::Started { url: started.url, state: started.state, verifier: started.verifier }, "auto")
+        }
+        _ => return Err(ApiError::not_found("oauth provider")),
     };
-    let started = oauth::start(mode);
     engine.oauth.lock().unwrap().insert(started.state.clone(), started.verifier);
-    Ok(Json(OAuthStarted { url: started.url, state: started.state }))
+    Ok(Json(OAuthStarted { url: started.url, state: started.state, method: method.into() }))
 }
 
 #[utoipa::path(post, path = "/providers/{id}/oauth/callback", operation_id = "finishOAuth", request_body = OAuthFinishBody, responses((status = 204), (status = 400), (status = 404)))]
 pub async fn oauth_finish(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<OAuthFinishBody>) -> Result<StatusCode, ApiError> {
-    if id != "anthropic" {
-        return Err(ApiError::not_found("oauth provider"));
-    }
-    let (code, state) = oauth::parse_callback(&body.input).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "invalid", "paste the code#state value or the callback URL"))?;
-    let verifier = engine.oauth.lock().unwrap().remove(&state).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "invalid", "unknown or expired sign-in state"))?;
-    let credential = oauth::exchange(&engine.http, &code, &state, &verifier).await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e))?;
+    let invalid = |message: &str| ApiError::new(StatusCode::BAD_REQUEST, "invalid", message);
+    let credential = match id.as_str() {
+        "anthropic" => {
+            let (code, state) = oauth::parse_callback(&body.input).ok_or_else(|| invalid("paste the code#state value or the callback URL"))?;
+            let verifier = engine.oauth.lock().unwrap().remove(&state).ok_or_else(|| invalid("unknown or expired sign-in state"))?;
+            oauth::exchange(&engine.http, &code, &state, &verifier).await
+        }
+        "openai" => {
+            let state = body.state.ok_or_else(|| invalid("state is required"))?;
+            let verifier = engine.oauth.lock().unwrap().remove(&state).ok_or_else(|| invalid("unknown or expired sign-in state"))?;
+            let code = codex::wait_for_callback(&state).await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e))?;
+            codex::exchange(&engine.http, &code, &verifier).await
+        }
+        _ => return Err(ApiError::not_found("oauth provider")),
+    };
+    let credential = credential.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e))?;
     engine.credentials.set(&id, &credential).map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e))?;
     Ok(StatusCode::NO_CONTENT)
 }

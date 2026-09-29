@@ -101,11 +101,8 @@ async fn token_request(client: &reqwest::Client, body: &Value) -> Result<Credent
         access: field("access_token")?,
         refresh: field("refresh_token")?,
         expires_at: crate::id::now_ms() + expires_in * 1000,
+        account: None,
     })
-}
-
-pub fn is_expired(credential: &Credential) -> bool {
-    matches!(credential, Credential::OAuth { expires_at, .. } if *expires_at < crate::id::now_ms())
 }
 
 fn random_bytes(len: usize) -> Vec<u8> {
@@ -119,7 +116,7 @@ pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
     sha2::Sha256::digest(data).into()
 }
 
-fn base64url(bytes: &[u8]) -> String {
+pub(crate) fn base64url(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
@@ -174,10 +171,10 @@ mod tests {
 
     #[test]
     fn expiry_is_strictly_past() {
-        let live = Credential::OAuth { access: "a".into(), refresh: "r".into(), expires_at: crate::id::now_ms() + 10_000 };
-        let dead = Credential::OAuth { access: "a".into(), refresh: "r".into(), expires_at: 1 };
-        assert!(!is_expired(&live));
-        assert!(is_expired(&dead));
-        assert!(!is_expired(&Credential::ApiKey { key: "k".into() }));
+        let live = Credential::OAuth { access: "a".into(), refresh: "r".into(), expires_at: crate::id::now_ms() + 10_000, account: None };
+        let dead = Credential::OAuth { access: "a".into(), refresh: "r".into(), expires_at: 1, account: None };
+        assert!(!live.is_expired());
+        assert!(dead.is_expired());
+        assert!(!Credential::ApiKey { key: "k".into() }.is_expired());
     }
 }
