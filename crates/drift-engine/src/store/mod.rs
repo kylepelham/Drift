@@ -1,6 +1,9 @@
 //! One SQLite database, one connection, one writer. Schema changes are numbered migrations.
 
 mod migrations;
+mod sessions;
+
+pub use sessions::{NewSession, SessionFilter};
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -102,10 +105,7 @@ fn map_workspace(row: &rusqlite::Row) -> rusqlite::Result<Workspace> {
 }
 
 fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    crate::id::now_ms()
 }
 
 fn new_id() -> String {
@@ -113,10 +113,10 @@ fn new_id() -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn store() -> Store {
+    pub(crate) fn store() -> Store {
         let conn = Connection::open_in_memory().unwrap();
         migrations::apply(&conn).unwrap();
         Store(Mutex::new(conn))

@@ -7,13 +7,38 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use utoipa::ToSchema;
 
+use crate::session::types::{Message, PartRow, Session};
 use crate::store::Workspace;
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionStatus {
+    Idle,
+    Running,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum Event {
     #[serde(rename = "workspace.created")]
     WorkspaceCreated { workspace: Workspace },
+    #[serde(rename = "session.created")]
+    SessionCreated { session: Session },
+    #[serde(rename = "session.updated")]
+    SessionUpdated { session: Session },
+    #[serde(rename = "session.status")]
+    SessionStatusChanged { session_id: String, status: SessionStatus },
+    #[serde(rename = "message.created")]
+    MessageCreated { message: Message },
+    #[serde(rename = "message.updated")]
+    MessageUpdated { message: Message },
+    #[serde(rename = "part.created")]
+    PartCreated { part: PartRow },
+    #[serde(rename = "part.updated")]
+    PartUpdated { part: PartRow },
+    /// Streamed text appended to a `text` or `reasoning` part; the part itself is saved later.
+    #[serde(rename = "part.delta")]
+    PartDelta { session_id: String, message_id: String, part_id: String, delta: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
