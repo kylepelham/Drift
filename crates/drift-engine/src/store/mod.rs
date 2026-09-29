@@ -3,7 +3,7 @@
 mod migrations;
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -30,10 +30,10 @@ pub struct Workspace {
 
 pub fn open(dir: &Path) -> rusqlite::Result<Store> {
     std::fs::create_dir_all(dir).ok();
-    open_at(&dir.join(DATABASE_FILE))
+    open_file(&dir.join(DATABASE_FILE))
 }
 
-fn open_at(file: &Path) -> rusqlite::Result<Store> {
+pub fn open_file(file: &Path) -> rusqlite::Result<Store> {
     let conn = Connection::open(file)?;
     conn.busy_timeout(BUSY_TIMEOUT)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
@@ -44,8 +44,13 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
 }
 
 impl Store {
+    /// The one connection. Hold the guard for the whole unit of work and no longer.
+    pub fn lock(&self) -> MutexGuard<'_, Connection> {
+        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub fn workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
-        let conn = self.0.lock().unwrap();
+        let conn = self.lock();
         let mut stmt = conn.prepare_cached(&format!(
             "SELECT {WORKSPACE_COLUMNS} FROM workspace WHERE removed_at IS NULL ORDER BY last_used DESC"
         ))?;
@@ -55,7 +60,7 @@ impl Store {
 
     /// Adds a directory, or restores and touches the row that already holds it.
     pub fn add_workspace(&self, path: &str, name: &str, icon: &str) -> rusqlite::Result<Workspace> {
-        let conn = self.0.lock().unwrap();
+        let conn = self.lock();
         let existing: Option<String> = conn
             .prepare_cached(
                 "SELECT id FROM workspace

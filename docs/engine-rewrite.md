@@ -176,9 +176,9 @@ under it is true, not before.
 - Every request carries `Authorization: Bearer <token>`; the socket takes `?token=` because
   browsers cannot set headers on a WebSocket. The shell hands the UI the token through the
   `native_engine_status` command.
-- Until M1 the shell store and the engine store open the same `drift.db`. The `workspace`
-  table is shared with an identical schema; the shell's other tables fold into the engine
-  store at M4.
+- The engine owns the one connection to `drift.db` and the migration ledger. The shell's
+  `Store` borrows it (`drift_engine::store::Store::lock`) for its own tables until they fold
+  into the engine at M4. `workspace` is already the engine's table.
 
 ## Baselines
 

@@ -318,7 +318,7 @@ fn mcp_decisions_are_global_and_survive_definition_changes() {
 fn legacy_remote_access_key_survives_for_older_builds_and_devices_round_trip() {
     let dir = test_dir("remote-legacy");
     {
-        let conn = Connection::open(dir.join(DATABASE_FILE)).unwrap();
+        let conn = Connection::open(dir.join("drift.db")).unwrap();
         conn.execute_batch(
             "CREATE TABLE remote_access(id INTEGER PRIMARY KEY CHECK(id = 1), enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)), token TEXT NOT NULL) STRICT;
              INSERT INTO remote_access(id, enabled, token) VALUES(1, 1, 'old-shared-key');",
@@ -329,7 +329,7 @@ fn legacy_remote_access_key_survives_for_older_builds_and_devices_round_trip() {
     assert!(store.remote_access_enabled().unwrap());
     store.save_remote_access(false).unwrap();
     assert!(!store.remote_access_enabled().unwrap());
-    let kept: String = store.0.lock().unwrap().query_row("SELECT token FROM remote_access", [], |row| row.get(0)).unwrap();
+    let kept: String = store.0.lock().query_row("SELECT token FROM remote_access", [], |row| row.get(0)).unwrap();
     assert_eq!(kept, "old-shared-key");
     let device = RemoteDevice {
         id: "d1".into(),

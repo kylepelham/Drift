@@ -167,7 +167,7 @@ async fn reconnecting_with_a_cursor_replays_missed_events() {
 async fn stale_cursor_gets_resync() {
     let h = harness().await;
     let engine = Arc::new(Engine {
-        store: crate::store::open(&h._dir.0.join("stale")).unwrap(),
+        store: Arc::new(crate::store::open(&h._dir.0.join("stale")).unwrap()),
         hub: crate::event::Hub::new(2),
         token: h.engine.token.clone(),
     });

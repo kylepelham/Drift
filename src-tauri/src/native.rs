@@ -28,12 +28,13 @@ pub(crate) struct NativeStatus {
     error: Option<String>,
 }
 
-pub(crate) fn start(app: &AppHandle, data_dir: &Path) -> Result<(), drift_engine::Error> {
+pub(crate) fn start(app: &AppHandle, data_dir: &Path) -> Result<Arc<Engine>, drift_engine::Error> {
     let engine = Engine::open(data_dir)?;
     app.manage(Native {
         engine: engine.clone(),
         state: Mutex::new(Listening::Pending),
     });
+    let started = engine.clone();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
@@ -49,7 +50,7 @@ pub(crate) fn start(app: &AppHandle, data_dir: &Path) -> Result<(), drift_engine
             (Err(error), _) => Listening::Failed(error.to_string()),
         };
     });
-    Ok(())
+    Ok(started)
 }
 
 pub(crate) fn stop(app: &AppHandle) {

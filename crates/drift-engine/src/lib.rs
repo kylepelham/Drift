@@ -45,7 +45,7 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 pub struct Engine {
-    pub store: Store,
+    pub store: Arc<Store>,
     pub hub: Hub,
     /// Every request must present this; the shell hands it to the UI, remote clients get it via the gateway.
     pub token: String,
@@ -54,7 +54,7 @@ pub struct Engine {
 impl Engine {
     pub fn open(data_dir: &Path) -> Result<Arc<Self>, Error> {
         Ok(Arc::new(Self {
-            store: store::open(data_dir)?,
+            store: Arc::new(store::open(data_dir)?),
             hub: Hub::new(EVENT_HISTORY),
             token: random_hex(32),
         }))

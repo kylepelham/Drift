@@ -180,8 +180,8 @@ fn main() {
             let config_dir = app.path().app_config_dir().expect("no app config dir");
             std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
             app.manage(ConfigRoot(config_dir));
-            native::start(app.handle(), &data_dir).expect("failed to open the drift engine");
-            let store = store::open(&data_dir).expect("failed to open drift store");
+            let engine = native::start(app.handle(), &data_dir).expect("failed to open the drift engine");
+            let store = store::attach(engine.store.clone()).expect("failed to open drift store");
             let ui_state = ui_state::UiStateAuthority::load(&store)
                 .expect("failed to load UI mirror state");
             let shell_timeout = ui_state::ShellTimeoutAuthority::load(&store)
