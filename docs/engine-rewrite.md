@@ -253,6 +253,39 @@ Open, deliberately: one credential slot per provider (an API key and a subscript
 replace each other; account profiles are M3 work), and the shell's `session_meta` archive
 table still exists beside the engine's `archived_at` until M4 folds shell tables in.
 
+## M2 behaviour
+
+- **MCP.** Servers live in the engine's `mcp_config` table (`PUT /mcp/{name}` with a stdio or
+  http config). A saved config is approved by hash (`POST /mcp/{name}/approve`); changing
+  the config withdraws approval, so a rewritten command is looked at again before it runs.
+  Approved, enabled servers connect at startup and on demand through rmcp. Their tools join
+  the registry as `<server>_<tool>`; tools the server marks read-only run without asking,
+  the rest ask under kind `mcp` with pattern `<server>/<tool>`, and "always" therefore
+  covers the whole server. MCP OAuth is not implemented yet.
+- **Config.** `Config::load` reads `~/.config/drift/drift.json` then `<workspace>/drift.json`
+  (project rules first, so they win), plus `.drift/agents/*.md`, `.drift/commands/*.md` and
+  skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at both roots (project
+  shadows home). `AGENTS.md` beats `CLAUDE.md`. `GET /workspaces/{id}/config` serves the
+  merged result. Front matter is `key: value` lines only.
+- **Agents.** `build` and `plan` are built in; `plan` gets only read-only tools and its
+  prompt. A project agent of the same name replaces a built-in. A session's `agent` is set
+  on create or `PATCH`; the agent's prompt is appended to the system prompt, its `tools`
+  list filters the registry, its `model` is the default when the session has none.
+- **Commands.** `POST /sessions/{id}/command` expands `$ARGUMENTS` in the template and
+  submits the result as a turn.
+- **Skills** are listed in the system prompt by name and description; the `skill` tool
+  returns SKILL.md's body and its directory.
+- **Formatters.** After a mutating tool succeeds, the first formatter whose extensions
+  match each written file runs. Built-ins (prettier, rustfmt, gofmt, ruff, black) apply
+  only when on PATH; `drift.json` `formatters` can set a name to `false` or to
+  `{ command, extensions }` with `$FILE`. Results land in the call's `metadata.formatted`;
+  failures are ignored.
+- **Permissions** resolve in order: session "always" answers, the workspace's `drift.json`
+  rules, then the global policy.
+- **Sign-in.** Anthropic offers Claude Pro/Max and Console (paste-the-code flows); OpenAI
+  offers ChatGPT through the Codex flow, where the engine listens on `localhost:1455` and
+  the callback route completes on its own.
+
 ## Baselines
 
 Medians of five runs on the development machine, recorded at M0. The opencode numbers are

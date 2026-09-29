@@ -34,13 +34,13 @@ change the plan there when a decision changes.
 - [x] OpenAI Responses, Codex OAuth, `apply_patch` profile
 - [x] Gemini (adapter only; not yet exercised against the live API)
 - [x] OpenAI-compatible generic with xAI, Z.ai, OpenRouter, LM Studio and Ollama presets
-- [ ] MCP through rmcp: stdio, HTTP, approval, reconnect, reload
+- [x] MCP through rmcp: stdio, HTTP, approval (reconnect and reload: M3)
 - [x] `todowrite`, `question`, `webfetch`
-- [ ] `skill`
+- [x] `skill`
 - [x] Read-only tool calls run concurrently
-- [ ] Async questions
-- [ ] Formatter hooks
-- [ ] Config loading: `drift.json`, agents, commands, skills, instruction files
+- [x] Questions (blocking; async variant is M3)
+- [x] Formatter hooks
+- [x] Config loading: `drift.json`, agents, commands, skills, instruction files
 
 ## M3: tree and lifecycle
 
