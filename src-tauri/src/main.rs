@@ -9,6 +9,7 @@ mod engine_db;
 mod file_preview;
 mod mcp;
 mod mcp_external;
+mod native;
 mod permissions;
 mod remote;
 mod remote_auth;
@@ -103,6 +104,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             engine::engine_status,
             engine::restart_engine,
+            native::native_engine_status,
             updater::check_update,
             updater::install_update,
             usage_limits::provider_usage,
@@ -178,6 +180,7 @@ fn main() {
             let config_dir = app.path().app_config_dir().expect("no app config dir");
             std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
             app.manage(ConfigRoot(config_dir));
+            native::start(app.handle(), &data_dir).expect("failed to open the drift engine");
             let store = store::open(&data_dir).expect("failed to open drift store");
             let ui_state = ui_state::UiStateAuthority::load(&store)
                 .expect("failed to load UI mirror state");
@@ -239,6 +242,7 @@ fn main() {
             if let RunEvent::Exit = event {
                 app.state::<remote::RemoteAccess>().stop_on_exit();
                 engine::stop_engine_on_exit(app);
+                native::stop(app);
             }
         });
 }

@@ -136,6 +136,8 @@ export type EngineState = {
   cursors: Record<string, string | null>
   revisions: Record<string, number>
   version: string
+  nativeVersion: string
+  nativeOnline: boolean
   startupError: string
   engineError: string
   engineRestarting: boolean
@@ -198,6 +200,8 @@ export function createEngineState() {
     cursors: {},
     revisions: {},
     version: "",
+    nativeVersion: "",
+    nativeOnline: false,
   })
 }
 

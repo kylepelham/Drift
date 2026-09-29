@@ -1923,6 +1923,11 @@ function AboutSection() {
   const engine = useEngine()
   const engineVersion = () =>
     engine.state.version || (engine.state.startupError ? t("drift.about.failed") : t("drift.about.starting"))
+  const nativeVersion = () => {
+    if (!engine.state.nativeVersion) return t("drift.about.starting")
+    const link = engine.state.nativeOnline ? t("drift.about.native.connected") : t("drift.about.native.offline")
+    return `${engine.state.nativeVersion} (${link})`
+  }
 
   return (
     <div class="space-y-6 select-text">
@@ -1938,6 +1943,9 @@ function AboutSection() {
         </SettingsRow>
         <SettingsRow title={t("drift.about.row.engine.title")} description={t("drift.about.row.engine.description")}>
           <span class="font-mono text-[0.75rem] text-ink-muted">{engineVersion()}</span>
+        </SettingsRow>
+        <SettingsRow title={t("drift.about.row.native.title")} description={t("drift.about.row.native.description")}>
+          <span class="font-mono text-[0.75rem] text-ink-muted">{nativeVersion()}</span>
         </SettingsRow>
         <SettingsRow
           title={t("drift.about.row.updates.title")}

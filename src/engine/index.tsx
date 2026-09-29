@@ -21,6 +21,9 @@ import {
 import { applySessionSnapshot, applyStatusSnapshot, reduce } from "./events"
 import { streamEvents } from "./sse"
 import { seedBench } from "./bench"
+import { createClient as createNativeClient } from "./native/client"
+import { connectEvents as connectNativeEvents, type EventStream } from "./native/events"
+import { resolveTarget as resolveNativeTarget } from "./native/target"
 import {
   captureRevisions,
   compareMessages,
@@ -480,6 +483,20 @@ export function EngineProvider(props: ParentProps) {
       set("engineError", message)
       if (directory) set("connection", "offline")
     })
+  // The native engine runs beside the legacy one until M1; for now it only reports itself.
+  let nativeEvents: EventStream | undefined
+  void resolveNativeTarget()
+    .then(async (target) => {
+      const health = await createNativeClient(target).health()
+      if (disposed) return
+      set("nativeVersion", health.version)
+      nativeEvents = connectNativeEvents(target, {
+        hydrate: () => {},
+        event: () => {},
+        online: (online) => set("nativeOnline", online),
+      })
+    })
+    .catch(() => undefined)
   const events = shellEvents()
   if (events)
     void Promise.all([
@@ -500,6 +517,7 @@ export function EngineProvider(props: ParentProps) {
     disposed = true
     pumpAbort?.abort()
     versionAbort?.abort()
+    nativeEvents?.close()
     unlistenEngineExit?.()
     unlistenSkillConfig?.()
     unlistenMcpConfig?.()

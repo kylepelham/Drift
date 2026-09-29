@@ -81,7 +81,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: .
 
       - name: Native unit tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo test --workspace
+
+      - name: Native lint
+        run: cargo clippy --workspace --all-targets -- -D warnings

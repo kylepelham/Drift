@@ -6,12 +6,12 @@ change the plan there when a decision changes.
 
 ## M0: skeleton
 
-- [ ] Cargo workspace with `crates/drift-engine`, linked into `src-tauri`
-- [ ] axum on loopback inside the Tauri process, `/health`, `/openapi.json`
-- [ ] WS hub: `seq`, ring buffer, `cursor` replay, `resync`
-- [ ] SQLite migrations for engine tables in `drift.db`
-- [ ] Generated TypeScript client wired into `src/engine/`
-- [ ] Perf baselines recorded against the opencode engine
+- [x] Cargo workspace with `crates/drift-engine`, linked into `src-tauri`
+- [x] axum on loopback inside the Tauri process, `/health`, `/openapi.json`
+- [x] WS hub: `seq`, ring buffer, `cursor` replay, `resync`
+- [x] SQLite store with versioned migrations in `drift.db`
+- [x] Generated TypeScript client wired into `src/engine/`
+- [x] Perf baselines recorded against the opencode engine
 
 ## M1: vertical slice
 

@@ -22,7 +22,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 |---|---|
 | Approach | Clean-room rewrite in Rust, test driven. Upstream opencode is read as reference only (gitignored clone under `examples/opencode`). |
 | Topology | Engine is a library crate linked into the Tauri process. The frontend always talks HTTP + WebSocket on loopback so local and remote share one client. No sidecars. |
-| API | New. HTTP for request/response, one WebSocket for events and replies with a resume cursor. OpenAPI generated with `utoipa`; the TypeScript client is generated at build time. |
+| API | New. HTTP for request/response, one WebSocket for events and replies with a resume cursor. OpenAPI generated with `utoipa`; the TypeScript types are generated from it and a thin typed request wrapper (`src/engine/native/client.ts`) is maintained by hand over them. |
 | Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, Z.ai, LM Studio, Ollama. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
 | Catalog | models.dev JSON fetched and cached, filtered to supported providers, with a bundled snapshot fallback. Each entry carries a tool profile (`edit` or `apply_patch`). |
 | Auth | API keys. Anthropic subscription OAuth (PKCE; the `@ex-machina/opencode-anthropic-auth` tarball is the spec). OpenAI Codex OAuth (upstream `plugin/openai/codex.ts` is the spec). Credentials stored with the `keyring` crate; encrypted file fallback on headless Linux. |
@@ -93,9 +93,13 @@ WS     /events?cursor=
 
 Server to client over the socket: `session.*`, `message.*`, `part.delta`,
 `permission.asked`, `question.asked`, `todo.updated`, `mcp.*`. Client to server:
-`permission.reply`, `question.reply`. Every event carries a monotonic `seq`. Reconnecting
-with `cursor` replays from a ring buffer; a cursor that has aged out returns a `resync`
-frame and the client hydrates.
+`permission.reply`, `question.reply`. Every event carries a monotonic `seq`. The first
+frame is `hello` with the engine's random `instance` id and current `seq`. Reconnecting
+with `cursor` replays from a ring buffer; a cursor that has aged out, or that is past the
+head because it came from another process, returns `resync` and the client hydrates. A
+client that sees a different `instance` in `hello` hydrates as well. Events that arrive
+while a hydrate is in flight are held and applied after it, skipping any the snapshot
+already covered.
 
 ## Data model
 
@@ -158,6 +162,37 @@ under it is true, not before.
 
 - `Hook` trait finalised with serde types.
 - Prompt overrides and MCP approval implemented as internal hooks to prove the seam.
+
+## Working on it
+
+- `cargo test -p drift-engine` for the engine, `cargo test --workspace` for everything,
+  `cargo clippy --workspace --all-targets -- -D warnings` before any commit.
+- `bun run gen:engine` regenerates `src/engine/native/types.ts` from the engine's OpenAPI
+  (`drift-engined --openapi`). `tests/engine-client.test.ts` fails when it is stale.
+- `bun run dev` starts the legacy sidecar, `drift-engined`, and Vite; the browser reaches
+  the native engine through `VITE_NATIVE_ENGINE_URL` and `VITE_NATIVE_ENGINE_TOKEN`.
+- `bun run bench:engine [opencode|native] [runs]` measures the baselines below against a
+  stub provider that answers instantly, so only engine time is counted.
+- Every request carries `Authorization: Bearer <token>`; the socket takes `?token=` because
+  browsers cannot set headers on a WebSocket. The shell hands the UI the token through the
+  `native_engine_status` command.
+- Until M1 the shell store and the engine store open the same `drift.db`. The `workspace`
+  table is shared with an identical schema; the shell's other tables fold into the engine
+  store at M4.
+
+## Baselines
+
+Medians of five runs on the development machine, recorded at M0. The opencode numbers are
+the target to beat; the native engine only has a cold start until M1 gives it a turn loop.
+
+| Measure | opencode 1.18.33 | native (M0) |
+|---|---|---|
+| Cold start, process spawn to first event frame | 1012 ms | 26 ms |
+| Prompt accepted to provider request sent | 1066 ms | |
+| Provider response to text event delivered | 49 ms | |
+| System prompt per turn | 12,089 chars | |
+| Tool schemas per turn | 25,369 chars | |
+| Approximate tokens per turn (chars / 4) | 9,365 | |
 
 ## Testing
 

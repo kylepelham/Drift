@@ -173,6 +173,7 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 
 /** Keys that deliberately fall back to English until locale-specific translations ship. */
 const pendingTranslation = new Set([
+  ...pendingKeys("drift.about", "row.native.title row.native.description native.connected native.offline"),
   ...pendingKeys(
     "drift.settings.toolRouting",
     `

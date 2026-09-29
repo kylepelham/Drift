@@ -1,7 +1,7 @@
 use crate::remote_auth::{self, Auth, PendingLink};
 use crate::store::{RemoteDevice, Store};
 use crate::{commands, config, editor, engine, file_preview, mcp, tool_routing, ui_state, voice};
-use axum::body::{Body, Bytes};
+use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Extension, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
 use axum::middleware::{self, Next};
@@ -570,7 +570,7 @@ async fn static_asset(uri: Uri) -> Response {
     let content =
         dev_asset(path).or_else(|| FrontendAssets::get(path).map(|asset| asset.data.into_owned()));
     let Some(content) = content.or_else(|| {
-        (!Path::new(path).extension().is_some())
+        Path::new(path).extension().is_none()
             .then(|| {
                 dev_asset("index.html").or_else(|| {
                     FrontendAssets::get("index.html").map(|asset| asset.data.into_owned())
@@ -706,7 +706,7 @@ async fn proxy_engine(
         StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let response_headers = response.headers().clone();
     let stream = revoke_on_auth_change(response.bytes_stream(), auth)
-        .map(|chunk| chunk.map(Bytes::from).map_err(std::io::Error::other));
+        .map(|chunk| chunk.map_err(std::io::Error::other));
     let mut proxied = Response::new(Body::from_stream(stream));
     *proxied.status_mut() = status;
     for (name, value) in &response_headers {

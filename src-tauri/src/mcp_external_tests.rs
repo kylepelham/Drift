@@ -103,7 +103,7 @@ fn locate_requires_the_exact_fingerprint() {
 #[test]
 fn save_rewrites_only_the_member_and_preserves_comments() {
     let path = write_fixture(JSONC_FIXTURE);
-    let located = locate(&[path.clone()], "docs", PARITY_FINGERPRINT);
+    let located = locate(std::slice::from_ref(&path), "docs", PARITY_FINGERPRINT);
     let replacement = json!({ "type": "remote", "url": "https://new.example.com" });
     let text = apply_save(&located[0], "docs", &replacement).unwrap();
     assert!(text.contains("Keep this comment"));
@@ -119,7 +119,7 @@ fn save_rewrites_only_the_member_and_preserves_comments() {
 #[test]
 fn save_renames_members_but_rejects_collisions() {
     let path = write_fixture(JSONC_FIXTURE);
-    let located = locate(&[path.clone()], "docs", PARITY_FINGERPRINT);
+    let located = locate(std::slice::from_ref(&path), "docs", PARITY_FINGERPRINT);
     let replacement = json!({ "type": "local", "command": ["renamed"] });
     let text = apply_save(&located[0], "renamed", &replacement).unwrap();
     let parsed: Value = serde_json::from_str(&neutralize_jsonc(&text)).unwrap();
@@ -155,7 +155,7 @@ fn remove_handles_first_middle_and_last_members() {
             let parsed: Value = serde_json::from_str(&neutral).unwrap();
             super::fingerprint(name, &parsed["mcp"][name]).unwrap()
         });
-        let located = locate(&[path.clone()], name, &fingerprint);
+        let located = locate(std::slice::from_ref(&path), name, &fingerprint);
         assert_eq!(located.len(), 1, "{name} should be locatable");
         let text = apply_remove(&located[0]).unwrap();
         let parsed: Value = serde_json::from_str(&neutralize_jsonc(&text)).unwrap();
@@ -199,7 +199,7 @@ fn removing_the_only_member_leaves_an_empty_object() {
         r#"{ "mcp": { "docs": { "type": "local", "command": ["one"] } }, "keep": true }"#,
     );
     let config = json!({ "type": "local", "command": ["one"] });
-    let located = locate(&[path.clone()], "docs", &fingerprint("docs", &config).unwrap());
+    let located = locate(std::slice::from_ref(&path), "docs", &fingerprint("docs", &config).unwrap());
     let text = apply_remove(&located[0]).unwrap();
     let parsed: Value = serde_json::from_str(&neutralize_jsonc(&text)).unwrap();
     assert_eq!(parsed["mcp"], json!({}));

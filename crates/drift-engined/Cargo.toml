@@ -1,0 +1,8 @@
+[package]
+name = "drift-engined"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+drift-engine = { path = "../drift-engine" }
+tokio = { workspace = true, features = ["signal"] }
