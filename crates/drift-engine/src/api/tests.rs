@@ -353,3 +353,27 @@ async fn deleting_a_session_removes_it_and_its_messages() {
     let deleted = until(&mut socket, "session.deleted").await;
     assert_eq!(deleted["sessionId"], session_id);
 }
+
+#[tokio::test]
+async fn mcp_servers_are_saved_approved_connected_and_their_tools_reach_the_model() {
+    use crate::llm::catalog::ToolProfile;
+    let h = harness().await;
+    let mut socket = h.ws("").await;
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
+    let saved: Value = h.put("/mcp/echo").json(&json!({ "type": "stdio", "command": "node", "args": [script] })).send().await.unwrap().json().await.unwrap();
+    assert_eq!(saved["state"], "needs_approval");
+    assert_eq!(until(&mut socket, "mcp.updated").await["server"]["name"], "echo");
+    let approved: Value = h.post("/mcp/echo/approve").send().await.unwrap().json().await.unwrap();
+    assert_eq!(approved["state"], "connected");
+    assert_eq!(approved["tools"][0]["name"], "echo");
+    let names: Vec<String> = h.engine.tools.specs(ToolProfile::Edit).into_iter().map(|s| s.name).collect();
+    assert!(names.contains(&"echo_shout".to_string()));
+
+    let listed: Value = h.get("/mcp").send().await.unwrap().json().await.unwrap();
+    assert_eq!(listed[0]["state"], "connected");
+    let off: Value = h.put("/mcp/echo/enabled").json(&json!({ "enabled": false })).send().await.unwrap().json().await.unwrap();
+    assert_eq!(off["state"], "disabled");
+    assert!(!h.engine.tools.specs(ToolProfile::Edit).iter().any(|s| s.name == "echo_shout"));
+    assert_eq!(h.http.delete(h.url("/mcp/echo")).bearer_auth(&h.engine.token).send().await.unwrap().status(), 204);
+    assert_eq!(h.put("/mcp/bad name").json(&json!({ "type": "stdio", "command": "x" })).send().await.unwrap().status(), 400);
+}

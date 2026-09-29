@@ -4,6 +4,7 @@ pub mod api;
 pub mod event;
 pub mod id;
 pub mod llm;
+pub mod mcp;
 pub mod permission;
 pub mod platform;
 pub mod question;
@@ -78,6 +79,7 @@ pub struct Engine {
     pub permissions: Permissions,
     pub questions: question::Questions,
     pub tools: Registry,
+    pub mcp: mcp::Servers,
     pub credentials: Credentials,
     pub catalog: RwLock<Catalog>,
     pub snapshots: Snapshots,
@@ -103,6 +105,7 @@ impl Engine {
             permissions: Permissions::new(Policy::default()),
             questions: question::Questions::default(),
             tools: Registry::builtin(),
+            mcp: mcp::Servers::default(),
             credentials: Credentials::open(data_dir, options.file_credentials),
             catalog: RwLock::new(Catalog::load(data_dir)),
             snapshots: Snapshots::new(data_dir),
@@ -135,6 +138,11 @@ impl Server {
 }
 
 pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Error> {
+    let starting = engine.clone();
+    tokio::spawn(async move {
+        starting.mcp.connect_all(&starting.store, &starting.hub).await;
+        starting.tools.set_dynamic(starting.mcp.tools());
+    });
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let addr = listener.local_addr()?;
     let router = api::router(engine);

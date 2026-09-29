@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-const MIGRATIONS: [&str; 4] = [
+const MIGRATIONS: [&str; 5] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -59,6 +59,13 @@ const MIGRATIONS: [&str; 4] = [
         created_at INTEGER NOT NULL
     ) STRICT;
     CREATE INDEX idx_session_order ON session(workspace_id, archived_at, updated_at DESC, id DESC);",
+    "CREATE TABLE mcp_config(
+        name TEXT PRIMARY KEY,
+        config_json TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+        approved_hash TEXT,
+        updated_at INTEGER NOT NULL
+    ) STRICT;",
 ];
 
 #[cfg(test)]

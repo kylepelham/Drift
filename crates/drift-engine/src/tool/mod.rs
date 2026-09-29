@@ -156,24 +156,27 @@ pub trait Tool: Send + Sync {
 }
 
 pub struct Registry {
-    tools: Vec<Box<dyn Tool>>,
+    builtin: Vec<Arc<dyn Tool>>,
+    /// Tools that come and go with MCP servers; replaced wholesale when a server connects or drops.
+    dynamic: std::sync::RwLock<Vec<Arc<dyn Tool>>>,
 }
 
 impl Registry {
     pub fn builtin() -> Self {
         Self {
-            tools: vec![
-                Box::new(read::Read),
-                Box::new(write::Write),
-                Box::new(edit::Edit),
-                Box::new(apply_patch::ApplyPatch),
-                Box::new(bash::Bash::detect()),
-                Box::new(glob::Glob),
-                Box::new(grep::Grep),
-                Box::new(webfetch::WebFetch),
-                Box::new(todo::TodoWrite),
-                Box::new(question::Question),
+            builtin: vec![
+                Arc::new(read::Read),
+                Arc::new(write::Write),
+                Arc::new(edit::Edit),
+                Arc::new(apply_patch::ApplyPatch),
+                Arc::new(bash::Bash::detect()),
+                Arc::new(glob::Glob),
+                Arc::new(grep::Grep),
+                Arc::new(webfetch::WebFetch),
+                Arc::new(todo::TodoWrite),
+                Arc::new(question::Question),
             ],
+            dynamic: Default::default(),
         }
     }
 
@@ -183,11 +186,19 @@ impl Registry {
             ToolProfile::Edit => &["apply_patch"],
             ToolProfile::ApplyPatch => &["edit", "write"],
         };
-        self.tools.iter().map(|tool| tool.spec()).filter(|spec| !hidden.contains(&spec.name.as_str())).collect()
+        self.all().iter().map(|tool| tool.spec()).filter(|spec| !hidden.contains(&spec.name.as_str())).collect()
     }
 
-    pub fn get(&self, name: &str) -> Option<&dyn Tool> {
-        self.tools.iter().find(|tool| tool.spec().name == name).map(|tool| tool.as_ref())
+    pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        self.all().into_iter().find(|tool| tool.spec().name == name)
+    }
+
+    pub fn set_dynamic(&self, tools: Vec<Arc<dyn Tool>>) {
+        *self.dynamic.write().unwrap() = tools;
+    }
+
+    fn all(&self) -> Vec<Arc<dyn Tool>> {
+        self.builtin.iter().cloned().chain(self.dynamic.read().unwrap().iter().cloned()).collect()
     }
 }
 

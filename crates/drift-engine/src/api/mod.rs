@@ -5,6 +5,7 @@ mod cors;
 mod error;
 mod events;
 mod health;
+mod mcp;
 mod permissions;
 mod providers;
 mod questions;
@@ -48,6 +49,12 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(questions::reply))
         .routes(routes!(questions::reject))
         .routes(routes!(sessions::todos))
+        .routes(routes!(mcp::list))
+        .routes(routes!(mcp::save, mcp::remove))
+        .routes(routes!(mcp::approve))
+        .routes(routes!(mcp::connect_route))
+        .routes(routes!(mcp::disconnect))
+        .routes(routes!(mcp::set_enabled))
         .routes(routes!(events::get))
 }
 

@@ -18,6 +18,8 @@ export type Todo = components["schemas"]["Todo"]
 export type ReplyBody = components["schemas"]["ReplyBody"]
 export type ProviderStatus = components["schemas"]["ProviderStatus"]
 export type ErrorBody = components["schemas"]["ErrorBody"]
+export type McpServerStatus = components["schemas"]["ServerStatus"]
+export type McpServerConfig = components["schemas"]["ServerConfig"]
 
 type Json<Op extends keyof operations, Status extends number> = operations[Op]["responses"] extends Record<
   Status,
@@ -86,6 +88,12 @@ export function createClient(target: Target) {
     questions: () => request<Json<"listQuestions", 200>>("GET", "/questions"),
     answerQuestion: (id: string, answers: string[][]) => request<void>("POST", `/questions/${id}/reply`, { answers }),
     rejectQuestion: (id: string) => request<void>("POST", `/questions/${id}/reject`),
+    mcpServers: () => request<Json<"listMcpServers", 200>>("GET", "/mcp"),
+    saveMcpServer: (name: string, config: McpServerConfig) => request<Json<"saveMcpServer", 200>>("PUT", `/mcp/${name}`, config),
+    removeMcpServer: (name: string) => request<void>("DELETE", `/mcp/${name}`),
+    approveMcpServer: (name: string) => request<Json<"approveMcpServer", 200>>("POST", `/mcp/${name}/approve`),
+    connectMcpServer: (name: string) => request<Json<"connectMcpServer", 200>>("POST", `/mcp/${name}/connect`),
+    disconnectMcpServer: (name: string) => request<Json<"disconnectMcpServer", 200>>("POST", `/mcp/${name}/disconnect`),
     todos: (id: string) => request<Json<"listTodos", 200>>("GET", `/sessions/${id}/todos`),
   }
 }

@@ -49,6 +49,10 @@ pub enum Event {
     PermissionAsked { request: PermissionRequest },
     #[serde(rename = "permission.replied", rename_all = "camelCase")]
     PermissionReplied { request_id: String, session_id: String, decision: Decision },
+    #[serde(rename = "mcp.updated")]
+    McpUpdated { server: crate::mcp::ServerStatus },
+    #[serde(rename = "mcp.removed")]
+    McpRemoved { name: String },
     #[serde(rename = "question.asked")]
     QuestionAsked { request: QuestionRequest },
     #[serde(rename = "question.replied", rename_all = "camelCase")]

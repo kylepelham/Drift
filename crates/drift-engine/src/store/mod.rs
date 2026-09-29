@@ -1,6 +1,7 @@
 //! One SQLite database, one connection, one writer. Schema changes are numbered migrations.
 
 mod migrations;
+mod mcp;
 mod sessions;
 mod todos;
 

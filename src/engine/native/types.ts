@@ -32,6 +32,104 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMcpServers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Saving a changed config disconnects the server and withdraws approval until the user approves it again. */
+        put: operations["saveMcpServer"];
+        post?: never;
+        delete: operations["removeMcpServer"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp/{name}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approves the config exactly as stored now, then connects. */
+        post: operations["approveMcpServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp/{name}/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["connectMcpServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp/{name}/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["disconnectMcpServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp/{name}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["setMcpServerEnabled"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/permissions": {
         parameters: {
             query?: never;
@@ -353,6 +451,9 @@ export interface components {
         };
         /** @enum {string} */
         Decision: "allow" | "deny" | "ask";
+        EnabledBody: {
+            enabled: boolean;
+        };
         Envelope: components["schemas"]["Event"] & {
             /** Format: int64 */
             seq: number;
@@ -420,6 +521,14 @@ export interface components {
             sessionId: string;
             /** @enum {string} */
             type: "permission.replied";
+        } | {
+            server: components["schemas"]["ServerStatus"];
+            /** @enum {string} */
+            type: "mcp.updated";
+        } | {
+            name: string;
+            /** @enum {string} */
+            type: "mcp.removed";
         } | {
             request: components["schemas"]["QuestionRequest"];
             /** @enum {string} */
@@ -621,6 +730,35 @@ export interface components {
         };
         /** @enum {string} */
         Role: "user" | "assistant";
+        ServerConfig: {
+            args?: string[];
+            command: string;
+            env?: {
+                [key: string]: string;
+            };
+            /** @enum {string} */
+            type: "stdio";
+        } | {
+            headers?: {
+                [key: string]: string;
+            };
+            /** @enum {string} */
+            type: "http";
+            url: string;
+        };
+        ServerRow: {
+            approvedHash?: string | null;
+            config: components["schemas"]["ServerConfig"];
+            enabled: boolean;
+            name: string;
+            /** Format: int64 */
+            updatedAt: number;
+        };
+        ServerStatus: components["schemas"]["ServerRow"] & {
+            error?: string | null;
+            state: components["schemas"]["State"];
+            tools: components["schemas"]["ToolInfo"][];
+        };
         Session: {
             agent: string;
             /** Format: int64 */
@@ -640,6 +778,8 @@ export interface components {
         };
         /** @enum {string} */
         SessionStatus: "idle" | "running";
+        /** @enum {string} */
+        State: "disabled" | "needs_approval" | "disconnected" | "connecting" | "connected" | "failed";
         Todo: {
             content: string;
             priority?: string;
@@ -647,6 +787,11 @@ export interface components {
         };
         /** @enum {string} */
         TodoStatus: "pending" | "in_progress" | "completed" | "cancelled";
+        ToolInfo: {
+            description: string;
+            name: string;
+            read_only: boolean;
+        };
         /**
          * @description How a model edits files: what its training makes it good at, decided here and nowhere else.
          * @enum {string}
@@ -720,6 +865,187 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Health"];
                 };
+            };
+        };
+    };
+    listMcpServers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"][];
+                };
+            };
+        };
+    };
+    saveMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServerConfig"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"];
+                };
+            };
+        };
+    };
+    removeMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    approveMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connectMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    disconnectMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setMcpServerEnabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnabledBody"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

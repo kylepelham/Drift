@@ -12,9 +12,11 @@ getrandom = { workspace = true }
 globset = "0.4"
 grep = "0.4"
 htmd = "0.5"
+http = "1"
 ignore = "0.4"
 keyring = "4"
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "rustls-native-certs", "stream", "http2"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "stream", "http2"] }
+rmcp = { version = "3", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider"] }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

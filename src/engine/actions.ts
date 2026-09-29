@@ -1,5 +1,5 @@
 // Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
-import type { Permission, Session } from "@opencode-ai/sdk/client"
+import type { McpStatus, Permission, Session } from "@opencode-ai/sdk/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
 import { applyProviderCatalog } from "../state/provider-cache"
@@ -298,6 +298,26 @@ export function createActions(
     return { ok: true, connected: state.connected.includes(id) }
   }
 
+  /** Engine MCP states in the vocabulary the manager already renders. */
+  async function mcpStatus(_directory: string, _signal: AbortSignal): Promise<Record<string, McpStatus>> {
+    const servers = await requireClient().mcpServers()
+    return Object.fromEntries(
+      servers.map((server) => {
+        const status: McpStatus =
+          server.state === "connected"
+            ? { status: "connected" }
+            : server.state === "disabled"
+              ? { status: "disabled" }
+              : server.state === "failed"
+                ? { status: "failed", error: server.error ?? "failed" }
+                : server.state === "needs_approval"
+                  ? { status: "needs_client_registration", error: "awaiting approval" }
+                  : { status: "failed", error: server.state }
+        return [server.name, status]
+      }),
+    )
+  }
+
   const notYet = (feature: string) => async (..._args: unknown[]) => {
     unavailable(feature)
     return undefined
@@ -351,10 +371,10 @@ export function createActions(
     revert: never("Revert"),
     unrevert: never("Revert"),
     mcpInitialize: async (_directory: string) => undefined,
-    mcpStatus: async (_directory: string, _signal: AbortSignal) => ({}),
-    mcpConnect: async (_name: string, _directory: string) => unavailable("MCP"),
-    mcpDisconnect: async (_name: string, _directory: string) => unavailable("MCP"),
-    mcpAuthenticate: async (_name: string, _directory: string) => unavailable("MCP"),
+    mcpStatus,
+    mcpConnect: async (name: string, _directory: string) => void (await requireClient().connectMcpServer(name)),
+    mcpDisconnect: async (name: string, _directory: string) => void (await requireClient().disconnectMcpServer(name)),
+    mcpAuthenticate: async (_name: string, _directory: string) => unavailable("MCP OAuth"),
   }
 }
 

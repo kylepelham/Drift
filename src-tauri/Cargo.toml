@@ -33,7 +33,7 @@ hyper-util = { version = "0.1", features = ["server-auto", "service", "tokio"] }
 tower = { version = "0.5", features = ["util"] }
 sha1 = "0.10"
 base64 = "0.22"
-reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "rustls-native-certs", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 url = "2"
 axum = { workspace = true }
