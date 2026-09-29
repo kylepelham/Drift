@@ -34,7 +34,18 @@ const pageSize = 100
 const sessionPageSize = 200
 /** Reasoning effort names the composer offers, as thinking budgets in tokens. */
 const thinkingBudgets: Record<string, number> = { low: 4_000, medium: 10_000, high: 20_000, max: 32_000 }
-const oauthProviders = ["anthropic"]
+/** Sign-in methods per provider, in the order the settings page lists them. */
+const authMethods: Record<string, { type: "oauth" | "api"; label: string; mode?: "max" | "console" | "chatgpt" }[]> = {
+  anthropic: [
+    { type: "oauth", label: "Claude Pro/Max", mode: "max" },
+    { type: "oauth", label: "Anthropic Console", mode: "console" },
+    { type: "api", label: "API key" },
+  ],
+  openai: [
+    { type: "oauth", label: "ChatGPT (Plus, Pro, Team)", mode: "chatgpt" },
+    { type: "api", label: "API key" },
+  ],
+}
 
 export function createActions(
   requireClient: () => Client,
@@ -283,17 +294,31 @@ export function createActions(
   }
 
   async function providerAuthMethods(): Promise<Record<string, { type: "oauth" | "api"; label: string }[]>> {
-    return Object.fromEntries(oauthProviders.map((id) => [id, [{ type: "oauth", label: "Claude Pro/Max" }, { type: "api", label: "API key" }]]))
+    return Object.fromEntries(Object.entries(authMethods).map(([id, methods]) => [id, methods.map(({ type, label }) => ({ type, label }))]))
   }
 
-  async function providerAuthorize(id: string, _method: number) {
-    const started = await requireClient().startOAuth(id, "max")
-    return { url: started.url, method: "code" as "code" | "auto", instructions: "Sign in, then paste the code the page shows." }
+  // The state from startOAuth, needed by the callback for flows the engine completes itself.
+  const oauthStates = new Map<string, string>()
+
+  async function providerAuthorize(id: string, method: number) {
+    const mode = authMethods[id]?.[method]?.mode
+    if (!mode) throw new Error("this method has no sign-in flow")
+    const started = await requireClient().startOAuth(id, mode)
+    oauthStates.set(id, started.state)
+    const auto = started.method === "auto"
+    return { url: started.url, method: (auto ? "auto" : "code") as "code" | "auto", instructions: auto ? "Finish signing in in the browser." : "Sign in, then paste the code the page shows." }
   }
 
   async function providerCallback(id: string, _method: number, code?: string): Promise<ProviderAuthResult> {
-    if (!code) return { ok: false, connected: false }
-    await requireClient().finishOAuth(id, code)
+    const oauthState = oauthStates.get(id)
+    if (!code && !oauthState) return { ok: false, connected: false }
+    try {
+      await requireClient().finishOAuth(id, code ?? "", oauthState)
+    } catch {
+      return { ok: false, connected: false }
+    } finally {
+      oauthStates.delete(id)
+    }
     await refreshProviders()
     return { ok: true, connected: state.connected.includes(id) }
   }
