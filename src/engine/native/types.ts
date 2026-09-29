@@ -32,6 +32,167 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Everything still waiting on the user; clients read this when they hydrate. */
+        get: operations["listPermissions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/permissions/{id}/reply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["replyPermission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["removeProviderCredentials"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["setProviderKey"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listSessions"];
+        put?: never;
+        post: operations["createSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateSession"];
+        trace?: never;
+    };
+    "/sessions/{id}/abort": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["abortTurn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submitTurn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspaces": {
         parameters: {
             query?: never;
@@ -52,6 +213,20 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        Aborted: {
+            aborted: boolean;
+        };
+        ApiKeyBody: {
+            key: string;
+        };
+        /** @description What a call wants to do, for the permission service to judge before it runs. */
+        Ask: {
+            /** @description `read`, `edit`, `bash`, ...: the rule namespace. */
+            kind: string;
+            /** @description The thing being touched: a path, a command. Rules match it with globs. */
+            pattern: string;
+            title: string;
+        };
         Control: {
             instance: string;
             /** Format: int64 */
@@ -65,25 +240,257 @@ export interface components {
             /** @enum {string} */
             type: "resync";
         };
+        Cost: {
+            /** Format: double */
+            cache_read?: number;
+            /** Format: double */
+            cache_write?: number;
+            /** Format: double */
+            input?: number;
+            /** Format: double */
+            output?: number;
+        };
+        /** @enum {string} */
+        Decision: "allow" | "deny" | "ask";
         Envelope: components["schemas"]["Event"] & {
             /** Format: int64 */
             seq: number;
+        };
+        ErrorBody: {
+            code: string;
+            message: string;
         };
         Event: {
             /** @enum {string} */
             type: "workspace.created";
             workspace: components["schemas"]["Workspace"];
+        } | {
+            session: components["schemas"]["Session"];
+            /** @enum {string} */
+            type: "session.created";
+        } | {
+            session: components["schemas"]["Session"];
+            /** @enum {string} */
+            type: "session.updated";
+        } | {
+            sessionId: string;
+            status: components["schemas"]["SessionStatus"];
+            /** @enum {string} */
+            type: "session.status";
+        } | {
+            message: components["schemas"]["Message"];
+            /** @enum {string} */
+            type: "message.created";
+        } | {
+            message: components["schemas"]["Message"];
+            /** @enum {string} */
+            type: "message.updated";
+        } | {
+            part: components["schemas"]["PartRow"];
+            /** @enum {string} */
+            type: "part.created";
+        } | {
+            part: components["schemas"]["PartRow"];
+            /** @enum {string} */
+            type: "part.updated";
+        } | {
+            delta: string;
+            messageId: string;
+            partId: string;
+            sessionId: string;
+            /** @enum {string} */
+            type: "part.delta";
+        } | {
+            request: components["schemas"]["Request"];
+            /** @enum {string} */
+            type: "permission.asked";
+        } | {
+            decision: components["schemas"]["Decision"];
+            requestId: string;
+            sessionId: string;
+            /** @enum {string} */
+            type: "permission.replied";
         };
         /** @description Everything the server writes to the socket. */
         Frame: components["schemas"]["Control"] | components["schemas"]["Envelope"];
         Health: {
             version: string;
         };
+        /** @description Replies can ride the socket so a permission prompt never waits on a new HTTP connection. */
+        Incoming: components["schemas"]["ReplyBody"] & {
+            requestId: string;
+        } & {
+            /** @enum {string} */
+            type: "permission.reply";
+        };
+        Limit: {
+            /** Format: int64 */
+            context: number;
+            /** Format: int64 */
+            output: number;
+        };
+        Message: {
+            /** Format: double */
+            cost: number;
+            /** Format: int64 */
+            createdAt: number;
+            error?: string | null;
+            /** Format: int64 */
+            finishedAt?: number | null;
+            id: string;
+            model?: components["schemas"]["ModelRef"] | null;
+            role: components["schemas"]["Role"];
+            sessionId: string;
+            status: components["schemas"]["MessageStatus"];
+            usage: components["schemas"]["Usage"];
+        };
+        /** @enum {string} */
+        MessageStatus: "streaming" | "done" | "aborted" | "error";
+        MessageWithParts: components["schemas"]["Message"] & {
+            parts: components["schemas"]["PartRow"][];
+        };
+        Model: {
+            attachment?: boolean;
+            cost?: components["schemas"]["Cost"];
+            family?: string;
+            id: string;
+            limit?: components["schemas"]["Limit"];
+            name: string;
+            profile?: components["schemas"]["ToolProfile"];
+            reasoning?: boolean;
+            release_date?: string;
+            temperature?: boolean;
+        };
+        ModelRef: {
+            model: string;
+            provider: string;
+        };
+        NewSessionBody: {
+            model?: components["schemas"]["ModelRef"] | null;
+            title?: string;
+            workspaceId: string;
+        };
         NewWorkspace: {
             icon?: string;
             name: string;
             path: string;
         };
+        Part: {
+            text: string;
+            /** @enum {string} */
+            type: "text";
+        } | {
+            redacted?: string | null;
+            signature?: string | null;
+            text: string;
+            /** @enum {string} */
+            type: "reasoning";
+        } | {
+            callId: string;
+            /** Format: int64 */
+            finishedAt?: number | null;
+            input: unknown;
+            metadata?: unknown;
+            name: string;
+            output?: string | null;
+            /** Format: int64 */
+            startedAt?: number | null;
+            status: components["schemas"]["ToolStatus"];
+            title?: string | null;
+            /** @enum {string} */
+            type: "tool_call";
+        } | {
+            mime: string;
+            name: string;
+            /** @enum {string} */
+            type: "file";
+            /** @description Data URL for now; a content-addressed blob store replaces this later. */
+            url: string;
+        };
+        PartRow: components["schemas"]["Part"] & {
+            id: string;
+            messageId: string;
+            sessionId: string;
+        };
+        PatchSession: {
+            archived?: boolean | null;
+            model?: components["schemas"]["ModelRef"] | null;
+            title?: string | null;
+        };
+        Prompt: {
+            model?: components["schemas"]["ModelRef"] | null;
+            parts: components["schemas"]["Part"][];
+            /** Format: int32 */
+            thinkingBudget?: number | null;
+        };
+        /** @description A catalog provider plus whether the engine can currently talk to it. */
+        ProviderStatus: {
+            connected: boolean;
+            /** @description `keychain`, `env` or absent. */
+            credential?: string | null;
+            id: string;
+            models: {
+                [key: string]: components["schemas"]["Model"];
+            };
+            name: string;
+        };
+        Receipt: {
+            message: components["schemas"]["Message"];
+            session: components["schemas"]["Session"];
+        };
+        /** @enum {string} */
+        Reply: "once" | "always" | "deny";
+        ReplyBody: {
+            pattern?: string | null;
+            reply: components["schemas"]["Reply"];
+        };
+        Request: components["schemas"]["Ask"] & {
+            callId: string;
+            /** Format: int64 */
+            createdAt: number;
+            id: string;
+            messageId: string;
+            sessionId: string;
+            tool: string;
+        };
+        /** @enum {string} */
+        Role: "user" | "assistant";
+        Session: {
+            agent: string;
+            /** Format: int64 */
+            archivedAt?: number | null;
+            /** Format: int64 */
+            createdAt: number;
+            id: string;
+            model?: components["schemas"]["ModelRef"] | null;
+            parentId?: string | null;
+            title: string;
+            /** Format: int64 */
+            updatedAt: number;
+            visibility: components["schemas"]["Visibility"];
+            workspaceId: string;
+        };
+        /** @enum {string} */
+        SessionStatus: "idle" | "running";
+        /**
+         * @description How a model edits files: what its training makes it good at, decided here and nowhere else.
+         * @enum {string}
+         */
+        ToolProfile: "edit" | "apply_patch";
+        /** @enum {string} */
+        ToolStatus: "pending" | "running" | "done" | "error" | "denied";
+        Usage: {
+            /** Format: int64 */
+            cacheRead: number;
+            /** Format: int64 */
+            cacheWrite: number;
+            /** Format: int64 */
+            input: number;
+            /** Format: int64 */
+            output: number;
+        };
+        /** @enum {string} */
+        Visibility: "hidden" | "sibling";
         Workspace: {
             icon: string;
             id: string;
@@ -138,6 +545,318 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Health"];
                 };
+            };
+        };
+    };
+    listPermissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Request"][];
+                };
+            };
+        };
+    };
+    replyPermission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplyBody"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderStatus"][];
+                };
+            };
+        };
+    };
+    removeProviderCredentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setProviderKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApiKeyBody"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listSessions: {
+        parameters: {
+            query?: {
+                /** @description Archived sessions instead of live ones. */
+                archived?: boolean;
+                /** @description Page: sessions updated before this session id. */
+                before?: string | null;
+                limit?: number | null;
+                /** @description Restrict to one workspace; omit for every workspace. */
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"][];
+                };
+            };
+        };
+    };
+    createSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewSessionBody"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+        };
+    };
+    getSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    abortTurn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Aborted"];
+                };
+            };
+        };
+    };
+    listMessages: {
+        parameters: {
+            query?: {
+                /** @description Page: messages before this message id. */
+                before?: string | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageWithParts"][];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    submitTurn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Prompt"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Receipt"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

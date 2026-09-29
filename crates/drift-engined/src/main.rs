@@ -1,6 +1,6 @@
 //! Headless Drift engine for conformance tests and remote hosts.
 //!
-//! `drift-engined [--data-dir DIR] [--port N]` serves and prints `url` and `token` lines.
+//! `drift-engined [--data-dir DIR] [--port N] [--file-credentials]` serves and prints `url` and `token` lines.
 //! `drift-engined --openapi` prints the API document and exits.
 
 use std::net::{Ipv4Addr, SocketAddr};
@@ -10,6 +10,7 @@ struct Args {
     data_dir: PathBuf,
     port: u16,
     openapi: bool,
+    file_credentials: bool,
 }
 
 fn parse() -> Result<Args, String> {
@@ -17,11 +18,13 @@ fn parse() -> Result<Args, String> {
         data_dir: std::env::temp_dir().join("drift-engined"),
         port: 0,
         openapi: false,
+        file_credentials: false,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(flag) = iter.next() {
         match flag.as_str() {
             "--openapi" => args.openapi = true,
+            "--file-credentials" => args.file_credentials = true,
             "--data-dir" => args.data_dir = iter.next().ok_or("--data-dir needs a path")?.into(),
             "--port" => {
                 let value = iter.next().ok_or("--port needs a number")?;
@@ -46,7 +49,8 @@ async fn main() {
         println!("{}", drift_engine::api::openapi().to_pretty_json().unwrap());
         return;
     }
-    let engine = drift_engine::Engine::open(&args.data_dir).unwrap_or_else(|error| {
+    let options = drift_engine::Options { file_credentials: args.file_credentials, ..Default::default() };
+    let engine = drift_engine::Engine::open_with(&args.data_dir, options).unwrap_or_else(|error| {
         eprintln!("{error}");
         std::process::exit(1);
     });

@@ -1,8 +1,12 @@
 //! HTTP and WebSocket surface. Every route is documented in the OpenAPI the TS client is built from.
 
 mod auth;
+mod error;
 mod events;
 mod health;
+mod permissions;
+mod providers;
+mod sessions;
 mod workspaces;
 
 use std::sync::Arc;
@@ -18,7 +22,7 @@ use crate::Engine;
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Drift Engine", version = crate::VERSION),
-    components(schemas(events::Frame))
+    components(schemas(events::Frame, events::Incoming, error::ErrorBody))
 )]
 struct Api;
 
@@ -26,6 +30,16 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
     OpenApiRouter::with_openapi(Api::openapi())
         .routes(routes!(health::get))
         .routes(routes!(workspaces::list, workspaces::create))
+        .routes(routes!(sessions::list, sessions::create))
+        .routes(routes!(sessions::get, sessions::update))
+        .routes(routes!(sessions::messages))
+        .routes(routes!(sessions::submit))
+        .routes(routes!(sessions::abort))
+        .routes(routes!(providers::list))
+        .routes(routes!(providers::set_key))
+        .routes(routes!(providers::remove))
+        .routes(routes!(permissions::list))
+        .routes(routes!(permissions::reply))
         .routes(routes!(events::get))
 }
 

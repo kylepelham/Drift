@@ -119,8 +119,30 @@ async fn run(engine: Arc<Engine>, socket: WebSocket, cursor: Option<u64>) {
             },
             incoming = client.socket.recv() => match incoming {
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return,
+                Some(Ok(Message::Text(text))) => handle(&engine, &text),
                 Some(Ok(_)) => {}
             },
+        }
+    }
+}
+
+/// Replies can ride the socket so a permission prompt never waits on a new HTTP connection.
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(tag = "type")]
+pub enum Incoming {
+    #[serde(rename = "permission.reply", rename_all = "camelCase")]
+    PermissionReply {
+        request_id: String,
+        #[serde(flatten)]
+        body: crate::permission::ReplyBody,
+    },
+}
+
+fn handle(engine: &Engine, text: &str) {
+    let Ok(incoming) = serde_json::from_str::<Incoming>(text) else { return };
+    match incoming {
+        Incoming::PermissionReply { request_id, body } => {
+            let _ = engine.permissions.reply(&engine.hub, &request_id, body);
         }
     }
 }

@@ -27,7 +27,7 @@ pub enum Event {
     SessionCreated { session: Session },
     #[serde(rename = "session.updated")]
     SessionUpdated { session: Session },
-    #[serde(rename = "session.status")]
+    #[serde(rename = "session.status", rename_all = "camelCase")]
     SessionStatusChanged { session_id: String, status: SessionStatus },
     #[serde(rename = "message.created")]
     MessageCreated { message: Message },
@@ -38,11 +38,11 @@ pub enum Event {
     #[serde(rename = "part.updated")]
     PartUpdated { part: PartRow },
     /// Streamed text appended to a `text` or `reasoning` part; the part itself is saved later.
-    #[serde(rename = "part.delta")]
+    #[serde(rename = "part.delta", rename_all = "camelCase")]
     PartDelta { session_id: String, message_id: String, part_id: String, delta: String },
     #[serde(rename = "permission.asked")]
     PermissionAsked { request: PermissionRequest },
-    #[serde(rename = "permission.replied")]
+    #[serde(rename = "permission.replied", rename_all = "camelCase")]
     PermissionReplied { request_id: String, session_id: String, decision: Decision },
 }
 
