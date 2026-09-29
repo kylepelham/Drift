@@ -316,3 +316,23 @@ async fn oauth_start_hands_back_a_url_and_bad_callbacks_are_rejected() {
     assert_eq!(unknown.status(), 400);
     assert_eq!(h.post("/providers/openai/oauth").json(&json!({ "mode": "max" })).send().await.unwrap().status(), 404);
 }
+
+#[tokio::test]
+async fn browser_origins_get_cors_headers_and_preflight_needs_no_token() {
+    let h = harness().await;
+    let preflight = h
+        .http
+        .request(reqwest::Method::OPTIONS, h.url("/sessions"))
+        .header("origin", "http://localhost:5180")
+        .header("access-control-request-method", "POST")
+        .header("access-control-request-headers", "authorization,content-type")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(preflight.status(), 200);
+    assert_eq!(preflight.headers()["access-control-allow-origin"], "http://localhost:5180");
+    let allowed = h.get("/health").header("origin", "tauri://localhost").send().await.unwrap();
+    assert_eq!(allowed.headers()["access-control-allow-origin"], "tauri://localhost");
+    let denied = h.get("/health").header("origin", "https://evil.com").send().await.unwrap();
+    assert!(denied.headers().get("access-control-allow-origin").is_none());
+}

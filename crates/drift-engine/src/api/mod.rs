@@ -1,6 +1,7 @@
 //! HTTP and WebSocket surface. Every route is documented in the OpenAPI the TS client is built from.
 
 mod auth;
+mod cors;
 mod error;
 mod events;
 mod health;
@@ -50,6 +51,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
     router
         .route("/openapi.json", get(move || async move { Json(openapi) }))
         .layer(axum::middleware::from_fn_with_state(engine.clone(), auth::require_token))
+        // Outside auth so browser preflights, which carry no token, are answered.
+        .layer(cors::layer())
         .with_state(engine)
 }
 

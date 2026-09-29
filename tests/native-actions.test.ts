@@ -119,6 +119,8 @@ test("new sessions are created in the active workspace and removal archives", as
   expect(h.calls[0]).toEqual({ method: "createSession", args: [{ workspaceId: "w1" }] })
   expect(created?.id).toBe("ses_new")
   expect(h.state.sessions.ses_new).toBeDefined()
+  expect(h.state.loaded.ses_new).toBe(true)
+  expect(h.state.transcripts.ses_new).toEqual([])
   await h.actions.remove("ses_new")
   expect(h.calls.at(-1)).toEqual({ method: "updateSession", args: ["ses_new", { archived: true }] })
   expect(h.state.sessions.ses_new).toBeUndefined()

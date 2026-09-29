@@ -4,7 +4,17 @@
   "app": {
     "windows": [
       {
-        "title": "Drift Dev"
+        "title": "Drift Dev",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 600,
+        "decorations": false,
+        "dragDropEnabled": false,
+        "theme": "Dark",
+        "backgroundColor": "#141517",
+        "visible": false,
+        "center": true
       }
     ]
   }

@@ -129,6 +129,14 @@ export function createActions(
     if (!workspaceId) return undefined
     const created = await requireClient().createSession({ workspaceId })
     const session = adaptSession(created, workspaces())
+    // A fresh session is known empty; mark it loaded so the first turn's events are not dropped.
+    set(
+      produce((draft) => {
+        draft.transcripts[session.id] ??= []
+        draft.loaded[session.id] = true
+        draft.cursors[session.id] ??= null
+      }),
+    )
     putSession(set, session)
     return { ...session, discard: () => purgeSession(session.id).then(() => undefined) }
   }
