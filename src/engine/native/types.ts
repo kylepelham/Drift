@@ -495,17 +495,21 @@ export interface components {
             path: string;
         };
         OAuthFinishBody: {
-            /** @description `code#state`, the callback URL, or its query string. */
-            input: string;
+            /** @description For `code` flows: `code#state`, the callback URL, or its query string. Empty for `auto` flows. */
+            input?: string;
+            /** @description The `state` from `startOAuth`; required for `auto` flows. */
+            state?: string | null;
         };
         /** @enum {string} */
-        OAuthMode: "max" | "console";
+        OAuthMode: "max" | "console" | "chatgpt";
         OAuthStartBody: {
             mode: components["schemas"]["OAuthMode"];
         };
         OAuthStarted: {
+            /** @description `code`: the user pastes what the callback page shows. `auto`: the engine catches the callback itself. */
+            method: string;
             state: string;
-            /** @description Open this in a browser; the user pastes back what the callback page shows. */
+            /** @description Open this in a browser. */
             url: string;
         };
         Option_: {
@@ -566,6 +570,8 @@ export interface components {
         Prompt: {
             model?: components["schemas"]["ModelRef"] | null;
             parts: components["schemas"]["Part"][];
+            /** @description Client-chosen id; resubmitting with the same id returns the original receipt instead of a second turn. */
+            submissionId?: string | null;
             /** Format: int32 */
             thinkingBudget?: number | null;
         };

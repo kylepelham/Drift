@@ -69,7 +69,7 @@ async fn until_idle(h: &Harness) {
 }
 
 fn prompt(text: &str) -> Prompt {
-    Prompt { parts: vec![Part::Text { text: text.into() }], model: Some(model()), thinking_budget: None }
+    Prompt { parts: vec![Part::Text { text: text.into() }], model: Some(model()), thinking_budget: None, submission_id: None }
 }
 
 #[tokio::test]
@@ -192,7 +192,7 @@ async fn retryable_provider_errors_are_retried_and_others_are_not() {
 #[tokio::test]
 async fn submit_rejects_bad_plans() {
     let h = harness().await;
-    let no_model = Prompt { parts: vec![], model: None, thinking_budget: None };
+    let no_model = Prompt { parts: vec![], model: None, thinking_budget: None, submission_id: None };
     assert_eq!(h.engine.submit(&h.session.id, no_model).await.err(), Some(TurnError::NoModel));
     let unknown = Prompt { model: Some(ModelRef { provider: "anthropic".into(), model: "nope".into() }), ..prompt("x") };
     assert_eq!(h.engine.submit(&h.session.id, unknown).await.err(), Some(TurnError::UnknownModel));
@@ -248,4 +248,85 @@ async fn read_only_calls_run_together_and_writes_follow_in_order() {
     finished.sort_by_key(|(_, at)| *at);
     assert_eq!(finished.last().unwrap().0, "write", "the write must land after both reads");
     assert_eq!(std::fs::read_to_string(h._dir.join("ws/c.txt")).unwrap(), "c\n");
+}
+
+#[tokio::test]
+async fn a_stream_that_ends_without_a_stop_reason_runs_no_tools() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "alpha\n").unwrap();
+    let truncated = vec![Chunk::ToolUseStart { id: "t1".into(), name: "read".into() }, Chunk::ToolInputDelta(r#"{"path": "a.txt"}"#.into()), Chunk::BlockStop];
+    h.provider.push(truncated.clone()).push(truncated.clone()).push(truncated);
+    h.engine.submit(&h.session.id, prompt("read a")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    for message in transcript.iter().skip(1) {
+        assert_eq!(message.info.status, MessageStatus::Error);
+        let Part::ToolCall { status, .. } = &message.parts[0].part else { panic!() };
+        assert_eq!(*status, ToolStatus::Pending, "the call must never run");
+    }
+    assert_eq!(transcript.len(), 1 + MAX_ATTEMPTS as usize);
+}
+
+#[tokio::test]
+async fn failed_admission_releases_the_session_and_submission_ids_replay() {
+    let h = harness().await;
+    h.provider.push(text("ok")).push(text("again"));
+    let mut first = prompt("hello");
+    first.submission_id = Some("sub_1".into());
+    let receipt = h.engine.submit(&h.session.id, first.clone()).await.await_ok();
+    let replay = h.engine.submit(&h.session.id, first).await.await_ok();
+    assert_eq!(replay.message.id, receipt.message.id, "same submission id returns the same receipt");
+    until_idle(&h).await;
+    assert_eq!(h.engine.store.transcript(&h.session.id).unwrap().len(), 2);
+
+    let other = h.engine.store.create_session(NewSession { workspace_id: &h.session.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None }).unwrap();
+    let mut reused = prompt("x");
+    reused.submission_id = Some("sub_1".into());
+    assert_eq!(h.engine.submit(&other.id, reused).await.err(), Some(TurnError::SubmissionReused));
+
+    // Break admission: drop the session row under the plan so the insert fails, then confirm no reservation remains.
+    let doomed = h.engine.store.create_session(NewSession { workspace_id: &h.session.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None }).unwrap();
+    h.engine.store.lock().execute("CREATE TRIGGER block BEFORE INSERT ON part BEGIN SELECT RAISE(ABORT, 'no parts'); END", []).unwrap();
+    let failed = h.engine.submit(&doomed.id, prompt("boom")).await;
+    assert!(matches!(failed, Err(TurnError::Store(_))), "{failed:?}");
+    h.engine.store.lock().execute("DROP TRIGGER block", []).unwrap();
+    assert!(!h.engine.turns.is_running(&doomed.id), "a failed admission must not leave the session busy");
+    assert!(h.engine.store.transcript(&doomed.id).unwrap().is_empty(), "no half-written prompt");
+    h.provider.push(text("fine"));
+    h.engine.submit(&doomed.id, prompt("retry")).await.await_ok();
+    until_idle(&h).await;
+}
+
+#[tokio::test]
+async fn concurrent_turns_refresh_an_expired_token_once() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let hits = Arc::new(AtomicUsize::new(0));
+    let counter = hits.clone();
+    let app = axum::Router::new().route(
+        "/token",
+        axum::routing::post(move || {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                axum::Json(json!({ "access_token": "fresh", "refresh_token": "r2", "expires_in": 3600 }))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    std::env::set_var("DRIFT_ANTHROPIC_TOKEN_URL", format!("http://{}/token", listener.local_addr().unwrap()));
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let h = harness().await;
+    h.engine.credentials.set("anthropic", &Credential::OAuth { access: "stale".into(), refresh: "r1".into(), expires_at: 1, account: None }).unwrap();
+    let other = h.engine.store.create_session(NewSession { workspace_id: &h.session.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None }).unwrap();
+    h.provider.push(text("a")).push(text("b"));
+    let (first, second) = tokio::join!(h.engine.submit(&h.session.id, prompt("one")), h.engine.submit(&other.id, prompt("two")));
+    first.await_ok();
+    second.await_ok();
+    until_idle(&h).await;
+    std::env::remove_var("DRIFT_ANTHROPIC_TOKEN_URL");
+    assert_eq!(hits.load(Ordering::SeqCst), 1, "one refresh for two turns");
+    let stored = h.engine.credentials.get("anthropic").unwrap();
+    assert!(matches!(stored, Credential::OAuth { access, refresh, .. } if access == "fresh" && refresh == "r2"));
 }

@@ -9,6 +9,11 @@ const AUTHORIZE_MAX: &str = "https://claude.ai/oauth/authorize";
 const AUTHORIZE_CONSOLE: &str = "https://platform.claude.com/oauth/authorize";
 const REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
 const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
+
+/// Tests point the token endpoint at a fake through DRIFT_ANTHROPIC_TOKEN_URL.
+fn token_url() -> String {
+    std::env::var("DRIFT_ANTHROPIC_TOKEN_URL").unwrap_or_else(|_| TOKEN_URL.into())
+}
 const SCOPES: &str = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 /// The token endpoint checks this; it is what the reference client sends.
 const TOKEN_USER_AGENT: &str = "axios/1.13.6";
@@ -82,7 +87,7 @@ pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Cr
 
 async fn token_request(client: &reqwest::Client, body: &Value) -> Result<Credential, String> {
     let response = client
-        .post(TOKEN_URL)
+        .post(token_url())
         .header("accept", "application/json, text/plain, */*")
         .header("user-agent", TOKEN_USER_AGENT)
         .json(body)

@@ -112,34 +112,7 @@ impl Store {
     }
 
     pub fn create_message(&self, session_id: &str, role: Role, model: Option<&ModelRef>) -> rusqlite::Result<Message> {
-        let message = Message {
-            id: id::new("msg"),
-            session_id: session_id.into(),
-            role,
-            status: if role == Role::User { MessageStatus::Done } else { MessageStatus::Streaming },
-            model: model.cloned(),
-            usage: Usage::default(),
-            cost: 0.0,
-            error: None,
-            created_at: id::now_ms(),
-            finished_at: None,
-        };
-        self.lock()
-            .prepare_cached(
-                "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, created_at)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8)",
-            )?
-            .execute(params![
-                message.id,
-                message.session_id,
-                role_str(role),
-                status_str(message.status),
-                model.map(|m| &m.provider),
-                model.map(|m| &m.model),
-                serde_json::to_string(&message.usage).unwrap(),
-                message.created_at
-            ])?;
-        Ok(message)
+        insert_message(&self.lock(), session_id, role, model)
     }
 
     pub fn save_message(&self, message: &Message) -> rusqlite::Result<()> {
@@ -195,16 +168,7 @@ impl Store {
     }
 
     pub fn add_part(&self, message_id: &str, session_id: &str, part: Part) -> rusqlite::Result<PartRow> {
-        let row = PartRow {
-            id: id::new("prt"),
-            message_id: message_id.into(),
-            session_id: session_id.into(),
-            part,
-        };
-        self.lock()
-            .prepare_cached("INSERT INTO part(id, message_id, session_id, json) VALUES(?1, ?2, ?3, ?4)")?
-            .execute(params![row.id, row.message_id, row.session_id, serde_json::to_string(&row.part).unwrap()])?;
-        Ok(row)
+        insert_part(&self.lock(), message_id, session_id, part)
     }
 
     pub fn save_part(&self, row: &PartRow) -> rusqlite::Result<()> {
@@ -422,5 +386,94 @@ mod tests {
         store.save_part(&row).unwrap();
         let loaded = store.transcript(&session.id).unwrap();
         assert_eq!(loaded[0].parts, vec![row]);
+    }
+}
+
+impl Store {
+    /// Records a user prompt as one unit: message, parts and the session's model, or nothing at all.
+    pub fn admit_prompt(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>) -> rusqlite::Result<(Message, Vec<PartRow>, Session)> {
+        let conn = self.lock();
+        conn.execute_batch("BEGIN")?;
+        let result = (|| {
+            let message = insert_message(&conn, session_id, Role::User, Some(model))?;
+            let rows = parts
+                .into_iter()
+                .map(|part| insert_part(&conn, &message.id, session_id, part))
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            conn.prepare_cached("UPDATE session SET model_provider = ?2, model_id = ?3, updated_at = ?4 WHERE id = ?1")?
+                .execute(params![session_id, model.provider, model.model, id::now_ms()])?;
+            let session = session_in(&conn, session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+            Ok((message, rows, session))
+        })();
+        match result {
+            Ok(value) => {
+                conn.execute_batch("COMMIT")?;
+                Ok(value)
+            }
+            Err(error) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                Err(error)
+            }
+        }
+    }
+}
+
+fn insert_message(conn: &Connection, session_id: &str, role: Role, model: Option<&ModelRef>) -> rusqlite::Result<Message> {
+    let message = Message {
+        id: id::new("msg"),
+        session_id: session_id.into(),
+        role,
+        status: if role == Role::User { MessageStatus::Done } else { MessageStatus::Streaming },
+        model: model.cloned(),
+        usage: Usage::default(),
+        cost: 0.0,
+        error: None,
+        created_at: id::now_ms(),
+        finished_at: None,
+    };
+    conn.prepare_cached(
+        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, created_at)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8)",
+    )?
+    .execute(params![
+        message.id,
+        message.session_id,
+        role_str(role),
+        status_str(message.status),
+        model.map(|m| &m.provider),
+        model.map(|m| &m.model),
+        serde_json::to_string(&message.usage).unwrap(),
+        message.created_at
+    ])?;
+    Ok(message)
+}
+
+fn insert_part(conn: &Connection, message_id: &str, session_id: &str, part: Part) -> rusqlite::Result<PartRow> {
+    let row = PartRow { id: id::new("prt"), message_id: message_id.into(), session_id: session_id.into(), part };
+    conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json) VALUES(?1, ?2, ?3, ?4)")?
+        .execute(params![row.id, row.message_id, row.session_id, serde_json::to_string(&row.part).unwrap()])?;
+    Ok(row)
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    use crate::store::tests::store;
+
+    #[test]
+    fn admission_is_all_or_nothing() {
+        let store = store();
+        let session = store
+            .create_session(NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None })
+            .unwrap();
+        let model = ModelRef { provider: "p".into(), model: "m".into() };
+        let (message, rows, updated) = store.admit_prompt(&session.id, &model, vec![Part::Text { text: "hi".into() }]).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(updated.model, Some(model.clone()));
+        assert_eq!(store.transcript(&session.id).unwrap()[0].info.id, message.id);
+        let failed = store.admit_prompt("ses_missing", &model, vec![Part::Text { text: "x".into() }]);
+        assert!(failed.is_err());
+        let count: i64 = store.lock().query_row("SELECT COUNT(*) FROM message", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 1, "the failed admission must leave no message behind");
     }
 }

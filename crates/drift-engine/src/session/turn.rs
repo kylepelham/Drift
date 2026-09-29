@@ -35,6 +35,9 @@ pub struct Prompt {
     pub model: Option<ModelRef>,
     #[serde(default)]
     pub thinking_budget: Option<u32>,
+    /// Client-chosen id; resubmitting with the same id returns the original receipt instead of a second turn.
+    #[serde(default)]
+    pub submission_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -49,6 +52,7 @@ pub enum TurnError {
     NoSession,
     NoWorkspace,
     Busy,
+    SubmissionReused,
     NoModel,
     UnknownModel,
     NoCredentials,
@@ -61,6 +65,7 @@ impl std::fmt::Display for TurnError {
             Self::NoSession => write!(f, "session not found"),
             Self::NoWorkspace => write!(f, "workspace not found"),
             Self::Busy => write!(f, "session is already running a turn"),
+            Self::SubmissionReused => write!(f, "submission id was used for another session"),
             Self::NoModel => write!(f, "no model selected"),
             Self::UnknownModel => write!(f, "model is not in the catalog"),
             Self::NoCredentials => write!(f, "provider has no credentials"),
@@ -79,6 +84,8 @@ impl From<rusqlite::Error> for TurnError {
 pub struct Turns {
     active: Mutex<HashMap<String, CancellationToken>>,
     files: Mutex<HashMap<String, Arc<SessionFiles>>>,
+    receipts: Mutex<HashMap<String, Receipt>>,
+    refreshing: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
 }
@@ -86,6 +93,10 @@ pub struct Turns {
 impl Turns {
     fn files_for(&self, session_id: &str) -> Arc<SessionFiles> {
         self.files.lock().unwrap().entry(session_id.into()).or_default().clone()
+    }
+
+    fn refresh_lock(&self, provider: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.refreshing.lock().unwrap().entry(provider.into()).or_default().clone()
     }
 
     pub fn is_running(&self, session_id: &str) -> bool {
@@ -106,6 +117,9 @@ struct Plan {
 impl Engine {
     /// Records the prompt and starts the turn in the background; the receipt is what was recorded.
     pub async fn submit(self: &Arc<Self>, session_id: &str, prompt: Prompt) -> Result<Receipt, TurnError> {
+        if let Some(receipt) = prompt.submission_id.as_ref().and_then(|id| self.turns.receipts.lock().unwrap().get(id).cloned()) {
+            return if receipt.session.id == session_id { Ok(receipt) } else { Err(TurnError::SubmissionReused) };
+        }
         let plan = self.plan(session_id, &prompt).await?;
         let abort = CancellationToken::new();
         {
@@ -115,15 +129,24 @@ impl Engine {
             }
             active.insert(session_id.into(), abort.clone());
         }
-        let message = self.store.create_message(session_id, Role::User, Some(&plan.model_ref))?;
+        let admitted = self.store.admit_prompt(session_id, &plan.model_ref, prompt.parts);
+        let (message, parts, session) = match admitted {
+            Ok(admitted) => admitted,
+            Err(error) => {
+                self.turns.active.lock().unwrap().remove(session_id);
+                return Err(error.into());
+            }
+        };
         self.hub.publish(Event::MessageCreated { message: message.clone() });
-        for part in prompt.parts {
-            let row = self.store.add_part(&message.id, session_id, part)?;
+        for row in parts {
             self.hub.publish(Event::PartCreated { part: row });
         }
-        let session = self.store.update_session(session_id, None, Some(&plan.model_ref))?.ok_or(TurnError::NoSession)?;
         self.hub.publish(Event::SessionUpdated { session: session.clone() });
         self.hub.publish(Event::SessionStatusChanged { session_id: session_id.into(), status: SessionStatus::Running });
+        let receipt = Receipt { session, message };
+        if let Some(id) = prompt.submission_id {
+            self.turns.receipts.lock().unwrap().insert(id, receipt.clone());
+        }
         let engine = self.clone();
         tokio::spawn(async move {
             let id = plan.session.id.clone();
@@ -131,7 +154,7 @@ impl Engine {
             engine.turns.active.lock().unwrap().remove(&id);
             engine.hub.publish(Event::SessionStatusChanged { session_id: id, status: SessionStatus::Idle });
         });
-        Ok(Receipt { session, message })
+        Ok(receipt)
     }
 
     pub fn abort(&self, session_id: &str) -> bool {
@@ -167,12 +190,18 @@ impl Engine {
         })
     }
 
-    /// Expired subscription tokens are refreshed and the new pair stored before the turn starts.
+    /// Expired subscription tokens are refreshed once, however many turns notice at the same time.
     async fn fresh_credential(&self, provider: &str, credential: Credential) -> Result<Credential, TurnError> {
-        let Credential::OAuth { refresh, .. } = &credential else { return Ok(credential) };
         if !credential.is_expired() {
             return Ok(credential);
         }
+        let lock = self.turns.refresh_lock(provider);
+        let _held = lock.lock().await;
+        // Another turn may have refreshed while we waited; its token is the one to use.
+        if let Some(stored) = self.credentials.get(provider).filter(|stored| !stored.is_expired()) {
+            return Ok(stored);
+        }
+        let Credential::OAuth { refresh, .. } = &credential else { return Ok(credential) };
         let refreshed = match provider {
             "anthropic" => llm::anthropic::oauth::refresh(&self.http, refresh).await,
             "openai" => llm::openai::oauth::refresh(&self.http, refresh).await,
@@ -222,17 +251,12 @@ impl Engine {
 
     /// One assistant message and the tool calls it makes.
     async fn step(self: &Arc<Self>, plan: &Plan, mut message: Message, request: &Request, abort: &CancellationToken) -> Step {
-        let streamed = self.stream(&message, plan, request, abort).await;
-        let (calls, stop) = match streamed {
-            Ok(Streamed { usage, stop, calls }) => {
-                message.usage = usage;
-                message.cost = if matches!(plan.credential, Credential::OAuth { .. }) { 0.0 } else { cost(&plan.model, usage) };
-                message.status = MessageStatus::Done;
-                (calls, stop)
-            }
+        let streamed = match self.stream(&message, plan, request, abort).await {
+            Ok(streamed) => streamed,
             Err(StreamError::Aborted) => {
                 message.status = MessageStatus::Aborted;
-                (Vec::new(), None)
+                self.finish(&mut message);
+                return Step::Done;
             }
             Err(StreamError::Provider(error)) => {
                 message.status = MessageStatus::Error;
@@ -241,16 +265,16 @@ impl Engine {
                 return if matches!(error, llm::Error::Api { retryable: true, .. } | llm::Error::Transport(_)) { Step::Retry } else { Step::Done };
             }
         };
+        message.usage = streamed.usage;
+        message.cost = if matches!(plan.credential, Credential::OAuth { .. }) { 0.0 } else { cost(&plan.model, streamed.usage) };
+        message.status = MessageStatus::Done;
         self.finish(&mut message);
-        if message.status == MessageStatus::Aborted {
+        if streamed.calls.is_empty() {
             return Step::Done;
         }
-        if calls.is_empty() {
-            return Step::Done;
-        }
-        match self.run_calls(plan, &message, calls, abort).await {
+        match self.run_calls(plan, &message, streamed.calls, abort).await {
             Outcome::Aborted => Step::Done,
-            _ if stop == Some(StopReason::MaxTokens) => Step::Done,
+            _ if streamed.stop == StopReason::MaxTokens => Step::Done,
             _ => Step::Continue,
         }
     }
@@ -283,7 +307,11 @@ impl Engine {
             }
         }
         let _ = assembler.stop_block();
-        Ok(Streamed { usage: assembler.usage, stop: assembler.stop, calls: assembler.calls })
+        // A stream that ends without saying why is a broken stream; its tool calls must not run.
+        let Some(stop) = assembler.stop else {
+            return Err(StreamError::Provider(llm::Error::Transport("stream ended without a stop reason".into())));
+        };
+        Ok(Streamed { usage: assembler.usage, stop, calls: assembler.calls })
     }
 
     /// Reads run together; anything that mutates waits for them and then runs in the model's order.
@@ -414,7 +442,7 @@ struct CallScope<'a> {
 
 struct Streamed {
     usage: Usage,
-    stop: Option<StopReason>,
+    stop: StopReason,
     calls: Vec<PartRow>,
 }
 
