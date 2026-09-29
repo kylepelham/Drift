@@ -15,13 +15,15 @@ change the plan there when a decision changes.
 
 ## M1: vertical slice
 
-- [ ] Anthropic adapter: API key, subscription OAuth, streaming, tool calls, thinking
-- [ ] Turn loop
-- [ ] `read`, `edit`, `write`, `bash`, `glob`, `grep`
-- [ ] Exact-match edit with closest-region miss reporting
-- [ ] Permissions end to end
-- [ ] Snapshot before writing tools
-- [ ] Persistence
+- [x] Anthropic adapter: API key, subscription OAuth, streaming, tool calls, thinking
+- [x] Turn loop
+- [x] `read`, `edit`, `write`, `bash`, `glob`, `grep`
+- [x] Exact-match edit with closest-region miss reporting
+- [x] Permissions end to end
+- [x] Snapshot before writing tools
+- [x] Persistence
+- [x] One `drift.db` connection shared by engine and shell
+- [x] Real turns against Anthropic through `drift-engined` (read, edit with ask, bash with ask)
 - [ ] Drift UI against the new API
 - [ ] Conformance suite with recorded Anthropic fixtures
 

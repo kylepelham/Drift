@@ -176,6 +176,20 @@ under it is true, not before.
 - Every request carries `Authorization: Bearer <token>`; the socket takes `?token=` because
   browsers cannot set headers on a WebSocket. The shell hands the UI the token through the
   `native_engine_status` command.
+- `drift-engined --file-credentials` keeps secrets in `credentials.json` under the data dir
+  instead of the OS keychain; tests and CI use it so they never touch a real keychain.
+  `DRIFT_ANTHROPIC_BASE_URL` points the Anthropic adapter at a fake for recorded runs.
+- Claude subscription sign-in is the PKCE flow Claude Code uses (`llm/anthropic/oauth.rs`).
+  Requests made with a subscription token must look like Claude Code's:
+  `llm/anthropic/claude_code.rs` adds the identity and billing system blocks, prefixes tool
+  names with `mcp_` and the adapter strips the prefix from what comes back. Subscription
+  turns cost nothing, so their `cost` is recorded as zero.
+- Tool calls run in the order the model issued them, one at a time. `edit` and `write`
+  refuse files the session has not `read`; the first mutating call in a message takes a
+  snapshot and records its tree id in the part's metadata.
+- Ids are `prefix_<16 hex stamp><8 hex random>`; the stamp is milliseconds shifted left
+  twelve bits plus a per-process counter, so rows made in the same millisecond still sort
+  by creation.
 - The engine owns the one connection to `drift.db` and the migration ledger. The shell's
   `Store` borrows it (`drift_engine::store::Store::lock`) for its own tables until they fold
   into the engine at M4. `workspace` is already the engine's table.
