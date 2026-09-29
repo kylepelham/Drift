@@ -79,6 +79,9 @@ pub struct Engine {
     pub catalog: RwLock<Catalog>,
     pub snapshots: Snapshots,
     pub turns: Turns,
+    pub http: reqwest::Client,
+    /// Sign-in flows waiting for their callback code, keyed by state.
+    pub oauth: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
 impl Engine {
@@ -100,6 +103,8 @@ impl Engine {
             catalog: RwLock::new(Catalog::load(data_dir)),
             snapshots: Snapshots::new(data_dir),
             turns: Turns::default(),
+            http: reqwest::Client::new(),
+            oauth: Default::default(),
         }))
     }
 }

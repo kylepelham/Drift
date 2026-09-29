@@ -119,7 +119,7 @@ pub async fn messages(
 
 #[utoipa::path(post, path = "/sessions/{id}/turns", operation_id = "submitTurn", request_body = Prompt, responses((status = 202, body = Receipt), (status = 409), (status = 404)))]
 pub async fn submit(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(prompt): Json<Prompt>) -> Result<(StatusCode, Json<Receipt>), ApiError> {
-    Ok((StatusCode::ACCEPTED, Json(engine.submit(&id, prompt)?)))
+    Ok((StatusCode::ACCEPTED, Json(engine.submit(&id, prompt).await?)))
 }
 
 #[utoipa::path(post, path = "/sessions/{id}/abort", operation_id = "abortTurn", responses((status = 200, body = Aborted)))]

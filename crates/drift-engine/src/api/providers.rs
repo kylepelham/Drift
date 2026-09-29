@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::error::ApiError;
+use crate::llm::anthropic::oauth;
 use crate::llm::catalog::{Model, ProviderInfo};
 use crate::llm::Credential;
 use crate::Engine;
@@ -69,5 +70,56 @@ pub async fn set_key(State(engine): State<Arc<Engine>>, Path(id): Path<String>, 
 #[utoipa::path(delete, path = "/providers/{id}/credentials", operation_id = "removeProviderCredentials", responses((status = 204)))]
 pub async fn remove(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
     engine.credentials.remove(&id).map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OAuthMode {
+    Max,
+    Console,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct OAuthStartBody {
+    pub mode: OAuthMode,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct OAuthStarted {
+    /// Open this in a browser; the user pastes back what the callback page shows.
+    pub url: String,
+    pub state: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct OAuthFinishBody {
+    /// `code#state`, the callback URL, or its query string.
+    pub input: String,
+}
+
+#[utoipa::path(post, path = "/providers/{id}/oauth", operation_id = "startOAuth", request_body = OAuthStartBody, responses((status = 200, body = OAuthStarted), (status = 404)))]
+pub async fn oauth_start(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<OAuthStartBody>) -> Result<Json<OAuthStarted>, ApiError> {
+    if id != "anthropic" {
+        return Err(ApiError::not_found("oauth provider"));
+    }
+    let mode = match body.mode {
+        OAuthMode::Max => oauth::Mode::Max,
+        OAuthMode::Console => oauth::Mode::Console,
+    };
+    let started = oauth::start(mode);
+    engine.oauth.lock().unwrap().insert(started.state.clone(), started.verifier);
+    Ok(Json(OAuthStarted { url: started.url, state: started.state }))
+}
+
+#[utoipa::path(post, path = "/providers/{id}/oauth/callback", operation_id = "finishOAuth", request_body = OAuthFinishBody, responses((status = 204), (status = 400), (status = 404)))]
+pub async fn oauth_finish(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<OAuthFinishBody>) -> Result<StatusCode, ApiError> {
+    if id != "anthropic" {
+        return Err(ApiError::not_found("oauth provider"));
+    }
+    let (code, state) = oauth::parse_callback(&body.input).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "invalid", "paste the code#state value or the callback URL"))?;
+    let verifier = engine.oauth.lock().unwrap().remove(&state).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "invalid", "unknown or expired sign-in state"))?;
+    let credential = oauth::exchange(&engine.http, &code, &state, &verifier).await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e))?;
+    engine.credentials.set(&id, &credential).map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e))?;
     Ok(StatusCode::NO_CONTENT)
 }

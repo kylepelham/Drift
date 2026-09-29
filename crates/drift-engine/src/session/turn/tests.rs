@@ -75,7 +75,7 @@ fn prompt(text: &str) -> Prompt {
 async fn a_plain_reply_is_stored_costed_and_titles_the_session() {
     let h = harness().await;
     h.provider.push(text("Hello there"));
-    let receipt = h.engine.submit(&h.session.id, prompt("say hello please")).await_ok();
+    let receipt = h.engine.submit(&h.session.id, prompt("say hello please")).await.await_ok();
     assert_eq!(receipt.message.role, Role::User);
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
@@ -98,7 +98,7 @@ async fn tool_calls_run_and_feed_the_next_request() {
     let h = harness().await;
     std::fs::write(h._dir.join("ws/a.txt"), "alpha\n").unwrap();
     h.provider.push(tool_call("read", r#"{"path": "a.txt"}"#)).push(text("It says alpha"));
-    h.engine.submit(&h.session.id, prompt("what is in a.txt")).await_ok();
+    h.engine.submit(&h.session.id, prompt("what is in a.txt")).await.await_ok();
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     assert_eq!(transcript.len(), 3);
@@ -117,7 +117,7 @@ async fn permission_denial_is_reported_to_the_model() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Deny }] });
     h.provider.push(tool_call("bash", r#"{"command": "rm -rf /"}"#)).push(text("Understood"));
-    h.engine.submit(&h.session.id, prompt("wipe it")).await_ok();
+    h.engine.submit(&h.session.id, prompt("wipe it")).await.await_ok();
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let Part::ToolCall { status, .. } = &transcript[1].parts[0].part else { panic!() };
@@ -131,7 +131,7 @@ async fn asks_wait_for_a_reply_and_mutations_snapshot_first() {
     let h = harness().await;
     let mut rx = h.engine.hub.attach(None).rx;
     h.provider.push(tool_call("write", r#"{"path": "new.txt", "content": "hi\n"}"#)).push(text("Written"));
-    h.engine.submit(&h.session.id, prompt("make new.txt")).await_ok();
+    h.engine.submit(&h.session.id, prompt("make new.txt")).await.await_ok();
     let request = loop {
         let envelope = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await.unwrap().unwrap();
         if let Event::PermissionAsked { request } = envelope.event {
@@ -155,9 +155,9 @@ async fn abort_marks_the_message_and_frees_the_session() {
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
     let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1 > nul" } else { "sleep 10" };
     h.provider.push(tool_call("bash", &json!({ "command": sleep }).to_string()));
-    h.engine.submit(&h.session.id, prompt("wait")).await_ok();
+    h.engine.submit(&h.session.id, prompt("wait")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(h.engine.submit(&h.session.id, prompt("again")).err(), Some(TurnError::Busy));
+    assert_eq!(h.engine.submit(&h.session.id, prompt("again")).await.err(), Some(TurnError::Busy));
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
@@ -172,7 +172,7 @@ async fn retryable_provider_errors_are_retried_and_others_are_not() {
     h.provider
         .push_error(llm::Error::Api { status: 529, kind: "overloaded".into(), message: "busy".into(), retryable: true })
         .push(text("second time lucky"));
-    h.engine.submit(&h.session.id, prompt("hi")).await_ok();
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     assert_eq!(transcript.len(), 3);
@@ -180,7 +180,7 @@ async fn retryable_provider_errors_are_retried_and_others_are_not() {
     assert_eq!(transcript[2].info.status, MessageStatus::Done);
 
     h.provider.push_error(llm::Error::Unauthenticated);
-    h.engine.submit(&h.session.id, prompt("again")).await_ok();
+    h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     assert_eq!(transcript.len(), 5);
@@ -192,12 +192,12 @@ async fn retryable_provider_errors_are_retried_and_others_are_not() {
 async fn submit_rejects_bad_plans() {
     let h = harness().await;
     let no_model = Prompt { parts: vec![], model: None, thinking_budget: None };
-    assert_eq!(h.engine.submit(&h.session.id, no_model).err(), Some(TurnError::NoModel));
+    assert_eq!(h.engine.submit(&h.session.id, no_model).await.err(), Some(TurnError::NoModel));
     let unknown = Prompt { model: Some(ModelRef { provider: "anthropic".into(), model: "nope".into() }), ..prompt("x") };
-    assert_eq!(h.engine.submit(&h.session.id, unknown).err(), Some(TurnError::UnknownModel));
-    assert_eq!(h.engine.submit("ses_missing", prompt("x")).err(), Some(TurnError::NoSession));
+    assert_eq!(h.engine.submit(&h.session.id, unknown).await.err(), Some(TurnError::UnknownModel));
+    assert_eq!(h.engine.submit("ses_missing", prompt("x")).await.err(), Some(TurnError::NoSession));
     h.engine.credentials.remove("anthropic").unwrap();
-    assert_eq!(h.engine.submit(&h.session.id, prompt("x")).err(), Some(TurnError::NoCredentials));
+    assert_eq!(h.engine.submit(&h.session.id, prompt("x")).await.err(), Some(TurnError::NoCredentials));
 }
 
 trait AwaitOk {

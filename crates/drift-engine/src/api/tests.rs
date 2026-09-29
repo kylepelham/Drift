@@ -302,3 +302,17 @@ async fn sessions_can_be_renamed_archived_and_paged() {
     let body: Value = no_model.json().await.unwrap();
     assert_eq!(body["code"], "credentials");
 }
+
+#[tokio::test]
+async fn oauth_start_hands_back_a_url_and_bad_callbacks_are_rejected() {
+    let h = harness().await;
+    let started: Value = h.post("/providers/anthropic/oauth").json(&json!({ "mode": "max" })).send().await.unwrap().json().await.unwrap();
+    assert!(started["url"].as_str().unwrap().starts_with("https://claude.ai/oauth/authorize?"));
+    let state = started["state"].as_str().unwrap();
+    assert!(h.engine.oauth.lock().unwrap().contains_key(state));
+    let bad = h.post("/providers/anthropic/oauth/callback").json(&json!({ "input": "nonsense" })).send().await.unwrap();
+    assert_eq!(bad.status(), 400);
+    let unknown = h.post("/providers/anthropic/oauth/callback").json(&json!({ "input": "code#wrongstate" })).send().await.unwrap();
+    assert_eq!(unknown.status(), 400);
+    assert_eq!(h.post("/providers/openai/oauth").json(&json!({ "mode": "max" })).send().await.unwrap().status(), 404);
+}

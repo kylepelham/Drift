@@ -105,8 +105,8 @@ struct Plan {
 
 impl Engine {
     /// Records the prompt and starts the turn in the background; the receipt is what was recorded.
-    pub fn submit(self: &Arc<Self>, session_id: &str, prompt: Prompt) -> Result<Receipt, TurnError> {
-        let plan = self.plan(session_id, &prompt)?;
+    pub async fn submit(self: &Arc<Self>, session_id: &str, prompt: Prompt) -> Result<Receipt, TurnError> {
+        let plan = self.plan(session_id, &prompt).await?;
         let abort = CancellationToken::new();
         {
             let mut active = self.turns.active.lock().unwrap();
@@ -144,14 +144,17 @@ impl Engine {
         }
     }
 
-    fn plan(&self, session_id: &str, prompt: &Prompt) -> Result<Plan, TurnError> {
+    async fn plan(&self, session_id: &str, prompt: &Prompt) -> Result<Plan, TurnError> {
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         let model_ref = prompt.model.clone().or_else(|| session.model.clone()).ok_or(TurnError::NoModel)?;
-        let catalog = self.catalog.read().unwrap();
-        let info = catalog.providers.get(&model_ref.provider).ok_or(TurnError::UnknownModel)?;
-        let model = info.models.get(&model_ref.model).cloned().ok_or(TurnError::UnknownModel)?;
-        let credential = self.credentials.resolve(&model_ref.provider, &info.env).ok_or(TurnError::NoCredentials)?;
+        let (model, env) = {
+            let catalog = self.catalog.read().unwrap();
+            let info = catalog.providers.get(&model_ref.provider).ok_or(TurnError::UnknownModel)?;
+            (info.models.get(&model_ref.model).cloned().ok_or(TurnError::UnknownModel)?, info.env.clone())
+        };
+        let credential = self.credentials.resolve(&model_ref.provider, &env).ok_or(TurnError::NoCredentials)?;
+        let credential = self.fresh_credential(&model_ref.provider, credential).await?;
         let provider = self.provider_for(&model_ref.provider).ok_or(TurnError::UnknownModel)?;
         Ok(Plan {
             session,
@@ -162,6 +165,17 @@ impl Engine {
             credential,
             thinking_budget: prompt.thinking_budget,
         })
+    }
+
+    /// Expired subscription tokens are refreshed and the new pair stored before the turn starts.
+    async fn fresh_credential(&self, provider: &str, credential: Credential) -> Result<Credential, TurnError> {
+        if provider != "anthropic" || !llm::anthropic::oauth::is_expired(&credential) {
+            return Ok(credential);
+        }
+        let Credential::OAuth { refresh, .. } = &credential else { return Ok(credential) };
+        let fresh = llm::anthropic::oauth::refresh(&self.http, refresh).await.map_err(|_| TurnError::NoCredentials)?;
+        self.credentials.set(provider, &fresh).map_err(TurnError::Store)?;
+        Ok(fresh)
     }
 
     fn provider_for(&self, id: &str) -> Option<Provider> {
@@ -213,7 +227,7 @@ impl Engine {
         let (calls, stop) = match streamed {
             Ok(Streamed { usage, stop, calls }) => {
                 message.usage = usage;
-                message.cost = cost(&plan.model, usage);
+                message.cost = if matches!(plan.credential, Credential::OAuth { .. }) { 0.0 } else { cost(&plan.model, usage) };
                 message.status = MessageStatus::Done;
                 (calls, stop)
             }

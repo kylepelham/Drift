@@ -1,5 +1,8 @@
 //! Anthropic Messages API over SSE. Also serves Bedrock and Vertex once their signing lands.
 
+pub mod claude_code;
+pub mod oauth;
+
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 
@@ -9,8 +12,6 @@ use crate::session::types::Usage;
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
-/// Subscription tokens are only accepted with this beta flag.
-const OAUTH_BETA: &str = "oauth-2025-04-20";
 
 #[derive(Clone, Debug)]
 pub struct Anthropic {
@@ -32,31 +33,38 @@ impl Anthropic {
         }
     }
 
+    /// Subscription tokens only work for requests shaped like Claude Code's; keys take the plain path.
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
-        let mut http = self
-            .client
-            .post(format!("{}/v1/messages", self.base_url))
-            .header("anthropic-version", API_VERSION)
-            .header("accept", "text/event-stream")
-            .json(&body(request));
-        http = match credential {
+        let mut body = body(request);
+        let subscription = matches!(credential, Credential::OAuth { .. });
+        let url = format!("{}/v1/messages{}", self.base_url, if subscription { "?beta=true" } else { "" });
+        let http = self.client.post(url).header("anthropic-version", API_VERSION).header("accept", "text/event-stream");
+        let http = match credential {
             Credential::ApiKey { key } => http.header("x-api-key", key),
-            Credential::OAuth { access, .. } => http
-                .bearer_auth(access)
-                .header("anthropic-beta", OAUTH_BETA),
+            Credential::OAuth { access, .. } => {
+                claude_code::transform(&mut body);
+                http.bearer_auth(access).header("anthropic-beta", claude_code::BETAS).header("user-agent", claude_code::user_agent())
+            }
         };
-        let response = http.send().await?;
+        let response = http.json(&body).send().await?;
         let status = response.status();
         if !status.is_success() {
             return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()));
         }
         let events = sse::events(response.bytes_stream());
-        Ok(Box::pin(events.filter_map(|event| async move {
+        Ok(Box::pin(events.filter_map(move |event| async move {
             match event {
                 Err(error) => Some(Err(Error::Transport(error.to_string()))),
-                Ok(event) => chunk(&event.event, &event.data).transpose(),
+                Ok(event) => chunk(&event.event, &event.data).map(|c| c.map(|c| unprefix(c, subscription))).transpose(),
             }
         })))
+    }
+}
+
+fn unprefix(chunk: Chunk, subscription: bool) -> Chunk {
+    match chunk {
+        Chunk::ToolUseStart { id, name } if subscription => Chunk::ToolUseStart { id, name: claude_code::original_name(&name) },
+        other => other,
     }
 }
 

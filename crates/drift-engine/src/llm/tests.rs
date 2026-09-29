@@ -18,6 +18,7 @@ use crate::session::types::Usage;
 
 struct Seen {
     headers: HeaderMap,
+    query: Option<String>,
     body: Value,
 }
 
@@ -26,8 +27,8 @@ struct Fake {
     reply: Mutex<(u16, String)>,
 }
 
-async fn handle(State(fake): State<Arc<Fake>>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
-    *fake.seen.lock().unwrap() = Some(Seen { headers, body });
+async fn handle(State(fake): State<Arc<Fake>>, uri: axum::http::Uri, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    *fake.seen.lock().unwrap() = Some(Seen { headers, query: uri.query().map(str::to_string), body });
     let (status, text) = fake.reply.lock().unwrap().clone();
     if status != 200 {
         return Response::builder().status(status).body(Body::from(text)).unwrap();
@@ -98,16 +99,29 @@ async fn anthropic_streams_thinking_text_and_tool_use() {
 }
 
 #[tokio::test]
-async fn oauth_credentials_use_bearer_and_beta_header() {
-    let (fake, url) = fake(200, "event: message_stop\ndata: {}\n\n").await;
+async fn subscription_tokens_send_the_claude_code_shape_and_unprefix_tool_names() {
+    let reply = concat!(
+        "event: content_block_start\n",
+        "data: {\"content_block\":{\"type\":\"tool_use\",\"id\":\"t\",\"name\":\"mcp_Read\"}}\n\n",
+        "event: message_stop\ndata: {}\n\n"
+    );
+    let (fake, url) = fake(200, reply).await;
     let credential = Credential::OAuth { access: "tok".into(), refresh: String::new(), expires_at: 0 };
-    let stream = Anthropic::new(&url).stream(&request(), &credential).await.unwrap();
-    let _: Vec<_> = stream.collect().await;
+    let mut request = request();
+    request.tools = vec![crate::llm::ToolSpec { name: "read".into(), description: "r".into(), input_schema: serde_json::json!({}) }];
+    let stream = Anthropic::new(&url).stream(&request, &credential).await.unwrap();
+    let chunks: Vec<Chunk> = stream.map(|c| c.unwrap()).collect().await;
+    assert_eq!(chunks[0], Chunk::ToolUseStart { id: "t".into(), name: "read".into() });
     let seen = fake.seen.lock().unwrap();
-    let headers = &seen.as_ref().unwrap().headers;
-    assert_eq!(headers["authorization"], "Bearer tok");
-    assert_eq!(headers["anthropic-beta"], "oauth-2025-04-20");
-    assert!(headers.get("x-api-key").is_none());
+    let seen = seen.as_ref().unwrap();
+    assert_eq!(seen.headers["authorization"], "Bearer tok");
+    assert_eq!(seen.headers["anthropic-beta"], "oauth-2025-04-20,interleaved-thinking-2025-05-14");
+    assert!(seen.headers["user-agent"].to_str().unwrap().starts_with("claude-cli/"));
+    assert!(seen.headers.get("x-api-key").is_none());
+    assert_eq!(seen.query.as_deref(), Some("beta=true"));
+    assert_eq!(seen.body["system"][1]["text"], "You are a Claude agent, built on Anthropic's Claude Agent SDK.");
+    assert_eq!(seen.body["system"][2]["text"], "sys");
+    assert_eq!(seen.body["tools"][0]["name"], "mcp_Read");
 }
 
 #[tokio::test]

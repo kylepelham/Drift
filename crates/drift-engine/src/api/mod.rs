@@ -38,6 +38,8 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(providers::list))
         .routes(routes!(providers::set_key))
         .routes(routes!(providers::remove))
+        .routes(routes!(providers::oauth_start))
+        .routes(routes!(providers::oauth_finish))
         .routes(routes!(permissions::list))
         .routes(routes!(permissions::reply))
         .routes(routes!(events::get))
