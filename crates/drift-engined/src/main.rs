@@ -38,6 +38,8 @@ fn parse() -> Result<Args, String> {
 
 #[tokio::main]
 async fn main() {
+    // reqwest is built without a bundled TLS provider so the engine can share the shell's.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let args = match parse() {
         Ok(args) => args,
         Err(message) => {

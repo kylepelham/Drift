@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 drift-engine = { path = "../drift-engine" }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tokio = { workspace = true, features = ["signal"] }

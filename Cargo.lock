@@ -1235,6 +1235,7 @@ name = "drift-engined"
 version = "0.1.0"
 dependencies = [
  "drift-engine",
+ "rustls",
  "tokio",
 ]
 

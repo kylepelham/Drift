@@ -88,6 +88,7 @@ async fn anthropic_streams_thinking_text_and_tool_use() {
             Chunk::ToolInputDelta("{\"path\": \"src/ma".into()),
             Chunk::ToolInputDelta("in.rs\"}".into()),
             Chunk::BlockStop,
+            Chunk::Usage(Usage { output: 42, ..Usage::default() }),
             Chunk::Stop(StopReason::ToolUse),
         ]
     );

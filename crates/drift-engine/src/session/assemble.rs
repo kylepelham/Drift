@@ -61,7 +61,7 @@ impl<'a> Assembler<'a> {
             }
             Chunk::BlockStop => self.stop_block(),
             Chunk::Usage(usage) => {
-                self.usage.add(usage);
+                self.usage.merge(usage);
                 Ok(())
             }
             Chunk::Stop(reason) => {

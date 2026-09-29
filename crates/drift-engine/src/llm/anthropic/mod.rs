@@ -52,11 +52,15 @@ impl Anthropic {
             return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()));
         }
         let events = sse::events(response.bytes_stream());
-        Ok(Box::pin(events.filter_map(move |event| async move {
-            match event {
-                Err(error) => Some(Err(Error::Transport(error.to_string()))),
-                Ok(event) => chunk(&event.event, &event.data).map(|c| c.map(|c| unprefix(c, subscription))).transpose(),
-            }
+        Ok(Box::pin(events.flat_map(move |event| {
+            let items: Vec<Result<Chunk, Error>> = match event {
+                Err(error) => vec![Err(Error::Transport(error.to_string()))],
+                Ok(event) => match chunks(&event.event, &event.data) {
+                    Ok(chunks) => chunks.into_iter().map(|c| Ok(unprefix(c, subscription))).collect(),
+                    Err(error) => vec![Err(error)],
+                },
+            };
+            futures_util::stream::iter(items)
         })))
     }
 }
@@ -132,19 +136,19 @@ fn api_error(status: u16, text: &str) -> Error {
     }
 }
 
-/// Maps one SSE event to at most one chunk; `Ok(None)` is a frame with nothing for us.
-fn chunk(event: &str, data: &str) -> Result<Option<Chunk>, Error> {
+/// Maps one SSE event to its chunks; most frames give one, message_delta carries usage and the stop.
+fn chunks(event: &str, data: &str) -> Result<Vec<Chunk>, Error> {
     let value: Value = serde_json::from_str(data).map_err(|e| Error::Malformed(e.to_string()))?;
     let chunk = match event {
         "message_start" => Chunk::Usage(usage(&value["message"]["usage"])),
         "content_block_start" => block_start(&value["content_block"])?,
         "content_block_delta" => block_delta(&value["delta"])?,
         "content_block_stop" => Chunk::BlockStop,
-        "message_delta" => return Ok(Some(message_delta(&value))),
+        "message_delta" => return Ok(message_delta(&value)),
         "error" => return Err(api_error(200, data)),
-        _ => return Ok(None),
+        _ => return Ok(Vec::new()),
     };
-    Ok(Some(chunk))
+    Ok(vec![chunk])
 }
 
 fn block_start(block: &Value) -> Result<Chunk, Error> {
@@ -171,16 +175,17 @@ fn block_delta(delta: &Value) -> Result<Chunk, Error> {
     })
 }
 
-fn message_delta(value: &Value) -> Chunk {
+fn message_delta(value: &Value) -> Vec<Chunk> {
+    let mut out = vec![Chunk::Usage(usage(&value["usage"]))];
     if let Some(reason) = value["delta"]["stop_reason"].as_str() {
-        return Chunk::Stop(match reason {
+        out.push(Chunk::Stop(match reason {
             "end_turn" | "stop_sequence" => StopReason::EndTurn,
             "tool_use" => StopReason::ToolUse,
             "max_tokens" => StopReason::MaxTokens,
             _ => StopReason::Other,
-        });
+        }));
     }
-    Chunk::Usage(usage(&value["usage"]))
+    out
 }
 
 fn usage(value: &Value) -> Usage {
@@ -253,19 +258,20 @@ mod tests {
             ("content_block_delta", r#"{"delta":{"type":"signature_delta","signature":"s"}}"#, Some(Chunk::ReasoningSignature("s".into()))),
             ("content_block_start", r#"{"content_block":{"type":"redacted_thinking","data":"xyz"}}"#, Some(Chunk::ReasoningRedacted("xyz".into()))),
             ("content_block_stop", r#"{}"#, Some(Chunk::BlockStop)),
-            ("message_delta", r#"{"delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}"#, Some(Chunk::Stop(StopReason::ToolUse))),
             ("message_delta", r#"{"delta":{},"usage":{"output_tokens":7}}"#, Some(Chunk::Usage(Usage { output: 7, ..Usage::default() }))),
             ("ping", r#"{}"#, None),
             ("message_stop", r#"{}"#, None),
         ];
         for (event, data, expected) in cases {
-            assert_eq!(chunk(event, data).unwrap(), expected, "{event}");
+            assert_eq!(chunks(event, data).unwrap().into_iter().next(), expected, "{event}");
         }
+        let both = chunks("message_delta", r#"{"delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}"#).unwrap();
+        assert_eq!(both, vec![Chunk::Usage(Usage { output: 7, ..Usage::default() }), Chunk::Stop(StopReason::ToolUse)]);
     }
 
     #[test]
     fn error_frames_and_statuses_classify() {
-        let error = chunk("error", r#"{"error":{"type":"overloaded_error","message":"busy"}}"#).unwrap_err();
+        let error = chunks("error", r#"{"error":{"type":"overloaded_error","message":"busy"}}"#).unwrap_err();
         assert!(matches!(error, Error::Api { kind, .. } if kind == "overloaded_error"));
         assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
         assert!(matches!(api_error(400, "{}"), Error::Api { retryable: false, .. }));

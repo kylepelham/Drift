@@ -63,11 +63,12 @@ pub struct Usage {
 }
 
 impl Usage {
-    pub fn add(&mut self, other: Usage) {
-        self.input += other.input;
-        self.output += other.output;
-        self.cache_read += other.cache_read;
-        self.cache_write += other.cache_write;
+    /// Providers report running totals, so a later report supersedes an earlier one field by field.
+    pub fn merge(&mut self, other: Usage) {
+        self.input = self.input.max(other.input);
+        self.output = self.output.max(other.output);
+        self.cache_read = self.cache_read.max(other.cache_read);
+        self.cache_write = self.cache_write.max(other.cache_write);
     }
 }
 
