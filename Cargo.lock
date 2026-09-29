@@ -1101,6 +1101,7 @@ name = "drift-engine"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bytes",
  "futures-util",
  "getrandom 0.3.4",
  "reqwest",

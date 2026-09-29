@@ -15,7 +15,7 @@ use crate::Engine;
 #[serde(untagged)]
 pub enum Frame {
     Control(Control),
-    Event(Envelope),
+    Event(Box<Envelope>),
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -67,7 +67,7 @@ impl Client {
 
     async fn send_event(&mut self, envelope: Envelope) -> bool {
         self.last = envelope.seq;
-        self.send(&Frame::Event(envelope)).await
+        self.send(&Frame::Event(Box::new(envelope))).await
     }
 
     async fn resync(&mut self, seq: u64) -> bool {
