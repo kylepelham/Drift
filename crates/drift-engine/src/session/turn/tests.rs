@@ -25,6 +25,7 @@ impl Drop for Harness {
 }
 
 async fn harness() -> Harness {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let dir = std::env::temp_dir().join(format!("drift-turn-{}", crate::random_hex(4)));
     let workspace = dir.join("ws");
     std::fs::create_dir_all(&workspace).unwrap();
@@ -208,4 +209,43 @@ impl AwaitOk for Result<Receipt, TurnError> {
     fn await_ok(self) -> Receipt {
         self.unwrap_or_else(|error| panic!("submit failed: {error}"))
     }
+}
+
+#[tokio::test]
+async fn read_only_calls_run_together_and_writes_follow_in_order() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
+    std::fs::write(h._dir.join("ws/b.txt"), "b\n").unwrap();
+    h.provider
+        .push(vec![
+            Chunk::ToolUseStart { id: "t1".into(), name: "read".into() },
+            Chunk::ToolInputDelta(r#"{"path": "a.txt"}"#.into()),
+            Chunk::BlockStop,
+            Chunk::ToolUseStart { id: "t2".into(), name: "write".into() },
+            Chunk::ToolInputDelta(r#"{"path": "c.txt", "content": "c\n"}"#.into()),
+            Chunk::BlockStop,
+            Chunk::ToolUseStart { id: "t3".into(), name: "read".into() },
+            Chunk::ToolInputDelta(r#"{"path": "b.txt"}"#.into()),
+            Chunk::BlockStop,
+            Chunk::Stop(StopReason::ToolUse),
+        ])
+        .push(text("done"));
+    h.engine.submit(&h.session.id, prompt("go")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let mut finished: Vec<(String, i64)> = transcript[1]
+        .parts
+        .iter()
+        .filter_map(|row| match &row.part {
+            Part::ToolCall { name, finished_at, status, .. } => {
+                assert_eq!(*status, ToolStatus::Done, "{name}");
+                Some((name.clone(), finished_at.unwrap()))
+            }
+            _ => None,
+        })
+        .collect();
+    finished.sort_by_key(|(_, at)| *at);
+    assert_eq!(finished.last().unwrap().0, "write", "the write must land after both reads");
+    assert_eq!(std::fs::read_to_string(h._dir.join("ws/c.txt")).unwrap(), "c\n");
 }

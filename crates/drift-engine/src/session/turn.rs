@@ -287,56 +287,76 @@ impl Engine {
         Ok(Streamed { usage: assembler.usage, stop: assembler.stop, calls: assembler.calls })
     }
 
+    /// Reads run together; anything that mutates waits for them and then runs in the model's order.
     async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, abort: &CancellationToken) -> Outcome {
         let files = self.turns.files_for(&plan.session.id);
-        let mut snapshot: Option<String> = None;
-        for mut row in calls {
-            let Part::ToolCall { call_id, name, input, .. } = row.part.clone() else { continue };
-            let ctx = Context {
-                workspace: plan.workspace.clone(),
-                session_id: plan.session.id.clone(),
-                message_id: message.id.clone(),
-                call_id: call_id.clone(),
-                files: files.clone(),
-                abort: abort.clone(),
-                engine: self.clone(),
-            };
-            let Some(tool) = self.tools.get(&name) else {
-                self.settle(&mut row, ToolStatus::Error, None, format!("unknown tool `{name}`"), None);
-                continue;
-            };
-            if let Some(ask) = tool.ask(&ctx, &input) {
-                let request = permission::new_request(&plan.session.id, &message.id, &call_id, &name, ask);
-                match self.permissions.check(&self.hub, request, abort).await {
-                    Outcome::Allowed => {}
-                    Outcome::Denied => {
-                        self.settle(&mut row, ToolStatus::Denied, None, "Permission denied by the user.".into(), None);
-                        continue;
-                    }
-                    Outcome::Aborted => {
-                        self.settle(&mut row, ToolStatus::Error, None, "Aborted while waiting for permission.".into(), None);
-                        return Outcome::Aborted;
-                    }
-                }
-            }
-            if tool.mutates() && snapshot.is_none() {
-                snapshot = self.snapshots.take(&plan.workspace).await.ok();
-            }
-            self.start_call(&mut row);
-            let result = tokio::select! {
-                result = tool.run(&ctx, input) => result,
-                () = abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
-            };
-            let snapshot_meta = snapshot.as_ref().map(|tree| json!({ "snapshot": tree }));
-            match result {
-                Ok(output) => self.settle(&mut row, ToolStatus::Done, Some(output.title), output.output, merge(output.metadata, snapshot_meta)),
-                Err(error) => self.settle(&mut row, ToolStatus::Error, None, error.0, snapshot_meta),
-            }
-            if abort.is_cancelled() {
+        let snapshot = tokio::sync::OnceCell::new();
+        let (writes, reads): (Vec<PartRow>, Vec<PartRow>) = calls.into_iter().partition(|row| self.call_mutates(row));
+        let scope = CallScope { plan, message, files: &files, snapshot: &snapshot, abort };
+        let outcomes = futures_util::future::join_all(reads.into_iter().map(|row| self.run_call(&scope, row))).await;
+        if outcomes.contains(&Outcome::Aborted) {
+            return Outcome::Aborted;
+        }
+        for row in writes {
+            if self.run_call(&scope, row).await == Outcome::Aborted {
                 return Outcome::Aborted;
             }
         }
         Outcome::Allowed
+    }
+
+    fn call_mutates(&self, row: &PartRow) -> bool {
+        match &row.part {
+            Part::ToolCall { name, .. } => self.tools.get(name).is_some_and(|tool| tool.mutates()),
+            _ => false,
+        }
+    }
+
+    async fn run_call(self: &Arc<Self>, scope: &CallScope<'_>, mut row: PartRow) -> Outcome {
+        let Part::ToolCall { call_id, name, input, .. } = row.part.clone() else { return Outcome::Allowed };
+        let ctx = Context {
+            workspace: scope.plan.workspace.clone(),
+            session_id: scope.plan.session.id.clone(),
+            message_id: scope.message.id.clone(),
+            call_id: call_id.clone(),
+            files: scope.files.clone(),
+            abort: scope.abort.clone(),
+            engine: self.clone(),
+        };
+        let Some(tool) = self.tools.get(&name) else {
+            self.settle(&mut row, ToolStatus::Error, None, format!("unknown tool `{name}`"), None);
+            return Outcome::Allowed;
+        };
+        if let Some(ask) = tool.ask(&ctx, &input) {
+            let request = permission::new_request(&scope.plan.session.id, &scope.message.id, &call_id, &name, ask);
+            match self.permissions.check(&self.hub, request, scope.abort).await {
+                Outcome::Allowed => {}
+                Outcome::Denied => {
+                    self.settle(&mut row, ToolStatus::Denied, None, "Permission denied by the user.".into(), None);
+                    return Outcome::Allowed;
+                }
+                Outcome::Aborted => {
+                    self.settle(&mut row, ToolStatus::Error, None, "Aborted while waiting for permission.".into(), None);
+                    return Outcome::Aborted;
+                }
+            }
+        }
+        let snapshot_meta = if tool.mutates() {
+            let tree = scope.snapshot.get_or_init(|| async { self.snapshots.take(&scope.plan.workspace).await.ok() }).await;
+            tree.as_ref().map(|tree| json!({ "snapshot": tree }))
+        } else {
+            None
+        };
+        self.start_call(&mut row);
+        let result = tokio::select! {
+            result = tool.run(&ctx, input) => result,
+            () = scope.abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
+        };
+        match result {
+            Ok(output) => self.settle(&mut row, ToolStatus::Done, Some(output.title), output.output, merge(output.metadata, snapshot_meta)),
+            Err(error) => self.settle(&mut row, ToolStatus::Error, None, error.0, snapshot_meta),
+        }
+        if scope.abort.is_cancelled() { Outcome::Aborted } else { Outcome::Allowed }
     }
 
     fn start_call(&self, row: &mut PartRow) {
@@ -383,6 +403,14 @@ enum Step {
     Done,
     Continue,
     Retry,
+}
+
+struct CallScope<'a> {
+    plan: &'a Plan,
+    message: &'a Message,
+    files: &'a Arc<SessionFiles>,
+    snapshot: &'a tokio::sync::OnceCell<Option<String>>,
+    abort: &'a CancellationToken,
 }
 
 struct Streamed {

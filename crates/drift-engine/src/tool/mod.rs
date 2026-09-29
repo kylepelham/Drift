@@ -164,6 +164,7 @@ pub(crate) mod tests {
 
     impl Sandbox {
         pub(crate) fn new(name: &str) -> Self {
+            let _ = rustls::crypto::ring::default_provider().install_default();
             let root = std::env::temp_dir().join(format!("drift-tool-{name}-{}", crate::random_hex(4)));
             let workspace = root.join("ws");
             std::fs::create_dir_all(&workspace).unwrap();
