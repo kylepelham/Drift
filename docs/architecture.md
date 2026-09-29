@@ -1,5 +1,10 @@
 # Architecture
 
+This page describes the opencode-backed build that ships from `main`. On
+`next/1.4.0-engine` the sidecar is being replaced by an in-process Rust engine; see
+`docs/engine-rewrite.md` for the target architecture. The `src/` layering below holds
+in both worlds.
+
 Drift is three layers with strict one-way flow:
 
 ```

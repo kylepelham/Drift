@@ -1,0 +1,189 @@
+# Engine rewrite
+
+Drift is replacing the vendored opencode engine with its own engine written in Rust.
+This document is the plan of record for branch `next/1.4.0-engine`. Keep it current:
+when a decision changes, change it here first. Milestone status lives in `CHECKLIST.md`.
+
+## Why
+
+- The "never edit upstream" rule was already fiction. `engine/overlays/` held 28 patch
+  files (about 500 KB of diffs) applied at build time. That is a fork maintained in the
+  most fragile format available.
+- Drift needs a small number of providers done extremely well, not thirty done adequately
+  through a flattening SDK layer.
+- The Drift app and the Drift engine share one process, one database and one author.
+  A sidecar speaking a foreign API adds latency, a second storage engine and a second
+  set of semantics for no benefit.
+- Drift is its own product. The config files, env vars, data paths and API should say so.
+
+## Decisions
+
+| Area | Decision |
+|---|---|
+| Approach | Clean-room rewrite in Rust, test driven. Upstream opencode is read as reference only (gitignored clone under `examples/opencode`). |
+| Topology | Engine is a library crate linked into the Tauri process. The frontend always talks HTTP + WebSocket on loopback so local and remote share one client. No sidecars. |
+| API | New. HTTP for request/response, one WebSocket for events and replies with a resume cursor. OpenAPI generated with `utoipa`; the TypeScript client is generated at build time. |
+| Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, Z.ai, LM Studio, Ollama. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
+| Catalog | models.dev JSON fetched and cached, filtered to supported providers, with a bundled snapshot fallback. Each entry carries a tool profile (`edit` or `apply_patch`). |
+| Auth | API keys. Anthropic subscription OAuth (PKCE; the `@ex-machina/opencode-anthropic-auth` tarball is the spec). OpenAI Codex OAuth (upstream `plugin/openai/codex.ts` is the spec). Credentials stored with the `keyring` crate; encrypted file fallback on headless Linux. |
+| Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the upstream hook points. Compiled Rust plugins through a Drift SDK come later and are not designed for now. |
+| Tools | `read`, `edit`, `write`, `apply_patch`, `bash`, `glob`, `grep`, `webfetch`, `todowrite`, `skill`, `question`, `task`, `spawn_thread`, `read_thread`. |
+| Dropped | `websearch`, `lsp`, `execute`, `plan`, share, ACP, TUI, CLI, Jev tool routing, Copilot, Azure, Cohere, Perplexity, GitLab, Venice, Poe, Alibaba, Gateway. |
+| Edit | Exact match only, with line ending normalisation on both sides. On a miss, return the closest region so the model can re-read cheaply. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. |
+| Post-edit | Formatter hooks only: built-in table, `drift.json` can add or disable, failures logged and never surfaced to the model. No language servers. |
+| Snapshot and revert | Kept. Shell out to `git` with a shadow git dir per worktree. Snapshot before every writing tool. Revert restores a snapshot; diffs are computed between snapshots. |
+| MCP | Native `rmcp` (stdio, streamable HTTP, OAuth). Approval, reconnect and reload designed in rather than patched on. |
+| Storage | One `drift.db`, one writer, WAL, strict tables. Engine tables live beside the existing shell tables. |
+| Config | `drift.json` at the project root, `.drift/{agents,commands,skills}/`, `~/.config/drift/`. Instructions from `AGENTS.md` and `CLAUDE.md`. Skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at project and home. No runtime `opencode.json` fallback. |
+| Identity | `DRIFT_*` env vars, `~/.local/share/drift` data dir. A one-time migrator runs on first launch. MIT attribution for opencode stays in `licenses/`. |
+| Permissions | Upstream semantics (allow, deny, ask; path globs; session-scoped always; agent overrides) reimplemented once, with a single protocol. |
+| Session tree | One tree: `parent_id` plus `visibility: hidden | sibling`. `task` creates a hidden child, `spawn_thread` a sibling. Subagent results stream into the parent as structured parts. |
+| Platforms | Windows first. CI builds Windows, macOS and Linux. OS specifics live in one `platform` module. |
+
+## Layout
+
+```
+Cargo.toml                 workspace
+crates/drift-engine/       library
+  src/
+    api/                   axum router, ws hub, openapi
+    session/               tree, turn loop, compaction, snapshot, revert
+    llm/                   Provider trait, adapters, catalog, auth
+    tool/                  Tool trait, registry, profiles, one module per tool
+    edit/                  exact matcher, apply_patch parser, formatter runner
+    mcp/                   rmcp client, approval, reconnect
+    config/                drift.json, agents, commands, skills, instructions
+    permission/ question/ hook/ store/ platform/
+crates/drift-engined/      headless binary: parse args, run the engine
+crates/drift-migrate/      imports opencode.db, opencode.json and auth.json once
+src-tauri/                 depends on drift-engine; remote.rs stops proxying
+tests/conformance/         bun test, black-box over HTTP and WS with recorded providers
+```
+
+One crate until compile times force a split. On this branch `engine/upstream`,
+`engine/overlays`, `engine/opencode`, `scripts/build-engine.ts` and
+`scripts/build-extensions.ts` are deleted once M1 passes.
+
+## API
+
+```
+GET    /health                              version, uptime
+GET    /openapi.json
+GET    /workspaces          POST /workspaces
+GET    /workspaces/{id}/config              merged drift.json, agents, commands, skills
+GET    /providers           GET  /models     catalog with auth state
+POST   /providers/{id}/auth/{method}        key, oauth start, oauth callback
+DELETE /providers/{id}/auth
+GET    /sessions?workspace=&cursor=&archived=
+POST   /sessions                            {workspace, parent?, visibility?, title?}
+GET    /sessions/{id}       PATCH           DELETE archives
+GET    /sessions/{id}/messages?before=&limit=
+POST   /sessions/{id}/turns                 {parts, model, agent, variant} -> 202 {turn_id}
+POST   /sessions/{id}/abort
+POST   /sessions/{id}/compact
+POST   /sessions/{id}/fork                  {at_message?, bounded?}
+POST   /sessions/{id}/move                  {workspace}
+POST   /sessions/{id}/revert                {snapshot}
+GET    /sessions/{id}/diff
+GET    /sessions/{id}/todos
+GET    /mcp                 POST /mcp/{id}/connect | disconnect | approve | auth
+GET    /find/files?q=
+WS     /events?cursor=
+```
+
+Server to client over the socket: `session.*`, `message.*`, `part.delta`,
+`permission.asked`, `question.asked`, `todo.updated`, `mcp.*`. Client to server:
+`permission.reply`, `question.reply`. Every event carries a monotonic `seq`. Reconnecting
+with `cursor` replays from a ring buffer; a cursor that has aged out returns a `resync`
+frame and the client hydrates.
+
+## Data model
+
+Added to `drift.db`: `workspace`, `session` (id, workspace_id, parent_id, visibility,
+title, archived_at, model, agent), `message` (id, session_id, role, seq, created_at,
+finished_at, cost, tokens), `part` (id, message_id, seq, kind, json), `todo`,
+`snapshot` (session_id, message_id, git_ref), `permission_rule`, `mcp_server`,
+`mcp_token`. Attachments reuse the shell's content-addressed `blob` table.
+
+## Milestones
+
+Exit criteria are the guard against scope creep. A milestone is done when every line
+under it is true, not before.
+
+### M0: skeleton
+
+- Cargo workspace; `drift-engine` compiles and links into `src-tauri`.
+- axum on loopback inside the Tauri process, `/health`, `/openapi.json`.
+- WS hub with `seq`, ring buffer, `cursor` replay, `resync`.
+- SQLite migrations for the tables above.
+- Generated TS client wired into `src/engine/`.
+- Perf baselines recorded against the current engine: cold start to first event,
+  prompt-to-first-token engine overhead, system prompt plus tool schema tokens per turn.
+
+### M1: vertical slice
+
+- Anthropic adapter: API key and subscription OAuth, streaming, tool calls, thinking.
+- Turn loop, `read`, `edit`, `write`, `bash`, `glob`, `grep`.
+- Exact-match edit with closest-region miss reporting.
+- Permissions end to end, snapshot before writes, persistence.
+- Drift UI works against the new API for real tasks.
+- Conformance tests with recorded Anthropic responses, including partial-chunk cases.
+
+### M2: breadth
+
+- OpenAI: Responses API, Codex OAuth, `apply_patch` profile. Gemini. OpenAI-compatible
+  generic with presets.
+- MCP through rmcp: stdio and HTTP, approval, reconnect, reload.
+- `todowrite`, `skill`, `question`, `webfetch`. Async questions.
+- Formatter hooks.
+- Config loading: `drift.json`, agents, commands, skills, instruction files.
+
+### M3: tree and lifecycle
+
+- `task` subagents, `spawn_thread`, `read_thread`.
+- Fork (bounded and active), move with busy guard.
+- Compaction with recovery, retry with model switch.
+- Revert and diff, shell timeout, per-session runtime config snapshots.
+- Bedrock, Vertex, xAI and Z.ai presets.
+
+### M4: cutover
+
+- `drift-migrate`: sessions, messages, parts, todos, credentials to keyring,
+  `opencode.json` to `drift.json` with a report of unmapped keys.
+- Rename env vars and paths. Delete `engine/*`, `@opencode-ai/sdk`, overlays, build scripts.
+- Remote gateway collapses into the engine router; device auth and TLS stay in `src-tauri`.
+- Docs rewritten. Perf numbers against the M0 baseline published in release notes.
+
+### M5: hook seam
+
+- `Hook` trait finalised with serde types.
+- Prompt overrides and MCP approval implemented as internal hooks to prove the seam.
+
+## Testing
+
+- Rust unit tests per module. Edit matcher, `apply_patch` parser, SigV4, PKCE, catalog
+  filter, permission rules and WS replay each get their own suite.
+- `tests/conformance/`: bun test suites driving the HTTP and WS API against
+  `drift-engined` through a recording provider proxy (own crate). Fixtures are committed.
+  Upstream's test files are mined for scenarios, never copied as code.
+- Perf: the three M0 numbers run in CI and fail the build on regression past a threshold.
+
+## Effect on the app
+
+- `src/engine/`: `connection.ts`, `sse.ts` and `actions.ts` are replaced by the generated
+  client plus thin actions. `store.ts` and `events.ts` keep their shape and consume the
+  new event types. UI components change only where types change.
+- `src-tauri/`: `engine.rs`, `engine_db.rs`, `tool_routing.rs` and `usage_limits.rs` go.
+  `remote.rs` loses its proxy half. `mcp.rs` shrinks as approval state moves into the
+  engine.
+
+## Risks
+
+1. Anthropic subscription OAuth is a reverse-engineered flow and can break without notice.
+   It sits behind the `AuthMethod` trait so a break is one file.
+2. Streaming tool-call parsing differs per provider (Anthropic input JSON deltas, OpenAI
+   Responses items, Gemini function parts). Recorded fixtures must cover partial chunks.
+3. Branch divergence. `main` keeps shipping on opencode. `src/ui` changes merge cleanly;
+   `src/engine` and overlay changes do not. No new overlay work lands on `main` once this
+   branch is open.
+4. Scope creep in M2 and M3. The exit criteria above are the guard.
