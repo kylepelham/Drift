@@ -176,7 +176,7 @@ test("every send carries a fresh submission id", async () => {
 
 test("hydration rejects when any of its loads fail, instead of pretending the snapshot landed", async () => {
   const { hydrateFrom } = await import("../src/engine/index")
-  const good = { refreshProviders: async () => true, loadSessions: async () => undefined, refreshPermissions: async () => undefined }
+  const good = { refreshProviders: async () => true, loadSessions: async () => undefined, refreshPermissions: async () => undefined, refreshAgents: async () => undefined }
   await hydrateFrom(good, "C:/repo")
   await expect(hydrateFrom({ ...good, loadSessions: () => Promise.reject(new Error("db")) }, "C:/repo")).rejects.toThrow("db")
   await expect(hydrateFrom({ ...good, refreshProviders: async () => false }, null)).rejects.toThrow("provider catalog")

@@ -2,37 +2,30 @@
 
 use std::path::Path;
 
-const IDENTITY: &str = include_str!("prompts/system.txt");
-const INSTRUCTION_FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
-/// Instruction files beyond this are cut; a model that needs more can read the file.
-const MAX_INSTRUCTION_CHARS: usize = 40_000;
+use crate::config::{Agent, Config};
 
-pub fn system(workspace: &Path) -> String {
+const IDENTITY: &str = include_str!("prompts/system.txt");
+
+pub fn system(workspace: &Path, config: &Config, agent: Option<&Agent>) -> String {
     let mut prompt = IDENTITY.trim().to_string();
+    if let Some(agent) = agent.filter(|a| !a.prompt.is_empty()) {
+        prompt.push_str(&format!("\n\n{}", agent.prompt));
+    }
     prompt.push_str("\n\n# Environment\n\n");
     prompt.push_str(&format!("Working directory: {}\n", workspace.display()));
     prompt.push_str(&format!("Platform: {}\n", std::env::consts::OS));
     prompt.push_str(&format!("Date: {}\n", today()));
-    if let Some((name, text)) = instructions(workspace) {
-        prompt.push_str(&format!("\n# Instructions from {name}\n\n{text}\n"));
+    if !config.skills.is_empty() {
+        prompt.push_str("\n# Skills\n\nLoad one with the `skill` tool when its description matches the task.\n\n");
+        for skill in &config.skills {
+            prompt.push_str(&format!("- {}: {}\n", skill.name, skill.description));
+        }
+    }
+    for instruction in &config.instructions {
+        prompt.push_str(&format!("\n# Instructions from {}\n\n{}\n", instruction.name, instruction.text));
     }
     prompt
 }
-
-/// The first instruction file found at the workspace root; AGENTS.md wins over CLAUDE.md.
-fn instructions(workspace: &Path) -> Option<(String, String)> {
-    INSTRUCTION_FILES.iter().find_map(|name| {
-        let text = std::fs::read_to_string(workspace.join(name)).ok()?;
-        let text = if text.chars().count() > MAX_INSTRUCTION_CHARS {
-            let cut: String = text.chars().take(MAX_INSTRUCTION_CHARS).collect();
-            format!("{cut}\n\n(truncated; read {name} for the rest)")
-        } else {
-            text
-        };
-        Some((name.to_string(), text.trim().to_string()))
-    })
-}
-
 fn today() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -67,8 +60,10 @@ mod tests {
         std::fs::create_dir_all(&workspace).unwrap();
         std::fs::write(workspace.join("CLAUDE.md"), "claude rules").unwrap();
         std::fs::write(workspace.join("AGENTS.md"), "agent rules").unwrap();
-        let prompt = system(&workspace);
+        let config = Config::load_with_home(&workspace, None);
+        let prompt = system(&workspace, &config, config.agent("plan"));
         assert!(prompt.starts_with("You are Drift"));
+        assert!(prompt.contains("# Plan mode"));
         assert!(prompt.contains("Working directory: "));
         assert!(prompt.contains("# Instructions from AGENTS.md\n\nagent rules"));
         assert!(!prompt.contains("claude rules"));

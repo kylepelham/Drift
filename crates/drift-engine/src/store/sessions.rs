@@ -86,14 +86,15 @@ impl Store {
         rows.collect()
     }
 
-    pub fn update_session(&self, id: &str, title: Option<&str>, model: Option<&ModelRef>) -> rusqlite::Result<Option<Session>> {
+    pub fn update_session(&self, id: &str, title: Option<&str>, model: Option<&ModelRef>, agent: Option<&str>) -> rusqlite::Result<Option<Session>> {
         let conn = self.lock();
         conn.prepare_cached(
             "UPDATE session SET title = COALESCE(?2, title),
                 model_provider = COALESCE(?3, model_provider), model_id = COALESCE(?4, model_id),
+                agent = COALESCE(?6, agent),
                 updated_at = ?5 WHERE id = ?1",
         )?
-        .execute(params![id, title, model.map(|m| &m.provider), model.map(|m| &m.model), id::now_ms()])?;
+        .execute(params![id, title, model.map(|m| &m.provider), model.map(|m| &m.model), id::now_ms(), agent])?;
         session_in(&conn, id)
     }
 
@@ -307,9 +308,10 @@ mod tests {
         assert_eq!(listed.iter().map(|s| &s.id).collect::<Vec<_>>(), [&b.id, &a.id]);
 
         let model = ModelRef { provider: "anthropic".into(), model: "claude".into() };
-        let updated = store.update_session(&a.id, Some("Title"), Some(&model)).unwrap().unwrap();
+        let updated = store.update_session(&a.id, Some("Title"), Some(&model), Some("plan")).unwrap().unwrap();
         assert_eq!(updated.title, "Title");
         assert_eq!(updated.model, Some(model));
+        assert_eq!(updated.agent, "plan");
 
         store.set_session_archived(&b.id, true).unwrap();
         let active = store

@@ -36,6 +36,9 @@ pub struct NewSessionBody {
     pub title: String,
     #[serde(default)]
     pub model: Option<ModelRef>,
+    /// uild unless the workspace defines others; see the workspace config.
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -43,6 +46,7 @@ pub struct NewSessionBody {
 pub struct PatchSession {
     pub title: Option<String>,
     pub model: Option<ModelRef>,
+    pub agent: Option<String>,
     pub archived: Option<bool>,
 }
 
@@ -80,7 +84,7 @@ pub async fn create(State(engine): State<Arc<Engine>>, Json(body): Json<NewSessi
         parent_id: None,
         visibility: Visibility::Sibling,
         title: &body.title,
-        agent: "build",
+        agent: body.agent.as_deref().unwrap_or("build"),
         model: body.model.as_ref(),
     })?;
     engine.hub.publish(Event::SessionCreated { session: session.clone() });
@@ -98,7 +102,7 @@ pub async fn get(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> R
 pub async fn update(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<PatchSession>) -> Result<Json<Session>, ApiError> {
     let mut session = engine
         .store
-        .update_session(&id, body.title.as_deref(), body.model.as_ref())?
+        .update_session(&id, body.title.as_deref(), body.model.as_ref(), body.agent.as_deref())?
         .ok_or_else(|| ApiError::not_found("session"))?;
     if let Some(archived) = body.archived {
         if archived {
@@ -148,4 +152,25 @@ pub async fn delete(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -
     }
     engine.hub.publish(Event::SessionDeleted { session_id: id });
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct CommandBody {
+    pub name: String,
+    #[serde(default)]
+    pub arguments: String,
+    #[serde(default)]
+    pub model: Option<ModelRef>,
+}
+
+/// Expands a workspace command's template and submits it as a turn.
+#[utoipa::path(post, path = "/sessions/{id}/command", operation_id = "runCommand", request_body = CommandBody, responses((status = 202, body = Receipt), (status = 404)))]
+pub async fn command(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<CommandBody>) -> Result<(StatusCode, Json<Receipt>), ApiError> {
+    let session = engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;
+    let workspace = engine.store.workspace(&session.workspace_id)?.ok_or_else(|| ApiError::not_found("workspace"))?;
+    let config = crate::config::Config::load(&crate::tool::canonical(std::path::Path::new(&workspace.path)));
+    let command = config.commands.iter().find(|c| c.name == body.name).ok_or_else(|| ApiError::not_found("command"))?;
+    let text = command.template.replace("$ARGUMENTS", body.arguments.trim());
+    let prompt = Prompt { parts: vec![crate::session::types::Part::Text { text }], model: body.model, thinking_budget: None, submission_id: None };
+    Ok((StatusCode::ACCEPTED, Json(engine.submit(&id, prompt).await?)))
 }

@@ -340,6 +340,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Expands a workspace command's template and submits it as a turn. */
+        post: operations["runCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/messages": {
         parameters: {
             query?: never;
@@ -404,12 +421,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspaces/{id}/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["workspaceConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Aborted: {
             aborted: boolean;
+        };
+        Agent: {
+            builtin: boolean;
+            description: string;
+            model?: components["schemas"]["ModelRef"] | null;
+            name: string;
+            /** @description Appended to the system prompt when this agent runs. */
+            prompt?: string;
+            /** @description Tool names this agent may use; empty means every tool. */
+            tools?: string[];
         };
         AnswerBody: {
             /** @description One list of chosen labels per question, in order. */
@@ -425,6 +468,29 @@ export interface components {
             /** @description The thing being touched: a path, a command. Rules match it with globs. */
             pattern: string;
             title: string;
+        };
+        Command: {
+            description: string;
+            name: string;
+            /** @description The prompt; `$ARGUMENTS` is replaced with what follows the command. */
+            template: string;
+        };
+        CommandBody: {
+            arguments?: string;
+            model?: components["schemas"]["ModelRef"] | null;
+            name: string;
+        };
+        /** @description Everything resolved for one workspace: home config first, project config over it. */
+        Config: {
+            agents: components["schemas"]["Agent"][];
+            commands: components["schemas"]["Command"][];
+            formatters: {
+                [key: string]: components["schemas"]["FormatterConfig"];
+            };
+            instructions: components["schemas"]["Instruction"][];
+            model?: components["schemas"]["ModelRef"] | null;
+            permissions: components["schemas"]["Rule"][];
+            skills: components["schemas"]["Skill"][];
         };
         Control: {
             instance: string;
@@ -539,6 +605,10 @@ export interface components {
             /** @enum {string} */
             type: "question.replied";
         };
+        FormatterConfig: boolean | {
+            command: string[];
+            extensions: string[];
+        };
         /** @description Everything the server writes to the socket. */
         Frame: components["schemas"]["Control"] | components["schemas"]["Envelope"];
         Health: {
@@ -555,6 +625,10 @@ export interface components {
             requestId: string;
             /** @enum {string} */
             type: "question.reply";
+        };
+        Instruction: {
+            name: string;
+            text: string;
         };
         Limit: {
             /** Format: int64 */
@@ -599,6 +673,8 @@ export interface components {
             provider: string;
         };
         NewSessionBody: {
+            /** @description uild unless the workspace defines others; see the workspace config. */
+            agent?: string | null;
             model?: components["schemas"]["ModelRef"] | null;
             title?: string;
             workspaceId: string;
@@ -668,6 +744,7 @@ export interface components {
             sessionId: string;
         };
         PatchSession: {
+            agent?: string | null;
             archived?: boolean | null;
             model?: components["schemas"]["ModelRef"] | null;
             title?: string | null;
@@ -730,6 +807,11 @@ export interface components {
         };
         /** @enum {string} */
         Role: "user" | "assistant";
+        Rule: {
+            decision: components["schemas"]["Decision"];
+            kind: string;
+            pattern: string;
+        };
         ServerConfig: {
             args?: string[];
             command: string;
@@ -778,6 +860,12 @@ export interface components {
         };
         /** @enum {string} */
         SessionStatus: "idle" | "running";
+        Skill: {
+            description: string;
+            name: string;
+            /** @description Directory holding SKILL.md and whatever it references. */
+            path: string;
+        };
         /** @enum {string} */
         State: "disabled" | "needs_approval" | "disconnected" | "connecting" | "connected" | "failed";
         Todo: {
@@ -1457,6 +1545,37 @@ export interface operations {
             };
         };
     };
+    runCommand: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommandBody"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Receipt"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listMessages: {
         parameters: {
             query?: {
@@ -1591,6 +1710,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Workspace"];
                 };
+            };
+        };
+    };
+    workspaceConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Config"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -84,6 +84,7 @@ pub struct ReplyBody {
 }
 
 pub struct Permissions {
+    /// Rules that apply everywhere, set by the shell; workspace rules from drift.json are passed per check.
     policy: Mutex<Policy>,
     session_rules: Mutex<HashMap<String, Vec<Rule>>>,
     pending: Mutex<Vec<(Request, oneshot::Sender<ReplyBody>)>>,
@@ -105,18 +106,22 @@ impl Permissions {
         *self.policy.lock().unwrap() = policy;
     }
 
-    fn decide(&self, session_id: &str, ask: &Ask) -> Decision {
+    /// Session answers first, then the workspace's drift.json, then the global policy.
+    fn decide(&self, session_id: &str, workspace: &Policy, ask: &Ask) -> Decision {
         let session = self.session_rules.lock().unwrap();
         let from_session = session.get(session_id).and_then(|rules| rules.iter().find(|rule| rule.matches(ask)));
-        match from_session {
+        if let Some(rule) = from_session {
+            return rule.decision;
+        }
+        match workspace.rules.iter().find(|rule| rule.matches(ask)) {
             Some(rule) => rule.decision,
             None => self.policy.lock().unwrap().decide(ask),
         }
     }
 
     /// Resolves immediately from rules, or publishes a request and waits for the user.
-    pub async fn check(&self, hub: &Hub, request: Request, abort: &CancellationToken) -> Outcome {
-        match self.decide(&request.session_id, &request.ask) {
+    pub async fn check(&self, hub: &Hub, workspace: &Policy, request: Request, abort: &CancellationToken) -> Outcome {
+        match self.decide(&request.session_id, workspace, &request.ask) {
             Decision::Allow => return Outcome::Allowed,
             Decision::Deny => return Outcome::Denied,
             Decision::Ask => {}
@@ -225,12 +230,13 @@ mod tests {
 
     #[tokio::test]
     async fn asks_over_the_hub_and_always_remembers_for_the_session() {
+        let none = Policy::default();
         let hub = Hub::new(16);
         let permissions = Permissions::new(Policy::default());
         let abort = CancellationToken::new();
         let mut rx = hub.attach(None).rx;
         let first = request("bash", "cargo test");
-        let waiting = permissions.check(&hub, first.clone(), &abort);
+        let waiting = permissions.check(&hub, &none, first.clone(), &abort);
         let replier = async {
             let asked = rx.recv().await.unwrap();
             let Event::PermissionAsked { request } = asked.event else { panic!("expected ask") };
@@ -241,26 +247,27 @@ mod tests {
         let (outcome, ()) = tokio::join!(waiting, replier);
         assert_eq!(outcome, Outcome::Allowed);
         assert!(permissions.pending().is_empty());
-        assert_eq!(permissions.check(&hub, request("bash", "cargo build"), &abort).await, Outcome::Allowed);
-        assert_eq!(permissions.decide("ses_2", &ask("bash", "cargo build")), Decision::Ask);
+        assert_eq!(permissions.check(&hub, &none, request("bash", "cargo build"), &abort).await, Outcome::Allowed);
+        assert_eq!(permissions.decide("ses_2", &none, &ask("bash", "cargo build")), Decision::Ask);
         let replied = rx.recv().await.unwrap();
         assert!(matches!(replied.event, Event::PermissionReplied { .. }));
     }
 
     #[tokio::test]
     async fn deny_and_abort_resolve_the_wait() {
+        let none = Policy::default();
         let hub = Hub::new(16);
         let permissions = Permissions::new(Policy::default());
         let abort = CancellationToken::new();
         let denied = request("edit", "a.rs");
-        let (outcome, ()) = tokio::join!(permissions.check(&hub, denied.clone(), &abort), async {
+        let (outcome, ()) = tokio::join!(permissions.check(&hub, &none, denied.clone(), &abort), async {
             tokio::task::yield_now().await;
             permissions.reply(&hub, &denied.id, ReplyBody { reply: Reply::Deny, pattern: None }).unwrap();
         });
         assert_eq!(outcome, Outcome::Denied);
 
         let aborted = request("edit", "b.rs");
-        let (outcome, ()) = tokio::join!(permissions.check(&hub, aborted, &abort), async {
+        let (outcome, ()) = tokio::join!(permissions.check(&hub, &none, aborted, &abort), async {
             tokio::task::yield_now().await;
             abort.cancel();
         });

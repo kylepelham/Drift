@@ -377,3 +377,34 @@ async fn mcp_servers_are_saved_approved_connected_and_their_tools_reach_the_mode
     assert_eq!(h.http.delete(h.url("/mcp/echo")).bearer_auth(&h.engine.token).send().await.unwrap().status(), 204);
     assert_eq!(h.put("/mcp/bad name").json(&json!({ "type": "stdio", "command": "x" })).send().await.unwrap().status(), 400);
 }
+
+#[tokio::test]
+async fn workspace_config_and_commands_are_served() {
+    use crate::llm::scripted::Scripted;
+    use crate::llm::{Chunk, Provider, StopReason};
+    let h = harness().await;
+    let provider = Scripted::default();
+    provider.push(vec![Chunk::TextStart, Chunk::TextDelta("ran".into()), Chunk::BlockStop, Chunk::Stop(StopReason::EndTurn)]);
+    *h.engine.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(provider.clone()));
+    h.put("/providers/anthropic/key").json(&json!({ "key": "k" })).send().await.unwrap();
+    let (ws_id, session_id) = session_with_model(&h).await;
+    let ws = h._dir.0.join("ws");
+    std::fs::create_dir_all(ws.join(".drift/commands")).unwrap();
+    std::fs::write(ws.join(".drift/commands/test.md"), "---\ndescription: Runs tests\n---\nRun tests for $ARGUMENTS").unwrap();
+
+    let config: Value = h.get(&format!("/workspaces/{ws_id}/config")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(config["commands"][0]["name"], "test");
+    assert_eq!(config["agents"].as_array().unwrap().len(), 2);
+
+    let ran = h.post(&format!("/sessions/{session_id}/command")).json(&json!({ "name": "test", "arguments": "the parser" })).send().await.unwrap();
+    assert_eq!(ran.status(), 202);
+    for _ in 0..100 {
+        if !h.engine.turns.is_running(&session_id) { break }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let sent = provider.requests.lock().unwrap()[0].messages[0].blocks.clone();
+    assert_eq!(sent, vec![crate::llm::Block::Text("Run tests for the parser".into())]);
+    assert_eq!(h.post(&format!("/sessions/{session_id}/command")).json(&json!({ "name": "nope" })).send().await.unwrap().status(), 404);
+    let patched: Value = h.patch(&format!("/sessions/{session_id}")).json(&json!({ "agent": "plan" })).send().await.unwrap().json().await.unwrap();
+    assert_eq!(patched["agent"], "plan");
+}

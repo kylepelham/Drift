@@ -13,6 +13,7 @@ use utoipa::ToSchema;
 
 use super::assemble::Assembler;
 use super::{convert, prompt};
+use crate::config::Config;
 use crate::event::{Event, SessionStatus};
 use crate::id;
 use crate::llm::catalog::Model;
@@ -106,6 +107,7 @@ impl Turns {
 struct Plan {
     session: Session,
     workspace: PathBuf,
+    config: Config,
     model_ref: ModelRef,
     model: Model,
     provider: Provider,
@@ -180,7 +182,10 @@ impl Engine {
     async fn plan(&self, session_id: &str, prompt: &Prompt) -> Result<Plan, TurnError> {
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
-        let model_ref = prompt.model.clone().or_else(|| session.model.clone()).ok_or(TurnError::NoModel)?;
+        let workspace_path = crate::tool::canonical(Path::new(&workspace.path));
+        let config = Config::load(&workspace_path);
+        let agent_model = config.agent(&session.agent).and_then(|a| a.model.clone());
+        let model_ref = prompt.model.clone().or_else(|| session.model.clone()).or(agent_model).or_else(|| config.model.clone()).ok_or(TurnError::NoModel)?;
         let (model, env, api) = {
             let catalog = self.catalog.read().unwrap();
             let info = catalog.providers.get(&model_ref.provider).ok_or(TurnError::UnknownModel)?;
@@ -191,7 +196,8 @@ impl Engine {
         let provider = self.provider_for(&model_ref.provider, api.as_deref()).ok_or(TurnError::UnknownModel)?;
         Ok(Plan {
             session,
-            workspace: crate::tool::canonical(Path::new(&workspace.path)),
+            workspace: workspace_path,
+            config,
             model_ref,
             model,
             provider,
@@ -233,8 +239,10 @@ impl Engine {
     }
 
     async fn run(self: &Arc<Self>, plan: Plan, abort: CancellationToken) {
-        let system = prompt::system(&plan.workspace);
-        let tools = self.tools.specs(plan.model.profile);
+        let agent = plan.config.agent(&plan.session.agent).cloned();
+        let system = prompt::system(&plan.workspace, &plan.config, agent.as_ref());
+        let allowed = agent.as_ref().map(|a| a.tools.clone()).unwrap_or_default();
+        let tools: Vec<_> = self.tools.specs(plan.model.profile).into_iter().filter(|spec| allowed.is_empty() || allowed.contains(&spec.name)).collect();
         let mut attempts = 0;
         loop {
             let Ok(transcript) = self.store.transcript(&plan.session.id) else { break };
@@ -388,7 +396,7 @@ impl Engine {
         }
         if let Some(ask) = tool.ask(&ctx, &input) {
             let request = permission::new_request(&scope.plan.session.id, &scope.message.id, &call_id, &name, ask);
-            match self.permissions.check(&self.hub, request, scope.abort).await {
+            match self.permissions.check(&self.hub, &scope.plan.config.policy(), request, scope.abort).await {
                 Outcome::Allowed => {}
                 Outcome::Denied => {
                     self.settle(&mut row, ToolStatus::Denied, None, "Permission denied by the user.".into(), None);
@@ -470,7 +478,7 @@ impl Engine {
         });
         let Some(text) = first else { return };
         let title: String = text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(TITLE_CHARS).collect();
-        if let Ok(Some(updated)) = self.store.update_session(&session.id, Some(&title), None) {
+        if let Ok(Some(updated)) = self.store.update_session(&session.id, Some(&title), None, None) {
             self.hub.publish(Event::SessionUpdated { session: updated });
         }
     }

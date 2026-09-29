@@ -41,8 +41,8 @@ function workspaceIndex(): WorkspaceIndex {
 }
 
 /** Replaces local state from HTTP. Any failure rejects, so the socket keeps its cursor and retries. */
-export async function hydrateFrom(actions: Pick<EngineActions, "refreshProviders" | "loadSessions" | "refreshPermissions">, directory: string | null) {
-  const [providers] = await Promise.all([actions.refreshProviders(), directory ? actions.loadSessions(directory) : Promise.resolve()])
+export async function hydrateFrom(actions: Pick<EngineActions, "refreshProviders" | "loadSessions" | "refreshPermissions" | "refreshAgents">, directory: string | null) {
+  const [providers] = await Promise.all([actions.refreshProviders(), directory ? actions.loadSessions(directory) : Promise.resolve(), directory ? actions.refreshAgents() : Promise.resolve()])
   if (providers === false) throw new Error("provider catalog unavailable")
   await actions.refreshPermissions()
 }
@@ -120,7 +120,10 @@ export function EngineProvider(props: ParentProps) {
     directory = path
     set("directory", path ?? "")
     if (!path) return
-    if (client && state.connection === "online") void actions.loadSessions(path).catch(() => undefined)
+    if (client && state.connection === "online") {
+      void actions.loadSessions(path).catch(() => undefined)
+      void actions.refreshAgents().catch(() => undefined)
+    }
   }
 
   async function restartEngine() {
@@ -134,7 +137,7 @@ export function EngineProvider(props: ParentProps) {
 
   async function refreshRuntimeMetadata() {
     if (!client) return
-    await actions.refreshProviders().catch(() => undefined)
+    await Promise.all([actions.refreshProviders(), actions.refreshAgents()]).catch(() => undefined)
   }
 
   void start()

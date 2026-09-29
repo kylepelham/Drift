@@ -1,6 +1,7 @@
 //! The Drift engine: sessions, providers, tools and the API that serves them.
 
 pub mod api;
+pub mod config;
 pub mod event;
 pub mod id;
 pub mod llm;

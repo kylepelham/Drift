@@ -47,3 +47,10 @@ pub async fn create(
     });
     Ok((StatusCode::CREATED, Json(workspace)))
 }
+
+#[utoipa::path(get, path = "/workspaces/{id}/config", operation_id = "workspaceConfig", responses((status = 200, body = crate::config::Config), (status = 404)))]
+pub async fn config(State(engine): State<Arc<Engine>>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<Json<crate::config::Config>, StatusCode> {
+    let workspace = engine.store.workspace(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
+    let path = crate::tool::canonical(std::path::Path::new(&workspace.path));
+    Ok(Json(crate::config::Config::load(&path)))
+}

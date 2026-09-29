@@ -91,7 +91,7 @@ async fn a_plain_reply_is_stored_costed_and_titles_the_session() {
     assert_eq!(session.model, Some(model()));
     let request = &h.provider.requests.lock().unwrap()[0];
     assert!(request.system.starts_with("You are Drift"));
-    assert_eq!(request.tools.len(), 9);
+    assert_eq!(request.tools.len(), 10);
 }
 
 #[tokio::test]
@@ -393,4 +393,33 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let Part::ToolCall { status, .. } = &transcript.last().unwrap().parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Pending, "a max_tokens stop dispatches nothing");
+}
+
+#[tokio::test]
+async fn workspace_config_shapes_the_turn() {
+    let h = harness().await;
+    let ws = h._dir.join("ws");
+    std::fs::write(ws.join("drift.json"), r#"{ "permissions": [{ "kind": "bash", "pattern": "*", "decision": "deny" }] }"#).unwrap();
+    std::fs::create_dir_all(ws.join(".drift/skills/tidy")).unwrap();
+    std::fs::write(ws.join(".drift/skills/tidy/SKILL.md"), "---\ndescription: Tidies\n---\nTidy up.").unwrap();
+
+    // drift.json denies bash without asking.
+    h.provider.push(tool_call("bash", r#"{"command": "echo hi"}"#)).push(text("denied"));
+    h.engine.submit(&h.session.id, prompt("run")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Denied);
+    let system = h.provider.requests.lock().unwrap()[0].system.clone();
+    assert!(system.contains("- tidy: Tidies"), "skills are listed in the system prompt");
+
+    // A plan session sees only read-only tools and the plan prompt.
+    h.engine.store.update_session(&h.session.id, None, None, Some("plan")).unwrap();
+    h.provider.push(text("planned"));
+    h.engine.submit(&h.session.id, prompt("plan it")).await.await_ok();
+    until_idle(&h).await;
+    let request = h.provider.requests.lock().unwrap().last().unwrap().clone();
+    let names: Vec<&str> = request.tools.iter().map(|t| t.name.as_str()).collect();
+    assert!(!names.contains(&"write") && !names.contains(&"bash") && names.contains(&"read"), "{names:?}");
+    assert!(request.system.contains("# Plan mode"));
 }

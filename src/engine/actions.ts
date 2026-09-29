@@ -1,5 +1,5 @@
 // Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
-import type { McpStatus, Permission, Session } from "@opencode-ai/sdk/client"
+import type { Agent, Command, McpStatus, Permission, Session } from "@opencode-ai/sdk/client"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
 import { applyProviderCatalog } from "../state/provider-cache"
@@ -298,6 +298,35 @@ export function createActions(
     return { ok: true, connected: state.connected.includes(id) }
   }
 
+  /** Agents and commands come from the workspace's drift.json and .drift/ directory. */
+  async function refreshAgents() {
+    const workspace = workspaces().id(state.directory)
+    if (!workspace) return
+    const config = await requireClient().workspaceConfig(workspace)
+    const agents: Agent[] = config.agents.map((agent) => ({
+      name: agent.name,
+      description: agent.description,
+      mode: "primary",
+      builtIn: agent.builtin,
+      permission: { edit: "ask", bash: {}, webfetch: "ask" },
+      tools: {},
+      options: {},
+      ...(agent.model ? { model: { providerID: agent.model.provider, modelID: agent.model.model } } : {}),
+    }))
+    const commands: Command[] = config.commands.map((command) => ({ name: command.name, description: command.description, template: command.template }))
+    set("agents", agents)
+    set("commands", commands)
+  }
+
+  async function runCommand(id: string, command: string, args: string) {
+    set("errors", id, undefined!)
+    try {
+      await requireClient().runCommand(id, command, args)
+    } catch (cause) {
+      fail(id, `Command failed: ${errorMessage(cause)}`)
+    }
+  }
+
   /** Engine MCP states in the vocabulary the manager already renders. */
   async function mcpStatus(_directory: string, _signal: AbortSignal): Promise<Record<string, McpStatus>> {
     const servers = await requireClient().mcpServers()
@@ -349,7 +378,7 @@ export function createActions(
     providerAuthorize,
     providerCallback,
     notice,
-    refreshAgents: async () => undefined,
+    refreshAgents,
     findFiles: async (_query: string): Promise<string[]> => [],
     steer: async (id: string, text: string, options: PromptOptions) => send(id, text, options),
     fork: async (..._args: unknown[]): Promise<Session | undefined> => {
@@ -367,7 +396,7 @@ export function createActions(
       return undefined
     },
     unshare: notYet("Sharing"),
-    runCommand: notYet("Commands"),
+    runCommand,
     revert: never("Revert"),
     unrevert: never("Revert"),
     mcpInitialize: async (_directory: string) => undefined,

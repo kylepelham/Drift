@@ -20,6 +20,7 @@ export type ProviderStatus = components["schemas"]["ProviderStatus"]
 export type ErrorBody = components["schemas"]["ErrorBody"]
 export type McpServerStatus = components["schemas"]["ServerStatus"]
 export type McpServerConfig = components["schemas"]["ServerConfig"]
+export type WorkspaceConfig = components["schemas"]["Config"]
 
 type Json<Op extends keyof operations, Status extends number> = operations[Op]["responses"] extends Record<
   Status,
@@ -66,6 +67,8 @@ export function createClient(target: Target) {
   return {
     health: () => request<Json<"health", 200>>("GET", "/health"),
     workspaces: () => request<Json<"listWorkspaces", 200>>("GET", "/workspaces"),
+    workspaceConfig: (id: string) => request<Json<"workspaceConfig", 200>>("GET", `/workspaces/${id}/config`),
+    runCommand: (id: string, name: string, args: string) => request<Json<"runCommand", 202>>("POST", `/sessions/${id}/command`, { name, arguments: args }),
     createWorkspace: (body: NewWorkspace) => request<Json<"createWorkspace", 201>>("POST", "/workspaces", body),
     sessions: (params: operations["listSessions"]["parameters"]["query"] = {}) =>
       request<Json<"listSessions", 200>>("GET", `/sessions${query({ ...params })}`),
