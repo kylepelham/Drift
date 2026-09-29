@@ -40,6 +40,7 @@ pub fn open(dir: &Path) -> rusqlite::Result<Store> {
 pub fn open_file(file: &Path) -> rusqlite::Result<Store> {
     let conn = Connection::open(file)?;
     conn.busy_timeout(BUSY_TIMEOUT)?;
+    conn.pragma_update(None, "foreign_keys", true)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "mmap_size", MMAP_SIZE_BYTES)?;
@@ -126,6 +127,7 @@ pub(crate) mod tests {
 
     pub(crate) fn store() -> Store {
         let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
         migrations::apply(&conn).unwrap();
         Store(Mutex::new(conn))
     }

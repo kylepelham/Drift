@@ -212,11 +212,10 @@ impl AwaitOk for Result<Receipt, TurnError> {
 }
 
 #[tokio::test]
-async fn read_only_calls_run_together_and_writes_follow_in_order() {
+async fn calls_keep_the_models_order_across_a_write() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
-    std::fs::write(h._dir.join("ws/b.txt"), "b\n").unwrap();
     h.provider
         .push(vec![
             Chunk::ToolUseStart { id: "t1".into(), name: "read".into() },
@@ -226,7 +225,7 @@ async fn read_only_calls_run_together_and_writes_follow_in_order() {
             Chunk::ToolInputDelta(r#"{"path": "c.txt", "content": "c\n"}"#.into()),
             Chunk::BlockStop,
             Chunk::ToolUseStart { id: "t3".into(), name: "read".into() },
-            Chunk::ToolInputDelta(r#"{"path": "b.txt"}"#.into()),
+            Chunk::ToolInputDelta(r#"{"path": "c.txt"}"#.into()),
             Chunk::BlockStop,
             Chunk::Stop(StopReason::ToolUse),
         ])
@@ -234,22 +233,17 @@ async fn read_only_calls_run_together_and_writes_follow_in_order() {
     h.engine.submit(&h.session.id, prompt("go")).await.await_ok();
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
-    let mut finished: Vec<(String, i64)> = transcript[1]
+    let outputs: Vec<(String, ToolStatus, String)> = transcript[1]
         .parts
         .iter()
         .filter_map(|row| match &row.part {
-            Part::ToolCall { name, finished_at, status, .. } => {
-                assert_eq!(*status, ToolStatus::Done, "{name}");
-                Some((name.clone(), finished_at.unwrap()))
-            }
+            Part::ToolCall { name, status, output, .. } => Some((name.clone(), *status, output.clone().unwrap_or_default())),
             _ => None,
         })
         .collect();
-    finished.sort_by_key(|(_, at)| *at);
-    assert_eq!(finished.last().unwrap().0, "write", "the write must land after both reads");
-    assert_eq!(std::fs::read_to_string(h._dir.join("ws/c.txt")).unwrap(), "c\n");
+    assert_eq!(outputs[0].0, "read");
+    assert_eq!(outputs[2], ("read".into(), ToolStatus::Done, "1: c".into()), "a read issued after a write must see the write");
 }
-
 #[tokio::test]
 async fn a_stream_that_ends_without_a_stop_reason_runs_no_tools() {
     let h = harness().await;
@@ -329,4 +323,24 @@ async fn concurrent_turns_refresh_an_expired_token_once() {
     assert_eq!(hits.load(Ordering::SeqCst), 1, "one refresh for two turns");
     let stored = h.engine.credentials.get("anthropic").unwrap();
     assert!(matches!(stored, Credential::OAuth { access, refresh, .. } if access == "fresh" && refresh == "r2"));
+}
+
+#[tokio::test]
+async fn submission_ids_survive_a_restart_and_reject_a_different_payload() {
+    let h = harness().await;
+    h.provider.push(text("ok"));
+    let mut first = prompt("hello");
+    first.submission_id = Some("sub_durable".into());
+    let receipt = h.engine.submit(&h.session.id, first.clone()).await.await_ok();
+    until_idle(&h).await;
+
+    let reopened = Engine::open_with(&h._dir.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
+    *reopened.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(h.provider.clone()));
+    let replay = reopened.submit(&h.session.id, first).await.await_ok();
+    assert_eq!(replay.message.id, receipt.message.id);
+    assert_eq!(reopened.store.transcript(&h.session.id).unwrap().len(), 2, "no second prompt after restart");
+
+    let mut changed = prompt("different text");
+    changed.submission_id = Some("sub_durable".into());
+    assert_eq!(reopened.submit(&h.session.id, changed).await.err(), Some(TurnError::SubmissionReused));
 }

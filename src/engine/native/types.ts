@@ -219,7 +219,8 @@ export interface paths {
         get: operations["getSession"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Permanent removal, for archived sessions past their retention. Live turns are aborted first. */
+        delete: operations["deleteSession"];
         options?: never;
         head?: never;
         patch: operations["updateSession"];
@@ -372,6 +373,10 @@ export interface components {
             session: components["schemas"]["Session"];
             /** @enum {string} */
             type: "session.updated";
+        } | {
+            sessionId: string;
+            /** @enum {string} */
+            type: "session.deleted";
         } | {
             sessionId: string;
             status: components["schemas"]["SessionStatus"];
@@ -1040,6 +1045,31 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Session"];
                 };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deleteSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             404: {
                 headers: {

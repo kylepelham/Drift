@@ -28,6 +28,8 @@ pub enum Event {
     SessionCreated { session: Session },
     #[serde(rename = "session.updated")]
     SessionUpdated { session: Session },
+    #[serde(rename = "session.deleted", rename_all = "camelCase")]
+    SessionDeleted { session_id: String },
     #[serde(rename = "session.status", rename_all = "camelCase")]
     SessionStatusChanged { session_id: String, status: SessionStatus },
     #[serde(rename = "message.created")]

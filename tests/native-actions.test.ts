@@ -129,9 +129,9 @@ test("new sessions are created in the active workspace and removal archives", as
   expect(h.state.sessions.ses_new).toBeUndefined()
 })
 
-test("session listings page to the end and restore running status", async () => {
+test("session listings page to the end and restore running status from every page", async () => {
   const pages: unknown[][] = []
-  const full = Array.from({ length: 200 }, (_, i) => session(`ses_${i}`))
+  const full = Array.from({ length: 200 }, (_, i) => ({ ...session(`ses_${i}`), running: i === 7 }))
   const h = harness({
     sessions: ((params: { before?: string }) => {
       pages.push([params])
@@ -144,15 +144,23 @@ test("session listings page to the end and restore running status", async () => 
   expect(pages[1]).toEqual([{ workspace: "w1", before: "ses_199", limit: 200 }])
   expect(Object.keys(h.state.sessions).length).toBe(201)
   expect(h.state.status.ses_tail).toEqual({ type: "busy" })
+  expect(h.state.status.ses_7).toEqual({ type: "busy" })
   expect(h.state.status.ses_0).toEqual({ type: "idle" })
 })
 
-test("purge only reports success when the engine archived the session", async () => {
-  const failing = harness({ updateSession: () => Promise.reject(new EngineError(500, "/sessions/x", "store")) })
+test("purge deletes for real and only reports success when the engine confirms", async () => {
+  const deleted: string[] = []
+  const ok = harness({ deleteSession: (id: string) => (deleted.push(id), Promise.resolve()) })
+  ok.state.sessions.ses_1 = { id: "ses_1", directory: "C:/repo" } as never
+  expect(await ok.actions.purgeSession("ses_1")).toBe(true)
+  expect(deleted).toEqual(["ses_1"])
+  expect(ok.state.sessions.ses_1).toBeUndefined()
+  expect(ok.calls.some((c) => c.method === "updateSession")).toBe(false)
+  const failing = harness({ deleteSession: () => Promise.reject(new EngineError(500, "/sessions/x", "store")) })
   failing.state.sessions.ses_1 = { id: "ses_1", directory: "C:/repo" } as never
   expect(await failing.actions.purgeSession("ses_1")).toBe(false)
   expect(failing.state.sessions.ses_1).toBeDefined()
-  const gone = harness({ updateSession: () => Promise.reject(new EngineError(404, "/sessions/x")) })
+  const gone = harness({ deleteSession: () => Promise.reject(new EngineError(404, "/sessions/x")) })
   expect(await gone.actions.purgeSession("ses_1")).toBe(true)
 })
 
@@ -164,4 +172,13 @@ test("every send carries a fresh submission id", async () => {
   expect(ids).toHaveLength(2)
   expect(ids[0]).toBeTruthy()
   expect(ids[0]).not.toBe(ids[1])
+})
+
+test("hydration rejects when any of its loads fail, instead of pretending the snapshot landed", async () => {
+  const { hydrateFrom } = await import("../src/engine/index")
+  const good = { refreshProviders: async () => true, loadSessions: async () => undefined, refreshPermissions: async () => undefined }
+  await hydrateFrom(good, "C:/repo")
+  await expect(hydrateFrom({ ...good, loadSessions: () => Promise.reject(new Error("db")) }, "C:/repo")).rejects.toThrow("db")
+  await expect(hydrateFrom({ ...good, refreshProviders: async () => false }, null)).rejects.toThrow("provider catalog")
+  await expect(hydrateFrom({ ...good, refreshPermissions: () => Promise.reject(new Error("perm")) }, null)).rejects.toThrow("perm")
 })

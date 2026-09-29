@@ -137,3 +137,15 @@ pub async fn todos(State(engine): State<Arc<Engine>>, Path(id): Path<String>) ->
     engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;
     Ok(Json(engine.store.todos(&id)?))
 }
+
+/// Permanent removal, for archived sessions past their retention. Live turns are aborted first.
+#[utoipa::path(delete, path = "/sessions/{id}", operation_id = "deleteSession", responses((status = 204), (status = 404)))]
+pub async fn delete(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
+    engine.abort(&id);
+    engine.permissions.forget_session(&id);
+    if !engine.store.delete_session(&id)? {
+        return Err(ApiError::not_found("session"));
+    }
+    engine.hub.publish(Event::SessionDeleted { session_id: id });
+    Ok(StatusCode::NO_CONTENT)
+}

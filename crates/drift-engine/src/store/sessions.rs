@@ -76,8 +76,8 @@ impl Store {
              WHERE (?1 IS NULL OR workspace_id = ?1)
                AND (archived_at IS NOT NULL) = ?2
                AND visibility = 'sibling'
-               AND (?3 IS NULL OR updated_at < (SELECT updated_at FROM session WHERE id = ?3))
-             ORDER BY updated_at DESC LIMIT ?4"
+               AND (?3 IS NULL OR (updated_at, id) < (SELECT updated_at, id FROM session WHERE id = ?3))
+             ORDER BY updated_at DESC, id DESC LIMIT ?4"
         ))?;
         let rows = stmt.query_map(
             params![filter.workspace_id, filter.archived, filter.before, filter.limit as i64],
@@ -393,11 +393,15 @@ mod tests {
 
 impl Store {
     /// Records a user prompt as one unit: message, parts and the session's model, or nothing at all.
-    pub fn admit_prompt(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>) -> rusqlite::Result<(Message, Vec<PartRow>, Session)> {
+    pub fn admit_prompt(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<(Message, Vec<PartRow>, Session)> {
         let conn = self.lock();
         conn.execute_batch("BEGIN")?;
         let result = (|| {
             let message = insert_message(&conn, session_id, Role::User, Some(model))?;
+            if let Some((id, hash)) = submission {
+                conn.prepare_cached("INSERT INTO submission(id, session_id, message_id, payload_hash, created_at) VALUES(?1, ?2, ?3, ?4, ?5)")?
+                    .execute(params![id, session_id, message.id, hash, id::now_ms()])?;
+            }
             let rows = parts
                 .into_iter()
                 .map(|part| insert_part(&conn, &message.id, session_id, part))
@@ -469,13 +473,70 @@ mod admission_tests {
             .create_session(NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None })
             .unwrap();
         let model = ModelRef { provider: "p".into(), model: "m".into() };
-        let (message, rows, updated) = store.admit_prompt(&session.id, &model, vec![Part::Text { text: "hi".into() }]).unwrap();
+        let (message, rows, updated) = store.admit_prompt(&session.id, &model, vec![Part::Text { text: "hi".into() }], Some(("sub_1", "h1"))).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(updated.model, Some(model.clone()));
         assert_eq!(store.transcript(&session.id).unwrap()[0].info.id, message.id);
-        let failed = store.admit_prompt("ses_missing", &model, vec![Part::Text { text: "x".into() }]);
+        let failed = store.admit_prompt("ses_missing", &model, vec![Part::Text { text: "x".into() }], None);
         assert!(failed.is_err());
         let count: i64 = store.lock().query_row("SELECT COUNT(*) FROM message", [], |r| r.get(0)).unwrap();
         assert_eq!(count, 1, "the failed admission must leave no message behind");
+        let found = store.submission("sub_1").unwrap().unwrap();
+        assert_eq!((found.session_id.as_str(), found.message_id.as_str(), found.payload_hash.as_str()), (session.id.as_str(), message.id.as_str(), "h1"));
+        assert!(store.submission("sub_nope").unwrap().is_none());
+        assert!(store.delete_session(&session.id).unwrap());
+        assert!(store.submission("sub_1").unwrap().is_none(), "cascade");
+        assert!(store.transcript(&session.id).unwrap().is_empty());
+        assert!(!store.delete_session(&session.id).unwrap());
+    }
+}
+
+pub struct Submission {
+    pub session_id: String,
+    pub message_id: String,
+    pub payload_hash: String,
+}
+
+impl Store {
+    pub fn submission(&self, id: &str) -> rusqlite::Result<Option<Submission>> {
+        self.lock()
+            .prepare_cached("SELECT session_id, message_id, payload_hash FROM submission WHERE id = ?1")?
+            .query_row([id], |row| Ok(Submission { session_id: row.get(0)?, message_id: row.get(1)?, payload_hash: row.get(2)? }))
+            .optional()
+    }
+
+    /// Removes a session and everything under it. Archive first; this is the purge that follows.
+    pub fn delete_session(&self, id: &str) -> rusqlite::Result<bool> {
+        let deleted = self.lock().prepare_cached("DELETE FROM session WHERE id = ?1")?.execute([id])?;
+        Ok(deleted > 0)
+    }
+}
+
+#[cfg(test)]
+mod paging_tests {
+    use super::*;
+    use crate::store::tests::store;
+
+    #[test]
+    fn equal_timestamps_do_not_skip_sessions_across_pages() {
+        let store = store();
+        let ids: Vec<String> = (0..5)
+            .map(|_| store.create_session(NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None }).unwrap().id)
+            .collect();
+        store.lock().execute("UPDATE session SET updated_at = 1000", []).unwrap();
+        let mut seen = Vec::new();
+        let mut before: Option<String> = None;
+        loop {
+            let page = store.sessions(SessionFilter { workspace_id: Some("w"), archived: false, before: before.as_deref(), limit: 2 }).unwrap();
+            seen.extend(page.iter().map(|s| s.id.clone()));
+            if page.len() < 2 {
+                break;
+            }
+            before = page.last().map(|s| s.id.clone());
+        }
+        let mut expected = ids.clone();
+        expected.sort();
+        expected.reverse();
+        assert_eq!(seen, expected);
     }
 }

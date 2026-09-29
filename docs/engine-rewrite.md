@@ -206,17 +206,28 @@ Settled after the first external review of M1; each has a regression test.
 - A provider stream that ends without a stop reason is an error, not a completed message.
   Its tool calls stay `pending` and never run; the turn retries like any transport fault.
 - Prompt admission is one transaction (`Store::admit_prompt`). If it fails, the session's
-  busy reservation is released and nothing half-written remains. `Prompt.submissionId`
-  is optional; resubmitting with the same id returns the original receipt, and reusing an
-  id for a different session is rejected. The UI sends a fresh id with every prompt.
+  busy reservation is released and nothing half-written remains. `Prompt.submissionId`  is
+  optional and durable: the `submission` table records id, session, message and a hash of
+  the payload. Resubmitting with the same id and payload returns the original receipt, even
+  after a restart; the same id with a different payload or session is a 409. The UI sends a
+  fresh id with every prompt.
 - Only `done` and `aborted` assistant messages are replayed to the model. `error` and
   `streaming` rows stay in the transcript as audit history and never enter a request.
-- Token refresh is single-flight per provider: the first turn to notice an expired token
-  refreshes it, later turns wait and reuse the stored result.
+- Token refresh is single-flight per provider and fenced: the first turn to notice an
+  expired token refreshes it, later turns wait and reuse the stored result, and the refreshed
+  pair is written only if the stored credential is still the one the refresh started from
+  (`Credentials::replace_if`). A sign-in or sign-out during the refresh wins.
 - The socket client never advances its cursor on a failed hydrate; it retries and keeps
-  holding events. A `resync` that lands mid-hydrate folds into the same run.
-- Session listings page until a short page; a snapshot is only authoritative when complete.
-  Each listed session carries `running`, and the client sets status from it on hydrate.
+  holding events. A `resync` that lands mid-hydrate folds into the same run. The app's
+  hydrate (`hydrateFrom`) rejects when any load fails rather than swallowing the error.
+- Session listings page by `(updated_at, id)` keyset until a short page, so equal timestamps
+  never skip rows; a snapshot is only authoritative when complete. Each listed session
+  carries `running` and the client collects it across every page before setting status.
+- Tool calls keep the model's order: a run of consecutive read-only calls executes together,
+  a mutating call waits for everything before it, and reads after it wait for it.
+- `DELETE /sessions/{id}` is the real purge (cascades messages, parts, todos, submissions).
+  `PATCH { archived: true }` only archives. The UI's purge coordinator calls delete and
+  reports success only when the engine confirms.
 
 Open, deliberately: one credential slot per provider (an API key and a subscription sign-in
 replace each other; account profiles are M3 work), and the shell's `session_meta` archive

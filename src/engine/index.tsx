@@ -40,6 +40,13 @@ function workspaceIndex(): WorkspaceIndex {
   }
 }
 
+/** Replaces local state from HTTP. Any failure rejects, so the socket keeps its cursor and retries. */
+export async function hydrateFrom(actions: Pick<EngineActions, "refreshProviders" | "loadSessions" | "refreshPermissions">, directory: string | null) {
+  const [providers] = await Promise.all([actions.refreshProviders(), directory ? actions.loadSessions(directory) : Promise.resolve()])
+  if (providers === false) throw new Error("provider catalog unavailable")
+  await actions.refreshPermissions()
+}
+
 export function EngineProvider(props: ParentProps) {
   const [state, set] = createEngineState()
   seedProviderCatalog(state, set)
@@ -54,15 +61,10 @@ export function EngineProvider(props: ParentProps) {
   }
   const actions = createActions(requireClient, state, set, workspaceIndex)
 
-  /** Replaces local state from HTTP; called on connect, resync and engine restart. */
   async function hydrate() {
     if (!client || disposed) return
     set("sessionSnapshotEpoch", state.sessionSnapshotEpoch + 1)
-    await Promise.all([
-      actions.refreshProviders().catch(() => undefined),
-      directory ? actions.loadSessions(directory).catch(() => undefined) : Promise.resolve(),
-    ])
-    await actions.refreshPermissions().catch(() => undefined)
+    await hydrateFrom(actions, directory)
     if (!disposed) set("connection", "online")
   }
 

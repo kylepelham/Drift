@@ -341,3 +341,15 @@ async fn browser_origins_get_cors_headers_and_preflight_needs_no_token() {
     let denied = h.get("/health").header("origin", "https://evil.com").send().await.unwrap();
     assert!(denied.headers().get("access-control-allow-origin").is_none());
 }
+
+#[tokio::test]
+async fn deleting_a_session_removes_it_and_its_messages() {
+    let h = harness().await;
+    let (_, session_id) = session_with_model(&h).await;
+    let mut socket = h.ws("").await;
+    assert_eq!(h.http.delete(h.url(&format!("/sessions/{session_id}"))).bearer_auth(&h.engine.token).send().await.unwrap().status(), 204);
+    assert_eq!(h.get(&format!("/sessions/{session_id}")).send().await.unwrap().status(), 404);
+    assert_eq!(h.http.delete(h.url(&format!("/sessions/{session_id}"))).bearer_auth(&h.engine.token).send().await.unwrap().status(), 404);
+    let deleted = until(&mut socket, "session.deleted").await;
+    assert_eq!(deleted["sessionId"], session_id);
+}

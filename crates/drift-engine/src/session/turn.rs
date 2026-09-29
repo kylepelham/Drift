@@ -27,7 +27,7 @@ const MAX_ATTEMPTS: u32 = 3;
 const MAX_OUTPUT_TOKENS: u32 = 32_000;
 const TITLE_CHARS: usize = 80;
 
-#[derive(Clone, Debug, Default, Deserialize, ToSchema)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Prompt {
     pub parts: Vec<Part>,
@@ -65,7 +65,7 @@ impl std::fmt::Display for TurnError {
             Self::NoSession => write!(f, "session not found"),
             Self::NoWorkspace => write!(f, "workspace not found"),
             Self::Busy => write!(f, "session is already running a turn"),
-            Self::SubmissionReused => write!(f, "submission id was used for another session"),
+            Self::SubmissionReused => write!(f, "submission id was already used with a different prompt or session"),
             Self::NoModel => write!(f, "no model selected"),
             Self::UnknownModel => write!(f, "model is not in the catalog"),
             Self::NoCredentials => write!(f, "provider has no credentials"),
@@ -84,7 +84,6 @@ impl From<rusqlite::Error> for TurnError {
 pub struct Turns {
     active: Mutex<HashMap<String, CancellationToken>>,
     files: Mutex<HashMap<String, Arc<SessionFiles>>>,
-    receipts: Mutex<HashMap<String, Receipt>>,
     refreshing: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
@@ -117,8 +116,11 @@ struct Plan {
 impl Engine {
     /// Records the prompt and starts the turn in the background; the receipt is what was recorded.
     pub async fn submit(self: &Arc<Self>, session_id: &str, prompt: Prompt) -> Result<Receipt, TurnError> {
-        if let Some(receipt) = prompt.submission_id.as_ref().and_then(|id| self.turns.receipts.lock().unwrap().get(id).cloned()) {
-            return if receipt.session.id == session_id { Ok(receipt) } else { Err(TurnError::SubmissionReused) };
+        let payload_hash = payload_hash(&prompt);
+        if let Some(id) = prompt.submission_id.as_deref() {
+            if let Some(receipt) = self.replayed_receipt(id, session_id, &payload_hash)? {
+                return Ok(receipt);
+            }
         }
         let plan = self.plan(session_id, &prompt).await?;
         let abort = CancellationToken::new();
@@ -129,7 +131,8 @@ impl Engine {
             }
             active.insert(session_id.into(), abort.clone());
         }
-        let admitted = self.store.admit_prompt(session_id, &plan.model_ref, prompt.parts);
+        let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash.as_str()));
+        let admitted = self.store.admit_prompt(session_id, &plan.model_ref, prompt.parts, submission);
         let (message, parts, session) = match admitted {
             Ok(admitted) => admitted,
             Err(error) => {
@@ -143,10 +146,6 @@ impl Engine {
         }
         self.hub.publish(Event::SessionUpdated { session: session.clone() });
         self.hub.publish(Event::SessionStatusChanged { session_id: session_id.into(), status: SessionStatus::Running });
-        let receipt = Receipt { session, message };
-        if let Some(id) = prompt.submission_id {
-            self.turns.receipts.lock().unwrap().insert(id, receipt.clone());
-        }
         let engine = self.clone();
         tokio::spawn(async move {
             let id = plan.session.id.clone();
@@ -154,7 +153,18 @@ impl Engine {
             engine.turns.active.lock().unwrap().remove(&id);
             engine.hub.publish(Event::SessionStatusChanged { session_id: id, status: SessionStatus::Idle });
         });
-        Ok(receipt)
+        Ok(Receipt { session, message })
+    }
+
+    /// A known submission id replays its receipt from storage, so a retry after a restart is still one prompt.
+    fn replayed_receipt(&self, id: &str, session_id: &str, payload_hash: &str) -> Result<Option<Receipt>, TurnError> {
+        let Some(found) = self.store.submission(id)? else { return Ok(None) };
+        if found.session_id != session_id || found.payload_hash != payload_hash {
+            return Err(TurnError::SubmissionReused);
+        }
+        let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
+        let message = self.store.message(&found.message_id)?.ok_or(TurnError::NoSession)?;
+        Ok(Some(Receipt { session, message }))
     }
 
     pub fn abort(&self, session_id: &str) -> bool {
@@ -208,7 +218,10 @@ impl Engine {
             _ => return Ok(credential),
         };
         let fresh = refreshed.map_err(|_| TurnError::NoCredentials)?;
-        self.credentials.set(provider, &fresh).map_err(TurnError::Store)?;
+        // If the user signed in or out while we were refreshing, their change stands and this turn uses it.
+        if !self.credentials.replace_if(provider, &credential, &fresh).map_err(TurnError::Store)? {
+            return self.credentials.get(provider).ok_or(TurnError::NoCredentials);
+        }
         Ok(fresh)
     }
 
@@ -314,24 +327,31 @@ impl Engine {
         Ok(Streamed { usage: assembler.usage, stop, calls: assembler.calls })
     }
 
-    /// Reads run together; anything that mutates waits for them and then runs in the model's order.
+    /// Calls run in the model's order. Consecutive reads run together; a write waits for what came before it.
     async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, abort: &CancellationToken) -> Outcome {
         let files = self.turns.files_for(&plan.session.id);
         let snapshot = tokio::sync::OnceCell::new();
-        let (writes, reads): (Vec<PartRow>, Vec<PartRow>) = calls.into_iter().partition(|row| self.call_mutates(row));
         let scope = CallScope { plan, message, files: &files, snapshot: &snapshot, abort };
-        let outcomes = futures_util::future::join_all(reads.into_iter().map(|row| self.run_call(&scope, row))).await;
-        if outcomes.contains(&Outcome::Aborted) {
-            return Outcome::Aborted;
-        }
-        for row in writes {
+        let mut reads: Vec<PartRow> = Vec::new();
+        for row in calls {
+            if !self.call_mutates(&row) {
+                reads.push(row);
+                continue;
+            }
+            if self.run_reads(&scope, std::mem::take(&mut reads)).await == Outcome::Aborted {
+                return Outcome::Aborted;
+            }
             if self.run_call(&scope, row).await == Outcome::Aborted {
                 return Outcome::Aborted;
             }
         }
-        Outcome::Allowed
+        self.run_reads(&scope, reads).await
     }
 
+    async fn run_reads(self: &Arc<Self>, scope: &CallScope<'_>, reads: Vec<PartRow>) -> Outcome {
+        let outcomes = futures_util::future::join_all(reads.into_iter().map(|row| self.run_call(scope, row))).await;
+        if outcomes.contains(&Outcome::Aborted) { Outcome::Aborted } else { Outcome::Allowed }
+    }
     fn call_mutates(&self, row: &PartRow) -> bool {
         match &row.part {
             Part::ToolCall { name, .. } => self.tools.get(name).is_some_and(|tool| tool.mutates()),
@@ -449,6 +469,13 @@ struct Streamed {
 enum StreamError {
     Aborted,
     Provider(llm::Error),
+}
+
+/// Identity of a prompt for replay checks: the same id must carry the same parts and model.
+fn payload_hash(prompt: &Prompt) -> String {
+    use sha2::Digest;
+    let body = serde_json::json!({ "parts": prompt.parts, "model": prompt.model, "thinking": prompt.thinking_budget });
+    sha2::Sha256::digest(body.to_string().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn max_tokens(model: &Model, thinking_budget: Option<u32>) -> u32 {

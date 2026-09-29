@@ -113,11 +113,13 @@ export function createActions(
   /** Every page of a listing; a truncated snapshot would purge sessions it never saw. */
   async function allPages(params: { workspace?: string; archived?: boolean }) {
     const all: Session[] = []
+    const running: string[] = []
     let before: string | undefined
     for (;;) {
       const page = await requireClient().sessions({ ...params, before, limit: sessionPageSize })
       all.push(...page.map((s) => adaptSession(s, workspaces())))
-      if (page.length < sessionPageSize) return { sessions: all, running: page.filter((s) => s.running).map((s) => s.id) }
+      running.push(...page.filter((s) => s.running).map((s) => s.id))
+      if (page.length < sessionPageSize) return { sessions: all, running }
       before = page[page.length - 1]!.id
     }
   }
@@ -205,10 +207,11 @@ export function createActions(
     set(produce((draft) => purge(draft, id)))
   }
 
-  /// True only when the engine confirmed the archive; the caller decides what a failure means.
+  /// Permanent deletion; true only once the engine confirms the row is gone.
   async function purgeSession(id: string) {
     try {
-      await remove(id)
+      await requireClient().deleteSession(id)
+      set(produce((draft) => purge(draft, id)))
       return true
     } catch (cause) {
       if (cause instanceof EngineError && cause.status === 404) return true

@@ -14,6 +14,8 @@ const FALLBACK_FILE: &str = "credentials.json";
 
 pub struct Credentials {
     backend: Backend,
+    /// Serialises read-then-write sequences; the backends themselves are single calls.
+    write_lock: Mutex<()>,
     /// Providers with a stored credential; keychains cannot enumerate, so we keep our own list.
     index: Mutex<BTreeSet<String>>,
 }
@@ -29,7 +31,7 @@ impl Credentials {
             Ok(()) if !prefer_file => Backend::Keyring,
             _ => Backend::File(data_dir.join(FALLBACK_FILE)),
         };
-        let this = Self { backend, index: Mutex::default() };
+        let this = Self { backend, write_lock: Mutex::default(), index: Mutex::default() };
         let index = this.read(INDEX).and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default();
         *this.index.lock().unwrap() = index;
         this
@@ -37,7 +39,7 @@ impl Credentials {
 
     #[cfg(test)]
     pub fn in_file(path: PathBuf) -> Self {
-        Self { backend: Backend::File(path), index: Mutex::default() }
+        Self { backend: Backend::File(path), write_lock: Mutex::default(), index: Mutex::default() }
     }
 
     pub fn get(&self, provider: &str) -> Option<Credential> {
@@ -59,6 +61,16 @@ impl Credentials {
         let mut index = self.index.lock().unwrap();
         index.insert(provider.into());
         self.write(INDEX, &serde_json::to_string(&*index).unwrap())
+    }
+
+    /// Writes only if the stored credential is still xpected; a login or logout in between wins.
+    pub fn replace_if(&self, provider: &str, expected: &Credential, credential: &Credential) -> Result<bool, String> {
+        let _held = self.write_lock.lock().unwrap();
+        if self.get(provider).as_ref() != Some(expected) {
+            return Ok(false);
+        }
+        self.set(provider, credential)?;
+        Ok(true)
     }
 
     pub fn remove(&self, provider: &str) -> Result<(), String> {
@@ -137,6 +149,25 @@ mod tests {
         store.remove("anthropic").unwrap();
         assert!(store.get("anthropic").is_none());
         assert!(store.providers().is_empty());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn replace_if_yields_to_a_newer_login_or_logout() {
+        let path = std::env::temp_dir().join(format!("drift-cred-{}.json", crate::random_hex(4)));
+        let store = Credentials::in_file(path.clone());
+        let stale = Credential::OAuth { access: "old".into(), refresh: "r".into(), expires_at: 1, account: None };
+        let fresh = Credential::OAuth { access: "new".into(), refresh: "r2".into(), expires_at: 9, account: None };
+        store.set("p", &stale).unwrap();
+        assert!(store.replace_if("p", &stale, &fresh).unwrap());
+        assert_eq!(store.get("p"), Some(fresh.clone()));
+        let login = Credential::ApiKey { key: "k".into() };
+        store.set("p", &login).unwrap();
+        assert!(!store.replace_if("p", &fresh, &stale).unwrap(), "a login after the refresh started must win");
+        assert_eq!(store.get("p"), Some(login));
+        store.remove("p").unwrap();
+        assert!(!store.replace_if("p", &stale, &fresh).unwrap(), "a logout must not be undone");
+        assert!(store.get("p").is_none());
         std::fs::remove_file(path).ok();
     }
 

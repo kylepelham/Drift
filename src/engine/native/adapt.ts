@@ -174,6 +174,8 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
       return { type: "permission.updated", properties: adaptPermission(event.request, "") }
     case "permission.replied":
       return { type: "permission.replied", properties: { sessionID: event.sessionId, permissionID: event.requestId, response: event.decision } }
+    case "session.deleted":
+      return { type: "session.deleted", properties: { info: { id: event.sessionId } as Session } }
     case "todo.updated":
       return { type: "todo.updated", properties: { sessionID: event.sessionId, todos: adaptTodos(event.todos) } }
     case "question.asked":
