@@ -1,9 +1,11 @@
 //! Tools the model can call. Each one declares its schema, its permission and how to run.
 
+pub mod apply_patch;
 pub mod bash;
 pub mod edit;
 pub mod glob;
 pub mod grep;
+pub mod patch;
 pub mod question;
 pub mod read;
 pub mod todo;
@@ -21,6 +23,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
+use crate::llm::catalog::ToolProfile;
 use crate::llm::ToolSpec;
 
 /// Shared across one session: which files the model has read, so edits are never blind.
@@ -121,6 +124,7 @@ impl Registry {
                 Box::new(read::Read),
                 Box::new(write::Write),
                 Box::new(edit::Edit),
+                Box::new(apply_patch::ApplyPatch),
                 Box::new(bash::Bash::detect()),
                 Box::new(glob::Glob),
                 Box::new(grep::Grep),
@@ -131,8 +135,13 @@ impl Registry {
         }
     }
 
-    pub fn specs(&self) -> Vec<ToolSpec> {
-        self.tools.iter().map(|tool| tool.spec()).collect()
+    /// The model's profile decides how it edits: search/replace tools or the patch format it was trained on.
+    pub fn specs(&self, profile: ToolProfile) -> Vec<ToolSpec> {
+        let hidden: &[&str] = match profile {
+            ToolProfile::Edit => &["apply_patch"],
+            ToolProfile::ApplyPatch => &["edit", "write"],
+        };
+        self.tools.iter().map(|tool| tool.spec()).filter(|spec| !hidden.contains(&spec.name.as_str())).collect()
     }
 
     pub fn get(&self, name: &str) -> Option<&dyn Tool> {
@@ -211,9 +220,11 @@ pub(crate) mod tests {
     #[test]
     fn registry_exposes_every_builtin_with_a_schema() {
         let registry = Registry::builtin();
-        let names: Vec<String> = registry.specs().into_iter().map(|spec| spec.name).collect();
+        let names: Vec<String> = registry.specs(ToolProfile::Edit).into_iter().map(|spec| spec.name).collect();
         assert_eq!(names, ["read", "write", "edit", "bash", "glob", "grep", "webfetch", "todowrite", "question"]);
-        for spec in registry.specs() {
+        let patching: Vec<String> = registry.specs(ToolProfile::ApplyPatch).into_iter().map(|spec| spec.name).collect();
+        assert_eq!(patching, ["read", "apply_patch", "bash", "glob", "grep", "webfetch", "todowrite", "question"]);
+        for spec in registry.specs(ToolProfile::Edit).into_iter().chain(registry.specs(ToolProfile::ApplyPatch)) {
             assert_eq!(spec.input_schema["type"], "object", "{}", spec.name);
             assert!(!spec.description.is_empty(), "{}", spec.name);
         }

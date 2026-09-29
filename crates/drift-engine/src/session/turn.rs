@@ -197,7 +197,7 @@ impl Engine {
 
     async fn run(self: &Arc<Self>, plan: Plan, abort: CancellationToken) {
         let system = prompt::system(&plan.workspace);
-        let tools = self.tools.specs();
+        let tools = self.tools.specs(plan.model.profile);
         let mut attempts = 0;
         loop {
             let Ok(transcript) = self.store.transcript(&plan.session.id) else { break };
