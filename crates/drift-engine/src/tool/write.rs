@@ -57,7 +57,7 @@ impl Tool for Write {
             Ok(Output {
                 title: name.clone(),
                 output: diff(&name, &before, content),
-                metadata: json!({ "created": before.is_empty() }),
+                metadata: json!({ "created": before.is_empty(), "files": [path.to_string_lossy()] }),
             })
         })
     }

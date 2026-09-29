@@ -423,3 +423,19 @@ async fn workspace_config_shapes_the_turn() {
     assert!(!names.contains(&"write") && !names.contains(&"bash") && names.contains(&"read"), "{names:?}");
     assert!(request.system.contains("# Plan mode"));
 }
+
+#[tokio::test]
+async fn a_configured_formatter_runs_after_a_write() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    let (program, rest) = if cfg!(windows) { ("cmd", r#""/c", "echo tidy> $FILE""#) } else { ("sh", r#""-c", "echo tidy > $FILE""#) };
+    let config = format!(r#"{{ "formatters": {{ "tidy": {{ "command": ["{program}", {rest}], "extensions": [".txt"] }} }} }}"#);
+    std::fs::write(h._dir.join("ws/drift.json"), config).unwrap();
+    h.provider.push(tool_call("write", r#"{"path": "note.txt", "content": "raw\n"}"#)).push(text("written"));
+    h.engine.submit(&h.session.id, prompt("write")).await.await_ok();
+    until_idle(&h).await;
+    assert!(std::fs::read_to_string(h._dir.join("ws/note.txt")).unwrap().starts_with("tidy"));
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { metadata, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(metadata.as_ref().unwrap()["formatted"][0], "tidy: note.txt");
+}

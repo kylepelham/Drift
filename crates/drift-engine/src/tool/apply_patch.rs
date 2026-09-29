@@ -41,13 +41,21 @@ impl Tool for ApplyPatch {
             let ops = patch::parse(required_str(&input, "patch")?)?;
             let mut diffs = Vec::new();
             let mut touched = Vec::new();
+            let mut files = Vec::new();
             for op in &ops {
                 let path = ctx.resolve(op.path());
                 let name = display(&path, &ctx.workspace);
                 diffs.push(apply(ctx, op, &path, &name).await.map_err(|e| ToolError(format!("{name}: {}", e.0)))?);
                 touched.push(name);
+                if !matches!(op, Op::Delete { .. }) {
+                    let written = match op {
+                        Op::Update { move_to: Some(to), .. } => ctx.resolve(to),
+                        _ => path,
+                    };
+                    files.push(written.to_string_lossy().into_owned());
+                }
             }
-            Ok(Output { title: touched.join(", "), output: diffs.join("\n"), metadata: json!({ "files": touched }) })
+            Ok(Output { title: touched.join(", "), output: diffs.join("\n"), metadata: json!({ "files": files }) })
         })
     }
 }

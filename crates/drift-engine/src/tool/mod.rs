@@ -211,7 +211,7 @@ fn required_str<'a>(input: &'a Value, key: &str) -> Result<&'a str, ToolError> {
         .ok_or_else(|| ToolError(format!("`{key}` is required")))
 }
 
-fn display(path: &Path, workspace: &Path) -> String {
+pub fn display(path: &Path, workspace: &Path) -> String {
     path.strip_prefix(workspace)
         .unwrap_or(path)
         .to_string_lossy()

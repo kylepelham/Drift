@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod config;
+pub mod edit;
 pub mod event;
 pub mod id;
 pub mod llm;

@@ -430,10 +430,26 @@ impl Engine {
             () = scope.abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
         };
         match result {
-            Ok(output) => self.settle(&mut row, ToolStatus::Done, Some(output.title), output.output, merge(output.metadata, snapshot_meta)),
+            Ok(output) => {
+                let formatted = if tool.mutates() { self.format_written(scope.plan, &output.metadata).await } else { Vec::new() };
+                let meta = merge(output.metadata, snapshot_meta).map(|m| with_formatted(m, formatted));
+                self.settle(&mut row, ToolStatus::Done, Some(output.title), output.output, meta)
+            }
             Err(error) => self.settle(&mut row, ToolStatus::Error, None, error.0, snapshot_meta),
         }
         if scope.abort.is_cancelled() { Outcome::Aborted } else { Outcome::Allowed }
+    }
+
+    /// Runs the workspace's formatters over whatever a mutating tool reported writing.
+    async fn format_written(&self, plan: &Plan, metadata: &serde_json::Value) -> Vec<String> {
+        let formatters = crate::edit::format::resolve(&plan.config.formatters);
+        let mut formatted = Vec::new();
+        for file in metadata["files"].as_array().into_iter().flatten().filter_map(|f| f.as_str()) {
+            if let Some(name) = crate::edit::format::format(Path::new(file), &plan.workspace, &formatters).await {
+                formatted.push(format!("{name}: {}", crate::tool::display(Path::new(file), &plan.workspace)));
+            }
+        }
+        formatted
     }
 
     /// Marks the call running in storage before it does anything; a call that cannot be recorded does not run.
@@ -526,6 +542,13 @@ fn cost(model: &Model, usage: Usage) -> f64 {
     let c = &model.cost;
     (usage.input as f64 * c.input + usage.output as f64 * c.output + usage.cache_read as f64 * c.cache_read + usage.cache_write as f64 * c.cache_write)
         / 1_000_000.0
+}
+
+fn with_formatted(mut metadata: serde_json::Value, formatted: Vec<String>) -> serde_json::Value {
+    if !formatted.is_empty() {
+        metadata["formatted"] = serde_json::json!(formatted);
+    }
+    metadata
 }
 
 fn merge(metadata: serde_json::Value, extra: Option<serde_json::Value>) -> Option<serde_json::Value> {

@@ -63,7 +63,7 @@ impl Tool for Edit {
             Ok(Output {
                 title: name.clone(),
                 output: diff(&name, &content, &updated),
-                metadata: json!({ "replacements": if replace_all { content.matches(old).count() } else { 1 } }),
+                metadata: json!({ "replacements": if replace_all { content.matches(old).count() } else { 1 }, "files": [path.to_string_lossy()] }),
             })
         })
     }
