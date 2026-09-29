@@ -1,0 +1,407 @@
+//! One prompt, one turn: stream the model, run what it calls, repeat until it stops.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use futures_util::StreamExt;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use tokio_util::sync::CancellationToken;
+use utoipa::ToSchema;
+
+use super::assemble::Assembler;
+use super::{convert, prompt};
+use crate::event::{Event, SessionStatus};
+use crate::id;
+use crate::llm::catalog::Model;
+use crate::llm::{self, Credential, Provider, Request, StopReason};
+use crate::permission::{self, Outcome};
+use crate::session::types::{Message, MessageStatus, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage};
+use crate::tool::{Context, SessionFiles};
+use crate::Engine;
+
+const MAX_ATTEMPTS: u32 = 3;
+/// Output cap when the model allows more; keeps a runaway response from burning the budget.
+const MAX_OUTPUT_TOKENS: u32 = 32_000;
+const TITLE_CHARS: usize = 80;
+
+#[derive(Clone, Debug, Default, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Prompt {
+    pub parts: Vec<Part>,
+    #[serde(default)]
+    pub model: Option<ModelRef>,
+    #[serde(default)]
+    pub thinking_budget: Option<u32>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Receipt {
+    pub session: Session,
+    pub message: Message,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum TurnError {
+    NoSession,
+    NoWorkspace,
+    Busy,
+    NoModel,
+    UnknownModel,
+    NoCredentials,
+    Store(String),
+}
+
+impl std::fmt::Display for TurnError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoSession => write!(f, "session not found"),
+            Self::NoWorkspace => write!(f, "workspace not found"),
+            Self::Busy => write!(f, "session is already running a turn"),
+            Self::NoModel => write!(f, "no model selected"),
+            Self::UnknownModel => write!(f, "model is not in the catalog"),
+            Self::NoCredentials => write!(f, "provider has no credentials"),
+            Self::Store(message) => write!(f, "store: {message}"),
+        }
+    }
+}
+
+impl From<rusqlite::Error> for TurnError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Store(error.to_string())
+    }
+}
+
+#[derive(Default)]
+pub struct Turns {
+    active: Mutex<HashMap<String, CancellationToken>>,
+    files: Mutex<HashMap<String, Arc<SessionFiles>>>,
+    /// Tests swap the wire adapter for a scripted one.
+    pub provider_override: Mutex<Option<Provider>>,
+}
+
+impl Turns {
+    fn files_for(&self, session_id: &str) -> Arc<SessionFiles> {
+        self.files.lock().unwrap().entry(session_id.into()).or_default().clone()
+    }
+
+    pub fn is_running(&self, session_id: &str) -> bool {
+        self.active.lock().unwrap().contains_key(session_id)
+    }
+}
+
+struct Plan {
+    session: Session,
+    workspace: PathBuf,
+    model_ref: ModelRef,
+    model: Model,
+    provider: Provider,
+    credential: Credential,
+    thinking_budget: Option<u32>,
+}
+
+impl Engine {
+    /// Records the prompt and starts the turn in the background; the receipt is what was recorded.
+    pub fn submit(self: &Arc<Self>, session_id: &str, prompt: Prompt) -> Result<Receipt, TurnError> {
+        let plan = self.plan(session_id, &prompt)?;
+        let abort = CancellationToken::new();
+        {
+            let mut active = self.turns.active.lock().unwrap();
+            if active.contains_key(session_id) {
+                return Err(TurnError::Busy);
+            }
+            active.insert(session_id.into(), abort.clone());
+        }
+        let message = self.store.create_message(session_id, Role::User, Some(&plan.model_ref))?;
+        self.hub.publish(Event::MessageCreated { message: message.clone() });
+        for part in prompt.parts {
+            let row = self.store.add_part(&message.id, session_id, part)?;
+            self.hub.publish(Event::PartCreated { part: row });
+        }
+        let session = self.store.update_session(session_id, None, Some(&plan.model_ref))?.ok_or(TurnError::NoSession)?;
+        self.hub.publish(Event::SessionUpdated { session: session.clone() });
+        self.hub.publish(Event::SessionStatusChanged { session_id: session_id.into(), status: SessionStatus::Running });
+        let engine = self.clone();
+        tokio::spawn(async move {
+            let id = plan.session.id.clone();
+            engine.run(plan, abort).await;
+            engine.turns.active.lock().unwrap().remove(&id);
+            engine.hub.publish(Event::SessionStatusChanged { session_id: id, status: SessionStatus::Idle });
+        });
+        Ok(Receipt { session, message })
+    }
+
+    pub fn abort(&self, session_id: &str) -> bool {
+        match self.turns.active.lock().unwrap().get(session_id) {
+            Some(token) => {
+                token.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn plan(&self, session_id: &str, prompt: &Prompt) -> Result<Plan, TurnError> {
+        let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
+        let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
+        let model_ref = prompt.model.clone().or_else(|| session.model.clone()).ok_or(TurnError::NoModel)?;
+        let catalog = self.catalog.read().unwrap();
+        let info = catalog.providers.get(&model_ref.provider).ok_or(TurnError::UnknownModel)?;
+        let model = info.models.get(&model_ref.model).cloned().ok_or(TurnError::UnknownModel)?;
+        let credential = self.credentials.resolve(&model_ref.provider, &info.env).ok_or(TurnError::NoCredentials)?;
+        let provider = self.provider_for(&model_ref.provider).ok_or(TurnError::UnknownModel)?;
+        Ok(Plan {
+            session,
+            workspace: PathBuf::from(workspace.path),
+            model_ref,
+            model,
+            provider,
+            credential,
+            thinking_budget: prompt.thinking_budget,
+        })
+    }
+
+    fn provider_for(&self, id: &str) -> Option<Provider> {
+        if let Some(provider) = self.turns.provider_override.lock().unwrap().clone() {
+            return Some(provider);
+        }
+        match id {
+            "anthropic" => Some(Provider::Anthropic(match std::env::var("DRIFT_ANTHROPIC_BASE_URL") {
+                Ok(url) => llm::anthropic::Anthropic::new(&url),
+                Err(_) => llm::anthropic::Anthropic::default(),
+            })),
+            _ => None,
+        }
+    }
+
+    async fn run(self: &Arc<Self>, plan: Plan, abort: CancellationToken) {
+        let system = prompt::system(&plan.workspace);
+        let tools = self.tools.specs();
+        let mut attempts = 0;
+        loop {
+            let Ok(transcript) = self.store.transcript(&plan.session.id) else { break };
+            let request = Request {
+                model: plan.model_ref.model.clone(),
+                system: system.clone(),
+                messages: convert::messages(&transcript),
+                tools: tools.clone(),
+                max_tokens: max_tokens(&plan.model, plan.thinking_budget),
+                thinking_budget: plan.thinking_budget.filter(|_| plan.model.reasoning),
+                temperature: None,
+            };
+            let Ok(message) = self.store.create_message(&plan.session.id, Role::Assistant, Some(&plan.model_ref)) else { break };
+            self.hub.publish(Event::MessageCreated { message: message.clone() });
+            match self.step(&plan, message, &request, &abort).await {
+                Step::Done => break,
+                Step::Continue => attempts = 0,
+                Step::Retry if attempts + 1 < MAX_ATTEMPTS => {
+                    attempts += 1;
+                    tokio::time::sleep(Duration::from_millis(500 * 2u64.pow(attempts))).await;
+                }
+                Step::Retry => break,
+            }
+        }
+        self.title_if_untitled(&plan.session).await;
+    }
+
+    /// One assistant message and the tool calls it makes.
+    async fn step(self: &Arc<Self>, plan: &Plan, mut message: Message, request: &Request, abort: &CancellationToken) -> Step {
+        let streamed = self.stream(&message, plan, request, abort).await;
+        let (calls, stop) = match streamed {
+            Ok(Streamed { usage, stop, calls }) => {
+                message.usage = usage;
+                message.cost = cost(&plan.model, usage);
+                message.status = MessageStatus::Done;
+                (calls, stop)
+            }
+            Err(StreamError::Aborted) => {
+                message.status = MessageStatus::Aborted;
+                (Vec::new(), None)
+            }
+            Err(StreamError::Provider(error)) => {
+                message.status = MessageStatus::Error;
+                message.error = Some(error.to_string());
+                self.finish(&mut message);
+                return if matches!(error, llm::Error::Api { retryable: true, .. } | llm::Error::Transport(_)) { Step::Retry } else { Step::Done };
+            }
+        };
+        self.finish(&mut message);
+        if message.status == MessageStatus::Aborted {
+            return Step::Done;
+        }
+        if calls.is_empty() {
+            return Step::Done;
+        }
+        match self.run_calls(plan, &message, calls, abort).await {
+            Outcome::Aborted => Step::Done,
+            _ if stop == Some(StopReason::MaxTokens) => Step::Done,
+            _ => Step::Continue,
+        }
+    }
+
+    fn finish(&self, message: &mut Message) {
+        message.finished_at = Some(id::now_ms());
+        let _ = self.store.save_message(message);
+        let _ = self.store.touch_session(&message.session_id);
+        self.hub.publish(Event::MessageUpdated { message: message.clone() });
+    }
+
+    async fn stream(&self, message: &Message, plan: &Plan, request: &Request, abort: &CancellationToken) -> Result<Streamed, StreamError> {
+        let mut chunks = plan.provider.stream(request, &plan.credential).await.map_err(StreamError::Provider)?;
+        let mut assembler = Assembler::new(&self.store, &self.hub, message);
+        loop {
+            let next = tokio::select! {
+                chunk = chunks.next() => chunk,
+                () = abort.cancelled() => {
+                    let _ = assembler.stop_block();
+                    return Err(StreamError::Aborted);
+                }
+            };
+            match next {
+                Some(Ok(chunk)) => assembler.apply(chunk).map_err(|e| StreamError::Provider(llm::Error::Transport(e.to_string())))?,
+                Some(Err(error)) => {
+                    let _ = assembler.stop_block();
+                    return Err(StreamError::Provider(error));
+                }
+                None => break,
+            }
+        }
+        let _ = assembler.stop_block();
+        Ok(Streamed { usage: assembler.usage, stop: assembler.stop, calls: assembler.calls })
+    }
+
+    async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, abort: &CancellationToken) -> Outcome {
+        let files = self.turns.files_for(&plan.session.id);
+        let mut snapshot: Option<String> = None;
+        for mut row in calls {
+            let Part::ToolCall { call_id, name, input, .. } = row.part.clone() else { continue };
+            let ctx = Context {
+                workspace: plan.workspace.clone(),
+                session_id: plan.session.id.clone(),
+                call_id: call_id.clone(),
+                files: files.clone(),
+                abort: abort.clone(),
+            };
+            let Some(tool) = self.tools.get(&name) else {
+                self.settle(&mut row, ToolStatus::Error, None, format!("unknown tool `{name}`"), None);
+                continue;
+            };
+            if let Some(ask) = tool.ask(&ctx, &input) {
+                let request = permission::new_request(&plan.session.id, &message.id, &call_id, &name, ask);
+                match self.permissions.check(&self.hub, request, abort).await {
+                    Outcome::Allowed => {}
+                    Outcome::Denied => {
+                        self.settle(&mut row, ToolStatus::Denied, None, "Permission denied by the user.".into(), None);
+                        continue;
+                    }
+                    Outcome::Aborted => {
+                        self.settle(&mut row, ToolStatus::Error, None, "Aborted while waiting for permission.".into(), None);
+                        return Outcome::Aborted;
+                    }
+                }
+            }
+            if tool.mutates() && snapshot.is_none() {
+                snapshot = self.snapshots.take(&plan.workspace).await.ok();
+            }
+            self.start_call(&mut row);
+            let result = tokio::select! {
+                result = tool.run(&ctx, input) => result,
+                () = abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
+            };
+            let snapshot_meta = snapshot.as_ref().map(|tree| json!({ "snapshot": tree }));
+            match result {
+                Ok(output) => self.settle(&mut row, ToolStatus::Done, Some(output.title), output.output, merge(output.metadata, snapshot_meta)),
+                Err(error) => self.settle(&mut row, ToolStatus::Error, None, error.0, snapshot_meta),
+            }
+            if abort.is_cancelled() {
+                return Outcome::Aborted;
+            }
+        }
+        Outcome::Allowed
+    }
+
+    fn start_call(&self, row: &mut PartRow) {
+        if let Part::ToolCall { status, started_at, .. } = &mut row.part {
+            *status = ToolStatus::Running;
+            *started_at = Some(id::now_ms());
+        }
+        let _ = self.store.save_part(row);
+        self.hub.publish(Event::PartUpdated { part: row.clone() });
+    }
+
+    fn settle(&self, row: &mut PartRow, new_status: ToolStatus, new_title: Option<String>, text: String, meta: Option<serde_json::Value>) {
+        if let Part::ToolCall { status, title, output, metadata, finished_at, .. } = &mut row.part {
+            *status = new_status;
+            *title = new_title.or(title.take());
+            *output = Some(text);
+            *metadata = meta;
+            *finished_at = Some(id::now_ms());
+        }
+        let _ = self.store.save_part(row);
+        self.hub.publish(Event::PartUpdated { part: row.clone() });
+    }
+
+    async fn title_if_untitled(&self, session: &Session) {
+        if !session.title.is_empty() {
+            return;
+        }
+        let Ok(transcript) = self.store.transcript(&session.id) else { return };
+        let first = transcript.iter().find(|m| m.info.role == Role::User).and_then(|m| {
+            m.parts.iter().find_map(|row| match &row.part {
+                Part::Text { text } => Some(text.clone()),
+                _ => None,
+            })
+        });
+        let Some(text) = first else { return };
+        let title: String = text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(TITLE_CHARS).collect();
+        if let Ok(Some(updated)) = self.store.update_session(&session.id, Some(&title), None) {
+            self.hub.publish(Event::SessionUpdated { session: updated });
+        }
+    }
+}
+
+enum Step {
+    Done,
+    Continue,
+    Retry,
+}
+
+struct Streamed {
+    usage: Usage,
+    stop: Option<StopReason>,
+    calls: Vec<PartRow>,
+}
+
+enum StreamError {
+    Aborted,
+    Provider(llm::Error),
+}
+
+fn max_tokens(model: &Model, thinking_budget: Option<u32>) -> u32 {
+    let cap = (model.limit.output as u32).clamp(1024, MAX_OUTPUT_TOKENS);
+    cap.max(thinking_budget.unwrap_or(0) + 1024)
+}
+
+/// Prices are per million tokens.
+fn cost(model: &Model, usage: Usage) -> f64 {
+    let c = &model.cost;
+    (usage.input as f64 * c.input + usage.output as f64 * c.output + usage.cache_read as f64 * c.cache_read + usage.cache_write as f64 * c.cache_write)
+        / 1_000_000.0
+}
+
+fn merge(metadata: serde_json::Value, extra: Option<serde_json::Value>) -> Option<serde_json::Value> {
+    match (metadata, extra) {
+        (serde_json::Value::Object(mut base), Some(serde_json::Value::Object(extra))) => {
+            base.extend(extra);
+            Some(serde_json::Value::Object(base))
+        }
+        (serde_json::Value::Null, extra) => extra,
+        (metadata, _) => Some(metadata),
+    }
+}
+
+#[cfg(test)]
+mod tests;

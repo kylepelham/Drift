@@ -120,12 +120,49 @@ pub type ChunkStream = Pin<Box<dyn Stream<Item = Result<Chunk, Error>> + Send>>;
 #[derive(Clone, Debug)]
 pub enum Provider {
     Anthropic(anthropic::Anthropic),
+    Scripted(scripted::Scripted),
 }
 
 impl Provider {
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
         match self {
             Self::Anthropic(provider) => provider.stream(request, credential).await,
+            Self::Scripted(provider) => provider.stream(request),
+        }
+    }
+}
+
+/// Replays canned responses in order and records every request; tests and the conformance harness use it.
+pub mod scripted {
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    use super::{Chunk, ChunkStream, Error, Request};
+
+    type Responses = Arc<Mutex<VecDeque<Result<Vec<Chunk>, Error>>>>;
+
+    #[derive(Clone, Debug, Default)]
+    pub struct Scripted {
+        responses: Responses,
+        pub requests: Arc<Mutex<Vec<Request>>>,
+    }
+
+    impl Scripted {
+        pub fn push(&self, chunks: Vec<Chunk>) -> &Self {
+            self.responses.lock().unwrap().push_back(Ok(chunks));
+            self
+        }
+
+        pub fn push_error(&self, error: Error) -> &Self {
+            self.responses.lock().unwrap().push_back(Err(error));
+            self
+        }
+
+        pub fn stream(&self, request: &Request) -> Result<ChunkStream, Error> {
+            self.requests.lock().unwrap().push(request.clone());
+            let next = self.responses.lock().unwrap().pop_front();
+            let chunks = next.unwrap_or_else(|| Err(Error::Transport("scripted provider has no more responses".into())))?;
+            Ok(Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok))))
         }
     }
 }

@@ -24,10 +24,10 @@ enum Backend {
 }
 
 impl Credentials {
-    pub fn open(data_dir: &Path) -> Self {
+    pub fn open(data_dir: &Path, prefer_file: bool) -> Self {
         let backend = match keyring::Entry::store_status() {
-            Ok(()) => Backend::Keyring,
-            Err(_) => Backend::File(data_dir.join(FALLBACK_FILE)),
+            Ok(()) if !prefer_file => Backend::Keyring,
+            _ => Backend::File(data_dir.join(FALLBACK_FILE)),
         };
         let this = Self { backend, index: Mutex::default() };
         let index = this.read(INDEX).and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default();

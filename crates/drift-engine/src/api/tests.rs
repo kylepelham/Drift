@@ -29,7 +29,7 @@ async fn harness() -> Harness {
     let mut bytes = [0u8; 8];
     getrandom::fill(&mut bytes).unwrap();
     let dir = std::env::temp_dir().join(format!("drift-engine-test-{}", u64::from_le_bytes(bytes)));
-    let engine = Engine::open(&dir).unwrap();
+    let engine = Engine::open_with(&dir, crate::Options { file_credentials: true, ..Default::default() }).unwrap();
     let server = listen(engine.clone(), SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
         .await
         .unwrap();
@@ -166,11 +166,7 @@ async fn reconnecting_with_a_cursor_replays_missed_events() {
 #[tokio::test]
 async fn stale_cursor_gets_resync() {
     let h = harness().await;
-    let engine = Arc::new(Engine {
-        store: Arc::new(crate::store::open(&h._dir.0.join("stale")).unwrap()),
-        hub: crate::event::Hub::new(2),
-        token: h.engine.token.clone(),
-    });
+    let engine = Engine::open_with(&h._dir.0.join("stale"), crate::Options { event_history: 2, file_credentials: true }).unwrap();
     let server = listen(engine.clone(), SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
         .await
         .unwrap();

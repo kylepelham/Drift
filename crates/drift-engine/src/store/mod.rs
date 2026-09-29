@@ -52,6 +52,13 @@ impl Store {
         self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    pub fn workspace(&self, id: &str) -> rusqlite::Result<Option<Workspace>> {
+        self.lock()
+            .prepare_cached(&format!("SELECT {WORKSPACE_COLUMNS} FROM workspace WHERE id = ?1"))?
+            .query_row([id], map_workspace)
+            .optional()
+    }
+
     pub fn workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(&format!(
