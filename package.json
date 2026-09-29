@@ -19,6 +19,7 @@
     "db:prune": "bun scripts/db-maintenance.ts --prune",
     "package": "bun scripts/release-policy.ts stamp-dev && tauri build",
     "test": "bun test tests",
+    "test:conformance": "bun test tests/conformance",
     "test:release-policy": "bun test tests/release-policy.test.ts",
     "test:engine": "bun scripts/test-engine.ts",
     "typecheck": "tsc --noEmit"

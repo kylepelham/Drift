@@ -203,8 +203,25 @@ under it is true, not before.
 
 Settled after the first external review of M1; each has a regression test.
 
-- A provider stream that ends without a stop reason is an error, not a completed message.
-  Its tool calls stay `pending` and never run; the turn retries like any transport fault.
+- Terminal contract for a streamed response: the engine requires a stop reason (Anthropic
+  `message_delta.stop_reason`, OpenAI `response.completed`/`response.incomplete`, Gemini
+  `finishReason`, Chat Completions `finish_reason` then `[DONE]`). `message_stop` alone is
+  not completion. A stream that ends without one is an error, not a completed message: its
+  tool calls stay `pending`, never run, and the turn retries like any transport fault. A
+  `max_tokens` stop dispatches nothing either, since the call input may be cut short. A call
+  whose arguments did not parse as a JSON object fails before dispatch.
+- Only valid completed blocks are replayed. An aborted message keeps its finished text; its
+  unsigned reasoning and any call with unparsed arguments are dropped, along with the
+  results those calls would have needed.
+- Paths are resolved before anything looks at them: `..` folded, symlinks followed through
+  the deepest existing ancestor, verbatim prefixes stripped. Permission asks and the
+  read-before-write ledger see the real target. `read`, `glob` and `grep` inside the
+  workspace are free; outside it they ask.
+- A mutating call refuses to run if its snapshot cannot be taken or its start cannot be
+  recorded, and says so in its result. A result whose save fails is published as an error,
+  never as a success the store lacks; a message whose terminal save fails stops the turn.
+- Stopping a shell stops its descendants: a Windows job object with kill-on-close, a unix
+  process group. Dropping the run future has the same effect as an explicit abort.
 - Prompt admission is one transaction (`Store::admit_prompt`). If it fails, the session's
   busy reservation is released and nothing half-written remains. `Prompt.submissionId`  is
   optional and durable: the `submission` table records id, session, message and a hash of
@@ -216,10 +233,13 @@ Settled after the first external review of M1; each has a regression test.
 - Token refresh is single-flight per provider and fenced: the first turn to notice an
   expired token refreshes it, later turns wait and reuse the stored result, and the refreshed
   pair is written only if the stored credential is still the one the refresh started from
-  (`Credentials::replace_if`). A sign-in or sign-out during the refresh wins.
+  (`Credentials::replace_if`). Every credential mutation (`set`, `remove`, `replace_if`)
+  holds the same lock, so a sign-in or sign-out during the refresh wins and is never undone.
 - The socket client never advances its cursor on a failed hydrate; it retries and keeps
-  holding events. A `resync` that lands mid-hydrate folds into the same run. The app's
-  hydrate (`hydrateFrom`) rejects when any load fails rather than swallowing the error.
+  holding events. A `resync` that lands mid-hydrate folds into the same run. A `hello` from a
+  different engine instance, or `close()`, discards held events and disowns any hydrate in
+  flight. The app's hydrate (`hydrateFrom`) rejects when any load fails, and it clears every
+  cached transcript first so open views refetch after a resync.
 - Session listings page by `(updated_at, id)` keyset until a short page, so equal timestamps
   never skip rows; a snapshot is only authoritative when complete. Each listed session
   carries `running` and the client collects it across every page before setting status.
@@ -249,6 +269,11 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
 
 ## Testing
 
+- `tests/conformance/`: bun tests that build and spawn the real `drift-engined`, point
+  `DRIFT_ANTHROPIC_BASE_URL` at a fake that replays recorded SSE fixtures in small chunks,
+  and drive the engine over HTTP and WS: tool turn with permission, truncated stream,
+  denial, retry plus submission replay, abort, cursor replay and restart. `bun run
+  test:conformance` runs them alone; `bun run test` includes them.
 - Rust unit tests per module. Edit matcher, `apply_patch` parser, SigV4, PKCE, catalog
   filter, permission rules and WS replay each get their own suite.
 - `tests/conformance/`: bun test suites driving the HTTP and WS API against

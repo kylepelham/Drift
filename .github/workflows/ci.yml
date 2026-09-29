@@ -28,6 +28,13 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      # The generated-client and conformance tests build drift-engined.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
       - name: Test
         run: bun run test
 

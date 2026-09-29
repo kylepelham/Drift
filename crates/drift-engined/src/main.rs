@@ -63,6 +63,9 @@ async fn main() {
     });
     println!("url {}", server.url());
     println!("token {}", engine.token);
-    let _ = tokio::signal::ctrl_c().await;
+    // Without a console there is no Ctrl+C to wait for; the parent kills us instead.
+    if tokio::signal::ctrl_c().await.is_err() {
+        std::future::pending::<()>().await;
+    }
     server.stop();
 }

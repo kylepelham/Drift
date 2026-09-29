@@ -26,7 +26,8 @@ change the plan there when a decision changes.
 - [x] Real turns against Anthropic through `drift-engined` (read, edit with ask, bash with ask)
 - [x] Drift UI against the new API (adapter over the legacy store shapes; engine-side verified, shell run pending)
 - [x] Failure paths: terminal validation, atomic admission, replay eligibility, single-flight refresh, hydrate cursor safety, full listings
-- [ ] Conformance suite with recorded Anthropic fixtures
+- [x] M1 sign-off corrections: resolved paths, refused unsafe writes, process-tree stop, replay eligibility, auth fence
+- [x] Conformance suite with recorded Anthropic fixtures (`tests/conformance`)
 
 ## M2: breadth
 
