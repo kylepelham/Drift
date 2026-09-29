@@ -4,6 +4,7 @@ pub mod api;
 pub mod event;
 pub mod id;
 pub mod llm;
+pub mod permission;
 pub mod session;
 pub mod store;
 pub mod tool;
