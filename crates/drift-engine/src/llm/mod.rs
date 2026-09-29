@@ -2,6 +2,7 @@
 
 pub mod anthropic;
 pub mod catalog;
+pub mod compat;
 pub mod credentials;
 pub mod openai;
 mod sse;
@@ -74,7 +75,7 @@ pub struct Request {
     pub tools: Vec<ToolSpec>,
     pub max_tokens: u32,
     pub thinking_budget: Option<u32>,
-    pub temperature: Option<f32>,
+    pub temperature: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -136,6 +137,7 @@ pub type ChunkStream = Pin<Box<dyn Stream<Item = Result<Chunk, Error>> + Send>>;
 pub enum Provider {
     Anthropic(anthropic::Anthropic),
     OpenAi(openai::OpenAi),
+    Compat(compat::Compat),
     Scripted(scripted::Scripted),
 }
 
@@ -144,9 +146,27 @@ impl Provider {
         match self {
             Self::Anthropic(provider) => provider.stream(request, credential).await,
             Self::OpenAi(provider) => provider.stream(request, credential).await,
+            Self::Compat(provider) => provider.stream(request, credential).await,
             Self::Scripted(provider) => provider.stream(request),
         }
     }
+}
+
+/// Builds the adapter for a catalog provider. `DRIFT_<ID>_BASE_URL` overrides the endpoint for recorded runs.
+pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
+    let env_name = format!("DRIFT_{}_BASE_URL", id.to_uppercase().replace('-', "_"));
+    let override_url = std::env::var(env_name).ok();
+    let base = |default: &str| override_url.clone().or_else(|| catalog_api.map(str::to_string)).unwrap_or_else(|| default.to_string());
+    Some(match id {
+        "anthropic" => Provider::Anthropic(override_url.as_deref().map_or_else(anthropic::Anthropic::default, anthropic::Anthropic::new)),
+        "openai" => Provider::OpenAi(override_url.as_deref().map_or_else(openai::OpenAi::default, openai::OpenAi::new)),
+        "xai" => Provider::Compat(compat::Compat::new(&base("https://api.x.ai/v1"))),
+        "zai" => Provider::Compat(compat::Compat::new(&base("https://api.z.ai/api/paas/v4"))),
+        "openrouter" => Provider::Compat(compat::Compat::new(&base("https://openrouter.ai/api/v1"))),
+        "lmstudio" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:1234/v1"))),
+        "ollama" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:11434/v1"))),
+        _ => return None,
+    })
 }
 
 /// Replays canned responses in order and records every request; tests and the conformance harness use it.

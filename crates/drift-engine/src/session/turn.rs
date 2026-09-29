@@ -148,14 +148,14 @@ impl Engine {
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         let model_ref = prompt.model.clone().or_else(|| session.model.clone()).ok_or(TurnError::NoModel)?;
-        let (model, env) = {
+        let (model, env, api) = {
             let catalog = self.catalog.read().unwrap();
             let info = catalog.providers.get(&model_ref.provider).ok_or(TurnError::UnknownModel)?;
-            (info.models.get(&model_ref.model).cloned().ok_or(TurnError::UnknownModel)?, info.env.clone())
+            (info.models.get(&model_ref.model).cloned().ok_or(TurnError::UnknownModel)?, info.env.clone(), info.api.clone())
         };
         let credential = self.credentials.resolve(&model_ref.provider, &env).ok_or(TurnError::NoCredentials)?;
         let credential = self.fresh_credential(&model_ref.provider, credential).await?;
-        let provider = self.provider_for(&model_ref.provider).ok_or(TurnError::UnknownModel)?;
+        let provider = self.provider_for(&model_ref.provider, api.as_deref()).ok_or(TurnError::UnknownModel)?;
         Ok(Plan {
             session,
             workspace: PathBuf::from(workspace.path),
@@ -183,16 +183,11 @@ impl Engine {
         Ok(fresh)
     }
 
-    fn provider_for(&self, id: &str) -> Option<Provider> {
+    fn provider_for(&self, id: &str, catalog_api: Option<&str>) -> Option<Provider> {
         if let Some(provider) = self.turns.provider_override.lock().unwrap().clone() {
             return Some(provider);
         }
-        let base = |name: &str| std::env::var(name).ok();
-        match id {
-            "anthropic" => Some(Provider::Anthropic(base("DRIFT_ANTHROPIC_BASE_URL").map_or_else(llm::anthropic::Anthropic::default, |url| llm::anthropic::Anthropic::new(&url)))),
-            "openai" => Some(Provider::OpenAi(base("DRIFT_OPENAI_BASE_URL").map_or_else(llm::openai::OpenAi::default, |url| llm::openai::OpenAi::new(&url)))),
-            _ => None,
-        }
+        llm::provider_for(id, catalog_api)
     }
 
     async fn run(self: &Arc<Self>, plan: Plan, abort: CancellationToken) {
