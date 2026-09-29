@@ -2,6 +2,7 @@
 
 pub mod anthropic;
 pub mod catalog;
+pub mod credentials;
 mod sse;
 #[cfg(test)]
 mod tests;

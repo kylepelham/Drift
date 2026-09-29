@@ -12,6 +12,7 @@ getrandom = { workspace = true }
 globset = "0.4"
 grep = "0.4"
 ignore = "0.4"
+keyring = "4"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "rustls-native-certs", "stream"] }
 rusqlite = { workspace = true }
 serde = { workspace = true }
