@@ -49,6 +49,9 @@ pub enum Event {
     PermissionAsked { request: PermissionRequest },
     #[serde(rename = "permission.replied", rename_all = "camelCase")]
     PermissionReplied { request_id: String, session_id: String, decision: Decision },
+    /// The model catalog was refreshed; clients reload `/providers`.
+    #[serde(rename = "catalog.updated")]
+    CatalogUpdated {},
     #[serde(rename = "mcp.updated")]
     McpUpdated { server: crate::mcp::ServerStatus },
     #[serde(rename = "mcp.removed")]

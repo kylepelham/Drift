@@ -83,6 +83,7 @@ export function EngineProvider(props: ParentProps) {
     events = connectEvents(next, {
       hydrate: () => hydrate(),
       event: (envelope) => {
+        if (envelope.type === "catalog.updated") void actions.refreshProviders().catch(() => undefined)
         const legacy = adaptEvent(envelope, workspaceIndex())
         if (legacy) reduce(set, legacy, directory ?? undefined, state)
       },

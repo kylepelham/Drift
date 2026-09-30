@@ -341,7 +341,7 @@ export function Composer() {
         .filter((model) =>
           provider.id === "lmstudio" ? lmStudioModelReady(model) : model.capabilities.toolcall,
         )
-        .sort((a, b) => a.name.localeCompare(b.name))
+        .sort((a, b) => (b.release_date ?? "").localeCompare(a.release_date ?? "") || a.name.localeCompare(b.name))
         .map((model) => ({
           id: `${provider.id}/${model.id}`,
           label: model.name,

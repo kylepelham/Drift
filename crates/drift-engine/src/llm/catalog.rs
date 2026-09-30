@@ -96,14 +96,17 @@ impl Catalog {
         Self::parse(SNAPSHOT).expect("bundled catalog is valid")
     }
 
+    pub fn cache_is_fresh(data_dir: &Path) -> bool {
+        std::fs::metadata(cache_path(data_dir))
+            .and_then(|meta| meta.modified())
+            .map(|modified| modified.elapsed().unwrap_or(CACHE_TTL) < CACHE_TTL)
+            .unwrap_or(false)
+    }
+
     /// The cached download if it is fresh, else the bundled snapshot.
     pub fn load(data_dir: &Path) -> Self {
         let cache = cache_path(data_dir);
-        let fresh = std::fs::metadata(&cache)
-            .and_then(|meta| meta.modified())
-            .map(|modified| modified.elapsed().unwrap_or(CACHE_TTL) < CACHE_TTL)
-            .unwrap_or(false);
-        if fresh {
+        if Self::cache_is_fresh(data_dir) {
             if let Ok(catalog) = std::fs::read_to_string(&cache).map_err(drop).and_then(|text| Self::parse(&text).map_err(drop)) {
                 return catalog;
             }
@@ -165,6 +168,8 @@ struct RawModel {
     #[serde(default)]
     tool_call: Option<bool>,
     #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
     release_date: Option<String>,
     #[serde(default)]
     limit: Option<Limit>,
@@ -179,7 +184,7 @@ impl RawProvider {
         let models = self
             .models
             .into_iter()
-            .filter(|(_, model)| model.tool_call.unwrap_or(true))
+            .filter(|(_, model)| model.tool_call.unwrap_or(true) && !matches!(model.status.as_deref(), Some("deprecated" | "retired")))
             .map(|(key, model)| {
                 let family = model.family.unwrap_or_default();
                 let profile = model.profile.unwrap_or_else(|| profile_for(provider_id, &family));

@@ -182,6 +182,9 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
       return { type: "question.asked", properties: adaptQuestion(event.request) } as unknown as Event
     case "question.replied":
       return { type: "question.replied", properties: { sessionID: event.sessionId, requestID: event.requestId } } as unknown as Event
+    case "catalog.updated":
+    case "mcp.updated":
+    case "mcp.removed":
     case "workspace.created":
       return undefined
   }

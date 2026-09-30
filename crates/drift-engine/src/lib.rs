@@ -116,6 +116,17 @@ impl Engine {
             oauth: Default::default(),
         }))
     }
+
+    /// Pulls a fresh catalog from models.dev when the cached one is stale; the bundled snapshot covers failure.
+    pub async fn refresh_catalog(&self) {
+        if Catalog::cache_is_fresh(&self.data_dir) {
+            return;
+        }
+        if let Ok(catalog) = Catalog::refresh(&self.http, &self.data_dir).await {
+            *self.catalog.write().unwrap() = catalog;
+            self.hub.publish(event::Event::CatalogUpdated {});
+        }
+    }
 }
 
 pub(crate) fn random_hex(bytes: usize) -> String {
@@ -142,6 +153,7 @@ impl Server {
 pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Error> {
     let starting = engine.clone();
     tokio::spawn(async move {
+        starting.refresh_catalog().await;
         starting.mcp.connect_all(&starting.store, &starting.hub).await;
         starting.tools.set_dynamic(starting.mcp.tools());
     });

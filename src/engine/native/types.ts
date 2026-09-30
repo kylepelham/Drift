@@ -588,6 +588,9 @@ export interface components {
             /** @enum {string} */
             type: "permission.replied";
         } | {
+            /** @enum {string} */
+            type: "catalog.updated";
+        } | {
             server: components["schemas"]["ServerStatus"];
             /** @enum {string} */
             type: "mcp.updated";
