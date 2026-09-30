@@ -27,7 +27,7 @@ impl Tool for Read {
     }
 
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
-        ctx.ask_if_outside("read", &ctx.resolve(input["path"].as_str()?), "Read")
+        ctx.ask_to_read(&ctx.resolve(input["path"].as_str()?), "Read")
     }
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
@@ -121,6 +121,17 @@ mod tests {
         assert!(Read.ask(&sandbox.ctx, &json!({ "path": "a.txt" })).is_none());
         let outside = Read.ask(&sandbox.ctx, &json!({ "path": "C:/Windows/hosts" })).unwrap();
         assert_eq!(outside.kind, "read");
+    }
+
+    #[test]
+    fn secrets_inside_the_workspace_ask_and_their_examples_do_not() {
+        let sandbox = Sandbox::new("read-secret");
+        let ask = Read.ask(&sandbox.ctx, &json!({ "path": "config/.env.local" })).expect("a secret must ask");
+        assert_eq!(ask.kind, "read");
+        assert_eq!(std::path::PathBuf::from(&ask.pattern), sandbox.ctx.workspace.join("config/.env.local"));
+        assert!(ask.title.contains("may hold secrets"), "{}", ask.title);
+        assert!(Read.ask(&sandbox.ctx, &json!({ "path": "config/.env.example" })).is_none());
+        assert!(Read.ask(&sandbox.ctx, &json!({ "path": "config" })).is_none(), "listing a directory shows names, not contents");
     }
 }
 

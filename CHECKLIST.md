@@ -59,6 +59,21 @@ change the plan there when a decision changes.
 - [x] Retry with model switch: `session.retry` drives the retry notice, `POST /sessions/{id}/retry` switches a waiting turn's model at once
 - [x] Revert (undo/redo with files, across subagents; the next prompt commits it). Diff: per-call diffs in tool metadata; no session diff endpoint until something consumes one
 - [x] Shell timeout: Settings value pushed to the engine, model `timeout` wins, badge metadata while running and on expiry
+- Native agent loop gaps (before async workers, in order):
+  - [x] Undo restores only attributable paths and keeps later edits
+  - [x] Snapshots: per-workspace lock, 10MB limit, retention and prune
+  - [x] Shell-aware approvals: per-command decisions, no widening to the program name
+  - [x] Secret files ask to be read inside the workspace, grep withholds them, examples exempt; `.git` and binaries skipped by search
+  - [ ] Anthropic conversation cache breakpoints (API key, subscription, gateway)
+  - [ ] SSE error classification and bounded, cancellable, `retry-after`-aware backoff
+  - [ ] Shared HTTP client with connect, header and stream-idle timeouts; Stop cancels while waiting
+  - [ ] Thinking budget within the output limit; max-tokens endings surfaced; unexecuted calls settled
+  - [ ] Configurable step limits and repeated-call intervention
+  - [ ] Shared tool-output limits with full-output artifacts (read, list, MCP, shell)
+  - [ ] Engine-owned steering and queueing at safe boundaries
+  - [ ] File discovery and @ expansion, every read through `Context::ask_to_read`
+  - [ ] Attachments validated against model capabilities; no silent drops
+  - [ ] Explicit denial and stop feedback; parent-to-worker permission inheritance
 - [ ] Per-session runtime config snapshots
 - [ ] Async questions and MCP reconnect/reload deferred from M2
 - [ ] Bedrock, Vertex, xAI, Z.ai

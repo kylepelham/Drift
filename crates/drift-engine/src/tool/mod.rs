@@ -9,6 +9,7 @@ pub mod grep;
 pub mod patch;
 pub mod question;
 pub mod read;
+pub mod sensitive;
 pub mod skill;
 pub mod task;
 pub mod todo;
@@ -74,6 +75,28 @@ impl Context {
         }
         Some(Ask::new(kind, path.to_string_lossy(), format!("{verb} {}", path.display())))
     }
+
+    /// Reading asks for anything outside the workspace and for any file likely to hold secrets, even
+    /// inside it. Everything else in the workspace is free to read.
+    pub fn ask_to_read(&self, path: &Path, verb: &str) -> Option<Ask> {
+        if sensitive::is_sensitive(path) {
+            return Some(Ask::new("read", path.to_string_lossy(), format!("{verb} {} (it may hold secrets)", display(path, &self.workspace))));
+        }
+        self.ask_if_outside("read", path, verb)
+    }
+}
+
+/// Directories that belong to version control, never to the project's content.
+const VCS_DIRS: [&str; 4] = [".git", ".hg", ".svn", ".jj"];
+
+/// Walks `root` as git would list it (ignore rules apply, hidden files included) without descending
+/// into version-control internals.
+pub fn walk(root: &Path) -> ignore::Walk {
+    ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .require_git(false)
+        .filter_entry(|entry| !entry.file_name().to_str().is_some_and(|name| VCS_DIRS.contains(&name)))
+        .build()
 }
 
 /// Resolves through the deepest existing ancestor, so a file that does not exist yet still lands where it will.

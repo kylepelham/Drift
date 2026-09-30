@@ -137,8 +137,12 @@ impl Permissions {
 
     /// A shell line is judged command by command: any denied command denies it, and only a line whose
     /// every command is allowed runs without asking. A line that hides what it runs can only be
-    /// allowed by an exact approval of the whole line; a wildcard rule never covers it.
+    /// allowed by an exact approval of the whole line; a wildcard rule never covers it. Reading a file
+    /// that may hold secrets is held to the same bar, so `read *` never quietly covers `.env`.
     fn decide(&self, session_id: &str, workspace: &Policy, ask: &Ask) -> Decision {
+        if ask.kind == "read" && crate::tool::sensitive::is_sensitive(std::path::Path::new(&ask.pattern)) {
+            return self.decide_target(session_id, workspace, "read", &ask.pattern, false);
+        }
         if ask.kind != "bash" {
             return self.decide_target(session_id, workspace, &ask.kind, &ask.pattern, true);
         }
@@ -329,6 +333,25 @@ mod tests {
         permissions.apply(&new_request("ses_1", "m", "c", "edit", literal.clone()), &ReplyBody { reply: Reply::Always, pattern: None });
         assert_eq!(permissions.decide("ses_1", &none, &literal), Decision::Allow);
         assert_eq!(permissions.decide("ses_1", &none, &ask("edit", "C:/repo/app/i.tsx")), Decision::Ask, "a bracketed file name is not a glob");
+    }
+
+    #[test]
+    fn a_secret_read_is_allowed_only_by_name_and_denied_by_any_glob() {
+        let broad = Policy { rules: vec![Rule { kind: "read".into(), pattern: "*".into(), decision: Decision::Allow }] };
+        let permissions = Permissions::new(Policy::default());
+        assert_eq!(permissions.decide("ses_1", &broad, &ask("read", "C:/repo/src/a.rs")), Decision::Allow);
+        assert_eq!(permissions.decide("ses_1", &broad, &ask("read", "C:/repo/.env")), Decision::Ask, "read * does not cover secrets");
+        let session = new_request("ses_1", "m", "c", "read", ask("read", "C:/elsewhere/a.rs"));
+        permissions.apply(&session, &ReplyBody { reply: Reply::Always, pattern: Some("**".into()) });
+        assert_eq!(permissions.decide("ses_1", &Policy::default(), &ask("read", "C:/repo/.env")), Decision::Ask, "a widened approval does not either");
+
+        let named = Policy { rules: vec![Rule { kind: "read".into(), pattern: "C:/repo/.env".into(), decision: Decision::Allow }] };
+        assert_eq!(permissions.decide("ses_1", &named, &ask("read", "C:/repo/.env")), Decision::Allow);
+        let deny = Policy { rules: vec![Rule { kind: "read".into(), pattern: "**/.env*".into(), decision: Decision::Deny }] };
+        assert_eq!(permissions.decide("ses_1", &deny, &ask("read", "C:/repo/.env.local")), Decision::Deny);
+        approve_always(&permissions, ask("read", "C:/repo/.env"));
+        assert_eq!(permissions.decide("ses_1", &Policy::default(), &ask("read", "C:/repo/.env")), Decision::Allow, "always remembers this file");
+        assert_eq!(permissions.decide("ses_1", &Policy::default(), &ask("read", "C:/repo/.env.local")), Decision::Ask, "and only this file");
     }
 
     #[test]

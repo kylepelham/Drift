@@ -2,7 +2,6 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use globset::GlobBuilder;
-use ignore::WalkBuilder;
 use serde_json::{json, Value};
 
 use super::{display, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
@@ -58,7 +57,7 @@ fn find(root: &Path, pattern: &str) -> Result<(Found, bool), ToolError> {
         .map_err(|e| ToolError(format!("invalid glob: {e}")))?
         .compile_matcher();
     let mut found = Vec::new();
-    for entry in WalkBuilder::new(root).hidden(false).require_git(false).build().flatten() {
+    for entry in super::walk(root).flatten() {
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
@@ -96,5 +95,18 @@ mod tests {
         assert_eq!(lines, ["src/a.rs", "src/deep/b.rs"]);
         let none = Glob.run(&sandbox.ctx, json!({ "pattern": "*.py" })).await.unwrap();
         assert_eq!(none.output, "No files matched");
+    }
+
+    #[tokio::test]
+    async fn never_lists_version_control_internals() {
+        let sandbox = Sandbox::new("glob-git");
+        sandbox.file(".git/HEAD", "ref: refs/heads/main\n");
+        sandbox.file(".git/hooks/pre-commit", "");
+        sandbox.file(".github/workflows/ci.yml", "");
+        sandbox.file(".env", "");
+        let out = Glob.run(&sandbox.ctx, json!({ "pattern": "**/*" })).await.unwrap();
+        let mut lines: Vec<&str> = out.output.lines().collect();
+        lines.sort();
+        assert_eq!(lines, [".env", ".github/workflows/ci.yml"], "names are listed; .git is not");
     }
 }

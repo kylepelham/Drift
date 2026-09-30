@@ -489,6 +489,16 @@ Settled after the first external review of M1; each has a regression test.
   the deepest existing ancestor, verbatim prefixes stripped. Permission asks and the
   read-before-write ledger see the real target. `read`, `glob` and `grep` inside the
   workspace are free; outside it they ask.
+- Files that may hold secrets (`tool::sensitive`: `.env` and `.env.*`, `*.env`, key and
+  keystore extensions such as `.pem` and `.p12`, `.npmrc`, `.netrc`, `.git-credentials`,
+  `credentials`, private SSH keys) ask to be read even inside the workspace. A name part such
+  as `example`, `sample`, `template` or `dist` marks a committed template, which reads freely.
+  `grep` skips secrets and says how many it withheld unless one is named as its path, which
+  asks first; `glob` and directory listings still show their names. Every read path, including
+  @ expansion when it lands (gap item 13), goes through `Context::ask_to_read`. The shell is not
+  covered: `cat .env` asks as a command, not as a secret read.
+- `glob` and `grep` never descend into `.git`, `.hg`, `.svn` or `.jj`, and `grep` stops a
+  file at its first NUL byte, so binaries produce no matches.
 - A mutating call refuses to run if its snapshot cannot be taken or its start cannot be
   recorded, and says so in its result. A result whose save fails is published as an error,
   never as a success the store lacks; a message whose terminal save fails stops the turn.
@@ -566,6 +576,8 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     blocks, `eval`/`Invoke-Expression`, the `&` call operator, or a launcher such as `bash -c`,
     `sudo`, `env`, `xargs`) is judged whole, and a wildcard rule never allows it: only a deny, or an
     exact approval of that line.
+  - A secret read is held to the same bar: `read *` or an "always" widened to `**` never allows
+    `.env`; a rule or approval naming that file does, and any matching deny still denies.
   - "Always" grants each command separately. Known subcommand tools (`git`, `cargo`, `npm run`,
     `docker compose`, `gh`, ...) widen to their subcommand with any arguments (`cargo test` covers
     `cargo test --release`, not `cargo publish`); anything else, and every non-shell target such as

@@ -3,10 +3,10 @@ use std::path::Path;
 use globset::GlobBuilder;
 use grep::regex::RegexMatcherBuilder;
 use grep::searcher::sinks::UTF8;
-use grep::searcher::SearcherBuilder;
-use ignore::WalkBuilder;
+use grep::searcher::{BinaryDetection, SearcherBuilder};
 use serde_json::{json, Value};
 
+use super::sensitive::is_sensitive;
 use super::{display, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
 
@@ -32,8 +32,9 @@ impl Tool for Grep {
         }
     }
 
+    /// Searching one named file that may hold secrets asks, as reading it would.
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
-        ctx.ask_if_outside("read", &ctx.resolve(input["path"].as_str().unwrap_or(".")), "Search")
+        ctx.ask_to_read(&ctx.resolve(input["path"].as_str().unwrap_or(".")), "Search")
     }
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
@@ -42,19 +43,32 @@ impl Tool for Grep {
             let root = ctx.resolve(input["path"].as_str().unwrap_or("."));
             let include = input["include"].as_str().map(str::to_string);
             let workspace = ctx.workspace.clone();
-            let (matches, truncated) = tokio::task::spawn_blocking(move || search(&root, &pattern, include.as_deref(), &workspace))
+            let found = tokio::task::spawn_blocking(move || search(&root, &pattern, include.as_deref(), &workspace))
                 .await
                 .map_err(|e| ToolError(e.to_string()))??;
-            let mut output = if matches.is_empty() { "No matches".to_string() } else { matches.join("\n") };
-            if truncated {
+            let mut output = if found.lines.is_empty() { "No matches".to_string() } else { found.lines.join("\n") };
+            if found.truncated {
                 output.push_str(&format!("\n(first {MAX_MATCHES} matches; narrow the pattern or path to see more)"));
             }
-            Ok(Output { title: input["pattern"].as_str().unwrap_or_default().into(), output, metadata: json!({ "count": matches.len(), "truncated": truncated }) })
+            if found.withheld > 0 {
+                output.push_str(&format!("\n({} files that may hold secrets were not searched; read one directly and the user is asked)", found.withheld));
+            }
+            let metadata = json!({ "count": found.lines.len(), "truncated": found.truncated, "withheld": found.withheld });
+            Ok(Output { title: input["pattern"].as_str().unwrap_or_default().into(), output, metadata })
         })
     }
 }
 
-fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path) -> Result<(Vec<String>, bool), ToolError> {
+struct Found {
+    lines: Vec<String>,
+    truncated: bool,
+    /// Files skipped because they may hold secrets.
+    withheld: usize,
+}
+
+/// Binary files end their search at the first NUL; files that may hold secrets are skipped unless the
+/// search names one directly, which has already asked.
+fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path) -> Result<Found, ToolError> {
     let matcher = RegexMatcherBuilder::new()
         .line_terminator(Some(b'\n'))
         .build(pattern)
@@ -63,14 +77,19 @@ fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path) -
         .map(|glob| GlobBuilder::new(glob).literal_separator(false).build().map(|g| g.compile_matcher()))
         .transpose()
         .map_err(|e| ToolError(format!("invalid include glob: {e}")))?;
-    let mut searcher = SearcherBuilder::new().line_number(true).build();
+    let mut searcher = SearcherBuilder::new().line_number(true).binary_detection(BinaryDetection::quit(0)).build();
     let mut lines = Vec::new();
-    for entry in WalkBuilder::new(root).hidden(false).require_git(false).build().flatten() {
+    let mut withheld = 0;
+    for entry in super::walk(root).flatten() {
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
         let relative = entry.path().strip_prefix(root).unwrap_or(entry.path());
         if include.as_ref().is_some_and(|glob| !glob.is_match(relative) && !glob.is_match(entry.file_name())) {
+            continue;
+        }
+        if entry.path() != root && is_sensitive(entry.path()) {
+            withheld += 1;
             continue;
         }
         let name = display(entry.path(), workspace);
@@ -84,10 +103,10 @@ fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path) -
         );
         if lines.len() > MAX_MATCHES {
             lines.truncate(MAX_MATCHES);
-            return Ok((lines, true));
+            return Ok(Found { lines, truncated: true, withheld });
         }
     }
-    Ok((lines, false))
+    Ok(Found { lines, truncated: false, withheld })
 }
 
 fn clip(line: &str) -> String {
@@ -115,6 +134,28 @@ mod tests {
         assert_eq!(only.output, "src/a.rs:1: fn alpha() {}");
         let none = Grep.run(&sandbox.ctx, json!({ "pattern": "gamma" })).await.unwrap();
         assert_eq!(none.output, "No matches");
+    }
+
+    #[tokio::test]
+    async fn skips_secrets_git_internals_and_binaries() {
+        let sandbox = Sandbox::new("grep-skip");
+        sandbox.file("src/a.rs", "token = 1\n");
+        sandbox.file(".env", "token = hunter2\n");
+        sandbox.file(".env.example", "token = changeme\n");
+        sandbox.file(".git/config", "token = internal\n");
+        std::fs::write(sandbox.ctx.workspace.join("blob.bin"), b"token = 1\0\x01\x02").unwrap();
+        let out = Grep.run(&sandbox.ctx, json!({ "pattern": "token" })).await.unwrap();
+        let mut lines: Vec<&str> = out.output.lines().filter(|line| !line.starts_with('(')).collect();
+        lines.sort();
+        assert_eq!(lines, [".env.example:1: token = changeme", "src/a.rs:1: token = 1"]);
+        assert!(out.output.contains("1 files that may hold secrets were not searched"), "{}", out.output);
+        assert!(!out.output.contains("hunter2") && !out.output.contains("internal") && !out.output.contains("blob.bin"), "{}", out.output);
+        assert_eq!(out.metadata["withheld"], 1);
+
+        let named = json!({ "pattern": "token", "path": ".env" });
+        assert!(Grep.ask(&sandbox.ctx, &named).is_some_and(|ask| ask.title.contains("may hold secrets")));
+        let direct = Grep.run(&sandbox.ctx, named).await.unwrap();
+        assert_eq!(direct.output, ".env:1: token = hunter2", "a secret named directly is searched once approved");
     }
 
     #[tokio::test]
