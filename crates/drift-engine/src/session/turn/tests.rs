@@ -186,13 +186,15 @@ async fn abort_marks_the_message_and_frees_the_session() {
     h.provider.push(tool_call("bash", &json!({ "command": sleep }).to_string()));
     h.engine.submit(&h.session.id, prompt("wait")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(h.engine.submit(&h.session.id, prompt("again")).await.err(), Some(TurnError::Busy));
+    h.engine.submit(&h.session.id, prompt("again")).await.expect("steered into the running turn");
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let Part::ToolCall { status, .. } = &transcript[1].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Error);
     assert!(!h.engine.abort(&h.session.id));
+    assert_eq!(h.provider.requests.lock().unwrap().len(), 1, "a stop is not overridden by a steered prompt");
+    assert_eq!(transcript.last().unwrap().info.role, Role::User, "the steered prompt stays for the next turn");
 }
 
 /// An overload that asks for a long wait, so a test can act while the turn waits.
@@ -622,6 +624,75 @@ async fn any_tool_result_past_the_bound_is_cut_to_its_ends_with_the_whole_on_dis
     let sent = h.provider.requests.lock().unwrap()[1].clone();
     let result = sent.messages.iter().flat_map(|m| &m.blocks).find_map(|b| match b { llm::Block::ToolResult { content, .. } => Some(content.len()), _ => None }).unwrap();
     assert!(result <= crate::tool::spool::MAX_RESULT_BYTES, "the model got the bounded text");
+}
+
+fn texts_sent(request: &llm::Request) -> Vec<String> {
+    request.messages.iter().flat_map(|m| &m.blocks).filter_map(|b| match b { llm::Block::Text(t) => Some(t.clone()), _ => None }).collect()
+}
+
+async fn until_call_running(h: &Harness) {
+    for _ in 0..400 {
+        let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+        if transcript.iter().flat_map(|m| &m.parts).any(|row| matches!(row.part, Part::ToolCall { status: ToolStatus::Running, .. })) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("no call started");
+}
+
+#[tokio::test]
+async fn a_prompt_sent_during_a_call_reaches_the_next_request_after_its_result() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    h.provider.push(tool_call("bash", r#"{"command": "sleep 1"}"#)).push(text("done, and noted"));
+    h.engine.submit(&h.session.id, prompt("start")).await.await_ok();
+    until_call_running(&h).await;
+    let mut steer = prompt("also check the logs");
+    steer.submission_id = Some("steer-1".into());
+    let first = h.engine.submit(&h.session.id, steer.clone()).await.expect("a busy turn takes the prompt");
+    let again = h.engine.submit(&h.session.id, steer).await.unwrap();
+    assert_eq!(first.message.id, again.message.id, "the same submission is one prompt");
+    until_idle(&h).await;
+    let requests = h.provider.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2, "taken at the next request, not as a turn of its own");
+    let last = requests[1].messages.last().unwrap();
+    assert!(matches!(last.blocks[0], llm::Block::ToolResult { .. }), "the call's result comes first");
+    assert!(matches!(last.blocks.last().unwrap(), llm::Block::Text(t) if t == "also check the logs"));
+    assert_eq!(h.provider.responses_left(), 0);
+}
+
+#[tokio::test]
+async fn a_prompt_sent_while_the_last_reply_streams_is_answered_before_the_turn_ends() {
+    let h = harness().await;
+    h.provider.push_slow(Duration::from_millis(600), text("first answer")).push(text("second answer"));
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    h.engine.submit(&h.session.id, prompt("two")).await.expect("steered");
+    until_idle(&h).await;
+    let requests = h.provider.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(texts_sent(&requests[1]), ["one", "first answer", "two"], "ordered as sent");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert_eq!(transcript.last().unwrap().info.status, MessageStatus::Done);
+}
+
+#[tokio::test]
+async fn a_prompt_sent_during_another_job_waits_and_then_runs() {
+    let h = harness().await;
+    assert!(h.engine.turns.claim(&h.session.id, &CancellationToken::new()));
+    let engine = h.engine.clone();
+    let id = h.session.id.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        engine.turns.release(&id);
+    });
+    h.provider.push(text("after the job"));
+    let started = std::time::Instant::now();
+    h.engine.submit(&h.session.id, prompt("queued")).await.expect("queued behind the job");
+    assert!(started.elapsed() >= Duration::from_millis(250));
+    until_idle(&h).await;
+    assert_eq!(h.provider.responses_left(), 0);
 }
 
 fn limits(h: &Harness, json: &str) {

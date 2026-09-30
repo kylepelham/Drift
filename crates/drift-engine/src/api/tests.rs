@@ -257,8 +257,9 @@ async fn a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket() {
     assert_eq!(response.status(), 202);
     let receipt: Value = response.json().await.unwrap();
     assert_eq!(receipt["message"]["role"], "user");
-    let busy = h.post(&format!("/sessions/{session_id}/turns")).json(&json!({ "parts": [] })).send().await.unwrap().status();
-    assert_eq!(busy, 409);
+    // A prompt sent while the turn runs is taken by it, not refused.
+    let steered = h.post(&format!("/sessions/{session_id}/turns")).json(&json!({ "parts": [{ "type": "text", "text": "and say so" }] })).send().await.unwrap().status();
+    assert_eq!(steered, 202);
 
     let running = until(&mut socket, "session.status").await;
     assert_eq!(running["status"], "running");
@@ -276,10 +277,11 @@ async fn a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket() {
 
     let messages: Value = h.get(&format!("/sessions/{session_id}/messages")).send().await.unwrap().json().await.unwrap();
     let messages = messages.as_array().unwrap();
-    assert_eq!(messages.len(), 3);
-    assert_eq!(messages[1]["parts"][0]["type"], "tool_call");
-    assert_eq!(messages[1]["parts"][0]["status"], "done");
-    assert_eq!(messages[2]["parts"][0]["text"], "Wrote it");
+    assert_eq!(messages.len(), 4, "both prompts, the call and the reply: one turn answered both");
+    assert_eq!(messages.iter().filter(|m| m["role"] == "user").count(), 2);
+    let call = messages.iter().find(|m| m["parts"][0]["type"] == "tool_call").unwrap();
+    assert_eq!(call["parts"][0]["status"], "done");
+    assert_eq!(messages[3]["parts"][0]["text"], "Wrote it");
     let listed: Value = h.get("/sessions").send().await.unwrap().json().await.unwrap();
     assert_eq!(listed[0]["id"], session_id.as_str());
 }

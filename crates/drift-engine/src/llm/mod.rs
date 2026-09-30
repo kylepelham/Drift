@@ -363,6 +363,8 @@ pub mod scripted {
         Fail(Error),
         /// Streams the chunks, then the error, as an in-stream error frame does.
         FailMidway(Vec<Chunk>, Error),
+        /// Streams the chunks after a pause, as a slow reply does.
+        Slow(std::time::Duration, Vec<Chunk>),
         /// A response that never finishes, for exercising Stop.
         Stall,
     }
@@ -391,6 +393,11 @@ pub mod scripted {
             self
         }
 
+        pub fn push_slow(&self, delay: std::time::Duration, chunks: Vec<Chunk>) -> &Self {
+            self.responses.lock().unwrap().push_back(Response::Slow(delay, chunks));
+            self
+        }
+
         pub fn push_stall(&self) -> &Self {
             self.responses.lock().unwrap().push_back(Response::Stall);
             self
@@ -406,6 +413,11 @@ pub mod scripted {
                 Some(Response::Chunks(chunks)) => Ok(Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok)))),
                 Some(Response::Fail(error)) => Err(error),
                 Some(Response::FailMidway(chunks, error)) => Ok(Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok).chain([Err(error)])))),
+                Some(Response::Slow(delay, chunks)) => {
+                    use futures_util::StreamExt;
+                    let later = futures_util::stream::once(tokio::time::sleep(delay)).flat_map(move |()| futures_util::stream::iter(chunks.clone().into_iter().map(Ok)));
+                    Ok(Box::pin(later))
+                }
                 Some(Response::Stall) => Ok(Box::pin(futures_util::stream::pending())),
                 None => Err(Error::Transport("scripted provider has no more responses".into())),
             }

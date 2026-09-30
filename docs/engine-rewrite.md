@@ -310,6 +310,15 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - Each wait publishes `session.retry { attempt, message, nextAt }`, which the UI draws as the retry
   notice with a model picker; `session.status running` follows when the wait ends. Stop ends a wait
   at once.
+- Steering and queueing are the engine's. `POST /sessions/{id}/turns` on a session whose turn is
+  running admits the prompt at once (durable, ordered by id, idempotent by `submissionId`) and
+  returns 202; the turn takes it at its next model request, after the calls in flight finish, so
+  their results come first in that request. Before a turn ends it checks, under the same lock that
+  admission holds, for a prompt newer than the last one it answered; if there is one it carries on
+  with a fresh step budget, otherwise it stops taking prompts, so none can land unanswered. A Stop
+  still ends the turn; the steered prompt stays in the transcript for the next one. A session held
+  by a job that is not a turn (a compaction, an undo) makes the prompt wait up to 30 s and then
+  start a turn of its own; past that it is 409 `busy`.
 - Turn limits (`config::Limits`, drift.json `limits: { steps, repeats, polls }`, later files
   override field by field; an agent's front matter `steps:` replaces `steps` for its turns):
   - `steps` (default 200): model steps that ran tools in one turn. Reaching it pauses the turn.
