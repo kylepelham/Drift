@@ -2,6 +2,7 @@
 
 pub mod apply_patch;
 pub mod bash;
+pub mod command;
 pub mod edit;
 pub mod glob;
 pub mod grep;
@@ -71,7 +72,7 @@ impl Context {
         if self.inside_workspace(path) {
             return None;
         }
-        Some(Ask { kind: kind.into(), pattern: path.to_string_lossy().into(), title: format!("{verb} {}", path.display()) })
+        Some(Ask::new(kind, path.to_string_lossy(), format!("{verb} {}", path.display())))
     }
 }
 
@@ -142,6 +143,16 @@ pub struct Ask {
     /// The thing being touched: a path, a command. Rules match it with globs.
     pub pattern: String,
     pub title: String,
+    /// For a shell command, the simple commands it runs, each judged on its own; `None` when the line
+    /// hides what it runs, so only an exact approval of the whole line allows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commands: Option<Vec<String>>,
+}
+
+impl Ask {
+    pub fn new(kind: &str, pattern: impl Into<String>, title: impl Into<String>) -> Self {
+        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None }
+    }
 }
 
 pub type RunFuture<'a> = Pin<Box<dyn Future<Output = Result<Output, ToolError>> + Send + 'a>>;

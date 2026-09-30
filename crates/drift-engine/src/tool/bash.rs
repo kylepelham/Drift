@@ -5,7 +5,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::io::AsyncReadExt;
 
-use super::{required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
+use super::{command, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
 
 /// Until the user's Settings value arrives.
@@ -87,7 +87,13 @@ impl Tool for Bash {
 
     fn ask(&self, _ctx: &Context, input: &Value) -> Option<Ask> {
         let command = input["command"].as_str()?;
-        Some(Ask { kind: "bash".into(), pattern: command.into(), title: input["description"].as_str().unwrap_or(command).into() })
+        let dialect = match self.shell {
+            Shell::Bash(_) => command::Dialect::Bash,
+            Shell::PowerShell(_) => command::Dialect::PowerShell,
+        };
+        let mut ask = Ask::new("bash", command, input["description"].as_str().unwrap_or(command));
+        ask.commands = command::split(dialect, command);
+        Some(ask)
     }
 
     fn mutates(&self) -> bool {

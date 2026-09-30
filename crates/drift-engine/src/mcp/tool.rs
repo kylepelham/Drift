@@ -36,7 +36,7 @@ impl Tool for McpTool {
         if self.read_only() {
             return None;
         }
-        Some(Ask { kind: "mcp".into(), pattern: format!("{}/{}", self.server, self.tool.name), title: format!("Call {} on {}", self.tool.name, self.server) })
+        Some(Ask::new("mcp", format!("{}/{}", self.server, self.tool.name), format!("Call {} on {}", self.tool.name, self.server)))
     }
 
     fn mutates(&self) -> bool {

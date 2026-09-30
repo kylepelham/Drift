@@ -31,11 +31,7 @@ impl Tool for Edit {
 
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
         let path = ctx.resolve(input["path"].as_str()?);
-        Some(Ask {
-            kind: "edit".into(),
-            pattern: path.to_string_lossy().into(),
-            title: format!("Edit {}", display(&path, &ctx.workspace)),
-        })
+        Some(Ask::new("edit", path.to_string_lossy(), format!("Edit {}", display(&path, &ctx.workspace))))
     }
 
     fn mutates(&self) -> bool {

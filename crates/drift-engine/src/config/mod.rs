@@ -319,7 +319,7 @@ mod tests {
         let config = Config::load_with_home(&ws, Some(&home));
         assert_eq!(config.model, Some(ModelRef { provider: "anthropic".into(), model: "haiku".into() }));
         assert_eq!(config.permissions.iter().map(|r| (r.pattern.as_str(), r.decision)).collect::<Vec<_>>(), [("git push*", Decision::Deny), ("git *", Decision::Allow)]);
-        assert_eq!(config.policy().decide(&crate::tool::Ask { kind: "bash".into(), pattern: "git push origin".into(), title: String::new() }), Decision::Deny);
+        assert_eq!(config.policy().decide(&crate::tool::Ask::new("bash", "git push origin", "")), Decision::Deny);
 
         let names: Vec<&str> = config.agents.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(names, ["build", "general", "compaction", "handoff", "explore", "plan", "reviewer", "title"]);

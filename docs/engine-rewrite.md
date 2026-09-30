@@ -558,6 +558,18 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   failures are ignored.
 - **Permissions** resolve in order: session "always" answers, the workspace's `drift.json`
   rules, then the global policy.
+  - A shell line is split into the simple commands it runs (`tool::command`, bash and PowerShell
+    quoting, escapes and operators) and each is judged on its own: any denied command denies the
+    line, and it runs without asking only if every command is allowed. So `git *` does not cover
+    `git status && rm -rf ~`.
+  - A line that hides what it runs (command substitution, backticks, subshells, groups, script
+    blocks, `eval`/`Invoke-Expression`, the `&` call operator, or a launcher such as `bash -c`,
+    `sudo`, `env`, `xargs`) is judged whole, and a wildcard rule never allows it: only a deny, or an
+    exact approval of that line.
+  - "Always" grants each command separately. Known subcommand tools (`git`, `cargo`, `npm run`,
+    `docker compose`, `gh`, ...) widen to their subcommand with any arguments (`cargo test` covers
+    `cargo test --release`, not `cargo publish`); anything else, and every non-shell target such as
+    a path, is granted literally. Nothing widens to a bare program name.
 - **Sign-in.** Anthropic offers Claude Pro/Max and Console (paste-the-code flows); OpenAI
   offers ChatGPT through the Codex flow, where the engine listens on `localhost:1455` and
   the callback route completes on its own.

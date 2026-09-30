@@ -624,6 +624,11 @@ export interface components {
         };
         /** @description What a call wants to do, for the permission service to judge before it runs. */
         Ask: {
+            /**
+             * @description For a shell command, the simple commands it runs, each judged on its own; `None` when the line
+             *     hides what it runs, so only an exact approval of the whole line allows it.
+             */
+            commands?: string[] | null;
             /** @description `read`, `edit`, `bash`, ...: the rule namespace. */
             kind: string;
             /** @description The thing being touched: a path, a command. Rules match it with globs. */

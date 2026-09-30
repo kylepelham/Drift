@@ -29,7 +29,7 @@ impl Tool for ApplyPatch {
         let ops = patch::parse(input["patch"].as_str()?).ok()?;
         let paths: Vec<String> = ops.iter().map(|op| display(&ctx.resolve(op.path()), &ctx.workspace)).collect();
         let pattern = ops.iter().map(|op| ctx.resolve(op.path()).to_string_lossy().into_owned()).collect::<Vec<_>>().join("\n");
-        Some(Ask { kind: "edit".into(), pattern, title: format!("Patch {}", paths.join(", ")) })
+        Some(Ask::new("edit", pattern, format!("Patch {}", paths.join(", "))))
     }
 
     fn mutates(&self) -> bool {

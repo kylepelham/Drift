@@ -29,7 +29,7 @@ impl Tool for WebFetch {
 
     fn ask(&self, _ctx: &Context, input: &Value) -> Option<Ask> {
         let url = input["url"].as_str()?;
-        Some(Ask { kind: "webfetch".into(), pattern: url.into(), title: format!("Fetch {url}") })
+        Some(Ask::new("webfetch", url, format!("Fetch {url}")))
     }
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
