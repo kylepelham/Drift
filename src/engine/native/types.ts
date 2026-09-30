@@ -1122,10 +1122,13 @@ export interface components {
         ToolProfile: "edit" | "apply_patch";
         /** @enum {string} */
         ToolStatus: "pending" | "running" | "done" | "error" | "denied";
-        /** @description The session after an undo or redo, and the files left alone because they changed since. */
+        /** @description The session after an undo or redo, and the files it left alone. */
         Undone: {
+            /** @description Changed by someone else since the session last wrote them. */
             kept: string[];
             session: components["schemas"]["Session"];
+            /** @description Seen changing while a command ran, which does not show who changed them. */
+            unattributed: string[];
         };
         Usage: {
             /** Format: int64 */

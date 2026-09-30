@@ -23,11 +23,37 @@ pub struct FileChange {
     pub path: String,
     pub before: Option<String>,
     pub after: Option<String>,
+    /// Seen changing while the call ran rather than written by it: anyone could have made it, so undo
+    /// and redo leave it alone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub observed: bool,
+}
+
+/// A whole-tree capture and the files it could not hold because they were over the size limit, each
+/// with its size and modification time so a later capture can tell whether it changed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tree {
+    pub id: String,
+    pub oversized: Vec<(String, Stamp)>,
+}
+
+pub type Stamp = (u64, Option<std::time::SystemTime>);
+
+/// What differs between two trees. A path over the size limit on either side is `unrecorded`, never
+/// a creation or deletion: its absence from a tree says nothing about the file.
+#[derive(Debug, Default, PartialEq)]
+pub struct TreeChanges {
+    pub changes: Vec<FileChange>,
+    pub unrecorded: Vec<String>,
 }
 
 /// Files past this size are never copied into the store: a write to one is refused, since it could not
 /// be undone, and whole-tree captures leave them out.
 pub const MAX_RECORDED_BYTES: u64 = 10 * 1024 * 1024;
+/// The shadow repo stores bytes exactly as they are on disk, whatever the workspace's
+/// `.gitattributes` say: no line ending conversion, filters, keyword expansion or re-encoding. This
+/// file outranks every in-tree attributes file.
+const RAW_ATTRIBUTES: &str = "* -text -eol -filter -ident -working-tree-encoding\n";
 /// Unreferenced objects younger than this survive a prune: a capture in flight has not been saved yet.
 const PRUNE_GRACE: &str = "2.hours.ago";
 const KEEP_REF: &str = "refs/drift/keep";
@@ -123,28 +149,52 @@ impl Snapshots {
         Ok(())
     }
 
-    /// Records the whole tree as it is now (the workspace's ignore rules apply) and returns its id.
-    /// Serialised per workspace: concurrent sessions and subagents share this index.
-    pub async fn take(&self, workspace: &Path) -> Result<String, Error> {
+    /// Records the whole tree as it is now (the workspace's ignore rules apply). Serialised per
+    /// workspace: concurrent sessions and subagents share this index.
+    pub async fn take(&self, workspace: &Path) -> Result<Tree, Error> {
         self.ensure(workspace).await?;
         let lock = self.lock_for(workspace);
         let _held = lock.lock().await;
-        self.exclude_large_files(workspace).await?;
+        self.store_raw_bytes(workspace).await?;
+        let oversized = self.leave_out_large_files(workspace).await?;
         // A file git cannot index (an unusual name, a locked file) must not stop every other file
         // being recorded; `--ignore-errors` still exits non-zero, so only the tree write decides.
         let _ = self.git(workspace, &["add", "-A", "--ignore-errors", "--", "."]).await;
-        self.git(workspace, &["write-tree"]).await
+        let id = self.git(workspace, &["write-tree"]).await?;
+        Ok(Tree { id, oversized })
     }
 
-    /// Lists files over the size limit in the shadow repo's own exclude file, so tree captures skip
-    /// them. The workspace's `.gitignore` is never touched.
-    async fn exclude_large_files(&self, workspace: &Path) -> Result<(), Error> {
+    /// Makes sure the shadow repo stores bytes exactly, repos made before this rule included. When the
+    /// rule is new, the index goes: its cached entries may hold converted blobs for unchanged files.
+    async fn store_raw_bytes(&self, workspace: &Path) -> Result<(), Error> {
+        let info = self.git_dir(workspace).join("info");
+        let path = info.join("attributes");
+        if tokio::fs::read_to_string(&path).await.is_ok_and(|current| current == RAW_ATTRIBUTES) {
+            return Ok(());
+        }
+        tokio::fs::create_dir_all(&info).await.map_err(|e| Error::Failed(e.to_string()))?;
+        tokio::fs::write(&path, RAW_ATTRIBUTES).await.map_err(|e| Error::Failed(e.to_string()))?;
+        match tokio::fs::remove_file(self.git_dir(workspace).join("index")).await {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(Error::Failed(error.to_string())),
+            _ => Ok(()),
+        }
+    }
+
+    /// Keeps files over the size limit out of the capture: the shadow repo's own exclude file stops
+    /// new ones being added, and any already indexed from when they were small are dropped from the
+    /// index. The workspace's `.gitignore` is never touched. Returns what was left out.
+    async fn leave_out_large_files(&self, workspace: &Path) -> Result<Vec<(String, Stamp)>, Error> {
         let root = workspace.to_path_buf();
         let large = tokio::task::spawn_blocking(move || large_files(&root)).await.map_err(|e| Error::Failed(e.to_string()))?;
         let info = self.git_dir(workspace).join("info");
         tokio::fs::create_dir_all(&info).await.map_err(|e| Error::Failed(e.to_string()))?;
-        let lines: String = large.iter().map(|path| format!("/{}\n", escape_pattern(path))).collect();
-        tokio::fs::write(info.join("exclude"), lines).await.map_err(|e| Error::Failed(e.to_string()))
+        let lines: String = large.iter().map(|(path, _)| format!("/{}\n", escape_pattern(path))).collect();
+        tokio::fs::write(info.join("exclude"), lines).await.map_err(|e| Error::Failed(e.to_string()))?;
+        if !large.is_empty() {
+            let paths: String = large.iter().map(|(path, _)| format!("{path}\0")).collect();
+            self.run(workspace, &["update-index", "--force-remove", "-z", "--stdin"], Some(paths.as_bytes())).await?;
+        }
+        Ok(large)
     }
 
     /// Drops every stored object no call's recorded change refers to (and that is older than the
@@ -216,21 +266,31 @@ impl Snapshots {
     }
 
     /// Every path that differs between two trees, with its blob on each side.
-    pub async fn changes_between(&self, workspace: &Path, before: &str, after: &str) -> Result<Vec<FileChange>, Error> {
-        let raw = self.git_bytes(workspace, &["diff-tree", "-r", "--no-renames", "-z", before, after]).await?;
-        Ok(parse_raw_diff(&raw))
+    pub async fn changes_between(&self, workspace: &Path, before: &Tree, after: &Tree) -> Result<TreeChanges, Error> {
+        let raw = self.git_bytes(workspace, &["diff-tree", "-r", "--no-renames", "-z", &before.id, &after.id]).await?;
+        let oversized = |path: &str| before.oversized.iter().chain(&after.oversized).any(|(large, _)| large == path);
+        let (unrecordable, changes): (Vec<FileChange>, Vec<FileChange>) = parse_raw_diff(&raw).into_iter().partition(|change| oversized(&change.path));
+        let mut unrecorded: Vec<String> = unrecordable.into_iter().map(|change| change.path).collect();
+        let untouched = |entry: &(String, Stamp)| before.oversized.contains(entry) && after.oversized.contains(entry);
+        unrecorded.extend(before.oversized.iter().chain(&after.oversized).filter(|entry| !untouched(entry)).map(|(path, _)| path.clone()));
+        unrecorded.sort();
+        unrecorded.dedup();
+        Ok(TreeChanges { changes, unrecorded })
     }
 }
 
 /// Workspace files over the limit, relative with `/`, found the way git would (ignore rules apply).
-fn large_files(root: &Path) -> Vec<String> {
+fn large_files(root: &Path) -> Vec<(String, Stamp)> {
     ignore::WalkBuilder::new(root)
         .hidden(false)
         .filter_entry(|entry| entry.file_name() != ".git")
         .build()
         .flatten()
-        .filter(|entry| entry.metadata().is_ok_and(|m| m.is_file() && m.len() > MAX_RECORDED_BYTES))
-        .filter_map(|entry| entry.path().strip_prefix(root).ok().map(|p| p.to_string_lossy().replace('\\', "/")))
+        .filter_map(|entry| {
+            let meta = entry.metadata().ok().filter(|m| m.is_file() && m.len() > MAX_RECORDED_BYTES)?;
+            let path = entry.path().strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/");
+            Some((path, (meta.len(), meta.modified().ok())))
+        })
         .collect()
 }
 
@@ -248,7 +308,7 @@ fn parse_raw_diff(raw: &[u8]) -> Vec<FileChange> {
         let parts: Vec<&str> = header.trim_start_matches(':').split(' ').collect();
         let [_, _, before, after, _] = parts[..] else { continue };
         let blob = |sha: &str| (!sha.chars().all(|c| c == '0')).then(|| sha.to_string());
-        changes.push(FileChange { path: path.to_string(), before: blob(before), after: blob(after) });
+        changes.push(FileChange { path: path.to_string(), before: blob(before), after: blob(after), observed: false });
     }
     changes
 }
@@ -277,7 +337,7 @@ mod tests {
         std::fs::remove_file(workspace.join("gone.txt")).unwrap();
         std::fs::write(workspace.join("new.txt"), "n\n").unwrap();
         let after = snapshots.take(&workspace).await.unwrap();
-        let mut changes = snapshots.changes_between(&workspace, &before, &after).await.unwrap();
+        let mut changes = snapshots.changes_between(&workspace, &before, &after).await.unwrap().changes;
         changes.sort_by(|a, b| a.path.cmp(&b.path));
         let summary: Vec<(&str, bool, bool)> = changes.iter().map(|c| (c.path.as_str(), c.before.is_some(), c.after.is_some())).collect();
         assert_eq!(summary, [("a.txt", true, true), ("gone.txt", true, false), ("new.txt", false, true)]);
@@ -303,8 +363,92 @@ mod tests {
         std::fs::write(workspace.join("small.txt"), "changed\n").unwrap();
         assert!(matches!(snapshots.record(&workspace, "huge [1].bin").await, Err(Error::TooLarge(_))));
         let after = snapshots.take(&workspace).await.unwrap();
-        let changed: Vec<String> = snapshots.changes_between(&workspace, &before, &after).await.unwrap().into_iter().map(|c| c.path).collect();
+        let diff = snapshots.changes_between(&workspace, &before, &after).await.unwrap();
+        let changed: Vec<String> = diff.changes.into_iter().map(|c| c.path).collect();
         assert_eq!(changed, ["small.txt"], "the large file is left out of the tree");
+        assert_eq!(diff.unrecorded, ["huge [1].bin"]);
+        let again = snapshots.take(&workspace).await.unwrap();
+        assert_eq!(snapshots.changes_between(&workspace, &after, &again).await.unwrap(), TreeChanges::default(), "an untouched large file is not news");
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    fn stored(snapshots: &Snapshots, workspace: &Path, blob: &str) -> bool {
+        let git_dir = snapshots.git_dir(workspace);
+        std::process::Command::new("git").arg("--git-dir").arg(git_dir).args(["cat-file", "-e", blob]).status().unwrap().success()
+    }
+
+    #[tokio::test]
+    async fn a_tracked_file_that_grows_past_the_limit_leaves_the_store_without_reading_as_deleted() {
+        let (base, workspace) = dirs();
+        let snapshots = Snapshots::new(&base.join("data"));
+        std::fs::write(workspace.join("grows.log"), "small\n").unwrap();
+        let small = snapshots.take(&workspace).await.unwrap();
+        let big = vec![b'y'; MAX_RECORDED_BYTES as usize + 1];
+        std::fs::write(workspace.join("grows.log"), &big).unwrap();
+        let large = snapshots.take(&workspace).await.unwrap();
+        let grew = snapshots.changes_between(&workspace, &small, &large).await.unwrap();
+        assert_eq!(grew, TreeChanges { changes: vec![], unrecorded: vec!["grows.log".into()] }, "not a deletion");
+        let big_blob = snapshots.current(&workspace, "grows.log").await.unwrap().unwrap();
+        assert!(!stored(&snapshots, &workspace, &big_blob), "the large content never enters the store");
+
+        std::fs::write(workspace.join("grows.log"), "small again\n").unwrap();
+        let shrunk = snapshots.take(&workspace).await.unwrap();
+        let back = snapshots.changes_between(&workspace, &large, &shrunk).await.unwrap();
+        assert_eq!(back, TreeChanges { changes: vec![], unrecorded: vec!["grows.log".into()] }, "not a creation");
+        std::fs::write(workspace.join("grows.log"), "edited\n").unwrap();
+        let edited = snapshots.take(&workspace).await.unwrap();
+        let recorded = snapshots.changes_between(&workspace, &shrunk, &edited).await.unwrap();
+        assert_eq!(recorded.changes.len(), 1, "once small it is recorded again");
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    /// Attributes that would change bytes on the way into git, and a filter the shadow repo can see.
+    fn hostile_attributes(snapshots: &Snapshots, workspace: &Path, attributes: &str) {
+        std::fs::write(workspace.join(".gitattributes"), attributes).unwrap();
+        let git_dir = snapshots.git_dir(workspace);
+        let config = |key: &str, value: &str| std::process::Command::new("git").arg("--git-dir").arg(&git_dir).args(["config", key, value]).status().unwrap();
+        config("filter.upper.clean", "tr a-z A-Z");
+        config("filter.upper.smudge", "cat");
+    }
+
+    #[tokio::test]
+    async fn trees_hold_the_bytes_on_disk_whatever_the_attributes_say() {
+        let (base, workspace) = dirs();
+        let snapshots = Snapshots::new(&base.join("data"));
+        std::fs::write(workspace.join("seed"), "x").unwrap();
+        snapshots.take(&workspace).await.unwrap();
+        hostile_attributes(&snapshots, &workspace, "* text=auto\n*.txt eol=lf ident filter=upper working-tree-encoding=UTF-16\n");
+        std::fs::write(workspace.join("a.txt"), "one $Id$\r\ntwo\r\n").unwrap();
+        std::fs::write(workspace.join("b.md"), "crlf\r\n").unwrap();
+        let before = snapshots.take(&workspace).await.unwrap();
+        std::fs::write(workspace.join("a.txt"), "three\r\n").unwrap();
+        std::fs::write(workspace.join("b.md"), "changed\r\n").unwrap();
+        let after = snapshots.take(&workspace).await.unwrap();
+        for change in snapshots.changes_between(&workspace, &before, &after).await.unwrap().changes {
+            assert_eq!(snapshots.current(&workspace, &change.path).await.unwrap(), change.after, "{} after is the file's exact bytes", change.path);
+            snapshots.put(&workspace, &change.path, change.before.as_deref()).await.unwrap();
+        }
+        assert_eq!(std::fs::read(workspace.join("a.txt")).unwrap(), b"one $Id$\r\ntwo\r\n");
+        assert_eq!(std::fs::read(workspace.join("b.md")).unwrap(), b"crlf\r\n");
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    #[tokio::test]
+    async fn a_shadow_repo_made_before_the_rule_is_brought_up_to_it() {
+        let (base, workspace) = dirs();
+        let snapshots = Snapshots::new(&base.join("data"));
+        std::fs::write(workspace.join("seed"), "x").unwrap();
+        snapshots.take(&workspace).await.unwrap();
+        hostile_attributes(&snapshots, &workspace, "* text=auto\n*.txt filter=upper\n");
+        std::fs::write(workspace.join("a.txt"), "lower\r\n").unwrap();
+        std::fs::remove_file(snapshots.git_dir(&workspace).join("info/attributes")).unwrap();
+        snapshots.git(&workspace, &["add", "-A"]).await.unwrap();
+        let converted = snapshots.git(&workspace, &["ls-files", "-s", "--", "a.txt"]).await.unwrap();
+
+        let tree = snapshots.take(&workspace).await.unwrap();
+        let entry = snapshots.git(&workspace, &["ls-tree", &tree.id, "--", "a.txt"]).await.unwrap();
+        let exact = snapshots.current(&workspace, "a.txt").await.unwrap().unwrap();
+        assert!(entry.contains(&exact), "the stale converted entry is replaced: {converted} vs {entry}");
         std::fs::remove_dir_all(base).ok();
     }
 
@@ -321,6 +465,35 @@ mod tests {
         assert!(snapshots.git(&workspace, &["cat-file", "-e", &dropped]).await.is_err());
         snapshots.prune(&workspace, &[]).await.unwrap();
         assert!(snapshots.git(&workspace, &["cat-file", "-e", &kept]).await.is_ok(), "the grace period protects recent objects");
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    /// `cargo test -p drift-engine --release -- --ignored capture_cost --nocapture`; set
+    /// `DRIFT_MEASURE_WORKSPACE` to time a real tree instead of 5,000 generated files.
+    #[tokio::test]
+    #[ignore]
+    async fn capture_cost() {
+        let (base, generated) = dirs();
+        for i in 0..5_000 {
+            let dir = generated.join(format!("d{}", i % 50));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(format!("f{i}.txt")), vec![b'a' + (i % 26) as u8; 1024]).unwrap();
+        }
+        let workspace = std::env::var("DRIFT_MEASURE_WORKSPACE").map(PathBuf::from).unwrap_or(generated.clone());
+        let snapshots = Snapshots::new(&base.join("data"));
+        let time = |label: &'static str, started: std::time::Instant| eprintln!("{label}: {:?}", started.elapsed());
+        let started = std::time::Instant::now();
+        snapshots.take(&workspace).await.unwrap();
+        time("first capture", started);
+        for round in 0..3 {
+            let started = std::time::Instant::now();
+            snapshots.take(&workspace).await.unwrap();
+            time(["unchanged capture 1", "unchanged capture 2", "unchanged capture 3"][round], started);
+        }
+        let started = std::time::Instant::now();
+        let root = workspace.clone();
+        tokio::task::spawn_blocking(move || large_files(&root)).await.unwrap();
+        time("size walk alone", started);
         std::fs::remove_dir_all(base).ok();
     }
 

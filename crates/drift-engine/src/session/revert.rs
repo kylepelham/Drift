@@ -32,11 +32,20 @@ impl From<rusqlite::Error> for RevertError {
     }
 }
 
-/// The session after an undo or redo, and the files left alone because they changed since.
+/// The session after an undo or redo, and the files it left alone.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Undone {
     pub session: Session,
+    /// Changed by someone else since the session last wrote them.
     pub kept: Vec<String>,
+    /// Seen changing while a command ran, which does not show who changed them.
+    pub unattributed: Vec<String>,
+}
+
+#[derive(Default)]
+struct Shifted {
+    kept: Vec<String>,
+    unattributed: Vec<String>,
 }
 
 enum Direction {
@@ -74,41 +83,46 @@ impl Engine {
             return Err(RevertError::NotAPrompt);
         }
         let workspace = self.workspace_of(&session)?;
-        let kept = match session.revert.as_ref().map(|r| r.message_id.as_str()) {
+        let shifted = match session.revert.as_ref().map(|r| r.message_id.as_str()) {
             None => self.shift(&session, &workspace, message_id, None, Direction::Back).await?,
             Some(current) if message_id < current => self.shift(&session, &workspace, message_id, Some(current), Direction::Back).await?,
             Some(current) if message_id > current => self.shift(&session, &workspace, current, Some(message_id), Direction::Forward).await?,
-            Some(_) => Vec::new(),
+            Some(_) => Shifted::default(),
         };
-        let session = self.mark(session_id, Some(&Revert { message_id: message_id.into(), kept: kept.clone() }))?;
-        Ok(Undone { session, kept })
+        let session = self.mark(session_id, Some(&Revert { message_id: message_id.into(), kept: shifted.kept.clone() }))?;
+        Ok(Undone { session, kept: shifted.kept, unattributed: shifted.unattributed })
     }
 
     async fn unrevert_claimed(&self, session_id: &str) -> Result<Undone, RevertError> {
         let session = self.store.session(session_id)?.ok_or(RevertError::NoSession)?;
-        let Some(revert) = &session.revert else { return Ok(Undone { session, kept: Vec::new() }) };
+        let Some(revert) = &session.revert else { return Ok(Undone { session, kept: Vec::new(), unattributed: Vec::new() }) };
         let workspace = self.workspace_of(&session)?;
-        let kept = self.shift(&session, &workspace, &revert.message_id, None, Direction::Forward).await?;
-        Ok(Undone { session: self.mark(session_id, None)?, kept })
+        let shifted = self.shift(&session, &workspace, &revert.message_id, None, Direction::Forward).await?;
+        Ok(Undone { session: self.mark(session_id, None)?, kept: shifted.kept, unattributed: shifted.unattributed })
     }
 
     /// Applies the net change of the turns in `[from, to)` in one direction. A file whose content is
-    /// not what that change expects was edited by someone else since; it is kept, not overwritten.
-    async fn shift(&self, session: &Session, workspace: &Path, from: &str, to: Option<&str>, direction: Direction) -> Result<Vec<String>, RevertError> {
-        let mut kept = Vec::new();
+    /// not what that change expects was edited by someone else since; it is kept, not overwritten. A
+    /// change only observed while a command ran is never applied: it may not be the session's.
+    async fn shift(&self, session: &Session, workspace: &Path, from: &str, to: Option<&str>, direction: Direction) -> Result<Shifted, RevertError> {
+        let mut shifted = Shifted::default();
         for change in self.net_changes(session, from, to)? {
+            if change.observed {
+                shifted.unattributed.push(change.path);
+                continue;
+            }
             let (expected, target) = match direction {
                 Direction::Back => (change.after, change.before),
                 Direction::Forward => (change.before, change.after),
             };
             let current = self.snapshots.current(workspace, &change.path).await.map_err(|e| RevertError::Files(e.to_string()))?;
             if current != expected {
-                kept.push(change.path);
+                shifted.kept.push(change.path);
                 continue;
             }
             self.snapshots.put(workspace, &change.path, target.as_deref()).await.map_err(|e| RevertError::Files(e.to_string()))?;
         }
-        Ok(kept)
+        Ok(shifted)
     }
 
     /// Per path, the state before its first change and after its last one in `[from, to)`, across the
@@ -128,7 +142,10 @@ impl Engine {
         let mut net: Vec<FileChange> = Vec::new();
         for change in calls.into_iter().flat_map(|(_, _, changes)| changes) {
             match net.iter_mut().find(|n| n.path == change.path) {
-                Some(existing) => existing.after = change.after,
+                Some(existing) => {
+                    existing.after = change.after;
+                    existing.observed |= change.observed;
+                }
                 None => net.push(change),
             }
         }

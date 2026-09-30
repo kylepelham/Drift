@@ -66,6 +66,15 @@ change the plan there when a decision changes.
   - [x] Secret files ask to be read inside the workspace, grep withholds them, examples exempt; `.git` and binaries skipped by search
   - [x] Anthropic conversation cache breakpoints (API key, subscription, gateway)
   - [x] SSE error classification and bounded, cancellable, `retry-after`-aware backoff
+  - Review of items 1 to 6:
+    - [x] Byte-exact shadow snapshots (attributes overridden, existing repos migrated)
+    - [x] Changes seen during a command are unattributed and never undone
+    - [x] Oversized tracked files leave the shadow index; reported as unrecorded, not deleted
+    - [x] Snapshot cost measured; no tree reuse without a reliable unchanged signal
+    - [ ] File-writing redirections need exact approval (bash and PowerShell)
+    - [ ] Permanent quota errors never retry; oversized `retry-after` cannot panic; failed jobs release the session; cap after jitter
+    - [ ] Bounded shell capture; inherited pipes and background descendants
+    - [ ] `.envrc`, `cd` chains, opaque-construct docs, periodic prune, OpenRouter caching verified
   - [ ] Shared HTTP client with connect, header and stream-idle timeouts; Stop cancels while waiting
   - [ ] Thinking budget within the output limit; max-tokens endings surfaced; unexecuted calls settled
   - [ ] Configurable step limits and repeated-call intervention

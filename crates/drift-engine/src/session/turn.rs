@@ -643,7 +643,10 @@ impl Engine {
         };
         // After formatting, and on failure too: a failed or stopped command may still have written.
         let changes = match capture {
-            Some(capture) => self.capture_after(&scope.plan.workspace, capture).await.ok().map(|changes| json!({ "changes": changes })),
+            Some(capture) => self.capture_after(&scope.plan.workspace, capture).await.ok().map(|recorded| match recorded.unrecorded.is_empty() {
+                true => json!({ "changes": recorded.changes }),
+                false => json!({ "changes": recorded.changes, "unrecorded": recorded.unrecorded }),
+            }),
             None => None,
         };
         self.settle(&mut row, status, title, text, merge(meta, changes));

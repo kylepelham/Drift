@@ -320,8 +320,23 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   in a shadow git dir under the data dir (`session::changes`). File tools name their paths
   (`Tool::touches`), so exactly those files are recorded before and after the call, after
   formatters run. A shell command can change anything, so the tree (the workspace's `.gitignore`
-  applies) is compared just before and after it; that window can include someone else's edits made
-  while it ran. A call whose files cannot be recorded does not run.
+  applies) is compared just before and after it. That comparison shows what changed, not who changed
+  it: the user, an editor or another session may have written during the command. Those changes are
+  recorded with `observed: true`, and undo and redo never apply them; they are listed as
+  `unattributed` and shown in their own notice. A path whose recorded history includes any observed
+  change is left alone as a whole. A call whose files cannot be recorded does not run.
+- The shadow repo stores exact bytes. Its `info/attributes` (which outranks every in-tree
+  `.gitattributes`) unsets `text`, `eol`, `filter`, `ident` and `working-tree-encoding`, so a CRLF
+  file under `* text=auto` or a file with a clean filter is stored as it is on disk and compares
+  equal to what undo hashes with `--no-filters`. Repos made before the rule get it on their next
+  capture, and their index is dropped then so no cached converted entry survives.
+- Cost, measured with `session::snapshot::tests::capture_cost` (release build, Windows): a first
+  capture of 5,000 1 KB files takes 2.1 s; an unchanged one about 90 ms, of which the size walk is
+  13 ms. This repository (7,161 tracked files) takes about 190 ms unchanged, 70 ms of it the size
+  walk. A shell call pays two captures. Git's stat cache already makes an unchanged capture cheap,
+  and `core.untrackedCache` measured no better. The previous call's tree is never reused as the next
+  call's before state: nothing short of a filesystem monitor establishes that no one edited in
+  between, and a stale before state would put the wrong content into undo.
 - `POST /sessions/{id}/revert { messageId }` takes a prompt the user sent. It hides that prompt and
   everything after it (`session.revert.messageId`, the UI filters) and puts each file the hidden
   turns changed, subagents included (ids are time-ordered, so calls sort across sessions), back to
@@ -334,8 +349,12 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   and every index operation (tree captures, prunes) hold a per-workspace lock.
 - Files over 10 MB are never copied into it: a file tool refuses to change one, since the change
   could not be undone, and tree captures leave them out through the shadow repo's own exclude file
-  (the workspace's `.gitignore` is untouched). A file that only grows past the limit through a
-  call is left out of undo.
+  (the workspace's `.gitignore` is untouched). Exclusion only stops untracked files, so each capture
+  also removes oversized paths from the shadow index before adding: a file recorded while small that
+  grows past the limit never enters the object store. Each capture carries the oversized paths it
+  left out with their size and mtime, and a path oversized on either side of a comparison is
+  reported in `metadata.unrecorded`, never as a deletion or creation, so undo cannot delete a large
+  file or restore a stale small copy over it. An oversized file left untouched is not reported.
 - Retention: at startup, `Engine::prune_snapshots` pins every blob a stored call's `changes` refers
   to (archived sessions included) under a private ref and prunes the rest, sparing objects younger
   than two hours so a capture in flight keeps its blobs. Tree captures are transient and go too.

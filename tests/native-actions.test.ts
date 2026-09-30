@@ -222,8 +222,8 @@ test("undo and redo apply the engine's session and report refusals", async () =>
     revertSession: (id: string, messageId: string) =>
       id === "ses_busy"
         ? Promise.reject(new EngineError(409, `/sessions/${id}/revert`, "busy", "stop the running turn first"))
-        : Promise.resolve({ session: { ...session(id), revert: { messageId } }, kept: [] }),
-    unrevertSession: (id: string) => Promise.resolve({ session: session(id), kept: ["src/app.ts"] }),
+        : Promise.resolve({ session: { ...session(id), revert: { messageId } }, kept: [], unattributed: [] }),
+    unrevertSession: (id: string) => Promise.resolve({ session: session(id), kept: ["src/app.ts"], unattributed: ["dist/out.js"] }),
   } as Partial<Client>)
   expect(await h.actions.revert("ses_1", "msg_2")).toBeTrue()
   expect((h.state.sessions.ses_1 as { revert?: { messageID: string } }).revert?.messageID).toBe("msg_2")
@@ -231,6 +231,7 @@ test("undo and redo apply the engine's session and report refusals", async () =>
   expect(await h.actions.unrevert("ses_1")).toBeTrue()
   expect((h.state.sessions.ses_1 as { revert?: unknown }).revert).toBeUndefined()
   expect(h.state.notices.some((n) => n.title === "Kept your changes" && n.message.includes("src/app.ts"))).toBeTrue()
+  expect(h.state.notices.some((n) => n.title === "Left files changed during commands" && n.message.includes("dist/out.js"))).toBeTrue()
   expect(await h.actions.revert("ses_busy", "msg_2")).toBeFalse()
   expect(h.state.notices.some((n) => n.title === "Couldn't undo")).toBeTrue()
 })

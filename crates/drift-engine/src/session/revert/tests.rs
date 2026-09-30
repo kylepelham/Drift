@@ -112,19 +112,74 @@ async fn a_file_edited_after_the_session_wrote_it_is_kept_and_reported() {
     assert_eq!(read(&h, "b.txt").as_deref(), Some("user recreated it\n"));
 }
 
-#[tokio::test]
-async fn a_shell_commands_changes_are_undone_but_not_what_was_there_before() {
-    let h = harness().await;
+/// Waits until a tool call is running: its before-state has been captured and it has started.
+async fn until_running_call(h: &Harness) {
+    for _ in 0..400 {
+        let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+        let running = transcript.iter().flat_map(|m| &m.parts).any(|row| matches!(row.part, Part::ToolCall { status: crate::session::types::ToolStatus::Running, .. }));
+        if running {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("no call started");
+}
+
+fn allow_shell(h: &Harness) {
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
+}
+
+#[tokio::test]
+async fn a_shell_commands_changes_are_reported_but_never_undone() {
+    let h = harness().await;
+    allow_shell(&h);
     std::fs::write(h._dir.join("ws/existing.txt"), "before\n").unwrap();
     // Valid in bash and PowerShell alike, whichever the machine's shell is.
     h.provider.push(tool_call("bash", r#"{"command": "echo made > made.txt"}"#)).push(text("made it"));
     turn(&h, "make a file").await;
     assert!(read(&h, "made.txt").is_some_and(|text| text.contains("made")));
     let prompt_id = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
-    h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
-    assert_eq!(read(&h, "made.txt"), None);
+    let undone = h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
+    assert_eq!(undone.unattributed, ["made.txt"], "seen changing while the command ran, so not provably the session's");
+    assert!(read(&h, "made.txt").is_some(), "left as it is");
     assert_eq!(read(&h, "existing.txt").as_deref(), Some("before\n"));
+    let redone = h.engine.unrevert(&h.session.id).await.unwrap();
+    assert_eq!(redone.unattributed, ["made.txt"]);
+}
+
+#[tokio::test]
+async fn a_user_edit_made_while_a_command_runs_survives_undo() {
+    let h = harness().await;
+    allow_shell(&h);
+    std::fs::write(h._dir.join("ws/mine.txt"), "draft\n").unwrap();
+    h.provider.push(tool_call("bash", r#"{"command": "sleep 1"}"#)).push(text("waited"));
+    h.engine.submit(&h.session.id, prompt("wait a second")).await.unwrap();
+    until_running_call(&h).await;
+    std::fs::write(h._dir.join("ws/mine.txt"), "the user's edit\n").unwrap();
+    until_idle(&h).await;
+    let prompt_id = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
+    let undone = h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
+    assert_eq!(read(&h, "mine.txt").as_deref(), Some("the user's edit\n"), "an edit made during the command is not the session's to undo");
+    assert_eq!(undone.unattributed, ["mine.txt"]);
+    assert!(undone.kept.is_empty());
+}
+
+#[tokio::test]
+async fn a_file_the_session_wrote_and_a_command_then_touched_is_left_alone() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy {
+        rules: vec![
+            Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow },
+            Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow },
+        ],
+    });
+    h.provider.push(write("a.txt", "one")).push(tool_call("bash", r#"{"command": "echo more >> a.txt"}"#)).push(text("done"));
+    turn(&h, "write then append").await;
+    let after = read(&h, "a.txt").unwrap();
+    let prompt_id = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
+    let undone = h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
+    assert_eq!(read(&h, "a.txt"), Some(after), "part of its history is unattributed, so none of it is applied");
+    assert_eq!(undone.unattributed, ["a.txt"]);
 }
 
 #[tokio::test]
