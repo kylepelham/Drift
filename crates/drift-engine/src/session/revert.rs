@@ -42,6 +42,12 @@ pub struct Undone {
     pub unattributed: Vec<String>,
 }
 
+/// A path's net change over a range, and whether its chain of changes was broken by someone else's edit.
+struct Net {
+    change: FileChange,
+    broken: bool,
+}
+
 #[derive(Default)]
 struct Shifted {
     kept: Vec<String>,
@@ -106,9 +112,15 @@ impl Engine {
     /// change only observed while a command ran is never applied: it may not be the session's.
     async fn shift(&self, session: &Session, workspace: &Path, from: &str, to: Option<&str>, direction: Direction) -> Result<Shifted, RevertError> {
         let mut shifted = Shifted::default();
-        for change in self.net_changes(session, from, to)? {
+        for Net { change, broken } in self.net_changes(session, from, to)? {
             if change.observed {
                 shifted.unattributed.push(change.path);
+                continue;
+            }
+            // Someone else changed the file between two of the session's writes: undoing to the first
+            // before, or redoing to the last after, would erase their edit.
+            if broken {
+                shifted.kept.push(change.path);
                 continue;
             }
             let (expected, target) = match direction {
@@ -127,7 +139,8 @@ impl Engine {
 
     /// Per path, the state before its first change and after its last one in `[from, to)`, across the
     /// session and its subagents. Ids are time-ordered, so sorting by them orders calls across sessions.
-    fn net_changes(&self, session: &Session, from: &str, to: Option<&str>) -> Result<Vec<FileChange>, RevertError> {
+    /// A path whose next change did not start where the previous one ended is `broken`.
+    fn net_changes(&self, session: &Session, from: &str, to: Option<&str>) -> Result<Vec<Net>, RevertError> {
         let mut calls: Vec<(String, String, Vec<FileChange>)> = Vec::new();
         for member in self.store.session_tree(&session.id)? {
             for message in self.store.transcript(&member)?.iter().filter(|m| m.info.id.as_str() >= from && to.is_none_or(|to| m.info.id.as_str() < to)) {
@@ -139,17 +152,18 @@ impl Engine {
             }
         }
         calls.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
-        let mut net: Vec<FileChange> = Vec::new();
+        let mut net: Vec<Net> = Vec::new();
         for change in calls.into_iter().flat_map(|(_, _, changes)| changes) {
-            match net.iter_mut().find(|n| n.path == change.path) {
+            match net.iter_mut().find(|n| n.change.path == change.path) {
                 Some(existing) => {
-                    existing.after = change.after;
-                    existing.observed |= change.observed;
+                    existing.broken |= existing.change.after != change.before;
+                    existing.change.after = change.after;
+                    existing.change.observed |= change.observed;
                 }
-                None => net.push(change),
+                None => net.push(Net { change, broken: false }),
             }
         }
-        net.retain(|change| change.before != change.after);
+        net.retain(|n| n.broken || n.change.before != n.change.after);
         Ok(net)
     }
 

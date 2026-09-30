@@ -224,6 +224,31 @@ async fn a_file_the_session_wrote_and_a_command_then_touched_is_left_alone() {
 }
 
 #[tokio::test]
+async fn a_user_edit_between_two_session_writes_survives_undo_and_redo() {
+    let h = harness().await;
+    allow_writes(&h);
+    h.provider.push(write("a.txt", "one")).push(text("wrote one"));
+    turn(&h, "first").await;
+    std::fs::write(h._dir.join("ws/a.txt"), "the user's line\n").unwrap();
+    h.provider.push(tool_call("read", r#"{"path": "a.txt"}"#)).push(write("a.txt", "two")).push(text("wrote two"));
+    turn(&h, "second").await;
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("two"));
+
+    let first = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
+    let undone = h.engine.revert(&h.session.id, &first).await.unwrap();
+    assert_eq!(undone.kept, ["a.txt"], "the chain broke at the user's edit");
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("two"), "not rolled back past the user's edit");
+    let redone = h.engine.unrevert(&h.session.id).await.unwrap();
+    assert_eq!(redone.kept, ["a.txt"]);
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("two"));
+
+    let second = h.engine.store.transcript(&h.session.id).unwrap().iter().filter(|m| m.info.role == Role::User).nth(1).unwrap().info.id.clone();
+    let undone = h.engine.revert(&h.session.id, &second).await.unwrap();
+    assert!(undone.kept.is_empty(), "within one unbroken change, undo still works");
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("the user's line\n"), "back to where the user left it");
+}
+
+#[tokio::test]
 async fn a_prompt_sent_while_undone_commits_the_undo() {
     let h = harness().await;
     let (_, second) = two_writing_turns(&h).await;

@@ -378,6 +378,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   No other file is read or rewritten. Calling revert again moves the point: back undoes the range
   in between, forward redoes it, with the same check.
 - `POST /sessions/{id}/unrevert` redoes the hidden range the same way and clears the marker.
+- Changes to one path merge only while they chain: each change's `before` must equal the previous
+  one's `after`. A gap means someone else edited the file between two of the session's writes;
+  that path is kept and reported in both directions, since undoing to the first `before` (or
+  redoing to the last `after`) would erase their edit.
 - The shadow repo is one per workspace, shared by every session and subagent in it, so creating it
   and every index operation (tree captures, prunes) hold a per-workspace lock.
 - Files over 10 MB are never copied into it: a file tool refuses to change one, since the change
