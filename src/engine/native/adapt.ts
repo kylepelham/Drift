@@ -90,7 +90,8 @@ export function adaptPart(row: NativePartRow): Part {
 function toolState(row: Extract<NativePartRow, { type: "tool_call" }>): ToolPart["state"] {
   const input = (row.input && typeof row.input === "object" ? row.input : { value: row.input }) as Record<string, unknown>
   const metadata = (row.metadata ?? {}) as Record<string, unknown>
-  const start = row.startedAt ?? 0
+  // A call denied or refused before it ran has no start; 0 would read as a run since 1970.
+  const start = (row.startedAt ?? undefined) as number
   const end = row.finishedAt ?? start
   switch (row.status) {
     case "pending":

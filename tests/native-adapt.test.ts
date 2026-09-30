@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { adaptEvent, adaptMessage, adaptPart, adaptPermission, adaptSession } from "../src/engine/native/adapt"
 import type { components } from "../src/engine/native/types"
+import { toolElapsedMs } from "../src/ui/tool-duration"
 
 const workspaces = { path: (id: string) => (id === "w1" ? "C:/repo" : undefined), id: () => "w1" }
 
@@ -90,4 +91,14 @@ test("events translate to the legacy reducer's vocabulary", () => {
   expect(asked?.type).toBe("permission.updated")
   expect(adaptPermission(request, "C:/repo")).toMatchObject({ id: "perm_1", type: "bash", pattern: ["cargo test"], callID: "t", metadata: { directory: "C:/repo", tool: "bash" } })
   expect(adaptEvent({ type: "workspace.created", workspace: { id: "w", path: "p", name: "n", icon: "", lastUsed: 0 } }, workspaces)).toBeUndefined()
+})
+
+test("a call that never started has no duration", () => {
+  const row = { id: "prt_1", messageId: "msg_1", sessionId: "ses_1", type: "tool_call" as const, callId: "c1", name: "bash", input: { command: "sleep 10" }, status: "denied" as const, output: "denied", finishedAt: 1_700_000_000_000 }
+  const part = adaptPart(row as never)
+  expect(part.type).toBe("tool")
+  const state = (part as { state: { time?: { start?: number; end?: number } } }).state
+  expect(state.time?.start).toBeUndefined()
+  expect(state.time?.end).toBe(1_700_000_000_000)
+  expect(toolElapsedMs(state as never, Date.now())).toBeUndefined()
 })
