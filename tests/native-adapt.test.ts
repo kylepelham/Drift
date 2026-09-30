@@ -60,6 +60,8 @@ test("a reply that stopped at its output limit shows why", () => {
   const cut = adaptMessage({ ...base, status: "done", error: "The reply stopped at the output limit (32000 tokens)." }, "C:/repo") as { finish?: string; error?: { name: string; data: { message: string } } }
   expect(cut.finish).toBe("length")
   expect(cut.error).toEqual({ name: "MessageOutputLengthError", data: { message: "The reply stopped at the output limit (32000 tokens)." } })
+  const paused = adaptMessage({ ...base, status: "paused", error: "Paused after 200 steps, this turn's limit." }, "C:/repo") as { error?: { name: string; data: { message: string } } }
+  expect(paused.error).toEqual({ name: "MessageAbortedError", data: { message: "Paused after 200 steps, this turn's limit." } })
   const whole = adaptMessage({ ...base, status: "done" }, "C:/repo") as { finish?: string; error?: unknown }
   expect(whole.finish).toBe("stop")
   expect(whole.error).toBeUndefined()

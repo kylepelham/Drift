@@ -343,7 +343,14 @@ impl Engine {
         let mut offer = self.offer(&plan);
         let mut attempts = 0;
         let mut recovered = false;
+        let limits = plan.config.limits_for(&plan.session.agent);
+        let mut steps = 0;
+        let mut repeats = Repeats::default();
         loop {
+            if steps >= limits.steps {
+                self.pause(&plan, format!("Paused after {steps} steps, this turn's limit. Send a message to carry on."));
+                break;
+            }
             let Some(transcript) = self.transcript_for_step(&plan, &abort).await else { break };
             let (max_tokens, thinking_budget) = budgets(&plan.model, plan.thinking_budget);
             let request = Request {
@@ -359,7 +366,15 @@ impl Engine {
             self.hub.publish(Event::MessageCreated { message: message.clone() });
             match self.step(&plan, message, &request, &offer.offered, &abort).await {
                 Step::Done => break,
-                Step::Continue => attempts = 0,
+                Step::Continue => {
+                    attempts = 0;
+                    steps += 1;
+                    if let Some(times) = repeats.record(self.last_calls(&plan.session.id), &limits) {
+                        let reason = format!("Paused: the last {times} steps made the same calls and got the same results. Send a message to carry on or change course.");
+                        self.pause(&plan, reason);
+                        break;
+                    }
+                }
                 Step::Retry(retry) if retry.allowed(attempts) => {
                     attempts += 1;
                     match self.wait_to_retry(&plan.session.id, attempts, &retry, &abort).await {
@@ -702,6 +717,28 @@ impl Engine {
         Ok(())
     }
 
+    /// Ends the turn by itself, visibly: a reply-less message whose `error` is the reason.
+    fn pause(&self, plan: &Plan, reason: String) {
+        let Ok(mut message) = self.store.create_message(&plan.session.id, Role::Assistant, Some(&plan.model_ref)) else { return };
+        self.hub.publish(Event::MessageCreated { message: message.clone() });
+        message.status = MessageStatus::Paused;
+        message.error = Some(reason);
+        let _ = self.finish(&mut message);
+    }
+
+    /// The calls the session's latest reply made, with their inputs and results.
+    fn last_calls(&self, session_id: &str) -> Vec<CallTrace> {
+        let transcript = self.store.transcript(session_id).unwrap_or_default();
+        let Some(last) = transcript.iter().rev().find(|m| m.info.role == Role::Assistant) else { return Vec::new() };
+        last.parts
+            .iter()
+            .filter_map(|row| match &row.part {
+                Part::ToolCall { name, input, output, .. } => Some(CallTrace { name: name.clone(), input: input.to_string(), output: output.clone().unwrap_or_default() }),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Closes the calls a message made that will never run, with the reason, so none stays pending.
     fn settle_unrun(&self, message: &Message, reason: &str) {
         let Ok(transcript) = self.store.transcript(&message.session_id) else { return };
@@ -740,6 +777,49 @@ enum Step {
     Retry(Retry),
     /// The request no longer fit the model's context.
     Overflow,
+}
+
+/// One call as the loop check sees it: what was asked and what came back.
+#[derive(Clone, Debug, PartialEq)]
+struct CallTrace {
+    name: String,
+    input: String,
+    output: String,
+}
+
+/// Words that mark a shell command as waiting on purpose, the way polling does.
+const WAITS: [&str; 5] = ["sleep", "start-sleep", "timeout", "wait", "watch"];
+
+/// Steps in a row whose calls and results were all the same. Different results are progress, so a
+/// poll whose answer changes never counts; one that waits on purpose gets the larger `polls` allowance.
+#[derive(Default)]
+struct Repeats {
+    last: Vec<CallTrace>,
+    count: u32,
+}
+
+impl Repeats {
+    /// `Some(times)` once the same step has come back as many times in a row as the limit allows.
+    fn record(&mut self, calls: Vec<CallTrace>, limits: &crate::config::Limits) -> Option<u32> {
+        if calls.is_empty() {
+            *self = Self::default();
+            return None;
+        }
+        if calls == self.last {
+            self.count += 1;
+        } else {
+            self.last = calls;
+            self.count = 1;
+        }
+        let limit = if self.last.iter().any(waits) { limits.polls } else { limits.repeats };
+        (self.count >= limit).then_some(self.count)
+    }
+}
+
+fn waits(call: &CallTrace) -> bool {
+    let Ok(input) = serde_json::from_str::<serde_json::Value>(&call.input) else { return false };
+    let command = input["command"].as_str().unwrap_or_default().to_ascii_lowercase();
+    call.name == "bash" && command.split(|c: char| !c.is_ascii_alphanumeric() && c != '-').any(|word| WAITS.contains(&word))
 }
 
 struct Retry {

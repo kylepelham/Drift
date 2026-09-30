@@ -310,6 +310,18 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - Each wait publishes `session.retry { attempt, message, nextAt }`, which the UI draws as the retry
   notice with a model picker; `session.status running` follows when the wait ends. Stop ends a wait
   at once.
+- Turn limits (`config::Limits`, drift.json `limits: { steps, repeats, polls }`, later files
+  override field by field; an agent's front matter `steps:` replaces `steps` for its turns):
+  - `steps` (default 200): model steps that ran tools in one turn. Reaching it pauses the turn.
+  - `repeats` (default 3): steps in a row whose calls, inputs and results are all identical. A
+    different result is progress, so a poll whose answer changes never counts.
+  - `polls` (default 30): the same for repeated steps whose shell commands wait on purpose
+    (`sleep`, `Start-Sleep`, `timeout`, `wait`, `watch`), so deliberate polling is not taken for a
+    loop.
+  - A pause is a reply-less message with status `paused` and the reason in `error`; it is never
+    replayed to the model, the UI draws it as a quiet interruption line with the reason, a subagent
+    that pauses reports it to its parent as a failure with that reason, and the next message
+    carries on.
 - `POST /sessions/{id}/retry { model }` moves a waiting turn onto another model: 409 when nothing is
   waiting, 400/401 when the model or its credential is unusable (checked before the turn is told).
   The turn retries immediately on the new model, rebuilds its tools and prompt for that model's

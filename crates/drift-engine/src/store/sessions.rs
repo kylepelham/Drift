@@ -260,6 +260,7 @@ fn status_str(status: MessageStatus) -> &'static str {
         MessageStatus::Done => "done",
         MessageStatus::Aborted => "aborted",
         MessageStatus::Error => "error",
+        MessageStatus::Paused => "paused",
     }
 }
 
@@ -268,6 +269,7 @@ fn parse_status(status: &str) -> MessageStatus {
         "streaming" => MessageStatus::Streaming,
         "aborted" => MessageStatus::Aborted,
         "error" => MessageStatus::Error,
+        "paused" => MessageStatus::Paused,
         _ => MessageStatus::Done,
     }
 }

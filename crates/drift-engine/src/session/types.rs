@@ -70,6 +70,8 @@ pub enum MessageStatus {
     Done,
     Aborted,
     Error,
+    /// No reply: the turn paused itself before this step (a limit it reached); `error` says why.
+    Paused,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]

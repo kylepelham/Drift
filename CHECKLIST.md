@@ -78,7 +78,7 @@ change the plan there when a decision changes.
     - [x] `.envrc`, `cd` chains, opaque-construct docs, periodic prune (OpenRouter caching checked, left open above)
   - [x] Shared HTTP client with connect, header and stream-idle timeouts; Stop cancels while waiting
   - [x] Thinking budget within the output limit; max-tokens endings surfaced; unexecuted calls settled
-  - [ ] Configurable step limits and repeated-call intervention
+  - [x] Configurable step limits and repeated-call intervention
   - [ ] Shared tool-output limits with full-output artifacts (read, list, MCP, shell)
   - [ ] Engine-owned steering and queueing at safe boundaries
   - [ ] File discovery and @ expansion, every read through `Context::ask_to_read`

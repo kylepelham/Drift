@@ -160,7 +160,7 @@ fn last_attempt(store: &crate::store::Store, session_id: &str) -> Result<Attempt
     };
     Ok(match last.info.status {
         MessageStatus::Done => Attempt::Replied(last.parts.iter().filter_map(|row| match &row.part { Part::Text { text } => Some(text.as_str()), _ => None }).collect::<Vec<_>>().join("\n")),
-        MessageStatus::Error => Attempt::Failed(last.info.error.clone().unwrap_or_else(|| "unknown error".into())),
+        MessageStatus::Error | MessageStatus::Paused => Attempt::Failed(last.info.error.clone().unwrap_or_else(|| "unknown error".into())),
         MessageStatus::Aborted => Attempt::Stopped,
         MessageStatus::Streaming => Attempt::None,
     })

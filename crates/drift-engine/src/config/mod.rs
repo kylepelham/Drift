@@ -31,6 +31,34 @@ pub struct File {
     pub instructions: Vec<String>,
     /// Formatter overrides by name; `false` disables a built-in.
     pub formatters: BTreeMap<String, FormatterConfig>,
+    /// Turn limits; each field set here replaces the one before it.
+    pub limits: LimitsFile,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LimitsFile {
+    pub steps: Option<u32>,
+    pub repeats: Option<u32>,
+    pub polls: Option<u32>,
+}
+
+/// When a turn pauses for the user rather than carrying on by itself.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Limits {
+    /// Model steps (requests) one turn may take.
+    pub steps: u32,
+    /// Steps in a row whose calls and results are all identical: no progress, so likely a loop.
+    pub repeats: u32,
+    /// The same for steps whose shell commands deliberately wait, as polling does.
+    pub polls: u32,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self { steps: 200, repeats: 3, polls: 30 }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -56,6 +84,9 @@ pub struct Agent {
     pub builtin: bool,
     #[serde(default)]
     pub kind: AgentKind,
+    /// Front matter `steps:`: this agent's own step limit, in place of the workspace's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steps: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -114,9 +145,16 @@ pub struct Config {
     pub skills: Vec<Skill>,
     pub instructions: Vec<Instruction>,
     pub formatters: BTreeMap<String, FormatterConfig>,
+    pub limits: Limits,
 }
 
 impl Config {
+    /// The limits a turn run by `agent` works under.
+    pub fn limits_for(&self, agent: &str) -> Limits {
+        let steps = self.agent(agent).and_then(|a| a.steps).unwrap_or(self.limits.steps);
+        Limits { steps, ..self.limits }
+    }
+
     pub fn load(workspace: &Path) -> Self {
         Self::load_with_home(workspace, home().as_deref())
     }
@@ -169,6 +207,10 @@ impl Config {
         rules.append(&mut self.permissions);
         self.permissions = rules;
         self.formatters.extend(file.formatters);
+        let limits = file.limits;
+        self.limits.steps = limits.steps.unwrap_or(self.limits.steps).max(1);
+        self.limits.repeats = limits.repeats.unwrap_or(self.limits.repeats).max(2);
+        self.limits.polls = limits.polls.unwrap_or(self.limits.polls).max(2);
         for relative in file.instructions {
             if let Ok(text) = std::fs::read_to_string(root.join(&relative)) {
                 self.instructions.push(Instruction { name: relative, text: clip(&text) });
@@ -194,6 +236,7 @@ impl Config {
                 tools: doc.field("tools").map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()).unwrap_or_default(),
                 builtin: false,
                 kind: self.workspace_kind(&name, doc.field("mode").as_deref()),
+                steps: doc.field("steps").and_then(|s| s.trim().parse().ok()).filter(|s: &u32| *s > 0),
                 name: name.clone(),
             };
             self.agents.retain(|a| a.name != name);
@@ -244,6 +287,7 @@ fn builtin_agents() -> Vec<Agent> {
         tools: tools.iter().map(|t| t.to_string()).collect(),
         builtin: true,
         kind,
+        steps: None,
     };
     vec![
         agent("build", "Reads, edits and runs code.", "", &[], AgentKind::Primary),

@@ -34,6 +34,12 @@ export function MessageView(props: { entry: MessageEntry; footer?: boolean; grou
   )
 }
 
+/** A turn that paused itself says why; a plain stop reads as interrupted. */
+function interruptionText(error: NonNullable<AssistantMessage["error"]>) {
+  const reason = (error.data as { message?: string } | undefined)?.message
+  return reason && reason !== "Interrupted" ? reason : t("drift.message.interrupted")
+}
+
 export function messageVisible(entry: MessageEntry) {
   if (entry.info.role === "user")
     return !!messageText(entry) || entry.parts.some((part) => part.type === "file" || part.type === "compaction")
@@ -343,7 +349,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
               fallback={
                 <div class="flex items-center gap-3 py-1 text-xs text-ink-faint" role="status">
                   <div class="h-px flex-1 bg-edge" />
-                  {t("drift.message.interrupted")}
+                  {interruptionText(error())}
                   <div class="h-px flex-1 bg-edge" />
                 </div>
               }

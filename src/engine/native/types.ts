@@ -610,6 +610,11 @@ export interface components {
             name: string;
             /** @description Appended to the system prompt when this agent runs. */
             prompt?: string;
+            /**
+             * Format: int32
+             * @description Front matter `steps:`: this agent's own step limit, in place of the workspace's.
+             */
+            steps?: number | null;
             /** @description Tool names this agent may use; empty means every tool. */
             tools?: string[];
         };
@@ -671,6 +676,7 @@ export interface components {
                 [key: string]: components["schemas"]["FormatterConfig"];
             };
             instructions: components["schemas"]["Instruction"][];
+            limits: components["schemas"]["Limits"];
             model?: components["schemas"]["ModelRef"] | null;
             permissions: components["schemas"]["Rule"][];
             skills: components["schemas"]["Skill"][];
@@ -845,6 +851,24 @@ export interface components {
             /** Format: int64 */
             output: number;
         };
+        /** @description When a turn pauses for the user rather than carrying on by itself. */
+        Limits: {
+            /**
+             * Format: int32
+             * @description The same for steps whose shell commands deliberately wait, as polling does.
+             */
+            polls: number;
+            /**
+             * Format: int32
+             * @description Steps in a row whose calls and results are all identical: no progress, so likely a loop.
+             */
+            repeats: number;
+            /**
+             * Format: int32
+             * @description Model steps (requests) one turn may take.
+             */
+            steps: number;
+        };
         Message: {
             /** Format: double */
             cost: number;
@@ -863,7 +887,7 @@ export interface components {
             usage: components["schemas"]["Usage"];
         };
         /** @enum {string} */
-        MessageStatus: "streaming" | "done" | "aborted" | "error";
+        MessageStatus: "streaming" | "done" | "aborted" | "error" | "paused";
         MessageWithParts: components["schemas"]["Message"] & {
             parts: components["schemas"]["PartRow"][];
         };
