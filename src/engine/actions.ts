@@ -358,9 +358,12 @@ export function createActions(
     return applyUndo(id, () => requireClient().unrevertSession(id))
   }
 
-  async function applyUndo(id: string, call: () => Promise<NativeSession>) {
+  async function applyUndo(id: string, call: () => Promise<{ session: NativeSession; kept: string[] }>) {
     try {
-      putSession(set, adaptSession(await call(), workspaces()))
+      const { session, kept } = await call()
+      putSession(set, adaptSession(session, workspaces()))
+      // Files the user changed after the session did are never overwritten; say which.
+      if (kept.length) notice({ id: `revert-kept-${id}`, title: "Kept your changes", message: `Left as you changed them: ${kept.join(", ")}`, variant: "info", duration: 10_000 })
       return true
     } catch (cause) {
       notice({ id: `revert-${id}`, title: "Couldn't undo", message: errorMessage(cause), variant: "error", duration: 10_000 })

@@ -487,7 +487,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Undoes the conversation back to a prompt, files included. Again while undone moves the point. */
+        /**
+         * Undoes the conversation back to a prompt, and the files its turns and subagents changed. Files
+         *     changed by someone else since are kept and listed. Again while undone moves the point.
+         */
         post: operations["revertSession"];
         delete?: never;
         options?: never;
@@ -536,7 +539,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Redoes everything an undo hid, files included. */
+        /** Redoes everything an undo hid, files included, keeping any changed since. */
         post: operations["unrevertSession"];
         delete?: never;
         options?: never;
@@ -1019,14 +1022,11 @@ export interface components {
         RetryModelBody: {
             model: components["schemas"]["ModelRef"];
         };
-        /**
-         * @description An undo in progress: the user message it went back to, hidden with everything after it, and the
-         *     working tree from before the first undo, which redo puts back.
-         */
+        /** @description An undo in progress: the user message it went back to, hidden with everything after it. */
         Revert: {
+            /** @description Files the last undo or redo left alone because someone changed them after the session did. */
+            kept?: string[];
             messageId: string;
-            /** @description `None` when the tree could not be recorded; redo then restores the conversation only. */
-            snapshot?: string | null;
         };
         RevertBody: {
             /** @description The prompt to go back to; it and everything after it are hidden. */
@@ -1117,6 +1117,11 @@ export interface components {
         ToolProfile: "edit" | "apply_patch";
         /** @enum {string} */
         ToolStatus: "pending" | "running" | "done" | "error" | "denied";
+        /** @description The session after an undo or redo, and the files left alone because they changed since. */
+        Undone: {
+            kept: string[];
+            session: components["schemas"]["Session"];
+        };
         Usage: {
             /** Format: int64 */
             cacheRead: number;
@@ -2083,7 +2088,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Session"];
+                    "application/json": components["schemas"]["Undone"];
                 };
             };
             400: {
@@ -2186,7 +2191,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Session"];
+                    "application/json": components["schemas"]["Undone"];
                 };
             };
             404: {

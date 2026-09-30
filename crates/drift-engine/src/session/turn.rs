@@ -536,8 +536,7 @@ impl Engine {
     /// Calls run in the model's order. Consecutive reads run together; a write waits for what came before it.
     async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, offered: &std::collections::HashSet<String>, abort: &CancellationToken) -> Outcome {
         let files = self.turns.files_for(&plan.session.id);
-        let snapshot = tokio::sync::OnceCell::new();
-        let scope = CallScope { plan, message, files: &files, snapshot: &snapshot, offered, abort };
+        let scope = CallScope { plan, message, files: &files, offered, abort };
         let mut reads: Vec<PartRow> = Vec::new();
         for row in calls {
             if !self.call_mutates(&row) {
@@ -602,13 +601,12 @@ impl Engine {
                 }
             }
         }
-        let snapshot_meta = if tool.mutates() {
-            let taken = scope.snapshot.get_or_init(|| async { self.snapshots.take(&scope.plan.workspace).await.map_err(|e| e.to_string()) }).await;
-            match taken {
-                Ok(tree) => Some(json!({ "snapshot": tree })),
+        let capture = if tool.mutates() {
+            match self.capture_before(&scope.plan.workspace, tool.touches(&ctx, &input)).await {
+                Ok(capture) => Some(capture),
                 Err(error) => {
-                    // No snapshot means no way back, so the write does not happen.
-                    self.settle(&mut row, ToolStatus::Error, None, format!("refused to write: could not snapshot the workspace first ({error})"), None);
+                    // Nothing recorded means no way back, so the write does not happen.
+                    self.settle(&mut row, ToolStatus::Error, None, format!("refused to write: could not record the files first ({error})"), None);
                     return Outcome::Allowed;
                 }
             }
@@ -626,15 +624,20 @@ impl Engine {
             result = tool.run(&ctx, input) => result,
             () = scope.abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
         };
-        match result {
+        let (status, title, text, meta) = match result {
             Ok(output) => {
                 let status = if tool.failed(&output) { ToolStatus::Error } else { ToolStatus::Done };
                 let formatted = if tool.mutates() { self.format_written(scope.plan, &output.metadata).await } else { Vec::new() };
-                let meta = merge(output.metadata, snapshot_meta).map(|m| with_formatted(m, formatted));
-                self.settle(&mut row, status, Some(output.title), output.output, meta)
+                (status, Some(output.title), output.output, with_formatted(output.metadata, formatted))
             }
-            Err(error) => self.settle(&mut row, ToolStatus::Error, None, error.0, snapshot_meta),
-        }
+            Err(error) => (ToolStatus::Error, None, error.0, serde_json::Value::Null),
+        };
+        // After formatting, and on failure too: a failed or stopped command may still have written.
+        let changes = match capture {
+            Some(capture) => self.capture_after(&scope.plan.workspace, capture).await.ok().map(|changes| json!({ "changes": changes })),
+            None => None,
+        };
+        self.settle(&mut row, status, title, text, merge(meta, changes));
         if scope.abort.is_cancelled() { Outcome::Aborted } else { Outcome::Allowed }
     }
 
@@ -707,7 +710,6 @@ struct CallScope<'a> {
     plan: &'a Plan,
     message: &'a Message,
     files: &'a Arc<SessionFiles>,
-    snapshot: &'a tokio::sync::OnceCell<Result<String, String>>,
     offered: &'a std::collections::HashSet<String>,
     abort: &'a CancellationToken,
 }

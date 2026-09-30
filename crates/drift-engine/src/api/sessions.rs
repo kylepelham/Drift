@@ -9,6 +9,7 @@ use utoipa::{IntoParams, ToSchema};
 use super::error::ApiError;
 use crate::event::Event;
 use crate::session::branch::BranchDraft;
+use crate::session::revert::Undone;
 use crate::session::turn::{Prompt, Receipt};
 use crate::session::types::{MessageWithParts, ModelRef, Session, Visibility};
 use crate::store::{NewSession, SessionFilter};
@@ -157,15 +158,16 @@ pub struct RevertBody {
     pub message_id: String,
 }
 
-/// Undoes the conversation back to a prompt, files included. Again while undone moves the point.
-#[utoipa::path(post, path = "/sessions/{id}/revert", operation_id = "revertSession", request_body = RevertBody, responses((status = 200, body = Session), (status = 400), (status = 404), (status = 409)))]
-pub async fn revert(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<RevertBody>) -> Result<Json<Session>, ApiError> {
+/// Undoes the conversation back to a prompt, and the files its turns and subagents changed. Files
+/// changed by someone else since are kept and listed. Again while undone moves the point.
+#[utoipa::path(post, path = "/sessions/{id}/revert", operation_id = "revertSession", request_body = RevertBody, responses((status = 200, body = Undone), (status = 400), (status = 404), (status = 409)))]
+pub async fn revert(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<RevertBody>) -> Result<Json<Undone>, ApiError> {
     Ok(Json(engine.revert(&id, &body.message_id).await?))
 }
 
-/// Redoes everything an undo hid, files included.
-#[utoipa::path(post, path = "/sessions/{id}/unrevert", operation_id = "unrevertSession", responses((status = 200, body = Session), (status = 404), (status = 409)))]
-pub async fn unrevert(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Session>, ApiError> {
+/// Redoes everything an undo hid, files included, keeping any changed since.
+#[utoipa::path(post, path = "/sessions/{id}/unrevert", operation_id = "unrevertSession", responses((status = 200, body = Undone), (status = 404), (status = 409)))]
+pub async fn unrevert(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Undone>, ApiError> {
     Ok(Json(engine.unrevert(&id).await?))
 }
 

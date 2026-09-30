@@ -220,13 +220,17 @@ test("/compact asks the engine to compact and reports a refusal; the auto settin
 test("undo and redo apply the engine's session and report refusals", async () => {
   const h = harness({
     revertSession: (id: string, messageId: string) =>
-      id === "ses_busy" ? Promise.reject(new EngineError(409, `/sessions/${id}/revert`, "busy", "stop the running turn first")) : Promise.resolve({ ...session(id), revert: { messageId } }),
-    unrevertSession: (id: string) => Promise.resolve(session(id)),
+      id === "ses_busy"
+        ? Promise.reject(new EngineError(409, `/sessions/${id}/revert`, "busy", "stop the running turn first"))
+        : Promise.resolve({ session: { ...session(id), revert: { messageId } }, kept: [] }),
+    unrevertSession: (id: string) => Promise.resolve({ session: session(id), kept: ["src/app.ts"] }),
   } as Partial<Client>)
   expect(await h.actions.revert("ses_1", "msg_2")).toBeTrue()
   expect((h.state.sessions.ses_1 as { revert?: { messageID: string } }).revert?.messageID).toBe("msg_2")
+  expect(h.state.notices.length).toBe(0)
   expect(await h.actions.unrevert("ses_1")).toBeTrue()
   expect((h.state.sessions.ses_1 as { revert?: unknown }).revert).toBeUndefined()
+  expect(h.state.notices.some((n) => n.title === "Kept your changes" && n.message.includes("src/app.ts"))).toBeTrue()
   expect(await h.actions.revert("ses_busy", "msg_2")).toBeFalse()
   expect(h.state.notices.some((n) => n.title === "Couldn't undo")).toBeTrue()
 })

@@ -36,6 +36,19 @@ impl Tool for ApplyPatch {
         true
     }
 
+    /// Every file the patch names, including where a moved file lands.
+    fn touches(&self, ctx: &Context, input: &Value) -> Option<Vec<std::path::PathBuf>> {
+        let ops = patch::parse(input["patch"].as_str()?).ok()?;
+        let mut paths = Vec::new();
+        for op in &ops {
+            paths.push(ctx.resolve(op.path()));
+            if let Op::Update { move_to: Some(to), .. } = op {
+                paths.push(ctx.resolve(to));
+            }
+        }
+        Some(paths)
+    }
+
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let ops = patch::parse(required_str(&input, "patch")?)?;

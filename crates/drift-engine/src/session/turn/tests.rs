@@ -146,7 +146,9 @@ async fn asks_wait_for_a_reply_and_mutations_snapshot_first() {
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let Part::ToolCall { status, metadata, .. } = &transcript[1].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Done);
-    assert!(metadata.as_ref().unwrap()["snapshot"].is_string(), "{metadata:?}");
+    let changes = &metadata.as_ref().unwrap()["changes"];
+    assert_eq!(changes[0]["path"], "new.txt", "{metadata:?}");
+    assert!(changes[0]["before"].is_null() && changes[0]["after"].is_string(), "a new file: nothing before, a blob after");
 }
 
 #[tokio::test]
@@ -173,7 +175,7 @@ async fn a_shell_call_shows_its_limit_while_running_and_fails_when_it_expires() 
     assert_eq!(*status, ToolStatus::Error);
     let metadata = metadata.as_ref().unwrap();
     assert_eq!((metadata["timedOut"].as_bool(), metadata["shellTimeoutMs"].as_u64()), (Some(true), Some(400)));
-    assert!(metadata["snapshot"].is_string(), "the snapshot survives next to the timeout details");
+    assert!(metadata["changes"].is_array(), "what the command changed is recorded next to the timeout details");
 }
 
 #[tokio::test]
@@ -445,7 +447,7 @@ async fn submission_ids_survive_a_restart_and_reject_a_different_payload() {
 }
 
 #[tokio::test]
-async fn a_write_is_refused_when_the_snapshot_cannot_be_taken() {
+async fn a_write_is_refused_when_its_files_cannot_be_recorded() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
     // A file where the snapshot directory must go makes every snapshot fail.
@@ -453,11 +455,11 @@ async fn a_write_is_refused_when_the_snapshot_cannot_be_taken() {
     h.provider.push(tool_call("write", r#"{"path": "new.txt", "content": "x\n"}"#)).push(text("noted"));
     h.engine.submit(&h.session.id, prompt("write")).await.await_ok();
     until_idle(&h).await;
-    assert!(!h._dir.join("ws/new.txt").exists(), "nothing may be written without a snapshot");
+    assert!(!h._dir.join("ws/new.txt").exists(), "nothing may be written that could not be undone");
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Error);
-    assert!(output.as_deref().unwrap().contains("could not snapshot"));
+    assert!(output.as_deref().unwrap().contains("could not record the files"));
 }
 
 #[tokio::test]
@@ -552,7 +554,7 @@ async fn a_call_to_a_tool_the_run_did_not_offer_is_refused_before_anything_happe
     let Part::ToolCall { status, output, metadata, .. } = &transcript[1].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Error);
     assert!(output.as_deref().unwrap().contains("not available in this session"));
-    assert!(metadata.is_none(), "no snapshot was taken");
+    assert!(metadata.is_none(), "nothing was recorded for a call that never ran");
 }
 
 #[tokio::test]

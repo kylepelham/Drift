@@ -46,15 +46,14 @@ pub struct Session {
     pub running: bool,
 }
 
-/// An undo in progress: the user message it went back to, hidden with everything after it, and the
-/// working tree from before the first undo, which redo puts back.
+/// An undo in progress: the user message it went back to, hidden with everything after it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Revert {
     pub message_id: String,
-    /// `None` when the tree could not be recorded; redo then restores the conversation only.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub snapshot: Option<String>,
+    /// Files the last undo or redo left alone because someone changed them after the session did.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kept: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

@@ -42,8 +42,9 @@ async fn undo_redo_and_moving_the_point_keep_files_and_history_in_step() {
     let (first, second) = two_writing_turns(&h).await;
     assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt").as_deref()), (Some("two"), Some("bee")));
 
-    let session = h.engine.revert(&h.session.id, &second).await.unwrap();
-    assert_eq!(session.revert.as_ref().unwrap().message_id, second);
+    let undone = h.engine.revert(&h.session.id, &second).await.unwrap();
+    assert_eq!(undone.session.revert.as_ref().unwrap().message_id, second);
+    assert!(undone.kept.is_empty());
     assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt")), (Some("one"), None), "back to before the second prompt");
 
     h.engine.revert(&h.session.id, &first).await.unwrap();
@@ -52,10 +53,63 @@ async fn undo_redo_and_moving_the_point_keep_files_and_history_in_step() {
     h.engine.revert(&h.session.id, &second).await.unwrap();
     assert_eq!(read(&h, "a.txt").as_deref(), Some("one"), "moving the point forward redoes the first turn");
 
-    let session = h.engine.unrevert(&h.session.id).await.unwrap();
-    assert!(session.revert.is_none());
+    let redone = h.engine.unrevert(&h.session.id).await.unwrap();
+    assert!(redone.session.revert.is_none() && redone.kept.is_empty());
     assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt").as_deref()), (Some("two"), Some("bee")), "redo returns everything");
     assert_eq!(h.engine.store.transcript(&h.session.id).unwrap().len(), 7, "nothing was deleted along the way");
+}
+
+#[tokio::test]
+async fn undo_leaves_the_users_own_work_alone() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/notes.txt"), "mine\n").unwrap();
+    let untouched = std::fs::metadata(h._dir.join("ws/notes.txt")).unwrap().modified().unwrap();
+    let (_, second) = two_writing_turns(&h).await;
+    // After the session's work: the user edits a file the session never touched and creates another.
+    std::fs::write(h._dir.join("ws/notes.txt"), "mine, edited\n").unwrap();
+    std::fs::write(h._dir.join("ws/fresh.txt"), "new idea\n").unwrap();
+    let edited = std::fs::metadata(h._dir.join("ws/notes.txt")).unwrap().modified().unwrap();
+    assert_ne!(untouched, edited);
+
+    h.engine.revert(&h.session.id, &second).await.unwrap();
+    assert_eq!(read(&h, "notes.txt").as_deref(), Some("mine, edited\n"), "an unrelated edit survives the undo");
+    assert_eq!(read(&h, "fresh.txt").as_deref(), Some("new idea\n"), "a file the user created survives the undo");
+    assert_eq!(std::fs::metadata(h._dir.join("ws/notes.txt")).unwrap().modified().unwrap(), edited, "an unrelated file is not even rewritten");
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("one"), "the session's own change is undone");
+    h.engine.unrevert(&h.session.id).await.unwrap();
+    assert_eq!((read(&h, "notes.txt").as_deref(), read(&h, "fresh.txt").as_deref()), (Some("mine, edited\n"), Some("new idea\n")));
+}
+
+#[tokio::test]
+async fn a_file_edited_after_the_session_wrote_it_is_kept_and_reported() {
+    let h = harness().await;
+    let (_, second) = two_writing_turns(&h).await;
+    std::fs::write(h._dir.join("ws/a.txt"), "the user's fix\n").unwrap();
+    let undone = h.engine.revert(&h.session.id, &second).await.unwrap();
+    assert_eq!(undone.kept, ["a.txt"]);
+    assert_eq!(undone.session.revert.as_ref().unwrap().kept, ["a.txt"], "the marker carries it for the UI");
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("the user's fix\n"), "never overwritten");
+    assert_eq!(read(&h, "b.txt"), None, "the rest of the turn is still undone");
+
+    std::fs::write(h._dir.join("ws/b.txt"), "user recreated it\n").unwrap();
+    let redone = h.engine.unrevert(&h.session.id).await.unwrap();
+    assert_eq!(redone.kept.len(), 2, "redo keeps both files that differ from what the undo left");
+    assert_eq!(read(&h, "b.txt").as_deref(), Some("user recreated it\n"));
+}
+
+#[tokio::test]
+async fn a_shell_commands_changes_are_undone_but_not_what_was_there_before() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    std::fs::write(h._dir.join("ws/existing.txt"), "before\n").unwrap();
+    // Valid in bash and PowerShell alike, whichever the machine's shell is.
+    h.provider.push(tool_call("bash", r#"{"command": "echo made > made.txt"}"#)).push(text("made it"));
+    turn(&h, "make a file").await;
+    assert!(read(&h, "made.txt").is_some_and(|text| text.contains("made")));
+    let prompt_id = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
+    h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
+    assert_eq!(read(&h, "made.txt"), None);
+    assert_eq!(read(&h, "existing.txt").as_deref(), Some("before\n"));
 }
 
 #[tokio::test]

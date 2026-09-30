@@ -35,6 +35,10 @@ impl Tool for Write {
         true
     }
 
+    fn touches(&self, ctx: &Context, input: &Value) -> Option<Vec<std::path::PathBuf>> {
+        Some(vec![ctx.resolve(input["path"].as_str()?)])
+    }
+
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let path = ctx.resolve(required_str(&input, "path")?);

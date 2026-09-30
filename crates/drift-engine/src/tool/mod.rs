@@ -150,9 +150,14 @@ pub trait Tool: Send + Sync {
     fn spec(&self) -> ToolSpec;
     /// `None` means the call needs no permission at all.
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask>;
-    /// Whether this call writes outside memory, so the session is snapshotted first.
+    /// Whether this call writes outside memory, so what it changes is recorded for undo.
     fn mutates(&self) -> bool {
         false
+    }
+    /// The files a writing call will change, when it can say up front. `None` means anything might
+    /// change, so the workspace is compared before and after instead.
+    fn touches(&self, _ctx: &Context, _input: &Value) -> Option<Vec<PathBuf>> {
+        None
     }
     /// A result that still reports failure, for tools whose failures carry metadata the UI needs.
     fn failed(&self, _output: &Output) -> bool {

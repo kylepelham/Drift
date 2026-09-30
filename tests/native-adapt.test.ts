@@ -80,8 +80,8 @@ test("tool call statuses become legacy tool states", () => {
 })
 
 test("an undo marker and a removed message reach the reducer in its vocabulary", () => {
-  const undone = adaptSession({ ...session, revert: { messageId: "msg_5", snapshot: "tree" } }, workspaces)
-  expect((undone as { revert?: unknown }).revert).toEqual({ messageID: "msg_5", snapshot: "tree" })
+  const undone = adaptSession({ ...session, revert: { messageId: "msg_5", kept: ["a.txt"] } }, workspaces)
+  expect((undone as { revert?: unknown }).revert).toEqual({ messageID: "msg_5" })
   expect((adaptSession(session, workspaces) as { revert?: unknown }).revert).toBeUndefined()
   expect(adaptEvent({ type: "message.removed", sessionId: "ses_1", messageId: "msg_5" }, workspaces)).toEqual({
     type: "message.removed",
