@@ -38,6 +38,8 @@ const MAX_BACKOFF: Duration = Duration::from_secs(60);
 const MAX_REQUESTED_WAIT: Duration = Duration::from_secs(10 * 60);
 /// Output cap when the model allows more; keeps a runaway response from burning the budget.
 const MAX_OUTPUT_TOKENS: u32 = 32_000;
+/// How long a prompt waits for a job that is not a turn (a compaction, an undo) before it is refused.
+const QUEUE_WAIT: Duration = Duration::from_secs(30);
 /// A finished reply's `error` when it stopped at the output limit rather than ending on its own.
 pub const OUTPUT_LIMIT_ENDING: &str = "The reply stopped at the output limit";
 /// What a thinking budget always leaves for the answer itself.
@@ -117,6 +119,9 @@ pub struct Turns {
     ended: Mutex<HashMap<String, TurnEnd>>,
     /// Turns waiting out a retry backoff, each ready to take a model the user switches to.
     retry_waits: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Resolved>>>,
+    /// Sessions whose running job is a turn still taking prompts sent while it runs. Admitting one and
+    /// a turn deciding it is done both hold this lock, so no prompt lands after the turn stops looking.
+    steering: Mutex<std::collections::HashSet<String>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
 }
@@ -217,7 +222,7 @@ impl Engine {
         // Claimed before planning: the plan captures the workspace, so a move must not slip in while it resolves.
         let abort = parent.map_or_else(CancellationToken::new, CancellationToken::child_token);
         if !self.turns.claim(session_id, &abort) {
-            return Err(TurnError::Busy);
+            return self.steer_or_queue(session_id, prompt, parent, &payload_hash).await;
         }
         let plan = match self.plan(session_id, &prompt).await {
             Ok(plan) => plan,
@@ -227,14 +232,22 @@ impl Engine {
             }
         };
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash.as_str()));
-        let admitted = self.store.admit_prompt(session_id, &plan.model_ref, prompt.parts, submission);
-        let Admitted { message, parts, session, discarded } = match admitted {
+        let admitted = match self.store.admit_prompt(session_id, &plan.model_ref, prompt.parts, submission) {
             Ok(admitted) => admitted,
             Err(error) => {
                 self.turns.release(session_id);
                 return Err(error.into());
             }
         };
+        let receipt = self.announce(session_id, admitted);
+        self.turns.steering.lock().unwrap().insert(session_id.into());
+        let engine = self.clone();
+        self.spawn_job(session_id, async move { engine.run(plan, abort).await });
+        Ok(receipt)
+    }
+
+    fn announce(&self, session_id: &str, admitted: Admitted) -> Receipt {
+        let Admitted { message, parts, session, discarded } = admitted;
         for message_id in discarded {
             self.hub.publish(Event::MessageRemoved { session_id: session_id.into(), message_id });
         }
@@ -243,9 +256,35 @@ impl Engine {
             self.hub.publish(Event::PartCreated { part: row });
         }
         self.hub.publish(Event::SessionUpdated { session: session.clone() });
-        let engine = self.clone();
-        self.spawn_job(session_id, async move { engine.run(plan, abort).await });
-        Ok(Receipt { session, message })
+        Receipt { session, message }
+    }
+
+    /// A prompt for a busy session. A running turn takes it at its next model request (after the
+    /// calls in flight finish, so their results come first). Any other job, such as a compaction or an
+    /// undo, is waited out for up to [`QUEUE_WAIT`], then the prompt starts a turn of its own.
+    async fn steer_or_queue(self: &Arc<Self>, session_id: &str, prompt: Prompt, parent: Option<&CancellationToken>, payload_hash: &str) -> Result<Receipt, TurnError> {
+        if let Some(receipt) = self.steer(session_id, &prompt, payload_hash)? {
+            return Ok(receipt);
+        }
+        let never = CancellationToken::new();
+        if tokio::time::timeout(QUEUE_WAIT, self.turns.wait_idle(session_id, &never)).await.is_err() {
+            return Err(TurnError::Busy);
+        }
+        Box::pin(self.submit_under(session_id, prompt, parent)).await
+    }
+
+    /// Admits `prompt` into the turn running in `session_id`, if one is running and still taking prompts.
+    fn steer(&self, session_id: &str, prompt: &Prompt, payload_hash: &str) -> Result<Option<Receipt>, TurnError> {
+        let steering = self.turns.steering.lock().unwrap();
+        if !steering.contains(session_id) {
+            return Ok(None);
+        }
+        let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
+        let model_ref = prompt.model.clone().or(session.model).ok_or(TurnError::NoModel)?;
+        let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
+        let admitted = self.store.admit_prompt(session_id, &model_ref, prompt.parts.clone(), submission)?;
+        drop(steering);
+        Ok(Some(self.announce(session_id, admitted)))
     }
 
     /// Runs `job` in a session already claimed: reports it running, then idle and releases it when done.
@@ -259,6 +298,7 @@ impl Engine {
                 eprintln!("drift: a job for session {id} failed: {failure}");
             }
             engine.turns.retry_waits.lock().unwrap().remove(&id);
+            engine.turns.steering.lock().unwrap().remove(&id);
             engine.turns.active.lock().unwrap().remove(&id);
             engine.hub.publish(Event::SessionStatusChanged { session_id: id, status: SessionStatus::Idle });
             engine.turns.finished.notify_waiters();
@@ -338,20 +378,48 @@ impl Engine {
         llm::provider_for(id, catalog_api)
     }
 
+    /// Steps until the model is done, then again for any prompt steered in meanwhile.
     async fn run(self: &Arc<Self>, mut plan: Plan, abort: CancellationToken) {
         self.title_untitled(&plan.session);
-        let mut offer = self.offer(&plan);
+        loop {
+            let answered = self.run_steps(&mut plan, &abort).await;
+            if abort.is_cancelled() || !self.steered_after(&plan.session.id, answered.as_deref()) {
+                break;
+            }
+        }
+        self.turns.steering.lock().unwrap().remove(&plan.session.id);
+        self.record_end(&plan.session, &abort);
+    }
+
+    /// Under the steering lock: whether a prompt arrived after the last one this turn answered. If
+    /// none did, the turn stops taking prompts in the same breath, so none can land unanswered.
+    fn steered_after(&self, session_id: &str, answered: Option<&str>) -> bool {
+        let mut steering = self.turns.steering.lock().unwrap();
+        let transcript = self.store.transcript(session_id).unwrap_or_default();
+        let newest = transcript.iter().rev().find(|m| m.info.role == Role::User).map(|m| m.info.id.as_str());
+        let steered = matches!((newest, answered), (Some(newest), Some(answered)) if newest > answered);
+        if !steered {
+            steering.remove(session_id);
+        }
+        steered
+    }
+
+    /// One run of model steps; returns the newest prompt the last request included.
+    async fn run_steps(self: &Arc<Self>, plan: &mut Plan, abort: &CancellationToken) -> Option<String> {
+        let mut offer = self.offer(plan);
         let mut attempts = 0;
         let mut recovered = false;
         let limits = plan.config.limits_for(&plan.session.agent);
         let mut steps = 0;
         let mut repeats = Repeats::default();
+        let mut answered = None;
         loop {
             if steps >= limits.steps {
-                self.pause(&plan, format!("Paused after {steps} steps, this turn's limit. Send a message to carry on."));
+                self.pause(plan, format!("Paused after {steps} steps, this turn's limit. Send a message to carry on."));
                 break;
             }
-            let Some(transcript) = self.transcript_for_step(&plan, &abort).await else { break };
+            let Some(transcript) = self.transcript_for_step(plan, abort).await else { break };
+            answered = transcript.iter().rev().find(|m| m.info.role == Role::User).map(|m| m.info.id.clone());
             let (max_tokens, thinking_budget) = budgets(&plan.model, plan.thinking_budget);
             let request = Request {
                 model: plan.model_ref.model.clone(),
@@ -364,24 +432,24 @@ impl Engine {
             };
             let Ok(message) = self.store.create_message(&plan.session.id, Role::Assistant, Some(&plan.model_ref)) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });
-            match self.step(&plan, message, &request, &offer.offered, &abort).await {
+            match self.step(plan, message, &request, &offer.offered, abort).await {
                 Step::Done => break,
                 Step::Continue => {
                     attempts = 0;
                     steps += 1;
                     if let Some(times) = repeats.record(self.last_calls(&plan.session.id), &limits) {
                         let reason = format!("Paused: the last {times} steps made the same calls and got the same results. Send a message to carry on or change course.");
-                        self.pause(&plan, reason);
+                        self.pause(plan, reason);
                         break;
                     }
                 }
                 Step::Retry(retry) if retry.allowed(attempts) => {
                     attempts += 1;
-                    match self.wait_to_retry(&plan.session.id, attempts, &retry, &abort).await {
+                    match self.wait_to_retry(&plan.session.id, attempts, &retry, abort).await {
                         Wait::Elapsed => {}
                         Wait::Switched(resolved) => {
-                            self.adopt(&mut plan, *resolved);
-                            offer = self.offer(&plan);
+                            self.adopt(plan, *resolved);
+                            offer = self.offer(plan);
                             attempts = 0;
                         }
                         Wait::Stopped => break,
@@ -391,14 +459,14 @@ impl Engine {
                 // A request too long for the model is compacted once and retried.
                 Step::Overflow if !recovered => {
                     recovered = true;
-                    if self.compact(&plan.session.id, Trigger::Overflow, &abort).await.is_err() {
+                    if self.compact(&plan.session.id, Trigger::Overflow, abort).await.is_err() {
                         break;
                     }
                 }
                 Step::Overflow => break,
             }
         }
-        self.record_end(&plan.session, &abort);
+        answered
     }
 
     /// The tools and system prompt for the plan's model and agent. What was offered is what may run:
