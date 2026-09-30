@@ -63,7 +63,7 @@ async fn undo_redo_and_moving_the_point_keep_files_and_history_in_step() {
 async fn every_blob_undo_needs_is_kept_through_a_prune() {
     let h = harness().await;
     let (_, second) = two_writing_turns(&h).await;
-    let kept = h.engine.store.recorded_blobs(&h.session.workspace_id).unwrap();
+    let kept = h.engine.store.recorded_blobs().unwrap().remove(&h.session.workspace_id).unwrap();
     let workspace = crate::tool::canonical(&h._dir.join("ws"));
     let current = h.engine.snapshots.current(&workspace, "a.txt").await.unwrap().unwrap();
     assert!(kept.contains(&current), "the blob a redo would restore is referenced");
@@ -246,6 +246,28 @@ async fn a_user_edit_between_two_session_writes_survives_undo_and_redo() {
     let undone = h.engine.revert(&h.session.id, &second).await.unwrap();
     assert!(undone.kept.is_empty(), "within one unbroken change, undo still works");
     assert_eq!(read(&h, "a.txt").as_deref(), Some("the user's line\n"), "back to where the user left it");
+}
+
+#[tokio::test]
+async fn undo_after_a_move_changes_the_files_where_they_were_written() {
+    let h = harness().await;
+    allow_writes(&h);
+    h.provider.push(write("a.txt", "written in A")).push(text("done"));
+    turn(&h, "write it").await;
+    let elsewhere = h._dir.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("a.txt"), "B's own file\n").unwrap();
+    let b = h.engine.store.add_workspace(&elsewhere.to_string_lossy(), "B", "").unwrap();
+    h.engine.move_session(&h.session.id, &b.id).unwrap();
+    h.engine.prune_snapshots().await;
+
+    let first = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
+    let undone = h.engine.revert(&h.session.id, &first).await.expect("no error after the move");
+    assert!(undone.kept.is_empty(), "{:?}", undone.kept);
+    assert_eq!(read(&h, "a.txt"), None, "undone in A, where it was written");
+    assert_eq!(std::fs::read_to_string(elsewhere.join("a.txt")).unwrap(), "B's own file\n", "B is untouched");
+    h.engine.unrevert(&h.session.id).await.unwrap();
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("written in A"), "the blob survived the prune after the move");
 }
 
 #[tokio::test]

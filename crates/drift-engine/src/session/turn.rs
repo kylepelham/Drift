@@ -747,6 +747,7 @@ impl Engine {
             }
         }
         let capture = if tool.mutates() {
+            self.snapshots.bind(&scope.plan.session.workspace_id, &scope.plan.workspace);
             match self.capture_before(&scope.plan.workspace, tool.touches(&ctx, &input)).await {
                 Ok(capture) => Some(capture),
                 Err(error) => {
@@ -789,9 +790,13 @@ impl Engine {
         }
         // After formatting, and on failure too: a failed or stopped command may still have written.
         let changes = match capture {
-            Some(capture) => self.capture_after(&scope.plan.workspace, capture).await.ok().map(|recorded| match recorded.unrecorded.is_empty() {
-                true => json!({ "changes": recorded.changes }),
-                false => json!({ "changes": recorded.changes, "unrecorded": recorded.unrecorded }),
+            // `owner` names the workspace whose history holds these blobs, wherever it or the session moves.
+            Some(capture) => self.capture_after(&scope.plan.workspace, capture).await.ok().map(|recorded| {
+                let mut changes = json!({ "changes": recorded.changes, "owner": scope.plan.session.workspace_id });
+                if !recorded.unrecorded.is_empty() {
+                    changes["unrecorded"] = json!(recorded.unrecorded);
+                }
+                changes
             }),
             None => None,
         };

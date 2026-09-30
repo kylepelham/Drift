@@ -42,23 +42,28 @@ impl Store {
             .collect()
     }
 
-    /// Every shadow blob a recorded change in the workspace refers to, archived sessions included:
-    /// what undo and redo could still need.
-    pub fn recorded_blobs(&self, workspace_id: &str) -> rusqlite::Result<Vec<String>> {
-        let conn = self.lock();
-        let mut statement = conn.prepare_cached(
-            "SELECT p.json FROM part p JOIN session s ON s.id = p.session_id WHERE s.workspace_id = ?1 AND p.json LIKE '%\"changes\"%'",
-        )?;
-        let rows = statement.query_map([workspace_id], |row| row.get::<_, String>(0))?;
-        let mut blobs = std::collections::BTreeSet::new();
-        for json in rows {
-            let Ok(Part::ToolCall { metadata: Some(metadata), .. }) = serde_json::from_str::<Part>(&json?) else { continue };
+    /// Every shadow blob a recorded change refers to, archived sessions included, grouped by the
+    /// workspace that owns its history (recorded with the change; the session's workspace for older
+    /// records): what undo and redo could still need. Rows are collected under the database lock;
+    /// the JSON is read after it is released.
+    pub fn recorded_blobs(&self) -> rusqlite::Result<HashMap<String, Vec<String>>> {
+        let rows: Vec<(String, String)> = {
+            let conn = self.lock();
+            let mut statement = conn.prepare_cached("SELECT s.workspace_id, p.json FROM part p JOIN session s ON s.id = p.session_id WHERE p.json LIKE '%\"changes\"%'")?;
+            let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        let mut blobs: HashMap<String, std::collections::BTreeSet<String>> = HashMap::new();
+        for (session_workspace, json) in rows {
+            let Ok(Part::ToolCall { metadata: Some(metadata), .. }) = serde_json::from_str::<Part>(&json) else { continue };
             let Some(changes) = metadata.get("changes").and_then(|c| c.as_array()) else { continue };
+            let owner = metadata["owner"].as_str().map_or(session_workspace, str::to_string);
+            let kept = blobs.entry(owner).or_default();
             for change in changes {
-                blobs.extend(["before", "after"].iter().filter_map(|side| change[side].as_str().map(str::to_string)));
+                kept.extend(["before", "after"].iter().filter_map(|side| change[side].as_str().map(str::to_string)));
             }
         }
-        Ok(blobs.into_iter().collect())
+        Ok(blobs.into_iter().map(|(owner, set)| (owner, set.into_iter().collect())).collect())
     }
 
     pub fn move_sessions(&self, ids: &[String], workspace_id: &str) -> rusqlite::Result<()> {

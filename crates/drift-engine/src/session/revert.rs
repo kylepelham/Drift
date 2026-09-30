@@ -44,6 +44,8 @@ pub struct Undone {
 
 /// A path's net change over a range, and whether its chain of changes was broken by someone else's edit.
 struct Net {
+    /// The workspace whose history and directory the change belongs to.
+    owner: String,
     change: FileChange,
     broken: bool,
 }
@@ -88,11 +90,10 @@ impl Engine {
         if !self.store.transcript(session_id)?.iter().any(|m| m.info.id == message_id && is_prompt(m)) {
             return Err(RevertError::NotAPrompt);
         }
-        let workspace = self.workspace_of(&session)?;
         let shifted = match session.revert.as_ref().map(|r| r.message_id.as_str()) {
-            None => self.shift(&session, &workspace, message_id, None, Direction::Back).await?,
-            Some(current) if message_id < current => self.shift(&session, &workspace, message_id, Some(current), Direction::Back).await?,
-            Some(current) if message_id > current => self.shift(&session, &workspace, current, Some(message_id), Direction::Forward).await?,
+            None => self.shift(&session, message_id, None, Direction::Back).await?,
+            Some(current) if message_id < current => self.shift(&session, message_id, Some(current), Direction::Back).await?,
+            Some(current) if message_id > current => self.shift(&session, current, Some(message_id), Direction::Forward).await?,
             Some(_) => Shifted::default(),
         };
         let session = self.mark(session_id, Some(&Revert { message_id: message_id.into(), kept: shifted.kept.clone() }))?;
@@ -102,27 +103,28 @@ impl Engine {
     async fn unrevert_claimed(&self, session_id: &str) -> Result<Undone, RevertError> {
         let session = self.store.session(session_id)?.ok_or(RevertError::NoSession)?;
         let Some(revert) = &session.revert else { return Ok(Undone { session, kept: Vec::new(), unattributed: Vec::new() }) };
-        let workspace = self.workspace_of(&session)?;
-        let shifted = self.shift(&session, &workspace, &revert.message_id, None, Direction::Forward).await?;
+        let shifted = self.shift(&session, &revert.message_id, None, Direction::Forward).await?;
         Ok(Undone { session: self.mark(session_id, None)?, kept: shifted.kept, unattributed: shifted.unattributed })
     }
 
     /// Applies the net change of the turns in `[from, to)` in one direction. A file whose content is
     /// not what that change expects was edited by someone else since; it is kept, not overwritten. A
-    /// change only observed while a command ran is never applied: it may not be the session's.
-    async fn shift(&self, session: &Session, workspace: &Path, from: &str, to: Option<&str>, direction: Direction) -> Result<Shifted, RevertError> {
+    /// change only observed while a command ran is never applied: it may not be the session's. Each
+    /// change is applied where its owning workspace is now, whichever workspace the session is in.
+    async fn shift(&self, session: &Session, from: &str, to: Option<&str>, direction: Direction) -> Result<Shifted, RevertError> {
         let mut shifted = Shifted::default();
-        for Net { change, broken } in self.net_changes(session, from, to)? {
+        for Net { owner, change, broken } in self.net_changes(session, from, to)? {
             if change.observed {
                 shifted.unattributed.push(change.path);
                 continue;
             }
-            // Someone else changed the file between two of the session's writes: undoing to the first
-            // before, or redoing to the last after, would erase their edit.
-            if broken {
+            // Someone else changed the file between two of the session's writes (undoing to the first
+            // before, or redoing to the last after, would erase their edit), or the workspace is gone.
+            let Some(workspace) = self.root_of(&owner).filter(|_| !broken) else {
                 shifted.kept.push(change.path);
                 continue;
-            }
+            };
+            let workspace = workspace.as_path();
             let (expected, target) = match direction {
                 Direction::Back => (change.after, change.before),
                 Direction::Forward => (change.before, change.after),
@@ -141,26 +143,28 @@ impl Engine {
     /// session and its subagents. Ids are time-ordered, so sorting by them orders calls across sessions.
     /// A path whose next change did not start where the previous one ended is `broken`.
     fn net_changes(&self, session: &Session, from: &str, to: Option<&str>) -> Result<Vec<Net>, RevertError> {
-        let mut calls: Vec<(String, String, Vec<FileChange>)> = Vec::new();
+        let mut calls: Vec<(String, String, String, Vec<FileChange>)> = Vec::new();
         for member in self.store.session_tree(&session.id)? {
             for message in self.store.transcript(&member)?.iter().filter(|m| m.info.id.as_str() >= from && to.is_none_or(|to| m.info.id.as_str() < to)) {
                 for row in &message.parts {
-                    if let Some(changes) = recorded_changes(&row.part) {
-                        calls.push((message.info.id.clone(), row.id.clone(), changes));
+                    if let Some((owner, changes)) = recorded_changes(&row.part) {
+                        // Recorded before changes named their owner: the session's workspace then and now.
+                        let owner = owner.unwrap_or_else(|| session.workspace_id.clone());
+                        calls.push((message.info.id.clone(), row.id.clone(), owner, changes));
                     }
                 }
             }
         }
         calls.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
         let mut net: Vec<Net> = Vec::new();
-        for change in calls.into_iter().flat_map(|(_, _, changes)| changes) {
-            match net.iter_mut().find(|n| n.change.path == change.path) {
+        for (owner, change) in calls.into_iter().flat_map(|(_, _, owner, changes)| changes.into_iter().map(move |c| (owner.clone(), c))) {
+            match net.iter_mut().find(|n| n.owner == owner && n.change.path == change.path) {
                 Some(existing) => {
                     existing.broken |= existing.change.after != change.before;
                     existing.change.after = change.after;
                     existing.change.observed |= change.observed;
                 }
-                None => net.push(Net { change, broken: false }),
+                None => net.push(Net { owner, change, broken: false }),
             }
         }
         net.retain(|n| n.broken || n.change.before != n.change.after);
@@ -173,9 +177,12 @@ impl Engine {
         Ok(session)
     }
 
-    fn workspace_of(&self, session: &Session) -> Result<PathBuf, RevertError> {
-        let workspace = self.store.workspace(&session.workspace_id)?.ok_or(RevertError::NoSession)?;
-        Ok(crate::tool::canonical(Path::new(&workspace.path)))
+    /// Where a workspace is now, bound to its history; `None` once the workspace is gone.
+    fn root_of(&self, owner: &str) -> Option<PathBuf> {
+        let workspace = self.store.workspace(owner).ok()??;
+        let root = crate::tool::canonical(Path::new(&workspace.path));
+        self.snapshots.bind(owner, &root);
+        Some(root)
     }
 }
 
@@ -183,9 +190,11 @@ fn is_prompt(message: &MessageWithParts) -> bool {
     message.info.role == Role::User && !message.parts.iter().any(|row| matches!(row.part, Part::Compaction { .. }))
 }
 
-fn recorded_changes(part: &Part) -> Option<Vec<FileChange>> {
+/// A call's recorded changes and the workspace that owns their history, when the record says.
+fn recorded_changes(part: &Part) -> Option<(Option<String>, Vec<FileChange>)> {
     let Part::ToolCall { metadata: Some(metadata), .. } = part else { return None };
-    serde_json::from_value(metadata.get("changes")?.clone()).ok()
+    let changes = serde_json::from_value(metadata.get("changes")?.clone()).ok()?;
+    Some((metadata["owner"].as_str().map(str::to_string), changes))
 }
 
 #[cfg(test)]

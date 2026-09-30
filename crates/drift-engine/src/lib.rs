@@ -180,10 +180,11 @@ impl Engine {
     /// Drops recorded file content no stored call refers to any more; content referenced by any stored
     /// call, archived ones included, is pinned. Failures only mean the store keeps more than it needs.
     pub async fn prune_snapshots(&self) {
-        let Ok(workspaces) = self.store.workspaces() else { return };
+        let (Ok(workspaces), Ok(mut blobs)) = (self.store.workspaces(), self.store.recorded_blobs()) else { return };
         for workspace in workspaces {
-            let Ok(keep) = self.store.recorded_blobs(&workspace.id) else { continue };
+            let keep = blobs.remove(&workspace.id).unwrap_or_default();
             let path = tool::canonical(Path::new(&workspace.path));
+            self.snapshots.bind(&workspace.id, &path);
             let _ = self.snapshots.prune(&path, &keep).await;
         }
     }

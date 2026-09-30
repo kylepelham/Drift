@@ -14,6 +14,8 @@ pub struct Snapshots {
     root: PathBuf,
     /// Index operations serialise per workspace: concurrent sessions and subagents share one index.
     locks: Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>,
+    /// Each bound workspace directory's shadow repo, named for its owner rather than its path.
+    owners: Mutex<HashMap<PathBuf, PathBuf>>,
 }
 
 /// One path a call changed: its content before and after as shadow blobs, `None` for no file.
@@ -77,14 +79,31 @@ impl std::fmt::Display for Error {
 
 impl Snapshots {
     pub fn new(data_dir: &Path) -> Self {
-        Self { root: data_dir.join("snapshots"), locks: Mutex::default() }
+        Self { root: data_dir.join("snapshots"), locks: Mutex::default(), owners: Mutex::default() }
     }
 
     fn lock_for(&self, workspace: &Path) -> Arc<tokio::sync::Mutex<()>> {
         self.locks.lock().unwrap().entry(self.git_dir(workspace)).or_default().clone()
     }
 
+    /// Ties a workspace directory to its owner (the workspace id), whose history does not depend on
+    /// where the directory is now: a session moved elsewhere, or a workspace pointed at a new path,
+    /// still finds it. A repo kept under the directory's old path-derived name is taken over once.
+    pub fn bind(&self, owner: &str, root: &Path) {
+        let owned = self.root.join(format!("ws-{}", owner.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "-")));
+        let legacy = self.path_dir(root);
+        if !owned.exists() && legacy.join("HEAD").exists() {
+            let _ = std::fs::rename(&legacy, &owned);
+        }
+        self.owners.lock().unwrap().insert(root.to_path_buf(), owned);
+    }
+
     fn git_dir(&self, workspace: &Path) -> PathBuf {
+        self.owners.lock().unwrap().get(workspace).cloned().unwrap_or_else(|| self.path_dir(workspace))
+    }
+
+    /// Where an unbound directory's history lives, derived from its path.
+    fn path_dir(&self, workspace: &Path) -> PathBuf {
         let key = workspace.to_string_lossy().to_lowercase().replace('\\', "/");
         let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
         for byte in key.bytes() {
@@ -279,10 +298,12 @@ impl Snapshots {
     }
 }
 
-/// Workspace files over the limit, relative with `/`, found the way git would (ignore rules apply).
+/// Workspace files over the limit, relative with `/`, found the way git would (ignore rules apply,
+/// in a directory that is not a git repository too).
 fn large_files(root: &Path) -> Vec<(String, Stamp)> {
     ignore::WalkBuilder::new(root)
         .hidden(false)
+        .require_git(false)
         .filter_entry(|entry| entry.file_name() != ".git")
         .build()
         .flatten()
@@ -494,6 +515,30 @@ mod tests {
         let root = workspace.clone();
         tokio::task::spawn_blocking(move || large_files(&root)).await.unwrap();
         time("size walk alone", started);
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    #[tokio::test]
+    async fn a_bound_workspace_keeps_its_history_under_its_owner_wherever_its_directory_is() {
+        let (base, workspace) = dirs();
+        let snapshots = Snapshots::new(&base.join("data"));
+        std::fs::write(workspace.join("a.txt"), "one\n").unwrap();
+        let old = snapshots.record(&workspace, "a.txt").await.unwrap().unwrap();
+        let legacy = snapshots.path_dir(&workspace);
+        assert!(legacy.join("HEAD").exists());
+
+        snapshots.bind("ws_1", &workspace);
+        assert!(!legacy.exists(), "the path-named repo was taken over");
+        std::fs::write(workspace.join("a.txt"), "two\n").unwrap();
+        snapshots.put(&workspace, "a.txt", Some(&old)).await.unwrap();
+        assert_eq!(std::fs::read_to_string(workspace.join("a.txt")).unwrap(), "one\n", "history from before the binding is kept");
+
+        let moved = base.join("moved");
+        std::fs::rename(&workspace, &moved).unwrap();
+        snapshots.bind("ws_1", &moved);
+        std::fs::write(moved.join("a.txt"), "three\n").unwrap();
+        snapshots.put(&moved, "a.txt", Some(&old)).await.unwrap();
+        assert_eq!(std::fs::read_to_string(moved.join("a.txt")).unwrap(), "one\n", "a workspace pointed elsewhere keeps its history");
         std::fs::remove_dir_all(base).ok();
     }
 

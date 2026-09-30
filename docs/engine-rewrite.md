@@ -392,6 +392,13 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   redoing to the last `after`) would erase their edit.
 - The shadow repo is one per workspace, shared by every session and subagent in it, so creating it
   and every index operation (tree captures, prunes) hold a per-workspace lock.
+- History belongs to the workspace, not its path: the repo is named for the workspace id
+  (`Snapshots::bind`, taking over a repo kept under the old path-derived name once), and every
+  recorded call stores its `owner` workspace id beside its changes. Undo and redo apply each change
+  where its owner's directory is now, whichever workspace the session has moved to, so a session
+  moved from A to B undoes A's files in A with A's history; a workspace pointed at a new directory
+  keeps its history there. Records older than `owner` use the session's workspace; a change whose
+  workspace no longer exists is kept and reported.
 - Files over 10 MB are never copied into it: a file tool refuses to change one, since the change
   could not be undone, and tree captures leave them out through the shadow repo's own exclude file
   (the workspace's `.gitignore` is untouched). Exclusion only stops untracked files, so each capture
@@ -402,8 +409,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   file or restore a stale small copy over it. An oversized file left untouched is not reported.
 - Retention: `Engine::maintain` runs at startup and every six hours while the engine is up (it
   holds only a weak reference, so it never keeps an engine alive). Each pass, `prune_snapshots`
-  pins every blob a stored call's `changes` refers to (archived sessions included) under a private
-  ref and prunes the rest, sparing objects younger than two hours so a capture in flight keeps its
+  pins every blob a stored call's `changes` refers to (archived sessions included), grouped by the
+  owner recorded with it, under a private ref in that owner's repo and prunes the rest (the rows are
+  read under the database lock with a SQL filter; their JSON is parsed after it is released), sparing objects younger than two hours so a capture in flight keeps its
   blobs; tree captures are transient and go too. The same pass deletes spooled shell output older
   than seven days.
 - Nothing is deleted while undone. The next prompt commits the undo: the hidden messages and their
