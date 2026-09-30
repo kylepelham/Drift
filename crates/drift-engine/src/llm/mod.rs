@@ -78,6 +78,9 @@ pub struct Request {
     pub max_tokens: u32,
     pub thinking_budget: Option<u32>,
     pub temperature: Option<f64>,
+    /// The same for every request of one conversation, so providers that route by it (OpenAI's
+    /// `prompt_cache_key`) keep the conversation on one cache.
+    pub cache_key: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

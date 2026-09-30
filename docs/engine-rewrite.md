@@ -589,6 +589,9 @@ these async criteria are new pending M3 work.
   step's new blocks even past the 20-block lookback. Thinking blocks and empty text never carry
   one. The marks are set in the adapter's shared body, so key, subscription (whose extra system
   blocks add none) and Anthropic-dialect gateway base URLs all cache alike.
+- OpenAI caching is automatic, keyed by routing: every request of a conversation carries
+  `prompt_cache_key` = the session id (API key and Codex routes alike, as Codex itself does), so
+  its steps and turns stay on one cache. Title, compaction and handoff requests carry none.
 - OpenRouter is not covered. Its Chat Completions route caches Claude only with explicit
   `cache_control`: a top-level `cache_control` for automatic caching, or per-block breakpoints
   (at most four) on Anthropic-compatible upstreams (OpenRouter prompt-caching guide, checked
@@ -596,9 +599,14 @@ these async criteria are new pending M3 work.
   cannot be selected yet; when it joins the catalog, the choice between the two forms should come
   from its catalog entry and be verified with a recorded exchange before gateway caching counts as
   done.
-- Tool calls run in the order the model issued them, one at a time. `edit` and `write`
-  refuse files the session has not `read`; the first mutating call in a message takes a
-  snapshot and records its tree id in the part's metadata.
+- Tool calls keep the order the model issued them in, but not one at a time: a run of consecutive
+  read-only calls executes together, a mutating call waits for everything before it, and reads
+  after it wait for it (see the M1 guarantees). Foreground `task` workers run within their parent's
+  call; background workers and other sessions run alongside. The shadow-index lock serialises
+  snapshot captures per workspace only; it does not coordinate two sessions or workers editing the
+  same source file, which is what the read-before-write check and undo's kept files are for.
+  `edit`, `write` and `apply_patch` refuse existing files the session has not `read`; every
+  mutating call records what it changed in its part's metadata.
 - Ids are `prefix_<16 hex stamp><8 hex random>`; the stamp is milliseconds shifted left
   twelve bits plus a per-process counter, so rows made in the same millisecond still sort
   by creation.

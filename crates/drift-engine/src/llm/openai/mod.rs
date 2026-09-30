@@ -90,6 +90,10 @@ fn body(request: &Request, subscription: bool) -> Value {
     if let Some(effort) = request.thinking_budget.map(effort) {
         body["reasoning"] = json!({ "effort": effort, "summary": "auto" });
     }
+    // One key per conversation, as Codex itself sends, so its requests share a cache.
+    if let Some(key) = &request.cache_key {
+        body["prompt_cache_key"] = json!(key);
+    }
     if !subscription {
         body["max_output_tokens"] = json!(request.max_tokens);
         if let Some(temperature) = request.temperature {
@@ -280,7 +284,17 @@ mod tests {
             max_tokens: 1000,
             thinking_budget: Some(10_000),
             temperature: None,
+            cache_key: Some("ses_1".into()),
         }
+    }
+
+    #[test]
+    fn every_request_of_a_conversation_carries_its_cache_key_on_both_routes() {
+        assert_eq!(body(&request(), false)["prompt_cache_key"], "ses_1");
+        assert_eq!(body(&request(), true)["prompt_cache_key"], "ses_1", "the Codex route too");
+        let mut keyless = request();
+        keyless.cache_key = None;
+        assert!(body(&keyless, false).get("prompt_cache_key").is_none());
     }
 
     #[test]

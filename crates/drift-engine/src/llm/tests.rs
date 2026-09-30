@@ -60,6 +60,7 @@ fn request() -> Request {
         max_tokens: 100,
         thinking_budget: None,
         temperature: None,
+        cache_key: None,
     }
 }
 

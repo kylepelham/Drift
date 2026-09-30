@@ -75,6 +75,7 @@ impl Engine {
             max_tokens: shot.max_tokens,
             thinking_budget: None,
             temperature: None,
+            cache_key: None,
         };
         tokio::time::timeout(shot.timeout, collect_text(&resolved.provider, &request, &resolved.credential))
             .await

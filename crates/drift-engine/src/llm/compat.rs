@@ -265,6 +265,7 @@ mod tests {
             max_tokens: 500,
             thinking_budget: None,
             temperature: Some(0.2),
+            cache_key: None,
         }
     }
 

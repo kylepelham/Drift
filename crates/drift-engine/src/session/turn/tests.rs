@@ -942,6 +942,17 @@ fn only_identical_results_count_as_repeats() {
     assert!(!waits(&CallTrace { name: "bash".into(), input: r#"{"command":"cat sleepy.txt"}"#.into(), output: String::new() }), "a word inside a name is not a wait");
 }
 
+#[tokio::test]
+async fn every_step_of_a_conversation_carries_the_same_cache_key() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
+    h.provider.push(tool_call("read", r#"{"path": "a.txt"}"#)).push(text("read it"));
+    h.engine.submit(&h.session.id, prompt("read a")).await.await_ok();
+    until_idle(&h).await;
+    let keys: Vec<Option<String>> = h.provider.requests.lock().unwrap().iter().map(|r| r.cache_key.clone()).collect();
+    assert_eq!(keys, [Some(h.session.id.clone()), Some(h.session.id.clone())]);
+}
+
 #[test]
 fn local_routes_wait_longer_and_drift_json_can_set_any_routes_limits() {
     use crate::llm::http::Timeouts;

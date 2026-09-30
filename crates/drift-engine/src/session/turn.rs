@@ -466,6 +466,7 @@ impl Engine {
                 max_tokens,
                 thinking_budget,
                 temperature: None,
+                cache_key: Some(plan.session.id.clone()),
             };
             let Ok(message) = self.store.create_message(&plan.session.id, Role::Assistant, Some(&plan.model_ref)) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });
