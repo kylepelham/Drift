@@ -6,6 +6,7 @@ pub mod compaction;
 mod convert;
 mod oneshot;
 pub mod prompt;
+pub mod revert;
 pub mod snapshot;
 mod title;
 pub mod tree;

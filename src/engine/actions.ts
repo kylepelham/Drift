@@ -21,6 +21,7 @@ import {
 } from "./store"
 
 export type BranchDraft = components["schemas"]["BranchDraft"]
+type NativeSession = components["schemas"]["Session"]
 
 export type PromptFile = {
   filename?: string
@@ -347,6 +348,26 @@ export function createActions(
     }
   }
 
+  /** Undoes back to a prompt, files included; the engine hides it and everything after it. */
+  async function revert(id: string, messageID: string) {
+    return applyUndo(id, () => requireClient().revertSession(id, messageID))
+  }
+
+  /** Redoes everything an undo hid, files included. */
+  async function unrevert(id: string) {
+    return applyUndo(id, () => requireClient().unrevertSession(id))
+  }
+
+  async function applyUndo(id: string, call: () => Promise<NativeSession>) {
+    try {
+      putSession(set, adaptSession(await call(), workspaces()))
+      return true
+    } catch (cause) {
+      notice({ id: `revert-${id}`, title: "Couldn't undo", message: errorMessage(cause), variant: "error", duration: 10_000 })
+      return false
+    }
+  }
+
   /** Moves a turn that is waiting to retry onto `model`; it retries at once. Variants have no engine meaning yet. */
   async function switchRetryModel(id: string, _messageID: string, model: ModelRef, _variant?: string): Promise<PromptSendResult> {
     try {
@@ -472,10 +493,6 @@ export function createActions(
     unavailable(feature)
     return undefined
   }
-  const never = (feature: string) => async (..._args: unknown[]) => {
-    unavailable(feature)
-    return false
-  }
 
   return {
     openSession,
@@ -518,8 +535,8 @@ export function createActions(
     },
     unshare: notYet("Sharing"),
     runCommand,
-    revert: never("Revert"),
-    unrevert: never("Revert"),
+    revert,
+    unrevert,
     mcpInitialize: async (_directory: string) => undefined,
     mcpStatus,
     mcpConnect: async (name: string, _directory: string) => void (await requireClient().connectMcpServer(name)),

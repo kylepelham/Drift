@@ -217,6 +217,20 @@ test("/compact asks the engine to compact and reports a refusal; the auto settin
   expect(await h.actions.setAutoCompact(false)).toEqual({ autoCompact: false })
 })
 
+test("undo and redo apply the engine's session and report refusals", async () => {
+  const h = harness({
+    revertSession: (id: string, messageId: string) =>
+      id === "ses_busy" ? Promise.reject(new EngineError(409, `/sessions/${id}/revert`, "busy", "stop the running turn first")) : Promise.resolve({ ...session(id), revert: { messageId } }),
+    unrevertSession: (id: string) => Promise.resolve(session(id)),
+  } as Partial<Client>)
+  expect(await h.actions.revert("ses_1", "msg_2")).toBeTrue()
+  expect((h.state.sessions.ses_1 as { revert?: { messageID: string } }).revert?.messageID).toBe("msg_2")
+  expect(await h.actions.unrevert("ses_1")).toBeTrue()
+  expect((h.state.sessions.ses_1 as { revert?: unknown }).revert).toBeUndefined()
+  expect(await h.actions.revert("ses_busy", "msg_2")).toBeFalse()
+  expect(h.state.notices.some((n) => n.title === "Couldn't undo")).toBeTrue()
+})
+
 test("switching a retrying turn's model sends the native model ref and reports refusals", async () => {
   const sent: unknown[] = []
   const h = harness({

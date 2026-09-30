@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::convert;
+use super::{compaction, convert};
 use super::oneshot::{Fallback, OneShot};
 use super::turn::{Prompt, TurnError};
 use super::types::{MessageStatus, Part, Session, Visibility};
@@ -57,13 +57,18 @@ impl Engine {
         if goal.is_empty() {
             return Err(BranchError::EmptyGoal);
         }
-        self.branchable(source_id)?;
+        let source = self.branchable(source_id)?;
         let (resolved, config) = self.action_model(source_id, "handoff", Fallback::Conversation).await.map_err(BranchError::Turn)?;
         let instructions = config.agent("handoff").map(|agent| agent.prompt.clone()).unwrap_or_default();
-        let transcript = self.store.transcript(source_id)?;
+        let mut transcript = self.store.transcript(source_id)?;
+        // What an undo hid is not part of the conversation being handed off.
+        if let Some(revert) = &source.revert {
+            transcript.retain(|m| m.info.id < revert.message_id);
+        }
         let end = transcript.iter().rposition(|m| m.info.status == MessageStatus::Done);
         let cutoff = end.map(|i| transcript[i].info.id.clone());
-        let mut messages = convert::messages(&transcript[..end.map_or(0, |i| i + 1)], &resolved.model_ref);
+        // The same view a turn would send: a compacted conversation hands off from its summary.
+        let mut messages = compaction::request_messages(&transcript[..end.map_or(0, |i| i + 1)], &resolved.model_ref);
         convert::push(&mut messages, llm::Role::User, vec![Block::Text(format!("{instructions}\n\nGoal for the new conversation:\n{goal}"))]);
         let shot = OneShot { system: String::new(), messages, tools: self.tools.specs(resolved.model.profile), max_tokens: DRAFT_MAX_TOKENS, timeout: DRAFT_TIMEOUT };
         let text = self.complete(&resolved, shot).await.map_err(BranchError::Draft)?;

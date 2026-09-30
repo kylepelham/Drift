@@ -38,9 +38,23 @@ pub struct Session {
     /// For a branched conversation, the last source message its handoff summarised.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch_cutoff: Option<String>,
+    /// Set while the user has undone the conversation back to a message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revert: Option<Revert>,
     /// Whether a turn is in flight right now; set by the API, never stored.
     #[serde(default)]
     pub running: bool,
+}
+
+/// An undo in progress: the user message it went back to, hidden with everything after it, and the
+/// working tree from before the first undo, which redo puts back.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Revert {
+    pub message_id: String,
+    /// `None` when the tree could not be recorded; redo then restores the conversation only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

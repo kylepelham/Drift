@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-const MIGRATIONS: [&str; 7] = [
+const MIGRATIONS: [&str; 8] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -72,6 +72,7 @@ const MIGRATIONS: [&str; 7] = [
         key TEXT PRIMARY KEY,
         value_json TEXT NOT NULL
     ) STRICT;",
+    "ALTER TABLE session ADD COLUMN revert_json TEXT;",
 ];
 
 #[cfg(test)]

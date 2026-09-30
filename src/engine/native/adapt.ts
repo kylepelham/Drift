@@ -34,6 +34,7 @@ export function adaptSession(session: NativeSession, workspaces: WorkspaceIndex)
       ...(session.archivedAt ? { archived: session.archivedAt } : {}),
     },
     ...(session.model ? { model: { providerID: session.model.provider, id: session.model.model } } : {}),
+    ...(session.revert ? { revert: { messageID: session.revert.messageId, ...(session.revert.snapshot ? { snapshot: session.revert.snapshot } : {}) } } : {}),
   } as Session
 }
 
@@ -165,6 +166,8 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
         type: "session.status",
         properties: { sessionID: event.sessionId, status: event.status === "running" ? { type: "busy" } : { type: "idle" } },
       }
+    case "message.removed":
+      return { type: "message.removed", properties: { sessionID: event.sessionId, messageID: event.messageId } }
     case "session.retry":
       return {
         type: "session.status",

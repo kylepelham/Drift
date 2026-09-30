@@ -3,11 +3,11 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use super::Store;
 use crate::id;
 use crate::session::types::{
-    Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, Usage,
+    Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Revert, Role, Session, Usage,
     Visibility,
 };
 
-pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff";
+pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json";
 const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary";
 
 pub struct NewSession<'a> {
@@ -203,6 +203,7 @@ pub(super) fn map_session(row: &Row) -> rusqlite::Result<Session> {
         updated_at: row.get(9)?,
         archived_at: row.get(10)?,
         branch_cutoff: row.get(11)?,
+        revert: row.get::<_, Option<String>>(12)?.and_then(|json| serde_json::from_str(&json).ok()),
         running: false,
     })
 }
@@ -388,8 +389,10 @@ mod tests {
 
 impl Store {
     /// Records a user prompt as one unit: message, parts and the session's model, or nothing at all.
-    pub fn admit_prompt(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<(Message, Vec<PartRow>, Session)> {
+    /// A prompt sent while undone commits the undo: the hidden messages go, in the same write.
+    pub fn admit_prompt(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<Admitted> {
         transaction(&self.lock(), |conn| {
+            let discarded = discard_reverted(conn, session_id)?;
             let message = insert_message(conn, session_id, Role::User, Some(model), false)?;
             if let Some((id, hash)) = submission {
                 conn.prepare_cached("INSERT INTO submission(id, session_id, message_id, payload_hash, created_at) VALUES(?1, ?2, ?3, ?4, ?5)")?
@@ -402,10 +405,45 @@ impl Store {
             conn.prepare_cached("UPDATE session SET model_provider = ?2, model_id = ?3, updated_at = ?4 WHERE id = ?1")?
                 .execute(params![session_id, model.provider, model.model, id::now_ms()])?;
             let session = session_in(conn, session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-            Ok((message, rows, session))
+            Ok(Admitted { message, parts: rows, session, discarded })
         })
     }
+
+    /// Sets or clears the session's undo marker.
+    pub fn set_revert(&self, session_id: &str, revert: Option<&Revert>) -> rusqlite::Result<Option<Session>> {
+        let conn = self.lock();
+        conn.prepare_cached("UPDATE session SET revert_json = ?2, updated_at = ?3 WHERE id = ?1")?
+            .execute(params![session_id, revert.map(|r| serde_json::to_string(r).unwrap()), id::now_ms()])?;
+        session_in(&conn, session_id)
+    }
 }
+
+pub struct Admitted {
+    pub message: Message,
+    pub parts: Vec<PartRow>,
+    pub session: Session,
+    /// Messages an undo had hidden, now deleted because a new prompt went ahead from before them.
+    pub discarded: Vec<String>,
+}
+
+fn discard_reverted(conn: &Connection, session_id: &str) -> rusqlite::Result<Vec<String>> {
+    let revert: Option<Revert> = conn
+        .prepare_cached("SELECT revert_json FROM session WHERE id = ?1")?
+        .query_row([session_id], |row| row.get::<_, Option<String>>(0))
+        .optional()?
+        .flatten()
+        .and_then(|json| serde_json::from_str(&json).ok());
+    let Some(revert) = revert else { return Ok(Vec::new()) };
+    let ids: Vec<String> = conn
+        .prepare_cached("SELECT id FROM message WHERE session_id = ?1 AND id >= ?2 ORDER BY id")?
+        .query_map(params![session_id, revert.message_id], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    conn.prepare_cached("DELETE FROM submission WHERE session_id = ?1 AND message_id >= ?2")?.execute(params![session_id, revert.message_id])?;
+    conn.prepare_cached("DELETE FROM message WHERE session_id = ?1 AND id >= ?2")?.execute(params![session_id, revert.message_id])?;
+    conn.prepare_cached("UPDATE session SET revert_json = NULL WHERE id = ?1")?.execute([session_id])?;
+    Ok(ids)
+}
+
 
 pub(super) fn session_from(new: NewSession, cutoff: Option<&str>) -> Session {
     let now = id::now_ms();
@@ -421,6 +459,7 @@ pub(super) fn session_from(new: NewSession, cutoff: Option<&str>) -> Session {
         updated_at: now,
         archived_at: None,
         branch_cutoff: cutoff.map(Into::into),
+        revert: None,
         running: false,
     }
 }
@@ -525,7 +564,7 @@ mod admission_tests {
             .create_session(NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None })
             .unwrap();
         let model = ModelRef { provider: "p".into(), model: "m".into() };
-        let (message, rows, updated) = store.admit_prompt(&session.id, &model, vec![Part::Text { text: "hi".into() }], Some(("sub_1", "h1"))).unwrap();
+        let Admitted { message, parts: rows, session: updated, .. } = store.admit_prompt(&session.id, &model, vec![Part::Text { text: "hi".into() }], Some(("sub_1", "h1"))).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(updated.model, Some(model.clone()));
         assert_eq!(store.transcript(&session.id).unwrap()[0].info.id, message.id);

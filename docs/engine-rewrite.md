@@ -86,8 +86,8 @@ POST   /tasks/{id}/abort                    stop one owned worker; pending M3
 POST   /sessions/{id}/compact
 POST   /sessions/{id}/fork                  {atMessage?}
 POST   /sessions/{id}/move                  {workspaceId}
-POST   /sessions/{id}/revert                {snapshot}
-GET    /sessions/{id}/diff
+POST   /sessions/{id}/revert                {messageId}
+POST   /sessions/{id}/unrevert
 GET    /sessions/{id}/todos
 GET    /mcp                 POST /mcp/{id}/connect | disconnect | approve | auth
 GET    /find/files?q=
@@ -292,6 +292,27 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   waiting, 400/401 when the model or its credential is unusable (checked before the turn is told).
   The turn retries immediately on the new model, rebuilds its tools and prompt for that model's
   profile, and the session keeps the model for later turns.
+
+#### Undo and redo
+
+- Every step's first write snapshots the working tree (shadow git dir under the data dir,
+  honouring the workspace's `.gitignore`); each writing tool call records it as
+  `metadata.snapshot`.
+- `POST /sessions/{id}/revert { messageId }` takes a prompt the user sent. It hides that prompt and
+  everything after it (`session.revert.messageId`, the UI filters) and restores the files from the
+  earliest snapshot at or after it, searching the session and its subagents, whose writes are
+  snapshotted in their own sessions. The first undo records the current tree as
+  `session.revert.snapshot`; calling revert again moves the point either way, and a point with no
+  writes after it restores that recorded tree.
+- `POST /sessions/{id}/unrevert` restores the recorded tree and clears the marker.
+- Nothing is deleted while undone. The next prompt commits the undo: the hidden messages and their
+  submission records are deleted in the same transaction that records the prompt, each announced
+  as `message.removed`, and the files stay as the undo left them.
+- Both hold the session like a turn (409 while one runs). While undone, a fork copies only the
+  visible part, a branch draft reads only the visible part, and compaction is refused (409
+  `reverted`) because its summary would land among the messages the next prompt deletes.
+- There is no session-wide diff endpoint: nothing consumes one. Per-call diffs travel in tool
+  metadata.
 
 #### Background-worker implementation
 
@@ -548,7 +569,7 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
 
 - `src/engine/` talks only to the native engine. `native/client.ts` wraps the generated
   types, `native/events.ts` runs the socket, `actions.ts` implements every action the UI
-  calls. Actions the engine cannot serve yet (share, revert) raise a "not available yet" notice and return the
+  calls. Actions the engine cannot serve yet (share) raise a "not available yet" notice and return the
   neutral value their callers expect; each comes back native in the milestone that owns it.
 - `native/adapt.ts` maps native sessions, messages, parts, permissions, providers and events
   onto the legacy store shapes (`@opencode-ai/sdk` types) that `store.ts`, `events.ts` and

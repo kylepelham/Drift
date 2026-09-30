@@ -478,6 +478,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undoes the conversation back to a prompt, files included. Again while undone moves the point. */
+        post: operations["revertSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/todos": {
         parameters: {
             query?: never;
@@ -504,6 +521,23 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["submitTurn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}/unrevert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Redoes everything an undo hid, files included. */
+        post: operations["unrevertSession"];
         delete?: never;
         options?: never;
         head?: never;
@@ -707,6 +741,11 @@ export interface components {
             message: components["schemas"]["Message"];
             /** @enum {string} */
             type: "message.updated";
+        } | {
+            messageId: string;
+            sessionId: string;
+            /** @enum {string} */
+            type: "message.removed";
         } | {
             part: components["schemas"]["PartRow"];
             /** @enum {string} */
@@ -980,6 +1019,19 @@ export interface components {
         RetryModelBody: {
             model: components["schemas"]["ModelRef"];
         };
+        /**
+         * @description An undo in progress: the user message it went back to, hidden with everything after it, and the
+         *     working tree from before the first undo, which redo puts back.
+         */
+        Revert: {
+            messageId: string;
+            /** @description `None` when the tree could not be recorded; redo then restores the conversation only. */
+            snapshot?: string | null;
+        };
+        RevertBody: {
+            /** @description The prompt to go back to; it and everything after it are hidden. */
+            messageId: string;
+        };
         /** @enum {string} */
         Role: "user" | "assistant";
         Rule: {
@@ -1027,6 +1079,7 @@ export interface components {
             id: string;
             model?: components["schemas"]["ModelRef"] | null;
             parentId?: string | null;
+            revert?: components["schemas"]["Revert"] | null;
             /** @description Whether a turn is in flight right now; set by the API, never stored. */
             running?: boolean;
             title: string;
@@ -2010,6 +2063,49 @@ export interface operations {
             };
         };
     };
+    revertSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevertBody"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listTodos: {
         parameters: {
             query?: never;
@@ -2058,6 +2154,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Receipt"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    unrevertSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
                 };
             };
             404: {

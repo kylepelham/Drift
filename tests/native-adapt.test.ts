@@ -79,6 +79,16 @@ test("tool call statuses become legacy tool states", () => {
   expect(pending.state).toEqual({ status: "pending", input: { path: "a" }, raw: "" })
 })
 
+test("an undo marker and a removed message reach the reducer in its vocabulary", () => {
+  const undone = adaptSession({ ...session, revert: { messageId: "msg_5", snapshot: "tree" } }, workspaces)
+  expect((undone as { revert?: unknown }).revert).toEqual({ messageID: "msg_5", snapshot: "tree" })
+  expect((adaptSession(session, workspaces) as { revert?: unknown }).revert).toBeUndefined()
+  expect(adaptEvent({ type: "message.removed", sessionId: "ses_1", messageId: "msg_5" }, workspaces)).toEqual({
+    type: "message.removed",
+    properties: { sessionID: "ses_1", messageID: "msg_5" },
+  })
+})
+
 test("a retry wait becomes the retry status the notice draws", () => {
   expect(adaptEvent({ type: "session.retry", sessionId: "ses_1", attempt: 2, message: "overloaded (529): busy", nextAt: 5000 }, workspaces)).toEqual({
     type: "session.status",

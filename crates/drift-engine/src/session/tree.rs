@@ -36,7 +36,9 @@ impl Engine {
         } else {
             transcript.len()
         };
-        let finished = &transcript[..stable];
+        // What an undo hid is not part of the conversation being copied.
+        let visible = source.revert.as_ref().and_then(|r| transcript.iter().position(|m| m.info.id >= r.message_id)).unwrap_or(transcript.len());
+        let finished = &transcript[..stable.min(visible)];
         let through = match at {
             Some(id) => finished.iter().find(|m| m.info.id == id && m.info.status != MessageStatus::Streaming).ok_or(TreeError::BadMessage)?,
             None => finished.iter().rev().find(|m| m.info.status != MessageStatus::Streaming).ok_or(TreeError::Empty)?,

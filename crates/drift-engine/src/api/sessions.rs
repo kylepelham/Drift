@@ -150,6 +150,25 @@ pub async fn switch_retry_model(State(engine): State<Arc<Engine>>, Path(id): Pat
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RevertBody {
+    /// The prompt to go back to; it and everything after it are hidden.
+    pub message_id: String,
+}
+
+/// Undoes the conversation back to a prompt, files included. Again while undone moves the point.
+#[utoipa::path(post, path = "/sessions/{id}/revert", operation_id = "revertSession", request_body = RevertBody, responses((status = 200, body = Session), (status = 400), (status = 404), (status = 409)))]
+pub async fn revert(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<RevertBody>) -> Result<Json<Session>, ApiError> {
+    Ok(Json(engine.revert(&id, &body.message_id).await?))
+}
+
+/// Redoes everything an undo hid, files included.
+#[utoipa::path(post, path = "/sessions/{id}/unrevert", operation_id = "unrevertSession", responses((status = 200, body = Session), (status = 404), (status = 409)))]
+pub async fn unrevert(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Session>, ApiError> {
+    Ok(Json(engine.unrevert(&id).await?))
+}
+
 /// Summarises the older history now. Runs as the session's job: 409 while a turn runs, Stop cancels it.
 #[utoipa::path(post, path = "/sessions/{id}/compact", operation_id = "compactSession", responses((status = 202), (status = 404), (status = 409)))]
 pub async fn compact(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {

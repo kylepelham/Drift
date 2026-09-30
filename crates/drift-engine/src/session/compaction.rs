@@ -103,12 +103,20 @@ impl Engine {
         self.store.setting(AUTO_COMPACT_KEY).ok().flatten().unwrap_or(true)
     }
 
-    /// Compacts an idle session as its own job, so prompts wait for it and Stop cancels it.
+    /// Compacts an idle session as its own job, so prompts wait for it and Stop cancels it. Refused while
+    /// undone: the summary would land after the hidden messages the next prompt deletes.
     pub fn start_compaction(self: &Arc<Self>, session_id: &str) -> Result<(), TurnError> {
-        self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let abort = CancellationToken::new();
         if !self.turns.claim(session_id, &abort) {
             return Err(TurnError::Busy);
+        }
+        let session = match self.store.session(session_id) {
+            Ok(Some(session)) => session,
+            Ok(None) => return self.refuse_compaction(session_id, TurnError::NoSession),
+            Err(error) => return self.refuse_compaction(session_id, error.into()),
+        };
+        if session.revert.is_some() {
+            return self.refuse_compaction(session_id, TurnError::Reverted);
         }
         let engine = self.clone();
         let id = session_id.to_string();
@@ -116,6 +124,11 @@ impl Engine {
             let _ = engine.compact(&id, Trigger::Manual, &abort).await;
         });
         Ok(())
+    }
+
+    fn refuse_compaction(&self, session_id: &str, error: TurnError) -> Result<(), TurnError> {
+        self.turns.release(session_id);
+        Err(error)
     }
 
     /// Whether the turn should compact before its next request; three automatic failures in a row stop it.

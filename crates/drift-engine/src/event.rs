@@ -39,6 +39,9 @@ pub enum Event {
     MessageCreated { message: Message },
     #[serde(rename = "message.updated")]
     MessageUpdated { message: Message },
+    /// Gone for good, as when a new prompt commits an undo.
+    #[serde(rename = "message.removed", rename_all = "camelCase")]
+    MessageRemoved { session_id: String, message_id: String },
     #[serde(rename = "part.created")]
     PartCreated { part: PartRow },
     #[serde(rename = "part.updated")]

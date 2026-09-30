@@ -5,6 +5,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::session::branch::BranchError;
+use crate::session::revert::RevertError;
 use crate::session::tree::TreeError;
 use crate::session::turn::TurnError;
 
@@ -48,6 +49,7 @@ impl From<TurnError> for ApiError {
             TurnError::NoSession | TurnError::NoWorkspace => (StatusCode::NOT_FOUND, "not_found"),
             TurnError::Busy => (StatusCode::CONFLICT, "busy"),
             TurnError::NotRetrying => (StatusCode::CONFLICT, "not_retrying"),
+            TurnError::Reverted => (StatusCode::CONFLICT, "reverted"),
             TurnError::SubmissionReused => (StatusCode::CONFLICT, "submission"),
             TurnError::NoModel | TurnError::UnknownModel => (StatusCode::BAD_REQUEST, "model"),
             TurnError::NoCredentials => (StatusCode::UNAUTHORIZED, "credentials"),
@@ -67,6 +69,18 @@ impl From<BranchError> for ApiError {
             BranchError::Turn(error) => error.into(),
             BranchError::Draft(message) => Self::new(StatusCode::BAD_GATEWAY, "draft", message),
             BranchError::Store(error) => error.into(),
+        }
+    }
+}
+
+impl From<RevertError> for ApiError {
+    fn from(error: RevertError) -> Self {
+        match error {
+            RevertError::NoSession => Self::not_found("session"),
+            RevertError::NotAPrompt => Self::new(StatusCode::BAD_REQUEST, "not_a_prompt", "undo goes back to a prompt you sent"),
+            RevertError::Busy => Self::new(StatusCode::CONFLICT, "busy", "stop the running turn first"),
+            RevertError::Files(message) => Self::new(StatusCode::INTERNAL_SERVER_ERROR, "files", format!("the files could not be restored: {message}")),
+            RevertError::Store(error) => error.into(),
         }
     }
 }

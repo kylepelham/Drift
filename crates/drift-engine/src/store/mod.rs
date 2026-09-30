@@ -7,7 +7,7 @@ mod settings;
 mod todos;
 mod tree;
 
-pub use sessions::{NewSession, SessionFilter};
+pub use sessions::{Admitted, NewSession, SessionFilter};
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};

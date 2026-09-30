@@ -47,6 +47,8 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::move_session))
         .routes(routes!(sessions::compact))
         .routes(routes!(sessions::switch_retry_model))
+        .routes(routes!(sessions::revert))
+        .routes(routes!(sessions::unrevert))
         .routes(routes!(settings::get, settings::put))
         .routes(routes!(providers::list))
         .routes(routes!(providers::set_key))

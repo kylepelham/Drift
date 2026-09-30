@@ -57,7 +57,7 @@ change the plan there when a decision changes.
 - [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, handoff, subagent pins
 - [x] Compaction with recovery: automatic (meter threshold, Settings off switch, stops after 3 failures), overflow compact-and-retry, `/compact`; summary plus 2-turn/15k tail, nothing deleted
 - [x] Retry with model switch: `session.retry` drives the retry notice, `POST /sessions/{id}/retry` switches a waiting turn's model at once
-- [ ] Revert and diff
+- [x] Revert (undo/redo with files, across subagents; the next prompt commits it). Diff: per-call diffs in tool metadata; no session diff endpoint until something consumes one
 - [ ] Shell timeout
 - [ ] Per-session runtime config snapshots
 - [ ] Async questions and MCP reconnect/reload deferred from M2

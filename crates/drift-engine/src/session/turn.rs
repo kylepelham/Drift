@@ -22,6 +22,7 @@ use crate::llm::catalog::Model;
 use crate::llm::{self, Credential, Provider, Request, StopReason};
 use crate::permission::{self, Outcome};
 use crate::session::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage, Visibility};
+use crate::store::Admitted;
 use crate::tool::{Context, SessionFiles};
 use crate::Engine;
 
@@ -60,6 +61,8 @@ pub enum TurnError {
     NoCredentials,
     /// The session is not waiting to retry a failed request, so there is nothing to switch.
     NotRetrying,
+    /// The session is undone back to a prompt; send a prompt or redo first.
+    Reverted,
     Store(String),
 }
 
@@ -74,6 +77,7 @@ impl std::fmt::Display for TurnError {
             Self::UnknownModel => write!(f, "model is not in the catalog"),
             Self::NoCredentials => write!(f, "provider has no credentials"),
             Self::NotRetrying => write!(f, "the session is not waiting to retry"),
+            Self::Reverted => write!(f, "the session is undone; send a prompt or redo first"),
             Self::Store(message) => write!(f, "store: {message}"),
         }
     }
@@ -127,7 +131,7 @@ impl Turns {
     }
 
     /// Frees a claim whose turn never started; anyone waiting for the session to go idle wakes.
-    fn release(&self, session_id: &str) {
+    pub(super) fn release(&self, session_id: &str) {
         self.active.lock().unwrap().remove(session_id);
         self.finished.notify_waiters();
     }
@@ -209,13 +213,16 @@ impl Engine {
         };
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash.as_str()));
         let admitted = self.store.admit_prompt(session_id, &plan.model_ref, prompt.parts, submission);
-        let (message, parts, session) = match admitted {
+        let Admitted { message, parts, session, discarded } = match admitted {
             Ok(admitted) => admitted,
             Err(error) => {
                 self.turns.release(session_id);
                 return Err(error.into());
             }
         };
+        for message_id in discarded {
+            self.hub.publish(Event::MessageRemoved { session_id: session_id.into(), message_id });
+        }
         self.hub.publish(Event::MessageCreated { message: message.clone() });
         for row in parts {
             self.hub.publish(Event::PartCreated { part: row });

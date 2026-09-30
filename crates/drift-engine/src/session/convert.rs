@@ -8,14 +8,8 @@ fn replayable(message: &MessageWithParts) -> bool {
     message.info.role == Role::User || matches!(message.info.status, MessageStatus::Done | MessageStatus::Aborted)
 }
 
-/// `target` is the model the messages are for: reasoning signatures only validate with the model that made them.
-pub fn messages<'a>(transcript: impl IntoIterator<Item = &'a MessageWithParts>, target: &ModelRef) -> Vec<ChatMessage> {
-    let mut out = Vec::new();
-    append(&mut out, transcript, target);
-    out
-}
-
-/// Like `messages`, continuing `out` so a leading summary merges with what follows.
+/// Converts `transcript` onto `out`, merging with what is already there. `target` is the model the
+/// messages are for: reasoning signatures only validate with the model that made them.
 pub fn append<'a>(out: &mut Vec<ChatMessage>, transcript: impl IntoIterator<Item = &'a MessageWithParts>, target: &ModelRef) {
     for message in transcript.into_iter().filter(|m| replayable(m)) {
         match message.info.role {
@@ -98,6 +92,12 @@ pub(super) mod tests_support {
 
     pub(super) fn target() -> ModelRef {
         ModelRef { provider: "anthropic".into(), model: "claude".into() }
+    }
+
+    pub(super) fn messages(transcript: &[MessageWithParts], target: &ModelRef) -> Vec<ChatMessage> {
+        let mut out = Vec::new();
+        append(&mut out, transcript, target);
+        out
     }
 
     pub(super) fn message_with(role: Role, status: MessageStatus, parts: Vec<Part>) -> MessageWithParts {
