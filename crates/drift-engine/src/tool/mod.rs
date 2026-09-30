@@ -207,6 +207,10 @@ pub trait Tool: Send + Sync {
     fn spec(&self) -> ToolSpec;
     /// `None` means the call needs no permission at all.
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask>;
+    /// Everything the call must be allowed, each judged on its own; any refusal refuses the call.
+    fn asks(&self, ctx: &Context, input: &Value) -> Vec<Ask> {
+        self.ask(ctx, input).into_iter().collect()
+    }
     /// Whether this call writes outside memory, so what it changes is recorded for undo.
     fn mutates(&self) -> bool {
         false

@@ -729,27 +729,9 @@ impl Engine {
             self.settle(&mut row, ToolStatus::Error, None, "call arguments were not valid JSON; the call did not run".into(), None);
             return Outcome::Allowed;
         }
-        if let Some(ask) = tool.ask(&ctx, &input) {
-            let request = permission::new_request(&scope.plan.session.id, &scope.message.id, &call_id, &name, ask);
-            match self.permissions.check(&self.hub, &scope.plan.config.policy(), request, scope.abort).await {
-                Outcome::Allowed => {}
-                Outcome::Refused => {
-                    self.settle(&mut row, ToolStatus::Denied, None, "A permission rule forbids this call.".into(), None);
-                    return Outcome::Allowed;
-                }
-                Outcome::Denied { feedback, stop } => {
-                    self.settle(&mut row, ToolStatus::Denied, None, denial(feedback.as_deref(), stop), None);
-                    if stop {
-                        // The user ended the turn along with the call.
-                        scope.abort.cancel();
-                        return Outcome::Aborted;
-                    }
-                    return Outcome::Allowed;
-                }
-                Outcome::Aborted => {
-                    self.settle(&mut row, ToolStatus::Error, None, "Aborted while waiting for permission.".into(), None);
-                    return Outcome::Aborted;
-                }
+        for ask in tool.asks(&ctx, &input) {
+            if let Some(refused) = self.permit(scope, &mut row, &call_id, &name, ask).await {
+                return refused;
             }
         }
         let capture = if tool.mutates() {
@@ -803,6 +785,32 @@ impl Engine {
         };
         self.settle(&mut row, status, title, text, merge(meta, changes));
         if scope.abort.is_cancelled() { Outcome::Aborted } else { Outcome::Allowed }
+    }
+
+    /// Checks one of a call's asks. `None` lets the call go on; otherwise the call is settled as
+    /// refused and the outcome says whether the turn goes on.
+    async fn permit(&self, scope: &CallScope<'_>, row: &mut PartRow, call_id: &str, name: &str, ask: crate::tool::Ask) -> Option<Outcome> {
+        let request = permission::new_request(&scope.plan.session.id, &scope.message.id, call_id, name, ask);
+        match self.permissions.check(&self.hub, &scope.plan.config.policy(), request, scope.abort).await {
+            Outcome::Allowed => None,
+            Outcome::Refused => {
+                self.settle(row, ToolStatus::Denied, None, "A permission rule forbids this call.".into(), None);
+                Some(Outcome::Allowed)
+            }
+            Outcome::Denied { feedback, stop } => {
+                self.settle(row, ToolStatus::Denied, None, denial(feedback.as_deref(), stop), None);
+                if !stop {
+                    return Some(Outcome::Allowed);
+                }
+                // The user ended the turn along with the call.
+                scope.abort.cancel();
+                Some(Outcome::Aborted)
+            }
+            Outcome::Aborted => {
+                self.settle(row, ToolStatus::Error, None, "Aborted while waiting for permission.".into(), None);
+                Some(Outcome::Aborted)
+            }
+        }
     }
 
     /// Runs the workspace's formatters over whatever a mutating tool reported writing.
