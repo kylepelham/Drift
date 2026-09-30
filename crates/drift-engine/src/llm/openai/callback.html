@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drift</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid; place-items: center;
+    background: #141517; color: #e8e9eb;
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main {
+    max-width: 24rem; padding: 2rem; text-align: center;
+    border: 1px solid #2a2d33; border-radius: 12px; background: #1a1c1f;
+  }
+  svg { width: 56px; height: 56px; margin-bottom: 1rem; }
+  h1 { font-size: 1.1rem; font-weight: 600; margin: 0 0 .5rem; }
+  p { margin: 0; color: #9da2ab; }
+  .word { letter-spacing: .3em; font-size: .7rem; color: #7ba3e8; margin-top: 1.25rem; }
+</style>
+</head>
+<body>
+<main>
+  <svg viewBox="0 0 64 64" fill="none" stroke="#7ba3e8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 30a18 18 0 0 1 36 0c0 4-3 7-7 7H21c-4 0-7-3-7-7z"/>
+    <path d="M22 37c0 6-2 10-4 14M32 37c0 7-1 12-2 16M42 37c0 6 2 10 4 14"/>
+  </svg>
+  <h1>{title}</h1>
+  <p>{text}</p>
+  <div class="word">DRIFT</div>
+</main>
+</body>
+</html>

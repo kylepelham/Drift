@@ -66,7 +66,7 @@ pub async fn wait_for_callback(expected_state: &str) -> Result<String, String> {
         let state_ok = params.get("state").map(String::as_str) == Some(expected_state);
         match (params.get("code"), state_ok) {
             (Some(code), true) => {
-                respond(&mut socket, 200, "Signed in to Drift. You can close this tab.").await;
+                respond(&mut socket, 200, "Drift is connected to your ChatGPT account. You can close this tab and go back to the app.").await;
                 return Ok(code.clone());
             }
             _ => {
@@ -79,12 +79,11 @@ pub async fn wait_for_callback(expected_state: &str) -> Result<String, String> {
 
 async fn respond(socket: &mut tokio::net::TcpStream, status: u16, text: &str) {
     let reason = if status == 200 { "OK" } else { "Error" };
-    let body = format!("<!doctype html><meta charset=utf-8><title>Drift</title><p style=\"font:16px system-ui;margin:3rem\">{text}</p>");
+    let body = include_str!("callback.html").replace("{title}", if status == 200 { "Signed in" } else { "Sign-in failed" }).replace("{text}", text);
     let response = format!("HTTP/1.1 {status} {reason}\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
     let _ = socket.write_all(response.as_bytes()).await;
     let _ = socket.shutdown().await;
 }
-
 pub async fn exchange(client: &reqwest::Client, code: &str, verifier: &str) -> Result<Credential, String> {
     token_request(client, &[("grant_type", "authorization_code"), ("code", code), ("redirect_uri", REDIRECT_URI), ("client_id", CLIENT_ID), ("code_verifier", verifier)]).await
 }
