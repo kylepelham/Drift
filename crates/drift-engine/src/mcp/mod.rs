@@ -97,6 +97,8 @@ struct Live {
 pub struct Servers {
     live: Mutex<HashMap<String, Arc<Live>>>,
     transient: Mutex<HashMap<String, (State, Option<String>)>>,
+    /// Bumped by every save, disable, disconnect and remove; a connect that started under an older number is discarded.
+    generation: Mutex<HashMap<String, u64>>,
 }
 
 impl Servers {
@@ -142,9 +144,17 @@ impl Servers {
         if !row.is_approved() {
             return Err("server needs approval".into());
         }
+        let generation = self.current_generation(&row.name);
         self.set_transient(&row.name, State::Connecting, None);
         hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
         let result = self.open(&row.config).await;
+        if self.current_generation(&row.name) != generation {
+            // The definition changed while we were connecting; whatever we opened belongs to a dead configuration.
+            if let Ok(live) = result {
+                let _ = live.service.cancel().await;
+            }
+            return Err("server definition changed during connect".into());
+        }
         match result {
             Ok(live) => {
                 self.live.lock().unwrap().insert(row.name.clone(), Arc::new(live));
@@ -190,7 +200,17 @@ impl Servers {
         Ok(Live { service, tools })
     }
 
+    /// Also invalidates any connect still in flight for this server.
+    pub fn invalidate(&self, name: &str) {
+        *self.generation.lock().unwrap().entry(name.into()).or_default() += 1;
+    }
+
+    fn current_generation(&self, name: &str) -> u64 {
+        self.generation.lock().unwrap().get(name).copied().unwrap_or(0)
+    }
+
     pub async fn disconnect(&self, name: &str, store: &Store, hub: &Hub) -> bool {
+        self.invalidate(name);
         let removed = self.live.lock().unwrap().remove(name);
         self.transient.lock().unwrap().remove(name);
         let Some(live) = removed else { return false };

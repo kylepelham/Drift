@@ -72,3 +72,29 @@ async fn a_bad_command_reports_failed() {
     assert_eq!(status.state, State::Failed);
     assert!(status.error.unwrap().contains("could not start"));
 }
+
+#[tokio::test]
+async fn a_config_change_during_connect_discards_the_late_connection() {
+    let engine = engine();
+    let hub = Hub::new(32);
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/slow-server.cjs");
+    let slow = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), "1500".to_string())].into() };
+    let row = engine.store.save_mcp_server("probe", &slow).unwrap();
+    engine.store.approve_mcp_server("probe", &row.hash()).unwrap();
+    let approved = engine.store.mcp_server("probe").unwrap().unwrap();
+    let connecting = tokio::spawn({
+        let engine = engine.clone();
+        let hub = Hub::new(8);
+        async move { engine.mcp.connect(approved, &hub).await }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    // Replace the definition the way the save route does: disconnect (invalidates), then store the new config.
+    engine.mcp.disconnect("probe", &engine.store, &hub).await;
+    let replaced = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("TOOL_NAME".to_string(), "new_tool".to_string())].into() };
+    let row = engine.store.save_mcp_server("probe", &replaced).unwrap();
+    assert!(connecting.await.unwrap().is_err(), "the stale connect must not succeed");
+    let status = engine.mcp.status_of(row);
+    assert_eq!(status.state, State::NeedsApproval);
+    assert!(status.tools.is_empty(), "no tools from the discarded connection");
+    assert!(engine.mcp.tools().is_empty());
+}

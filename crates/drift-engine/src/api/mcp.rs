@@ -27,6 +27,7 @@ pub async fn save(State(engine): State<Arc<Engine>>, Path(name): Path<String>, J
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid", "server names are letters, digits, - and _"));
     }
+    engine.mcp.invalidate(&name);
     engine.mcp.disconnect(&name, &engine.store, &engine.hub).await;
     engine.tools.set_dynamic(engine.mcp.tools());
     let row = engine.store.save_mcp_server(&name, &config)?;

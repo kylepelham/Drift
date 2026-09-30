@@ -261,7 +261,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   Approved, enabled servers connect at startup and on demand through rmcp. Their tools join
   the registry as `<server>_<tool>`; tools the server marks read-only run without asking,
   the rest ask under kind `mcp` with pattern `<server>/<tool>`, and "always" therefore
-  covers the whole server. MCP OAuth is not implemented yet.
+  covers the whole server. Every save, disable, disconnect and remove bumps the server's
+  generation; a connect that began under an older generation closes what it opened and
+  publishes nothing. MCP OAuth is not implemented yet.
 - **Config.** `Config::load` reads `~/.config/drift/drift.json` then `<workspace>/drift.json`
   (project rules first, so they win), plus `.drift/agents/*.md`, `.drift/commands/*.md` and
   skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at both roots (project
@@ -270,7 +272,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
 - **Agents.** `build` and `plan` are built in; `plan` gets only read-only tools and its
   prompt. A project agent of the same name replaces a built-in. A session's `agent` is set
   on create or `PATCH`; the agent's prompt is appended to the system prompt, its `tools`
-  list filters the registry, its `model` is the default when the session has none.
+  list filters the registry, its `model` is the default when the session has none. The
+  filtered set is pinned for the run: a call to any tool outside it is refused before
+  permission, snapshot or dispatch, so plan mode cannot write even if the model asks.
 - **Commands.** `POST /sessions/{id}/command` expands `$ARGUMENTS` in the template and
   submits the result as a turn.
 - **Skills** are listed in the system prompt by name and description; the `skill` tool

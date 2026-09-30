@@ -439,3 +439,19 @@ async fn a_configured_formatter_runs_after_a_write() {
     let Part::ToolCall { metadata, .. } = &transcript[1].parts[0].part else { panic!() };
     assert_eq!(metadata.as_ref().unwrap()["formatted"][0], "tidy: note.txt");
 }
+
+#[tokio::test]
+async fn a_call_to_a_tool_the_run_did_not_offer_is_refused_before_anything_happens() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    h.engine.store.update_session(&h.session.id, None, None, Some("plan")).unwrap();
+    h.provider.push(tool_call("write", r#"{"path": "plan-mutated.txt", "content": "x\n"}"#)).push(text("noted"));
+    h.engine.submit(&h.session.id, prompt("write it anyway")).await.await_ok();
+    until_idle(&h).await;
+    assert!(!h._dir.join("ws/plan-mutated.txt").exists(), "plan mode must not write");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, metadata, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error);
+    assert!(output.as_deref().unwrap().contains("not available in this session"));
+    assert!(metadata.is_none(), "no snapshot was taken");
+}

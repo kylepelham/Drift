@@ -243,6 +243,8 @@ impl Engine {
         let system = prompt::system(&plan.workspace, &plan.config, agent.as_ref());
         let allowed = agent.as_ref().map(|a| a.tools.clone()).unwrap_or_default();
         let tools: Vec<_> = self.tools.specs(plan.model.profile).into_iter().filter(|spec| allowed.is_empty() || allowed.contains(&spec.name)).collect();
+        // What was offered is what may run; a call to any other tool is refused before permission or snapshot.
+        let offered: std::collections::HashSet<String> = tools.iter().map(|t| t.name.clone()).collect();
         let mut attempts = 0;
         loop {
             let Ok(transcript) = self.store.transcript(&plan.session.id) else { break };
@@ -257,7 +259,7 @@ impl Engine {
             };
             let Ok(message) = self.store.create_message(&plan.session.id, Role::Assistant, Some(&plan.model_ref)) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });
-            match self.step(&plan, message, &request, &abort).await {
+            match self.step(&plan, message, &request, &offered, &abort).await {
                 Step::Done => break,
                 Step::Continue => attempts = 0,
                 Step::Retry if attempts + 1 < MAX_ATTEMPTS => {
@@ -271,7 +273,7 @@ impl Engine {
     }
 
     /// One assistant message and the tool calls it makes.
-    async fn step(self: &Arc<Self>, plan: &Plan, mut message: Message, request: &Request, abort: &CancellationToken) -> Step {
+    async fn step(self: &Arc<Self>, plan: &Plan, mut message: Message, request: &Request, offered: &std::collections::HashSet<String>, abort: &CancellationToken) -> Step {
         let streamed = match self.stream(&message, plan, request, abort).await {
             Ok(streamed) => streamed,
             Err(StreamError::Aborted) => {
@@ -296,7 +298,7 @@ impl Engine {
         if streamed.stop == StopReason::MaxTokens {
             return Step::Done;
         }
-        match self.run_calls(plan, &message, streamed.calls, abort).await {
+        match self.run_calls(plan, &message, streamed.calls, offered, abort).await {
             Outcome::Aborted => Step::Done,
             _ => Step::Continue,
         }
@@ -344,10 +346,10 @@ impl Engine {
     }
 
     /// Calls run in the model's order. Consecutive reads run together; a write waits for what came before it.
-    async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, abort: &CancellationToken) -> Outcome {
+    async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, offered: &std::collections::HashSet<String>, abort: &CancellationToken) -> Outcome {
         let files = self.turns.files_for(&plan.session.id);
         let snapshot = tokio::sync::OnceCell::new();
-        let scope = CallScope { plan, message, files: &files, snapshot: &snapshot, abort };
+        let scope = CallScope { plan, message, files: &files, snapshot: &snapshot, offered, abort };
         let mut reads: Vec<PartRow> = Vec::new();
         for row in calls {
             if !self.call_mutates(&row) {
@@ -386,6 +388,10 @@ impl Engine {
             abort: scope.abort.clone(),
             engine: self.clone(),
         };
+        if !scope.offered.contains(&name) {
+            self.settle(&mut row, ToolStatus::Error, None, format!("`{name}` is not available in this session; use only the tools you were given"), None);
+            return Outcome::Allowed;
+        }
         let Some(tool) = self.tools.get(&name) else {
             self.settle(&mut row, ToolStatus::Error, None, format!("unknown tool `{name}`"), None);
             return Outcome::Allowed;
@@ -511,6 +517,7 @@ struct CallScope<'a> {
     message: &'a Message,
     files: &'a Arc<SessionFiles>,
     snapshot: &'a tokio::sync::OnceCell<Result<String, String>>,
+    offered: &'a std::collections::HashSet<String>,
     abort: &'a CancellationToken,
 }
 
