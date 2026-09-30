@@ -67,6 +67,11 @@ test("a reply that stopped at its output limit shows why", () => {
   expect(whole.error).toBeUndefined()
 })
 
+test("a delivered background result is engine text, not the user's words", () => {
+  const part = adaptPart({ id: "prt_9", messageId: "msg_9", sessionId: "ses_1", type: "task_result", taskId: "task_1", workerSessionId: "ses_w", description: "Survey", outcome: "replied", text: "three things" })
+  expect(part).toMatchObject({ type: "text", synthetic: true, sessionID: "ses_1", text: 'Background task "Survey" replied:\n\nthree things' })
+})
+
 test("a compaction becomes the boundary part and summary message the transcript already draws", () => {
   const summary = adaptMessage(
     { id: "msg_2", sessionId: "ses_1", role: "assistant", status: "done", model: { provider: "anthropic", model: "claude" }, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0, createdAt: 1, summary: true },

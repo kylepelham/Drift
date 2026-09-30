@@ -10,6 +10,7 @@ use super::error::ApiError;
 use crate::event::Event;
 use crate::session::branch::BranchDraft;
 use crate::session::revert::Undone;
+use crate::session::tasks::TaskRecord;
 use crate::session::turn::{Prompt, Receipt};
 use crate::session::types::{MessageWithParts, ModelRef, Session, Visibility};
 use crate::store::{NewSession, SessionFilter};
@@ -182,6 +183,25 @@ pub async fn compact(State(engine): State<Arc<Engine>>, Path(id): Path<String>) 
 pub async fn todos(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Vec<crate::session::types::Todo>>, ApiError> {
     engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;
     Ok(Json(engine.store.todos(&id)?))
+}
+
+/// Every worker the session launched, oldest first, finished ones included.
+#[utoipa::path(get, path = "/sessions/{id}/tasks", operation_id = "listTasks", responses((status = 200, body = Vec<TaskRecord>), (status = 404)))]
+pub async fn tasks(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Vec<TaskRecord>>, ApiError> {
+    engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;
+    Ok(Json(engine.store.tasks_of(&id)?))
+}
+
+#[utoipa::path(get, path = "/tasks/{id}", operation_id = "getTask", responses((status = 200, body = TaskRecord), (status = 404)))]
+pub async fn task(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<TaskRecord>, ApiError> {
+    Ok(Json(engine.store.task(&id)?.ok_or_else(|| ApiError::not_found("task"))?))
+}
+
+/// Stops one worker and nothing else: a queued one never starts, a running one stops as its turn would.
+#[utoipa::path(post, path = "/tasks/{id}/abort", operation_id = "abortTask", responses((status = 200, body = TaskRecord), (status = 404)))]
+pub async fn abort_task(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<TaskRecord>, ApiError> {
+    engine.store.task(&id)?.ok_or_else(|| ApiError::not_found("task"))?;
+    Ok(Json(engine.stop_task(&id)?))
 }
 
 /// Permanent removal, for archived sessions past their retention. Live turns are aborted first.

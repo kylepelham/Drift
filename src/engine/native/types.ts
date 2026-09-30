@@ -498,6 +498,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every worker the session launched, oldest first, finished ones included. */
+        get: operations["listTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/todos": {
         parameters: {
             query?: never;
@@ -557,6 +574,39 @@ export interface paths {
         get: operations["getSettings"];
         put: operations["putSettings"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/abort": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stops one worker and nothing else: a queued one never starts, a running one stops as its turn would. */
+        post: operations["abortTask"];
         delete?: never;
         options?: never;
         head?: never;
@@ -623,6 +673,8 @@ export interface components {
             aborted: boolean;
         };
         Agent: {
+            /** @description Front matter `background: true|false`: how a `task` for this agent runs when the call does not say. */
+            background?: boolean | null;
             builtin: boolean;
             description: string;
             kind?: components["schemas"]["AgentKind"];
@@ -733,6 +785,8 @@ export interface components {
         EngineSettings: {
             /** @description Compact a conversation automatically when it nears its model's context window. */
             autoCompact: boolean;
+            /** @description Let `task` run subagents in the background. Left out of a PUT, it stays as it is. */
+            backgroundTasks?: boolean | null;
         };
         Envelope: components["schemas"]["Event"] & {
             /** Format: int64 */
@@ -835,6 +889,10 @@ export interface components {
             sessionId: string;
             /** @enum {string} */
             type: "question.replied";
+        } | {
+            task: components["schemas"]["TaskRecord"];
+            /** @enum {string} */
+            type: "task.updated";
         };
         ForkBody: {
             /** @description Copy through this message; default is the last finished one, leaving out a turn in flight. */
@@ -911,6 +969,8 @@ export interface components {
         MessageWithParts: components["schemas"]["Message"] & {
             parts: components["schemas"]["PartRow"][];
         };
+        /** @enum {string} */
+        Mode: "foreground" | "background";
         Model: {
             attachment?: boolean;
             cost?: components["schemas"]["Cost"];
@@ -999,6 +1059,16 @@ export interface components {
             type: "file";
             /** @description Data URL for now; a content-addressed blob store replaces this later. */
             url: string;
+        } | {
+            description: string;
+            /** @description `replied`, `failed`, `stopped` or `interrupted`. */
+            outcome: string;
+            taskId: string;
+            text: string;
+            /** @enum {string} */
+            type: "task_result";
+            /** @description The worker's own transcript; not `session_id`, which the part row already carries. */
+            workerSessionId: string;
         } | {
             auto: boolean;
             /** @description First message the model still sees verbatim after the summary; `None` keeps nothing. */
@@ -1154,6 +1224,30 @@ export interface components {
         };
         /** @enum {string} */
         State: "disabled" | "needs_approval" | "disconnected" | "connecting" | "connected" | "failed";
+        /** @description One worker: who launched it, how it runs and why, how it ended, and whether its parent has it. */
+        TaskRecord: {
+            agent: string;
+            /** @description The `task` call that launched it. */
+            callId: string;
+            /** Format: int64 */
+            createdAt: number;
+            /** @description The result reached the parent (as the call's own result, or delivered later). */
+            delivered: boolean;
+            description: string;
+            /** Format: int64 */
+            finishedAt?: number | null;
+            id: string;
+            mode: components["schemas"]["Mode"];
+            parentSessionId: string;
+            /** @description Why this mode: `requested`, `agent default`, `default` or `background turned off`. */
+            reason: string;
+            result?: string | null;
+            /** @description The worker's own transcript. */
+            sessionId: string;
+            state: components["schemas"]["TaskState"];
+        };
+        /** @enum {string} */
+        TaskState: "queued" | "running" | "replied" | "failed" | "stopped" | "interrupted";
         Todo: {
             content: string;
             priority?: string;
@@ -2170,6 +2264,33 @@ export interface operations {
             };
         };
     };
+    listTasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRecord"][];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listTodos: {
         parameters: {
             query?: never;
@@ -2306,6 +2427,60 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EngineSettings"];
                 };
+            };
+        };
+    };
+    getTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRecord"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    abortTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRecord"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

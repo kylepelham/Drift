@@ -165,8 +165,8 @@ pub enum Part {
     #[serde(rename_all = "camelCase")]
     TaskResult {
         task_id: String,
-        /// The worker's own transcript.
-        session_id: String,
+        /// The worker's own transcript; not `session_id`, which the part row already carries.
+        worker_session_id: String,
         description: String,
         /// `replied`, `failed`, `stopped` or `interrupted`.
         outcome: String,
@@ -249,6 +249,20 @@ mod tests {
         assert_eq!(json["messageId"], "msg_1");
         assert!(json.get("output").is_none());
         let back: PartRow = serde_json::from_value(json).unwrap();
+        assert_eq!(back, row);
+    }
+
+    #[test]
+    fn a_part_never_shadows_its_rows_own_fields() {
+        let row = PartRow {
+            id: "prt_1".into(),
+            message_id: "msg_1".into(),
+            session_id: "ses_parent".into(),
+            part: Part::TaskResult { task_id: "task_1".into(), worker_session_id: "ses_worker".into(), description: "d".into(), outcome: "replied".into(), text: "t".into() },
+        };
+        let text = serde_json::to_string(&row).unwrap();
+        assert_eq!(text.matches("\"sessionId\"").count(), 1, "{text}");
+        let back: PartRow = serde_json::from_str(&text).unwrap();
         assert_eq!(back, row);
     }
 }

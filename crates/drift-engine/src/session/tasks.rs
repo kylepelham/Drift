@@ -250,7 +250,7 @@ impl Engine {
         }
         let part = Part::TaskResult {
             task_id: task.id.clone(),
-            session_id: task.session_id.clone(),
+            worker_session_id: task.session_id.clone(),
             description: task.description.clone(),
             outcome: task.state.as_str().into(),
             text: task.result.clone().unwrap_or_default(),

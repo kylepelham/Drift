@@ -415,3 +415,27 @@ async fn workspace_config_and_commands_are_served() {
     assert_eq!(patched["agent"], "plan");
 }
 
+#[tokio::test]
+async fn tasks_are_listed_read_and_stopped_and_background_can_be_turned_off() {
+    use crate::session::tasks::{Mode, TaskState};
+    let h = harness().await;
+    let (_, session_id) = session_with_model(&h).await;
+    let listed: Value = h.get(&format!("/sessions/{session_id}/tasks")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(listed, json!([]));
+    let new = crate::store::NewTask { parent_session_id: &session_id, session_id: "ses_w", call_id: "c", description: "Look", agent: "general", mode: Mode::Background, reason: "requested" };
+    let (task, _) = h.engine.store.create_task(new).unwrap();
+    let read: Value = h.get(&format!("/tasks/{}", task.id)).send().await.unwrap().json().await.unwrap();
+    assert_eq!((read["state"].as_str(), read["mode"].as_str()), (Some("queued"), Some("background")));
+    let stopped: Value = h.post(&format!("/tasks/{}/abort", task.id)).send().await.unwrap().json().await.unwrap();
+    assert_eq!(stopped["state"], "stopped", "a queued worker never starts");
+    assert_eq!(h.engine.store.task(&task.id).unwrap().unwrap().state, TaskState::Stopped);
+    assert_eq!(h.get("/tasks/task_nope").send().await.unwrap().status(), 404);
+
+    let settings: Value = h.get("/settings").send().await.unwrap().json().await.unwrap();
+    assert_eq!(settings["backgroundTasks"], true);
+    let off: Value = h.put("/settings").json(&json!({ "autoCompact": true, "backgroundTasks": false })).send().await.unwrap().json().await.unwrap();
+    assert_eq!(off["backgroundTasks"], false);
+    let kept: Value = h.put("/settings").json(&json!({ "autoCompact": false })).send().await.unwrap().json().await.unwrap();
+    assert_eq!((kept["autoCompact"].as_bool(), kept["backgroundTasks"].as_bool()), (Some(false), Some(false)), "left out, it stays");
+}
+

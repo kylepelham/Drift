@@ -95,6 +95,9 @@ export function adaptPart(row: NativePartRow): Part {
       return { ...base, type: "tool", callID: row.callId, tool: row.name, state: toolState(row) }
     case "compaction":
       return { ...base, type: "compaction", auto: row.auto }
+    // Delivered by the engine, not typed by the user: kept out of the user's bubble and the composer history.
+    case "task_result":
+      return { ...base, type: "text", text: `Background task "${row.description}" ${row.outcome}:\n\n${row.text}`, synthetic: true }
   }
 }
 
@@ -207,6 +210,7 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
     case "mcp.updated":
     case "mcp.removed":
     case "workspace.created":
+    case "task.updated":
       return undefined
   }
 }
