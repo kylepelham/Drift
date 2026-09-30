@@ -754,6 +754,9 @@ export interface components {
             model?: components["schemas"]["ModelRef"] | null;
             permissions: components["schemas"]["Rule"][];
             skills: components["schemas"]["Skill"][];
+            timeouts: {
+                [key: string]: components["schemas"]["RouteTimeouts"];
+            };
         };
         Control: {
             instance: string;
@@ -1162,6 +1165,21 @@ export interface components {
         };
         /** @enum {string} */
         Role: "user" | "assistant";
+        /** @description A route's time limits in seconds; either may be left out to keep the route's default. */
+        RouteTimeouts: {
+            /**
+             * Format: int64
+             * @description Until the response begins.
+             * @default null
+             */
+            headersSeconds: number | null;
+            /**
+             * Format: int64
+             * @description Between two pieces of a streamed reply.
+             * @default null
+             */
+            idleSeconds: number | null;
+        };
         Rule: {
             decision: components["schemas"]["Decision"];
             kind: string;

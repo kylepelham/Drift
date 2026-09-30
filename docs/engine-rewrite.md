@@ -309,7 +309,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   request whose response has not begun within 120 s fails as a transport error, and a stream with
   nothing at all (not even a ping or comment) for 300 s ends as a stalled stream; both retry like any
   transport failure. Reasoning models can think silently for minutes, hence the long idle limit;
-  both limits are per adapter (`Timeouts`). Stop ends a turn while its request is still being sent
+  both limits are per route (`Timeouts::for_route`): local routes (`ollama`, `lmstudio`) start at
+  600 s for both, since loading a model or reading a long prompt on a CPU can take minutes, and
+  drift.json `timeouts: { "<provider>": { "headersSeconds": n, "idleSeconds": n } }` sets any
+  route's limits, applied when the turn plans and again if a retry switches its model. Stop ends a turn while its request is still being sent
   or waiting for the response to begin, not only once it streams. A body read whole rather than
   streamed (an error response, an OAuth token exchange) goes through `http::bounded_body`: at most
   64 KB and at most the idle limit (capped at 10 s), so an error that trickles in or never ends

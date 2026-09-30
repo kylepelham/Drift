@@ -321,6 +321,28 @@ pub enum Provider {
 }
 
 impl Provider {
+    /// The same route with other time limits.
+    pub fn with_timeouts(mut self, timeouts: http::Timeouts) -> Self {
+        match &mut self {
+            Self::Anthropic(provider) => provider.timeouts = timeouts,
+            Self::OpenAi(provider) => provider.timeouts = timeouts,
+            Self::Compat(provider) => provider.timeouts = timeouts,
+            Self::Gemini(provider) => provider.timeouts = timeouts,
+            Self::Scripted(_) => {}
+        }
+        self
+    }
+
+    pub fn timeouts(&self) -> Option<http::Timeouts> {
+        match self {
+            Self::Anthropic(provider) => Some(provider.timeouts),
+            Self::OpenAi(provider) => Some(provider.timeouts),
+            Self::Compat(provider) => Some(provider.timeouts),
+            Self::Gemini(provider) => Some(provider.timeouts),
+            Self::Scripted(_) => None,
+        }
+    }
+
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
         match self {
             Self::Anthropic(provider) => provider.stream(request, credential).await,
@@ -337,7 +359,7 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
     let env_name = format!("DRIFT_{}_BASE_URL", id.to_uppercase().replace('-', "_"));
     let override_url = std::env::var(env_name).ok();
     let base = |default: &str| override_url.clone().or_else(|| catalog_api.map(str::to_string)).unwrap_or_else(|| default.to_string());
-    Some(match id {
+    let provider = match id {
         "anthropic" => Provider::Anthropic(override_url.as_deref().map_or_else(anthropic::Anthropic::default, anthropic::Anthropic::new)),
         "openai" => Provider::OpenAi(override_url.as_deref().map_or_else(openai::OpenAi::default, openai::OpenAi::new)),
         "google" => Provider::Gemini(override_url.as_deref().map_or_else(gemini::Gemini::default, gemini::Gemini::new)),
@@ -347,7 +369,8 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
         "lmstudio" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:1234/v1"))),
         "ollama" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:11434/v1"))),
         _ => return None,
-    })
+    };
+    Some(provider.with_timeouts(http::Timeouts::for_route(id)))
 }
 
 /// Replays canned responses in order and records every request; tests and the conformance harness use it.

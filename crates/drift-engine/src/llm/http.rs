@@ -22,6 +22,19 @@ impl Default for Timeouts {
     }
 }
 
+/// Routes to models on this machine, which may spend minutes loading or reading a long prompt on a CPU.
+const LOCAL_ROUTES: [&str; 2] = ["lmstudio", "ollama"];
+
+impl Timeouts {
+    /// The limits a route starts with; drift.json `timeouts` can change any of them.
+    pub fn for_route(provider: &str) -> Self {
+        if LOCAL_ROUTES.contains(&provider) {
+            return Self { headers: Duration::from_secs(600), idle: Duration::from_secs(600) };
+        }
+        Self::default()
+    }
+}
+
 const CONNECT: Duration = Duration::from_secs(15);
 
 /// The shared client. Cloning it shares its connection pool.

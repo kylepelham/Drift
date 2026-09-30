@@ -943,6 +943,25 @@ fn only_identical_results_count_as_repeats() {
 }
 
 #[test]
+fn local_routes_wait_longer_and_drift_json_can_set_any_routes_limits() {
+    use crate::llm::http::Timeouts;
+    assert_eq!(Timeouts::for_route("ollama").headers, Duration::from_secs(600));
+    assert_eq!(Timeouts::for_route("lmstudio").idle, Duration::from_secs(600));
+    assert_eq!(Timeouts::for_route("anthropic"), Timeouts::default());
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let ollama = crate::llm::provider_for("ollama", None).unwrap();
+    assert_eq!(ollama.timeouts().unwrap().headers, Duration::from_secs(600), "the route's own defaults apply when it is built");
+
+    let dir = std::env::temp_dir().join(format!("drift-timeouts-{}", crate::random_hex(4)));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("drift.json"), r#"{ "timeouts": { "ollama": { "headersSeconds": 1800 }, "anthropic": { "idleSeconds": 60 } } }"#).unwrap();
+    let config = crate::config::Config::load_with_home(&dir, None);
+    assert_eq!(config.route_timeouts("ollama"), Timeouts { headers: Duration::from_secs(1800), idle: Duration::from_secs(600) });
+    assert_eq!(config.route_timeouts("anthropic"), Timeouts { headers: Duration::from_secs(120), idle: Duration::from_secs(60) });
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
 fn an_agent_can_have_its_own_step_limit() {
     let dir = std::env::temp_dir().join(format!("drift-limits-{}", crate::random_hex(4)));
     std::fs::create_dir_all(dir.join(".drift/agents")).unwrap();

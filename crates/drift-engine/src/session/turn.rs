@@ -370,13 +370,14 @@ impl Engine {
         let agent_model = config.agent(&session.agent).and_then(|a| a.model.clone());
         let model_ref = prompt.model.clone().or_else(|| session.model.clone()).or(agent_model).or_else(|| config.model.clone()).ok_or(TurnError::NoModel)?;
         let resolved = self.resolve(&model_ref).await?;
+        let provider = resolved.provider.with_timeouts(config.route_timeouts(&resolved.model_ref.provider));
         Ok(Plan {
             session,
             workspace: workspace_path,
             config,
             model_ref: resolved.model_ref,
             model: resolved.model,
-            provider: resolved.provider,
+            provider,
             credential: resolved.credential,
             thinking_budget: prompt.thinking_budget,
         })
@@ -548,7 +549,7 @@ impl Engine {
             *running = plan.model_ref.clone();
         }
         plan.model = resolved.model;
-        plan.provider = resolved.provider;
+        plan.provider = resolved.provider.with_timeouts(plan.config.route_timeouts(&plan.model_ref.provider));
         plan.credential = resolved.credential;
         if let Ok(Some(session)) = self.store.update_session(&plan.session.id, None, Some(&plan.model_ref), None) {
             self.hub.publish(Event::SessionUpdated { session });

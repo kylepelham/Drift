@@ -33,6 +33,18 @@ pub struct File {
     pub formatters: BTreeMap<String, FormatterConfig>,
     /// Turn limits; each field set here replaces the one before it.
     pub limits: LimitsFile,
+    /// Time limits per provider route (`ollama`, `anthropic`, ...), for slow local models or gateways.
+    pub timeouts: BTreeMap<String, RouteTimeouts>,
+}
+
+/// A route's time limits in seconds; either may be left out to keep the route's default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RouteTimeouts {
+    /// Until the response begins.
+    pub headers_seconds: Option<u64>,
+    /// Between two pieces of a streamed reply.
+    pub idle_seconds: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -149,9 +161,24 @@ pub struct Config {
     pub instructions: Vec<Instruction>,
     pub formatters: BTreeMap<String, FormatterConfig>,
     pub limits: Limits,
+    pub timeouts: BTreeMap<String, RouteTimeouts>,
 }
 
 impl Config {
+    /// A route's time limits: its defaults with whatever drift.json sets for it.
+    pub fn route_timeouts(&self, provider: &str) -> crate::llm::http::Timeouts {
+        let mut timeouts = crate::llm::http::Timeouts::for_route(provider);
+        if let Some(set) = self.timeouts.get(provider) {
+            if let Some(seconds) = set.headers_seconds.filter(|s| *s > 0) {
+                timeouts.headers = std::time::Duration::from_secs(seconds);
+            }
+            if let Some(seconds) = set.idle_seconds.filter(|s| *s > 0) {
+                timeouts.idle = std::time::Duration::from_secs(seconds);
+            }
+        }
+        timeouts
+    }
+
     /// The limits a turn run by `agent` works under.
     pub fn limits_for(&self, agent: &str) -> Limits {
         let steps = self.agent(agent).and_then(|a| a.steps).unwrap_or(self.limits.steps);
@@ -210,6 +237,7 @@ impl Config {
         rules.append(&mut self.permissions);
         self.permissions = rules;
         self.formatters.extend(file.formatters);
+        self.timeouts.extend(file.timeouts);
         let limits = file.limits;
         self.limits.steps = limits.steps.unwrap_or(self.limits.steps).max(1);
         self.limits.repeats = limits.repeats.unwrap_or(self.limits.repeats).max(2);
