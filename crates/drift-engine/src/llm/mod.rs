@@ -374,6 +374,9 @@ pub mod scripted {
     #[derive(Clone, Debug, Default)]
     pub struct Scripted {
         responses: Responses,
+        /// Answers for a particular conversation, found by a phrase in its first message; used before
+        /// the shared queue, so sessions running at once each get their own replies in their own order.
+        keyed: Arc<Mutex<Vec<(String, Response)>>>,
         pub requests: Arc<Mutex<Vec<Request>>>,
     }
 
@@ -403,24 +406,50 @@ pub mod scripted {
             self
         }
 
+        /// A reply for the conversation whose first message contains `phrase`.
+        pub fn push_for(&self, phrase: &str, chunks: Vec<Chunk>) -> &Self {
+            self.keyed.lock().unwrap().push((phrase.into(), Response::Chunks(chunks)));
+            self
+        }
+
+        pub fn push_slow_for(&self, phrase: &str, delay: std::time::Duration, chunks: Vec<Chunk>) -> &Self {
+            self.keyed.lock().unwrap().push((phrase.into(), Response::Slow(delay, chunks)));
+            self
+        }
+
+        pub fn push_stall_for(&self, phrase: &str) -> &Self {
+            self.keyed.lock().unwrap().push((phrase.into(), Response::Stall));
+            self
+        }
+
         pub fn responses_left(&self) -> usize {
-            self.responses.lock().unwrap().len()
+            self.responses.lock().unwrap().len() + self.keyed.lock().unwrap().len()
         }
 
         pub fn stream(&self, request: &Request) -> Result<ChunkStream, Error> {
             self.requests.lock().unwrap().push(request.clone());
-            match self.responses.lock().unwrap().pop_front() {
-                Some(Response::Chunks(chunks)) => Ok(Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok)))),
-                Some(Response::Fail(error)) => Err(error),
-                Some(Response::FailMidway(chunks, error)) => Ok(Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok).chain([Err(error)])))),
-                Some(Response::Slow(delay, chunks)) => {
-                    use futures_util::StreamExt;
-                    let later = futures_util::stream::once(tokio::time::sleep(delay)).flat_map(move |()| futures_util::stream::iter(chunks.clone().into_iter().map(Ok)));
-                    Ok(Box::pin(later))
-                }
-                Some(Response::Stall) => Ok(Box::pin(futures_util::stream::pending())),
+            let first = request.messages.first().map(|m| m.blocks.iter().filter_map(|b| if let super::Block::Text(t) = b { Some(t.as_str()) } else { None }).collect::<String>()).unwrap_or_default();
+            let mut keyed = self.keyed.lock().unwrap();
+            let found = keyed.iter().position(|(phrase, _)| first.contains(phrase.as_str())).map(|index| keyed.remove(index).1);
+            drop(keyed);
+            match found.or_else(|| self.responses.lock().unwrap().pop_front()) {
+                Some(response) => play(response),
                 None => Err(Error::Transport("scripted provider has no more responses".into())),
             }
+        }
+    }
+
+    fn play(response: Response) -> Result<ChunkStream, Error> {
+        use futures_util::StreamExt;
+        match response {
+            Response::Chunks(chunks) => Ok(Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok)))),
+            Response::Fail(error) => Err(error),
+            Response::FailMidway(chunks, error) => Ok(Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok).chain([Err(error)])))),
+            Response::Slow(delay, chunks) => {
+                let later = futures_util::stream::once(tokio::time::sleep(delay)).flat_map(move |()| futures_util::stream::iter(chunks.clone().into_iter().map(Ok)));
+                Ok(Box::pin(later))
+            }
+            Response::Stall => Ok(Box::pin(futures_util::stream::pending())),
         }
     }
 }
