@@ -68,14 +68,13 @@ impl Store {
             .optional()
     }
 
-    /// Listed newest first, siblings and roots only; hidden children never appear here.
+    /// Listed newest first, subagents included; the UI nests them under their parent.
     pub fn sessions(&self, filter: SessionFilter) -> rusqlite::Result<Vec<Session>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(&format!(
             "SELECT {SESSION_COLUMNS} FROM session
              WHERE (?1 IS NULL OR workspace_id = ?1)
                AND (archived_at IS NOT NULL) = ?2
-               AND visibility = 'sibling'
                AND (?3 IS NULL OR (updated_at, id) < (SELECT updated_at, id FROM session WHERE id = ?3))
              ORDER BY updated_at DESC, id DESC LIMIT ?4"
         ))?;
@@ -325,16 +324,17 @@ mod tests {
     }
 
     #[test]
-    fn hidden_children_are_not_listed() {
+    fn subagents_are_listed_with_their_parent() {
         let store = store();
         let parent = store.create_session(new("w")).unwrap();
-        store
+        let child = store
             .create_session(NewSession { parent_id: Some(&parent.id), visibility: Visibility::Hidden, ..new("w") })
             .unwrap();
         let listed = store
             .sessions(SessionFilter { workspace_id: Some("w"), archived: false, before: None, limit: 10 })
             .unwrap();
-        assert_eq!(listed.len(), 1);
+        assert_eq!(listed.len(), 2);
+        assert!(listed.iter().any(|s| s.id == child.id && s.parent_id.as_deref() == Some(parent.id.as_str())));
     }
 
     #[test]

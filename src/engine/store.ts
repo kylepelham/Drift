@@ -205,11 +205,20 @@ export function createEngineState() {
   })
 }
 
+/** The engine knows which thread spawned which; that beats links inferred from tool parts. */
+function linkSpawned(links: Record<string, string>, info: Session) {
+  const parent = (info as Session & { spawnedFrom?: string }).spawnedFrom
+  if (!parent) return
+  links[info.id] = parent
+  recordLink({ child: info.id, parent })
+}
+
 // Store sets merge; optional keys the engine dropped (revert, share) must clear explicitly.
 export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
   set(
     produce((draft) => {
       draft.sessions[info.id] = { revert: undefined, share: undefined, ...info }
+      linkSpawned(draft.links, info)
       const model = (info as Session & { model?: { id: string; providerID: string } }).model
       if (model) draft.sessionModels[info.id] = { providerID: model.providerID, modelID: model.id }
       bumpRevision(draft, sessionRevisionKey(info.id))
@@ -222,6 +231,12 @@ export function putSessions(set: SetStoreFunction<EngineState>, infos: Session[]
     "sessions",
     produce((sessions) => {
       for (const info of infos) sessions[info.id] = { revert: undefined, share: undefined, ...info }
+    }),
+  )
+  set(
+    "links",
+    produce((links) => {
+      for (const info of infos) linkSpawned(links, info)
     }),
   )
   set(

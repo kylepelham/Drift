@@ -153,9 +153,9 @@ under it is true, not before.
 #### Session tree
 
 - One `session` table; `parent_id` plus `visibility` decide the shape. `task` creates a
-  `hidden` child (kept out of listings, titled `<description> (@<agent> subagent)`) and waits
+  `hidden` child (listed with its `parentId`; the sidebar nests it under the parent, titled `<description> (@<agent> subagent)`) and waits
   for it; the tool output is the child's last completed reply, clipped at 20k chars.
-  `spawn_thread` creates a `sibling` child seeded with the carried summary and excerpts,
+  `spawn_thread` creates a `sibling` child (a top-level sidebar row whose header links back to the parent) seeded with the carried summary and excerpts,
   starts it, and returns at once. Both set `metadata.sessionId` on the call so the UI links them.
 - `read_thread` reports running or idle, pending asks, todos and the latest reply, and only for
   threads the caller spawned.

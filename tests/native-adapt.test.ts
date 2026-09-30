@@ -23,6 +23,14 @@ test("sessions map workspace ids to directories and keep archive time", () => {
   expect((legacy as { model?: { providerID: string; id: string } }).model).toEqual({ providerID: "anthropic", id: "claude" })
 })
 
+test("subagents nest under their parent while spawned threads stay top level with a link", () => {
+  const subagent = adaptSession({ ...session, id: "ses_2", parentId: "ses_1", visibility: "hidden" }, workspaces)
+  expect(subagent.parentID).toBe("ses_1")
+  const spawned = adaptSession({ ...session, id: "ses_3", parentId: "ses_1" }, workspaces)
+  expect(spawned.parentID).toBeUndefined()
+  expect((spawned as { spawnedFrom?: string }).spawnedFrom).toBe("ses_1")
+})
+
 test("assistant messages carry tokens, cost and errors in the legacy shape", () => {
   const info = adaptMessage(
     {

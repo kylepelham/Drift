@@ -23,7 +23,9 @@ export function adaptSession(session: NativeSession, workspaces: WorkspaceIndex)
     id: session.id,
     projectID: session.workspaceId,
     directory: workspaces.path(session.workspaceId) ?? session.workspaceId,
-    parentID: session.parentId,
+    // Spawned threads are top-level rows that link back; only subagents nest under a parent.
+    parentID: session.visibility === "hidden" ? session.parentId : undefined,
+    spawnedFrom: session.visibility === "sibling" ? session.parentId : undefined,
     title: session.title,
     version: engineVersion,
     time: {

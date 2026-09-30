@@ -66,7 +66,7 @@ export function WorkspaceGroup(props: {
     if (current.length || authoritative()) return current
     return cachedSessions(props.workspace.path)
   })
-  const children = (parentId: string) => childrenOf(engine.state, parentId).filter((child) => sessionBusy(engine.state, child.id))
+  const children = (parentId: string) => childrenOf(engine.state, parentId)
   const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
   const visibleSessions = createMemo(() => sessions().slice(0, visibleCount()))
   const remaining = createMemo(() => Math.max(0, sessions().length - visibleSessions().length))

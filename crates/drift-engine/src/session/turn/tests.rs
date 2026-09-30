@@ -479,7 +479,7 @@ async fn a_task_runs_a_hidden_child_and_returns_its_reply() {
     assert_eq!(child.title, "Check a.txt (@build subagent)");
     assert_eq!(h.engine.store.transcript(&child_id).unwrap().len(), 3);
     let listed = h.engine.store.sessions(crate::store::SessionFilter { workspace_id: None, archived: false, before: None, limit: 10 }).unwrap();
-    assert!(!listed.iter().any(|s| s.id == child_id), "hidden children stay out of listings");
+    assert!(listed.iter().any(|s| s.id == child_id && s.parent_id.as_deref() == Some(h.session.id.as_str())), "subagents are listed so the UI can nest them");
 }
 
 #[tokio::test]
