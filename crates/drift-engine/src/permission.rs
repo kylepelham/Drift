@@ -406,6 +406,32 @@ mod tests {
     }
 
     #[test]
+    fn a_subagent_has_its_parents_approvals_but_not_the_other_way() {
+        let none = Policy::default();
+        let permissions = Permissions::new(Policy::default());
+        approve_always(&permissions, shell("cargo test"));
+        permissions.inherit("ses_child", "ses_1");
+        assert_eq!(permissions.decide("ses_child", &none, &shell("cargo test --lib")), Decision::Allow, "inherited from the parent");
+        assert_eq!(permissions.decide("ses_other", &none, &shell("cargo test")), Decision::Ask, "only for its own children");
+        let child = new_request("ses_child", "m", "c", "bash", shell("npm run build"));
+        permissions.apply(&child, &ReplyBody { reply: Reply::Always, pattern: None, message: None });
+        assert_eq!(permissions.decide("ses_child", &none, &shell("npm run build")), Decision::Allow);
+        assert_eq!(permissions.decide("ses_1", &none, &shell("npm run build")), Decision::Ask, "a worker's approval stays with the worker");
+        permissions.forget_session("ses_child");
+        assert_eq!(permissions.decide("ses_child", &none, &shell("cargo test")), Decision::Ask);
+    }
+
+    #[test]
+    fn refusals_carry_what_the_user_said_and_whether_to_stop() {
+        let permissions = Permissions::new(Policy::default());
+        let request = request("bash", "rm -rf build");
+        let said = |reply, message: Option<&str>| permissions.apply(&request, &ReplyBody { reply, pattern: None, message: message.map(str::to_string) });
+        assert_eq!(said(Reply::Deny, Some(" use cargo clean ")), Outcome::Denied { feedback: Some("use cargo clean".into()), stop: false });
+        assert_eq!(said(Reply::Deny, Some("  ")), Outcome::Denied { feedback: None, stop: false }, "blank feedback is none");
+        assert_eq!(said(Reply::Stop, None), Outcome::Denied { feedback: None, stop: true });
+    }
+
+    #[test]
     fn a_secret_read_is_allowed_only_by_name_and_denied_by_any_glob() {
         let broad = Policy { rules: vec![Rule { kind: "read".into(), pattern: "*".into(), decision: Decision::Allow }] };
         let permissions = Permissions::new(Policy::default());

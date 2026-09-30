@@ -604,6 +604,8 @@ export const drift = {
   "drift.message.duration.minutes": "{{minutes}}m {{seconds}}s",
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "Interrupted",
+  "drift.permission.denyStop": "Deny and stop",
+  "drift.permission.feedback": "Tell the model why (optional, sent with Deny)",
   "drift.move.sessionBusy": "The session is still busy; stop it before moving.",
   "drift.message.revertHere": "Revert to here",
   "drift.message.tokenCounts": "{{input}} in / {{output}} out",

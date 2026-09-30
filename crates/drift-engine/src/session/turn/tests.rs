@@ -123,7 +123,65 @@ async fn permission_denial_is_reported_to_the_model() {
     let Part::ToolCall { status, .. } = &transcript[1].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Denied);
     let requests = h.provider.requests.lock().unwrap();
-    assert!(matches!(&requests[1].messages[2].blocks[0], llm::Block::ToolResult { is_error: true, content, .. } if content.contains("denied")));
+    assert!(matches!(&requests[1].messages[2].blocks[0], llm::Block::ToolResult { is_error: true, content, .. } if content == "A permission rule forbids this call."), "a rule, not the user");
+}
+
+async fn next_ask(rx: &mut tokio::sync::broadcast::Receiver<crate::event::Envelope>) -> crate::permission::Request {
+    loop {
+        let envelope = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.expect("an ask").unwrap();
+        if let Event::PermissionAsked { request } = envelope.event {
+            return request;
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_refusal_tells_the_model_what_the_user_said_and_the_turn_goes_on() {
+    let h = harness().await;
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider.push(tool_call("bash", r#"{"command": "rm -rf build"}"#)).push(text("Using cargo clean instead"));
+    h.engine.submit(&h.session.id, prompt("clean up")).await.await_ok();
+    let ask = next_ask(&mut rx).await;
+    let body = ReplyBody { reply: Reply::Deny, pattern: None, message: Some("use cargo clean".into()) };
+    h.engine.permissions.reply(&h.engine.hub, &ask.id, body).unwrap();
+    until_idle(&h).await;
+    let requests = h.provider.requests.lock().unwrap().clone();
+    let result = requests[1].messages.iter().flat_map(|m| &m.blocks).find_map(|b| match b { llm::Block::ToolResult { content, .. } => Some(content.clone()), _ => None }).unwrap();
+    assert_eq!(result, "The user denied permission for this call. They said: use cargo clean");
+}
+
+#[tokio::test]
+async fn deny_and_stop_ends_the_turn() {
+    let h = harness().await;
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider.push(tool_call("bash", r#"{"command": "rm -rf build"}"#)).push(text("never asked"));
+    h.engine.submit(&h.session.id, prompt("clean up")).await.await_ok();
+    let ask = next_ask(&mut rx).await;
+    h.engine.permissions.reply(&h.engine.hub, &ask.id, ReplyBody { reply: Reply::Stop, pattern: None, message: None }).unwrap();
+    until_idle(&h).await;
+    assert_eq!(h.provider.requests.lock().unwrap().len(), 1, "no request after the stop");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Denied);
+    assert!(output.as_deref().unwrap().contains("stopped the turn"));
+}
+
+#[tokio::test]
+async fn a_subagent_runs_under_its_parents_approvals() {
+    let h = harness().await;
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider
+        .push(tool_call("bash", r#"{"command": "cargo --version"}"#))
+        .push(tool_call("task", r#"{"description": "Check", "prompt": "check the toolchain"}"#))
+        .push(tool_call("bash", r#"{"command": "cargo --version"}"#))
+        .push(text("child done"))
+        .push(text("parent done"));
+    h.engine.submit(&h.session.id, prompt("check")).await.await_ok();
+    let ask = next_ask(&mut rx).await;
+    h.engine.permissions.reply(&h.engine.hub, &ask.id, ReplyBody { reply: Reply::Always, pattern: None, message: None }).unwrap();
+    until_idle(&h).await;
+    assert_eq!(h.provider.responses_left(), 0, "the child's same command ran without asking");
+    assert!(h.engine.permissions.pending().is_empty());
 }
 
 #[tokio::test]

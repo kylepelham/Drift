@@ -687,6 +687,14 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   failures are ignored.
 - **Permissions** resolve in order: session "always" answers, the workspace's `drift.json`
   rules, then the global policy.
+  - A subagent inherits its parent's session approvals (`Permissions::inherit`, registered when
+    `task` creates it). One way only: an approval given inside the worker stays with the worker,
+    and branches inherit nothing.
+  - Replies are `once`, `always`, `deny` and `stop`, with an optional `message`. `deny` refuses
+    the call and the turn goes on; the model's result reads "The user denied permission for this
+    call. They said: ..." when there is a message. `stop` refuses it and ends the turn as Stop
+    does. A call a rule refuses says so ("A permission rule forbids this call."), never that the
+    user did. The permission card has a feedback field and a "Deny and stop" button.
   - A shell line is split into the simple commands it runs (`tool::command`, bash and PowerShell
     quoting, escapes and operators) and each is judged on its own: any denied command denies the
     line, and it runs without asking only if every command is allowed. So `git *` does not cover

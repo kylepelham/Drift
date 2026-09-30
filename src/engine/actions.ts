@@ -31,7 +31,7 @@ export type PromptFile = {
 }
 export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string; files?: PromptFile[]; directory?: string }
 export type PromptSendResult = { ok: true } | { ok: false; error: string }
-export type PermissionResponse = "once" | "always" | "reject"
+export type PermissionResponse = "once" | "always" | "reject" | "stop"
 export type ProviderAuthResult = { ok: boolean; connected: boolean }
 export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
 
@@ -272,10 +272,12 @@ export function createActions(
     set(produce((draft) => void (draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter((q) => q.id !== requestID))))
   }
 
-  async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
+  /** `message` goes to the model with a refusal; `stop` refuses and ends the turn. */
+  async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse, message?: string) {
     const reply = response === "reject" ? "deny" : response
+    const refusing = reply === "deny" || reply === "stop"
     try {
-      await requireClient().replyPermission(permissionID, { reply })
+      await requireClient().replyPermission(permissionID, { reply, ...(refusing && message?.trim() ? { message: message.trim() } : {}) })
     } catch (cause) {
       if (cause instanceof EngineError && cause.status === 404) {
         set(produce((draft) => void (draft.permissions[sessionID] = (draft.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID))))

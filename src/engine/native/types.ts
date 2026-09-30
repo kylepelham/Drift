@@ -1068,8 +1068,10 @@ export interface components {
             session: components["schemas"]["Session"];
         };
         /** @enum {string} */
-        Reply: "once" | "always" | "deny";
+        Reply: "once" | "always" | "deny" | "stop";
         ReplyBody: {
+            /** @description What the user wants the model told when refusing. */
+            message?: string | null;
             pattern?: string | null;
             reply: components["schemas"]["Reply"];
         };
