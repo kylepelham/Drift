@@ -1309,6 +1309,8 @@ export const drift = {
   "drift.message.duration.minutes": "{{minutes}} min {{seconds}} s",
   "drift.message.duration.seconds": "{{seconds}} s",
   "drift.message.interrupted": "Avbrutt",
+  "drift.permission.denyStop": "Avslå og stopp",
+  "drift.permission.feedback": "Fortell modellen hvorfor (valgfritt, sendes med Avslå)",
   "drift.move.sessionBusy": "Sesjonen er fortsatt opptatt; stopp den før du flytter den.",
   "drift.message.revertHere": "Tilbakestill hit",
   "drift.message.tokenCounts": "{{input}} inn / {{output}} ut",

@@ -1300,6 +1300,8 @@ export const drift = {
   "drift.message.duration.minutes": "{{minutes}}m {{seconds}}s",
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "Prekinuto",
+  "drift.permission.denyStop": "Odbij i zaustavi",
+  "drift.permission.feedback": "Recite modelu zašto (neobavezno, šalje se uz Odbij)",
   "drift.move.sessionBusy": "Sesija je još uvijek zauzeta; zaustavite je prije premještanja.",
   "drift.message.revertHere": "Vrati do ovdje",
   "drift.message.tokenCounts": "{{input}} ulaz / {{output}} izlaz",

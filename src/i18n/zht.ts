@@ -1270,6 +1270,8 @@ export const drift = {
   "drift.message.duration.minutes": "{{minutes}}m {{seconds}}s",
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "已中斷",
+  "drift.permission.denyStop": "拒絕並停止",
+  "drift.permission.feedback": "告訴模型原因（選填，隨拒絕一起送出）",
   "drift.move.sessionBusy": "工作階段仍在執行；移動前請先停止它。",
   "drift.message.revertHere": "還原到此處",
   "drift.message.tokenCounts": "輸入 {{input}} / 輸出 {{output}}",

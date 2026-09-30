@@ -1306,6 +1306,8 @@ export const drift = {
   "drift.message.duration.minutes": "{{minutes}}m {{seconds}}s",
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "Прервано",
+  "drift.permission.denyStop": "Отклонить и остановить",
+  "drift.permission.feedback": "Объясните модели причину (необязательно, отправляется с Отклонить)",
   "drift.move.sessionBusy": "Сессия всё ещё занята; остановите её перед перемещением.",
   "drift.message.revertHere": "Вернуться сюда",
   "drift.message.tokenCounts": "{{input}} вх. / {{output}} вых.",

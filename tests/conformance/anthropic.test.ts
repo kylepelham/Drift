@@ -73,7 +73,7 @@ test("a stream that ends without a stop reason fails the message and runs nothin
   for (const attempt of attempts.slice(0, 2)) {
     expect(attempt.status).toBe("error")
     expect(attempt.error).toContain("stop reason")
-    expect(attempt.parts[0]!.status).toBe("pending")
+    expect(attempt.parts[0]!.status).toBe("error")
   }
   expect(() => readFileSync(path.join(engine.workspace, "never.txt"))).toThrow()
   events.close()
@@ -126,13 +126,16 @@ test("abort during a slow stream marks the message aborted and frees the session
   fake.push({ body: fixture("text"), delayMs: 3_000 })
   await submit(session, "slow")
   await events.until((f) => f.type === "session.status" && f.status === "running")
-  const busy = await submit(session, "again")
-  expect(busy.status).toBe(409)
+  // A prompt sent while the turn runs is steered into it; Stop still ends the turn.
+  const steered = await submit(session, "again")
+  expect(steered.status).toBe(202)
   const aborted = await engine.call<{ aborted: boolean }>("POST", `/sessions/${session}/abort`)
   expect(aborted.json.aborted).toBe(true)
   await events.until((f) => f.type === "session.status" && f.status === "idle")
-  const messages = await engine.call<{ status: string }[]>("GET", `/sessions/${session}/messages`)
-  expect(messages.json.at(-1)!.status).toBe("aborted")
+  const messages = await engine.call<{ role: string; status: string }[]>("GET", `/sessions/${session}/messages`)
+  expect(messages.json.filter((m) => m.role === "assistant").at(-1)!.status).toBe("aborted")
+  expect(messages.json.at(-1)!.role).toBe("user")
+  expect(fake.seen).toHaveLength(1)
   events.close()
 }, 30_000)
 

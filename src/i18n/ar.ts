@@ -1208,6 +1208,8 @@ export const drift = {
   "drift.message.duration.minutes": "{{minutes}}m {{seconds}}s",
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "تمت المقاطعة",
+  "drift.permission.denyStop": "رفض وإيقاف",
+  "drift.permission.feedback": "أخبر النموذج بالسبب (اختياري، يُرسل مع الرفض)",
   "drift.move.sessionBusy": "الجلسة لا تزال مشغولة؛ أوقفها قبل النقل.",
   "drift.message.revertHere": "التراجع إلى هنا",
   "drift.message.tokenCounts": "{{input}} إدخال / {{output}} إخراج",

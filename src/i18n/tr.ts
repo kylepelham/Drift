@@ -1302,6 +1302,8 @@ export const drift = {
   "drift.message.duration.minutes": "{{minutes}}m {{seconds}}s",
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "Kesintiye uğradı",
+  "drift.permission.denyStop": "Reddet ve durdur",
+  "drift.permission.feedback": "Modele nedenini söyleyin (isteğe bağlı, Reddet ile gönderilir)",
   "drift.move.sessionBusy": "Oturum hâlâ meşgul; taşımadan önce durdurun.",
   "drift.message.revertHere": "Buraya geri dön",
   "drift.message.tokenCounts": "{{input}} giriş / {{output}} çıkış",

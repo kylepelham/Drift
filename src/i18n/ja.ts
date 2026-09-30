@@ -1217,6 +1217,8 @@ export const drift = {
   "drift.message.duration.minutes": "{{minutes}}m {{seconds}}s",
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "中断",
+  "drift.permission.denyStop": "拒否して停止",
+  "drift.permission.feedback": "理由をモデルに伝える（任意、拒否と一緒に送信）",
   "drift.move.sessionBusy": "セッションはまだ実行中です。移動する前に停止してください。",
   "drift.message.revertHere": "ここまで戻す",
   "drift.message.tokenCounts": "入力 {{input}} / 出力 {{output}}",
