@@ -84,6 +84,8 @@ impl From<rusqlite::Error> for TurnError {
 #[derive(Default)]
 pub struct Turns {
     active: Mutex<HashMap<String, CancellationToken>>,
+    /// Fired when a session's turn finishes; parents await their children through it.
+    finished: tokio::sync::Notify,
     files: Mutex<HashMap<String, Arc<SessionFiles>>>,
     refreshing: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Tests swap the wire adapter for a scripted one.
@@ -101,6 +103,23 @@ impl Turns {
 
     pub fn is_running(&self, session_id: &str) -> bool {
         self.active.lock().unwrap().contains_key(session_id)
+    }
+
+    /// Resolves once the session has no turn in flight. Aborting the caller aborts the child too.
+    pub async fn wait_idle(&self, session_id: &str, abort: &CancellationToken) {
+        loop {
+            let notified = self.finished.notified();
+            if !self.is_running(session_id) {
+                return;
+            }
+            tokio::select! {
+                () = notified => {}
+                () = abort.cancelled() => {
+                    if let Some(token) = self.active.lock().unwrap().get(session_id) { token.cancel(); }
+                    return;
+                }
+            }
+        }
     }
 }
 
@@ -154,6 +173,7 @@ impl Engine {
             engine.run(plan, abort).await;
             engine.turns.active.lock().unwrap().remove(&id);
             engine.hub.publish(Event::SessionStatusChanged { session_id: id, status: SessionStatus::Idle });
+            engine.turns.finished.notify_waiters();
         });
         Ok(Receipt { session, message })
     }

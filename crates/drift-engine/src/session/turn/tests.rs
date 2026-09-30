@@ -91,7 +91,7 @@ async fn a_plain_reply_is_stored_costed_and_titles_the_session() {
     assert_eq!(session.model, Some(model()));
     let request = &h.provider.requests.lock().unwrap()[0];
     assert!(request.system.starts_with("You are Drift"));
-    assert_eq!(request.tools.len(), 10);
+    assert_eq!(request.tools.len(), 13);
 }
 
 #[tokio::test]
@@ -454,4 +454,87 @@ async fn a_call_to_a_tool_the_run_did_not_offer_is_refused_before_anything_happe
     assert_eq!(*status, ToolStatus::Error);
     assert!(output.as_deref().unwrap().contains("not available in this session"));
     assert!(metadata.is_none(), "no snapshot was taken");
+}
+
+#[tokio::test]
+async fn a_task_runs_a_hidden_child_and_returns_its_reply() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "alpha\n").unwrap();
+    // Parent: task call. Child: read a.txt, then reply. Parent: final text.
+    h.provider
+        .push(tool_call("task", r#"{"description": "Check a.txt", "prompt": "What is in a.txt?"}"#))
+        .push(tool_call("read", r#"{"path": "a.txt"}"#))
+        .push(text("a.txt contains alpha"))
+        .push(text("The subagent says alpha"));
+    h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, metadata, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Done);
+    assert_eq!(output.as_deref(), Some("a.txt contains alpha"));
+    let child_id = metadata.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
+    let child = h.engine.store.session(&child_id).unwrap().unwrap();
+    assert_eq!(child.parent_id.as_deref(), Some(h.session.id.as_str()));
+    assert_eq!(child.visibility, Visibility::Hidden);
+    assert_eq!(child.title, "Check a.txt (@build subagent)");
+    assert_eq!(h.engine.store.transcript(&child_id).unwrap().len(), 3);
+    let listed = h.engine.store.sessions(crate::store::SessionFilter { workspace_id: None, archived: false, before: None, limit: 10 }).unwrap();
+    assert!(!listed.iter().any(|s| s.id == child_id), "hidden children stay out of listings");
+}
+
+#[tokio::test]
+async fn aborting_the_parent_aborts_a_running_child() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1 > nul" } else { "sleep 10" };
+    h.provider.push(tool_call("task", r#"{"description": "Wait", "prompt": "wait"}"#)).push(tool_call("bash", &json!({ "command": sleep }).to_string()));
+    h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let children = h.engine.store.lock().query_row("SELECT id FROM session WHERE parent_id = ?1", [&h.session.id], |r| r.get::<_, String>(0)).unwrap();
+    assert!(h.engine.turns.is_running(&children));
+    assert!(h.engine.abort(&h.session.id));
+    until_idle(&h).await;
+    for _ in 0..100 {
+        if !h.engine.turns.is_running(&children) { break }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(!h.engine.turns.is_running(&children), "the child must stop with its parent");
+}
+
+#[tokio::test]
+async fn spawn_thread_creates_a_visible_sibling_and_read_thread_reports_on_it() {
+    let h = harness().await;
+    h.provider
+        .push(tool_call("spawn_thread", r#"{"title": "Fix lint", "task": "Fix the lint errors", "summary": "We were tidying the parser."}"#))
+        .push(text("Spawned"))
+        .push(text("Lint is clean now"));
+    h.engine.submit(&h.session.id, prompt("split this off")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { metadata, .. } = &transcript[1].parts[0].part else { panic!() };
+    let child_id = metadata.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
+    for _ in 0..200 {
+        if !h.engine.turns.is_running(&child_id) { break }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let child = h.engine.store.session(&child_id).unwrap().unwrap();
+    assert_eq!((child.visibility, child.title.as_str()), (Visibility::Sibling, "Fix lint"));
+    let first = &h.engine.store.transcript(&child_id).unwrap()[0].parts[0].part;
+    assert!(matches!(first, Part::Text { text } if text.contains("tidying the parser") && text.contains("# Task")));
+
+    h.provider.push(tool_call("read_thread", &json!({ "id": child_id }).to_string())).push(text("ok"));
+    h.engine.submit(&h.session.id, prompt("check")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { output, .. } = &transcript[transcript.len() - 2].parts[0].part else { panic!() };
+    let output = output.as_deref().unwrap();
+    assert!(output.contains("Status: idle") && output.contains("Lint is clean now"), "{output}");
+
+    let stranger = h.engine.store.create_session(NewSession { workspace_id: &h.session.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None }).unwrap();
+    h.provider.push(tool_call("read_thread", &json!({ "id": stranger.id }).to_string())).push(text("ok"));
+    h.engine.submit(&h.session.id, prompt("peek")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, .. } = &transcript[transcript.len() - 2].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error);
 }
