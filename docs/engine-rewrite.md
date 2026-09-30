@@ -293,6 +293,18 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   The turn retries immediately on the new model, rebuilds its tools and prompt for that model's
   profile, and the session keeps the model for later turns.
 
+#### Shell time limit
+
+- A shell call runs for the model's explicit `timeout` if it gives one (capped at 24 hours, the
+  Settings ceiling), otherwise for the user's Settings value (Settings > Tool execution). "No
+  timeout" means none. Until the shell reports the setting the engine uses two minutes.
+- The shell pushes the value with `Engine::set_shell_timeout` at startup and on every change; it
+  applies to calls that start afterwards.
+- The limit is in the call's metadata (`shellTimeoutMs`) from the moment it starts running
+  (`Tool::running_metadata`), so the UI's badge shows it. A command stopped by its limit returns its
+  partial output with `timedOut: true` and fails the call (`Tool::failed`); its process tree is
+  killed either way.
+
 #### Undo and redo
 
 - Every step's first write snapshots the working tree (shadow git dir under the data dir,

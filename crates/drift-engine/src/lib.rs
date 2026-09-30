@@ -91,6 +91,8 @@ pub struct Engine {
     pub oauth: std::sync::Mutex<std::collections::HashMap<String, String>>,
     /// The user's per-agent model and prompt choices from Settings; the shell sets them.
     agent_overrides: RwLock<std::collections::HashMap<String, config::AgentOverride>>,
+    /// The user's shell time limit from Settings, `Some(None)` for none; `None` until the shell says.
+    shell_timeout: RwLock<Option<Option<std::time::Duration>>>,
 }
 
 impl Engine {
@@ -117,11 +119,22 @@ impl Engine {
             http: reqwest::Client::new(),
             oauth: Default::default(),
             agent_overrides: Default::default(),
+            shell_timeout: Default::default(),
         }))
     }
 
     pub fn set_agent_overrides(&self, overrides: std::collections::HashMap<String, config::AgentOverride>) {
         *self.agent_overrides.write().unwrap() = overrides;
+    }
+
+    /// `None` lets shell commands run as long as they need. Applies to calls that start afterwards.
+    pub fn set_shell_timeout(&self, timeout: Option<std::time::Duration>) {
+        *self.shell_timeout.write().unwrap() = Some(timeout);
+    }
+
+    /// How long a shell command may run when the model does not say.
+    pub fn shell_timeout(&self) -> Option<std::time::Duration> {
+        self.shell_timeout.read().unwrap().unwrap_or(Some(tool::bash::DEFAULT_TIMEOUT))
     }
 
     /// The workspace's agents, commands and skills with the user's Settings overrides applied.

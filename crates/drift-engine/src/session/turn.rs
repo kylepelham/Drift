@@ -615,6 +615,9 @@ impl Engine {
         } else {
             None
         };
+        if let (Some(running), Part::ToolCall { metadata, .. }) = (tool.running_metadata(&ctx, &input), &mut row.part) {
+            *metadata = Some(running);
+        }
         if let Err(error) = self.start_call(&mut row) {
             self.settle(&mut row, ToolStatus::Error, None, format!("refused to run: could not record the call ({error})"), None);
             return Outcome::Allowed;

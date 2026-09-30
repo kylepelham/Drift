@@ -8,8 +8,10 @@ use tokio::io::AsyncReadExt;
 use super::{required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
-const MAX_TIMEOUT: Duration = Duration::from_secs(600);
+/// Until the user's Settings value arrives.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
+/// The longest a model may ask for, the same ceiling as the Settings choice (1,440 minutes).
+const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_OUTPUT_CHARS: usize = 30_000;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,7 +77,7 @@ impl Tool for Bash {
                 "type": "object",
                 "properties": {
                     "command": { "type": "string", "description": "The command to run." },
-                    "timeout": { "type": "integer", "description": "Milliseconds before the command is killed. Default 120000, max 600000." },
+                    "timeout": { "type": "integer", "description": "Milliseconds before the command is stopped. Default: the user's setting. Max 86400000." },
                     "description": { "type": "string", "description": "Five to ten words saying what the command does, shown to the user." }
                 },
                 "required": ["command"]
@@ -95,7 +97,7 @@ impl Tool for Bash {
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let command = required_str(&input, "command")?;
-            let timeout = input["timeout"].as_u64().map_or(DEFAULT_TIMEOUT, Duration::from_millis).min(MAX_TIMEOUT);
+            let limit = limit_for(ctx, &input);
             let mut cmd = match &self.shell {
                 Shell::Bash(bash) => {
                     let mut cmd = tokio::process::Command::new(bash);
@@ -127,18 +129,18 @@ impl Tool for Bash {
                 status
             };
             let outcome = tokio::select! {
-                status = tokio::time::timeout(timeout, run) => status,
+                status = bounded(limit, run) => status,
                 () = ctx.abort.cancelled() => {
                     kill_tree(&tree, &mut child).await;
                     return Err(ToolError("aborted".into()));
                 }
             };
             let status = match outcome {
-                Ok(Ok(status)) => status,
-                Ok(Err(error)) => return Err(ToolError(error.to_string())),
-                Err(_) => {
+                Some(Ok(status)) => Some(status),
+                Some(Err(error)) => return Err(ToolError(error.to_string())),
+                None => {
                     kill_tree(&tree, &mut child).await;
-                    return Err(ToolError(format!("command timed out after {} s", timeout.as_secs())));
+                    None
                 }
             };
             let mut text = String::from_utf8_lossy(&out).into_owned();
@@ -149,14 +151,44 @@ impl Tool for Bash {
                 text.push_str(&String::from_utf8_lossy(&err));
             }
             let text = clip(text.trim_end());
+            let title = input["description"].as_str().unwrap_or(command).to_string();
+            let limit_ms = limit.map(|d| d.as_millis() as u64);
+            let Some(status) = status else {
+                let seconds = limit.map_or(0, |d| d.as_secs());
+                let output = format!(
+                    "{text}\n\nThe command and its child processes were stopped after {seconds} s. If it needs longer and is not waiting for input, run it again with a larger `timeout` in milliseconds."
+                );
+                return Ok(Output { title, output: output.trim_start().into(), metadata: json!({ "timedOut": true, "shellTimeoutMs": limit_ms }) });
+            };
             let code = status.code().unwrap_or(-1);
             let output = if status.success() { text } else { format!("{text}\n\nexit code {code}").trim_start().into() };
-            Ok(Output {
-                title: input["description"].as_str().unwrap_or(command).into(),
-                output,
-                metadata: json!({ "exit": code }),
-            })
+            Ok(Output { title, output, metadata: json!({ "exit": code, "shellTimeoutMs": limit_ms }) })
         })
+    }
+
+    /// The limit shows while the command runs, so the user can see when it will be stopped.
+    fn running_metadata(&self, ctx: &Context, input: &Value) -> Option<Value> {
+        Some(json!({ "shellTimeoutMs": limit_for(ctx, input).map(|d| d.as_millis() as u64) }))
+    }
+
+    /// A command stopped by its time limit failed, though its partial output and limit still matter.
+    fn failed(&self, output: &Output) -> bool {
+        output.metadata["timedOut"] == true
+    }
+}
+
+/// The model's `timeout` when it gives one, otherwise the user's Settings value; `None` never stops it.
+fn limit_for(ctx: &Context, input: &Value) -> Option<Duration> {
+    match input["timeout"].as_u64() {
+        Some(ms) => Some(Duration::from_millis(ms).min(MAX_TIMEOUT)),
+        None => ctx.engine.shell_timeout(),
+    }
+}
+
+async fn bounded<F: std::future::Future>(limit: Option<Duration>, work: F) -> Option<F::Output> {
+    match limit {
+        Some(limit) => tokio::time::timeout(limit, work).await.ok(),
+        None => Some(work.await),
     }
 }
 
@@ -235,8 +267,23 @@ mod tests {
             Shell::Bash(_) => "sleep 5",
             Shell::PowerShell(_) => "Start-Sleep 5",
         };
-        let err = bash.run(&sandbox.ctx, json!({ "command": sleep, "timeout": 300 })).await.unwrap_err();
-        assert!(err.0.contains("timed out"));
+        let stopped = bash.run(&sandbox.ctx, json!({ "command": sleep, "timeout": 300 })).await.unwrap();
+        assert!(bash.failed(&stopped), "a command stopped by its limit is a failed call");
+        assert_eq!((stopped.metadata["timedOut"].as_bool(), stopped.metadata["shellTimeoutMs"].as_u64()), (Some(true), Some(300)));
+        assert!(stopped.output.contains("stopped after"), "{}", stopped.output);
+
+        sandbox.ctx.engine.set_shell_timeout(Some(Duration::from_millis(300)));
+        assert_eq!(bash.running_metadata(&sandbox.ctx, &json!({ "command": sleep })).unwrap()["shellTimeoutMs"], 300);
+        let by_setting = bash.run(&sandbox.ctx, json!({ "command": sleep })).await.unwrap();
+        assert_eq!(by_setting.metadata["timedOut"], true, "without a `timeout` the Settings limit applies");
+
+        sandbox.ctx.engine.set_shell_timeout(None);
+        let quick = match bash.shell {
+            Shell::Bash(_) => "sleep 1",
+            Shell::PowerShell(_) => "Start-Sleep 1",
+        };
+        let unlimited = bash.run(&sandbox.ctx, json!({ "command": quick })).await.unwrap();
+        assert!(!bash.failed(&unlimited) && unlimited.metadata["shellTimeoutMs"].is_null(), "no limit lets it finish");
         sandbox.ctx.abort.cancel();
         let err = bash.run(&sandbox.ctx, json!({ "command": sleep })).await.unwrap_err();
         assert_eq!(err.0, "aborted");

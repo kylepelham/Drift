@@ -187,6 +187,9 @@ fn main() {
                 .expect("failed to load UI mirror state");
             let shell_timeout = ui_state::ShellTimeoutAuthority::load(&store)
                 .expect("failed to load shell timeout policy");
+            if let Some(policy) = shell_timeout.current() {
+                native::push_shell_timeout(app.handle(), policy.timeout_ms);
+            }
             let dictation_enabled = store.dictation_enabled().unwrap_or(false);
             app.state::<permissions::DictationConsent>()
                 .set(dictation_enabled);

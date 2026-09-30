@@ -158,6 +158,10 @@ pub trait Tool: Send + Sync {
     fn failed(&self, _output: &Output) -> bool {
         false
     }
+    /// Metadata to show while the call runs, before its result exists.
+    fn running_metadata(&self, _ctx: &Context, _input: &Value) -> Option<Value> {
+        None
+    }
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a>;
 }
 

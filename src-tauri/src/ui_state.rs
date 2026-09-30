@@ -238,6 +238,11 @@ impl ShellTimeoutAuthority {
         Ok(current)
     }
 
+    /// The stored policy, if the UI has ever set one.
+    pub(crate) fn current(&self) -> Option<ShellTimeoutPolicy> {
+        self.0.lock().unwrap().clone()
+    }
+
     fn snapshot(&self) -> Result<ShellTimeoutPolicy, String> {
         self.0
             .lock()
@@ -287,11 +292,14 @@ fn load_valid_setting<T: DeserializeOwned>(
 
 #[tauri::command]
 pub(crate) fn shell_timeout_initialize(
+    app: tauri::AppHandle,
     authority: tauri::State<'_, ShellTimeoutAuthority>,
     store: tauri::State<'_, Store>,
     policy: ShellTimeoutPolicy,
 ) -> Result<ShellTimeoutPolicy, String> {
-    authority.initialize(&store, policy)
+    let policy = authority.initialize(&store, policy)?;
+    crate::native::push_shell_timeout(&app, policy.timeout_ms);
+    Ok(policy)
 }
 
 #[tauri::command]
@@ -309,6 +317,7 @@ pub(crate) fn shell_timeout_update(
     policy: ShellTimeoutPolicy,
 ) -> Result<ShellTimeoutPolicy, String> {
     let policy = authority.update(&store, policy)?;
+    crate::native::push_shell_timeout(&app, policy.timeout_ms);
     let _ = app.emit("shell-timeout-changed", &policy);
     Ok(policy)
 }

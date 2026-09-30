@@ -150,6 +150,33 @@ async fn asks_wait_for_a_reply_and_mutations_snapshot_first() {
 }
 
 #[tokio::test]
+async fn a_shell_call_shows_its_limit_while_running_and_fails_when_it_expires() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    h.engine.set_shell_timeout(Some(Duration::from_millis(400)));
+    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1 > nul" } else { "sleep 10" };
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider.push(tool_call("bash", &json!({ "command": sleep }).to_string())).push(text("it was too slow"));
+    h.engine.submit(&h.session.id, prompt("wait")).await.await_ok();
+    let running = loop {
+        let envelope = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.unwrap().unwrap();
+        if let Event::PartUpdated { part } = envelope.event {
+            if let Part::ToolCall { status: ToolStatus::Running, metadata, .. } = part.part {
+                break metadata;
+            }
+        }
+    };
+    assert_eq!(running.unwrap()["shellTimeoutMs"], 400, "the badge has the limit while the command runs");
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, metadata, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error);
+    let metadata = metadata.as_ref().unwrap();
+    assert_eq!((metadata["timedOut"].as_bool(), metadata["shellTimeoutMs"].as_u64()), (Some(true), Some(400)));
+    assert!(metadata["snapshot"].is_string(), "the snapshot survives next to the timeout details");
+}
+
+#[tokio::test]
 async fn abort_marks_the_message_and_frees_the_session() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
