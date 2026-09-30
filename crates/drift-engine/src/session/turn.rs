@@ -19,7 +19,7 @@ use crate::id;
 use crate::llm::catalog::Model;
 use crate::llm::{self, Credential, Provider, Request, StopReason};
 use crate::permission::{self, Outcome};
-use crate::session::types::{Message, MessageStatus, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage};
+use crate::session::types::{Message, MessageStatus, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage, Visibility};
 use crate::tool::{Context, SessionFiles};
 use crate::Engine;
 
@@ -264,7 +264,8 @@ impl Engine {
         let agent = plan.config.agent(&plan.session.agent).cloned();
         let system = prompt::system(&plan.workspace, &plan.config, agent.as_ref());
         let allowed = agent.as_ref().map(|a| a.tools.clone()).unwrap_or_default();
-        let tools: Vec<_> = self.tools.specs(plan.model.profile).into_iter().filter(|spec| allowed.is_empty() || allowed.contains(&spec.name)).collect();
+        let subagent = plan.session.visibility == Visibility::Hidden;
+        let tools: Vec<_> = self.tools.specs(plan.model.profile).into_iter().filter(|spec| allowed.is_empty() || allowed.contains(&spec.name)).filter(|spec| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str()))).collect();
         // What was offered is what may run; a call to any other tool is refused before permission or snapshot.
         let offered: std::collections::HashSet<String> = tools.iter().map(|t| t.name.clone()).collect();
         let mut attempts = 0;

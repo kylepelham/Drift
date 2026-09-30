@@ -150,6 +150,22 @@ under it is true, not before.
 - Revert and diff, shell timeout, per-session runtime config snapshots.
 - Bedrock, Vertex, xAI and Z.ai presets.
 
+#### Session tree
+
+- One `session` table; `parent_id` plus `visibility` decide the shape. `task` creates a
+  `hidden` child (kept out of listings, titled `<description> (@<agent> subagent)`) and waits
+  for it; the tool output is the child's last completed reply, clipped at 20k chars.
+  `spawn_thread` creates a `sibling` child seeded with the carried summary and excerpts,
+  starts it, and returns at once. Both set `metadata.sessionId` on the call so the UI links them.
+- `read_thread` reports running or idle, pending asks, todos and the latest reply, and only for
+  threads the caller spawned.
+- A child turn's abort token is a child of the calling tool's token, so aborting the parent stops
+  the subagent whichever way the wait ends.
+- Delegation is one level deep. Hidden sessions are never offered `task`, `spawn_thread` or
+  `read_thread`, the tools refuse to run from one, and `POST /sessions` with `parentId` rejects
+  a hidden parent or one in another workspace. Spawned threads are the user's; they may delegate.
+- `/spawn` in the composer uses `POST /sessions` with `parentId` and then sends the task.
+
 ### M4: cutover
 
 - `drift-migrate`: sessions, messages, parts, todos, credentials to keyring,

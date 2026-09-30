@@ -676,9 +676,11 @@ export interface components {
             provider: string;
         };
         NewSessionBody: {
-            /** @description uild unless the workspace defines others; see the workspace config. */
+            /** @description `build` unless the workspace defines others; see the workspace config. */
             agent?: string | null;
             model?: components["schemas"]["ModelRef"] | null;
+            /** @description Makes this a spawned thread listed under its parent. */
+            parentId?: string | null;
             title?: string;
             workspaceId: string;
         };

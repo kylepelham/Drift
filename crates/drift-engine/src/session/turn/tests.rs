@@ -538,3 +538,26 @@ async fn spawn_thread_creates_a_visible_sibling_and_read_thread_reports_on_it() 
     let Part::ToolCall { status, .. } = &transcript[transcript.len() - 2].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Error);
 }
+
+#[tokio::test]
+async fn subagents_are_not_offered_delegation_and_cannot_call_it() {
+    let h = harness().await;
+    h.provider
+        .push(tool_call("task", r#"{"description": "Nest", "prompt": "try to spawn"}"#))
+        .push(tool_call("spawn_thread", r#"{"title": "Sneaky", "task": "x", "summary": "y"}"#))
+        .push(text("could not"))
+        .push(text("done"));
+    h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
+    until_idle(&h).await;
+    let requests = h.provider.requests.lock().unwrap().clone();
+    let names = |i: usize| requests[i].tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>();
+    assert!(names(0).contains(&"spawn_thread".to_string()));
+    for tool in crate::tool::task::DELEGATION {
+        assert!(!names(1).iter().any(|n| n == tool), "subagent was offered {tool}");
+    }
+    let count: i64 = h.engine.store.lock().query_row("SELECT COUNT(*) FROM session WHERE title = 'Sneaky'", [], |r| r.get(0)).unwrap();
+    assert_eq!(count, 0);
+    let child = h.engine.store.lock().query_row("SELECT id FROM session WHERE parent_id = ?1", [&h.session.id], |r| r.get::<_, String>(0)).unwrap();
+    let Part::ToolCall { status, .. } = &h.engine.store.transcript(&child).unwrap()[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error);
+}

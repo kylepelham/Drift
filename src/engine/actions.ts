@@ -324,6 +324,24 @@ export function createActions(
     return { ok: true, connected: state.connected.includes(id) }
   }
 
+  /** `/spawn`: a sibling thread seeded with the task; the engine gives it the parent's workspace and model. */
+  async function spawn(id: string, task: string, options: PromptOptions) {
+    const parent = state.sessions[id]
+    const workspaceId = parent ? workspaces().id(parent.directory) : undefined
+    if (!workspaceId) return
+    const title = task.split(/\s+/).slice(0, 6).join(" ").slice(0, 64)
+    const created = await requireClient().createSession({ workspaceId, title, agent: options.agent, parentId: id, model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined })
+    const session = adaptSession(created, workspaces())
+    set(produce((draft) => {
+      draft.transcripts[session.id] ??= []
+      draft.loaded[session.id] = true
+      draft.cursors[session.id] ??= null
+    }))
+    putSession(set, session)
+    await send(session.id, task, options)
+    return session
+  }
+
   /** Agents and commands come from the workspace's drift.json and .drift/ directory. */
   async function refreshAgents() {
     const workspace = workspaces().id(state.directory)
@@ -411,7 +429,7 @@ export function createActions(
       unavailable("Forking")
       return undefined
     },
-    spawn: notYet("Spawned threads"),
+    spawn,
     moveSession: async (..._args: unknown[]): Promise<SessionMoveResult> => ({ ok: false, moved: [], error: "Moving sessions is not available yet" }),
     moveWorkspaceSessions: async (..._args: unknown[]): Promise<SessionMoveResult> => ({ ok: false, moved: [], error: "Moving sessions is not available yet" }),
     removeAllSessions: async (..._args: unknown[]) => false,

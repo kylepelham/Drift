@@ -44,8 +44,8 @@ change the plan there when a decision changes.
 
 ## M3: tree and lifecycle
 
-- [ ] `task` subagents
-- [ ] `spawn_thread`, `read_thread`
+- [x] `task` subagents (hidden children, abort cascades, no nested delegation)
+- [x] `spawn_thread`, `read_thread`, `/spawn` via `parentId`
 - [ ] Fork: bounded and active
 - [ ] Move with busy guard
 - [ ] Compaction with recovery

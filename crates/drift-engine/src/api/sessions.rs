@@ -36,9 +36,12 @@ pub struct NewSessionBody {
     pub title: String,
     #[serde(default)]
     pub model: Option<ModelRef>,
-    /// uild unless the workspace defines others; see the workspace config.
+    /// `build` unless the workspace defines others; see the workspace config.
     #[serde(default)]
     pub agent: Option<String>,
+    /// Makes this a spawned thread listed under its parent.
+    #[serde(default)]
+    pub parent_id: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -79,9 +82,15 @@ pub async fn list(State(engine): State<Arc<Engine>>, Query(query): Query<ListQue
 #[utoipa::path(post, path = "/sessions", operation_id = "createSession", request_body = NewSessionBody, responses((status = 201, body = Session)))]
 pub async fn create(State(engine): State<Arc<Engine>>, Json(body): Json<NewSessionBody>) -> Result<(StatusCode, Json<Session>), ApiError> {
     engine.store.workspace(&body.workspace_id)?.ok_or_else(|| ApiError::not_found("workspace"))?;
+    if let Some(parent_id) = &body.parent_id {
+        let parent = engine.store.session(parent_id)?.ok_or_else(|| ApiError::not_found("parent session"))?;
+        if parent.workspace_id != body.workspace_id || parent.visibility == Visibility::Hidden {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid_parent", "threads can only be spawned from a visible session in the same workspace"));
+        }
+    }
     let session = engine.store.create_session(NewSession {
         workspace_id: &body.workspace_id,
-        parent_id: None,
+        parent_id: body.parent_id.as_deref(),
         visibility: Visibility::Sibling,
         title: &body.title,
         agent: body.agent.as_deref().unwrap_or("build"),

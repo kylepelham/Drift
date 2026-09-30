@@ -9,6 +9,9 @@ use crate::session::turn::Prompt;
 use crate::session::types::{Part, Role, Visibility};
 use crate::store::NewSession;
 
+/// Tools a hidden subagent is never offered: delegation stays one level deep and threads are the user's.
+pub const DELEGATION: [&str; 3] = ["task", "spawn_thread", "read_thread"];
+
 /// How much of a child's final reply comes back to the parent verbatim.
 const RESULT_CHARS: usize = 20_000;
 const SUMMARY_CHARS: usize = 4_000;
@@ -42,6 +45,9 @@ impl Tool for Task {
             let text = required_str(&input, "prompt")?;
             let agent = input["subagent_type"].as_str().unwrap_or("build");
             let parent = ctx.engine.store.session(&ctx.session_id)?.ok_or(ToolError("parent session is gone".into()))?;
+            if parent.visibility == Visibility::Hidden {
+                return Err(ToolError("subagents cannot delegate".into()));
+            }
             let title = format!("{description} (@{agent} subagent)");
             let child = ctx.engine.store.create_session(NewSession {
                 workspace_id: &parent.workspace_id,
@@ -94,6 +100,9 @@ impl Tool for SpawnThread {
             let task = required_str(&input, "task")?;
             let summary = required_str(&input, "summary")?;
             let parent = ctx.engine.store.session(&ctx.session_id)?.ok_or(ToolError("parent session is gone".into()))?;
+            if parent.visibility == Visibility::Hidden {
+                return Err(ToolError("subagents cannot delegate".into()));
+            }
             let child = ctx.engine.store.create_session(NewSession {
                 workspace_id: &parent.workspace_id,
                 parent_id: Some(&parent.id),
