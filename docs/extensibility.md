@@ -128,8 +128,8 @@ A subagent works on the current goal; a branch pursues a different one. The engi
 apart (see "Subagents and branches" in `docs/engine-rewrite.md`).
 
 - Subagents come from the `task` tool. Their result returns to the parent's task card, which
-  opens the stored transcript. They show under the parent in the sidebar only while running or
-  waiting on the user, stop when the parent stops, and cannot delegate further.
+  opens the stored transcript. They show under the parent in the sidebar while running, waiting on
+  the user, or open, stop when the parent stops, and cannot delegate further.
 - Branches come only from the user. `/spawn <goal>` asks the current conversation's model for a
   handoff (title, carried context, verbatim excerpts) without changing the conversation, shows it
   in a review dialog, and on confirm creates a new top-level conversation that starts from that

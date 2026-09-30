@@ -105,7 +105,7 @@ test("v2 always grants stabilize matching requests across sessions in one locati
   expect(permissionRequiresAttention(legacy, state, { global: false, sessions: [] })).toBeTrue()
 })
 
-test("the sidebar shows a subagent only while it runs or waits on the user", () => {
+test("the sidebar shows a subagent while it runs, waits on the user, or is open", () => {
   const [state, set] = createEngineState()
   for (const id of ["running", "asking", "done"]) set("sessions", id, { id, parentID: "parent", time: { created: 1, updated: 1 } } as never)
   set("status", "running", { type: "busy" })
@@ -115,4 +115,5 @@ test("the sidebar shows a subagent only while it runs or waits on the user", () 
   set("status", "running", { type: "idle" })
   set("questions", "asking", [])
   expect(sidebarWorkers(state, "parent")).toEqual([])
+  expect(sidebarWorkers(state, "parent", "done").map((s) => s.id)).toEqual(["done"])
 })

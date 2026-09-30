@@ -44,9 +44,11 @@ export function sessionNeedsAttention(state: EngineState, id: string) {
   return (state.permissions[id] ?? []).some((permission) => permissionRequiresAttention(permission, state))
 }
 
-/** Subagents appear under their parent only while they run or wait on the user; finished work lives in the task card. */
-export function sidebarWorkers(state: EngineState, parentId: string) {
-  return childrenOf(state, parentId).filter((child) => sessionBusy(state, child.id) || sessionNeedsAttention(state, child.id))
+/** Subagents appear under their parent while they run, wait on the user, or are open; finished work lives in the task card. */
+export function sidebarWorkers(state: EngineState, parentId: string, selected?: string | null) {
+  return childrenOf(state, parentId).filter(
+    (child) => child.id === selected || sessionBusy(state, child.id) || sessionNeedsAttention(state, child.id),
+  )
 }
 
 export function permissionShouldAutoReply(permission: Permission, state: EngineState) {

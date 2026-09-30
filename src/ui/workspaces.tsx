@@ -66,7 +66,7 @@ export function WorkspaceGroup(props: {
     if (current.length || authoritative()) return current
     return cachedSessions(props.workspace.path)
   })
-  const children = (parentId: string) => sidebarWorkers(engine.state, parentId)
+  const children = (parentId: string) => sidebarWorkers(engine.state, parentId, selectedSession())
   const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
   const visibleSessions = createMemo(() => sessions().slice(0, visibleCount()))
   // Rows are keyed by id; row objects are rebuilt on every session update and would remount the DOM.

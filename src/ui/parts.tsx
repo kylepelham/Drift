@@ -613,7 +613,7 @@ export function ToolView(props: { part: ToolPart }) {
           {(childId) => (
             <span
               role="button"
-              title={t("drift.thread.openSpawned")}
+              title={t(props.part.tool === "task" ? "drift.thread.openSubagent" : "drift.thread.openSpawned")}
               class="flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
               onClick={(event) => openSpawnedThread(event, childId(), selectSession)}
             >

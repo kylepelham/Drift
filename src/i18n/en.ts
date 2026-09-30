@@ -795,6 +795,7 @@ export const drift = {
   "drift.thread.new": "New thread",
   "drift.thread.noOtherWorkspaces": "No other workspaces",
   "drift.thread.openSpawned": "Open spawned thread",
+  "drift.thread.openSubagent": "Open subagent",
   "drift.thread.renameHint": "Double-click to rename",
   "drift.thread.shared": "Shared",
   "drift.thread.untitled": "Untitled",

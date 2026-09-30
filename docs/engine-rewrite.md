@@ -27,7 +27,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Catalog | models.dev JSON fetched and cached, filtered to supported providers, with a bundled snapshot fallback. Each entry carries a tool profile (`edit` or `apply_patch`). |
 | Auth | API keys. Anthropic subscription OAuth (PKCE; the `@ex-machina/opencode-anthropic-auth` tarball is the spec). OpenAI Codex OAuth (upstream `plugin/openai/codex.ts` is the spec). Credentials stored with the `keyring` crate; encrypted file fallback on headless Linux. |
 | Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the upstream hook points. Compiled Rust plugins through a Drift SDK come later and are not designed for now. |
-| Tools | `read`, `edit`, `write`, `apply_patch`, `bash`, `glob`, `grep`, `webfetch`, `todowrite`, `skill`, `question`, `task`, `read_thread`. |
+| Tools | `read`, `edit`, `write`, `apply_patch`, `bash`, `glob`, `grep`, `webfetch`, `todowrite`, `skill`, `question`, `task`, `read_thread`. M3 adds parent-scoped `task_output` and `task_stop` for background workers. Branch creation is never a model tool. |
 | Dropped | `websearch`, `lsp`, `execute`, `plan`, share, ACP, TUI, CLI, Jev tool routing, Copilot, Azure, Cohere, Perplexity, GitLab, Venice, Poe, Alibaba, Gateway. |
 | Edit | Exact match only, with line ending normalisation on both sides. On a miss, return the closest region so the model can re-read cheaply. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. |
 | Post-edit | Formatter hooks only: built-in table, `drift.json` can add or disable, failures logged and never surfaced to the model. No language servers. |
@@ -37,7 +37,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Config | `drift.json` at the project root, `.drift/{agents,commands,skills}/`, `~/.config/drift/`. Instructions from `AGENTS.md` and `CLAUDE.md`. Skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at project and home. No runtime `opencode.json` fallback. |
 | Identity | `DRIFT_*` env vars, `~/.local/share/drift` data dir. A one-time migrator runs on first launch. MIT attribution for opencode stays in `licenses/`. |
 | Permissions | Upstream semantics (allow, deny, ask; path globs; session-scoped always; agent overrides) reimplemented once, with a single protocol. |
-| Session tree | One tree: `parent_id` plus `visibility: hidden \| sibling`. `task` creates a hidden subagent; the user branches a sibling conversation through a reviewed handoff. See "Subagents and branches". |
+| Session tree | Shared session storage, distinct ownership: `task` creates a hidden worker in foreground or background; the user branches an independent sibling conversation through a reviewed handoff. A conversation's parent link is provenance, not worker cancellation ownership. See "Subagents and branches" and "Background-worker implementation". |
 | Platforms | Windows first. CI builds Windows, macOS and Linux. OS specifics live in one `platform` module. |
 
 ## Layout
@@ -80,6 +80,9 @@ GET    /sessions/{id}       PATCH           DELETE archives
 GET    /sessions/{id}/messages?before=&limit=
 POST   /sessions/{id}/turns                 {parts, model, agent, variant} -> 202 {turn_id}
 POST   /sessions/{id}/abort
+GET    /sessions/{id}/tasks                 owned workers; pending M3
+GET    /tasks/{id}                          state, progress and result handle; pending M3
+POST   /tasks/{id}/abort                    stop one owned worker; pending M3
 POST   /sessions/{id}/compact
 POST   /sessions/{id}/fork                  {at_message?, bounded?}
 POST   /sessions/{id}/move                  {workspace}
@@ -93,7 +96,9 @@ WS     /events?cursor=
 
 Server to client over the socket: `session.*`, `message.*`, `part.delta`,
 `permission.asked`, `question.asked`, `todo.updated`, `mcp.*`. Client to server:
-`permission.reply`, `question.reply`. Every event carries a monotonic `seq`. The first
+`permission.reply`, `question.reply`. M3 adds typed worker lifecycle/progress events
+and generated completion inputs, separate from conversation creation.
+Every event carries a monotonic `seq`. The first
 frame is `hello` with the engine's random `instance` id and current `seq`. Reconnecting
 with `cursor` replays from a ring buffer; a cursor that has aged out, or that is past the
 head because it came from another process, returns `resync` and the client hydrates. A
@@ -108,6 +113,13 @@ title, archived_at, model, agent), `message` (id, session_id, role, seq, created
 finished_at, cost, tokens), `part` (id, message_id, seq, kind, json), `todo`,
 `snapshot` (session_id, message_id, git_ref), `permission_rule`, `mcp_server`,
 `mcp_token`. Attachments reuse the shell's content-addressed `blob` table.
+
+For M3 background work, keep child transcripts in the same store and add
+`subagent_job` plus parent-notification records. Persist job/run identity, parent
+session/cancellation generation, originating admitted call, mode and selection
+reason, chosen agent/model/config/tool revision, state, usage and result reference.
+Terminal result and notification commit together; parent attachment is idempotent
+by job/run identity. Do not store secret credentials in job JSON.
 
 ## Milestones
 
@@ -137,14 +149,18 @@ under it is true, not before.
 
 - OpenAI: Responses API, Codex OAuth, `apply_patch` profile. Gemini. OpenAI-compatible
   generic with presets.
-- MCP through rmcp: stdio and HTTP, approval, reconnect, reload.
-- `todowrite`, `skill`, `question`, `webfetch`. Async questions.
+- MCP through rmcp: stdio and HTTP, approval; reconnect/reload are M3 lifecycle work.
+- `todowrite`, `skill`, blocking `question`, `webfetch`. Async questions are M3 work.
 - Formatter hooks.
 - Config loading: `drift.json`, agents, commands, skills, instruction files.
 
 ### M3: tree and lifecycle
 
-- `task` subagents; user branches with a reviewed handoff; `read_thread`.
+- `task` foreground and background subagents; durable launch/completion delivery,
+  bounded supervision, attributed approvals and restart interruption handling.
+- User branches with a reviewed handoff; `read_thread`. Background workers remain
+  tasks on the parent, not independent sidebar conversations.
+- Async questions and MCP reconnect/reload deferred from M2.
 - Fork (bounded and active), move with busy guard.
 - Compaction with recovery, retry with model switch.
 - Revert and diff, shell timeout, per-session runtime config snapshots.
@@ -160,15 +176,17 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
 | Purpose | Help finish the parent's goal | Pursue a separate goal |
 | Created by | The model, through `task` | The user, through `/spawn` only |
 | Context | A self-contained delegation prompt | A reviewed summary and excerpts, with the source cutoff recorded |
-| Output | Last reply returns to the parent's tool call | Its own transcript |
-| Stop | Parent abort cascades (child abort token) | Independent; stopping the source does not stop it |
+| Output | Foreground returns a result; background returns launch receipt then a later completion input | Its own transcript |
+| Stop | Explicit parent Stop cancels owned work; a parent turn naturally ending does not cancel background jobs | Independent; stopping the source does not stop it |
 | Permissions | Inherits the parent's auto-accept | Its own |
-| Sidebar | Under the parent only while running or waiting on the user | Normal top-level row, header links back to the source |
+| Sidebar | Under the parent while running, waiting on the user, or open | Normal top-level row, header links back to the source |
 | History | Opened from the task card in the parent transcript | A conversation like any other |
 
-- `task` creates the subagent, titled `<description> (@<agent> subagent)`, waits for it and returns
-  its last completed reply clipped at 20k chars, with `metadata.sessionId` for drill-down. Listings
-  include subagents so the task card can still open them after a restart.
+- The current foreground `task` creates the subagent, titled `<description> (@<agent> subagent)`,
+  waits for it and returns its last completed reply clipped at 20k chars, with
+  `metadata.sessionId` for drill-down. Listings include subagent records for inspection;
+  the sidebar shows only active/awaiting-attention workers. Background mode below is
+  pending, not claimed implemented by this foreground path.
 - Delegation is one level deep: subagents are never offered `task` or `read_thread`, the tools
   refuse to run from one, and a subagent cannot be branched from.
 - The model cannot create branches; there is no `spawn_thread` tool. It may suggest one in prose.
@@ -179,6 +197,89 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   that in the review dialog, then `POST /sessions/{id}/branch` creates the session with
   `branch_cutoff`, seeds its first message with the handoff and starts it on its own abort token.
 - A branch is not a fork. Fork (a copy of the transcript) is separate M3 work.
+
+#### Background-worker implementation
+
+RE evidence, exact binary offsets, selection paths and the acceptance matrix are
+in [Claude async workers](research/claude-async-workers.md). It extends the earlier
+child-runner trace. The installed 2.1.85 binary has both sync and async Agent paths;
+its fork-mode helper is compiled off. Skill `context: fork` selects another context
+and is synchronous there. Neither the word workflow nor fork in chat selects a
+runner. Current Claude documentation has additional version-specific defaults;
+Drift uses the explicit contract below rather than copying hidden feature gates.
+
+1. **Resolve execution mode once.** Extend `task` with optional `run_in_background`.
+   Explicit true/false wins; omission uses the selected agent's configured execution
+   default or foreground. Store mode and reason. One typed resolver serves all
+   worker-producing entrypoints. Context inheritance and independent conversation
+   branching do not force async. A disabled async feature rejects an explicit
+   background request clearly. No prose/XML-like keyword detection or model-ID
+   heuristics. Skill loading remains inline unless metadata explicitly requests a job.
+2. **Admit then launch.** Foreground continues to await its compact result. Background
+   commits a hidden job/child identity and returns a launch receipt without waiting
+   for completion. Receipt means queued/running, never completed. Repeated delivery
+   of the originating admitted call resolves to the same job.
+3. **Supervise in the engine.** Use the same runner/adapters with a bounded Tokio
+   worker queue/semaphore, step limits, usage and cancellation. Workers outlive the
+   launching tool future and UI view. Main and several independent workers can
+   make progress concurrently; no second model runtime or external engine process.
+4. **Deliver results at safe boundaries.** Commit completed/failed/cancelled result
+   and a unique pending notification together. Attach ready results once to durable
+   parent context with engine-origin provenance. Keep the launch tool result as
+   launched; never overwrite it or create a second result for the same call.
+   Group ready completions. Active parents consume them between provider steps;
+   idle follow-up is serialized under the delegation's continuation policy.
+5. **Distinguish idle from Stop.** A normal parent turn ending does not stop async
+   work. Explicit session Stop cancels owned workers even when the parent is idle.
+   Individual worker Stop affects only that worker. Cancel generations suppress
+   late continuation, and shell descendants follow existing process-tree cleanup.
+   A user-created branch is not owned by this cancellation scope.
+6. **Keep permissions attributed.** Worker requests appear under their owning parent
+   with job/call identity. Only user approval unblocks the specific request. A main
+   or sibling agent's message is not permission. Pin agent/model/tools/config at
+   launch and keep no nested delegation. Ordinary workers start from a complete
+   prompt; full-context worker forks can follow bounded/active fork implementation.
+7. **Expose job state without polling.** Add the task query/abort routes above and
+   lifecycle events through generated OpenAPI. Parent-scoped `task_output` returns
+   current state/result without blocking by default; explicit wait is bounded.
+   `task_stop` cancels one owned worker. Passive completion notification is normal;
+   the model must not repeatedly sleep/poll or invent results before it arrives.
+8. **Recover without rerunning effects.** Persist terminal results and undelivered
+   notifications. On process restart mark nonterminal jobs interrupted; never
+   automatically rerun provider calls or external mutations. Explicit resume, when
+   added, uses a new job-run identity. Reconnect hydrates jobs/asks rather than
+   starting execution. Old view generations cannot land stale progress/results.
+9. **Retain history without sidebar clutter.** Completed workers leave active
+   indicators. Their compact result and inspectable child transcript stay in the
+   parent's task history, subject to retention. Parent compaction carries outstanding
+   job IDs and delivery state, not every worker transcript.
+
+Initial async mode is selected at launch. Foreground-to-background promotion,
+agent teams, arbitrary cross-agent messaging and automatic post-crash execution
+resume are not required for the first implementation. `/spawn` retains its existing
+tool-free draft/review path and independent session lifetime.
+
+#### Async worker acceptance gates
+
+- Controlled slow background worker returns a receipt and the main does useful
+  work before the result arrives; foreground mode still waits. Two workers can
+  finish out of order with correct attribution and bounded concurrency.
+- Resolver fixtures cover explicit true/false, agent default, omission and disabled
+  background mode. Skill-context inheritance and workflow-like prose cannot silently
+  change the execution choice.
+- Pending permissions/questions block only the right job; denial, individual Stop,
+  session Stop and parent naturally idle have distinct outcomes.
+- Completion races Stop, parent input and reconnect without reviving canceled work
+  or attaching a result twice. Launch receipt is not a second completion tool result.
+- Restart around terminal result/notification commit preserves delivery and marks
+  unfinished jobs interrupted, with no automatic replay of uncertain effects.
+- Completed workers disappear from active UI, remain inspectable in parent history,
+  and never become permanent conversation rows. UI reload/parent compaction preserves
+  outstanding-job identity. Branch Stop remains independent.
+
+Use fake providers, controlled tool barriers and drain/receipt signals. Ordinary
+tests require no paid inference. Existing foreground/branch checks stay checked;
+these async criteria are new pending M3 work.
 
 ### M4: cutover
 
