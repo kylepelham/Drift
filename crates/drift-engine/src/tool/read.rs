@@ -6,6 +6,10 @@ use crate::llm::ToolSpec;
 const MAX_LINES: usize = 2000;
 const MAX_LINE_CHARS: usize = 2000;
 const MAX_BYTES: u64 = 10 * 1024 * 1024;
+/// One page stays under the shared result bound, leaving room for the continuation note.
+const PAGE_BYTES: usize = super::spool::MAX_RESULT_BYTES - 1024;
+/// Entries a directory listing shows before saying how many more there are.
+const MAX_ENTRIES: usize = 1000;
 
 pub struct Read;
 
@@ -48,13 +52,7 @@ impl Tool for Read {
             }
             let text = String::from_utf8_lossy(&bytes);
             let total = text.lines().count();
-            let body: Vec<String> = text
-                .lines()
-                .enumerate()
-                .skip(offset - 1)
-                .take(limit)
-                .map(|(index, line)| format!("{}: {}", index + 1, truncate(line)))
-                .collect();
+            let body = page(&text, offset, limit);
             let shown = body.len();
             let mut output = body.join("\n");
             if offset - 1 + shown < total {
@@ -68,6 +66,22 @@ impl Tool for Read {
             })
         })
     }
+}
+
+/// Numbered lines from `offset`, at most `limit` of them and within the page budget; always at least
+/// one line, so every read makes progress.
+fn page(text: &str, offset: usize, limit: usize) -> Vec<String> {
+    let mut used = 0;
+    let mut lines = Vec::new();
+    for (index, line) in text.lines().enumerate().skip(offset - 1).take(limit) {
+        let numbered = format!("{}: {}", index + 1, truncate(line));
+        used += numbered.len() + 1;
+        if used > PAGE_BYTES && !lines.is_empty() {
+            break;
+        }
+        lines.push(numbered);
+    }
+    lines
 }
 
 fn truncate(line: &str) -> String {
@@ -86,7 +100,13 @@ async fn list_dir(ctx: &Context, path: &std::path::Path) -> Result<Output, ToolE
         names.push(format!("{}{suffix}", entry.file_name().to_string_lossy()));
     }
     names.sort();
-    Ok(Output::new(display(path, &ctx.workspace), names.join("\n")))
+    let total = names.len();
+    names.truncate(MAX_ENTRIES);
+    let mut output = names.join("\n");
+    if total > MAX_ENTRIES {
+        output.push_str(&format!("\n\n({} more entries; use glob with a pattern to narrow it)", total - MAX_ENTRIES));
+    }
+    Ok(Output::new(display(path, &ctx.workspace), output))
 }
 
 #[cfg(test)]
@@ -121,6 +141,36 @@ mod tests {
         assert!(Read.ask(&sandbox.ctx, &json!({ "path": "a.txt" })).is_none());
         let outside = Read.ask(&sandbox.ctx, &json!({ "path": "C:/Windows/hosts" })).unwrap();
         assert_eq!(outside.kind, "read");
+    }
+
+    #[tokio::test]
+    async fn pages_stay_within_the_result_bound_and_say_where_to_go_on() {
+        let sandbox = Sandbox::new("read-page");
+        let wide = "w".repeat(1_500);
+        sandbox.file("wide.txt", &format!("{wide}\n").repeat(1_000));
+        let first = Read.run(&sandbox.ctx, json!({ "path": "wide.txt" })).await.unwrap();
+        assert!(first.output.len() <= super::super::spool::MAX_RESULT_BYTES, "{}", first.output.len());
+        let shown = first.metadata["shown"].as_u64().unwrap() as usize;
+        assert!(shown > 10 && shown < 1_000);
+        assert!(first.output.ends_with(&format!("read with offset {})", shown + 1)), "{}", &first.output[first.output.len() - 80..]);
+        let next = Read.run(&sandbox.ctx, json!({ "path": "wide.txt", "offset": shown + 1 })).await.unwrap();
+        assert!(next.output.starts_with(&format!("{}: w", shown + 1)));
+
+        let huge_line = "h".repeat(super::super::spool::MAX_RESULT_BYTES * 2);
+        sandbox.file("one.txt", &huge_line);
+        let one = Read.run(&sandbox.ctx, json!({ "path": "one.txt" })).await.unwrap();
+        assert!(one.output.starts_with("1: hhh") && one.output.len() < 3_000, "a single line is cut, not skipped");
+    }
+
+    #[tokio::test]
+    async fn a_large_directory_lists_its_first_entries_and_the_count_of_the_rest() {
+        let sandbox = Sandbox::new("read-many");
+        for i in 0..1_200 {
+            sandbox.file(&format!("many/f{i:04}.txt"), "");
+        }
+        let out = Read.run(&sandbox.ctx, json!({ "path": "many" })).await.unwrap();
+        assert_eq!(out.output.lines().filter(|l| l.starts_with('f')).count(), MAX_ENTRIES);
+        assert!(out.output.ends_with("(200 more entries; use glob with a pattern to narrow it)"));
     }
 
     #[test]

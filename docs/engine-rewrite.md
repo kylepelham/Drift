@@ -589,6 +589,12 @@ Settled after the first external review of M1; each has a regression test.
   `outputBytes` and `outputFile`. A timeout or Stop keeps what was printed; the shell tool handles
   Stop itself (`Tool::stops_itself`), so the turn awaits its result rather than dropping it, and the
   call ends `error` with `stopped` or `timedOut` in its metadata.
+- Every tool result reaches the model within 64 KB (`tool::spool::MAX_RESULT_BYTES`). `read`
+  pages within it by itself (whole lines, at least one per page, with the offset to continue from)
+  and a directory listing shows 1,000 entries and counts the rest. Anything else past the bound
+  (MCP results, skills, fetched pages, tools yet to come) is cut to its first and last 16 KB in
+  `run_call`, with the whole result in `<data>/tool-output/<session>/<call>.result.log` and
+  `metadata.resultFile` pointing at it.
 - Background processes do not outlive the call. Once the shell exits, output still in flight gets
   500 ms; a pipe still open after that is held by a background descendant, so the call finishes
   with the shell's exit code, the descendants are stopped, and the result says so. A command with

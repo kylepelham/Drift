@@ -603,6 +603,27 @@ async fn a_reply_cut_off_without_calls_still_says_so() {
     assert!(last.info.error.as_deref().is_some_and(|e| e.starts_with(OUTPUT_LIMIT_ENDING)));
 }
 
+#[tokio::test]
+async fn any_tool_result_past_the_bound_is_cut_to_its_ends_with_the_whole_on_disk() {
+    let h = harness().await;
+    let skill = h._dir.join("ws/.drift/skills/huge");
+    std::fs::create_dir_all(&skill).unwrap();
+    let body = format!("FIRST\n{}\nLAST", "guidance line\n".repeat(20_000));
+    std::fs::write(skill.join("SKILL.md"), format!("---\ndescription: Huge\n---\n{body}")).unwrap();
+    h.provider.push(tool_call("skill", r#"{"name": "huge"}"#)).push(text("read it"));
+    h.engine.submit(&h.session.id, prompt("use the skill")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { output, metadata, .. } = &transcript[1].parts[0].part else { panic!() };
+    let output = output.as_deref().unwrap();
+    assert!(output.len() <= crate::tool::spool::MAX_RESULT_BYTES && output.contains("FIRST") && output.trim_end().ends_with("LAST"), "{}", output.len());
+    let file = metadata.as_ref().unwrap()["resultFile"].as_str().expect("the whole result is kept");
+    assert!(std::fs::read_to_string(file).unwrap().contains(&body));
+    let sent = h.provider.requests.lock().unwrap()[1].clone();
+    let result = sent.messages.iter().flat_map(|m| &m.blocks).find_map(|b| match b { llm::Block::ToolResult { content, .. } => Some(content.len()), _ => None }).unwrap();
+    assert!(result <= crate::tool::spool::MAX_RESULT_BYTES, "the model got the bounded text");
+}
+
 fn limits(h: &Harness, json: &str) {
     std::fs::write(h._dir.join("ws/drift.json"), format!(r#"{{ "limits": {json} }}"#)).unwrap();
 }

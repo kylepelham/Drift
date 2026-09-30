@@ -674,7 +674,7 @@ impl Engine {
                 () = scope.abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
             }
         };
-        let (status, title, text, meta) = match result {
+        let (status, title, text, mut meta) = match result {
             Ok(output) => {
                 let status = if tool.failed(&output) { ToolStatus::Error } else { ToolStatus::Done };
                 let formatted = if tool.mutates() { self.format_written(scope.plan, &output.metadata).await } else { Vec::new() };
@@ -682,6 +682,12 @@ impl Engine {
             }
             Err(error) => (ToolStatus::Error, None, error.0, serde_json::Value::Null),
         };
+        // Every result, MCP and tools yet to come included, reaches the model within one bound.
+        let spill = self.data_dir.join("tool-output").join(&scope.plan.session.id).join(format!("{call_id}.result.log"));
+        let (text, spilled) = crate::tool::spool::bound(text, spill);
+        if let Some(file) = spilled {
+            meta = merge(meta, Some(json!({ "resultFile": file.to_string_lossy() }))).unwrap_or_default();
+        }
         // After formatting, and on failure too: a failed or stopped command may still have written.
         let changes = match capture {
             Some(capture) => self.capture_after(&scope.plan.workspace, capture).await.ok().map(|recorded| match recorded.unrecorded.is_empty() {
