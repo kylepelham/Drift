@@ -53,7 +53,7 @@ impl Tool for Task {
             })?;
             ctx.engine.hub.publish(Event::SessionCreated { session: child.clone() });
             let prompt = Prompt { parts: vec![Part::Text { text: text.into() }], model: parent.model.clone(), thinking_budget: None, submission_id: None };
-            ctx.engine.submit(&child.id, prompt).await.map_err(|e| ToolError(format!("could not start subagent: {e}")))?;
+            ctx.engine.submit_under(&child.id, prompt, Some(&ctx.abort)).await.map_err(|e| ToolError(format!("could not start subagent: {e}")))?;
             ctx.engine.turns.wait_idle(&child.id, &ctx.abort).await;
             if ctx.abort.is_cancelled() {
                 return Err(ToolError("aborted".into()));

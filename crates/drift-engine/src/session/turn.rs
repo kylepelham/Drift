@@ -105,7 +105,7 @@ impl Turns {
         self.active.lock().unwrap().contains_key(session_id)
     }
 
-    /// Resolves once the session has no turn in flight. Aborting the caller aborts the child too.
+    /// Resolves once the session has no turn in flight, or the caller is aborted.
     pub async fn wait_idle(&self, session_id: &str, abort: &CancellationToken) {
         loop {
             let notified = self.finished.notified();
@@ -114,10 +114,7 @@ impl Turns {
             }
             tokio::select! {
                 () = notified => {}
-                () = abort.cancelled() => {
-                    if let Some(token) = self.active.lock().unwrap().get(session_id) { token.cancel(); }
-                    return;
-                }
+                () = abort.cancelled() => return,
             }
         }
     }
@@ -137,6 +134,11 @@ struct Plan {
 impl Engine {
     /// Records the prompt and starts the turn in the background; the receipt is what was recorded.
     pub async fn submit(self: &Arc<Self>, session_id: &str, prompt: Prompt) -> Result<Receipt, TurnError> {
+        self.submit_under(session_id, prompt, None).await
+    }
+
+    /// A turn whose abort token descends from parent, so aborting the parent aborts it however the wait ends.
+    pub async fn submit_under(self: &Arc<Self>, session_id: &str, prompt: Prompt, parent: Option<&CancellationToken>) -> Result<Receipt, TurnError> {
         let payload_hash = payload_hash(&prompt);
         if let Some(id) = prompt.submission_id.as_deref() {
             if let Some(receipt) = self.replayed_receipt(id, session_id, &payload_hash)? {
@@ -144,7 +146,7 @@ impl Engine {
             }
         }
         let plan = self.plan(session_id, &prompt).await?;
-        let abort = CancellationToken::new();
+        let abort = parent.map_or_else(CancellationToken::new, CancellationToken::child_token);
         {
             let mut active = self.turns.active.lock().unwrap();
             if active.contains_key(session_id) {
