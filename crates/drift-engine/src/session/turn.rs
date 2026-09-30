@@ -566,7 +566,8 @@ impl Engine {
         } else {
             let transcript = self.store.transcript(&session.id).unwrap_or_default();
             match transcript.iter().rev().find(|m| m.info.role == Role::Assistant) {
-                Some(last) if last.info.status == MessageStatus::Done && !last.info.summary => TurnEnd::Replied,
+                // A finished reply that carries an error stopped at the output limit: not an answer.
+                Some(last) if last.info.status == MessageStatus::Done && !last.info.summary && last.info.error.is_none() => TurnEnd::Replied,
                 Some(last) if last.info.status == MessageStatus::Aborted => TurnEnd::Stopped,
                 _ => TurnEnd::Failed,
             }

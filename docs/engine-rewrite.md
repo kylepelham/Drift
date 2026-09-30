@@ -187,8 +187,10 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   (`TurnEnd`): a stop wins however it landed (mid-request, mid-tool or mid-compaction), otherwise the
   last attempt decides, skipping only *finished* compaction summaries. A reply (clipped at 20k
   chars) is the result; a failed or stopped turn fails the call, never falling back to an earlier
-  reply or a summary. Either way the call keeps
-  `metadata.sessionId` and `metadata.outcome` (`replied`, `failed`, `stopped`) for drill-down.
+  reply or a summary. A reply that stopped at the output limit is `incomplete`: its partial text is
+  kept in the result, marked as not a complete answer, and the call and task fail. Either way the
+  call keeps `metadata.sessionId` and `metadata.outcome` (`replied`, `incomplete`, `failed`,
+  `stopped`) for drill-down.
   Listings include subagent records for inspection; the sidebar shows only
   active/awaiting-attention workers. Background mode is described below.
 - Delegation is one level deep: subagents are never offered `task` or `read_thread`, the tools

@@ -233,6 +233,25 @@ async fn after_a_restart_unfinished_workers_are_interrupted_and_finished_results
 }
 
 #[tokio::test]
+async fn a_worker_cut_off_at_its_output_limit_is_incomplete_not_an_answer() {
+    let h = harness().await;
+    let cut_off = vec![Chunk::TextStart, Chunk::TextDelta("The first half of an ans".into()), Chunk::BlockStop, Chunk::Stop(crate::llm::StopReason::MaxTokens)];
+    h.provider
+        .push_for("PARENT", launches(&[json!({ "description": "Write it up", "prompt": "CHILD write a long report" })]))
+        .push_for("PARENT", text("it did not finish"))
+        .push_for("CHILD write", cut_off);
+    h.engine.submit(&h.session.id, prompt("PARENT report")).await.unwrap();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, metadata, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, crate::session::types::ToolStatus::Error, "not a successful task");
+    assert_eq!(metadata.as_ref().unwrap()["outcome"], "incomplete");
+    let output = output.as_deref().unwrap();
+    assert!(output.contains("not a complete answer") && output.contains("The first half of an ans"), "the partial text is kept: {output}");
+    assert_eq!(tasks(&h)[0].state, TaskState::Failed);
+}
+
+#[tokio::test]
 async fn with_background_turned_off_an_explicit_request_is_refused_and_foreground_still_waits() {
     let h = harness().await;
     h.engine.store.set_setting(BACKGROUND_TASKS_KEY, &false).unwrap();

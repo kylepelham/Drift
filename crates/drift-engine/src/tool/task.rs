@@ -100,14 +100,14 @@ async fn foreground(ctx: &Context, task: &TaskRecord, prompt: Prompt) -> Result<
         return Err(ToolError(format!("could not start subagent: {error}")));
     }
     engine.turns.wait_idle(&task.session_id, &ctx.abort).await;
-    let (state, text) = if ctx.abort.is_cancelled() { (TaskState::Stopped, "aborted".to_string()) } else { engine.worker_result(&task.session_id) };
+    let (state, text, outcome) = if ctx.abort.is_cancelled() { (TaskState::Stopped, "aborted".to_string(), "stopped") } else { engine.worker_result(&task.session_id) };
     engine.end_task(&task.id, state, &text);
     engine.store.mark_task_delivered(&task.id)?;
     engine.publish_task(&task.id);
     if ctx.abort.is_cancelled() {
         return Err(ToolError("aborted".into()));
     }
-    let metadata = json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": state.as_str(), "mode": "foreground" });
+    let metadata = json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": outcome, "mode": "foreground" });
     Ok(Output { title: task.description.clone(), output: text, metadata })
 }
 
@@ -251,6 +251,7 @@ impl Tool for ReadThread {
             match last_attempt(&ctx.engine.store, id) {
                 Attempt::Replied(reply) if !reply.is_empty() => lines.push(format!("Latest reply:\n{}", clip(&reply, SUMMARY_CHARS))),
                 Attempt::Failed(error) => lines.push(format!("Its last attempt failed: {error}")),
+                Attempt::Incomplete(partial) => lines.push(format!("Its latest reply stopped at the output limit, unfinished:\n{}", clip(&partial, SUMMARY_CHARS))),
                 Attempt::Stopped => lines.push("Its last attempt was stopped.".into()),
                 Attempt::Replied(_) | Attempt::None => {}
             }

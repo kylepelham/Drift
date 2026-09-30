@@ -191,7 +191,7 @@ impl Engine {
             match self.submit_under(&task.session_id, prompt, Some(&scope)).await {
                 Ok(_) => {
                     self.turns.wait_idle(&task.session_id, &CancellationToken::new()).await;
-                    let (state, text) = self.worker_result(&task.session_id);
+                    let (state, text, _) = self.worker_result(&task.session_id);
                     self.end_task(&task.id, state, &text);
                 }
                 Err(error) => self.end_task(&task.id, TaskState::Failed, &format!("The subagent could not start: {error}")),
@@ -203,19 +203,24 @@ impl Engine {
         self.deliver(&task.id, generation).await;
     }
 
-    /// How a worker's turn ended and what it said. A stop wins however late it came; otherwise the
-    /// last attempt decides, and an earlier reply never stands in for a later failure.
-    pub fn worker_result(&self, session_id: &str) -> (TaskState, String) {
+    /// How a worker's turn ended, what it said, and the outcome to report. A stop wins however late it
+    /// came; otherwise the last attempt decides, and an earlier reply never stands in for a later
+    /// failure. A reply cut off at the output limit is kept but is not an answer.
+    pub fn worker_result(&self, session_id: &str) -> (TaskState, String, &'static str) {
         let attempt = match (self.turns.take_end(session_id), last_attempt(&self.store, session_id)) {
             (Some(TurnEnd::Stopped), _) => Attempt::Stopped,
             (Some(TurnEnd::Failed), Attempt::Replied(_)) => Attempt::Failed("its turn ended without finishing".into()),
             (_, attempt) => attempt,
         };
         match attempt {
-            Attempt::Replied(reply) => (TaskState::Replied, clip(&reply, RESULT_CHARS)),
-            Attempt::Failed(error) => (TaskState::Failed, format!("The subagent failed: {error}")),
-            Attempt::Stopped => (TaskState::Stopped, STOPPED.into()),
-            Attempt::None => (TaskState::Failed, "The subagent finished without a reply.".into()),
+            Attempt::Replied(reply) => (TaskState::Replied, clip(&reply, RESULT_CHARS), "replied"),
+            Attempt::Incomplete(partial) => {
+                let text = format!("The subagent stopped at its output limit before finishing; this is not a complete answer. What it had written:\n\n{}", clip(&partial, RESULT_CHARS));
+                (TaskState::Failed, text, "incomplete")
+            }
+            Attempt::Failed(error) => (TaskState::Failed, format!("The subagent failed: {error}"), "failed"),
+            Attempt::Stopped => (TaskState::Stopped, STOPPED.into(), "stopped"),
+            Attempt::None => (TaskState::Failed, "The subagent finished without a reply.".into(), "failed"),
         }
     }
 
@@ -303,6 +308,8 @@ const STOPPED: &str = "The subagent was stopped before it finished.";
 /// How a session's last model attempt ended, as its transcript shows it.
 pub(crate) enum Attempt {
     Replied(String),
+    /// It finished writing only because it hit the output limit; the text is partial.
+    Incomplete(String),
     Failed(String),
     Stopped,
     None,
@@ -315,8 +322,10 @@ pub(crate) fn last_attempt(store: &crate::store::Store, session_id: &str) -> Att
     let Some(last) = transcript.iter().rev().find(|m| m.info.role == Role::Assistant && !(m.info.summary && m.info.status == MessageStatus::Done)) else {
         return Attempt::None;
     };
+    let text = || last.parts.iter().filter_map(|row| match &row.part { Part::Text { text } => Some(text.as_str()), _ => None }).collect::<Vec<_>>().join("\n");
     match last.info.status {
-        MessageStatus::Done => Attempt::Replied(last.parts.iter().filter_map(|row| match &row.part { Part::Text { text } => Some(text.as_str()), _ => None }).collect::<Vec<_>>().join("\n")),
+        MessageStatus::Done if last.info.error.is_some() => Attempt::Incomplete(text()),
+        MessageStatus::Done => Attempt::Replied(text()),
         MessageStatus::Error | MessageStatus::Paused => Attempt::Failed(last.info.error.clone().unwrap_or_else(|| "unknown error".into())),
         MessageStatus::Aborted => Attempt::Stopped,
         MessageStatus::Streaming => Attempt::None,
