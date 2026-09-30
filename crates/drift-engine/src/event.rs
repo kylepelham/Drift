@@ -32,6 +32,9 @@ pub enum Event {
     SessionDeleted { session_id: String },
     #[serde(rename = "session.status", rename_all = "camelCase")]
     SessionStatusChanged { session_id: String, status: SessionStatus },
+    /// A turn is waiting to retry a failed request; `running` follows when it tries again.
+    #[serde(rename = "session.retry", rename_all = "camelCase")]
+    SessionRetry { session_id: String, attempt: u32, message: String, next_at: i64 },
     #[serde(rename = "message.created")]
     MessageCreated { message: Message },
     #[serde(rename = "message.updated")]

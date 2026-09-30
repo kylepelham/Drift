@@ -78,6 +78,7 @@ export function createClient(target: Target) {
     forkSession: (id: string, atMessage?: string) => request<Json<"forkSession", 201>>("POST", `/sessions/${id}/fork`, { atMessage }),
     moveSession: (id: string, workspaceId: string) => request<Json<"moveSession", 200>>("POST", `/sessions/${id}/move`, { workspaceId }),
     compactSession: (id: string) => request<void>("POST", `/sessions/${id}/compact`),
+    switchRetryModel: (id: string, model: components["schemas"]["ModelRef"]) => request<void>("POST", `/sessions/${id}/retry`, { model }),
     settings: () => request<Json<"getSettings", 200>>("GET", "/settings"),
     putSettings: (body: components["schemas"]["EngineSettings"]) => request<Json<"putSettings", 200>>("PUT", "/settings", body),
     session: (id: string) => request<Json<"getSession", 200>>("GET", `/sessions/${id}`),

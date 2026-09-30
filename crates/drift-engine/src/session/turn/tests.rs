@@ -166,6 +166,79 @@ async fn abort_marks_the_message_and_frees_the_session() {
     assert!(!h.engine.abort(&h.session.id));
 }
 
+fn overloaded() -> llm::Error {
+    llm::Error::Api { status: 529, kind: "overloaded".into(), message: "busy".into(), retryable: true }
+}
+
+async fn until_waiting_to_retry(h: &Harness) {
+    for _ in 0..200 {
+        if h.engine.turns.retry_waits.lock().unwrap().contains_key(&h.session.id) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("the turn never waited to retry");
+}
+
+#[tokio::test]
+async fn a_retry_wait_is_announced_and_ends_with_running_again() {
+    let h = harness().await;
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider.push_error(overloaded()).push(text("second time lucky"));
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    let (attempt, message, next_at) = loop {
+        let envelope = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.unwrap().unwrap();
+        if let Event::SessionRetry { attempt, message, next_at, .. } = envelope.event {
+            break (attempt, message, next_at);
+        }
+    };
+    assert_eq!(attempt, 1);
+    assert!(message.contains("busy"), "{message}");
+    assert!(next_at > id::now_ms(), "the next attempt is in the future");
+    let running_again = loop {
+        let envelope = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.unwrap().unwrap();
+        if let Event::SessionStatusChanged { status, .. } = envelope.event {
+            break status;
+        }
+    };
+    assert_eq!(running_again, SessionStatus::Running);
+    until_idle(&h).await;
+}
+
+#[tokio::test]
+async fn a_turn_waiting_to_retry_can_be_moved_to_another_model_and_keeps_it() {
+    let h = harness().await;
+    let pinned = h.engine.catalog.read().unwrap().providers["anthropic"].models.keys().find(|id| id.as_str() != "claude-sonnet-4-5").unwrap().clone();
+    let other = ModelRef { provider: "anthropic".into(), model: pinned.clone() };
+    assert_eq!(h.engine.switch_retry_model(&h.session.id, &other).await, Err(TurnError::NotRetrying), "nothing is waiting yet");
+
+    h.provider.push_error(overloaded()).push(text("answered by the other model"));
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    until_waiting_to_retry(&h).await;
+    let unusable = ModelRef { provider: "openai".into(), model: "gpt-5".into() };
+    assert_eq!(h.engine.switch_retry_model(&h.session.id, &unusable).await, Err(TurnError::NoCredentials), "a model without a credential is refused up front");
+    let started = std::time::Instant::now();
+    h.engine.switch_retry_model(&h.session.id, &other).await.unwrap();
+    until_idle(&h).await;
+    assert!(started.elapsed() < Duration::from_millis(900), "the switch retries at once instead of waiting out the backoff");
+    let requests = h.provider.requests.lock().unwrap().clone();
+    assert_eq!((requests[0].model.as_str(), requests[1].model.as_str()), ("claude-sonnet-4-5", pinned.as_str()));
+    assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().model, Some(other), "the session keeps the model it was switched to");
+}
+
+#[tokio::test]
+async fn stop_ends_a_retry_wait_at_once() {
+    let h = harness().await;
+    h.provider.push_error(overloaded());
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    until_waiting_to_retry(&h).await;
+    let started = std::time::Instant::now();
+    assert!(h.engine.abort(&h.session.id));
+    until_idle(&h).await;
+    assert!(started.elapsed() < Duration::from_millis(500));
+    assert_eq!(h.provider.requests.lock().unwrap().len(), 1, "no attempt after the stop");
+}
+
 #[tokio::test]
 async fn retryable_provider_errors_are_retried_and_others_are_not() {
     let h = harness().await;

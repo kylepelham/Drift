@@ -13,6 +13,7 @@ use utoipa::ToSchema;
 
 use super::assemble::Assembler;
 use super::compaction::{self, Trigger};
+use super::oneshot::Resolved;
 use super::prompt;
 use crate::config::Config;
 use crate::event::{Event, SessionStatus};
@@ -57,6 +58,8 @@ pub enum TurnError {
     NoModel,
     UnknownModel,
     NoCredentials,
+    /// The session is not waiting to retry a failed request, so there is nothing to switch.
+    NotRetrying,
     Store(String),
 }
 
@@ -70,6 +73,7 @@ impl std::fmt::Display for TurnError {
             Self::NoModel => write!(f, "no model selected"),
             Self::UnknownModel => write!(f, "model is not in the catalog"),
             Self::NoCredentials => write!(f, "provider has no credentials"),
+            Self::NotRetrying => write!(f, "the session is not waiting to retry"),
             Self::Store(message) => write!(f, "store: {message}"),
         }
     }
@@ -92,6 +96,8 @@ pub struct Turns {
     pub(super) compaction_failures: Mutex<HashMap<String, u32>>,
     /// How each subagent's last turn ended, until the task waiting on it takes the answer.
     ended: Mutex<HashMap<String, TurnEnd>>,
+    /// Turns waiting out a retry backoff, each ready to take a model the user switches to.
+    retry_waits: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Resolved>>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
 }
@@ -306,38 +312,40 @@ impl Engine {
         llm::provider_for(id, catalog_api)
     }
 
-    async fn run(self: &Arc<Self>, plan: Plan, abort: CancellationToken) {
+    async fn run(self: &Arc<Self>, mut plan: Plan, abort: CancellationToken) {
         self.title_untitled(&plan.session);
-        let agent = plan.config.agent(&plan.session.agent).cloned();
-        let allowed = agent.as_ref().map(|a| a.tools.clone()).unwrap_or_default();
-        let subagent = plan.session.visibility == Visibility::Hidden;
-        let tools: Vec<_> = self.tools.specs(plan.model.profile).into_iter().filter(|spec| allowed.is_empty() || allowed.contains(&spec.name)).filter(|spec| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str()))).collect();
-        // What was offered is what may run; a call to any other tool is refused before permission or snapshot.
-        let offered: std::collections::HashSet<String> = tools.iter().map(|t| t.name.clone()).collect();
-        let system = prompt::system(&plan.workspace, &plan.config, agent.as_ref(), offered.contains("task"));
+        let mut offer = self.offer(&plan);
         let mut attempts = 0;
         let mut recovered = false;
         loop {
             let Some(transcript) = self.transcript_for_step(&plan, &abort).await else { break };
             let request = Request {
                 model: plan.model_ref.model.clone(),
-                system: system.clone(),
+                system: offer.system.clone(),
                 messages: compaction::request_messages(&transcript, &plan.model_ref),
-                tools: tools.clone(),
+                tools: offer.tools.clone(),
                 max_tokens: max_tokens(&plan.model, plan.thinking_budget),
                 thinking_budget: plan.thinking_budget.filter(|_| plan.model.reasoning),
                 temperature: None,
             };
             let Ok(message) = self.store.create_message(&plan.session.id, Role::Assistant, Some(&plan.model_ref)) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });
-            match self.step(&plan, message, &request, &offered, &abort).await {
+            match self.step(&plan, message, &request, &offer.offered, &abort).await {
                 Step::Done => break,
                 Step::Continue => attempts = 0,
-                Step::Retry if attempts + 1 < MAX_ATTEMPTS => {
+                Step::Retry(error) if attempts + 1 < MAX_ATTEMPTS => {
                     attempts += 1;
-                    tokio::time::sleep(Duration::from_millis(500 * 2u64.pow(attempts))).await;
+                    match self.wait_to_retry(&plan.session.id, attempts, &error, &abort).await {
+                        Wait::Elapsed => {}
+                        Wait::Switched(resolved) => {
+                            self.adopt(&mut plan, *resolved);
+                            offer = self.offer(&plan);
+                            attempts = 0;
+                        }
+                        Wait::Stopped => break,
+                    }
                 }
-                Step::Retry => break,
+                Step::Retry(_) => break,
                 // A request too long for the model is compacted once and retried.
                 Step::Overflow if !recovered => {
                     recovered = true;
@@ -349,6 +357,64 @@ impl Engine {
             }
         }
         self.record_end(&plan.session, &abort);
+    }
+
+    /// The tools and system prompt for the plan's model and agent. What was offered is what may run:
+    /// a call to any other tool is refused before permission or snapshot.
+    fn offer(&self, plan: &Plan) -> Offer {
+        let agent = plan.config.agent(&plan.session.agent).cloned();
+        let allowed = agent.as_ref().map(|a| a.tools.clone()).unwrap_or_default();
+        let subagent = plan.session.visibility == Visibility::Hidden;
+        let tools: Vec<_> = self
+            .tools
+            .specs(plan.model.profile)
+            .into_iter()
+            .filter(|spec| allowed.is_empty() || allowed.contains(&spec.name))
+            .filter(|spec| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))
+            .collect();
+        let offered: std::collections::HashSet<String> = tools.iter().map(|t| t.name.clone()).collect();
+        let system = prompt::system(&plan.workspace, &plan.config, agent.as_ref(), offered.contains("task"));
+        Offer { tools, offered, system }
+    }
+
+    /// Waits out a retry backoff, which the UI shows, unless the user switches the turn to another
+    /// model first; then it retries at once on that model.
+    async fn wait_to_retry(&self, session_id: &str, attempt: u32, error: &str, abort: &CancellationToken) -> Wait {
+        let delay = Duration::from_millis(500 * 2u64.pow(attempt));
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        self.turns.retry_waits.lock().unwrap().insert(session_id.into(), sender);
+        let next_at = id::now_ms() + delay.as_millis() as i64;
+        self.hub.publish(Event::SessionRetry { session_id: session_id.into(), attempt, message: error.into(), next_at });
+        let wait = tokio::select! {
+            () = tokio::time::sleep(delay) => Wait::Elapsed,
+            Ok(resolved) = receiver => Wait::Switched(Box::new(resolved)),
+            () = abort.cancelled() => Wait::Stopped,
+        };
+        self.turns.retry_waits.lock().unwrap().remove(session_id);
+        self.hub.publish(Event::SessionStatusChanged { session_id: session_id.into(), status: SessionStatus::Running });
+        wait
+    }
+
+    /// Moves the turn onto a model the user switched to, and makes it the session's model from now on.
+    fn adopt(&self, plan: &mut Plan, resolved: Resolved) {
+        plan.model_ref = resolved.model_ref;
+        plan.model = resolved.model;
+        plan.provider = resolved.provider;
+        plan.credential = resolved.credential;
+        if let Ok(Some(session)) = self.store.update_session(&plan.session.id, None, Some(&plan.model_ref), None) {
+            self.hub.publish(Event::SessionUpdated { session });
+        }
+    }
+
+    /// Switches a turn that is waiting to retry onto `model`. The model and its credential are checked
+    /// here, so a bad choice fails for the caller instead of inside the turn.
+    pub async fn switch_retry_model(&self, session_id: &str, model: &ModelRef) -> Result<(), TurnError> {
+        if !self.turns.retry_waits.lock().unwrap().contains_key(session_id) {
+            return Err(TurnError::NotRetrying);
+        }
+        let resolved = self.resolve(model).await?;
+        let waiting = self.turns.retry_waits.lock().unwrap().remove(session_id).ok_or(TurnError::NotRetrying)?;
+        waiting.send(resolved).map_err(|_| TurnError::NotRetrying)
     }
 
     /// For a subagent, how its turn ended: a stop wins however late it came; otherwise the last
@@ -400,7 +466,7 @@ impl Engine {
                 if error.is_context_overflow() {
                     return Step::Overflow;
                 }
-                return if matches!(error, llm::Error::Api { retryable: true, .. } | llm::Error::Transport(_)) { Step::Retry } else { Step::Done };
+                return if matches!(error, llm::Error::Api { retryable: true, .. } | llm::Error::Transport(_)) { Step::Retry(error.to_string()) } else { Step::Done };
             }
         };
         message.usage = streamed.usage;
@@ -608,9 +674,23 @@ impl Engine {
 enum Step {
     Done,
     Continue,
-    Retry,
+    /// A failure worth trying again, with the provider's words for the UI.
+    Retry(String),
     /// The request no longer fit the model's context.
     Overflow,
+}
+
+enum Wait {
+    Elapsed,
+    /// The user moved the turn to another model; retry now on it.
+    Switched(Box<Resolved>),
+    Stopped,
+}
+
+struct Offer {
+    tools: Vec<llm::ToolSpec>,
+    offered: std::collections::HashSet<String>,
+    system: String,
 }
 
 struct CallScope<'a> {

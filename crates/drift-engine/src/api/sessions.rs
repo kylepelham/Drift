@@ -137,6 +137,19 @@ pub async fn abort(State(engine): State<Arc<Engine>>, Path(id): Path<String>) ->
     Json(Aborted { aborted: engine.abort(&id) })
 }
 
+#[derive(Deserialize, ToSchema)]
+pub struct RetryModelBody {
+    pub model: ModelRef,
+}
+
+/// Moves a turn that is waiting to retry onto another model; it retries at once and the session keeps
+/// the model. 409 when nothing is waiting to retry; 400 or 401 when the model cannot be used.
+#[utoipa::path(post, path = "/sessions/{id}/retry", operation_id = "switchRetryModel", request_body = RetryModelBody, responses((status = 204), (status = 400), (status = 401), (status = 409)))]
+pub async fn switch_retry_model(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<RetryModelBody>) -> Result<StatusCode, ApiError> {
+    engine.switch_retry_model(&id, &body.model).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Summarises the older history now. Runs as the session's job: 409 while a turn runs, Stop cancels it.
 #[utoipa::path(post, path = "/sessions/{id}/compact", operation_id = "compactSession", responses((status = 202), (status = 404), (status = 409)))]
 pub async fn compact(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {

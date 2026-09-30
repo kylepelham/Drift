@@ -282,6 +282,17 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   default on, shown in Settings > General. Three automatic failures in a row also stop it for that
   session until one succeeds; manual compaction always runs.
 
+#### Retries
+
+- Rate limits, overload and transport failures are retried up to three attempts per step, waiting
+  `500ms * 2^attempt`. Each wait publishes `session.retry { attempt, message, nextAt }`, which the
+  UI draws as the retry notice with a model picker; `session.status running` follows when the wait
+  ends. Stop ends a wait at once.
+- `POST /sessions/{id}/retry { model }` moves a waiting turn onto another model: 409 when nothing is
+  waiting, 400/401 when the model or its credential is unusable (checked before the turn is told).
+  The turn retries immediately on the new model, rebuilds its tools and prompt for that model's
+  profile, and the session keeps the model for later turns.
+
 #### Background-worker implementation
 
 RE evidence, exact binary offsets, selection paths and the acceptance matrix are
@@ -537,8 +548,7 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
 
 - `src/engine/` talks only to the native engine. `native/client.ts` wraps the generated
   types, `native/events.ts` runs the socket, `actions.ts` implements every action the UI
-  calls. Actions the engine cannot serve yet (share, revert,
-  retry model switch) raise a "not available yet" notice and return the
+  calls. Actions the engine cannot serve yet (share, revert) raise a "not available yet" notice and return the
   neutral value their callers expect; each comes back native in the milestone that owns it.
 - `native/adapt.ts` maps native sessions, messages, parts, permissions, providers and events
   onto the legacy store shapes (`@opencode-ai/sdk` types) that `store.ts`, `events.ts` and

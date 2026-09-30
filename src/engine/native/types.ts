@@ -458,6 +458,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Moves a turn that is waiting to retry onto another model; it retries at once and the session keeps
+         *     the model. 409 when nothing is waiting to retry; 400 or 401 when the model cannot be used.
+         */
+        post: operations["switchRetryModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/todos": {
         parameters: {
             query?: never;
@@ -670,6 +690,15 @@ export interface components {
             status: components["schemas"]["SessionStatus"];
             /** @enum {string} */
             type: "session.status";
+        } | {
+            /** Format: int32 */
+            attempt: number;
+            message: string;
+            /** Format: int64 */
+            nextAt: number;
+            sessionId: string;
+            /** @enum {string} */
+            type: "session.retry";
         } | {
             message: components["schemas"]["Message"];
             /** @enum {string} */
@@ -947,6 +976,9 @@ export interface components {
         ReplyBody: {
             pattern?: string | null;
             reply: components["schemas"]["Reply"];
+        };
+        RetryModelBody: {
+            model: components["schemas"]["ModelRef"];
         };
         /** @enum {string} */
         Role: "user" | "assistant";
@@ -1924,6 +1956,47 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    switchRetryModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryModelBody"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

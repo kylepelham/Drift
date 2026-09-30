@@ -47,6 +47,7 @@ impl From<TurnError> for ApiError {
         let (status, code) = match error {
             TurnError::NoSession | TurnError::NoWorkspace => (StatusCode::NOT_FOUND, "not_found"),
             TurnError::Busy => (StatusCode::CONFLICT, "busy"),
+            TurnError::NotRetrying => (StatusCode::CONFLICT, "not_retrying"),
             TurnError::SubmissionReused => (StatusCode::CONFLICT, "submission"),
             TurnError::NoModel | TurnError::UnknownModel => (StatusCode::BAD_REQUEST, "model"),
             TurnError::NoCredentials => (StatusCode::UNAUTHORIZED, "credentials"),

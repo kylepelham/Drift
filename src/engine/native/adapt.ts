@@ -165,6 +165,11 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
         type: "session.status",
         properties: { sessionID: event.sessionId, status: event.status === "running" ? { type: "busy" } : { type: "idle" } },
       }
+    case "session.retry":
+      return {
+        type: "session.status",
+        properties: { sessionID: event.sessionId, status: { type: "retry", attempt: event.attempt, message: event.message, next: event.nextAt } },
+      }
     case "message.created":
     case "message.updated":
       return { type: "message.updated", properties: { info: adaptMessage(event.message, "") } }

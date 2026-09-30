@@ -217,6 +217,19 @@ test("/compact asks the engine to compact and reports a refusal; the auto settin
   expect(await h.actions.setAutoCompact(false)).toEqual({ autoCompact: false })
 })
 
+test("switching a retrying turn's model sends the native model ref and reports refusals", async () => {
+  const sent: unknown[] = []
+  const h = harness({
+    switchRetryModel: (id: string, model: unknown) => {
+      sent.push([id, model])
+      return id === "ses_idle" ? Promise.reject(new EngineError(409, "/sessions/ses_idle/retry", "not_retrying", "the session is not waiting to retry")) : Promise.resolve(undefined)
+    },
+  } as Partial<Client>)
+  expect(await h.actions.switchRetryModel("ses_1", "msg_1", { providerID: "openai", modelID: "gpt-5" })).toEqual({ ok: true })
+  expect(sent[0]).toEqual(["ses_1", { provider: "openai", model: "gpt-5" }])
+  expect(await h.actions.switchRetryModel("ses_idle", "msg_1", { providerID: "openai", modelID: "gpt-5" })).toEqual({ ok: false, error: "the session is not waiting to retry" })
+})
+
 test("a reviewed branch becomes a top-level session linked to its source", async () => {
   const draft = { goal: "fix lint", title: "Fix lint", summary: "Parser tidied.", excerpts: "", cutoff: "msg_9" }
   const h = harness({

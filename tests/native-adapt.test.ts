@@ -79,6 +79,13 @@ test("tool call statuses become legacy tool states", () => {
   expect(pending.state).toEqual({ status: "pending", input: { path: "a" }, raw: "" })
 })
 
+test("a retry wait becomes the retry status the notice draws", () => {
+  expect(adaptEvent({ type: "session.retry", sessionId: "ses_1", attempt: 2, message: "overloaded (529): busy", nextAt: 5000 }, workspaces)).toEqual({
+    type: "session.status",
+    properties: { sessionID: "ses_1", status: { type: "retry", attempt: 2, message: "overloaded (529): busy", next: 5000 } },
+  })
+})
+
 test("events translate to the legacy reducer's vocabulary", () => {
   expect(adaptEvent({ type: "session.status", sessionId: "ses_1", status: "running" }, workspaces)).toEqual({
     type: "session.status",

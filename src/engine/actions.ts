@@ -347,6 +347,16 @@ export function createActions(
     }
   }
 
+  /** Moves a turn that is waiting to retry onto `model`; it retries at once. Variants have no engine meaning yet. */
+  async function switchRetryModel(id: string, _messageID: string, model: ModelRef, _variant?: string): Promise<PromptSendResult> {
+    try {
+      await requireClient().switchRetryModel(id, { provider: model.providerID, model: model.modelID })
+      return { ok: true }
+    } catch (cause) {
+      return { ok: false, error: errorMessage(cause) }
+    }
+  }
+
   async function engineSettings() {
     return requireClient().settings()
   }
@@ -498,7 +508,7 @@ export function createActions(
     moveSession,
     moveWorkspaceSessions,
     removeAllSessions: async (..._args: unknown[]) => false,
-    switchRetryModel: async (..._args: unknown[]): Promise<PromptSendResult> => ({ ok: false, error: "Retry model switching is not available yet" }),
+    switchRetryModel,
     summarize,
     engineSettings,
     setAutoCompact,
