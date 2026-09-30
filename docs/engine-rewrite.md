@@ -361,9 +361,12 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   left out with their size and mtime, and a path oversized on either side of a comparison is
   reported in `metadata.unrecorded`, never as a deletion or creation, so undo cannot delete a large
   file or restore a stale small copy over it. An oversized file left untouched is not reported.
-- Retention: at startup, `Engine::prune_snapshots` pins every blob a stored call's `changes` refers
-  to (archived sessions included) under a private ref and prunes the rest, sparing objects younger
-  than two hours so a capture in flight keeps its blobs. Tree captures are transient and go too.
+- Retention: `Engine::maintain` runs at startup and every six hours while the engine is up (it
+  holds only a weak reference, so it never keeps an engine alive). Each pass, `prune_snapshots`
+  pins every blob a stored call's `changes` refers to (archived sessions included) under a private
+  ref and prunes the rest, sparing objects younger than two hours so a capture in flight keeps its
+  blobs; tree captures are transient and go too. The same pass deletes spooled shell output older
+  than seven days.
 - Nothing is deleted while undone. The next prompt commits the undo: the hidden messages and their
   submission records are deleted in the same transaction that records the prompt, each announced
   as `message.removed`, and the files stay as the undo left them.
@@ -500,8 +503,14 @@ these async criteria are new pending M3 work.
   one before it sits exactly where the previous step wrote, so a tool loop pays only for each
   step's new blocks even past the 20-block lookback. Thinking blocks and empty text never carry
   one. The marks are set in the adapter's shared body, so key, subscription (whose extra system
-  blocks add none) and gateway base URLs all cache alike. Compat routes send none: OpenRouter is
-  not a catalog provider yet, and marking by model id is off the table.
+  blocks add none) and Anthropic-dialect gateway base URLs all cache alike.
+- OpenRouter is not covered. Its Chat Completions route caches Claude only with explicit
+  `cache_control`: a top-level `cache_control` for automatic caching, or per-block breakpoints
+  (at most four) on Anthropic-compatible upstreams (OpenRouter prompt-caching guide, checked
+  2026-09-30). The compat adapter sends neither. OpenRouter is not a catalog provider, so the route
+  cannot be selected yet; when it joins the catalog, the choice between the two forms should come
+  from its catalog entry and be verified with a recorded exchange before gateway caching counts as
+  done.
 - Tool calls run in the order the model issued them, one at a time. `edit` and `write`
   refuse files the session has not `read`; the first mutating call in a message takes a
   snapshot and records its tree id in the part's metadata.
@@ -530,7 +539,7 @@ Settled after the first external review of M1; each has a regression test.
   the deepest existing ancestor, verbatim prefixes stripped. Permission asks and the
   read-before-write ledger see the real target. `read`, `glob` and `grep` inside the
   workspace are free; outside it they ask.
-- Files that may hold secrets (`tool::sensitive`: `.env` and `.env.*`, `*.env`, key and
+- Files that may hold secrets (`tool::sensitive`: `.env` and `.env.*`, `*.env`, `.envrc`, key and
   keystore extensions such as `.pem` and `.p12`, `.npmrc`, `.netrc`, `.git-credentials`,
   `credentials`, private SSH keys) ask to be read even inside the workspace. A name part such
   as `example`, `sample`, `template` or `dist` marks a committed template, which reads freely.
@@ -637,6 +646,12 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     the command's words (`Ask.writes` names the targets) so the program word stays first.
   - A secret read is held to the same bar: `read *` or an "always" widened to `**` never allows
     `.env`; a rule or approval naming that file does, and any matching deny still denies.
+  - A `cd` (or `chdir`, `pushd`, PowerShell `Set-Location`/`sl`/`Push-Location`) whose target stays
+    inside the workspace is dropped from the commands judged: moving around changes nothing, so
+    `cd crates && cargo test` asks only about `cargo test`. The directory is followed along the
+    chain. A move that leaves the workspace or cannot be read (`~`, `-`, a variable, a glob, a flag)
+    still asks, and so does every move after it. Nothing grants directory changes: the ask's
+    pattern is still the whole line.
   - "Always" grants each command separately. Known subcommand tools (`git`, `cargo`, `npm run`,
     `docker compose`, `gh`, ...) widen to their subcommand with any arguments (`cargo test` covers
     `cargo test --release`, not `cargo publish`); anything else, and every non-shell target such as

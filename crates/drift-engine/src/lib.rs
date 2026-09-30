@@ -144,8 +144,37 @@ impl Engine {
         config
     }
 
-    /// Drops recorded file content no stored call refers to any more. Runs at startup; failures only
-    /// mean the store keeps more than it needs.
+    /// Housekeeping at startup and every [`MAINTENANCE_INTERVAL`] after, for as long as the engine
+    /// lives: unreferenced snapshot content and old shell output logs go.
+    pub async fn maintain(self: Arc<Self>) {
+        let engine = Arc::downgrade(&self);
+        drop(self);
+        let mut every = tokio::time::interval(MAINTENANCE_INTERVAL);
+        loop {
+            every.tick().await;
+            let Some(engine) = engine.upgrade() else { return };
+            engine.prune_snapshots().await;
+            engine.prune_tool_output(TOOL_OUTPUT_RETENTION);
+        }
+    }
+
+    /// Deletes spooled shell output older than `age`; a call's result still says what it printed.
+    pub fn prune_tool_output(&self, age: std::time::Duration) {
+        let root = self.data_dir.join("tool-output");
+        let Ok(sessions) = std::fs::read_dir(&root) else { return };
+        for session in sessions.flatten() {
+            for file in std::fs::read_dir(session.path()).into_iter().flatten().flatten() {
+                let old = file.metadata().and_then(|m| m.modified()).is_ok_and(|at| at.elapsed().is_ok_and(|elapsed| elapsed > age));
+                if old {
+                    let _ = std::fs::remove_file(file.path());
+                }
+            }
+            let _ = std::fs::remove_dir(session.path());
+        }
+    }
+
+    /// Drops recorded file content no stored call refers to any more; content referenced by any stored
+    /// call, archived ones included, is pinned. Failures only mean the store keeps more than it needs.
     pub async fn prune_snapshots(&self) {
         let Ok(workspaces) = self.store.workspaces() else { return };
         for workspace in workspaces {
@@ -166,6 +195,11 @@ impl Engine {
         }
     }
 }
+
+/// How often housekeeping runs while the engine is up.
+pub const MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+/// Spooled shell output is kept this long.
+const TOOL_OUTPUT_RETENTION: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
 
 pub(crate) fn random_hex(bytes: usize) -> String {
     let mut buffer = vec![0u8; bytes];
@@ -194,7 +228,7 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
         starting.refresh_catalog().await;
         starting.mcp.connect_all(&starting.store, &starting.hub).await;
         starting.tools.set_dynamic(starting.mcp.tools());
-        starting.prune_snapshots().await;
+        starting.maintain().await;
     });
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let addr = listener.local_addr()?;

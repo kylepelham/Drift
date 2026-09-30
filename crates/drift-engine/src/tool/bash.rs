@@ -85,13 +85,17 @@ impl Tool for Bash {
         }
     }
 
-    fn ask(&self, _ctx: &Context, input: &Value) -> Option<Ask> {
+    fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
         let command = input["command"].as_str()?;
         let dialect = match self.shell {
             Shell::Bash(_) => command::Dialect::Bash,
             Shell::PowerShell(_) => command::Dialect::PowerShell,
         };
-        Some(Ask::shell(dialect, command, input["description"].as_str().unwrap_or(command)))
+        let mut ask = Ask::shell(dialect, command, input["description"].as_str().unwrap_or(command));
+        if let Some(commands) = &mut ask.commands {
+            drop_moves_within(ctx, commands);
+        }
+        Some(ask)
     }
 
     fn mutates(&self) -> bool {
@@ -233,6 +237,53 @@ fn report(title: String, spooled: Spooled, ended: Ended, limit: Option<Duration>
     Output { title, output: format!("{text}{note}").trim_start().into(), metadata }
 }
 
+const MOVES: [&str; 6] = ["cd", "chdir", "set-location", "sl", "pushd", "push-location"];
+
+/// Drops `cd` steps that stay inside the workspace: moving around it changes nothing, so it needs no
+/// approval of its own and `cd crates && cargo test` asks only about `cargo test`. The directory is
+/// followed along the chain; once a move leaves the workspace or cannot be read (`~`, `-`, a
+/// variable, a glob), it and every later move still ask.
+fn drop_moves_within(ctx: &Context, commands: &mut Vec<String>) {
+    let mut here = Some(ctx.workspace.clone());
+    commands.retain(|command| {
+        let Some(from) = &here else { return true };
+        match move_within(ctx, from, command) {
+            Move::Inside(next) => {
+                here = Some(next);
+                false
+            }
+            Move::Elsewhere => {
+                here = None;
+                true
+            }
+            Move::None => true,
+        }
+    });
+}
+
+enum Move {
+    Inside(PathBuf),
+    Elsewhere,
+    None,
+}
+
+fn move_within(ctx: &Context, from: &std::path::Path, command: &str) -> Move {
+    let words: Vec<&str> = command.split(' ').collect();
+    if !MOVES.contains(&words[0].to_ascii_lowercase().as_str()) {
+        return Move::None;
+    }
+    let [_, target] = words[..] else { return Move::Elsewhere };
+    if target.starts_with(['-', '~']) || target.contains(['$', '%', '*', '?', '[']) {
+        return Move::Elsewhere;
+    }
+    let next = super::canonical(&from.join(target));
+    if ctx.inside_workspace(&next) {
+        Move::Inside(next)
+    } else {
+        Move::Elsewhere
+    }
+}
+
 /// The model's `timeout` when it gives one, otherwise the user's Settings value; `None` never stops it.
 fn limit_for(ctx: &Context, input: &Value) -> Option<Duration> {
     match input["timeout"].as_u64() {
@@ -336,6 +387,26 @@ mod tests {
         };
         let unlimited = bash.run(&sandbox.ctx, json!({ "command": quick })).await.unwrap();
         assert!(!bash.failed(&unlimited) && unlimited.metadata["shellTimeoutMs"].is_null(), "no limit lets it finish");
+    }
+
+    #[test]
+    fn moving_around_the_workspace_asks_nothing_and_leaving_it_still_asks() {
+        let sandbox = Sandbox::new("bash-cd");
+        sandbox.file("crates/a/Cargo.toml", "");
+        let bash = Bash::with(Shell::Bash("bash".into()));
+        let commands = |line: &str| bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap().commands;
+        assert_eq!(commands("cd crates && cargo test").unwrap(), ["cargo test"]);
+        assert_eq!(commands("cd crates && cd a && cargo build && cd ../.. && git status").unwrap(), ["cargo build", "git status"], "followed along the chain");
+        assert_eq!(commands("cd src").unwrap(), Vec::<String>::new(), "a move alone changes nothing");
+        assert_eq!(commands("cd .. && cargo test").unwrap(), ["cd ..", "cargo test"], "leaving the workspace asks");
+        assert_eq!(commands("cd crates && cd ../.. && cd ws && ls").unwrap(), ["cd ../..", "cd ws", "ls"], "once outside, every later move asks");
+        for line in ["cd ~ && ls", "cd - && ls", "cd $HOME && ls", "cd /etc && ls", "cd -P crates && ls", "cd cra* && ls"] {
+            assert_eq!(commands(line).unwrap().len(), 2, "{line}");
+        }
+        let pwsh = Bash::with(Shell::PowerShell("pwsh".into()));
+        let ask = pwsh.ask(&sandbox.ctx, &json!({ "command": "Set-Location crates; cargo test" })).unwrap();
+        assert_eq!(ask.commands.unwrap(), ["cargo test"]);
+        assert_eq!(ask.pattern, "Set-Location crates; cargo test", "the user still sees the whole line");
     }
 
     #[tokio::test]

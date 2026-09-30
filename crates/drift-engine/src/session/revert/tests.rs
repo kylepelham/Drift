@@ -74,6 +74,46 @@ async fn every_blob_undo_needs_is_kept_through_a_prune() {
     assert_eq!(read(&h, "a.txt").as_deref(), Some("two"));
 }
 
+fn old_output(h: &Harness, name: &str) -> std::path::PathBuf {
+    let path = h.engine.data_dir.join("tool-output").join("ses_old").join(name);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let file = std::fs::File::create(&path).unwrap();
+    file.set_modified(std::time::SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)).unwrap();
+    path
+}
+
+async fn until_gone(path: &std::path::Path) {
+    for _ in 0..500 {
+        if !path.exists() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("{} was never pruned", path.display());
+}
+
+#[tokio::test]
+async fn housekeeping_runs_again_and_again_and_keeps_what_undo_needs() {
+    let h = harness().await;
+    let (_, second) = two_writing_turns(&h).await;
+    let first_old = old_output(&h, "first.log");
+    let fresh = h.engine.data_dir.join("tool-output").join("ses_new").join("fresh.log");
+    std::fs::create_dir_all(fresh.parent().unwrap()).unwrap();
+    std::fs::write(&fresh, "recent").unwrap();
+    tokio::time::pause();
+    let maintaining = tokio::spawn(h.engine.clone().maintain());
+    until_gone(&first_old).await;
+    assert!(fresh.exists(), "recent output is kept");
+    let second_old = old_output(&h, "second.log");
+    tokio::time::sleep(crate::MAINTENANCE_INTERVAL).await;
+    until_gone(&second_old).await;
+    tokio::time::resume();
+    maintaining.abort();
+    h.engine.revert(&h.session.id, &second).await.unwrap();
+    h.engine.unrevert(&h.session.id).await.unwrap();
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("two"), "pruning kept every blob undo and redo need");
+}
+
 #[tokio::test]
 async fn undo_leaves_the_users_own_work_alone() {
     let h = harness().await;

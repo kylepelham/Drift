@@ -64,7 +64,8 @@ change the plan there when a decision changes.
   - [x] Snapshots: per-workspace lock, 10MB limit, retention and prune
   - [x] Shell-aware approvals: per-command decisions, no widening to the program name
   - [x] Secret files ask to be read inside the workspace, grep withholds them, examples exempt; `.git` and binaries skipped by search
-  - [x] Anthropic conversation cache breakpoints (API key, subscription, gateway)
+  - [x] Anthropic conversation cache breakpoints (API key, subscription, Anthropic-dialect gateways)
+  - [ ] OpenRouter Claude caching: contract checked (top-level or per-block `cache_control`), route not selectable until OpenRouter is a catalog provider; verify with a recorded exchange
   - [x] SSE error classification and bounded, cancellable, `retry-after`-aware backoff
   - Review of items 1 to 6:
     - [x] Byte-exact shadow snapshots (attributes overridden, existing repos migrated)
@@ -74,7 +75,7 @@ change the plan there when a decision changes.
     - [x] File-writing redirections need exact approval (bash and PowerShell)
     - [x] Permanent quota errors never retry; oversized `retry-after` cannot panic; failed jobs release the session; cap after jitter
     - [x] Bounded shell capture; inherited pipes and background descendants
-    - [ ] `.envrc`, `cd` chains, opaque-construct docs, periodic prune, OpenRouter caching verified
+    - [x] `.envrc`, `cd` chains, opaque-construct docs, periodic prune (OpenRouter caching checked, left open above)
   - [ ] Shared HTTP client with connect, header and stream-idle timeouts; Stop cancels while waiting
   - [ ] Thinking budget within the output limit; max-tokens endings surfaced; unexecuted calls settled
   - [ ] Configurable step limits and repeated-call intervention

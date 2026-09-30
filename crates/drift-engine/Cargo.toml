@@ -40,4 +40,6 @@ libc = "0.2"
 [dev-dependencies]
 # reqwest is built without a bundled provider; tests install ring themselves.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# A paused clock, for housekeeping that runs every few hours.
+tokio = { workspace = true, features = ["test-util"] }
 tokio-tungstenite = "0.30"
