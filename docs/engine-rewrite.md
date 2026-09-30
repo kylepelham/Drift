@@ -635,7 +635,14 @@ Settled after the first external review of M1; each has a regression test.
     or a session approval. Otherwise the file is not read and the model gets a note saying why and
     to use `read`, which asks. A denied path says a rule forbids it. Directories list up to 1,000
     entries; binary files and files that do not exist say so; text past 64 KB is cut at a line
-    with the offset to read on from.
+    with the offset to read on from. Only one byte past that bound is ever read from disk. A
+    mention read in full is recorded in the session's read ledger, so the model can edit the file
+    straight away; one cut short is not, since the model has not seen all of it.
+  - Every `data:` URL is taken apart and checked before admission: its MIME must match the part's,
+    a text payload must decode to UTF-8 and an image payload must be valid base64. Anything else is
+    refused with 400 `attachment` naming the file, never admitted and dropped later.
+  - A steered prompt's files are judged against the model the running turn is on (updated when a
+    retry switches it), not a model the prompt names, and the prompt is recorded with that model.
   - Text data URLs travel as text. Images go only to a model whose catalog entry says it reads
     attachments. Anything else (audio, video, a PDF sent as data, a non-`file`/`data` URL) and an
     image for a model that cannot read it is refused with 400 `attachment` naming the file, never

@@ -820,6 +820,59 @@ async fn files_a_model_cannot_take_are_refused_not_dropped() {
     assert!(sent_text(&h, with_files("read this", vec![note])).await.contains("hello there"), "text travels as text");
 }
 
+#[tokio::test]
+async fn malformed_attachments_are_refused_before_admission() {
+    let h = harness().await;
+    for (mime, url, why) in [
+        ("text/plain", "data:text/plain;base64,@@not base64@@", "could not be decoded"),
+        ("text/plain", "data:text/plain;base64,/w==", "could not be decoded"),
+        ("image/png", "data:image/png;base64,***", "not valid base64"),
+        ("image/png", "data:image/png,rawbytes", "not valid base64"),
+        ("image/png", "data:image/jpeg;base64,iVBORw0KGgo=", "its data is image/jpeg"),
+    ] {
+        let part = Part::File { mime: mime.into(), name: "bad".into(), url: url.into() };
+        let refused = h.engine.submit(&h.session.id, with_files("look", vec![part])).await.unwrap_err();
+        assert!(matches!(&refused, TurnError::Attachment(m) if m.contains(why)), "{url}: {refused:?}");
+    }
+    assert!(h.engine.store.transcript(&h.session.id).unwrap().is_empty(), "nothing was admitted");
+    assert!(h.provider.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_file_read_in_through_a_mention_can_be_edited_straight_away() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    let ws = h._dir.join("ws");
+    std::fs::write(ws.join("notes.md"), "old line\n").unwrap();
+    h.provider.push(tool_call("edit", r#"{"path": "notes.md", "old_string": "old line", "new_string": "new line"}"#)).push(text("edited"));
+    h.engine.submit(&h.session.id, with_files("fix @notes.md", vec![mention(&ws.join("notes.md"))])).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Done, "{output:?}");
+    assert_eq!(std::fs::read_to_string(ws.join("notes.md")).unwrap(), "new line\n");
+}
+
+#[tokio::test]
+async fn a_steered_image_is_judged_against_the_model_the_turn_runs_on() {
+    let h = harness().await;
+    let other = {
+        let mut catalog = h.engine.catalog.write().unwrap();
+        let models = &mut catalog.providers.get_mut("anthropic").unwrap().models;
+        models.get_mut("claude-sonnet-4-5").unwrap().attachment = false;
+        models.values().find(|m| m.id != "claude-sonnet-4-5" && m.attachment).unwrap().id.clone()
+    };
+    h.provider.push_slow(Duration::from_millis(600), text("done"));
+    h.engine.submit(&h.session.id, prompt("slow")).await.await_ok();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let image = Part::File { mime: "image/png".into(), name: "shot.png".into(), url: "data:image/png;base64,iVBORw0KGgo=".into() };
+    let mut steered = with_files("look at this", vec![image]);
+    steered.model = Some(ModelRef { provider: "anthropic".into(), model: other });
+    let refused = h.engine.submit(&h.session.id, steered).await.unwrap_err();
+    assert!(matches!(&refused, TurnError::Attachment(m) if m.contains("cannot read images")), "the running model decides: {refused:?}");
+    until_idle(&h).await;
+}
+
 fn limits(h: &Harness, json: &str) {
     std::fs::write(h._dir.join("ws/drift.json"), format!(r#"{{ "limits": {json} }}"#)).unwrap();
 }

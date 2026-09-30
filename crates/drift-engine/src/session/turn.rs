@@ -125,7 +125,8 @@ pub struct Turns {
     retry_waits: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Resolved>>>,
     /// Sessions whose running job is a turn still taking prompts sent while it runs. Admitting one and
     /// a turn deciding it is done both hold this lock, so no prompt lands after the turn stops looking.
-    steering: Mutex<std::collections::HashSet<String>>,
+    /// Each with the model its turn is running on, which is what a steered prompt is judged against.
+    steering: Mutex<HashMap<String, ModelRef>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
 }
@@ -185,7 +186,7 @@ impl Turns {
 
     /// A turn is running in the session and still takes prompts sent to it.
     pub fn is_steerable(&self, session_id: &str) -> bool {
-        self.steering.lock().unwrap().contains(session_id)
+        self.steering.lock().unwrap().contains_key(session_id)
     }
 
     /// Resolves once the session has no turn in flight, or the caller is aborted.
@@ -241,7 +242,8 @@ impl Engine {
             }
         };
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash.as_str()));
-        let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), model: &plan.model };
+        let files = self.turns.files_for(session_id);
+        let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), model: &plan.model, files: &files };
         let parts = match attach.prepare(prompt.parts) {
             Ok(parts) => parts,
             Err(error) => {
@@ -257,7 +259,7 @@ impl Engine {
             }
         };
         let receipt = self.announce(session_id, admitted);
-        self.turns.steering.lock().unwrap().insert(session_id.into());
+        self.turns.steering.lock().unwrap().insert(session_id.into(), plan.model_ref.clone());
         let engine = self.clone();
         self.spawn_job(session_id, async move { engine.run(plan, abort).await });
         Ok(receipt)
@@ -290,24 +292,30 @@ impl Engine {
         Box::pin(self.submit_under(session_id, prompt, parent)).await
     }
 
-    /// Admits `prompt` into the turn running in `session_id`, if one is running and still taking prompts.
+    /// Admits `prompt` into the turn running in `session_id`, if one is running and still taking
+    /// prompts. Its files are judged against the model that turn is running on, not one the prompt
+    /// names: the running turn does not switch models for a steered prompt.
     fn steer(&self, session_id: &str, prompt: &Prompt, payload_hash: &str) -> Result<Option<Receipt>, TurnError> {
-        if !self.turns.steering.lock().unwrap().contains(session_id) {
-            return Ok(None);
-        }
+        let Some(running) = self.turns.steering.lock().unwrap().get(session_id).cloned() else { return Ok(None) };
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
-        let model_ref = prompt.model.clone().or(session.model.clone()).ok_or(TurnError::NoModel)?;
-        let model = self.catalog.read().unwrap().providers.get(&model_ref.provider).and_then(|p| p.models.get(&model_ref.model)).cloned().ok_or(TurnError::UnknownModel)?;
+        let model = self.catalog.read().unwrap().providers.get(&running.provider).and_then(|p| p.models.get(&running.model)).cloned().ok_or(TurnError::UnknownModel)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         let workspace = crate::tool::canonical(Path::new(&workspace.path));
         let policy = self.workspace_config(&workspace).policy();
-        let parts = Attach { engine: self, session_id, workspace: &workspace, policy: &policy, model: &model }.prepare(prompt.parts.clone())?;
+        let files = self.turns.files_for(session_id);
+        let parts = Attach { engine: self, session_id, workspace: &workspace, policy: &policy, model: &model, files: &files }.prepare(prompt.parts.clone())?;
         let steering = self.turns.steering.lock().unwrap();
-        if !steering.contains(session_id) {
-            return Ok(None);
+        match steering.get(session_id) {
+            None => return Ok(None),
+            // The turn moved to another model meanwhile; judge the files again against that one.
+            Some(now) if *now != running => {
+                drop(steering);
+                return self.steer(session_id, prompt, payload_hash);
+            }
+            Some(_) => {}
         }
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
-        let admitted = self.store.admit_prompt(session_id, &model_ref, parts, submission)?;
+        let admitted = self.store.admit_prompt(session_id, &running, parts, submission)?;
         drop(steering);
         Ok(Some(self.announce(session_id, admitted)))
     }
@@ -536,6 +544,9 @@ impl Engine {
     /// Moves the turn onto a model the user switched to, and makes it the session's model from now on.
     fn adopt(&self, plan: &mut Plan, resolved: Resolved) {
         plan.model_ref = resolved.model_ref;
+        if let Some(running) = self.turns.steering.lock().unwrap().get_mut(&plan.session.id) {
+            *running = plan.model_ref.clone();
+        }
         plan.model = resolved.model;
         plan.provider = resolved.provider;
         plan.credential = resolved.credential;

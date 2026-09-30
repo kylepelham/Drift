@@ -22,7 +22,10 @@ pub struct Attach<'a> {
     pub session_id: &'a str,
     pub workspace: &'a Path,
     pub policy: &'a Policy,
+    /// The model the prompt will actually run on (for a steered prompt, the running turn's).
     pub model: &'a Model,
+    /// The session's read ledger: a mention read in full counts as a read, so the model can edit it.
+    pub files: &'a crate::tool::SessionFiles,
 }
 
 impl Attach<'_> {
@@ -35,14 +38,18 @@ impl Attach<'_> {
         if let Some(path) = file_path(&url) {
             return Ok(text_part(&display_name(self.workspace, &path), &self.mention(&path)));
         }
-        if !url.starts_with("data:") {
-            return Err(TurnError::Attachment(format!("{name}: only files and data URLs can be attached")));
+        let refuse = |why: String| Err(TurnError::Attachment(format!("{name}: {why}")));
+        let Some(data) = DataUrl::parse(&url) else { return refuse("only files and data URLs can be attached".into()) };
+        if !data.mime.is_empty() && !data.mime.eq_ignore_ascii_case(&mime) {
+            return refuse(format!("it says it is {mime} but its data is {}", data.mime));
         }
         match mime.split('/').next().unwrap_or_default() {
-            "text" => Ok(Part::File { mime, name, url }),
+            "text" if data.text().is_some() => Ok(Part::File { mime, name, url }),
+            "text" => refuse("its text could not be decoded".into()),
+            "image" if !data.base64 || data.bytes().is_none() => refuse("its image data is not valid base64".into()),
             "image" if self.model.attachment => Ok(Part::File { mime, name, url }),
             "image" => Err(TurnError::Attachment(format!("{} cannot read images; pick a model that can, or remove {name}", self.model.name))),
-            _ => Err(TurnError::Attachment(format!("{name} ({mime}) cannot be sent to a model yet; attach it as text"))),
+            _ => refuse(format!("{mime} cannot be sent to a model yet; attach it as text, or as an image the model can read")),
         }
     }
 
@@ -56,7 +63,49 @@ impl Attach<'_> {
                 Decision::Ask => return format!("[@{shown} was mentioned but not read: {}. Use the read tool, which asks the user first.]", why(self.workspace, path)),
             }
         }
-        read(path).map_or_else(|reason| format!("[@{shown} was mentioned but {reason}.]"), |text| format!("<file path=\"{shown}\">\n{text}\n</file>"))
+        match read(path) {
+            Ok(Read::Whole(text)) => {
+                self.files.mark_read(path);
+                format!("<file path=\"{shown}\">\n{text}\n</file>")
+            }
+            // Cut short, it does not count as read: the model has not seen the whole file.
+            Ok(Read::Partial(text) | Read::Listing(text)) => format!("<file path=\"{shown}\">\n{text}\n</file>"),
+            Err(reason) => format!("[@{shown} was mentioned but {reason}.]"),
+        }
+    }
+}
+
+enum Read {
+    Whole(String),
+    Partial(String),
+    Listing(String),
+}
+
+/// A `data:` URL taken apart; `mime` is empty when the URL does not say.
+struct DataUrl<'a> {
+    mime: &'a str,
+    base64: bool,
+    payload: &'a str,
+}
+
+impl<'a> DataUrl<'a> {
+    fn parse(url: &'a str) -> Option<Self> {
+        let (header, payload) = url.strip_prefix("data:")?.split_once(',')?;
+        let mut params = header.split(';');
+        let mime = params.next().unwrap_or_default().trim();
+        let base64 = params.any(|p| p.trim().eq_ignore_ascii_case("base64"));
+        Some(Self { mime, base64, payload })
+    }
+
+    fn bytes(&self) -> Option<Vec<u8>> {
+        if self.base64 {
+            return base64::engine::general_purpose::STANDARD.decode(self.payload.trim()).ok();
+        }
+        Some(percent_encoding::percent_decode_str(self.payload).collect())
+    }
+
+    fn text(&self) -> Option<String> {
+        String::from_utf8(self.bytes()?).ok()
     }
 }
 
@@ -70,23 +119,27 @@ fn why(workspace: &Path, path: &Path) -> &'static str {
     }
 }
 
-/// A file's text within the mention bound, or a directory's entries; `Err` says why neither.
-fn read(path: &Path) -> Result<String, String> {
+/// A file's text within the mention bound, or a directory's entries; `Err` says why neither. Only
+/// one byte past the bound is ever read, however large the file.
+fn read(path: &Path) -> Result<Read, String> {
+    use std::io::Read as _;
     let meta = std::fs::metadata(path).map_err(|_| "it does not exist".to_string())?;
     if meta.is_dir() {
-        return Ok(list(path));
+        return Ok(Read::Listing(list(path)));
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("it could not be read ({e})"))?;
+    let file = std::fs::File::open(path).map_err(|e| format!("it could not be read ({e})"))?;
+    let mut bytes = Vec::new();
+    file.take(MAX_MENTION_BYTES as u64 + 1).read_to_end(&mut bytes).map_err(|e| format!("it could not be read ({e})"))?;
     if bytes.iter().take(8000).any(|b| *b == 0) {
         return Err("it is binary".into());
     }
-    let text = String::from_utf8_lossy(&bytes);
-    if text.len() <= MAX_MENTION_BYTES {
-        return Ok(text.into_owned());
+    if bytes.len() <= MAX_MENTION_BYTES {
+        return Ok(Read::Whole(String::from_utf8_lossy(&bytes).into_owned()));
     }
-    let cut = text[..text.floor_char_boundary(MAX_MENTION_BYTES)].rfind('\n').unwrap_or(0);
+    let text = String::from_utf8_lossy(&bytes[..MAX_MENTION_BYTES]);
+    let cut = text.rfind('\n').unwrap_or(0);
     let shown_lines = text[..cut].lines().count();
-    Ok(format!("{}\n\n(cut after {shown_lines} lines; read with offset {} for the rest)", &text[..cut], shown_lines + 1))
+    Ok(Read::Partial(format!("{}\n\n(cut after {shown_lines} lines; read with offset {} for the rest)", &text[..cut], shown_lines + 1)))
 }
 
 fn list(path: &Path) -> String {
@@ -121,14 +174,9 @@ fn file_path(url: &str) -> Option<PathBuf> {
     Some(crate::tool::canonical(Path::new(raw)))
 }
 
-/// A text data URL's content, for the request builder.
+/// A text data URL's content, for the request builder. Admission already refused any that fail here.
 pub fn data_text(url: &str) -> Option<String> {
-    let (header, data) = url.strip_prefix("data:")?.split_once(',')?;
-    if header.ends_with(";base64") {
-        let bytes = base64::engine::general_purpose::STANDARD.decode(data).ok()?;
-        return Some(String::from_utf8_lossy(&bytes).into_owned());
-    }
-    Some(percent_encoding::percent_decode_str(data).decode_utf8_lossy().into_owned())
+    DataUrl::parse(url)?.text()
 }
 
 #[cfg(test)]
@@ -141,6 +189,22 @@ mod tests {
         assert!(windows.to_string_lossy().replace('\\', "/").ends_with("repo/my notes.md"), "{windows:?}");
         assert!(file_path("https://example.com/a").is_none());
         assert_eq!(data_text("data:text/plain;base64,aGVsbG8="), Some("hello".into()));
+        assert_eq!(data_text("data:text/plain;charset=utf-8;base64,aGVsbG8="), Some("hello".into()));
         assert_eq!(data_text("data:text/plain,a%20b"), Some("a b".into()));
+        assert_eq!(data_text("data:text/plain;base64,not base64!"), None);
+        assert_eq!(data_text("data:text/plain;base64,/w=="), None, "not UTF-8");
+    }
+
+    #[test]
+    fn a_large_file_is_read_only_up_to_the_bound() {
+        let dir = std::env::temp_dir().join(format!("drift-mention-{}", crate::random_hex(4)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let big = dir.join("big.txt");
+        std::fs::write(&big, "line\n".repeat(MAX_MENTION_BYTES)).unwrap();
+        let Ok(Read::Partial(text)) = read(&big) else { panic!("a file past the bound is partial") };
+        assert!(text.len() < MAX_MENTION_BYTES + 200 && text.ends_with("for the rest)"));
+        std::fs::write(&big, "small\n").unwrap();
+        assert!(matches!(read(&big), Ok(Read::Whole(text)) if text == "small\n"));
+        std::fs::remove_dir_all(dir).ok();
     }
 }
