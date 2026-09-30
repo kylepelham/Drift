@@ -46,12 +46,13 @@ change the plan there when a decision changes.
 
 - [x] Foreground `task` subagents (abort cascades, no nested delegation, sidebar only while active)
 - [x] Branches: `/spawn` drafts a handoff, user reviews, engine creates an independent conversation with its cutoff; the model cannot branch; `read_thread` for branches
-- [ ] Typed worker execution-mode resolver: explicit override, agent default, foreground fallback; no chat-keyword switches
-- [ ] Background `task` launch receipts and bounded engine-owned jobs, independent progress from the main session
-- [ ] Durable terminal results and idempotent parent completion delivery at safe provider boundaries
-- [ ] Parent-idle survival, worker/session Stop and restart interruption handling without automatic effect replay
-- [ ] Attributed worker permission/question waits, parent-scoped task output/stop API and generated lifecycle events
-- [ ] Async-worker conformance: concurrent progress, out-of-order results, cancellation races, reconnect and retained task history
+- [x] Typed worker execution-mode resolver: explicit override, agent default, foreground fallback; no chat-keyword switches
+- [x] Background `task` launch receipts and bounded engine-owned jobs, independent progress from the main session
+- [x] Durable terminal results and idempotent parent completion delivery at safe provider boundaries
+- [x] Parent-idle survival, worker/session Stop and restart interruption handling without automatic effect replay
+- [x] Attributed worker permission/question waits, parent-scoped task output/stop API and generated lifecycle events
+- [x] Async-worker conformance: engine-level gates (concurrent progress, out-of-order results, bounded slots, Stop while idle, single-worker stop, attributed asks, restart) and HTTP/WS conformance against the fake provider (progress events, parent carries on, single delivery, cursor replay, idle Stop wakes nothing)
+- [ ] UI task views: running/finished workers from `GET /sessions/{id}/tasks` and `task.updated` (today the sidebar shows running worker sessions and results arrive as the parent's next turn)
 - [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
 - [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
 - [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, handoff, subagent pins

@@ -80,9 +80,9 @@ GET    /sessions/{id}       PATCH           DELETE archives
 GET    /sessions/{id}/messages?before=&limit=
 POST   /sessions/{id}/turns                 {parts, model, agent, variant} -> 202 {turn_id}
 POST   /sessions/{id}/abort
-GET    /sessions/{id}/tasks                 owned workers; pending M3
-GET    /tasks/{id}                          state, progress and result handle; pending M3
-POST   /tasks/{id}/abort                    stop one owned worker; pending M3
+GET    /sessions/{id}/tasks                 workers the session launched, finished ones included
+GET    /tasks/{id}                          one worker's state and result
+POST   /tasks/{id}/abort                    stop one worker and nothing else
 POST   /sessions/{id}/compact
 POST   /sessions/{id}/fork                  {atMessage?}
 POST   /sessions/{id}/move                  {workspaceId}
@@ -190,8 +190,7 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   reply or a summary. Either way the call keeps
   `metadata.sessionId` and `metadata.outcome` (`replied`, `failed`, `stopped`) for drill-down.
   Listings include subagent records for inspection; the sidebar shows only
-  active/awaiting-attention workers. Background mode below is pending, not claimed implemented
-  by this foreground path.
+  active/awaiting-attention workers. Background mode is described below.
 - Delegation is one level deep: subagents are never offered `task` or `read_thread`, the tools
   refuse to run from one, and a subagent cannot be branched from.
 - The model cannot create branches; there is no `spawn_thread` tool. It may suggest one in prose.
@@ -459,6 +458,41 @@ Drift uses the explicit contract below rather than copying hidden feature gates.
    indicators. Their compact result and inspectable child transcript stay in the
    parent's task history, subject to retention. Parent compaction carries outstanding
    job IDs and delivery state, not every worker transcript.
+
+What is built (`session::tasks`, `store::tasks`, `tool::task`):
+
+- Every `task` call is a row in `task` (migration 9), unique per parent session and call id, so a
+  launch repeated for the same call resolves to the same worker. It records owner, worker session,
+  agent, `mode` and `reason`, `state` (`queued`, `running`, `replied`, `failed`, `stopped`,
+  `interrupted`), the result text and whether the parent has it (`delivered`).
+- `resolve_mode(explicit, agent default, enabled)`: `run_in_background` if given, else the
+  agent's front matter `background: true|false`, else foreground. With the Settings switch off
+  (`backgroundTasks`, on by default) an explicit request fails the call with the reason and an
+  agent default falls back to foreground, recorded as `background turned off`.
+- Foreground: unchanged behaviour, now also recorded; its result is the call's result and the row
+  is marked delivered.
+- Background: the call returns a receipt at once (`outcome: launched`, a successful call naming
+  the task id). The engine runs the worker in its own task under a four-slot semaphore
+  (`MAX_BACKGROUND`); the rest wait `queued`. Its abort token descends from its owner's worker
+  scope, not the launching turn, so the parent's turn ending does not touch it.
+- Delivery: a replied or failed worker's result is submitted to the parent as an engine-origin
+  prompt holding a `task_result` part (`<task-result id= description= outcome=>` for the model;
+  synthetic text in the UI) with submission id `task:<id>`, so it lands once however often it is
+  delivered. A running parent takes it at its next request (steering); an idle one starts a turn
+  for it. Stopped and interrupted workers never wake an idle parent, and nothing wakes a parent
+  whose session was stopped after the launch (a per-owner stop generation). `task_output` that
+  reads a finished result marks it delivered, so it does not arrive twice.
+- Stop: session Stop (`POST /sessions/{id}/abort`) cancels the owner's worker scope too, even with
+  no turn running, and reports whether anything was stopped; queued workers never start.
+  `task_stop` and `POST /tasks/{id}/abort` stop one worker. Worker permission and question asks
+  carry the worker's session id and inherit the owner's approvals (see Permissions).
+- Restart: opening the store marks rows still `queued` or `running` `interrupted` (never rerun,
+  never delivered as a prompt), before anything in the new process can launch a worker. Once the
+  engine listens, `recover_tasks` delivers finished rows not yet delivered, once; delivery is
+  idempotent, so racing a live delivery is harmless.
+- `task.updated { task }` is published on launch, start, ending and delivery.
+- `task_output { task_id, wait_seconds? }` answers for the calling conversation's own tasks only,
+  waiting at most 120 s; `task_stop { task_id }` likewise. Neither is offered to subagents.
 
 Initial async mode is selected at launch. Foreground-to-background promotion,
 agent teams, arbitrary cross-agent messaging and automatic post-crash execution

@@ -219,6 +219,8 @@ async fn after_a_restart_unfinished_workers_are_interrupted_and_finished_results
     h.engine.store.update_session(&h.session.id, None, Some(&model), None).unwrap();
     h.provider.push(text("noted"));
 
+    // What opening the store after a restart does, then what the engine does once it listens.
+    h.engine.store.interrupt_unfinished_tasks().unwrap();
     h.engine.recover_tasks().await;
     until_idle(&h).await;
     h.engine.recover_tasks().await;

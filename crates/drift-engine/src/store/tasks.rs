@@ -74,10 +74,21 @@ impl Store {
         Ok(())
     }
 
-    /// Workers still queued or running, and finished ones whose result has not reached the parent.
-    pub fn tasks_to_recover(&self) -> rusqlite::Result<Vec<TaskRecord>> {
+    /// At startup, before anything can launch: whatever was still queued or running belongs to a
+    /// process that is gone. It is marked interrupted and never rerun, and it wakes no one.
+    pub fn interrupt_unfinished_tasks(&self) -> rusqlite::Result<usize> {
         self.lock()
-            .prepare_cached(&format!("SELECT {COLUMNS} FROM task WHERE state IN ('queued', 'running') OR delivered = 0 ORDER BY id"))?
+            .prepare_cached(
+                "UPDATE task SET state = 'interrupted', result = 'Drift stopped while the subagent ran; it was not restarted.', finished_at = ?1, delivered = 1
+                 WHERE state IN ('queued', 'running')",
+            )?
+            .execute([id::now_ms()])
+    }
+
+    /// Finished workers whose result has not reached the parent.
+    pub fn undelivered_tasks(&self) -> rusqlite::Result<Vec<TaskRecord>> {
+        self.lock()
+            .prepare_cached(&format!("SELECT {COLUMNS} FROM task WHERE delivered = 0 AND state NOT IN ('queued', 'running') ORDER BY id"))?
             .query_map([], row)?
             .collect()
     }
@@ -121,9 +132,17 @@ mod tests {
         assert!(!store.finish_task(&first.id, TaskState::Stopped, "late").unwrap(), "a late ending does not overwrite the first");
         let done = store.task(&first.id).unwrap().unwrap();
         assert_eq!((done.state, done.result.as_deref(), done.delivered), (TaskState::Replied, Some("done"), false));
-        assert_eq!(store.tasks_to_recover().unwrap().len(), 1, "undelivered");
+        assert_eq!(store.undelivered_tasks().unwrap().len(), 1);
         store.mark_task_delivered(&first.id).unwrap();
-        assert!(store.tasks_to_recover().unwrap().is_empty());
+        assert!(store.undelivered_tasks().unwrap().is_empty());
         assert_eq!(store.task_for_session("ses_child").unwrap().unwrap().id, first.id);
+
+        let second = NewTask { call_id: "call_2", session_id: "ses_other", ..new() };
+        let (running, _) = store.create_task(second).unwrap();
+        store.start_task(&running.id).unwrap();
+        assert_eq!(store.interrupt_unfinished_tasks().unwrap(), 1);
+        let gone = store.task(&running.id).unwrap().unwrap();
+        assert_eq!((gone.state, gone.delivered), (TaskState::Interrupted, true), "never rerun, and it wakes no one");
+        assert!(store.undelivered_tasks().unwrap().is_empty());
     }
 }

@@ -289,13 +289,10 @@ impl Engine {
         running
     }
 
-    /// After a restart: workers that were still going are marked interrupted and never rerun; finished
-    /// results that had not reached their parent are delivered now, once.
+    /// After a restart, finished results that had not reached their parent are delivered, once. (Workers
+    /// that were still going were marked interrupted when the store opened.)
     pub async fn recover_tasks(self: &Arc<Self>) {
-        for task in self.store.tasks_to_recover().unwrap_or_default() {
-            if !task.state.is_terminal() {
-                self.end_task(&task.id, TaskState::Interrupted, "Drift stopped while the subagent ran; it was not restarted.");
-            }
+        for task in self.store.undelivered_tasks().unwrap_or_default() {
             self.deliver(&task.id, self.workers.generation(&task.parent_session_id)).await;
         }
     }

@@ -105,6 +105,7 @@ impl Engine {
     pub fn open_with(data_dir: &Path, options: Options) -> Result<Arc<Self>, Error> {
         let store = Arc::new(store::open(data_dir)?);
         store.abandon_streaming_messages()?;
+        store.interrupt_unfinished_tasks()?;
         Ok(Arc::new(Self {
             data_dir: data_dir.to_path_buf(),
             store,

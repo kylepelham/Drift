@@ -7,23 +7,56 @@ const root = path.resolve(import.meta.dir, "../..")
 const binary = path.join(root, "target", "debug", process.platform === "win32" ? "drift-engined.exe" : "drift-engined")
 export const model = { provider: "anthropic", model: "claude-sonnet-4-5" }
 
-export type Scripted = { status?: number; body: string; delayMs?: number }
+/** `match` sends the reply only to the conversation whose first message contains it, so sessions running at once get their own. */
+export type Scripted = { status?: number; body: string; delayMs?: number; match?: string }
 export type Seen = { headers: Record<string, string>; body: Record<string, unknown> }
 
 export function fixture(name: string) {
   return readFileSync(path.join(import.meta.dir, "fixtures", `${name}.sse`), "utf8")
 }
 
+const event = (type: string, data: Record<string, unknown>) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
+const opening = event("message_start", { message: { id: "msg_s", role: "assistant", content: [], usage: { input_tokens: 5, output_tokens: 1 } } })
+const closing = (stop: string) => event("message_delta", { delta: { stop_reason: stop }, usage: { output_tokens: 3 } }) + event("message_stop", {})
+
+/** Streams built on the spot: a plain reply, and one tool call. */
+export const sse = {
+  text: (text: string) =>
+    opening +
+    event("content_block_start", { index: 0, content_block: { type: "text", text: "" } }) +
+    event("content_block_delta", { index: 0, delta: { type: "text_delta", text } }) +
+    event("content_block_stop", { index: 0 }) +
+    closing("end_turn"),
+  toolUse: (name: string, input: Record<string, unknown>) =>
+    opening +
+    event("content_block_start", { index: 0, content_block: { type: "tool_use", id: `toolu_${name}`, name, input: {} } }) +
+    event("content_block_delta", { index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } }) +
+    event("content_block_stop", { index: 0 }) +
+    closing("tool_use"),
+}
+
+function firstMessageText(body: Record<string, unknown>) {
+  const content = (body.messages as { content: string | { text?: string }[] }[] | undefined)?.[0]?.content
+  return typeof content === "string" ? content : (content ?? []).map((block) => block.text ?? "").join("")
+}
+
 /** A stand-in api.anthropic.com: answers `/v1/messages` from a queue and remembers what it was sent. */
 export function fakeAnthropic() {
   const queue: Scripted[] = []
   const seen: Seen[] = []
+  const take = (body: Record<string, unknown>) => {
+    const first = firstMessageText(body)
+    const keyed = queue.findIndex((reply) => reply.match !== undefined && first.includes(reply.match))
+    const index = keyed >= 0 ? keyed : queue.findIndex((reply) => reply.match === undefined)
+    return index >= 0 ? queue.splice(index, 1)[0] : undefined
+  }
   const server = Bun.serve({
     port: 0,
     fetch: async (request) => {
       if (new URL(request.url).pathname !== "/v1/messages") return new Response("not found", { status: 404 })
-      seen.push({ headers: Object.fromEntries(request.headers.entries()), body: (await request.json()) as Record<string, unknown> })
-      const next = queue.shift() ?? { status: 500, body: JSON.stringify({ error: { type: "api_error", message: "fake ran out of responses" } }) }
+      const body = (await request.json()) as Record<string, unknown>
+      seen.push({ headers: Object.fromEntries(request.headers.entries()), body })
+      const next = take(body) ?? { status: 500, body: JSON.stringify({ error: { type: "api_error", message: "fake ran out of responses" } }) }
       if (next.delayMs) await new Promise((resolve) => setTimeout(resolve, next.delayMs))
       const status = next.status ?? 200
       const type = status === 200 ? "text/event-stream" : "application/json"
