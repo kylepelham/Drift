@@ -44,8 +44,8 @@ change the plan there when a decision changes.
 
 ## M3: tree and lifecycle
 
-- [x] `task` subagents (hidden children, abort cascades, no nested delegation)
-- [x] `spawn_thread`, `read_thread`, `/spawn` via `parentId`
+- [x] `task` subagents (abort cascades, no nested delegation, sidebar only while active)
+- [x] Branches: `/spawn` drafts a handoff, user reviews, engine creates an independent conversation with its cutoff; the model cannot branch; `read_thread` for branches
 - [ ] Fork: bounded and active
 - [ ] Move with busy guard
 - [ ] Compaction with recovery

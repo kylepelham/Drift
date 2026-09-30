@@ -1,6 +1,6 @@
 import type { Permission } from "@opencode-ai/sdk/client"
 import { createSignal } from "solid-js"
-import type { EngineState } from "../engine/store"
+import { childrenOf, sessionBusy, type EngineState } from "../engine/store"
 import { autoAcceptAllowed, autoAcceptGlobal, autoAcceptSessions } from "./prefs"
 
 type Marker = { kind: "replying" | "settling" | "failed"; token: number }
@@ -28,7 +28,6 @@ function policyAllowed(permission: Permission, state: EngineState, policy?: Poli
     policy?.sessions ?? autoAcceptSessions(),
     permission.sessionID,
     state.sessions[permission.sessionID]?.parentID,
-    state.links[permission.sessionID],
   )
 }
 
@@ -37,6 +36,17 @@ export function permissionRequiresAttention(permission: Permission, state: Engin
   if (marker?.kind === "failed") return true
   if (marker) return false
   return !policyAllowed(permission, state, policy)
+}
+
+/** A session is waiting on the user when it has an unanswered question or a permission auto-accept won't settle. */
+export function sessionNeedsAttention(state: EngineState, id: string) {
+  if ((state.questions[id]?.length ?? 0) > 0) return true
+  return (state.permissions[id] ?? []).some((permission) => permissionRequiresAttention(permission, state))
+}
+
+/** Subagents appear under their parent only while they run or wait on the user; finished work lives in the task card. */
+export function sidebarWorkers(state: EngineState, parentId: string) {
+  return childrenOf(state, parentId).filter((child) => sessionBusy(state, child.id) || sessionNeedsAttention(state, child.id))
 }
 
 export function permissionShouldAutoReply(permission: Permission, state: EngineState) {
@@ -143,8 +153,7 @@ export function observePermission(permission: Permission, state?: EngineState) {
     !autoAcceptGlobal() &&
     sessions.length > 0 &&
     !sessions.includes(permission.sessionID) &&
-    !state.sessions[permission.sessionID]?.parentID &&
-    !state.links[permission.sessionID]
+    !state.sessions[permission.sessionID]?.parentID
   )
     settle(permission, lineageSettleMs)
 }

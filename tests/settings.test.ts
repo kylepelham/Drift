@@ -173,6 +173,7 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 
 /** Keys that deliberately fall back to English until locale-specific translations ship. */
 const pendingTranslation = new Set([
+  ...pendingKeys("drift.branch", "title description drafting goal name summary excerpts create"),
   ...pendingKeys("drift.about", "row.native.title row.native.description native.connected native.offline"),
   ...pendingKeys(
     "drift.settings.toolRouting",
@@ -445,8 +446,7 @@ test("notification migration and global auto-accept stay explicit", async () => 
   expect(autoAcceptAllowed(true, [], "child")).toBeTrue()
   expect(autoAcceptAllowed(false, ["thread"], "thread")).toBeTrue()
   expect(autoAcceptAllowed(false, ["parent"], "child", "parent")).toBeTrue()
-  expect(autoAcceptAllowed(false, ["linked"], "child", undefined, "linked")).toBeTrue()
-  expect(autoAcceptAllowed(false, ["other"], "child", "parent", "linked")).toBeFalse()
+  expect(autoAcceptAllowed(false, ["other"], "child", "parent")).toBeFalse()
 })
 
 test("shell timeout preferences normalize and persist explicit no-timeout", async () => {

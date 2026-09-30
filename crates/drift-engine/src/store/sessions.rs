@@ -7,7 +7,7 @@ use crate::session::types::{
     Visibility,
 };
 
-const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at";
+const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff";
 const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at";
 
 pub struct NewSession<'a> {
@@ -28,6 +28,11 @@ pub struct SessionFilter<'a> {
 
 impl Store {
     pub fn create_session(&self, new: NewSession) -> rusqlite::Result<Session> {
+        self.create_branch(new, None)
+    }
+
+    /// A session that records which source message its handoff was cut from.
+    pub fn create_branch(&self, new: NewSession, cutoff: Option<&str>) -> rusqlite::Result<Session> {
         let now = id::now_ms();
         let session = Session {
             id: id::new("ses"),
@@ -40,11 +45,12 @@ impl Store {
             created_at: now,
             updated_at: now,
             archived_at: None,
+            branch_cutoff: cutoff.map(Into::into),
             running: false,
         };
         self.lock().prepare_cached(
-            "INSERT INTO session(id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO session(id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, branch_cutoff)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         )?
         .execute(params![
             session.id,
@@ -56,7 +62,8 @@ impl Store {
             session.model.as_ref().map(|m| &m.provider),
             session.model.as_ref().map(|m| &m.model),
             now,
-            now
+            now,
+            session.branch_cutoff
         ])?;
         Ok(session)
     }
@@ -211,6 +218,7 @@ fn map_session(row: &Row) -> rusqlite::Result<Session> {
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
         archived_at: row.get(10)?,
+        branch_cutoff: row.get(11)?,
         running: false,
     })
 }

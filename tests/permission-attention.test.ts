@@ -7,6 +7,7 @@ import {
   failPermissionReply,
   observePermission,
   permissionRequiresAttention,
+  sidebarWorkers,
   type DriftPermission,
 } from "../src/state/permission-attention"
 
@@ -30,7 +31,7 @@ function permission(id: string, sessionID: string, type = "bash"): Permission {
   }
 }
 
-test("permission attention follows global, thread, child, and linked-child auto-accept", () => {
+test("permission attention follows global, thread and subagent auto-accept, but branches stand alone", () => {
   const [state, set] = createEngineState()
   set("sessions", "child", { id: "child", parentID: "parent" } as never)
   set("links", "linked-child", "linked")
@@ -40,7 +41,7 @@ test("permission attention follows global, thread, child, and linked-child auto-
   expect(permissionRequiresAttention(permission("child", "child"), state, { global: false, sessions: ["parent"] })).toBeFalse()
   expect(
     permissionRequiresAttention(permission("linked-child", "linked-child"), state, { global: false, sessions: ["linked"] }),
-  ).toBeFalse()
+  ).toBeTrue()
   expect(permissionRequiresAttention(permission("manual", "other"), state, { global: false, sessions: [] })).toBeTrue()
 })
 
@@ -102,4 +103,16 @@ test("v2 always grants stabilize matching requests across sessions in one locati
   beginPermissionReply(original, "always", [original, queued, legacy])
   expect(permissionRequiresAttention(queued, state, { global: false, sessions: [] })).toBeFalse()
   expect(permissionRequiresAttention(legacy, state, { global: false, sessions: [] })).toBeTrue()
+})
+
+test("the sidebar shows a subagent only while it runs or waits on the user", () => {
+  const [state, set] = createEngineState()
+  for (const id of ["running", "asking", "done"]) set("sessions", id, { id, parentID: "parent", time: { created: 1, updated: 1 } } as never)
+  set("status", "running", { type: "busy" })
+  set("status", "done", { type: "idle" })
+  set("questions", "asking", [{ id: "q1", sessionID: "asking", questions: [] }] as never)
+  expect(sidebarWorkers(state, "parent").map((s) => s.id).sort()).toEqual(["asking", "running"])
+  set("status", "running", { type: "idle" })
+  set("questions", "asking", [])
+  expect(sidebarWorkers(state, "parent")).toEqual([])
 })

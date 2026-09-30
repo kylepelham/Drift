@@ -120,14 +120,14 @@ impl Turns {
     }
 }
 
-struct Plan {
+pub(super) struct Plan {
     session: Session,
     workspace: PathBuf,
     config: Config,
-    model_ref: ModelRef,
-    model: Model,
-    provider: Provider,
-    credential: Credential,
+    pub(super) model_ref: ModelRef,
+    pub(super) model: Model,
+    pub(super) provider: Provider,
+    pub(super) credential: Credential,
     thinking_budget: Option<u32>,
 }
 
@@ -201,7 +201,7 @@ impl Engine {
         }
     }
 
-    async fn plan(&self, session_id: &str, prompt: &Prompt) -> Result<Plan, TurnError> {
+    pub(super) async fn plan(&self, session_id: &str, prompt: &Prompt) -> Result<Plan, TurnError> {
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         let workspace_path = crate::tool::canonical(Path::new(&workspace.path));
@@ -593,4 +593,4 @@ fn merge(metadata: serde_json::Value, extra: Option<serde_json::Value>) -> Optio
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

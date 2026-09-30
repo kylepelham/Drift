@@ -8,6 +8,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use super::error::ApiError;
 use crate::event::Event;
+use crate::session::branch::BranchDraft;
 use crate::session::turn::{Prompt, Receipt};
 use crate::session::types::{MessageWithParts, ModelRef, Session, Visibility};
 use crate::store::{NewSession, SessionFilter};
@@ -39,9 +40,6 @@ pub struct NewSessionBody {
     /// `build` unless the workspace defines others; see the workspace config.
     #[serde(default)]
     pub agent: Option<String>,
-    /// Makes this a spawned thread listed under its parent.
-    #[serde(default)]
-    pub parent_id: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -82,15 +80,9 @@ pub async fn list(State(engine): State<Arc<Engine>>, Query(query): Query<ListQue
 #[utoipa::path(post, path = "/sessions", operation_id = "createSession", request_body = NewSessionBody, responses((status = 201, body = Session)))]
 pub async fn create(State(engine): State<Arc<Engine>>, Json(body): Json<NewSessionBody>) -> Result<(StatusCode, Json<Session>), ApiError> {
     engine.store.workspace(&body.workspace_id)?.ok_or_else(|| ApiError::not_found("workspace"))?;
-    if let Some(parent_id) = &body.parent_id {
-        let parent = engine.store.session(parent_id)?.ok_or_else(|| ApiError::not_found("parent session"))?;
-        if parent.workspace_id != body.workspace_id || parent.visibility == Visibility::Hidden {
-            return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid_parent", "threads can only be spawned from a visible session in the same workspace"));
-        }
-    }
     let session = engine.store.create_session(NewSession {
         workspace_id: &body.workspace_id,
-        parent_id: body.parent_id.as_deref(),
+        parent_id: None,
         visibility: Visibility::Sibling,
         title: &body.title,
         agent: body.agent.as_deref().unwrap_or("build"),
@@ -182,4 +174,21 @@ pub async fn command(State(engine): State<Arc<Engine>>, Path(id): Path<String>, 
     let text = command.template.replace("$ARGUMENTS", body.arguments.trim());
     let prompt = Prompt { parts: vec![crate::session::types::Part::Text { text }], model: body.model, thinking_budget: None, submission_id: None };
     Ok((StatusCode::ACCEPTED, Json(engine.submit(&id, prompt).await?)))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct BranchGoal {
+    pub goal: String,
+}
+
+/// Drafts the handoff for a branch. Makes one model request; stores nothing.
+#[utoipa::path(post, path = "/sessions/{id}/branch/draft", operation_id = "draftBranch", request_body = BranchGoal, responses((status = 200, body = BranchDraft), (status = 400), (status = 404), (status = 502)))]
+pub async fn draft_branch(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<BranchGoal>) -> Result<Json<BranchDraft>, ApiError> {
+    Ok(Json(engine.draft_branch(&id, &body.goal).await?))
+}
+
+/// Creates a reviewed branch and starts it. The new conversation is independent of its source.
+#[utoipa::path(post, path = "/sessions/{id}/branch", operation_id = "createBranch", request_body = BranchDraft, responses((status = 201, body = Session), (status = 400), (status = 404)))]
+pub async fn branch(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(draft): Json<BranchDraft>) -> Result<(StatusCode, Json<Session>), ApiError> {
+    Ok((StatusCode::CREATED, Json(engine.branch(&id, draft).await?)))
 }

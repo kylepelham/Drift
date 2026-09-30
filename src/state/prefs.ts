@@ -132,11 +132,10 @@ export function autoAcceptAllowed(
   global: boolean,
   sessions: string[],
   sessionId: string,
-  parentId?: string,
-  linkedParentId?: string,
+  workerOf?: string,
 ) {
   if (global || sessions.includes(sessionId)) return true
-  return !!(parentId && sessions.includes(parentId)) || !!(linkedParentId && sessions.includes(linkedParentId))
+  return !!(workerOf && sessions.includes(workerOf))
 }
 
 type SessionPrefs = { model?: ModelRef | null; agent?: string; variant?: string | null }

@@ -5,13 +5,13 @@ import { TextShimmer } from "./text-shimmer"
 import { createDismissOnOutside } from "./dismiss"
 import { emitThreadArchived } from "../plugins"
 import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
-import { childrenOf, normalizeDir, sessionBusy, sessionsFor } from "../engine/store"
+import { normalizeDir, sessionBusy, sessionsFor } from "../engine/store"
 import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
 import { fixedMenuPosition } from "../state/zoom"
 import { t } from "../state/i18n"
 import { Chevron } from "./controls"
-import { permissionRequiresAttention } from "../state/permission-attention"
+import { permissionRequiresAttention, sidebarWorkers } from "../state/permission-attention"
 import { dragReorder } from "./drag-reorder"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import {
@@ -66,7 +66,7 @@ export function WorkspaceGroup(props: {
     if (current.length || authoritative()) return current
     return cachedSessions(props.workspace.path)
   })
-  const children = (parentId: string) => childrenOf(engine.state, parentId)
+  const children = (parentId: string) => sidebarWorkers(engine.state, parentId)
   const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
   const visibleSessions = createMemo(() => sessions().slice(0, visibleCount()))
   const remaining = createMemo(() => Math.max(0, sessions().length - visibleSessions().length))

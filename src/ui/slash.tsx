@@ -7,6 +7,7 @@ import { selectedSession, selectSession } from "../state/selection"
 import { setTheme, theme, themes } from "../state/theme"
 import { activeWorkspace, archiveSession } from "../state/workspaces"
 import { t } from "../state/i18n"
+import { openBranch } from "./branch"
 import { openMcpServers } from "./mcp"
 import { restoreReverted } from "./revert"
 
@@ -118,12 +119,7 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
       engine.actions.notice({ message: t("drift.slash.spawn.required"), variant: "warning" })
       return
     }
-    const prefs = prefsFor(current)
-    await engine.actions.spawn(current, args, {
-      model: resolveModel(engine.state, prefs.model),
-      agent: prefs.agent,
-      variant: prefs.variant ?? undefined,
-    })
+    openBranch(current, args.trim())
     return
   }
   if (item.name === "archive" && current) {

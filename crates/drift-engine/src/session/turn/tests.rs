@@ -11,11 +11,11 @@ use crate::permission::{Decision, Policy, Reply, ReplyBody, Rule};
 use crate::session::types::Visibility;
 use crate::store::NewSession;
 
-struct Harness {
-    engine: Arc<Engine>,
-    session: Session,
-    provider: Scripted,
-    _dir: PathBuf,
+pub(crate) struct Harness {
+    pub(crate) engine: Arc<Engine>,
+    pub(crate) session: Session,
+    pub(crate) provider: Scripted,
+    pub(crate) _dir: PathBuf,
 }
 
 impl Drop for Harness {
@@ -24,7 +24,7 @@ impl Drop for Harness {
     }
 }
 
-async fn harness() -> Harness {
+pub(crate) async fn harness() -> Harness {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let dir = std::env::temp_dir().join(format!("drift-turn-{}", crate::random_hex(4)));
     let workspace = dir.join("ws");
@@ -41,15 +41,15 @@ async fn harness() -> Harness {
     Harness { engine, session, provider, _dir: dir }
 }
 
-fn model() -> ModelRef {
+pub(crate) fn model() -> ModelRef {
     ModelRef { provider: "anthropic".into(), model: "claude-sonnet-4-5".into() }
 }
 
-fn text(text: &str) -> Vec<Chunk> {
+pub(crate) fn text(text: &str) -> Vec<Chunk> {
     vec![Chunk::Usage(Usage { input: 10, ..Usage::default() }), Chunk::TextStart, Chunk::TextDelta(text.into()), Chunk::BlockStop, Chunk::Usage(Usage { output: 3, ..Usage::default() }), Chunk::Stop(StopReason::EndTurn)]
 }
 
-fn tool_call(name: &str, input: &str) -> Vec<Chunk> {
+pub(crate) fn tool_call(name: &str, input: &str) -> Vec<Chunk> {
     vec![
         Chunk::ToolUseStart { id: format!("toolu_{name}"), name: name.into() },
         Chunk::ToolInputDelta(input.into()),
@@ -58,7 +58,7 @@ fn tool_call(name: &str, input: &str) -> Vec<Chunk> {
     ]
 }
 
-async fn until_idle(h: &Harness) {
+pub(crate) async fn until_idle(h: &Harness) {
     for _ in 0..200 {
         if !h.engine.turns.is_running(&h.session.id) {
             return;
@@ -68,7 +68,7 @@ async fn until_idle(h: &Harness) {
     panic!("turn never finished");
 }
 
-fn prompt(text: &str) -> Prompt {
+pub(crate) fn prompt(text: &str) -> Prompt {
     Prompt { parts: vec![Part::Text { text: text.into() }], model: Some(model()), thinking_budget: None, submission_id: None }
 }
 
@@ -91,7 +91,7 @@ async fn a_plain_reply_is_stored_costed_and_titles_the_session() {
     assert_eq!(session.model, Some(model()));
     let request = &h.provider.requests.lock().unwrap()[0];
     assert!(request.system.starts_with("You are Drift"));
-    assert_eq!(request.tools.len(), 13);
+    assert_eq!(request.tools.len(), 12);
 }
 
 #[tokio::test]
@@ -501,61 +501,24 @@ async fn aborting_the_parent_aborts_a_running_child() {
     assert!(!h.engine.turns.is_running(&children), "the child must stop with its parent");
 }
 
-#[tokio::test]
-async fn spawn_thread_creates_a_visible_sibling_and_read_thread_reports_on_it() {
-    let h = harness().await;
-    h.provider
-        .push(tool_call("spawn_thread", r#"{"title": "Fix lint", "task": "Fix the lint errors", "summary": "We were tidying the parser."}"#))
-        .push(text("Spawned"))
-        .push(text("Lint is clean now"));
-    h.engine.submit(&h.session.id, prompt("split this off")).await.await_ok();
-    until_idle(&h).await;
-    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
-    let Part::ToolCall { metadata, .. } = &transcript[1].parts[0].part else { panic!() };
-    let child_id = metadata.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
-    for _ in 0..200 {
-        if !h.engine.turns.is_running(&child_id) { break }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    let child = h.engine.store.session(&child_id).unwrap().unwrap();
-    assert_eq!((child.visibility, child.title.as_str()), (Visibility::Sibling, "Fix lint"));
-    let first = &h.engine.store.transcript(&child_id).unwrap()[0].parts[0].part;
-    assert!(matches!(first, Part::Text { text } if text.contains("tidying the parser") && text.contains("# Task")));
-
-    h.provider.push(tool_call("read_thread", &json!({ "id": child_id }).to_string())).push(text("ok"));
-    h.engine.submit(&h.session.id, prompt("check")).await.await_ok();
-    until_idle(&h).await;
-    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
-    let Part::ToolCall { output, .. } = &transcript[transcript.len() - 2].parts[0].part else { panic!() };
-    let output = output.as_deref().unwrap();
-    assert!(output.contains("Status: idle") && output.contains("Lint is clean now"), "{output}");
-
-    let stranger = h.engine.store.create_session(NewSession { workspace_id: &h.session.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None }).unwrap();
-    h.provider.push(tool_call("read_thread", &json!({ "id": stranger.id }).to_string())).push(text("ok"));
-    h.engine.submit(&h.session.id, prompt("peek")).await.await_ok();
-    until_idle(&h).await;
-    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
-    let Part::ToolCall { status, .. } = &transcript[transcript.len() - 2].parts[0].part else { panic!() };
-    assert_eq!(*status, ToolStatus::Error);
-}
 
 #[tokio::test]
 async fn subagents_are_not_offered_delegation_and_cannot_call_it() {
     let h = harness().await;
     h.provider
         .push(tool_call("task", r#"{"description": "Nest", "prompt": "try to spawn"}"#))
-        .push(tool_call("spawn_thread", r#"{"title": "Sneaky", "task": "x", "summary": "y"}"#))
+        .push(tool_call("task", r#"{"description": "Sneaky", "prompt": "nest"}"#))
         .push(text("could not"))
         .push(text("done"));
     h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
     until_idle(&h).await;
     let requests = h.provider.requests.lock().unwrap().clone();
     let names = |i: usize| requests[i].tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>();
-    assert!(names(0).contains(&"spawn_thread".to_string()));
+    assert!(names(0).contains(&"task".to_string()) && !names(0).contains(&"spawn_thread".to_string()));
     for tool in crate::tool::task::DELEGATION {
         assert!(!names(1).iter().any(|n| n == tool), "subagent was offered {tool}");
     }
-    let count: i64 = h.engine.store.lock().query_row("SELECT COUNT(*) FROM session WHERE title = 'Sneaky'", [], |r| r.get(0)).unwrap();
+    let count: i64 = h.engine.store.lock().query_row("SELECT COUNT(*) FROM session WHERE title LIKE 'Sneaky%'", [], |r| r.get(0)).unwrap();
     assert_eq!(count, 0);
     let child = h.engine.store.lock().query_row("SELECT id FROM session WHERE parent_id = ?1", [&h.session.id], |r| r.get::<_, String>(0)).unwrap();
     let Part::ToolCall { status, .. } = &h.engine.store.transcript(&child).unwrap()[1].parts[0].part else { panic!() };

@@ -35,6 +35,9 @@ pub struct Session {
     pub updated_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<i64>,
+    /// For a branched conversation, the last source message its handoff summarised.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_cutoff: Option<String>,
     /// Whether a turn is in flight right now; set by the API, never stored.
     #[serde(default)]
     pub running: bool,

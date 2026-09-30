@@ -340,6 +340,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/branch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Creates a reviewed branch and starts it. The new conversation is independent of its source. */
+        post: operations["createBranch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}/branch/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Drafts the handoff for a branch. Makes one model request; stores nothing. */
+        post: operations["draftBranch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/command": {
         parameters: {
             query?: never;
@@ -468,6 +502,18 @@ export interface components {
             /** @description The thing being touched: a path, a command. Rules match it with globs. */
             pattern: string;
             title: string;
+        };
+        /** @description What the user reviews before a branch exists. Nothing is stored until they confirm. */
+        BranchDraft: {
+            /** @description The last source message the summary covers; absent for a conversation with no finished replies. */
+            cutoff?: string | null;
+            excerpts: string;
+            goal: string;
+            summary: string;
+            title: string;
+        };
+        BranchGoal: {
+            goal: string;
         };
         Command: {
             description: string;
@@ -679,8 +725,6 @@ export interface components {
             /** @description `build` unless the workspace defines others; see the workspace config. */
             agent?: string | null;
             model?: components["schemas"]["ModelRef"] | null;
-            /** @description Makes this a spawned thread listed under its parent. */
-            parentId?: string | null;
             title?: string;
             workspaceId: string;
         };
@@ -850,6 +894,8 @@ export interface components {
             agent: string;
             /** Format: int64 */
             archivedAt?: number | null;
+            /** @description For a branched conversation, the last source message its handoff summarised. */
+            branchCutoff?: string | null;
             /** Format: int64 */
             createdAt: number;
             id: string;
@@ -1547,6 +1593,86 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Aborted"];
                 };
+            };
+        };
+    };
+    createBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BranchDraft"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    draftBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BranchGoal"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchDraft"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

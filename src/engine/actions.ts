@@ -6,6 +6,7 @@ import { applyProviderCatalog } from "../state/provider-cache"
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events"
 import { adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptQuestion, adaptSession, adaptTodos, type NativeMessageWithParts, type WorkspaceIndex } from "./native/adapt"
 import { EngineError, type Client } from "./native/client"
+import type { components } from "./native/types"
 import {
   captureRevisions,
   compareMessages,
@@ -17,6 +18,8 @@ import {
   type ModelRef,
   type Notice,
 } from "./store"
+
+export type BranchDraft = components["schemas"]["BranchDraft"]
 
 export type PromptFile = {
   filename?: string
@@ -324,22 +327,31 @@ export function createActions(
     return { ok: true, connected: state.connected.includes(id) }
   }
 
-  /** `/spawn`: a sibling thread seeded with the task; the engine gives it the parent's workspace and model. */
-  async function spawn(id: string, task: string, options: PromptOptions) {
-    const parent = state.sessions[id]
-    const workspaceId = parent ? workspaces().id(parent.directory) : undefined
-    if (!workspaceId) return
-    const title = task.split(/\s+/).slice(0, 6).join(" ").slice(0, 64)
-    const created = await requireClient().createSession({ workspaceId, title, agent: options.agent, parentId: id, model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined })
-    const session = adaptSession(created, workspaces())
-    set(produce((draft) => {
-      draft.transcripts[session.id] ??= []
-      draft.loaded[session.id] = true
-      draft.cursors[session.id] ??= null
-    }))
-    putSession(set, session)
-    await send(session.id, task, options)
-    return session
+  /** Asks the source's model for a handoff the user reviews; nothing is created yet. */
+  async function draftBranch(id: string, goal: string): Promise<BranchDraft | undefined> {
+    try {
+      return await requireClient().draftBranch(id, goal)
+    } catch (cause) {
+      notice({ id: `branch-${id}`, title: "Couldn't draft the branch", message: errorMessage(cause), variant: "error", duration: 10_000 })
+    }
+  }
+
+  /** Creates the reviewed branch; the engine starts it and it runs independently of its source. */
+  async function branch(id: string, draft: BranchDraft) {
+    try {
+      const session = adaptSession(await requireClient().createBranch(id, draft), workspaces())
+      set(
+        produce((draft) => {
+          draft.transcripts[session.id] ??= []
+          draft.loaded[session.id] = true
+          draft.cursors[session.id] ??= null
+        }),
+      )
+      putSession(set, session)
+      return session
+    } catch (cause) {
+      notice({ id: `branch-${id}`, title: "Couldn't create the branch", message: errorMessage(cause), variant: "error", duration: 10_000 })
+    }
   }
 
   /** Agents and commands come from the workspace's drift.json and .drift/ directory. */
@@ -429,7 +441,8 @@ export function createActions(
       unavailable("Forking")
       return undefined
     },
-    spawn,
+    draftBranch,
+    branch,
     moveSession: async (..._args: unknown[]): Promise<SessionMoveResult> => ({ ok: false, moved: [], error: "Moving sessions is not available yet" }),
     moveWorkspaceSessions: async (..._args: unknown[]): Promise<SessionMoveResult> => ({ ok: false, moved: [], error: "Moving sessions is not available yet" }),
     removeAllSessions: async (..._args: unknown[]) => false,

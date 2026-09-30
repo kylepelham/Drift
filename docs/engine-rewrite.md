@@ -27,7 +27,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Catalog | models.dev JSON fetched and cached, filtered to supported providers, with a bundled snapshot fallback. Each entry carries a tool profile (`edit` or `apply_patch`). |
 | Auth | API keys. Anthropic subscription OAuth (PKCE; the `@ex-machina/opencode-anthropic-auth` tarball is the spec). OpenAI Codex OAuth (upstream `plugin/openai/codex.ts` is the spec). Credentials stored with the `keyring` crate; encrypted file fallback on headless Linux. |
 | Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the upstream hook points. Compiled Rust plugins through a Drift SDK come later and are not designed for now. |
-| Tools | `read`, `edit`, `write`, `apply_patch`, `bash`, `glob`, `grep`, `webfetch`, `todowrite`, `skill`, `question`, `task`, `spawn_thread`, `read_thread`. |
+| Tools | `read`, `edit`, `write`, `apply_patch`, `bash`, `glob`, `grep`, `webfetch`, `todowrite`, `skill`, `question`, `task`, `read_thread`. |
 | Dropped | `websearch`, `lsp`, `execute`, `plan`, share, ACP, TUI, CLI, Jev tool routing, Copilot, Azure, Cohere, Perplexity, GitLab, Venice, Poe, Alibaba, Gateway. |
 | Edit | Exact match only, with line ending normalisation on both sides. On a miss, return the closest region so the model can re-read cheaply. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. |
 | Post-edit | Formatter hooks only: built-in table, `drift.json` can add or disable, failures logged and never surfaced to the model. No language servers. |
@@ -37,7 +37,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Config | `drift.json` at the project root, `.drift/{agents,commands,skills}/`, `~/.config/drift/`. Instructions from `AGENTS.md` and `CLAUDE.md`. Skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at project and home. No runtime `opencode.json` fallback. |
 | Identity | `DRIFT_*` env vars, `~/.local/share/drift` data dir. A one-time migrator runs on first launch. MIT attribution for opencode stays in `licenses/`. |
 | Permissions | Upstream semantics (allow, deny, ask; path globs; session-scoped always; agent overrides) reimplemented once, with a single protocol. |
-| Session tree | One tree: `parent_id` plus `visibility: hidden | sibling`. `task` creates a hidden child, `spawn_thread` a sibling. Subagent results stream into the parent as structured parts. |
+| Session tree | One tree: `parent_id` plus `visibility: hidden \| sibling`. `task` creates a hidden subagent; the user branches a sibling conversation through a reviewed handoff. See "Subagents and branches". |
 | Platforms | Windows first. CI builds Windows, macOS and Linux. OS specifics live in one `platform` module. |
 
 ## Layout
@@ -144,27 +144,41 @@ under it is true, not before.
 
 ### M3: tree and lifecycle
 
-- `task` subagents, `spawn_thread`, `read_thread`.
+- `task` subagents; user branches with a reviewed handoff; `read_thread`.
 - Fork (bounded and active), move with busy guard.
 - Compaction with recovery, retry with model switch.
 - Revert and diff, shell timeout, per-session runtime config snapshots.
 - Bedrock, Vertex, xAI and Z.ai presets.
 
-#### Session tree
+#### Subagents and branches
 
-- One `session` table; `parent_id` plus `visibility` decide the shape. `task` creates a
-  `hidden` child (listed with its `parentId`; the sidebar nests it under the parent, titled `<description> (@<agent> subagent)`) and waits
-  for it; the tool output is the child's last completed reply, clipped at 20k chars.
-  `spawn_thread` creates a `sibling` child (a top-level sidebar row whose header links back to the parent) seeded with the carried summary and excerpts,
-  starts it, and returns at once. Both set `metadata.sessionId` on the call so the UI links them.
-- `read_thread` reports running or idle, pending asks, todos and the latest reply, and only for
-  threads the caller spawned.
-- A child turn's abort token is a child of the calling tool's token, so aborting the parent stops
-  the subagent whichever way the wait ends.
-- Delegation is one level deep. Hidden sessions are never offered `task`, `spawn_thread` or
-  `read_thread`, the tools refuse to run from one, and `POST /sessions` with `parentId` rejects
-  a hidden parent or one in another workspace. Spawned threads are the user's; they may delegate.
-- `/spawn` in the composer uses `POST /sessions` with `parentId` and then sends the task.
+Two different things share the `session` table; `visibility` says which, never `parent_id` alone.
+Product rationale: `docs/research/m3-conversations-and-subagents.md`.
+
+| | Subagent (`hidden`) | Branch (`sibling` with `parent_id`) |
+| --- | --- | --- |
+| Purpose | Help finish the parent's goal | Pursue a separate goal |
+| Created by | The model, through `task` | The user, through `/spawn` only |
+| Context | A self-contained delegation prompt | A reviewed summary and excerpts, with the source cutoff recorded |
+| Output | Last reply returns to the parent's tool call | Its own transcript |
+| Stop | Parent abort cascades (child abort token) | Independent; stopping the source does not stop it |
+| Permissions | Inherits the parent's auto-accept | Its own |
+| Sidebar | Under the parent only while running or waiting on the user | Normal top-level row, header links back to the source |
+| History | Opened from the task card in the parent transcript | A conversation like any other |
+
+- `task` creates the subagent, titled `<description> (@<agent> subagent)`, waits for it and returns
+  its last completed reply clipped at 20k chars, with `metadata.sessionId` for drill-down. Listings
+  include subagents so the task card can still open them after a restart.
+- Delegation is one level deep: subagents are never offered `task` or `read_thread`, the tools
+  refuse to run from one, and a subagent cannot be branched from.
+- The model cannot create branches; there is no `spawn_thread` tool. It may suggest one in prose.
+  `read_thread` lets a conversation check on a branch taken from it when the user asks.
+- Branching is two calls. `POST /sessions/{id}/branch/draft {goal}` sends the source transcript up
+  to its last finished message, plus a handoff instruction, to the source's model: one request, no
+  tools run, nothing stored. It returns `{goal, title, summary, excerpts, cutoff}`. The user edits
+  that in the review dialog, then `POST /sessions/{id}/branch` creates the session with
+  `branch_cutoff`, seeds its first message with the handoff and starts it on its own abort token.
+- A branch is not a fork. Fork (a copy of the transcript) is separate M3 work.
 
 ### M4: cutover
 

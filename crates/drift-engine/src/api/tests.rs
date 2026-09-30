@@ -409,17 +409,3 @@ async fn workspace_config_and_commands_are_served() {
     assert_eq!(patched["agent"], "plan");
 }
 
-#[tokio::test]
-async fn spawned_threads_need_a_visible_parent_in_the_same_workspace() {
-    let h = harness().await;
-    let (ws_id, parent_id) = session_with_model(&h).await;
-    let spawned: Value = h.post("/sessions").json(&json!({ "workspaceId": ws_id, "parentId": parent_id, "title": "child" })).send().await.unwrap().json().await.unwrap();
-    assert_eq!(spawned["parentId"], parent_id);
-    assert_eq!(spawned["visibility"], "sibling");
-
-    let hidden = h.engine.store.create_session(crate::store::NewSession { workspace_id: &ws_id, parent_id: Some(&parent_id), visibility: crate::session::types::Visibility::Hidden, title: "sub", agent: "build", model: None }).unwrap();
-    let from_subagent = h.post("/sessions").json(&json!({ "workspaceId": ws_id, "parentId": hidden.id })).send().await.unwrap();
-    assert_eq!(from_subagent.status(), 400);
-    let missing = h.post("/sessions").json(&json!({ "workspaceId": ws_id, "parentId": "nope" })).send().await.unwrap();
-    assert_eq!(missing.status(), 404);
-}

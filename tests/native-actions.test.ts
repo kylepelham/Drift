@@ -182,3 +182,24 @@ test("hydration rejects when any of its loads fail, instead of pretending the sn
   await expect(hydrateFrom({ ...good, refreshProviders: async () => false }, null)).rejects.toThrow("provider catalog")
   await expect(hydrateFrom({ ...good, refreshPermissions: () => Promise.reject(new Error("perm")) }, null)).rejects.toThrow("perm")
 })
+
+test("a reviewed branch becomes a top-level session linked to its source", async () => {
+  const draft = { goal: "fix lint", title: "Fix lint", summary: "Parser tidied.", excerpts: "", cutoff: "msg_9" }
+  const h = harness({
+    draftBranch: (id: string, goal: string) => Promise.resolve({ ...draft, goal: `${goal} (${id})` }),
+    createBranch: (_id: string, body: typeof draft) =>
+      Promise.resolve({ ...session("ses_branch"), parentId: "ses_1", branchCutoff: body.cutoff, title: body.title }),
+  } as Partial<Client>)
+  expect((await h.actions.draftBranch("ses_1", "fix lint"))?.goal).toBe("fix lint (ses_1)")
+  const created = await h.actions.branch("ses_1", draft)
+  expect(created?.id).toBe("ses_branch")
+  expect(h.state.sessions.ses_branch!.parentID).toBeUndefined()
+  expect(h.state.links.ses_branch).toBe("ses_1")
+  expect(h.state.loaded.ses_branch).toBeTrue()
+})
+
+test("a failed draft reports a notice instead of throwing", async () => {
+  const h = harness({ draftBranch: () => Promise.reject(new EngineError(502, "draft", "the model returned no handoff")) } as Partial<Client>)
+  expect(await h.actions.draftBranch("ses_1", "fix lint")).toBeUndefined()
+  expect(h.state.notices.some((n) => n.title === "Couldn't draft the branch")).toBeTrue()
+})

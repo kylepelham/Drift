@@ -1,4 +1,0 @@
-Starts a separate thread that the user can see in the sidebar and talk to. Use it when work splits off from this conversation and deserves its own history: a distinct bug found along the way, a follow-up the user asked to have on its own, a long-running job to leave running.
-
-- The new thread cannot see this one. Carry over what it needs in `summary` and `context`.
-- It runs on its own after this call returns; use `read_thread` to check on it. Do not spawn threads for work you could do here.

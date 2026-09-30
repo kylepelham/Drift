@@ -1,4 +1,4 @@
-//! Delegation: `task` runs a hidden child to completion, `spawn_thread` opens a sibling the user can see.
+//! Delegation: `task` runs a subagent to completion; `read_thread` checks on a conversation branched from this one.
 
 use serde_json::{json, Value};
 
@@ -9,8 +9,8 @@ use crate::session::turn::Prompt;
 use crate::session::types::{Part, Role, Visibility};
 use crate::store::NewSession;
 
-/// Tools a hidden subagent is never offered: delegation stays one level deep and threads are the user's.
-pub const DELEGATION: [&str; 3] = ["task", "spawn_thread", "read_thread"];
+/// Tools a subagent is never offered: delegation stays one level deep and branches belong to conversations.
+pub const DELEGATION: [&str; 2] = ["task", "read_thread"];
 
 /// How much of a child's final reply comes back to the parent verbatim.
 const RESULT_CHARS: usize = 20_000;
@@ -70,74 +70,16 @@ impl Tool for Task {
     }
 }
 
-pub struct SpawnThread;
-
-impl Tool for SpawnThread {
-    fn spec(&self) -> ToolSpec {
-        ToolSpec {
-            name: "spawn_thread".into(),
-            description: include_str!("prompts/spawn_thread.txt").trim().into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "title": { "type": "string", "description": "Short title for the new thread." },
-                    "task": { "type": "string", "description": "What the thread should do." },
-                    "summary": { "type": "string", "description": "The context it needs from this conversation, in your words." },
-                    "context": { "type": "string", "description": "Verbatim excerpts worth carrying over." }
-                },
-                "required": ["title", "task", "summary"]
-            }),
-        }
-    }
-
-    fn ask(&self, _ctx: &Context, _input: &Value) -> Option<Ask> {
-        None
-    }
-
-    fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
-        Box::pin(async move {
-            let title = required_str(&input, "title")?;
-            let task = required_str(&input, "task")?;
-            let summary = required_str(&input, "summary")?;
-            let parent = ctx.engine.store.session(&ctx.session_id)?.ok_or(ToolError("parent session is gone".into()))?;
-            if parent.visibility == Visibility::Hidden {
-                return Err(ToolError("subagents cannot delegate".into()));
-            }
-            let child = ctx.engine.store.create_session(NewSession {
-                workspace_id: &parent.workspace_id,
-                parent_id: Some(&parent.id),
-                visibility: Visibility::Sibling,
-                title,
-                agent: &parent.agent,
-                model: parent.model.as_ref(),
-            })?;
-            ctx.engine.hub.publish(Event::SessionCreated { session: child.clone() });
-            let mut text = format!("# Context from the parent thread\n\n{summary}\n");
-            if let Some(excerpts) = input["context"].as_str().filter(|c| !c.trim().is_empty()) {
-                text.push_str(&format!("\n## Excerpts\n\n{excerpts}\n"));
-            }
-            text.push_str(&format!("\n# Task\n\n{task}"));
-            let prompt = Prompt { parts: vec![Part::Text { text }], model: parent.model.clone(), thinking_budget: None, submission_id: None };
-            ctx.engine.submit(&child.id, prompt).await.map_err(|e| ToolError(format!("could not start thread: {e}")))?;
-            Ok(Output {
-                title: title.into(),
-                output: format!("Started thread \"{title}\" ({}). It runs on its own; use read_thread to check on it.", child.id),
-                metadata: json!({ "sessionId": child.id }),
-            })
-        })
-    }
-}
-
 pub struct ReadThread;
 
 impl Tool for ReadThread {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "read_thread".into(),
-            description: "Reads a thread this conversation spawned: whether it is still running, what it is waiting on, and its latest reply.".into(),
+            description: "Reads a conversation the user branched off this one: whether it is still running, what it is waiting on, and its latest reply. Use it only when the user asks about that conversation.".into(),
             input_schema: json!({
                 "type": "object",
-                "properties": { "id": { "type": "string", "description": "The thread id returned by spawn_thread." } },
+                "properties": { "id": { "type": "string", "description": "The branched conversation's session id." } },
                 "required": ["id"]
             }),
         }
@@ -152,7 +94,7 @@ impl Tool for ReadThread {
             let id = required_str(&input, "id")?;
             let child = ctx.engine.store.session(id)?.ok_or_else(|| ToolError(format!("no thread {id}")))?;
             if child.parent_id.as_deref() != Some(ctx.session_id.as_str()) {
-                return Err(ToolError("that thread was not spawned by this conversation".into()));
+                return Err(ToolError("that conversation was not branched from this one".into()));
             }
             let running = ctx.engine.turns.is_running(id);
             let asks = ctx.engine.permissions.pending().into_iter().filter(|p| p.session_id == id).count()

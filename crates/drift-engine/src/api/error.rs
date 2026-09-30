@@ -4,6 +4,7 @@ use axum::Json;
 use serde::Serialize;
 use utoipa::ToSchema;
 
+use crate::session::branch::BranchError;
 use crate::session::turn::TurnError;
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -51,5 +52,19 @@ impl From<TurnError> for ApiError {
             TurnError::Store(_) => (StatusCode::INTERNAL_SERVER_ERROR, "store"),
         };
         Self::new(status, code, error.to_string())
+    }
+}
+
+impl From<BranchError> for ApiError {
+    fn from(error: BranchError) -> Self {
+        match error {
+            BranchError::NoSession => Self::not_found("session"),
+            BranchError::FromSubagent => Self::new(StatusCode::BAD_REQUEST, "subagent", "subagents cannot branch; branch from the conversation instead"),
+            BranchError::BadCutoff => Self::new(StatusCode::BAD_REQUEST, "cutoff", "the cutoff is not a message in the source conversation"),
+            BranchError::EmptyGoal => Self::new(StatusCode::BAD_REQUEST, "goal", "a branch needs a goal"),
+            BranchError::Turn(error) => error.into(),
+            BranchError::Draft(message) => Self::new(StatusCode::BAD_GATEWAY, "draft", message),
+            BranchError::Store(error) => error.into(),
+        }
     }
 }

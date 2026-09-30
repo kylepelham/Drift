@@ -40,6 +40,8 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::submit))
         .routes(routes!(sessions::abort))
         .routes(routes!(sessions::command))
+        .routes(routes!(sessions::draft_branch))
+        .routes(routes!(sessions::branch))
         .routes(routes!(providers::list))
         .routes(routes!(providers::set_key))
         .routes(routes!(providers::remove))

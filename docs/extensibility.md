@@ -122,43 +122,24 @@ For example, `/impeccable` followed by Tab opens its documented actions, includi
 polish, layout, and the other installed skill commands. Skills without argument metadata still
 support completion and manually typed arguments.
 
-## Spawned threads (shipped)
+## Branches and subagents (shipped)
 
-The claude-code Task tool spawns subagents that die with their result. Drift adds a
-second primitive: `engine/opencode/plugin/spawn-thread.ts` registers a `spawn_thread`
-tool the model calls with a title, task, its own context summary, and optional verbatim
-excerpts (reasoning/CoT never crosses conversations; the model carries context as
-plain text by design). The tool creates a sibling session in the same workspace, seeds
-it with that carried context, and starts it on the parent's model. The new thread
-appears in the sidebar like any other chat; the tool card links to it. `/spawn <task>`
-creates the same kind of sibling directly from the last stable active context without
-interrupting or steering the source thread.
+A subagent works on the current goal; a branch pursues a different one. The engine keeps them
+apart (see "Subagents and branches" in `docs/engine-rewrite.md`).
 
-The same plugin provides `read_thread` for an explicitly requested peek at a thread created
-with `spawn_thread`. It takes the returned thread ID and makes one read-only snapshot.
-It never waits for completion, subscribes to updates, or sends another message. The tool's
-instructions prohibit repeated polling unless the user explicitly asks for it. Subagents
-remain the mechanism for delegated work whose result the parent needs to wait for.
+- Subagents come from the `task` tool. Their result returns to the parent's task card, which
+  opens the stored transcript. They show under the parent in the sidebar only while running or
+  waiting on the user, stop when the parent stops, and cannot delegate further.
+- Branches come only from the user. `/spawn <goal>` asks the current conversation's model for a
+  handoff (title, carried context, verbatim excerpts) without changing the conversation, shows it
+  in a review dialog, and on confirm creates a new top-level conversation that starts from that
+  handoff. It records the source and the last message the handoff covered, runs independently,
+  and has its own permissions. The model is not offered a tool to branch.
+- `read_thread` gives a conversation a one-shot snapshot of a branch taken from it: status,
+  pending asks, todos and the latest reply. It refuses sessions that were not branched from the
+  caller.
 
-The snapshot includes runtime status, pending permissions/questions, todos, recent tool-call
-names/statuses, and the latest assistant text. Reasoning and tool-result bodies are excluded.
-It reads the latest 50 child messages, shows at most 20 todos and 10 tool calls, caps the reply
-at 4,000 characters, and bounds the entire result to 10,000 characters. API reads use the
-invoking tool's cancellation signal. Idle describes the runtime, not a guarantee the task
-succeeded; the latest assistant error is shown when present.
-
-Before reading the child, the plugin requires a completed `spawn_thread` receipt with that
-ID in the caller's history. It searches newest-to-oldest in 50-message pages using the
-engine's opaque `X-Next-Cursor`/`before` pagination, stopping at the first matching receipt.
-Older receipts remain reachable without loading the entire parent history into memory.
-Page failures or repeated cursors fail the lookup rather than granting access. This supports
-model-spawned threads even after restarting Drift.
-It does not support `/spawn` or arbitrary sessions: those UI-created links live in Drift's
-SQLite rather than the caller's transcript. The v1 SDK lacks pending permission/question
-methods, so those two reads use its internal authenticated HTTP client. Jev preserves
-`read_thread` as a core tool, and its card is a snapshot rather than a live child-progress row.
-
-Manual forks use the same stable active-context projection by default: completed
+Manual forks (legacy engine) use a stable active-context projection by default: completed
 compaction summary, retained tail, and completed turns after it. The in-flight turn and
 task/spawn session links are excluded. `/fork all` is the explicit slower operation that
 copies all completed history. The behavior is implemented by the isolated
