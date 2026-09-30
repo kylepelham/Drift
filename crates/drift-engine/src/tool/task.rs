@@ -6,7 +6,7 @@ use super::{required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::config::AgentKind;
 use crate::event::Event;
 use crate::llm::ToolSpec;
-use crate::session::turn::Prompt;
+use crate::session::turn::{Prompt, TurnEnd};
 use crate::session::types::{MessageStatus, Part, Role, Visibility};
 use crate::store::NewSession;
 
@@ -73,7 +73,13 @@ impl Tool for Task {
             if ctx.abort.is_cancelled() {
                 return Err(ToolError("aborted".into()));
             }
-            let (outcome, text) = match last_attempt(&ctx.engine.store, &child.id)? {
+            // How the turn ended decides; the transcript only supplies the words.
+            let attempt = match (ctx.engine.turns.take_end(&child.id), last_attempt(&ctx.engine.store, &child.id)?) {
+                (Some(TurnEnd::Stopped), _) => Attempt::Stopped,
+                (Some(TurnEnd::Failed), Attempt::Replied(_)) => Attempt::Failed("its turn ended without finishing".into()),
+                (_, attempt) => attempt,
+            };
+            let (outcome, text) = match attempt {
                 Attempt::Replied(reply) => ("replied", clip(&reply, RESULT_CHARS)),
                 Attempt::Failed(error) => ("failed", format!("The subagent failed: {error}")),
                 Attempt::Stopped => ("stopped", "The subagent was stopped before it finished.".into()),
@@ -137,7 +143,7 @@ impl Tool for ReadThread {
     }
 }
 
-/// How a session's last model attempt ended. Compaction summaries are the engine's bookkeeping, not attempts.
+/// How a session's last model attempt ended, as its transcript shows it.
 enum Attempt {
     Replied(String),
     Failed(String),
@@ -145,10 +151,11 @@ enum Attempt {
     None,
 }
 
-/// Judged by the last attempt alone: an earlier success never stands in for a later failure.
+/// Judged by the last attempt alone: an earlier success never stands in for a later failure. A finished
+/// summary is bookkeeping and skipped; a stopped or failed one is how the session last ended.
 fn last_attempt(store: &crate::store::Store, session_id: &str) -> Result<Attempt, ToolError> {
     let transcript = store.transcript(session_id)?;
-    let Some(last) = transcript.iter().rev().find(|m| m.info.role == Role::Assistant && !m.info.summary) else {
+    let Some(last) = transcript.iter().rev().find(|m| m.info.role == Role::Assistant && !(m.info.summary && m.info.status == MessageStatus::Done)) else {
         return Ok(Attempt::None);
     };
     Ok(match last.info.status {

@@ -90,11 +90,26 @@ pub struct Turns {
     refreshing: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Automatic compactions that failed in a row, per session; enough of them turn it off for that session.
     pub(super) compaction_failures: Mutex<HashMap<String, u32>>,
+    /// How each subagent's last turn ended, until the task waiting on it takes the answer.
+    ended: Mutex<HashMap<String, TurnEnd>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
 }
 
+/// How a turn ended, from the loop's own view rather than whatever message happens to be last.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TurnEnd {
+    Replied,
+    Failed,
+    Stopped,
+}
+
 impl Turns {
+    /// The recorded end of a subagent's last turn; each end is handed out once.
+    pub fn take_end(&self, session_id: &str) -> Option<TurnEnd> {
+        self.ended.lock().unwrap().remove(session_id)
+    }
+
     /// Marks the session busy under `abort`; `false` if a turn or job already holds it.
     pub(super) fn claim(&self, session_id: &str, abort: &CancellationToken) -> bool {
         let mut active = self.active.lock().unwrap();
@@ -333,6 +348,26 @@ impl Engine {
                 Step::Overflow => break,
             }
         }
+        self.record_end(&plan.session, &abort);
+    }
+
+    /// For a subagent, how its turn ended: a stop wins however late it came; otherwise the last
+    /// attempt decides, and a finished summary is bookkeeping rather than an ending.
+    fn record_end(&self, session: &Session, abort: &CancellationToken) {
+        if session.visibility != Visibility::Hidden {
+            return;
+        }
+        let end = if abort.is_cancelled() {
+            TurnEnd::Stopped
+        } else {
+            let transcript = self.store.transcript(&session.id).unwrap_or_default();
+            match transcript.iter().rev().find(|m| m.info.role == Role::Assistant) {
+                Some(last) if last.info.status == MessageStatus::Done && !last.info.summary => TurnEnd::Replied,
+                Some(last) if last.info.status == MessageStatus::Aborted => TurnEnd::Stopped,
+                _ => TurnEnd::Failed,
+            }
+        };
+        self.turns.ended.lock().unwrap().insert(session.id.clone(), end);
     }
 
     /// The transcript for the next request, compacted first when the last reply left too little room.

@@ -183,9 +183,11 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
 | History | Opened from the task card in the parent transcript | A conversation like any other |
 
 - The current foreground `task` creates the subagent, titled `<description> (@<agent> subagent)`,
-  and waits for it. The result is judged by the subagent's last attempt only, skipping compaction
-  summaries: a reply (clipped at 20k chars) is the result; a failed or stopped attempt fails the
-  call, never falling back to an earlier reply or a summary. Either way the call keeps
+  and waits for it. The result follows how the child's turn ended, which the turn loop records
+  (`TurnEnd`): a stop wins however it landed (mid-request, mid-tool or mid-compaction), otherwise the
+  last attempt decides, skipping only *finished* compaction summaries. A reply (clipped at 20k
+  chars) is the result; a failed or stopped turn fails the call, never falling back to an earlier
+  reply or a summary. Either way the call keeps
   `metadata.sessionId` and `metadata.outcome` (`replied`, `failed`, `stopped`) for drill-down.
   Listings include subagent records for inspection; the sidebar shows only
   active/awaiting-attention workers. Background mode below is pending, not claimed implemented
