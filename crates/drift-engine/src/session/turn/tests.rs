@@ -312,7 +312,7 @@ async fn concurrent_turns_refresh_an_expired_token_once() {
 
     let h = harness().await;
     h.engine.credentials.set("anthropic", &Credential::OAuth { access: "stale".into(), refresh: "r1".into(), expires_at: 1, account: None }).unwrap();
-    let other = h.engine.store.create_session(NewSession { workspace_id: &h.session.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None }).unwrap();
+    let other = h.engine.store.create_session(NewSession { workspace_id: &h.session.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: "Other", agent: "build", model: None }).unwrap();
     h.provider.push(text("a")).push(text("b"));
     let (first, second) = tokio::join!(h.engine.submit(&h.session.id, prompt("one")), h.engine.submit(&other.id, prompt("two")));
     first.await_ok();
@@ -479,6 +479,56 @@ async fn a_task_runs_a_hidden_child_and_returns_its_reply() {
     assert_eq!(h.engine.store.transcript(&child_id).unwrap().len(), 3);
     let listed = h.engine.store.sessions(crate::store::SessionFilter { workspace_id: None, archived: false, before: None, limit: 10 }).unwrap();
     assert!(listed.iter().any(|s| s.id == child_id && s.parent_id.as_deref() == Some(h.session.id.as_str())), "subagents are listed so the UI can nest them");
+}
+
+fn too_long() -> llm::Error {
+    llm::Error::Api { status: 400, kind: "invalid_request_error".into(), message: "prompt is too long: fixture overflow".into(), retryable: false }
+}
+
+fn task_call(transcript: &[MessageWithParts]) -> (ToolStatus, String, serde_json::Value) {
+    let Part::ToolCall { status, output, metadata, .. } = &transcript[1].parts[0].part else { panic!("{:?}", transcript[1].parts) };
+    (*status, output.clone().unwrap_or_default(), metadata.clone().unwrap_or_default())
+}
+
+#[tokio::test]
+async fn a_subagent_that_fails_after_compacting_reports_the_failure_not_the_summary() {
+    let h = harness().await;
+    h.provider
+        .push(tool_call("task", r#"{"description": "Doomed", "prompt": "go"}"#))
+        .push_error(too_long())
+        .push(text("SUBAGENT_FAIL_MARK_SUMMARY"))
+        .push_error(too_long())
+        .push(text("parent carries on"));
+    h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
+    until_idle(&h).await;
+    let (status, output, metadata) = task_call(&h.engine.store.transcript(&h.session.id).unwrap());
+    assert_eq!(status, ToolStatus::Error);
+    assert!(output.contains("prompt is too long") && !output.contains("SUBAGENT_FAIL_MARK_SUMMARY"), "{output}");
+    assert_eq!(metadata["outcome"], "failed");
+    assert!(metadata["sessionId"].is_string(), "the card still opens the failed subagent");
+}
+
+#[tokio::test]
+async fn a_subagent_stopped_after_compacting_is_not_answered_by_its_summary() {
+    let h = harness().await;
+    h.provider
+        .push(tool_call("task", r#"{"description": "Stalls", "prompt": "go"}"#))
+        .push_error(too_long())
+        .push(text("SUBAGENT_STOP_MARK_SUMMARY"))
+        .push_stall();
+    h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
+    for _ in 0..200 {
+        if h.provider.responses_left() == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(h.engine.abort(&h.session.id));
+    until_idle(&h).await;
+    let (status, output, _) = task_call(&h.engine.store.transcript(&h.session.id).unwrap());
+    assert_eq!(status, ToolStatus::Error);
+    assert!(!output.contains("SUBAGENT_STOP_MARK_SUMMARY"), "{output}");
 }
 
 #[tokio::test]

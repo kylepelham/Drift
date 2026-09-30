@@ -45,7 +45,8 @@ pub(super) struct View<'a> {
 }
 
 pub(super) fn view(transcript: &[MessageWithParts]) -> View<'_> {
-    let latest = transcript.iter().rposition(|m| m.info.summary && m.info.status == MessageStatus::Done);
+    // A summary without text replaces nothing; the view before it stands.
+    let latest = transcript.iter().rposition(|m| m.info.summary && m.info.status == MessageStatus::Done && !text_of(m).trim().is_empty());
     let Some(index) = latest else {
         return View { summary: None, messages: transcript.iter().filter(|m| !is_marker(m)).collect() };
     };
@@ -155,8 +156,7 @@ impl Engine {
             outcome = self.summarise(&resolved, &instructions, view.summary.as_deref(), head) => outcome,
             () = abort.cancelled() => Err("aborted".to_string()),
         };
-        self.close_compaction(&mut summary, &outcome, abort.is_cancelled());
-        outcome.map(|_| ())
+        self.close_compaction(&mut summary, outcome, abort.is_cancelled())
     }
 
     /// The boundary the UI draws and the streaming summary message it fills.
@@ -170,22 +170,27 @@ impl Engine {
         Ok(summary)
     }
 
-    fn close_compaction(&self, summary: &mut Message, outcome: &Result<String, String>, aborted: bool) {
-        match outcome {
-            Ok(text) => {
-                if let Ok(part) = self.store.add_part(&summary.id, &summary.session_id, Part::Text { text: text.trim().into() }) {
-                    self.hub.publish(Event::PartCreated { part });
-                }
-                summary.status = MessageStatus::Done;
-            }
-            Err(error) => {
-                summary.status = if aborted { MessageStatus::Aborted } else { MessageStatus::Error };
-                summary.error = Some(error.clone());
-            }
-        }
+    /// Publishes a finished summary only once its text and state are stored together. Anything less
+    /// leaves the summary failed, the previous request view in use, and the failure with the caller.
+    fn close_compaction(&self, summary: &mut Message, outcome: Result<String, String>, aborted: bool) -> Result<(), String> {
         summary.finished_at = Some(id::now_ms());
+        let stored = outcome.and_then(|text| {
+            summary.status = MessageStatus::Done;
+            self.store.complete_summary(summary, text.trim()).map_err(|e| format!("the summary was not saved ({e})"))
+        });
+        let error = match stored {
+            Ok(part) => {
+                self.hub.publish(Event::PartCreated { part });
+                self.hub.publish(Event::MessageUpdated { message: summary.clone() });
+                return Ok(());
+            }
+            Err(error) => error,
+        };
+        summary.status = if aborted { MessageStatus::Aborted } else { MessageStatus::Error };
+        summary.error = Some(error.clone());
         let _ = self.store.save_message(summary);
         self.hub.publish(Event::MessageUpdated { message: summary.clone() });
+        Err(error)
     }
 
     /// One summary request; when it is itself too long, the oldest turns are dropped and it is retried.

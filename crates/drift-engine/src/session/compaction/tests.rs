@@ -33,6 +33,53 @@ fn first_text(request: &crate::llm::Request) -> String {
     }
 }
 
+fn mentions(request: &crate::llm::Request, needle: &str) -> bool {
+    request.messages.iter().flat_map(|m| m.blocks.iter()).any(|b| matches!(b, Block::Text(t) if t.contains(needle)))
+}
+
+/// Temporary triggers that make storing a finished summary fail at each of its two writes.
+const STORAGE_FAULTS: [(&str, &str); 2] = [
+    ("reject_summary_text", "CREATE TEMP TRIGGER reject_summary_text BEFORE INSERT ON part WHEN (SELECT summary FROM message WHERE id = NEW.message_id) = 1 BEGIN SELECT RAISE(ABORT, 'injected'); END;"),
+    ("reject_summary_done", "CREATE TEMP TRIGGER reject_summary_done BEFORE UPDATE OF status ON message WHEN OLD.summary = 1 AND NEW.status = 'done' BEGIN SELECT RAISE(ABORT, 'injected'); END;"),
+];
+
+#[tokio::test]
+async fn a_summary_that_cannot_be_stored_never_replaces_the_history() {
+    for (name, fault) in STORAGE_FAULTS {
+        let h = harness().await;
+        for (ask, reply) in [("first ORIGINAL_REQUIREMENT", "one"), ("second", "two"), ("third", "three")] {
+            h.provider.push(text(reply));
+            turn(&h, ask).await;
+        }
+        h.engine.store.lock().execute_batch(fault).unwrap();
+        h.provider.push(text("SUMMARY"));
+        h.engine.start_compaction(&h.session.id).unwrap();
+        until_idle(&h).await;
+        let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+        let summary = transcript.last().unwrap();
+        assert!(summary.info.summary && summary.info.status == MessageStatus::Error, "{name}: {:?}", summary.info.status);
+        assert!(summary.info.error.as_deref().unwrap().contains("not saved"), "{name}");
+        assert!(view(&transcript).summary.is_none(), "{name}: the failed summary is not active");
+
+        h.engine.store.lock().execute_batch(&format!("DROP TRIGGER temp.{name};")).unwrap();
+        h.provider.push(text("four"));
+        turn(&h, "fourth").await;
+        assert!(mentions(requests(&h).last().unwrap(), "ORIGINAL_REQUIREMENT"), "{name}: the history is still sent");
+    }
+}
+
+#[tokio::test]
+async fn a_storage_failure_counts_against_automatic_compaction() {
+    let h = harness().await;
+    h.provider.push(reply_using(980_000, "long"));
+    turn(&h, "first ORIGINAL_REQUIREMENT").await;
+    h.engine.store.lock().execute_batch(STORAGE_FAULTS[0].1).unwrap();
+    h.provider.push(text("SUMMARY")).push(text("anyway"));
+    turn(&h, "second").await;
+    assert_eq!(h.engine.turns.compaction_failures.lock().unwrap()[&h.session.id], 1);
+    assert!(mentions(requests(&h).last().unwrap(), "ORIGINAL_REQUIREMENT"), "the turn ran on the uncompacted history");
+}
+
 #[tokio::test]
 async fn a_manual_compaction_summarises_older_turns_and_keeps_the_recent_ones() {
     let h = harness().await;

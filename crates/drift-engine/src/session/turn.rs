@@ -105,11 +105,28 @@ impl Turns {
         true
     }
 
+    /// Frees a claim whose turn never started; anyone waiting for the session to go idle wakes.
+    fn release(&self, session_id: &str) {
+        self.active.lock().unwrap().remove(session_id);
+        self.finished.notify_waiters();
+    }
+
+    /// Runs `change` only if none of `ids` is claimed, holding claims off until it returns.
+    pub(super) fn while_idle<T>(&self, ids: &[String], change: impl FnOnce() -> T) -> Option<T> {
+        let active = self.active.lock().unwrap();
+        if ids.iter().any(|id| active.contains_key(id)) {
+            return None;
+        }
+        let result = change();
+        drop(active);
+        Some(result)
+    }
+
     fn files_for(&self, session_id: &str) -> Arc<SessionFiles> {
         self.files.lock().unwrap().entry(session_id.into()).or_default().clone()
     }
 
-    fn refresh_lock(&self, provider: &str) -> Arc<tokio::sync::Mutex<()>> {
+    pub(super) fn refresh_lock(&self, provider: &str) -> Arc<tokio::sync::Mutex<()>> {
         self.refreshing.lock().unwrap().entry(provider.into()).or_default().clone()
     }
 
@@ -157,17 +174,24 @@ impl Engine {
                 return Ok(receipt);
             }
         }
-        let plan = self.plan(session_id, &prompt).await?;
+        // Claimed before planning: the plan captures the workspace, so a move must not slip in while it resolves.
         let abort = parent.map_or_else(CancellationToken::new, CancellationToken::child_token);
         if !self.turns.claim(session_id, &abort) {
             return Err(TurnError::Busy);
         }
+        let plan = match self.plan(session_id, &prompt).await {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.turns.release(session_id);
+                return Err(error);
+            }
+        };
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash.as_str()));
         let admitted = self.store.admit_prompt(session_id, &plan.model_ref, prompt.parts, submission);
         let (message, parts, session) = match admitted {
             Ok(admitted) => admitted,
             Err(error) => {
-                self.turns.active.lock().unwrap().remove(session_id);
+                self.turns.release(session_id);
                 return Err(error.into());
             }
         };
@@ -493,9 +517,10 @@ impl Engine {
         };
         match result {
             Ok(output) => {
+                let status = if tool.failed(&output) { ToolStatus::Error } else { ToolStatus::Done };
                 let formatted = if tool.mutates() { self.format_written(scope.plan, &output.metadata).await } else { Vec::new() };
                 let meta = merge(output.metadata, snapshot_meta).map(|m| with_formatted(m, formatted));
-                self.settle(&mut row, ToolStatus::Done, Some(output.title), output.output, meta)
+                self.settle(&mut row, status, Some(output.title), output.output, meta)
             }
             Err(error) => self.settle(&mut row, ToolStatus::Error, None, error.0, snapshot_meta),
         }

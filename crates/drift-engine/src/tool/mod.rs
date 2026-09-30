@@ -154,6 +154,10 @@ pub trait Tool: Send + Sync {
     fn mutates(&self) -> bool {
         false
     }
+    /// A result that still reports failure, for tools whose failures carry metadata the UI needs.
+    fn failed(&self, _output: &Output) -> bool {
+        false
+    }
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a>;
 }
 

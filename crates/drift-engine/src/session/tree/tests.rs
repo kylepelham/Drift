@@ -7,6 +7,35 @@ use crate::permission::{Decision, Policy, Rule};
 use crate::session::turn::tests::{harness, prompt, text, tool_call, until_idle, Harness};
 use crate::session::types::Part;
 
+#[tokio::test]
+async fn a_move_is_refused_while_a_turn_is_still_planning() {
+    let h = harness().await;
+    let other = h.engine.store.add_workspace(&h._dir.join("other").to_string_lossy(), "other", "").unwrap();
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    h.provider.push(tool_call("write", r#"{"path": "out.txt", "content": "x"}"#)).push(text("done"));
+    // An expired token sends planning to the refresh lock; holding it keeps the turn in planning.
+    h.engine.credentials.set("anthropic", &crate::llm::Credential::OAuth { access: "stale".into(), refresh: "r".into(), expires_at: 1, account: None }).unwrap();
+    let lock = h.engine.turns.refresh_lock("anthropic");
+    let held = lock.lock().await;
+    let (engine, id) = (h.engine.clone(), h.session.id.clone());
+    let submitted = tokio::spawn(async move { engine.submit(&id, prompt("write it")).await.map(|_| ()) });
+    for _ in 0..200 {
+        if h.engine.turns.is_running(&h.session.id) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert!(matches!(h.engine.move_session(&h.session.id, &other.id), Err(TreeError::Busy)), "planning holds the session");
+
+    // A usable key appears, so the waiting turn skips the network refresh.
+    h.engine.credentials.set("anthropic", &crate::llm::Credential::ApiKey { key: "k".into() }).unwrap();
+    drop(held);
+    submitted.await.unwrap().unwrap();
+    until_idle(&h).await;
+    assert!(h._dir.join("ws/out.txt").exists(), "the turn wrote where the session was");
+    assert!(h.engine.move_session(&h.session.id, &other.id).is_ok(), "once idle, the move goes through");
+}
+
 async fn two_turns(h: &Harness) {
     for (ask, reply) in [("first", "one"), ("second", "two")] {
         h.provider.push(text(reply));

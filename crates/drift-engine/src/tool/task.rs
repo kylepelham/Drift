@@ -7,7 +7,7 @@ use crate::config::AgentKind;
 use crate::event::Event;
 use crate::llm::ToolSpec;
 use crate::session::turn::Prompt;
-use crate::session::types::{Part, Role, Visibility};
+use crate::session::types::{MessageStatus, Part, Role, Visibility};
 use crate::store::NewSession;
 
 /// Tools a subagent is never offered: delegation stays one level deep and branches belong to conversations.
@@ -73,9 +73,19 @@ impl Tool for Task {
             if ctx.abort.is_cancelled() {
                 return Err(ToolError("aborted".into()));
             }
-            let reply = final_reply(&ctx.engine.store, &child.id)?;
-            Ok(Output { title: description.into(), output: clip(&reply, RESULT_CHARS), metadata: json!({ "sessionId": child.id, "agent": agent }) })
+            let (outcome, text) = match last_attempt(&ctx.engine.store, &child.id)? {
+                Attempt::Replied(reply) => ("replied", clip(&reply, RESULT_CHARS)),
+                Attempt::Failed(error) => ("failed", format!("The subagent failed: {error}")),
+                Attempt::Stopped => ("stopped", "The subagent was stopped before it finished.".into()),
+                Attempt::None => ("failed", "The subagent finished without a reply.".into()),
+            };
+            Ok(Output { title: description.into(), output: text, metadata: json!({ "sessionId": child.id, "agent": agent, "outcome": outcome }) })
         })
+    }
+
+    /// Only a reply is a result; a failed or stopped subagent is a failed call that still links to its transcript.
+    fn failed(&self, output: &Output) -> bool {
+        output.metadata["outcome"] != "replied"
     }
 }
 
@@ -116,24 +126,37 @@ impl Tool for ReadThread {
             if !todos.is_empty() {
                 lines.push(format!("Todos: {}", serde_json::to_string(&todos).unwrap()));
             }
-            let reply = final_reply(&ctx.engine.store, id)?;
-            if !reply.is_empty() {
-                lines.push(format!("Latest reply:\n{}", clip(&reply, SUMMARY_CHARS)));
+            match last_attempt(&ctx.engine.store, id)? {
+                Attempt::Replied(reply) if !reply.is_empty() => lines.push(format!("Latest reply:\n{}", clip(&reply, SUMMARY_CHARS))),
+                Attempt::Failed(error) => lines.push(format!("Its last attempt failed: {error}")),
+                Attempt::Stopped => lines.push("Its last attempt was stopped.".into()),
+                Attempt::Replied(_) | Attempt::None => {}
             }
             Ok(Output { title: child.title.clone(), output: lines.join("\n"), metadata: json!({ "sessionId": id, "running": running }) })
         })
     }
 }
 
-/// Text of the last completed assistant message, which is what a subagent hands back.
-fn final_reply(store: &crate::store::Store, session_id: &str) -> Result<String, ToolError> {
+/// How a session's last model attempt ended. Compaction summaries are the engine's bookkeeping, not attempts.
+enum Attempt {
+    Replied(String),
+    Failed(String),
+    Stopped,
+    None,
+}
+
+/// Judged by the last attempt alone: an earlier success never stands in for a later failure.
+fn last_attempt(store: &crate::store::Store, session_id: &str) -> Result<Attempt, ToolError> {
     let transcript = store.transcript(session_id)?;
-    let last = transcript.iter().rev().find(|m| m.info.role == Role::Assistant && m.info.status == crate::session::types::MessageStatus::Done);
-    let Some(last) = last else {
-        let error = transcript.iter().rev().find_map(|m| m.info.error.clone());
-        return Ok(error.map_or(String::new(), |e| format!("The subagent failed: {e}")));
+    let Some(last) = transcript.iter().rev().find(|m| m.info.role == Role::Assistant && !m.info.summary) else {
+        return Ok(Attempt::None);
     };
-    Ok(last.parts.iter().filter_map(|row| match &row.part { Part::Text { text } => Some(text.as_str()), _ => None }).collect::<Vec<_>>().join("\n"))
+    Ok(match last.info.status {
+        MessageStatus::Done => Attempt::Replied(last.parts.iter().filter_map(|row| match &row.part { Part::Text { text } => Some(text.as_str()), _ => None }).collect::<Vec<_>>().join("\n")),
+        MessageStatus::Error => Attempt::Failed(last.info.error.clone().unwrap_or_else(|| "unknown error".into())),
+        MessageStatus::Aborted => Attempt::Stopped,
+        MessageStatus::Streaming => Attempt::None,
+    })
 }
 
 fn clip(text: &str, max: usize) -> String {

@@ -209,7 +209,9 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   `/fork active` and `/fork all` are one operation. Boundaries are remapped to the copied ids.
 - `POST /sessions/{id}/move {workspaceId}` moves the session and its subagents (hidden
   descendants at any depth). Branches stay where they are. It returns 409 while any of them is
-  running, because a running turn keeps the workspace path it planned with.
+  running or still planning, because a turn keeps the workspace path it planned with. A turn
+  claims its session *before* planning (credential refresh included), and the move checks and
+  updates while holding claims off (`Turns::while_idle`), so no turn is admitted in between.
 - Re-pointing a workspace at a new folder moves nothing: sessions reference the workspace id and
   the shell rewrites the shared `workspace` row. The UI refuses while any session there is running,
   for the same reason as move.
@@ -249,7 +251,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 
 - **Request view** (`session::compaction::view`): the latest *finished* summary as the opening user
   turn, then every message from `tailFrom` on, skipping older boundaries and summaries (the new
-  summary covers them). A failed or aborted summary is ignored, so the previous view stands.
+  summary covers them). A failed or aborted summary, or one without text, is ignored, so the
+  previous view stands.
+- **Publication**: the summary's text and its `done` state are one transaction
+  (`Store::complete_summary`). If that write fails the summary is marked failed, no completion is
+  published, and the error returns to the caller (counted against automatic compaction).
 - **Tail**: whole turns from the end, at most 2 turns and about 15k estimated tokens (4 chars a
   token), starting at a user message so tool calls stay with their results, and never reaching the
   first message: there is always something to summarise. When even the last turn is over budget,

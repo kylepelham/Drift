@@ -51,16 +51,14 @@ impl Engine {
         Ok(session)
     }
 
-    /// Moves a session and its subagents to another workspace. Refused while any of them is running,
-    /// because a running turn keeps the workspace path it started with.
+    /// Moves a session and its subagents to another workspace. Refused while any of them is running or
+    /// still planning a turn, because a turn keeps the workspace path it planned with. The check and the
+    /// update hold claims off together, so no turn can be admitted in between.
     pub fn move_session(&self, id: &str, workspace_id: &str) -> Result<Vec<String>, TreeError> {
         self.store.session(id)?.ok_or(TreeError::NoSession)?;
         self.store.workspace(workspace_id)?.ok_or(TreeError::NoWorkspace)?;
         let tree = self.store.session_tree(id)?;
-        if tree.iter().any(|member| self.turns.is_running(member)) {
-            return Err(TreeError::Busy);
-        }
-        self.store.move_sessions(&tree, workspace_id)?;
+        self.turns.while_idle(&tree, || self.store.move_sessions(&tree, workspace_id)).ok_or(TreeError::Busy)??;
         for member in &tree {
             if let Some(session) = self.store.session(member)? {
                 self.hub.publish(Event::SessionUpdated { session });

@@ -111,19 +111,16 @@ impl Store {
     }
 
     pub fn save_message(&self, message: &Message) -> rusqlite::Result<()> {
-        self.lock()
-            .prepare_cached(
-                "UPDATE message SET status = ?2, usage_json = ?3, cost = ?4, error = ?5, finished_at = ?6 WHERE id = ?1",
-            )?
-            .execute(params![
-                message.id,
-                status_str(message.status),
-                serde_json::to_string(&message.usage).unwrap(),
-                message.cost,
-                message.error,
-                message.finished_at
-            ])?;
-        Ok(())
+        save_message_in(&self.lock(), message)
+    }
+
+    /// Stores a summary's text and its finished state as one write: a summary is never done without its text.
+    pub fn complete_summary(&self, message: &Message, text: &str) -> rusqlite::Result<PartRow> {
+        transaction(&self.lock(), |conn| {
+            let row = insert_part(conn, &message.id, &message.session_id, Part::Text { text: text.into() })?;
+            save_message_in(conn, message)?;
+            Ok(row)
+        })
     }
 
     pub fn message(&self, id: &str) -> rusqlite::Result<Option<Message>> {
@@ -446,6 +443,19 @@ pub(super) fn insert_session(conn: &Connection, session: &Session) -> rusqlite::
         session.updated_at,
         session.branch_cutoff
     ])?;
+    Ok(())
+}
+
+fn save_message_in(conn: &Connection, message: &Message) -> rusqlite::Result<()> {
+    conn.prepare_cached("UPDATE message SET status = ?2, usage_json = ?3, cost = ?4, error = ?5, finished_at = ?6 WHERE id = ?1")?
+        .execute(params![
+            message.id,
+            status_str(message.status),
+            serde_json::to_string(&message.usage).unwrap(),
+            message.cost,
+            message.error,
+            message.finished_at
+        ])?;
     Ok(())
 }
 
