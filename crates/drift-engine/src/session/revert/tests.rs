@@ -132,7 +132,8 @@ fn allow_shell(h: &Harness) {
 #[tokio::test]
 async fn a_shell_commands_changes_are_reported_but_never_undone() {
     let h = harness().await;
-    allow_shell(&h);
+    // A redirection that writes a file is allowed only by a rule naming the whole line.
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "echo made > made.txt".into(), decision: Decision::Allow }] });
     std::fs::write(h._dir.join("ws/existing.txt"), "before\n").unwrap();
     // Valid in bash and PowerShell alike, whichever the machine's shell is.
     h.provider.push(tool_call("bash", r#"{"command": "echo made > made.txt"}"#)).push(text("made it"));
@@ -170,7 +171,7 @@ async fn a_file_the_session_wrote_and_a_command_then_touched_is_left_alone() {
     h.engine.permissions.set_policy(Policy {
         rules: vec![
             Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow },
-            Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow },
+            Rule { kind: "bash".into(), pattern: "echo more >> a.txt".into(), decision: Decision::Allow },
         ],
     });
     h.provider.push(write("a.txt", "one")).push(tool_call("bash", r#"{"command": "echo more >> a.txt"}"#)).push(text("done"));
@@ -212,7 +213,7 @@ async fn undo_refuses_non_prompts_and_running_sessions() {
     let reply = h.engine.store.transcript(&h.session.id).unwrap()[1].info.id.clone();
     assert!(matches!(h.engine.revert(&h.session.id, &reply).await, Err(RevertError::NotAPrompt)));
 
-    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1 > nul" } else { "sleep 10" };
+    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1" } else { "sleep 10" };
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
     h.provider.push(tool_call("bash", &json!({ "command": sleep }).to_string()));
     h.engine.submit(&h.session.id, prompt("wait")).await.unwrap();

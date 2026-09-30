@@ -89,7 +89,7 @@ async fn a_branch_records_its_source_and_cutoff_and_starts_with_the_handoff() {
 async fn stopping_the_source_does_not_stop_its_branch() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
-    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1 > nul" } else { "sleep 10" };
+    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1" } else { "sleep 10" };
     h.provider.push(tool_call("bash", &json!({ "command": sleep }).to_string()));
     h.engine.submit(&h.session.id, prompt("wait")).await.unwrap();
     h.provider.push(tool_call("bash", &json!({ "command": sleep }).to_string()));

@@ -243,12 +243,16 @@ impl Engine {
     }
 
     /// Runs `job` in a session already claimed: reports it running, then idle and releases it when done.
+    /// The job runs as its own task, so even one that panics releases the session.
     pub(super) fn spawn_job(self: &Arc<Self>, session_id: &str, job: impl std::future::Future<Output = ()> + Send + 'static) {
         self.hub.publish(Event::SessionStatusChanged { session_id: session_id.into(), status: SessionStatus::Running });
         let engine = self.clone();
         let id = session_id.to_string();
         tokio::spawn(async move {
-            job.await;
+            if let Err(failure) = tokio::spawn(job).await {
+                eprintln!("drift: a job for session {id} failed: {failure}");
+            }
+            engine.turns.retry_waits.lock().unwrap().remove(&id);
             engine.turns.active.lock().unwrap().remove(&id);
             engine.hub.publish(Event::SessionStatusChanged { session_id: id, status: SessionStatus::Idle });
             engine.turns.finished.notify_waiters();
@@ -731,10 +735,10 @@ impl Retry {
         if let Some(after) = self.after {
             return after;
         }
-        let doubled = RETRY_BASE.saturating_mul(1 << attempt.saturating_sub(1).min(16)).min(MAX_BACKOFF);
+        let doubled = RETRY_BASE.saturating_mul(1 << attempt.saturating_sub(1).min(16));
         let mut byte = [0u8; 1];
         let _ = getrandom::fill(&mut byte);
-        doubled.mul_f64(0.8 + 0.4 * f64::from(byte[0]) / 255.0)
+        doubled.mul_f64(0.8 + 0.4 * f64::from(byte[0]) / 255.0).min(MAX_BACKOFF)
     }
 }
 

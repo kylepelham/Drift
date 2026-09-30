@@ -288,10 +288,16 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   529, and for an error that arrives inside a stream that began 200 OK, its type
   (`overloaded_error`, `rate_limit_error`, `api_error`, `server_error`, `rate_limit_exceeded`,
   `UNAVAILABLE`, `RESOURCE_EXHAUSTED`, ...). A gateway's numeric code inside a streamed error
-  classifies as that status. Transport failures, including a stream cut short, retry too.
+  classifies as that status. Transport failures, including a stream cut short, retry too. A
+  permanent fault never retries whatever its status: `insufficient_quota` (which OpenAI sends as
+  429), `billing_hard_limit_reached`, `billing_not_active`, `access_terminated`.
 - The wait is the provider's when it names one: `retry-after-ms`, else `retry-after` in seconds or
-  as an HTTP date. `x-should-retry` overrides the classification either way. Otherwise the wait
-  starts at 1s and doubles, capped at 60s, with 20% jitter so parallel subagents spread out.
+  as an HTTP date. A value too large to represent saturates rather than failing, so it reads as
+  longer than any wait we accept. `x-should-retry` overrides the classification either way, except
+  that it cannot make a permanent fault retryable. Otherwise the wait starts at 1s and doubles with
+  20% jitter, capped at 60s after the jitter.
+- A job (a turn, a compaction) runs as its own task; if it panics, the session is still released,
+  its retry wait cleared and `idle` published.
 - At most 8 retries per step (the count resets after a step succeeds). A provider asking for more
   than 10 minutes, as a spent quota does, is not waited on: the error stands.
 - Each wait publishes `session.retry { attempt, message, nextAt }`, which the UI draws as the retry

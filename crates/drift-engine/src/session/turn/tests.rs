@@ -156,7 +156,7 @@ async fn a_shell_call_shows_its_limit_while_running_and_fails_when_it_expires() 
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
     h.engine.set_shell_timeout(Some(Duration::from_millis(400)));
-    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1 > nul" } else { "sleep 10" };
+    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1" } else { "sleep 10" };
     let mut rx = h.engine.hub.attach(None).rx;
     h.provider.push(tool_call("bash", &json!({ "command": sleep }).to_string())).push(text("it was too slow"));
     h.engine.submit(&h.session.id, prompt("wait")).await.await_ok();
@@ -182,7 +182,7 @@ async fn a_shell_call_shows_its_limit_while_running_and_fails_when_it_expires() 
 async fn abort_marks_the_message_and_frees_the_session() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
-    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1 > nul" } else { "sleep 10" };
+    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1" } else { "sleep 10" };
     h.provider.push(tool_call("bash", &json!({ "command": sleep }).to_string()));
     h.engine.submit(&h.session.id, prompt("wait")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -321,15 +321,44 @@ async fn a_provider_asking_for_too_long_a_wait_is_not_waited_on() {
     assert_eq!(transcript.last().unwrap().info.status, MessageStatus::Error, "the error stands for the user to see");
 }
 
+#[tokio::test]
+async fn a_spent_quota_is_one_request_and_an_endless_wait_releases_the_session() {
+    let h = harness().await;
+    h.provider.push_error(llm::Error::api(429, "insufficient_quota", "You exceeded your current quota"));
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(h.provider.requests.lock().unwrap().len(), 1, "a spent quota is not retried");
+
+    h.provider.push_error(asking_to_wait(Duration::MAX));
+    h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(h.provider.requests.lock().unwrap().len(), 2, "no retry, and the session is free");
+    assert!(!h.engine.turns.is_running(&h.session.id));
+}
+
+#[tokio::test]
+async fn a_job_that_panics_still_releases_its_session() {
+    let h = harness().await;
+    assert!(h.engine.turns.claim(&h.session.id, &CancellationToken::new()));
+    h.engine.spawn_job(&h.session.id, async { panic!("a bug in a job") });
+    until_idle(&h).await;
+    assert!(!h.engine.turns.is_running(&h.session.id));
+    h.provider.push(text("still usable"));
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    until_idle(&h).await;
+}
+
 #[test]
 fn backoff_doubles_with_jitter_under_a_cap_and_a_named_wait_is_used_as_is() {
     let unnamed = Retry { message: String::new(), after: None };
     for attempt in 1..=MAX_RETRIES {
         let delay = unnamed.delay(attempt);
-        let nominal = RETRY_BASE.saturating_mul(1 << (attempt - 1)).min(MAX_BACKOFF);
-        assert!(delay >= nominal.mul_f64(0.79) && delay <= nominal.mul_f64(1.21), "attempt {attempt}: {delay:?}");
+        let nominal = RETRY_BASE.saturating_mul(1 << (attempt - 1));
+        assert!(delay >= nominal.mul_f64(0.79).min(MAX_BACKOFF) && delay <= nominal.mul_f64(1.21).min(MAX_BACKOFF), "attempt {attempt}: {delay:?}");
     }
-    assert!(unnamed.delay(40) <= MAX_BACKOFF.mul_f64(1.21), "the cap holds however many attempts");
+    for _ in 0..50 {
+        assert!(unnamed.delay(40) <= MAX_BACKOFF, "the cap holds after jitter, however many attempts");
+    }
     let named = Retry { message: String::new(), after: Some(Duration::from_millis(1500)) };
     assert_eq!(named.delay(5), Duration::from_millis(1500));
     assert!(named.allowed(MAX_RETRIES - 1) && !named.allowed(MAX_RETRIES));
@@ -732,7 +761,7 @@ async fn stopping_only_the_subagent_while_it_compacts_reports_stopped_not_its_pr
 async fn stopping_only_the_subagent_while_its_tool_runs_reports_stopped() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
-    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1 > nul" } else { "sleep 10" };
+    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1" } else { "sleep 10" };
     let mut step = progress_then("bash", &json!({ "command": sleep }).to_string());
     step[0] = Chunk::Usage(Usage { input: 10, ..Usage::default() });
     h.provider.push(tool_call("task", r#"{"description": "Sleeps", "prompt": "go"}"#)).push(step).push(text("parent carries on"));
@@ -773,7 +802,7 @@ async fn a_subagent_runs_on_its_agents_pinned_model_and_actions_are_not_agents()
 async fn aborting_the_parent_aborts_a_running_child() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
-    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1 > nul" } else { "sleep 10" };
+    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1" } else { "sleep 10" };
     h.provider.push(tool_call("task", r#"{"description": "Wait", "prompt": "wait"}"#)).push(tool_call("bash", &json!({ "command": sleep }).to_string()));
     h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(600)).await;

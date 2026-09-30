@@ -56,7 +56,7 @@ fn texts(h: &Harness, id: &str) -> Vec<String> {
 
 fn long_bash(h: &Harness) {
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
-    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1 > nul" } else { "sleep 10" };
+    let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1" } else { "sleep 10" };
     h.provider.push(tool_call("bash", &json!({ "command": sleep }).to_string()));
 }
 
