@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::io::AsyncReadExt;
 
+use super::spool::{Spool, Spooled};
 use super::{command, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
 
@@ -12,7 +13,6 @@ use crate::llm::ToolSpec;
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 /// The longest a model may ask for, the same ceiling as the Settings choice (1,440 minutes).
 const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
-const MAX_OUTPUT_CHARS: usize = 30_000;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Shell {
@@ -119,55 +119,30 @@ impl Tool for Bash {
             cmd.creation_flags(0x0800_0000 | 0x0000_0004);
             crate::platform::process::prepare(&mut cmd);
             let mut child = cmd.spawn().map_err(|e| ToolError(format!("could not start shell: {e}")))?;
-            // Dropping 	ree for any reason, including this future being dropped, kills every descendant.
+            // Dropping `tree` for any reason, including this future being dropped, kills every descendant.
             let tree = child.id().and_then(|pid| crate::platform::process::Tree::adopt(pid).ok());
             #[cfg(windows)]
             resume_main_thread(&child);
-            let mut stdout = child.stdout.take().unwrap();
-            let mut stderr = child.stderr.take().unwrap();
-            let (mut out, mut err) = (Vec::new(), Vec::new());
-            let run = async {
-                let (a, b, status) = tokio::join!(stdout.read_to_end(&mut out), stderr.read_to_end(&mut err), child.wait());
-                a?;
-                b?;
-                status
-            };
-            let outcome = tokio::select! {
-                status = bounded(limit, run) => status,
-                () = ctx.abort.cancelled() => {
-                    kill_tree(&tree, &mut child).await;
-                    return Err(ToolError("aborted".into()));
+            let path = ctx.engine.data_dir.join("tool-output").join(&ctx.session_id).join(format!("{}.log", ctx.call_id));
+            let mut spool = Spool::new(Some(path));
+            let ended = {
+                let collecting = bounded(limit, collect(&mut child, &mut spool));
+                tokio::select! {
+                    ended = collecting => ended.unwrap_or(Ended::TimedOut),
+                    () = ctx.abort.cancelled() => Ended::Stopped,
                 }
             };
-            let status = match outcome {
-                Some(Ok(status)) => Some(status),
-                Some(Err(error)) => return Err(ToolError(error.to_string())),
-                None => {
-                    kill_tree(&tree, &mut child).await;
-                    None
-                }
-            };
-            let mut text = String::from_utf8_lossy(&out).into_owned();
-            if !err.is_empty() {
-                if !text.is_empty() {
-                    text.push('\n');
-                }
-                text.push_str(&String::from_utf8_lossy(&err));
+            if !matches!(ended, Ended::Exited { lingering: false, .. }) {
+                kill_tree(&tree, &mut child).await;
             }
-            let text = clip(text.trim_end());
             let title = input["description"].as_str().unwrap_or(command).to_string();
-            let limit_ms = limit.map(|d| d.as_millis() as u64);
-            let Some(status) = status else {
-                let seconds = limit.map_or(0, |d| d.as_secs());
-                let output = format!(
-                    "{text}\n\nThe command and its child processes were stopped after {seconds} s. If it needs longer and is not waiting for input, run it again with a larger `timeout` in milliseconds."
-                );
-                return Ok(Output { title, output: output.trim_start().into(), metadata: json!({ "timedOut": true, "shellTimeoutMs": limit_ms }) });
-            };
-            let code = status.code().unwrap_or(-1);
-            let output = if status.success() { text } else { format!("{text}\n\nexit code {code}").trim_start().into() };
-            Ok(Output { title, output, metadata: json!({ "exit": code, "shellTimeoutMs": limit_ms }) })
+            Ok(report(title, spool.finish(), ended, limit))
         })
+    }
+
+    /// Stop ends the command at once and keeps what it printed, so the turn awaits it rather than racing it.
+    fn stops_itself(&self) -> bool {
+        true
     }
 
     /// The limit shows while the command runs, so the user can see when it will be stopped.
@@ -175,10 +150,87 @@ impl Tool for Bash {
         Some(json!({ "shellTimeoutMs": limit_for(ctx, input).map(|d| d.as_millis() as u64) }))
     }
 
-    /// A command stopped by its time limit failed, though its partial output and limit still matter.
+    /// A command stopped by its time limit or by the user failed, though its partial output still matters.
     fn failed(&self, output: &Output) -> bool {
-        output.metadata["timedOut"] == true
+        output.metadata["timedOut"] == true || output.metadata["stopped"] == true
     }
+}
+
+/// How a command's run ended.
+enum Ended {
+    /// `lingering`: a background process still held its output open after the shell exited.
+    Exited { code: i32, lingering: bool },
+    TimedOut,
+    Stopped,
+    Failed(String),
+}
+
+/// After the shell exits, output still in flight gets this long to arrive; a pipe open past it is
+/// held by a background process, which does not outlive the call.
+const DRAIN: Duration = Duration::from_millis(500);
+
+/// Reads stdout and stderr into one spool in arrival order until both close and the shell exits.
+async fn collect(child: &mut tokio::process::Child, spool: &mut Spool) -> Ended {
+    let (Some(mut stdout), Some(mut stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        return Ended::Failed("the shell's output was not captured".into());
+    };
+    let (mut out_buf, mut err_buf) = ([0u8; 8192], [0u8; 8192]);
+    let (mut out_open, mut err_open) = (true, true);
+    let mut exited: Option<i32> = None;
+    let drain = tokio::time::sleep(Duration::MAX);
+    tokio::pin!(drain);
+    loop {
+        if let (Some(code), false, false) = (exited, out_open, err_open) {
+            return Ended::Exited { code, lingering: false };
+        }
+        tokio::select! {
+            read = stdout.read(&mut out_buf), if out_open => out_open = take(read, &out_buf, spool),
+            read = stderr.read(&mut err_buf), if err_open => err_open = take(read, &err_buf, spool),
+            status = child.wait(), if exited.is_none() => {
+                exited = Some(status.map_or(-1, |s| s.code().unwrap_or(-1)));
+                drain.as_mut().reset(tokio::time::Instant::now() + DRAIN);
+            }
+            () = &mut drain, if exited.is_some() => return Ended::Exited { code: exited.unwrap_or(-1), lingering: true },
+        }
+    }
+}
+
+/// Spools what a read returned; `false` once the pipe is closed or broken.
+fn take(read: std::io::Result<usize>, buffer: &[u8], spool: &mut Spool) -> bool {
+    match read {
+        Ok(0) | Err(_) => false,
+        Ok(n) => {
+            spool.push(&buffer[..n]);
+            true
+        }
+    }
+}
+
+fn report(title: String, spooled: Spooled, ended: Ended, limit: Option<Duration>) -> Output {
+    let text = spooled.text.trim_end().to_string();
+    let mut metadata = json!({ "shellTimeoutMs": limit.map(|d| d.as_millis() as u64), "outputBytes": spooled.total });
+    if let Some(file) = &spooled.file {
+        metadata["outputFile"] = json!(file.to_string_lossy());
+    }
+    let note = match ended {
+        Ended::Exited { code, lingering } => {
+            metadata["exit"] = json!(code);
+            let lingered = if lingering { "\n\nBackground processes still held the output open when the command finished; they were stopped. Run long-lived processes outside Drift." } else { "" };
+            let failed = if code == 0 { String::new() } else { format!("\n\nexit code {code}") };
+            format!("{lingered}{failed}")
+        }
+        Ended::TimedOut => {
+            metadata["timedOut"] = json!(true);
+            let seconds = limit.map_or(0, |d| d.as_secs());
+            format!("\n\nThe command and its child processes were stopped after {seconds} s. If it needs longer and is not waiting for input, run it again with a larger `timeout` in milliseconds.")
+        }
+        Ended::Stopped => {
+            metadata["stopped"] = json!(true);
+            "\n\nThe user stopped the command and its child processes.".into()
+        }
+        Ended::Failed(error) => format!("\n\n{error}"),
+    };
+    Output { title, output: format!("{text}{note}").trim_start().into(), metadata }
 }
 
 /// The model's `timeout` when it gives one, otherwise the user's Settings value; `None` never stops it.
@@ -232,15 +284,6 @@ fn resume_main_thread(child: &tokio::process::Child) {
     }
 }
 
-fn clip(text: &str) -> String {
-    if text.chars().count() <= MAX_OUTPUT_CHARS {
-        return text.to_string();
-    }
-    let half = MAX_OUTPUT_CHARS / 2;
-    let head: String = text.chars().take(half).collect();
-    let tail: String = text.chars().rev().take(half).collect::<Vec<_>>().into_iter().rev().collect();
-    format!("{head}\n\n... output clipped ...\n\n{tail}")
-}
 
 #[cfg(test)]
 mod tests {
@@ -271,10 +314,15 @@ mod tests {
             Shell::Bash(_) => "sleep 5",
             Shell::PowerShell(_) => "Start-Sleep 5",
         };
-        let stopped = bash.run(&sandbox.ctx, json!({ "command": sleep, "timeout": 300 })).await.unwrap();
+        let early_then_sleep = match bash.shell {
+            Shell::Bash(_) => "echo early; sleep 5",
+            Shell::PowerShell(_) => "Write-Output early; Start-Sleep 5",
+        };
+        let stopped = bash.run(&sandbox.ctx, json!({ "command": early_then_sleep, "timeout": 1500 })).await.unwrap();
         assert!(bash.failed(&stopped), "a command stopped by its limit is a failed call");
-        assert_eq!((stopped.metadata["timedOut"].as_bool(), stopped.metadata["shellTimeoutMs"].as_u64()), (Some(true), Some(300)));
+        assert_eq!((stopped.metadata["timedOut"].as_bool(), stopped.metadata["shellTimeoutMs"].as_u64()), (Some(true), Some(1500)));
         assert!(stopped.output.contains("stopped after"), "{}", stopped.output);
+        assert!(stopped.output.starts_with("early"), "what it printed before the limit is kept: {}", stopped.output);
 
         sandbox.ctx.engine.set_shell_timeout(Some(Duration::from_millis(300)));
         assert_eq!(bash.running_metadata(&sandbox.ctx, &json!({ "command": sleep })).unwrap()["shellTimeoutMs"], 300);
@@ -288,17 +336,63 @@ mod tests {
         };
         let unlimited = bash.run(&sandbox.ctx, json!({ "command": quick })).await.unwrap();
         assert!(!bash.failed(&unlimited) && unlimited.metadata["shellTimeoutMs"].is_null(), "no limit lets it finish");
-        sandbox.ctx.abort.cancel();
-        let err = bash.run(&sandbox.ctx, json!({ "command": sleep })).await.unwrap_err();
-        assert_eq!(err.0, "aborted");
     }
 
-    #[test]
-    fn long_output_keeps_head_and_tail() {
-        let long = "x".repeat(MAX_OUTPUT_CHARS * 2);
-        let clipped = clip(&long);
-        assert!(clipped.contains("output clipped"));
-        assert!(clipped.len() < long.len());
+    #[tokio::test]
+    async fn stop_keeps_what_the_command_printed() {
+        let sandbox = Sandbox::new("bash-stop");
+        let bash = Bash::detect();
+        let command = match bash.shell {
+            Shell::Bash(_) => "echo early; sleep 30",
+            Shell::PowerShell(_) => "Write-Output early; Start-Sleep 30",
+        };
+        let ctx = sandbox.ctx_clone();
+        let abort = ctx.abort.clone();
+        let running = tokio::spawn(async move { Bash::detect().run(&ctx, json!({ "command": command })).await });
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        let started = std::time::Instant::now();
+        abort.cancel();
+        let out = running.await.unwrap().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(3), "Stop is prompt");
+        assert!(bash.failed(&out) && out.metadata["stopped"] == true);
+        assert!(out.output.starts_with("early") && out.output.contains("stopped the command"), "{}", out.output);
+    }
+
+    #[tokio::test]
+    async fn a_background_process_holding_the_output_does_not_keep_the_call_waiting() {
+        let sandbox = Sandbox::new("bash-lingering");
+        sandbox.ctx.engine.set_shell_timeout(None);
+        let bash = Bash::detect();
+        let command = match bash.shell {
+            Shell::Bash(_) => "sleep 30 & echo done",
+            Shell::PowerShell(_) => "Start-Process -NoNewWindow pwsh -ArgumentList '-NoProfile','-Command','Start-Sleep 30'; Write-Output done",
+        };
+        let started = std::time::Instant::now();
+        let out = bash.run(&sandbox.ctx, json!({ "command": command })).await.unwrap();
+        assert!(started.elapsed() < Duration::from_secs(10), "no limit, yet it returns: {:?}", started.elapsed());
+        assert!(out.output.starts_with("done"), "{}", out.output);
+        assert_eq!(out.metadata["exit"], 0);
+        assert!(!bash.failed(&out));
+        if matches!(bash.shell, Shell::Bash(_)) {
+            assert!(out.output.contains("Background processes still held the output open"), "{}", out.output);
+        }
+    }
+
+    #[tokio::test]
+    async fn large_output_is_bounded_in_the_result_and_whole_on_disk() {
+        let sandbox = Sandbox::new("bash-large");
+        let bash = Bash::detect();
+        let command = match bash.shell {
+            Shell::Bash(_) => "for i in $(seq 1 40000); do echo line $i; done",
+            Shell::PowerShell(_) => "1..40000 | ForEach-Object { \"line $_\" }",
+        };
+        let out = bash.run(&sandbox.ctx, json!({ "command": command })).await.unwrap();
+        assert!(out.output.len() < super::super::spool::HEAD_BYTES + super::super::spool::TAIL_BYTES + 400, "{}", out.output.len());
+        assert!(out.output.starts_with("line 1") && out.output.contains("line 40000"));
+        let file = out.metadata["outputFile"].as_str().expect("the whole output is kept");
+        let whole = std::fs::read_to_string(file).unwrap();
+        assert_eq!(whole.lines().count(), 40000);
+        assert_eq!(out.metadata["outputBytes"].as_u64(), Some(std::fs::metadata(file).unwrap().len()));
     }
 }
 
@@ -320,8 +414,8 @@ mod tree_tests {
         let running = tokio::spawn(async move { Bash::detect().run(&ctx, json!({ "command": command })).await });
         tokio::time::sleep(Duration::from_millis(600)).await;
         abort.cancel();
-        let result = running.await.unwrap();
-        assert_eq!(result.unwrap_err().0, "aborted");
+        let result = running.await.unwrap().unwrap();
+        assert_eq!(result.metadata["stopped"], true);
         tokio::time::sleep(Duration::from_millis(3000)).await;
         assert!(!sandbox.ctx.workspace.join("late.txt").exists(), "a descendant kept running after Stop");
     }

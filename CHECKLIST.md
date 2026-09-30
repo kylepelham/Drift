@@ -73,7 +73,7 @@ change the plan there when a decision changes.
     - [x] Snapshot cost measured; no tree reuse without a reliable unchanged signal
     - [x] File-writing redirections need exact approval (bash and PowerShell)
     - [x] Permanent quota errors never retry; oversized `retry-after` cannot panic; failed jobs release the session; cap after jitter
-    - [ ] Bounded shell capture; inherited pipes and background descendants
+    - [x] Bounded shell capture; inherited pipes and background descendants
     - [ ] `.envrc`, `cd` chains, opaque-construct docs, periodic prune, OpenRouter caching verified
   - [ ] Shared HTTP client with connect, header and stream-idle timeouts; Stop cancels while waiting
   - [ ] Thinking budget within the output limit; max-tokens endings surfaced; unexecuted calls settled

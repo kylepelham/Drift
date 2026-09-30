@@ -11,6 +11,7 @@ pub mod question;
 pub mod read;
 pub mod sensitive;
 pub mod skill;
+pub mod spool;
 pub mod task;
 pub mod todo;
 pub mod webfetch;
@@ -214,6 +215,11 @@ pub trait Tool: Send + Sync {
     /// Metadata to show while the call runs, before its result exists.
     fn running_metadata(&self, _ctx: &Context, _input: &Value) -> Option<Value> {
         None
+    }
+    /// The call returns promptly by itself once `ctx.abort` fires, with a result worth keeping
+    /// (partial output). Otherwise a stop drops the call and records it as aborted.
+    fn stops_itself(&self) -> bool {
+        false
     }
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a>;
 }

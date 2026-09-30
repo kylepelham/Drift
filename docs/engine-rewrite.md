@@ -545,6 +545,16 @@ Settled after the first external review of M1; each has a regression test.
   never as a success the store lacks; a message whose terminal save fails stops the turn.
 - Stopping a shell stops its descendants: a Windows job object with kill-on-close, a unix
   process group. Dropping the run future has the same effect as an explicit abort.
+- Shell output is captured in bounded memory (`tool::spool`): stdout and stderr in arrival order,
+  whole while under 32 KB, then only the first and last 16 KB in memory with everything (up to
+  64 MB) in `<data>/tool-output/<session>/<call>.log`. The result names that file and carries
+  `outputBytes` and `outputFile`. A timeout or Stop keeps what was printed; the shell tool handles
+  Stop itself (`Tool::stops_itself`), so the turn awaits its result rather than dropping it, and the
+  call ends `error` with `stopped` or `timedOut` in its metadata.
+- Background processes do not outlive the call. Once the shell exits, output still in flight gets
+  500 ms; a pipe still open after that is held by a background descendant, so the call finishes
+  with the shell's exit code, the descendants are stopped, and the result says so. A command with
+  no time limit therefore cannot wait forever on a background process's inherited output.
 - Prompt admission is one transaction (`Store::admit_prompt`). If it fails, the session's
   busy reservation is released and nothing half-written remains. `Prompt.submissionId`  is
   optional and durable: the `submission` table records id, session, message and a hash of

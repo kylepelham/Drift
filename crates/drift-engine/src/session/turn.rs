@@ -633,9 +633,13 @@ impl Engine {
             self.settle(&mut row, ToolStatus::Error, None, format!("refused to run: could not record the call ({error})"), None);
             return Outcome::Allowed;
         }
-        let result = tokio::select! {
-            result = tool.run(&ctx, input) => result,
-            () = scope.abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
+        let result = if tool.stops_itself() {
+            tool.run(&ctx, input).await
+        } else {
+            tokio::select! {
+                result = tool.run(&ctx, input) => result,
+                () = scope.abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
+            }
         };
         let (status, title, text, meta) = match result {
             Ok(output) => {
