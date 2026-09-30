@@ -183,6 +183,11 @@ impl Turns {
         self.active.lock().unwrap().contains_key(session_id)
     }
 
+    /// A turn is running in the session and still takes prompts sent to it.
+    pub fn is_steerable(&self, session_id: &str) -> bool {
+        self.steering.lock().unwrap().contains(session_id)
+    }
+
     /// Resolves once the session has no turn in flight, or the caller is aborted.
     pub async fn wait_idle(&self, session_id: &str, abort: &CancellationToken) {
         loop {
@@ -336,14 +341,17 @@ impl Engine {
         Ok(Some(Receipt { session, message }))
     }
 
+    /// Stops the session's turn and the background workers it owns, running or idle.
     pub fn abort(&self, session_id: &str) -> bool {
-        match self.turns.active.lock().unwrap().get(session_id) {
+        let turn = match self.turns.active.lock().unwrap().get(session_id) {
             Some(token) => {
                 token.cancel();
                 true
             }
             None => false,
-        }
+        };
+        let workers = self.stop_workers(session_id);
+        turn || workers
     }
 
     pub(super) async fn plan(&self, session_id: &str, prompt: &Prompt) -> Result<Plan, TurnError> {

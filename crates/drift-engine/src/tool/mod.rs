@@ -254,6 +254,8 @@ impl Registry {
                 Arc::new(question::Question),
                 Arc::new(skill::Skill),
                 Arc::new(task::Task),
+                Arc::new(task::TaskOutput),
+                Arc::new(task::TaskStop),
                 Arc::new(task::ReadThread),
             ],
             dynamic: Default::default(),
@@ -355,9 +357,9 @@ pub(crate) mod tests {
     fn registry_exposes_every_builtin_with_a_schema() {
         let registry = Registry::builtin();
         let names: Vec<String> = registry.specs(ToolProfile::Edit).into_iter().map(|spec| spec.name).collect();
-        assert_eq!(names, ["read", "write", "edit", "bash", "glob", "grep", "webfetch", "todowrite", "question", "skill", "task", "read_thread"]);
+        assert_eq!(names, ["read", "write", "edit", "bash", "glob", "grep", "webfetch", "todowrite", "question", "skill", "task", "task_output", "task_stop", "read_thread"]);
         let patching: Vec<String> = registry.specs(ToolProfile::ApplyPatch).into_iter().map(|spec| spec.name).collect();
-        assert_eq!(patching, ["read", "apply_patch", "bash", "glob", "grep", "webfetch", "todowrite", "question", "skill", "task", "read_thread"]);
+        assert_eq!(patching, ["read", "apply_patch", "bash", "glob", "grep", "webfetch", "todowrite", "question", "skill", "task", "task_output", "task_stop", "read_thread"]);
         for spec in registry.specs(ToolProfile::Edit).into_iter().chain(registry.specs(ToolProfile::ApplyPatch)) {
             assert_eq!(spec.input_schema["type"], "object", "{}", spec.name);
             assert!(!spec.description.is_empty(), "{}", spec.name);

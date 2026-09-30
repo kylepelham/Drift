@@ -87,6 +87,9 @@ pub struct Agent {
     /// Front matter `steps:`: this agent's own step limit, in place of the workspace's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub steps: Option<u32>,
+    /// Front matter `background: true|false`: how a `task` for this agent runs when the call does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -237,6 +240,7 @@ impl Config {
                 builtin: false,
                 kind: self.workspace_kind(&name, doc.field("mode").as_deref()),
                 steps: doc.field("steps").and_then(|s| s.trim().parse().ok()).filter(|s: &u32| *s > 0),
+                background: doc.field("background").and_then(|b| b.trim().parse().ok()),
                 name: name.clone(),
             };
             self.agents.retain(|a| a.name != name);
@@ -288,6 +292,7 @@ fn builtin_agents() -> Vec<Agent> {
         builtin: true,
         kind,
         steps: None,
+        background: None,
     };
     vec![
         agent("build", "Reads, edits and runs code.", "", &[], AgentKind::Primary),

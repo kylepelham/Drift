@@ -66,6 +66,9 @@ pub enum Event {
     QuestionAsked { request: QuestionRequest },
     #[serde(rename = "question.replied", rename_all = "camelCase")]
     QuestionReplied { request_id: String, session_id: String },
+    /// A worker was launched, started, ended, or its result reached its parent.
+    #[serde(rename = "task.updated")]
+    TaskUpdated { task: crate::session::tasks::TaskRecord },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

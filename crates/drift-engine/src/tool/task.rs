@@ -1,4 +1,5 @@
-//! Delegation: `task` runs a subagent to completion; `read_thread` checks on a conversation branched from this one.
+//! Delegation: `task` runs a subagent, waiting for it or leaving it in the background; `task_output`
+//! and `task_stop` look after background ones; `read_thread` checks on a conversation branched from this one.
 
 use serde_json::{json, Value};
 
@@ -6,15 +7,14 @@ use super::{required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::config::AgentKind;
 use crate::event::Event;
 use crate::llm::ToolSpec;
-use crate::session::turn::{Prompt, TurnEnd};
-use crate::session::types::{MessageStatus, Part, Role, Visibility};
-use crate::store::NewSession;
+use crate::session::tasks::{clip, last_attempt, resolve_mode, Attempt, Mode, TaskRecord, TaskState, MAX_WAIT};
+use crate::session::turn::Prompt;
+use crate::session::types::{Part, Visibility};
+use crate::store::{NewSession, NewTask};
 
 /// Tools a subagent is never offered: delegation stays one level deep and branches belong to conversations.
-pub const DELEGATION: [&str; 2] = ["task", "read_thread"];
+pub const DELEGATION: [&str; 4] = ["task", "task_output", "task_stop", "read_thread"];
 
-/// How much of a child's final reply comes back to the parent verbatim.
-const RESULT_CHARS: usize = 20_000;
 const SUMMARY_CHARS: usize = 4_000;
 
 pub struct Task;
@@ -29,7 +29,8 @@ impl Tool for Task {
                 "properties": {
                     "description": { "type": "string", "description": "Three to six words naming the job, shown to the user." },
                     "prompt": { "type": "string", "description": "Everything the subagent needs: the goal, what to return, constraints. It sees none of this conversation." },
-                    "subagent_type": { "type": "string", "description": "A subagent from the list in the system prompt, such as explore for read-only searching. Default: general." }
+                    "subagent_type": { "type": "string", "description": "A subagent from the list in the system prompt, such as explore for read-only searching. Default: general." },
+                    "run_in_background": { "type": "boolean", "description": "Leave it running and carry on: this call returns at once with a task id, and the result arrives in this conversation when it finishes. For long work you do not need before your next step. Default: the subagent's own setting, else wait for it." }
                 },
                 "required": ["description", "prompt"]
             }),
@@ -50,11 +51,12 @@ impl Tool for Task {
                 return Err(ToolError("subagents cannot delegate".into()));
             }
             let config = ctx.engine.workspace_config(&ctx.workspace);
-            match config.agent(agent) {
-                Some(found) if found.kind != AgentKind::Action => {}
+            let background_default = match config.agent(agent) {
+                Some(found) if found.kind != AgentKind::Action => found.background,
                 Some(_) => return Err(ToolError(format!("{agent} is an engine action, not an agent that can take a task"))),
                 None => return Err(ToolError(format!("no agent named {agent}"))),
-            }
+            };
+            let (mode, reason) = resolve_mode(input["run_in_background"].as_bool(), background_default, ctx.engine.background_enabled()).map_err(ToolError)?;
             // An agent pinned to a model in Settings or its definition runs on it; otherwise the parent's model.
             let model = config.agent_model(agent).or(parent.model.clone());
             let title = format!("{description} (@{agent} subagent)");
@@ -66,33 +68,146 @@ impl Tool for Task {
                 agent,
                 model: model.as_ref(),
             })?;
+            let new = NewTask { parent_session_id: &parent.id, session_id: &child.id, call_id: &ctx.call_id, description, agent, mode, reason };
+            let (task, created) = ctx.engine.store.create_task(new)?;
+            if !created {
+                return Ok(receipt(&task));
+            }
             ctx.engine.hub.publish(Event::SessionCreated { session: child.clone() });
+            ctx.engine.publish_task(&task.id);
             ctx.engine.permissions.inherit(&child.id, &parent.id);
             let prompt = Prompt { parts: vec![Part::Text { text: text.into() }], model, thinking_budget: None, submission_id: None };
-            ctx.engine.submit_under(&child.id, prompt, Some(&ctx.abort)).await.map_err(|e| ToolError(format!("could not start subagent: {e}")))?;
-            ctx.engine.turns.wait_idle(&child.id, &ctx.abort).await;
-            if ctx.abort.is_cancelled() {
-                return Err(ToolError("aborted".into()));
+            if mode == Mode::Background {
+                ctx.engine.launch(task.clone(), prompt);
+                return Ok(receipt(&task));
             }
-            // How the turn ended decides; the transcript only supplies the words.
-            let attempt = match (ctx.engine.turns.take_end(&child.id), last_attempt(&ctx.engine.store, &child.id)?) {
-                (Some(TurnEnd::Stopped), _) => Attempt::Stopped,
-                (Some(TurnEnd::Failed), Attempt::Replied(_)) => Attempt::Failed("its turn ended without finishing".into()),
-                (_, attempt) => attempt,
-            };
-            let (outcome, text) = match attempt {
-                Attempt::Replied(reply) => ("replied", clip(&reply, RESULT_CHARS)),
-                Attempt::Failed(error) => ("failed", format!("The subagent failed: {error}")),
-                Attempt::Stopped => ("stopped", "The subagent was stopped before it finished.".into()),
-                Attempt::None => ("failed", "The subagent finished without a reply.".into()),
-            };
-            Ok(Output { title: description.into(), output: text, metadata: json!({ "sessionId": child.id, "agent": agent, "outcome": outcome }) })
+            foreground(ctx, &task, prompt).await
         })
     }
 
-    /// Only a reply is a result; a failed or stopped subagent is a failed call that still links to its transcript.
+    /// Only a reply or a launch is a result; a failed or stopped subagent is a failed call that still links to its transcript.
     fn failed(&self, output: &Output) -> bool {
-        output.metadata["outcome"] != "replied"
+        !matches!(output.metadata["outcome"].as_str(), Some("replied" | "launched"))
+    }
+}
+
+/// Runs the worker under the launching call and hands its result back as the call's result.
+async fn foreground(ctx: &Context, task: &TaskRecord, prompt: Prompt) -> Result<Output, ToolError> {
+    let engine = &ctx.engine;
+    let started = engine.submit_under(&task.session_id, prompt, Some(&ctx.abort)).await;
+    if let Err(error) = started {
+        engine.end_task(&task.id, TaskState::Failed, &error.to_string());
+        return Err(ToolError(format!("could not start subagent: {error}")));
+    }
+    engine.turns.wait_idle(&task.session_id, &ctx.abort).await;
+    let (state, text) = if ctx.abort.is_cancelled() { (TaskState::Stopped, "aborted".to_string()) } else { engine.worker_result(&task.session_id) };
+    engine.end_task(&task.id, state, &text);
+    engine.store.mark_task_delivered(&task.id)?;
+    engine.publish_task(&task.id);
+    if ctx.abort.is_cancelled() {
+        return Err(ToolError("aborted".into()));
+    }
+    let metadata = json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": state.as_str(), "mode": "foreground" });
+    Ok(Output { title: task.description.clone(), output: text, metadata })
+}
+
+/// What a background launch returns at once: the task, never its result.
+fn receipt(task: &TaskRecord) -> Output {
+    let output = format!(
+        "Started {} in the background as {} (@{}). Carry on with other work: its result will arrive in this conversation when it finishes. Use task_output only if you cannot continue without it.",
+        task.description, task.id, task.agent
+    );
+    let metadata = json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": "launched", "mode": task.mode.as_str(), "reason": task.reason });
+    Output { title: task.description.clone(), output, metadata }
+}
+
+/// A task this conversation launched, or a refusal naming why not.
+fn owned(ctx: &Context, input: &Value) -> Result<TaskRecord, ToolError> {
+    let id = required_str(input, "task_id")?;
+    let task = ctx.engine.store.task(id)?.ok_or_else(|| ToolError(format!("no task {id}")))?;
+    if task.parent_session_id != ctx.session_id {
+        return Err(ToolError(format!("{id} was not launched from this conversation")));
+    }
+    Ok(task)
+}
+
+fn describe(task: &TaskRecord) -> String {
+    let head = format!("{} (@{}, {}): {}", task.id, task.agent, task.description, task.state.as_str());
+    match &task.result {
+        Some(result) if task.state.is_terminal() => format!("{head}\n\n{result}"),
+        _ => head,
+    }
+}
+
+pub struct TaskOutput;
+
+impl Tool for TaskOutput {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "task_output".into(),
+            description: "Checks on a background task this conversation started: whether it is still running, and its result once it has one. Results arrive by themselves when a task finishes, so use this only when you cannot go on without the result; do not poll it in a loop.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "task_id": { "type": "string", "description": "The id the task call returned." },
+                    "wait_seconds": { "type": "integer", "description": "Wait up to this long for it to finish, at most 120. Default 0: answer at once." }
+                },
+                "required": ["task_id"]
+            }),
+        }
+    }
+
+    fn ask(&self, _ctx: &Context, _input: &Value) -> Option<Ask> {
+        None
+    }
+
+    fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
+        Box::pin(async move {
+            let mut task = owned(ctx, &input)?;
+            let wait = std::time::Duration::from_secs(input["wait_seconds"].as_u64().unwrap_or(0)).min(MAX_WAIT);
+            let until = tokio::time::Instant::now() + wait;
+            while !task.state.is_terminal() && tokio::time::Instant::now() < until && !ctx.abort.is_cancelled() {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                task = owned(ctx, &input)?;
+            }
+            // Read here, it need not arrive again as a message.
+            if task.state.is_terminal() && !task.delivered {
+                ctx.engine.store.mark_task_delivered(&task.id)?;
+                ctx.engine.publish_task(&task.id);
+            }
+            Ok(Output { title: task.description.clone(), output: describe(&task), metadata: json!({ "taskId": task.id, "state": task.state.as_str(), "sessionId": task.session_id }) })
+        })
+    }
+}
+
+pub struct TaskStop;
+
+impl Tool for TaskStop {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "task_stop".into(),
+            description: "Stops a background task this conversation started, and only that one.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": { "task_id": { "type": "string", "description": "The id the task call returned." } },
+                "required": ["task_id"]
+            }),
+        }
+    }
+
+    fn ask(&self, _ctx: &Context, _input: &Value) -> Option<Ask> {
+        None
+    }
+
+    fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
+        Box::pin(async move {
+            let task = owned(ctx, &input)?;
+            if task.state.is_terminal() {
+                return Ok(Output::new(task.description.clone(), format!("{} had already ended: {}.", task.id, task.state.as_str())));
+            }
+            let task = ctx.engine.stop_task(&task.id).map_err(|e| ToolError(e.to_string()))?;
+            Ok(Output::new(task.description.clone(), format!("Stopping {}.", task.id)))
+        })
     }
 }
 
@@ -133,7 +248,7 @@ impl Tool for ReadThread {
             if !todos.is_empty() {
                 lines.push(format!("Todos: {}", serde_json::to_string(&todos).unwrap()));
             }
-            match last_attempt(&ctx.engine.store, id)? {
+            match last_attempt(&ctx.engine.store, id) {
                 Attempt::Replied(reply) if !reply.is_empty() => lines.push(format!("Latest reply:\n{}", clip(&reply, SUMMARY_CHARS))),
                 Attempt::Failed(error) => lines.push(format!("Its last attempt failed: {error}")),
                 Attempt::Stopped => lines.push("Its last attempt was stopped.".into()),
@@ -142,34 +257,4 @@ impl Tool for ReadThread {
             Ok(Output { title: child.title.clone(), output: lines.join("\n"), metadata: json!({ "sessionId": id, "running": running }) })
         })
     }
-}
-
-/// How a session's last model attempt ended, as its transcript shows it.
-enum Attempt {
-    Replied(String),
-    Failed(String),
-    Stopped,
-    None,
-}
-
-/// Judged by the last attempt alone: an earlier success never stands in for a later failure. A finished
-/// summary is bookkeeping and skipped; a stopped or failed one is how the session last ended.
-fn last_attempt(store: &crate::store::Store, session_id: &str) -> Result<Attempt, ToolError> {
-    let transcript = store.transcript(session_id)?;
-    let Some(last) = transcript.iter().rev().find(|m| m.info.role == Role::Assistant && !(m.info.summary && m.info.status == MessageStatus::Done)) else {
-        return Ok(Attempt::None);
-    };
-    Ok(match last.info.status {
-        MessageStatus::Done => Attempt::Replied(last.parts.iter().filter_map(|row| match &row.part { Part::Text { text } => Some(text.as_str()), _ => None }).collect::<Vec<_>>().join("\n")),
-        MessageStatus::Error | MessageStatus::Paused => Attempt::Failed(last.info.error.clone().unwrap_or_else(|| "unknown error".into())),
-        MessageStatus::Aborted => Attempt::Stopped,
-        MessageStatus::Streaming => Attempt::None,
-    })
-}
-
-fn clip(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        return text.into();
-    }
-    format!("{}\n\n(truncated)", text.chars().take(max).collect::<String>())
 }

@@ -161,6 +161,17 @@ pub enum Part {
         /// Data URL for now; a content-addressed blob store replaces this later.
         url: String,
     },
+    /// A background worker's result, put into its parent's conversation by the engine, not typed by the user.
+    #[serde(rename_all = "camelCase")]
+    TaskResult {
+        task_id: String,
+        /// The worker's own transcript.
+        session_id: String,
+        description: String,
+        /// `replied`, `failed`, `stopped` or `interrupted`.
+        outcome: String,
+        text: String,
+    },
     /// The boundary of a compaction; its summary is the assistant message that follows.
     #[serde(rename_all = "camelCase")]
     Compaction {

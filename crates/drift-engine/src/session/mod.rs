@@ -10,6 +10,7 @@ mod oneshot;
 pub mod prompt;
 pub mod revert;
 pub mod snapshot;
+pub mod tasks;
 mod title;
 pub mod tree;
 pub mod turn;

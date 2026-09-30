@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-const MIGRATIONS: [&str; 8] = [
+const MIGRATIONS: [&str; 9] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -73,6 +73,24 @@ const MIGRATIONS: [&str; 8] = [
         value_json TEXT NOT NULL
     ) STRICT;",
     "ALTER TABLE session ADD COLUMN revert_json TEXT;",
+    "CREATE TABLE task(
+        id TEXT PRIMARY KEY,
+        parent_session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL,
+        call_id TEXT NOT NULL,
+        description TEXT NOT NULL,
+        agent TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK(mode IN ('foreground', 'background')),
+        reason TEXT NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('queued', 'running', 'replied', 'failed', 'stopped', 'interrupted')),
+        result TEXT,
+        delivered INTEGER NOT NULL DEFAULT 0 CHECK(delivered IN (0, 1)),
+        created_at INTEGER NOT NULL,
+        finished_at INTEGER,
+        UNIQUE(parent_session_id, call_id)
+    ) STRICT;
+    CREATE INDEX idx_task_parent ON task(parent_session_id, id);
+    CREATE INDEX idx_task_pending ON task(state, delivered);",
 ];
 
 #[cfg(test)]

@@ -86,6 +86,8 @@ pub struct Engine {
     pub catalog: RwLock<Catalog>,
     pub snapshots: Snapshots,
     pub turns: Turns,
+    /// Background workers' slots and their owners' stop scopes.
+    pub workers: session::tasks::Workers,
     pub http: reqwest::Client,
     /// Sign-in flows waiting for their callback code, keyed by state.
     pub oauth: std::sync::Mutex<std::collections::HashMap<String, String>>,
@@ -116,6 +118,7 @@ impl Engine {
             catalog: RwLock::new(Catalog::load(data_dir)),
             snapshots: Snapshots::new(data_dir),
             turns: Turns::default(),
+            workers: Default::default(),
             http: llm::http::client(),
             oauth: Default::default(),
             agent_overrides: Default::default(),
@@ -228,6 +231,7 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
         starting.refresh_catalog().await;
         starting.mcp.connect_all(&starting.store, &starting.hub).await;
         starting.tools.set_dynamic(starting.mcp.tools());
+        starting.recover_tasks().await;
         starting.maintain().await;
     });
     let listener = tokio::net::TcpListener::bind(addr).await?;
