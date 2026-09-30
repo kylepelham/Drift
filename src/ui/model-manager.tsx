@@ -166,7 +166,7 @@ function providerGroups(items: PickerItem[]) {
 }
 
 export function sortManagerModelItems(items: PickerItem[], visible: (item: PickerItem) => boolean) {
-  return [...items].sort((a, b) => Number(visible(b)) - Number(visible(a)) || a.label.localeCompare(b.label))
+  return [...items].sort((a, b) => Number(visible(b)) - Number(visible(a)) || (b.releaseDate ?? "").localeCompare(a.releaseDate ?? "") || a.label.localeCompare(b.label))
 }
 
 let providerDragged = false
