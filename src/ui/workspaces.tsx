@@ -69,6 +69,9 @@ export function WorkspaceGroup(props: {
   const children = (parentId: string) => sidebarWorkers(engine.state, parentId)
   const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
   const visibleSessions = createMemo(() => sessions().slice(0, visibleCount()))
+  // Rows are keyed by id; row objects are rebuilt on every session update and would remount the DOM.
+  const visibleIds = createMemo(() => visibleSessions().map((session) => session.id), [], { equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]) })
+  const rowFor = (id: string) => visibleSessions().find((session) => session.id === id)
   const remaining = createMemo(() => Math.max(0, sessions().length - visibleSessions().length))
   const openMenu = (x: number, y: number) => props.onMenu({ x, y, workspaceId: props.workspace.id })
   return (
@@ -135,17 +138,17 @@ export function WorkspaceGroup(props: {
       </div>
       <Show when={!collapsed()}>
         <div class="mt-0.5 ml-4 space-y-0.5 border-l border-edge pl-1.5">
-          <For each={visibleSessions()}>
-            {(session) => (
+          <For each={visibleIds()}>
+            {(id) => (
               <>
                 <ThreadItem
-                  sessionId={session.id}
-                  title={session.title}
-                  updated={session.updated}
+                  sessionId={id}
+                  title={rowFor(id)?.title ?? ""}
+                  updated={rowFor(id)?.updated ?? 0}
                   workspace={props.workspace}
                   onMenu={props.onSessionMenu}
                 />
-                <For each={children(session.id)}>
+                <For each={children(id)}>
                   {(child) => (
                     <ChildThreadItem
                       sessionId={child.id}

@@ -1,4 +1,4 @@
-import { createContext, onCleanup, useContext, type ParentProps } from "solid-js"
+import { createContext, onCleanup, untrack, useContext, type ParentProps } from "solid-js"
 import { produce } from "solid-js/store"
 import { normalizeDir as normalizeWorkspacePath } from "./store"
 import { workspaces } from "../state/workspaces"
@@ -117,7 +117,12 @@ export function EngineProvider(props: ParentProps) {
     }
   }
 
+  // Untracked: callers run this from effects, and the loads it starts read the state they later write.
   function setDirectory(path: string | null) {
+    untrack(() => applyDirectory(path))
+  }
+
+  function applyDirectory(path: string | null) {
     directory = path
     set("directory", path ?? "")
     if (!path) return

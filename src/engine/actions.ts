@@ -1,5 +1,6 @@
 // Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
 import type { Agent, Command, McpStatus, Permission, Session } from "@opencode-ai/sdk/client"
+import { untrack } from "solid-js"
 import { produce, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
 import { applyProviderCatalog } from "../state/provider-cache"
@@ -144,11 +145,10 @@ export function createActions(
     applyStatusSnapshot(set, { sessions, statuses, captured })
   }
 
+  // Loaders snapshot state untracked: effects call them, and they write what they read.
   async function loadSessions(directory: string) {
-    const workspace = workspaces().id(directory)
+    const { workspace, captured, epoch } = untrack(() => ({ workspace: workspaces().id(directory), captured: captureRevisions(state), epoch: state.sessionSnapshotEpoch }))
     if (!workspace) return
-    const captured = captureRevisions(state)
-    const epoch = state.sessionSnapshotEpoch
     const { sessions, running } = await allPages({ workspace })
     if (state.sessionSnapshotEpoch !== epoch) return
     applySessionSnapshot(set, { sessions, captured, scope: { directory } })
@@ -156,7 +156,7 @@ export function createActions(
   }
 
   async function loadAllSessions() {
-    const captured = captureRevisions(state)
+    const captured = untrack(() => captureRevisions(state))
     const [live, archived] = await Promise.all([allPages({}), allPages({ archived: true })])
     const sessions = [...live.sessions, ...archived.sessions]
     applySessionSnapshot(set, { sessions, captured })
