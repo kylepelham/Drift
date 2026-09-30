@@ -72,15 +72,21 @@ fn unprefix(chunk: Chunk, subscription: bool) -> Chunk {
     }
 }
 
+/// Anthropic allows four breakpoints: tools, system, and these two in the conversation.
+const CONVERSATION_BREAKPOINTS: usize = 2;
+
+/// Shared by every Anthropic route (key, subscription, gateway base URLs), so all of them cache.
 fn body(request: &Request) -> Value {
+    let mut messages: Vec<Value> = request.messages.iter().map(message).collect();
+    mark_conversation(&mut messages);
     let mut body = json!({
         "model": request.model,
         "max_tokens": request.max_tokens,
         "stream": true,
-        "messages": request.messages.iter().map(message).collect::<Vec<_>>(),
+        "messages": messages,
     });
     if !request.system.is_empty() {
-        body["system"] = json!([{ "type": "text", "text": request.system, "cache_control": { "type": "ephemeral" } }]);
+        body["system"] = json!([{ "type": "text", "text": request.system, "cache_control": ephemeral() }]);
     }
     if !request.tools.is_empty() {
         let mut tools: Vec<Value> = request
@@ -89,7 +95,7 @@ fn body(request: &Request) -> Value {
             .map(|tool| json!({ "name": tool.name, "description": tool.description, "input_schema": tool.input_schema }))
             .collect();
         if let Some(last) = tools.last_mut() {
-            last["cache_control"] = json!({ "type": "ephemeral" });
+            last["cache_control"] = ephemeral();
         }
         body["tools"] = Value::Array(tools);
     }
@@ -99,6 +105,27 @@ fn body(request: &Request) -> Value {
         body["temperature"] = json!(temperature);
     }
     body
+}
+
+fn ephemeral() -> Value {
+    json!({ "type": "ephemeral" })
+}
+
+/// Rolling breakpoints on the last two user messages: the newest writes the whole prefix, and the one
+/// before it sits exactly where the previous request wrote, so a step that adds more blocks than the
+/// cache lookback still hits.
+fn mark_conversation(messages: &mut [Value]) {
+    for message in messages.iter_mut().rev().filter(|m| m["role"] == "user").take(CONVERSATION_BREAKPOINTS) {
+        let last = message["content"].as_array_mut().and_then(|blocks| blocks.iter_mut().rev().find(|b| cacheable(b)));
+        if let Some(block) = last {
+            block["cache_control"] = ephemeral();
+        }
+    }
+}
+
+/// Thinking blocks and empty text cannot carry a breakpoint.
+fn cacheable(block: &Value) -> bool {
+    !matches!(block["type"].as_str(), Some("thinking" | "redacted_thinking")) && block["text"] != ""
 }
 
 fn message(message: &ChatMessage) -> Value {
@@ -240,6 +267,46 @@ mod tests {
         assert_eq!(body["messages"][1]["content"][0]["signature"], "sig");
         assert_eq!(body["messages"][1]["content"][1]["id"], "toolu_1");
         assert_eq!(body["messages"][2]["content"][0]["tool_use_id"], "toolu_1");
+    }
+
+    fn breakpoints(body: &Value) -> usize {
+        body.to_string().matches("\"cache_control\"").count()
+    }
+
+    fn marked(body: &Value, index: usize) -> bool {
+        body["messages"][index]["content"].as_array().unwrap().last().unwrap().get("cache_control").is_some()
+    }
+
+    #[test]
+    fn the_last_two_user_messages_carry_the_conversation_breakpoints() {
+        let mut first = request();
+        first.messages.truncate(1);
+        let first = body(&first);
+        assert!(marked(&first, 0));
+        assert_eq!(breakpoints(&first), 3, "system, tools and the only user message");
+
+        let mut next = request();
+        next.messages.push(ChatMessage { role: Role::Assistant, blocks: vec![Block::ToolUse { id: "toolu_2".into(), name: "read".into(), input: json!({}) }] });
+        next.messages.push(ChatMessage { role: Role::User, blocks: vec![Block::ToolResult { call_id: "toolu_2".into(), content: "ok".into(), is_error: false }] });
+        let previous = body(&request());
+        let next = body(&next);
+        assert_eq!(breakpoints(&next), 4, "never more than Anthropic allows");
+        assert!(marked(&next, 4) && marked(&next, 2) && !marked(&next, 0) && !marked(&next, 1) && !marked(&next, 3));
+        assert!(marked(&previous, 2), "the step before wrote at the block this one reads from");
+        let unmarked = |body: &Value| body["messages"].to_string().replace(r#""cache_control":{"type":"ephemeral"},"#, "");
+        assert!(unmarked(&next).starts_with(unmarked(&previous).trim_end_matches(']')), "and the content up to it is unchanged");
+    }
+
+    #[test]
+    fn breakpoints_skip_blocks_that_cannot_carry_one_and_survive_the_subscription_shape() {
+        let mut request = request();
+        request.messages[0].blocks = vec![Block::Text("look".into()), Block::Text(String::new())];
+        let mut body = body(&request);
+        assert!(body["messages"][0]["content"][0].get("cache_control").is_some(), "empty text is skipped for the block before it");
+        assert!(body["messages"][0]["content"][1].get("cache_control").is_none());
+        claude_code::transform(&mut body);
+        assert_eq!(breakpoints(&body), 4);
+        assert!(marked(&body, 2));
     }
 
     #[test]

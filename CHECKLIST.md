@@ -64,7 +64,7 @@ change the plan there when a decision changes.
   - [x] Snapshots: per-workspace lock, 10MB limit, retention and prune
   - [x] Shell-aware approvals: per-command decisions, no widening to the program name
   - [x] Secret files ask to be read inside the workspace, grep withholds them, examples exempt; `.git` and binaries skipped by search
-  - [ ] Anthropic conversation cache breakpoints (API key, subscription, gateway)
+  - [x] Anthropic conversation cache breakpoints (API key, subscription, gateway)
   - [ ] SSE error classification and bounded, cancellable, `retry-after`-aware backoff
   - [ ] Shared HTTP client with connect, header and stream-idle timeouts; Stop cancels while waiting
   - [ ] Thinking budget within the output limit; max-tokens endings surfaced; unexecuted calls settled

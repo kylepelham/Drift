@@ -461,6 +461,13 @@ these async criteria are new pending M3 work.
   `llm/anthropic/claude_code.rs` adds the identity and billing system blocks, prefixes tool
   names with `mcp_` and the adapter strips the prefix from what comes back. Subscription
   turns cost nothing, so their `cost` is recorded as zero.
+- Anthropic prompt caching uses all four breakpoints: the last tool, the system prompt, and the
+  last cacheable block of the two newest user messages. The newest writes the whole prefix; the
+  one before it sits exactly where the previous step wrote, so a tool loop pays only for each
+  step's new blocks even past the 20-block lookback. Thinking blocks and empty text never carry
+  one. The marks are set in the adapter's shared body, so key, subscription (whose extra system
+  blocks add none) and gateway base URLs all cache alike. Compat routes send none: OpenRouter is
+  not a catalog provider yet, and marking by model id is off the table.
 - Tool calls run in the order the model issued them, one at a time. `edit` and `write`
   refuse files the session has not `read`; the first mutating call in a message takes a
   snapshot and records its tree id in the part's metadata.
