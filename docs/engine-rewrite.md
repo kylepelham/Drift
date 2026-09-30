@@ -582,9 +582,24 @@ Settled after the first external review of M1; each has a regression test.
   `credentials`, private SSH keys) ask to be read even inside the workspace. A name part such
   as `example`, `sample`, `template` or `dist` marks a committed template, which reads freely.
   `grep` skips secrets and says how many it withheld unless one is named as its path, which
-  asks first; `glob` and directory listings still show their names. Every read path, including
-  @ expansion when it lands (gap item 13), goes through `Context::ask_to_read`. The shell is not
-  covered: `cat .env` asks as a command, not as a secret read.
+  asks first; `glob` and directory listings still show their names. Every read path goes through
+  `tool::read_ask`, @ mentions included. The shell is not covered: `cat .env` asks as a command,
+  not as a secret read.
+- A prompt's files are prepared before it is admitted (`session::attach`), for a new turn and a
+  steered prompt alike:
+  - An @ mention (a `file:` URL part) is read in as `<file path="...">...</file>` only where
+    `read` would read without asking: inside the workspace and not a secret, or allowed by a rule
+    or a session approval. Otherwise the file is not read and the model gets a note saying why and
+    to use `read`, which asks. A denied path says a rule forbids it. Directories list up to 1,000
+    entries; binary files and files that do not exist say so; text past 64 KB is cut at a line
+    with the offset to read on from.
+  - Text data URLs travel as text. Images go only to a model whose catalog entry says it reads
+    attachments. Anything else (audio, video, a PDF sent as data, a non-`file`/`data` URL) and an
+    image for a model that cannot read it is refused with 400 `attachment` naming the file, never
+    dropped. The UI still extracts PDF, text and CSV attachments to text before sending.
+  - `GET /workspaces/{id}/files?query=` serves @ autocomplete: the same walk as `glob` (ignore
+    rules apply, version-control internals never), directories with a trailing `/`, ranked by name
+    prefix, name substring, path substring, then letters in order.
 - `glob` and `grep` never descend into `.git`, `.hg`, `.svn` or `.jj`, and `grep` stops a
   file at its first NUL byte, so binaries produce no matches.
 - A mutating call refuses to run if its snapshot cannot be taken or its start cannot be

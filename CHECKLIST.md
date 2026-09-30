@@ -81,8 +81,8 @@ change the plan there when a decision changes.
   - [x] Configurable step limits and repeated-call intervention
   - [x] Shared tool-output limits with full-output artifacts (read, list, MCP, shell)
   - [x] Engine-owned steering and queueing at safe boundaries
-  - [ ] File discovery and @ expansion, every read through `Context::ask_to_read`
-  - [ ] Attachments validated against model capabilities; no silent drops
+  - [x] File discovery and @ expansion, every read through `tool::read_ask`
+  - [x] Attachments validated against model capabilities; no silent drops
   - [ ] Explicit denial and stop feedback; parent-to-worker permission inheritance
 - [ ] Per-session runtime config snapshots
 - [ ] Async questions and MCP reconnect/reload deferred from M2

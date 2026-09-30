@@ -90,6 +90,8 @@ export function createClient(target: Target) {
     messages: (id: string, params: operations["listMessages"]["parameters"]["query"] = {}, signal?: AbortSignal) =>
       request<Json<"listMessages", 200>>("GET", `/sessions/${id}/messages${query({ ...params })}`, undefined, signal),
     submit: (id: string, prompt: Prompt) => request<Json<"submitTurn", 202>>("POST", `/sessions/${id}/turns`, prompt),
+    findFiles: (workspaceId: string, text: string, signal?: AbortSignal) =>
+      request<Json<"findFiles", 200>>("GET", `/workspaces/${workspaceId}/files${query({ query: text })}`, undefined, signal),
     abort: (id: string) => request<Json<"abortTurn", 200>>("POST", `/sessions/${id}/abort`),
     providers: () => request<Json<"listProviders", 200>>("GET", "/providers"),
     setProviderKey: (id: string, key: string) => request<void>("PUT", `/providers/${id}/key`, { key }),

@@ -442,6 +442,12 @@ export function createActions(
     }
   }
 
+  /** Paths in the current workspace for an @ mention; the engine ranks them and applies ignore rules. */
+  async function findFiles(text: string): Promise<string[]> {
+    const workspace = workspaces().id(state.directory)
+    return workspace ? requireClient().findFiles(workspace, text) : []
+  }
+
   /** Agents and commands come from the workspace's drift.json and .drift/ directory. */
   async function refreshAgents() {
     const workspace = workspaces().id(state.directory)
@@ -522,7 +528,7 @@ export function createActions(
     providerCallback,
     notice,
     refreshAgents,
-    findFiles: async (_query: string): Promise<string[]> => [],
+    findFiles,
     steer: async (id: string, text: string, options: PromptOptions) => send(id, text, options),
     fork,
     draftBranch,

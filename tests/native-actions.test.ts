@@ -54,6 +54,13 @@ test("loading sessions for a directory scopes the request to its workspace", asy
   expect(h.state.sessions.ses_1!.directory).toBe("C:/repo")
 })
 
+test("file mentions search the current workspace through the engine", async () => {
+  const searched: unknown[][] = []
+  const h = harness({ findFiles: (...args: unknown[]) => (searched.push(args), Promise.resolve(["src/composer.tsx"])) } as Partial<Client>)
+  expect(await h.actions.findFiles("comp")).toEqual(["src/composer.tsx"])
+  expect(searched).toEqual([["w1", "comp"]])
+})
+
 test("send maps model, files and reasoning effort onto the native prompt", async () => {
   const h = harness()
   const result = await h.actions.send("ses_1", "hello", {
