@@ -299,6 +299,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   its retry wait cleared and `idle` published.
 - At most 8 retries per step (the count resets after a step succeeds). A provider asking for more
   than 10 minutes, as a spent quota does, is not waited on: the error stands.
+- The SSE parser decodes UTF-8 across network reads: a character split between two reads is held
+  until its last byte arrives (text and tool arguments alike), and only bytes that can never form
+  a character become U+FFFD.
 - Every provider, OAuth, catalog and MCP HTTP request goes through one shared client
   (`llm::http::client`): shared connection pool, 15 s connect timeout, TCP keepalive. A provider
   request whose response has not begun within 120 s fails as a transport error, and a stream with

@@ -14,6 +14,8 @@ pub struct SseEvent {
 #[derive(Default)]
 pub struct Parser {
     buffer: String,
+    /// The start of a character whose remaining bytes are in the next network read.
+    pending: Vec<u8>,
     event: String,
     data: Vec<String>,
 }
@@ -21,7 +23,7 @@ pub struct Parser {
 impl Parser {
     /// Feeds bytes and returns every event completed by them.
     pub fn feed(&mut self, chunk: &[u8]) -> Vec<SseEvent> {
-        self.buffer.push_str(&String::from_utf8_lossy(chunk));
+        self.decode(chunk);
         let mut events = Vec::new();
         while let Some(end) = self.buffer.find('\n') {
             let line = self.buffer[..end].trim_end_matches('\r').to_string();
@@ -31,6 +33,30 @@ impl Parser {
             }
         }
         events
+    }
+
+    /// Appends complete characters to the buffer and keeps an unfinished one for the next read; bytes
+    /// that can never form a character become U+FFFD.
+    fn decode(&mut self, chunk: &[u8]) {
+        self.pending.extend_from_slice(chunk);
+        loop {
+            let error = match std::str::from_utf8(&self.pending) {
+                Ok(text) => {
+                    self.buffer.push_str(text);
+                    self.pending.clear();
+                    return;
+                }
+                Err(error) => error,
+            };
+            let valid = error.valid_up_to();
+            self.buffer.push_str(std::str::from_utf8(&self.pending[..valid]).unwrap_or_default());
+            let Some(bad) = error.error_len() else {
+                self.pending.drain(..valid);
+                return;
+            };
+            self.buffer.push('\u{FFFD}');
+            self.pending.drain(..valid + bad);
+        }
     }
 
     fn line(&mut self, line: &str) -> Option<SseEvent> {
@@ -100,6 +126,33 @@ mod tests {
                 SseEvent { event: "ping".into(), data: "{}".into() },
             ]
         );
+    }
+
+    #[test]
+    fn characters_split_across_reads_arrive_whole_at_every_split() {
+        let frames = "event: content_block_delta\ndata: {\"delta\":{\"type\":\"text_delta\",\"text\":\"LEFT € RIGHT 日本 🎉\"}}\n\n\
+                      event: content_block_delta\ndata: {\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\": \\\"ü/café.rs\\\"}\"}}\n\n";
+        let bytes = frames.as_bytes();
+        let whole = Parser::default().feed(bytes);
+        for split in 1..bytes.len() {
+            let mut parser = Parser::default();
+            let mut events = parser.feed(&bytes[..split]);
+            events.extend(parser.feed(&bytes[split..]));
+            assert_eq!(events, whole, "split at byte {split}");
+        }
+        let one_by_one: Vec<SseEvent> = {
+            let mut parser = Parser::default();
+            bytes.iter().flat_map(|b| parser.feed(std::slice::from_ref(b))).collect()
+        };
+        assert_eq!(one_by_one, whole, "one byte per read");
+        assert!(whole[0].data.contains("LEFT € RIGHT 日本 🎉") && whole[1].data.contains("café"));
+    }
+
+    #[test]
+    fn bytes_that_can_never_be_a_character_are_replaced_not_held() {
+        let mut parser = Parser::default();
+        let events = parser.feed(b"data: a\xffb\n\n");
+        assert_eq!(events[0].data, "a\u{FFFD}b");
     }
 
     #[tokio::test]
