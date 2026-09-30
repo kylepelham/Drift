@@ -35,6 +35,7 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(health::get))
         .routes(routes!(workspaces::list, workspaces::create))
         .routes(routes!(workspaces::config))
+        .routes(routes!(workspaces::files))
         .routes(routes!(sessions::list, sessions::create))
         .routes(routes!(sessions::get, sessions::update, sessions::delete))
         .routes(routes!(sessions::messages))

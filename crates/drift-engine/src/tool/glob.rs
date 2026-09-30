@@ -76,6 +76,43 @@ fn find(root: &Path, pattern: &str) -> Result<(Found, bool), ToolError> {
     Ok((found, false))
 }
 
+/// Paths the walk looks at before settling for what it has: a mention search must answer while typing.
+const MAX_SCANNED: usize = 50_000;
+
+/// Workspace paths (directories end in `/`) matching `query` for an @ mention, best first: a name
+/// that starts with it, a name that contains it, a path that contains it, then its letters in order.
+pub fn search_names(root: &Path, query: &str, limit: usize) -> Vec<String> {
+    let query = query.trim().to_lowercase().replace('\\', "/");
+    let mut ranked: Vec<(u8, String)> = super::walk(root)
+        .flatten()
+        .take(MAX_SCANNED)
+        .filter(|entry| entry.depth() > 0)
+        .filter_map(|entry| {
+            let relative = entry.path().strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/");
+            let shown = if entry.file_type().is_some_and(|t| t.is_dir()) { format!("{relative}/") } else { relative };
+            Some((rank(&shown, &query)?, shown))
+        })
+        .collect();
+    ranked.sort_by(|a, b| (a.0, a.1.len(), &a.1).cmp(&(b.0, b.1.len(), &b.1)));
+    ranked.into_iter().take(limit).map(|(_, path)| path).collect()
+}
+
+fn rank(path: &str, query: &str) -> Option<u8> {
+    let lower = path.to_lowercase();
+    let name = lower.trim_end_matches('/').rsplit('/').next().unwrap_or(&lower);
+    if name.starts_with(query) {
+        return Some(0);
+    }
+    if name.contains(query) {
+        return Some(1);
+    }
+    if lower.contains(query) {
+        return Some(2);
+    }
+    let mut letters = lower.chars();
+    query.chars().all(|wanted| letters.any(|c| c == wanted)).then_some(3)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::tests::Sandbox;
@@ -95,6 +132,24 @@ mod tests {
         assert_eq!(lines, ["src/a.rs", "src/deep/b.rs"]);
         let none = Glob.run(&sandbox.ctx, json!({ "pattern": "*.py" })).await.unwrap();
         assert_eq!(none.output, "No files matched");
+    }
+
+    #[test]
+    fn mention_search_ranks_names_before_paths_and_skips_ignored_and_git() {
+        let sandbox = Sandbox::new("mention-search");
+        sandbox.file("src/composer.tsx", "");
+        sandbox.file("src/ui/composer-mentions.ts", "");
+        sandbox.file("docs/compose.md", "");
+        sandbox.file("tests/composer.test.ts", "");
+        sandbox.file("dist/composer.js", "");
+        sandbox.file(".gitignore", "dist/\n");
+        sandbox.file(".git/composer", "");
+        let found = search_names(&sandbox.ctx.workspace, "composer", 10);
+        assert_eq!(found[..3], ["src/composer.tsx", "tests/composer.test.ts", "src/ui/composer-mentions.ts"], "{found:?}");
+        assert!(!found.iter().any(|p| p.starts_with("dist/") || p.starts_with(".git/")), "{found:?}");
+        assert_eq!(search_names(&sandbox.ctx.workspace, "src", 1), ["src/"], "directories are offered too");
+        assert!(search_names(&sandbox.ctx.workspace, "scmp", 10).contains(&"src/composer.tsx".to_string()), "letters in order still match");
+        assert!(search_names(&sandbox.ctx.workspace, "zzz", 10).is_empty());
     }
 
     #[tokio::test]

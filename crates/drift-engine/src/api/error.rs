@@ -52,6 +52,7 @@ impl From<TurnError> for ApiError {
             TurnError::Reverted => (StatusCode::CONFLICT, "reverted"),
             TurnError::SubmissionReused => (StatusCode::CONFLICT, "submission"),
             TurnError::NoModel | TurnError::UnknownModel => (StatusCode::BAD_REQUEST, "model"),
+            TurnError::Attachment(_) => (StatusCode::BAD_REQUEST, "attachment"),
             TurnError::NoCredentials => (StatusCode::UNAUTHORIZED, "credentials"),
             TurnError::Store(_) => (StatusCode::INTERNAL_SERVER_ERROR, "store"),
         };

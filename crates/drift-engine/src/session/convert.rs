@@ -42,6 +42,7 @@ fn user_blocks(message: &MessageWithParts) -> Vec<Block> {
             Part::File { mime, url, .. } if mime.starts_with("image/") => {
                 url.split_once(",").map(|(_, data)| Block::Image { mime: mime.clone(), base64: data.to_string() })
             }
+            Part::File { mime, url, .. } if mime.starts_with("text/") => super::attach::data_text(url).map(Block::Text),
             _ => None,
         })
         .collect()

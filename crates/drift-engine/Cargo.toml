@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 axum = { workspace = true, features = ["ws"] }
+# Text files in prompts travel as data URLs; both crates are already in the tree through reqwest.
+base64 = "0.22"
 bytes = "1"
 futures-util = { workspace = true }
 getrandom = { workspace = true }
@@ -17,6 +19,7 @@ http = "1"
 httpdate = "1"
 ignore = "0.4"
 keyring = "4"
+percent-encoding = "2"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "stream", "http2"] }
 rmcp = { version = "3", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider"] }
 rusqlite = { workspace = true }

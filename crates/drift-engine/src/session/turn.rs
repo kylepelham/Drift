@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
 use super::assemble::Assembler;
+use super::attach::Attach;
 use super::compaction::{self, Trigger};
 use super::oneshot::Resolved;
 use super::prompt;
@@ -80,6 +81,8 @@ pub enum TurnError {
     NotRetrying,
     /// The session is undone back to a prompt; send a prompt or redo first.
     Reverted,
+    /// A file in the prompt cannot go to this model; says which and why.
+    Attachment(String),
     Store(String),
 }
 
@@ -95,6 +98,7 @@ impl std::fmt::Display for TurnError {
             Self::NoCredentials => write!(f, "provider has no credentials"),
             Self::NotRetrying => write!(f, "the session is not waiting to retry"),
             Self::Reverted => write!(f, "the session is undone; send a prompt or redo first"),
+            Self::Attachment(message) => write!(f, "{message}"),
             Self::Store(message) => write!(f, "store: {message}"),
         }
     }
@@ -232,7 +236,15 @@ impl Engine {
             }
         };
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash.as_str()));
-        let admitted = match self.store.admit_prompt(session_id, &plan.model_ref, prompt.parts, submission) {
+        let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), model: &plan.model };
+        let parts = match attach.prepare(prompt.parts) {
+            Ok(parts) => parts,
+            Err(error) => {
+                self.turns.release(session_id);
+                return Err(error);
+            }
+        };
+        let admitted = match self.store.admit_prompt(session_id, &plan.model_ref, parts, submission) {
             Ok(admitted) => admitted,
             Err(error) => {
                 self.turns.release(session_id);
@@ -275,14 +287,22 @@ impl Engine {
 
     /// Admits `prompt` into the turn running in `session_id`, if one is running and still taking prompts.
     fn steer(&self, session_id: &str, prompt: &Prompt, payload_hash: &str) -> Result<Option<Receipt>, TurnError> {
+        if !self.turns.steering.lock().unwrap().contains(session_id) {
+            return Ok(None);
+        }
+        let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
+        let model_ref = prompt.model.clone().or(session.model.clone()).ok_or(TurnError::NoModel)?;
+        let model = self.catalog.read().unwrap().providers.get(&model_ref.provider).and_then(|p| p.models.get(&model_ref.model)).cloned().ok_or(TurnError::UnknownModel)?;
+        let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
+        let workspace = crate::tool::canonical(Path::new(&workspace.path));
+        let policy = self.workspace_config(&workspace).policy();
+        let parts = Attach { engine: self, session_id, workspace: &workspace, policy: &policy, model: &model }.prepare(prompt.parts.clone())?;
         let steering = self.turns.steering.lock().unwrap();
         if !steering.contains(session_id) {
             return Ok(None);
         }
-        let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
-        let model_ref = prompt.model.clone().or(session.model).ok_or(TurnError::NoModel)?;
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
-        let admitted = self.store.admit_prompt(session_id, &model_ref, prompt.parts.clone(), submission)?;
+        let admitted = self.store.admit_prompt(session_id, &model_ref, parts, submission)?;
         drop(steering);
         Ok(Some(self.announce(session_id, admitted)))
     }

@@ -178,6 +178,11 @@ impl Permissions {
         }
     }
 
+    /// What the rules and the session's approvals say right now, without asking anyone.
+    pub fn decide_now(&self, session_id: &str, workspace: &Policy, ask: &Ask) -> Decision {
+        self.decide(session_id, workspace, ask)
+    }
+
     /// Resolves immediately from rules, or publishes a request and waits for the user.
     pub async fn check(&self, hub: &Hub, workspace: &Policy, request: Request, abort: &CancellationToken) -> Outcome {
         match self.decide(&request.session_id, workspace, &request.ask) {

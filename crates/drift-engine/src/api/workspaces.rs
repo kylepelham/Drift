@@ -48,6 +48,30 @@ pub async fn create(
     Ok((StatusCode::CREATED, Json(workspace)))
 }
 
+#[derive(Deserialize, utoipa::IntoParams)]
+pub struct FileQuery {
+    /// What the user typed after `@`.
+    #[serde(default)]
+    pub query: String,
+    /// At most this many paths; default 20.
+    pub limit: Option<usize>,
+}
+
+/// Workspace paths for an @ mention, best match first (directories end in `/`). Names only: reading a
+/// mentioned file is decided when the prompt is sent.
+#[utoipa::path(get, path = "/workspaces/{id}/files", operation_id = "findFiles", params(FileQuery), responses((status = 200, body = Vec<String>), (status = 404)))]
+pub async fn files(
+    State(engine): State<Arc<Engine>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<FileQuery>,
+) -> Result<Json<Vec<String>>, StatusCode> {
+    let workspace = engine.store.workspace(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
+    let root = crate::tool::canonical(std::path::Path::new(&workspace.path));
+    let limit = query.limit.unwrap_or(20).clamp(1, 200);
+    let found = tokio::task::spawn_blocking(move || crate::tool::glob::search_names(&root, &query.query, limit)).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(found))
+}
+
 #[utoipa::path(get, path = "/workspaces/{id}/config", operation_id = "workspaceConfig", responses((status = 200, body = crate::config::Config), (status = 404)))]
 pub async fn config(State(engine): State<Arc<Engine>>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<Json<crate::config::Config>, StatusCode> {
     let workspace = engine.store.workspace(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;

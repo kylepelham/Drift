@@ -695,6 +695,73 @@ async fn a_prompt_sent_during_another_job_waits_and_then_runs() {
     assert_eq!(h.provider.responses_left(), 0);
 }
 
+fn mention(path: &std::path::Path) -> Part {
+    let path = path.to_string_lossy().replace('\\', "/");
+    let url = if path.starts_with('/') { format!("file://{path}") } else { format!("file:///{path}") };
+    Part::File { mime: "text/plain".into(), name: "mention".into(), url }
+}
+
+fn with_files(text: &str, files: Vec<Part>) -> Prompt {
+    let mut prompt = prompt(text);
+    prompt.parts.extend(files);
+    prompt
+}
+
+async fn sent_text(h: &Harness, prompt: Prompt) -> String {
+    h.provider.push(text("ok"));
+    h.engine.submit(&h.session.id, prompt).await.await_ok();
+    until_idle(h).await;
+    texts_sent(h.provider.requests.lock().unwrap().last().unwrap()).join("\n")
+}
+
+#[tokio::test]
+async fn a_mentioned_workspace_file_is_read_into_the_prompt() {
+    let h = harness().await;
+    let ws = h._dir.join("ws");
+    std::fs::write(ws.join("notes.md"), "remember the milk\n").unwrap();
+    std::fs::create_dir_all(ws.join("src")).unwrap();
+    std::fs::write(ws.join("src/lib.rs"), "").unwrap();
+    let sent = sent_text(&h, with_files("see @notes.md and @src", vec![mention(&ws.join("notes.md")), mention(&ws.join("src"))])).await;
+    assert!(sent.contains("<file path=\"notes.md\">\nremember the milk"), "{sent}");
+    assert!(sent.contains("<file path=\"src\">\nlib.rs"), "a directory lists its entries: {sent}");
+}
+
+#[tokio::test]
+async fn a_mentioned_secret_or_outside_file_is_not_read_without_a_rule() {
+    let h = harness().await;
+    let ws = h._dir.join("ws");
+    std::fs::write(ws.join(".env"), "API_KEY=hunter2\n").unwrap();
+    let outside = h._dir.join("outside.txt");
+    std::fs::write(&outside, "far away\n").unwrap();
+    let sent = sent_text(&h, with_files("look", vec![mention(&ws.join(".env")), mention(&outside)])).await;
+    assert!(!sent.contains("hunter2") && !sent.contains("far away"), "{sent}");
+    assert!(sent.contains("@.env was mentioned but not read: it may hold secrets. Use the read tool"), "{sent}");
+    assert!(sent.contains("it is outside the workspace"), "{sent}");
+
+    let resolved = crate::tool::canonical(&outside).to_string_lossy().into_owned();
+    std::fs::write(ws.join("drift.json"), serde_json::json!({ "permissions": [{ "kind": "read", "pattern": resolved, "decision": "allow" }] }).to_string()).unwrap();
+    let allowed = sent_text(&h, with_files("again", vec![mention(&outside)])).await;
+    assert!(allowed.contains("far away"), "a rule that allows the read lets the mention in: {allowed}");
+}
+
+#[tokio::test]
+async fn files_a_model_cannot_take_are_refused_not_dropped() {
+    let h = harness().await;
+    let image = Part::File { mime: "image/png".into(), name: "shot.png".into(), url: "data:image/png;base64,iVBORw0KGgo=".into() };
+    h.engine.catalog.write().unwrap().providers.get_mut("anthropic").unwrap().models.get_mut("claude-sonnet-4-5").unwrap().attachment = false;
+    let refused = h.engine.submit(&h.session.id, with_files("look", vec![image.clone()])).await.unwrap_err();
+    assert!(matches!(&refused, TurnError::Attachment(m) if m.contains("cannot read images") && m.contains("shot.png")), "{refused:?}");
+    assert!(!h.engine.turns.is_running(&h.session.id), "a refused prompt leaves the session free");
+    let audio = Part::File { mime: "audio/wav".into(), name: "memo.wav".into(), url: "data:audio/wav;base64,UklGRg==".into() };
+    assert!(matches!(h.engine.submit(&h.session.id, with_files("hear", vec![audio])).await, Err(TurnError::Attachment(_))));
+    let remote = Part::File { mime: "text/plain".into(), name: "remote".into(), url: "https://example.com/a.txt".into() };
+    assert!(matches!(h.engine.submit(&h.session.id, with_files("fetch", vec![remote])).await, Err(TurnError::Attachment(_))));
+    assert!(h.provider.requests.lock().unwrap().is_empty());
+
+    let note = Part::File { mime: "text/plain".into(), name: "note.txt".into(), url: "data:text/plain;base64,aGVsbG8gdGhlcmU=".into() };
+    assert!(sent_text(&h, with_files("read this", vec![note])).await.contains("hello there"), "text travels as text");
+}
+
 fn limits(h: &Harness, json: &str) {
     std::fs::write(h._dir.join("ws/drift.json"), format!(r#"{{ "limits": {json} }}"#)).unwrap();
 }

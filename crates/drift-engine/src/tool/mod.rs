@@ -80,11 +80,19 @@ impl Context {
     /// Reading asks for anything outside the workspace and for any file likely to hold secrets, even
     /// inside it. Everything else in the workspace is free to read.
     pub fn ask_to_read(&self, path: &Path, verb: &str) -> Option<Ask> {
-        if sensitive::is_sensitive(path) {
-            return Some(Ask::new("read", path.to_string_lossy(), format!("{verb} {} (it may hold secrets)", display(path, &self.workspace))));
-        }
-        self.ask_if_outside("read", path, verb)
+        read_ask(&self.workspace, path, verb)
     }
+}
+
+/// The read rule without a call around it, for reads the engine makes itself (@ mentions).
+pub fn read_ask(workspace: &Path, path: &Path, verb: &str) -> Option<Ask> {
+    if sensitive::is_sensitive(path) {
+        return Some(Ask::new("read", path.to_string_lossy(), format!("{verb} {} (it may hold secrets)", display(path, workspace))));
+    }
+    if path.starts_with(workspace) {
+        return None;
+    }
+    Some(Ask::new("read", path.to_string_lossy(), format!("{verb} {}", path.display())))
 }
 
 /// Directories that belong to version control, never to the project's content.
