@@ -102,7 +102,10 @@ pub enum Reply {
     Once,
     /// Allow this and matching calls for the rest of the session; `pattern` widens the match.
     Always,
+    /// Refuse this call; the turn goes on, and the model hears `message` if there is one.
     Deny,
+    /// Refuse this call and end the turn.
+    Stop,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -110,25 +113,51 @@ pub struct ReplyBody {
     pub reply: Reply,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
+    /// What the user wants the model told when refusing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 pub struct Permissions {
     /// Rules that apply everywhere, set by the shell; workspace rules from drift.json are passed per check.
     policy: Mutex<Policy>,
     session_rules: Mutex<HashMap<String, Vec<Grant>>>,
+    /// A subagent's parent, whose session approvals it also has. One way: its own never reach the parent.
+    parents: Mutex<HashMap<String, String>>,
     pending: Mutex<Vec<(Request, oneshot::Sender<ReplyBody>)>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Outcome {
     Allowed,
-    Denied,
+    /// A rule forbids the call.
+    Refused,
+    /// The user refused it, perhaps saying why, perhaps ending the turn.
+    Denied { feedback: Option<String>, stop: bool },
     Aborted,
 }
 
+/// How far up a chain of subagents approvals are looked for; delegation is one level deep today.
+const MAX_LINEAGE: usize = 4;
+
 impl Permissions {
     pub fn new(policy: Policy) -> Self {
-        Self { policy: Mutex::new(policy), session_rules: Mutex::default(), pending: Mutex::default() }
+        Self { policy: Mutex::new(policy), session_rules: Mutex::default(), parents: Mutex::default(), pending: Mutex::default() }
+    }
+
+    /// `child` (a subagent) also runs under `parent`'s session approvals.
+    pub fn inherit(&self, child: &str, parent: &str) {
+        self.parents.lock().unwrap().insert(child.into(), parent.into());
+    }
+
+    /// The session and the parents whose approvals it inherits, nearest first.
+    fn lineage(&self, session_id: &str) -> Vec<String> {
+        let parents = self.parents.lock().unwrap();
+        let mut chain = vec![session_id.to_string()];
+        while let Some(parent) = parents.get(chain.last().unwrap()).filter(|_| chain.len() < MAX_LINEAGE) {
+            chain.push(parent.clone());
+        }
+        chain
     }
 
     pub fn set_policy(&self, policy: Policy) {
@@ -162,11 +191,13 @@ impl Permissions {
         }
     }
 
-    /// Session approvals first, then the workspace's drift.json, then the global policy.
+    /// Session approvals first (a subagent's parents' included), then the workspace's drift.json,
+    /// then the global policy.
     fn decide_target(&self, session_id: &str, workspace: &Policy, kind: &str, target: &str, wildcards: bool) -> Decision {
-        let granted = self.session_rules.lock().unwrap().get(session_id).is_some_and(|grants| {
-            grants.iter().any(|grant| (wildcards || matches!(grant, Grant::Exact { .. })) && grant.allows(kind, target))
-        });
+        let lineage = self.lineage(session_id);
+        let rules = self.session_rules.lock().unwrap();
+        let granted = lineage.iter().filter_map(|id| rules.get(id)).flatten().any(|grant| (wildcards || matches!(grant, Grant::Exact { .. })) && grant.allows(kind, target));
+        drop(rules);
         if granted {
             return Decision::Allow;
         }
@@ -187,7 +218,7 @@ impl Permissions {
     pub async fn check(&self, hub: &Hub, workspace: &Policy, request: Request, abort: &CancellationToken) -> Outcome {
         match self.decide(&request.session_id, workspace, &request.ask) {
             Decision::Allow => return Outcome::Allowed,
-            Decision::Deny => return Outcome::Denied,
+            Decision::Deny => return Outcome::Refused,
             Decision::Ask => {}
         }
         let (tx, rx) = oneshot::channel();
@@ -205,9 +236,11 @@ impl Permissions {
     }
 
     fn apply(&self, request: &Request, reply: &ReplyBody) -> Outcome {
+        let feedback = reply.message.as_deref().map(str::trim).filter(|m| !m.is_empty()).map(str::to_string);
         match reply.reply {
             Reply::Once => Outcome::Allowed,
-            Reply::Deny => Outcome::Denied,
+            Reply::Deny => Outcome::Denied { feedback, stop: false },
+            Reply::Stop => Outcome::Denied { feedback, stop: true },
             Reply::Always => {
                 let grants = match &reply.pattern {
                     Some(pattern) => vec![Grant::Pattern(Rule { kind: request.ask.kind.clone(), pattern: pattern.clone(), decision: Decision::Allow })],
@@ -225,7 +258,7 @@ impl Permissions {
         let (request, tx) = pending.remove(index);
         drop(pending);
         let decision = match body.reply {
-            Reply::Deny => Decision::Deny,
+            Reply::Deny | Reply::Stop => Decision::Deny,
             _ => Decision::Allow,
         };
         let _ = tx.send(body);
@@ -239,6 +272,7 @@ impl Permissions {
 
     pub fn forget_session(&self, session_id: &str) {
         self.session_rules.lock().unwrap().remove(session_id);
+        self.parents.lock().unwrap().remove(session_id);
     }
 }
 
@@ -322,7 +356,7 @@ mod tests {
 
     fn approve_always(permissions: &Permissions, ask: Ask) {
         let request = new_request("ses_1", "msg_1", "call_1", "bash", ask);
-        permissions.apply(&request, &ReplyBody { reply: Reply::Always, pattern: None });
+        permissions.apply(&request, &ReplyBody { reply: Reply::Always, pattern: None, message: None });
     }
 
     #[test]
@@ -366,7 +400,7 @@ mod tests {
         assert_eq!(permissions.decide("ses_1", &none, &shell("eval \"$OTHER\"")), Decision::Ask);
 
         let literal = ask("edit", "C:/repo/app/[id].tsx");
-        permissions.apply(&new_request("ses_1", "m", "c", "edit", literal.clone()), &ReplyBody { reply: Reply::Always, pattern: None });
+        permissions.apply(&new_request("ses_1", "m", "c", "edit", literal.clone()), &ReplyBody { reply: Reply::Always, pattern: None, message: None });
         assert_eq!(permissions.decide("ses_1", &none, &literal), Decision::Allow);
         assert_eq!(permissions.decide("ses_1", &none, &ask("edit", "C:/repo/app/i.tsx")), Decision::Ask, "a bracketed file name is not a glob");
     }
@@ -378,7 +412,7 @@ mod tests {
         assert_eq!(permissions.decide("ses_1", &broad, &ask("read", "C:/repo/src/a.rs")), Decision::Allow);
         assert_eq!(permissions.decide("ses_1", &broad, &ask("read", "C:/repo/.env")), Decision::Ask, "read * does not cover secrets");
         let session = new_request("ses_1", "m", "c", "read", ask("read", "C:/elsewhere/a.rs"));
-        permissions.apply(&session, &ReplyBody { reply: Reply::Always, pattern: Some("**".into()) });
+        permissions.apply(&session, &ReplyBody { reply: Reply::Always, pattern: Some("**".into()), message: None });
         assert_eq!(permissions.decide("ses_1", &Policy::default(), &ask("read", "C:/repo/.env")), Decision::Ask, "a widened approval does not either");
 
         let named = Policy { rules: vec![Rule { kind: "read".into(), pattern: "C:/repo/.env".into(), decision: Decision::Allow }] };
@@ -420,7 +454,7 @@ mod tests {
             let Event::PermissionAsked { request } = asked.event else { panic!("expected ask") };
             assert_eq!(request.id, first.id);
             assert_eq!(permissions.pending().len(), 1);
-            permissions.reply(&hub, &request.id, ReplyBody { reply: Reply::Always, pattern: None }).unwrap();
+            permissions.reply(&hub, &request.id, ReplyBody { reply: Reply::Always, pattern: None, message: None }).unwrap();
         };
         let (outcome, ()) = tokio::join!(waiting, replier);
         assert_eq!(outcome, Outcome::Allowed);
@@ -441,9 +475,9 @@ mod tests {
         let denied = request("edit", "a.rs");
         let (outcome, ()) = tokio::join!(permissions.check(&hub, &none, denied.clone(), &abort), async {
             tokio::task::yield_now().await;
-            permissions.reply(&hub, &denied.id, ReplyBody { reply: Reply::Deny, pattern: None }).unwrap();
+            permissions.reply(&hub, &denied.id, ReplyBody { reply: Reply::Deny, pattern: None, message: None }).unwrap();
         });
-        assert_eq!(outcome, Outcome::Denied);
+        assert_eq!(outcome, Outcome::Denied { feedback: None, stop: false });
 
         let aborted = request("edit", "b.rs");
         let (outcome, ()) = tokio::join!(permissions.check(&hub, &none, aborted, &abort), async {
@@ -452,6 +486,6 @@ mod tests {
         });
         assert_eq!(outcome, Outcome::Aborted);
         assert!(permissions.pending().is_empty());
-        assert_eq!(permissions.reply(&hub, "perm_nope", ReplyBody { reply: Reply::Once, pattern: None }), Err(NotPending));
+        assert_eq!(permissions.reply(&hub, "perm_nope", ReplyBody { reply: Reply::Once, pattern: None, message: None }), Err(NotPending));
     }
 }

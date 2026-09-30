@@ -140,7 +140,7 @@ async fn asks_wait_for_a_reply_and_mutations_snapshot_first() {
     };
     assert_eq!(request.tool, "write");
     assert_eq!(request.ask.kind, "edit");
-    h.engine.permissions.reply(&h.engine.hub, &request.id, ReplyBody { reply: Reply::Once, pattern: None }).unwrap();
+    h.engine.permissions.reply(&h.engine.hub, &request.id, ReplyBody { reply: Reply::Once, pattern: None, message: None }).unwrap();
     until_idle(&h).await;
     assert_eq!(std::fs::read_to_string(h._dir.join("ws/new.txt")).unwrap(), "hi\n");
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();

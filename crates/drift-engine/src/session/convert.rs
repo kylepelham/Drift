@@ -75,8 +75,8 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
             Part::ToolCall { call_id, status, output, input, .. } if input.is_object() => {
                 let (content, is_error) = match (status, output) {
                     (ToolStatus::Done, Some(output)) => (output.clone(), false),
-                    (ToolStatus::Error, Some(output)) => (output.clone(), true),
-                    (ToolStatus::Denied, _) => ("The user denied permission for this call.".into(), true),
+                    (ToolStatus::Error | ToolStatus::Denied, Some(output)) => (output.clone(), true),
+                    (ToolStatus::Denied, None) => ("The user denied permission for this call.".into(), true),
                     _ => ("This call was interrupted before it produced a result.".into(), true),
                 };
                 Some(Block::ToolResult { call_id: call_id.clone(), content, is_error })

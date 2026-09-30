@@ -725,8 +725,17 @@ impl Engine {
             let request = permission::new_request(&scope.plan.session.id, &scope.message.id, &call_id, &name, ask);
             match self.permissions.check(&self.hub, &scope.plan.config.policy(), request, scope.abort).await {
                 Outcome::Allowed => {}
-                Outcome::Denied => {
-                    self.settle(&mut row, ToolStatus::Denied, None, "Permission denied by the user.".into(), None);
+                Outcome::Refused => {
+                    self.settle(&mut row, ToolStatus::Denied, None, "A permission rule forbids this call.".into(), None);
+                    return Outcome::Allowed;
+                }
+                Outcome::Denied { feedback, stop } => {
+                    self.settle(&mut row, ToolStatus::Denied, None, denial(feedback.as_deref(), stop), None);
+                    if stop {
+                        // The user ended the turn along with the call.
+                        scope.abort.cancel();
+                        return Outcome::Aborted;
+                    }
                     return Outcome::Allowed;
                 }
                 Outcome::Aborted => {
@@ -1008,6 +1017,15 @@ fn cost(model: &Model, usage: Usage) -> f64 {
     let c = &model.cost;
     (usage.input as f64 * c.input + usage.output as f64 * c.output + usage.cache_read as f64 * c.cache_read + usage.cache_write as f64 * c.cache_write)
         / 1_000_000.0
+}
+
+/// What the model is told about a call the user refused.
+fn denial(feedback: Option<&str>, stop: bool) -> String {
+    let refused = if stop { "The user denied permission for this call and stopped the turn." } else { "The user denied permission for this call." };
+    match feedback {
+        Some(said) => format!("{refused} They said: {said}"),
+        None => refused.to_string(),
+    }
 }
 
 fn with_formatted(mut metadata: serde_json::Value, formatted: Vec<String>) -> serde_json::Value {

@@ -67,6 +67,7 @@ impl Tool for Task {
                 model: model.as_ref(),
             })?;
             ctx.engine.hub.publish(Event::SessionCreated { session: child.clone() });
+            ctx.engine.permissions.inherit(&child.id, &parent.id);
             let prompt = Prompt { parts: vec![Part::Text { text: text.into() }], model, thinking_budget: None, submission_id: None };
             ctx.engine.submit_under(&child.id, prompt, Some(&ctx.abort)).await.map_err(|e| ToolError(format!("could not start subagent: {e}")))?;
             ctx.engine.turns.wait_idle(&child.id, &ctx.abort).await;
