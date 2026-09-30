@@ -49,7 +49,8 @@ impl Anthropic {
         let response = http.json(&body).send().await?;
         let status = response.status();
         if !status.is_success() {
-            return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()));
+            let headers = response.headers().clone();
+            return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()).with_headers(&headers));
         }
         let events = sse::events(response.bytes_stream());
         Ok(Box::pin(events.flat_map(move |event| {
@@ -159,7 +160,7 @@ fn api_error(status: u16, text: &str) -> Error {
     let message = parsed["error"]["message"].as_str().unwrap_or(text).to_string();
     match status {
         401 | 403 => Error::Unauthenticated,
-        _ => Error::Api { status, kind, message, retryable: matches!(status, 408 | 429 | 500 | 502 | 503 | 529) },
+        _ => Error::api(status, kind, message),
     }
 }
 
@@ -172,7 +173,7 @@ fn chunks(event: &str, data: &str) -> Result<Vec<Chunk>, Error> {
         "content_block_delta" => block_delta(&value["delta"])?,
         "content_block_stop" => Chunk::BlockStop,
         "message_delta" => return Ok(message_delta(&value)),
-        "error" => return Err(api_error(200, data)),
+        "error" => return Err(api_error(super::STREAMED, data)),
         _ => return Ok(Vec::new()),
     };
     Ok(vec![chunk])
@@ -338,8 +339,10 @@ mod tests {
 
     #[test]
     fn error_frames_and_statuses_classify() {
-        let error = chunks("error", r#"{"error":{"type":"overloaded_error","message":"busy"}}"#).unwrap_err();
-        assert!(matches!(error, Error::Api { kind, .. } if kind == "overloaded_error"));
+        let error = chunks("error", r#"{"type":"error","error":{"type":"overloaded_error","message":"busy"}}"#).unwrap_err();
+        assert!(matches!(error, Error::Api { ref kind, retryable: true, .. } if kind == "overloaded_error"), "an overload mid-stream retries");
+        let invalid = chunks("error", r#"{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}"#).unwrap_err();
+        assert!(matches!(invalid, Error::Api { retryable: false, .. }));
         assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
         assert!(matches!(api_error(400, "{}"), Error::Api { retryable: false, .. }));
         assert!(matches!(api_error(401, "{}"), Error::Unauthenticated));

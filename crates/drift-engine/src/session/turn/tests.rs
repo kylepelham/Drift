@@ -195,8 +195,14 @@ async fn abort_marks_the_message_and_frees_the_session() {
     assert!(!h.engine.abort(&h.session.id));
 }
 
+/// An overload that asks for a long wait, so a test can act while the turn waits.
 fn overloaded() -> llm::Error {
-    llm::Error::Api { status: 529, kind: "overloaded".into(), message: "busy".into(), retryable: true }
+    asking_to_wait(Duration::from_secs(30))
+}
+
+fn asking_to_wait(wait: Duration) -> llm::Error {
+    let llm::Error::Api { status, kind, message, retryable, .. } = llm::Error::api(529, "overloaded_error", "busy") else { unreachable!() };
+    llm::Error::Api { status, kind, message, retryable, retry_after: Some(wait) }
 }
 
 async fn until_waiting_to_retry(h: &Harness) {
@@ -223,7 +229,9 @@ async fn a_retry_wait_is_announced_and_ends_with_running_again() {
     };
     assert_eq!(attempt, 1);
     assert!(message.contains("busy"), "{message}");
-    assert!(next_at > id::now_ms(), "the next attempt is in the future");
+    let wait = next_at - id::now_ms();
+    assert!((29_000..=30_000).contains(&wait), "the provider's own wait is used: {wait}ms");
+    assert!(h.engine.switch_retry_model(&h.session.id, &ModelRef { provider: "anthropic".into(), model: "claude-sonnet-4-5".into() }).await.is_ok());
     let running_again = loop {
         let envelope = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.unwrap().unwrap();
         if let Event::SessionStatusChanged { status, .. } = envelope.event {
@@ -271,9 +279,7 @@ async fn stop_ends_a_retry_wait_at_once() {
 #[tokio::test]
 async fn retryable_provider_errors_are_retried_and_others_are_not() {
     let h = harness().await;
-    h.provider
-        .push_error(llm::Error::Api { status: 529, kind: "overloaded".into(), message: "busy".into(), retryable: true })
-        .push(text("second time lucky"));
+    h.provider.push_error(llm::Error::api(529, "overloaded_error", "busy")).push(text("second time lucky"));
     h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
@@ -288,6 +294,45 @@ async fn retryable_provider_errors_are_retried_and_others_are_not() {
     assert_eq!(transcript.len(), 5);
     assert_eq!(transcript[4].info.status, MessageStatus::Error);
     assert_eq!(transcript[4].info.error.as_deref(), Some("no credentials for this provider"));
+}
+
+#[tokio::test]
+async fn an_overload_inside_the_stream_is_retried() {
+    let h = harness().await;
+    let partial = vec![Chunk::TextStart, Chunk::TextDelta("Let me".into())];
+    h.provider.push_fail_midway(partial, llm::Error::api(llm::STREAMED, "overloaded_error", "Overloaded")).push(text("answered"));
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert_eq!(transcript.len(), 3, "the stream's overload was retried");
+    assert_eq!(transcript[1].info.status, MessageStatus::Error);
+    assert!(transcript[1].info.error.as_deref().unwrap().contains("overloaded_error"));
+    assert_eq!(transcript[2].info.status, MessageStatus::Done);
+}
+
+#[tokio::test]
+async fn a_provider_asking_for_too_long_a_wait_is_not_waited_on() {
+    let h = harness().await;
+    h.provider.push_error(asking_to_wait(MAX_REQUESTED_WAIT + Duration::from_secs(1))).push(text("never asked"));
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(h.provider.requests.lock().unwrap().len(), 1, "no retry");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert_eq!(transcript.last().unwrap().info.status, MessageStatus::Error, "the error stands for the user to see");
+}
+
+#[test]
+fn backoff_doubles_with_jitter_under_a_cap_and_a_named_wait_is_used_as_is() {
+    let unnamed = Retry { message: String::new(), after: None };
+    for attempt in 1..=MAX_RETRIES {
+        let delay = unnamed.delay(attempt);
+        let nominal = RETRY_BASE.saturating_mul(1 << (attempt - 1)).min(MAX_BACKOFF);
+        assert!(delay >= nominal.mul_f64(0.79) && delay <= nominal.mul_f64(1.21), "attempt {attempt}: {delay:?}");
+    }
+    assert!(unnamed.delay(40) <= MAX_BACKOFF.mul_f64(1.21), "the cap holds however many attempts");
+    let named = Retry { message: String::new(), after: Some(Duration::from_millis(1500)) };
+    assert_eq!(named.delay(5), Duration::from_millis(1500));
+    assert!(named.allowed(MAX_RETRIES - 1) && !named.allowed(MAX_RETRIES));
 }
 
 #[tokio::test]
@@ -350,7 +395,9 @@ async fn a_stream_that_ends_without_a_stop_reason_runs_no_tools() {
     let h = harness().await;
     std::fs::write(h._dir.join("ws/a.txt"), "alpha\n").unwrap();
     let truncated = vec![Chunk::ToolUseStart { id: "t1".into(), name: "read".into() }, Chunk::ToolInputDelta(r#"{"path": "a.txt"}"#.into()), Chunk::BlockStop];
-    h.provider.push(truncated.clone()).push(truncated.clone()).push(truncated);
+    for _ in 0..=MAX_RETRIES {
+        h.provider.push(truncated.clone());
+    }
     h.engine.submit(&h.session.id, prompt("read a")).await.await_ok();
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
@@ -359,7 +406,7 @@ async fn a_stream_that_ends_without_a_stop_reason_runs_no_tools() {
         let Part::ToolCall { status, .. } = &message.parts[0].part else { panic!() };
         assert_eq!(*status, ToolStatus::Pending, "the call must never run");
     }
-    assert_eq!(transcript.len(), 1 + MAX_ATTEMPTS as usize);
+    assert_eq!(transcript.len(), 2 + MAX_RETRIES as usize, "the first attempt and every retry, then it gives up");
 }
 
 #[tokio::test]
@@ -584,7 +631,7 @@ async fn a_task_runs_a_hidden_child_and_returns_its_reply() {
 }
 
 fn too_long() -> llm::Error {
-    llm::Error::Api { status: 400, kind: "invalid_request_error".into(), message: "prompt is too long: fixture overflow".into(), retryable: false }
+    llm::Error::api(400, "invalid_request_error", "prompt is too long: fixture overflow")
 }
 
 fn task_call(transcript: &[MessageWithParts]) -> (ToolStatus, String, serde_json::Value) {

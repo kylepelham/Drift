@@ -136,7 +136,7 @@ async fn a_request_the_provider_rejects_as_too_long_is_compacted_and_retried_onc
     let h = harness().await;
     h.provider.push(text("one"));
     turn(&h, "first").await;
-    let too_long = || crate::llm::Error::Api { status: 400, kind: "invalid_request_error".into(), message: "prompt is too long: 210000 tokens > 200000 maximum".into(), retryable: false };
+    let too_long = || crate::llm::Error::api(400, "invalid_request_error", "prompt is too long: 210000 tokens > 200000 maximum");
     h.provider.push_error(too_long()).push(text("SUMMARY")).push(text("two"));
     turn(&h, "second").await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
@@ -165,7 +165,7 @@ async fn automatic_compaction_can_be_switched_off_and_stops_after_repeated_failu
     assert!(!h.engine.wants_compaction(&h.session.id, &model, &transcript));
     h.engine.store.set_setting(AUTO_COMPACT_KEY, &true).unwrap();
 
-    h.provider.push_error(crate::llm::Error::Api { status: 500, kind: "api_error".into(), message: "down".into(), retryable: false }).push(text("anyway"));
+    h.provider.push_error(crate::llm::Error::Api { status: 500, kind: "api_error".into(), message: "down".into(), retryable: false, retry_after: None }).push(text("anyway"));
     turn(&h, "second").await;
     assert_eq!(h.engine.turns.compaction_failures.lock().unwrap()[&h.session.id], 1, "a failed compaction still lets the turn run");
     assert_eq!(texts(h.engine.store.transcript(&h.session.id).unwrap().last().unwrap()), "anyway");

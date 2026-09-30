@@ -31,7 +31,7 @@ async fn handle(State(fake): State<Arc<Fake>>, uri: axum::http::Uri, headers: He
     *fake.seen.lock().unwrap() = Some(Seen { headers, query: uri.query().map(str::to_string), body });
     let (status, text) = fake.reply.lock().unwrap().clone();
     if status != 200 {
-        return Response::builder().status(status).body(Body::from(text)).unwrap();
+        return Response::builder().status(status).header("retry-after", "3").body(Body::from(text)).unwrap();
     }
     // Seven-byte chunks force every frame boundary to land mid-line somewhere.
     let chunks: Vec<Result<Vec<u8>, std::io::Error>> = text.as_bytes().chunks(7).map(|c| Ok(c.to_vec())).collect();
@@ -132,8 +132,9 @@ async fn http_errors_become_api_errors() {
         panic!("expected an error");
     };
     match error {
-        Error::Api { status, kind, retryable, .. } => {
+        Error::Api { status, kind, retryable, retry_after, .. } => {
             assert_eq!((status, kind.as_str(), retryable), (529, "overloaded_error", true));
+            assert_eq!(retry_after, Some(std::time::Duration::from_secs(3)), "the response's retry-after reaches the turn");
         }
         other => panic!("unexpected {other:?}"),
     }

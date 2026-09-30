@@ -64,13 +64,13 @@ test("a stream that ends without a stop reason fails the message and runs nothin
   const session = await engine.setup()
   const events = engine.events()
   await events.opened
-  fake.push({ body: fixture("truncated") }, { body: fixture("truncated") }, { body: fixture("truncated") })
+  fake.push({ body: fixture("truncated") }, { body: fixture("truncated") }, { body: fixture("text") })
   await submit(session, "write never.txt")
   await events.until((f) => f.type === "session.status" && f.status === "idle", 20_000)
   const messages = await engine.call<{ role: string; status: string; error?: string; parts: { status?: string }[] }[]>("GET", `/sessions/${session}/messages`)
   const attempts = messages.json.filter((m) => m.role === "assistant")
-  expect(attempts).toHaveLength(3)
-  for (const attempt of attempts) {
+  expect(attempts.map((m) => m.status)).toEqual(["error", "error", "done"])
+  for (const attempt of attempts.slice(0, 2)) {
     expect(attempt.status).toBe("error")
     expect(attempt.error).toContain("stop reason")
     expect(attempt.parts[0]!.status).toBe("pending")

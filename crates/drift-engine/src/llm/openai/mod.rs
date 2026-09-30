@@ -51,7 +51,8 @@ impl OpenAi {
         let response = http.json(&body(request, subscription)).send().await?;
         let status = response.status();
         if !status.is_success() {
-            return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()));
+            let headers = response.headers().clone();
+            return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()).with_headers(&headers));
         }
         let mut state = StreamState::default();
         let events = sse::events(response.bytes_stream());
@@ -142,14 +143,15 @@ fn items(message: &ChatMessage) -> Vec<Value> {
     out
 }
 
+/// `code` names the fault; a streamed `error` event's `type` is just "error".
 fn api_error(status: u16, text: &str) -> Error {
     let parsed: Value = serde_json::from_str(text).unwrap_or_default();
     let error = if parsed["error"].is_object() { &parsed["error"] } else { &parsed };
-    let kind = error["type"].as_str().or(error["code"].as_str()).unwrap_or("api_error").to_string();
+    let kind = error["code"].as_str().or(error["type"].as_str()).unwrap_or("api_error").to_string();
     let message = error["message"].as_str().unwrap_or(text).to_string();
     match status {
         401 | 403 => Error::Unauthenticated,
-        _ => Error::Api { status, kind, message, retryable: matches!(status, 408 | 429 | 500 | 502 | 503 | 504) },
+        _ => Error::api(status, kind, message),
     }
 }
 
@@ -179,8 +181,8 @@ impl StreamState {
             }
             "response.output_item.done" => self.item_done(&value["item"]),
             "response.completed" | "response.incomplete" => self.finished(&value["response"], kind == "response.incomplete"),
-            "response.failed" => return Err(api_error(200, &value["response"].to_string())),
-            "error" => return Err(api_error(200, data)),
+            "response.failed" => return Err(api_error(super::STREAMED, &value["response"].to_string())),
+            "error" => return Err(api_error(super::STREAMED, data)),
             _ => Vec::new(),
         })
     }
@@ -345,7 +347,12 @@ mod tests {
         let state = StreamState::default();
         let out = state.finished(&json!({ "incomplete_details": { "reason": "max_output_tokens" }, "usage": {} }), true);
         assert_eq!(out[1], Chunk::Stop(StopReason::MaxTokens));
-        assert!(matches!(StreamState::default().chunks(r#"{"type":"error","code":"rate_limit","message":"slow"}"#), Err(Error::Api { .. })));
+        let streamed = StreamState::default().chunks(r#"{"type":"error","code":"server_error","message":"try again"}"#);
+        assert!(matches!(streamed, Err(Error::Api { ref kind, retryable: true, .. }) if kind == "server_error"), "{streamed:?}");
+        let failed = StreamState::default().chunks(r#"{"type":"response.failed","response":{"error":{"code":"rate_limit_exceeded","message":"slow"}}}"#);
+        assert!(matches!(failed, Err(Error::Api { retryable: true, .. })), "{failed:?}");
+        let refused = StreamState::default().chunks(r#"{"type":"error","code":"invalid_prompt","message":"no"}"#);
+        assert!(matches!(refused, Err(Error::Api { retryable: false, .. })));
         assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
         assert!(matches!(api_error(401, "{}"), Error::Unauthenticated));
         assert_eq!(effort(2_000), "low");

@@ -13,6 +13,8 @@ globset = "0.4"
 grep = "0.4"
 htmd = "0.5"
 http = "1"
+# `retry-after` may be an HTTP date; already in the tree through hyper.
+httpdate = "1"
 ignore = "0.4"
 keyring = "4"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "stream", "http2"] }

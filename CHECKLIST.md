@@ -65,7 +65,7 @@ change the plan there when a decision changes.
   - [x] Shell-aware approvals: per-command decisions, no widening to the program name
   - [x] Secret files ask to be read inside the workspace, grep withholds them, examples exempt; `.git` and binaries skipped by search
   - [x] Anthropic conversation cache breakpoints (API key, subscription, gateway)
-  - [ ] SSE error classification and bounded, cancellable, `retry-after`-aware backoff
+  - [x] SSE error classification and bounded, cancellable, `retry-after`-aware backoff
   - [ ] Shared HTTP client with connect, header and stream-idle timeouts; Stop cancels while waiting
   - [ ] Thinking budget within the output limit; max-tokens endings surfaced; unexecuted calls settled
   - [ ] Configurable step limits and repeated-call intervention

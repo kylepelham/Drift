@@ -35,7 +35,8 @@ impl Compat {
             .await?;
         let status = response.status();
         if !status.is_success() {
-            return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()));
+            let headers = response.headers().clone();
+            return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()).with_headers(&headers));
         }
         let mut state = StreamState::default();
         let events = sse::events(response.bytes_stream());
@@ -116,14 +117,16 @@ fn message(message: &ChatMessage) -> Vec<Value> {
     out
 }
 
+/// Gateways put an HTTP code inside a streamed error object; it classifies like the status it names.
 fn api_error(status: u16, text: &str) -> Error {
     let parsed: Value = serde_json::from_str(text).unwrap_or_default();
     let error = if parsed["error"].is_object() { &parsed["error"] } else { &parsed };
     let kind = error["type"].as_str().or(error["code"].as_str()).unwrap_or("api_error").to_string();
     let message = error["message"].as_str().unwrap_or(text).to_string();
-    match status {
+    let named = error["code"].as_u64().and_then(|code| u16::try_from(code).ok()).filter(|_| status == super::STREAMED);
+    match named.unwrap_or(status) {
         401 | 403 => Error::Unauthenticated,
-        _ => Error::Api { status, kind, message, retryable: matches!(status, 408 | 429 | 500 | 502 | 503 | 504) },
+        status => Error::api(status, kind, message),
     }
 }
 
@@ -151,7 +154,7 @@ impl StreamState {
         }
         let value: Value = serde_json::from_str(data).map_err(|e| Error::Malformed(e.to_string()))?;
         if value["error"].is_object() {
-            return Err(api_error(200, data));
+            return Err(api_error(super::STREAMED, data));
         }
         if let Some(usage) = value.get("usage").filter(|u| u.is_object()) {
             self.usage = Some(usage_from(usage));
@@ -307,7 +310,12 @@ mod tests {
 
     #[test]
     fn errors_and_length_stops_classify() {
-        assert!(matches!(StreamState::default().chunks(r#"{"error":{"message":"nope","code":"bad"}}"#), Err(Error::Api { .. })));
+        assert!(matches!(StreamState::default().chunks(r#"{"error":{"message":"nope","code":"bad"}}"#), Err(Error::Api { retryable: false, .. })));
+        let gateway = StreamState::default().chunks(r#"{"error":{"message":"Provider returned error","code":502},"choices":[{"finish_reason":"error"}]}"#);
+        assert!(matches!(gateway, Err(Error::Api { status: 502, retryable: true, .. })), "a gateway's streamed 502 retries: {gateway:?}");
+        let overloaded = StreamState::default().chunks(r#"{"error":{"message":"busy","type":"overloaded_error"}}"#);
+        assert!(matches!(overloaded, Err(Error::Api { retryable: true, .. })), "an upstream overload passed through retries");
+        assert!(matches!(StreamState::default().chunks(r#"{"error":{"message":"key","code":401}}"#), Err(Error::Unauthenticated)));
         let mut state = StreamState::default();
         state.chunks(r#"{"choices":[{"delta":{"content":"x"},"finish_reason":"length"}]}"#).unwrap();
         assert!(state.done().contains(&Chunk::Stop(StopReason::MaxTokens)));

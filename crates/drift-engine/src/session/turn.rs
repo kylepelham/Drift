@@ -26,7 +26,16 @@ use crate::store::Admitted;
 use crate::tool::{Context, SessionFiles};
 use crate::Engine;
 
-const MAX_ATTEMPTS: u32 = 3;
+/// Retries after a provider fault before the turn gives up and shows the error.
+const MAX_RETRIES: u32 = 8;
+/// First backoff when the provider names no wait; it doubles each retry.
+#[cfg(not(test))]
+const RETRY_BASE: Duration = Duration::from_secs(1);
+#[cfg(test)]
+const RETRY_BASE: Duration = Duration::from_millis(1);
+const MAX_BACKOFF: Duration = Duration::from_secs(60);
+/// A provider asking for longer than this (a spent quota, say) is not waited on; the error stands.
+const MAX_REQUESTED_WAIT: Duration = Duration::from_secs(10 * 60);
 /// Output cap when the model allows more; keeps a runaway response from burning the budget.
 const MAX_OUTPUT_TOKENS: u32 = 32_000;
 
@@ -340,9 +349,9 @@ impl Engine {
             match self.step(&plan, message, &request, &offer.offered, &abort).await {
                 Step::Done => break,
                 Step::Continue => attempts = 0,
-                Step::Retry(error) if attempts + 1 < MAX_ATTEMPTS => {
+                Step::Retry(retry) if retry.allowed(attempts) => {
                     attempts += 1;
-                    match self.wait_to_retry(&plan.session.id, attempts, &error, &abort).await {
+                    match self.wait_to_retry(&plan.session.id, attempts, &retry, &abort).await {
                         Wait::Elapsed => {}
                         Wait::Switched(resolved) => {
                             self.adopt(&mut plan, *resolved);
@@ -386,12 +395,12 @@ impl Engine {
 
     /// Waits out a retry backoff, which the UI shows, unless the user switches the turn to another
     /// model first; then it retries at once on that model.
-    async fn wait_to_retry(&self, session_id: &str, attempt: u32, error: &str, abort: &CancellationToken) -> Wait {
-        let delay = Duration::from_millis(500 * 2u64.pow(attempt));
+    async fn wait_to_retry(&self, session_id: &str, attempt: u32, retry: &Retry, abort: &CancellationToken) -> Wait {
+        let delay = retry.delay(attempt);
         let (sender, receiver) = tokio::sync::oneshot::channel();
         self.turns.retry_waits.lock().unwrap().insert(session_id.into(), sender);
         let next_at = id::now_ms() + delay.as_millis() as i64;
-        self.hub.publish(Event::SessionRetry { session_id: session_id.into(), attempt, message: error.into(), next_at });
+        self.hub.publish(Event::SessionRetry { session_id: session_id.into(), attempt, message: retry.message.clone(), next_at });
         let wait = tokio::select! {
             () = tokio::time::sleep(delay) => Wait::Elapsed,
             Ok(resolved) = receiver => Wait::Switched(Box::new(resolved)),
@@ -473,7 +482,7 @@ impl Engine {
                 if error.is_context_overflow() {
                     return Step::Overflow;
                 }
-                return if matches!(error, llm::Error::Api { retryable: true, .. } | llm::Error::Transport(_)) { Step::Retry(error.to_string()) } else { Step::Done };
+                return Retry::from(&error).map_or(Step::Done, Step::Retry);
             }
         };
         message.usage = streamed.usage;
@@ -687,10 +696,43 @@ impl Engine {
 enum Step {
     Done,
     Continue,
-    /// A failure worth trying again, with the provider's words for the UI.
-    Retry(String),
+    /// A failure worth trying again.
+    Retry(Retry),
     /// The request no longer fit the model's context.
     Overflow,
+}
+
+struct Retry {
+    /// The provider's words, for the UI.
+    message: String,
+    /// The wait the provider asked for, if it named one.
+    after: Option<Duration>,
+}
+
+impl Retry {
+    fn from(error: &llm::Error) -> Option<Self> {
+        match error {
+            llm::Error::Api { retryable: true, retry_after, .. } => Some(Self { message: error.to_string(), after: *retry_after }),
+            llm::Error::Transport(_) => Some(Self { message: error.to_string(), after: None }),
+            _ => None,
+        }
+    }
+
+    /// Worth waiting for: attempts remain and the provider did not ask for longer than we will wait.
+    fn allowed(&self, retries: u32) -> bool {
+        retries < MAX_RETRIES && self.after.is_none_or(|after| after <= MAX_REQUESTED_WAIT)
+    }
+
+    /// The provider's wait when it named one, else doubling backoff with jitter, capped.
+    fn delay(&self, attempt: u32) -> Duration {
+        if let Some(after) = self.after {
+            return after;
+        }
+        let doubled = RETRY_BASE.saturating_mul(1 << attempt.saturating_sub(1).min(16)).min(MAX_BACKOFF);
+        let mut byte = [0u8; 1];
+        let _ = getrandom::fill(&mut byte);
+        doubled.mul_f64(0.8 + 0.4 * f64::from(byte[0]) / 255.0)
+    }
 }
 
 enum Wait {

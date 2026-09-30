@@ -37,7 +37,8 @@ impl Gemini {
         let response = http.header("accept", "text/event-stream").json(&body(request)).send().await?;
         let status = response.status();
         if !status.is_success() {
-            return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()));
+            let headers = response.headers().clone();
+            return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()).with_headers(&headers));
         }
         let mut state = StreamState::default();
         let events = sse::events(response.bytes_stream());
@@ -130,7 +131,7 @@ fn api_error(status: u16, text: &str) -> Error {
     let message = parsed["error"]["message"].as_str().unwrap_or(text).to_string();
     match status {
         401 | 403 => Error::Unauthenticated,
-        _ => Error::Api { status, kind, message, retryable: matches!(status, 408 | 429 | 500 | 502 | 503 | 504) },
+        _ => Error::api(status, kind, message),
     }
 }
 
@@ -152,7 +153,7 @@ impl StreamState {
     fn chunks(&mut self, data: &str) -> Result<Vec<Chunk>, Error> {
         let value: Value = serde_json::from_str(data).map_err(|e| Error::Malformed(e.to_string()))?;
         if value["error"].is_object() {
-            return Err(api_error(200, data));
+            return Err(api_error(super::STREAMED, data));
         }
         let mut out = Vec::new();
         let candidate = &value["candidates"][0];
@@ -287,6 +288,7 @@ mod tests {
         let mut plain = StreamState::default();
         assert_eq!(feed(&mut plain, r#"{"candidates":[{"content":{"parts":[{"text":"Hi"}]}}]}"#), vec![Chunk::TextStart, Chunk::TextDelta("Hi".into())]);
         assert_eq!(feed(&mut plain, r#"{"candidates":[{"content":{"parts":[]},"finishReason":"MAX_TOKENS"}]}"#), vec![Chunk::BlockStop, Chunk::Stop(StopReason::MaxTokens)]);
-        assert!(matches!(StreamState::default().chunks(r#"{"error":{"status":"RESOURCE_EXHAUSTED","message":"x"}}"#), Err(Error::Api { .. })));
+        assert!(matches!(StreamState::default().chunks(r#"{"error":{"status":"UNAVAILABLE","message":"x"}}"#), Err(Error::Api { retryable: true, .. })));
+        assert!(matches!(StreamState::default().chunks(r#"{"error":{"status":"INVALID_ARGUMENT","message":"x"}}"#), Err(Error::Api { retryable: false, .. })));
     }
 }

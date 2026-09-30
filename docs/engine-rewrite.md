@@ -284,10 +284,19 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 
 #### Retries
 
-- Rate limits, overload and transport failures are retried up to three attempts per step, waiting
-  `500ms * 2^attempt`. Each wait publishes `session.retry { attempt, message, nextAt }`, which the
-  UI draws as the retry notice with a model picker; `session.status running` follows when the wait
-  ends. Stop ends a wait at once.
+- What retries is decided once, in `llm::Error::api`: statuses 408, 429, 500, 502, 503, 504 and
+  529, and for an error that arrives inside a stream that began 200 OK, its type
+  (`overloaded_error`, `rate_limit_error`, `api_error`, `server_error`, `rate_limit_exceeded`,
+  `UNAVAILABLE`, `RESOURCE_EXHAUSTED`, ...). A gateway's numeric code inside a streamed error
+  classifies as that status. Transport failures, including a stream cut short, retry too.
+- The wait is the provider's when it names one: `retry-after-ms`, else `retry-after` in seconds or
+  as an HTTP date. `x-should-retry` overrides the classification either way. Otherwise the wait
+  starts at 1s and doubles, capped at 60s, with 20% jitter so parallel subagents spread out.
+- At most 8 retries per step (the count resets after a step succeeds). A provider asking for more
+  than 10 minutes, as a spent quota does, is not waited on: the error stands.
+- Each wait publishes `session.retry { attempt, message, nextAt }`, which the UI draws as the retry
+  notice with a model picker; `session.status running` follows when the wait ends. Stop ends a wait
+  at once.
 - `POST /sessions/{id}/retry { model }` moves a waiting turn onto another model: 409 when nothing is
   waiting, 400/401 when the model or its credential is unusable (checked before the turn is told).
   The turn retries immediately on the new model, rebuilds its tools and prompt for that model's

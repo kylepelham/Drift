@@ -105,11 +105,110 @@ pub enum Chunk {
 
 #[derive(Debug)]
 pub enum Error {
-    /// The provider answered with an error. `retryable` covers rate limits and overload.
-    Api { status: u16, kind: String, message: String, retryable: bool },
+    /// The provider answered with an error. `retryable` covers rate limits, overload and server
+    /// faults; `retry_after` is the wait the provider asked for, when it named one.
+    Api { status: u16, kind: String, message: String, retryable: bool, retry_after: Option<std::time::Duration> },
     Transport(String),
     Malformed(String),
     Unauthenticated,
+}
+
+/// The status adapters give an error that arrives inside a stream which began with 200 OK.
+pub const STREAMED: u16 = 200;
+/// Timeouts, rate limits, overload and server faults: worth another try.
+const RETRY_STATUSES: [u16; 7] = [408, 429, 500, 502, 503, 504, 529];
+/// The same faults as providers name them inside a stream, lowercased.
+const RETRY_KINDS: [&str; 10] = [
+    "overloaded_error",
+    "rate_limit_error",
+    "api_error",
+    "server_error",
+    "rate_limit_exceeded",
+    "server_is_overloaded",
+    "resource_exhausted",
+    "unavailable",
+    "internal",
+    "deadline_exceeded",
+];
+
+impl Error {
+    /// A provider error, retryable by its status or, inside a stream, by what the provider calls it.
+    pub fn api(status: u16, kind: impl Into<String>, message: impl Into<String>) -> Self {
+        let kind = kind.into();
+        let retryable = RETRY_STATUSES.contains(&status) || (status == STREAMED && RETRY_KINDS.contains(&kind.to_ascii_lowercase().as_str()));
+        Self::Api { status, kind, message: message.into(), retryable, retry_after: None }
+    }
+
+    /// Takes what the response headers say about retrying: the wait the provider asks for, and its
+    /// explicit `x-should-retry` verdict.
+    pub fn with_headers(mut self, headers: &http::HeaderMap) -> Self {
+        if let Self::Api { retryable, retry_after, .. } = &mut self {
+            *retry_after = requested_wait(headers);
+            match headers.get("x-should-retry").and_then(|v| v.to_str().ok()) {
+                Some("true") => *retryable = true,
+                Some("false") => *retryable = false,
+                _ => {}
+            }
+        }
+        self
+    }
+}
+
+/// `retry-after-ms`, else `retry-after` as seconds or as an HTTP date.
+fn requested_wait(headers: &http::HeaderMap) -> Option<std::time::Duration> {
+    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim);
+    let seconds = |text: &str| text.parse::<f64>().ok().filter(|n| n.is_finite() && *n >= 0.0);
+    if let Some(ms) = header("retry-after-ms").and_then(seconds) {
+        return Some(std::time::Duration::from_secs_f64(ms / 1000.0));
+    }
+    let value = header("retry-after")?;
+    if let Some(secs) = seconds(value) {
+        return Some(std::time::Duration::from_secs_f64(secs));
+    }
+    let at = httpdate::parse_http_date(value).ok()?;
+    Some(at.duration_since(std::time::SystemTime::now()).unwrap_or_default())
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    use std::time::{Duration, SystemTime};
+
+    fn headers(pairs: &[(&'static str, String)]) -> http::HeaderMap {
+        pairs.iter().map(|(name, value)| (http::HeaderName::from_static(name), value.parse().unwrap())).collect()
+    }
+
+    fn wait(error: &Error) -> Option<Duration> {
+        let Error::Api { retry_after, .. } = error else { panic!() };
+        *retry_after
+    }
+
+    #[test]
+    fn faults_inside_a_stream_retry_by_name_and_request_errors_do_not() {
+        for kind in ["overloaded_error", "rate_limit_error", "api_error", "server_error", "UNAVAILABLE", "RESOURCE_EXHAUSTED"] {
+            assert!(matches!(Error::api(STREAMED, kind, "x"), Error::Api { retryable: true, .. }), "{kind}");
+        }
+        for kind in ["invalid_request_error", "authentication_error", "insufficient_quota", "INVALID_ARGUMENT"] {
+            assert!(matches!(Error::api(STREAMED, kind, "x"), Error::Api { retryable: false, .. }), "{kind}");
+        }
+        assert!(matches!(Error::api(400, "api_error", "x"), Error::Api { retryable: false, .. }), "a status decides when there is one");
+        assert!(matches!(Error::api(529, "anything", "x"), Error::Api { retryable: true, .. }));
+    }
+
+    #[test]
+    fn the_providers_wait_is_read_in_every_form() {
+        let busy = || Error::api(429, "rate_limit_error", "slow down");
+        assert_eq!(wait(&busy().with_headers(&headers(&[("retry-after-ms", "1500".into()), ("retry-after", "9".into())]))), Some(Duration::from_millis(1500)), "ms wins");
+        assert_eq!(wait(&busy().with_headers(&headers(&[("retry-after", "7".into())]))), Some(Duration::from_secs(7)));
+        let later = httpdate::fmt_http_date(SystemTime::now() + Duration::from_secs(120));
+        let dated = wait(&busy().with_headers(&headers(&[("retry-after", later)]))).unwrap();
+        assert!(dated > Duration::from_secs(110) && dated <= Duration::from_secs(120), "{dated:?}");
+        let past = httpdate::fmt_http_date(SystemTime::now() - Duration::from_secs(60));
+        assert_eq!(wait(&busy().with_headers(&headers(&[("retry-after", past)]))), Some(Duration::ZERO));
+        assert_eq!(wait(&busy().with_headers(&headers(&[("retry-after", "soon".into())]))), None);
+        assert!(matches!(busy().with_headers(&headers(&[("x-should-retry", "false".into())])), Error::Api { retryable: false, .. }));
+        assert!(matches!(Error::api(400, "x", "y").with_headers(&headers(&[("x-should-retry", "true".into())])), Error::Api { retryable: true, .. }));
+    }
 }
 
 impl std::fmt::Display for Error {
@@ -154,7 +253,7 @@ mod overflow_tests {
     use super::Error;
 
     fn api(status: u16, message: &str) -> Error {
-        Error::Api { status, kind: "invalid_request_error".into(), message: message.into(), retryable: false }
+        Error::api(status, "invalid_request_error", message)
     }
 
     #[test]
@@ -234,6 +333,8 @@ pub mod scripted {
     enum Response {
         Chunks(Vec<Chunk>),
         Fail(Error),
+        /// Streams the chunks, then the error, as an in-stream error frame does.
+        FailMidway(Vec<Chunk>, Error),
         /// A response that never finishes, for exercising Stop.
         Stall,
     }
@@ -257,6 +358,11 @@ pub mod scripted {
             self
         }
 
+        pub fn push_fail_midway(&self, chunks: Vec<Chunk>, error: Error) -> &Self {
+            self.responses.lock().unwrap().push_back(Response::FailMidway(chunks, error));
+            self
+        }
+
         pub fn push_stall(&self) -> &Self {
             self.responses.lock().unwrap().push_back(Response::Stall);
             self
@@ -271,6 +377,7 @@ pub mod scripted {
             match self.responses.lock().unwrap().pop_front() {
                 Some(Response::Chunks(chunks)) => Ok(Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok)))),
                 Some(Response::Fail(error)) => Err(error),
+                Some(Response::FailMidway(chunks, error)) => Ok(Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok).chain([Err(error)])))),
                 Some(Response::Stall) => Ok(Box::pin(futures_util::stream::pending())),
                 None => Err(Error::Transport("scripted provider has no more responses".into())),
             }
