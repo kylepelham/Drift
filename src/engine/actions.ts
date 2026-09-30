@@ -327,6 +327,41 @@ export function createActions(
     return { ok: true, connected: state.connected.includes(id) }
   }
 
+  /** Copies finished history into a new conversation. Until compaction exists, "active" and "full" copy the same thing. */
+  async function fork(id: string, _mode: "active" | "full" = "active") {
+    try {
+      const session = adaptSession(await requireClient().forkSession(id), workspaces())
+      putSession(set, session)
+      return session
+    } catch (cause) {
+      notice({ id: `fork-${id}`, title: "Couldn't fork", message: errorMessage(cause), variant: "error", duration: 10_000 })
+    }
+  }
+
+  /** Moves a session with its subagents; the engine refuses while any of them is running. */
+  async function moveSession(id: string, destination: string): Promise<SessionMoveResult> {
+    const workspaceId = workspaces().id(destination)
+    if (!workspaceId) return { ok: false, moved: [], error: "That workspace is not registered with the engine" }
+    try {
+      return { ok: true, moved: (await requireClient().moveSession(id, workspaceId)).moved }
+    } catch (cause) {
+      return { ok: false, moved: [], error: errorMessage(cause) }
+    }
+  }
+
+  /** Sessions belong to the workspace, not its path, so re-pointing a folder moves nothing; a running turn must finish first. */
+  async function moveWorkspaceSessions(from: string, _to: string): Promise<SessionMoveResult> {
+    const workspace = workspaces().id(from)
+    if (!workspace) return { ok: true, moved: [] }
+    try {
+      const { running } = await allPages({ workspace })
+      if (running.length) return { ok: false, moved: [], error: "Stop the running threads in this workspace first; they keep the folder they started in." }
+      return { ok: true, moved: [] }
+    } catch (cause) {
+      return { ok: false, moved: [], error: errorMessage(cause) }
+    }
+  }
+
   /** Asks the source's model for a handoff the user reviews; nothing is created yet. */
   async function draftBranch(id: string, goal: string): Promise<BranchDraft | undefined> {
     try {
@@ -437,14 +472,11 @@ export function createActions(
     refreshAgents,
     findFiles: async (_query: string): Promise<string[]> => [],
     steer: async (id: string, text: string, options: PromptOptions) => send(id, text, options),
-    fork: async (..._args: unknown[]): Promise<Session | undefined> => {
-      unavailable("Forking")
-      return undefined
-    },
+    fork,
     draftBranch,
     branch,
-    moveSession: async (..._args: unknown[]): Promise<SessionMoveResult> => ({ ok: false, moved: [], error: "Moving sessions is not available yet" }),
-    moveWorkspaceSessions: async (..._args: unknown[]): Promise<SessionMoveResult> => ({ ok: false, moved: [], error: "Moving sessions is not available yet" }),
+    moveSession,
+    moveWorkspaceSessions,
     removeAllSessions: async (..._args: unknown[]) => false,
     switchRetryModel: async (..._args: unknown[]): Promise<PromptSendResult> => ({ ok: false, error: "Retry model switching is not available yet" }),
     summarize: notYet("Compaction"),

@@ -192,3 +192,35 @@ pub async fn draft_branch(State(engine): State<Arc<Engine>>, Path(id): Path<Stri
 pub async fn branch(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(draft): Json<BranchDraft>) -> Result<(StatusCode, Json<Session>), ApiError> {
     Ok((StatusCode::CREATED, Json(engine.branch(&id, draft).await?)))
 }
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkBody {
+    /// Copy through this message; default is the last finished one, leaving out a turn in flight.
+    #[serde(default)]
+    pub at_message: Option<String>,
+}
+
+/// Copies finished history into a new, independent conversation.
+#[utoipa::path(post, path = "/sessions/{id}/fork", operation_id = "forkSession", request_body = ForkBody, responses((status = 201, body = Session), (status = 400), (status = 404)))]
+pub async fn fork(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<ForkBody>) -> Result<(StatusCode, Json<Session>), ApiError> {
+    Ok((StatusCode::CREATED, Json(engine.fork(&id, body.at_message.as_deref())?)))
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveBody {
+    pub workspace_id: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct Moved {
+    /// The session and the subagents that moved with it.
+    pub moved: Vec<String>,
+}
+
+/// Moves a session and its subagents to another workspace. 409 while any of them is running.
+#[utoipa::path(post, path = "/sessions/{id}/move", operation_id = "moveSession", request_body = MoveBody, responses((status = 200, body = Moved), (status = 404), (status = 409)))]
+pub async fn move_session(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<MoveBody>) -> Result<Json<Moved>, ApiError> {
+    Ok(Json(Moved { moved: engine.move_session(&id, &body.workspace_id)? }))
+}

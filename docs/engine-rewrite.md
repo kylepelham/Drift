@@ -84,8 +84,8 @@ GET    /sessions/{id}/tasks                 owned workers; pending M3
 GET    /tasks/{id}                          state, progress and result handle; pending M3
 POST   /tasks/{id}/abort                    stop one owned worker; pending M3
 POST   /sessions/{id}/compact
-POST   /sessions/{id}/fork                  {at_message?, bounded?}
-POST   /sessions/{id}/move                  {workspace}
+POST   /sessions/{id}/fork                  {atMessage?}
+POST   /sessions/{id}/move                  {workspaceId}
 POST   /sessions/{id}/revert                {snapshot}
 GET    /sessions/{id}/diff
 GET    /sessions/{id}/todos
@@ -196,7 +196,22 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   tools run, nothing stored. It returns `{goal, title, summary, excerpts, cutoff}`. The user edits
   that in the review dialog, then `POST /sessions/{id}/branch` creates the session with
   `branch_cutoff`, seeds its first message with the handoff and starts it on its own abort token.
-- A branch is not a fork. Fork (a copy of the transcript) is separate M3 work.
+- A branch is not a fork; see below.
+
+#### Fork and move
+
+- `POST /sessions/{id}/fork {atMessage?}` copies the source's finished messages and their parts,
+  with fresh ids, into a new top-level conversation titled `<title> (fork)`, in one transaction.
+  Without `atMessage` it copies through the last stable message: if a turn is running, everything
+  from its user message on is left out. With `atMessage` it stops at that message, which must be
+  finished and outside a running turn. A fork has no parent link; it is a copy, not a worker or
+  a branch. `/fork active` and `/fork all` copy the same history until compaction exists.
+- `POST /sessions/{id}/move {workspaceId}` moves the session and its subagents (hidden
+  descendants at any depth). Branches stay where they are. It returns 409 while any of them is
+  running, because a running turn keeps the workspace path it planned with.
+- Re-pointing a workspace at a new folder moves nothing: sessions reference the workspace id and
+  the shell rewrites the shared `workspace` row. The UI refuses while any session there is running,
+  for the same reason as move.
 
 #### Background-worker implementation
 
@@ -453,8 +468,8 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
 
 - `src/engine/` talks only to the native engine. `native/client.ts` wraps the generated
   types, `native/events.ts` runs the socket, `actions.ts` implements every action the UI
-  calls. Actions the engine cannot serve yet (fork, spawn, move, share, compaction,
-  questions, revert, MCP, commands) raise a "not available yet" notice and return the
+  calls. Actions the engine cannot serve yet (share, compaction, revert,
+  retry model switch) raise a "not available yet" notice and return the
   neutral value their callers expect; each comes back native in the milestone that owns it.
 - `native/adapt.ts` maps native sessions, messages, parts, permissions, providers and events
   onto the legacy store shapes (`@opencode-ai/sdk` types) that `store.ts`, `events.ts` and

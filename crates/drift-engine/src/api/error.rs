@@ -5,6 +5,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::session::branch::BranchError;
+use crate::session::tree::TreeError;
 use crate::session::turn::TurnError;
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -65,6 +66,19 @@ impl From<BranchError> for ApiError {
             BranchError::Turn(error) => error.into(),
             BranchError::Draft(message) => Self::new(StatusCode::BAD_GATEWAY, "draft", message),
             BranchError::Store(error) => error.into(),
+        }
+    }
+}
+
+impl From<TreeError> for ApiError {
+    fn from(error: TreeError) -> Self {
+        match error {
+            TreeError::NoSession => Self::not_found("session"),
+            TreeError::NoWorkspace => Self::not_found("workspace"),
+            TreeError::Busy => Self::new(StatusCode::CONFLICT, "busy", "stop the running turn first; it keeps the workspace it started in"),
+            TreeError::BadMessage => Self::new(StatusCode::BAD_REQUEST, "message", "fork from a finished message of this session"),
+            TreeError::Empty => Self::new(StatusCode::BAD_REQUEST, "empty", "there is nothing finished to fork yet"),
+            TreeError::Store(error) => error.into(),
         }
     }
 }

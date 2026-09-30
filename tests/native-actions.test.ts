@@ -199,7 +199,30 @@ test("a reviewed branch becomes a top-level session linked to its source", async
 })
 
 test("a failed draft reports a notice instead of throwing", async () => {
-  const h = harness({ draftBranch: () => Promise.reject(new EngineError(502, "draft", "the model returned no handoff")) } as Partial<Client>)
+  const h = harness({ draftBranch: () => Promise.reject(new EngineError(502, "/sessions/ses_1/branch/draft", "draft", "the model returned no handoff")) } as Partial<Client>)
   expect(await h.actions.draftBranch("ses_1", "fix lint")).toBeUndefined()
   expect(h.state.notices.some((n) => n.title === "Couldn't draft the branch")).toBeTrue()
+})
+
+test("fork opens the copy as a new top-level session", async () => {
+  const h = harness({ forkSession: (id: string) => Promise.resolve({ ...session("ses_fork"), title: `${id} (fork)` }) } as Partial<Client>)
+  const fork = await h.actions.fork("ses_1", "active")
+  expect(fork?.id).toBe("ses_fork")
+  expect(h.state.sessions.ses_fork!.title).toBe("ses_1 (fork)")
+  expect(h.state.sessions.ses_fork!.parentID).toBeUndefined()
+})
+
+test("moving resolves the destination workspace and reports the engine's busy refusal", async () => {
+  const moved = harness({ moveSession: (_id: string, workspaceId: string) => Promise.resolve({ moved: ["ses_1", workspaceId] }) } as Partial<Client>)
+  expect(await moved.actions.moveSession("ses_1", "C:/repo")).toEqual({ ok: true, moved: ["ses_1", "w1"] })
+  expect((await moved.actions.moveSession("ses_1", "D:/unknown")).ok).toBeFalse()
+  const busy = harness({ moveSession: () => Promise.reject(new EngineError(409, "/sessions/ses_1/move", "busy", "stop the running turn first")) } as Partial<Client>)
+  expect(await busy.actions.moveSession("ses_1", "C:/repo")).toEqual({ ok: false, moved: [], error: "stop the running turn first" })
+})
+
+test("re-pointing a workspace folder moves nothing but waits for running threads", async () => {
+  const idle = harness()
+  expect(await idle.actions.moveWorkspaceSessions("C:/repo", "D:/repo")).toEqual({ ok: true, moved: [] })
+  const running = harness({ sessions: () => Promise.resolve([{ ...session("ses_1"), running: true }]) } as Partial<Client>)
+  expect((await running.actions.moveWorkspaceSessions("C:/repo", "D:/repo")).ok).toBeFalse()
 })

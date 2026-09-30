@@ -4,6 +4,7 @@ mod migrations;
 mod mcp;
 mod sessions;
 mod todos;
+mod tree;
 
 pub use sessions::{NewSession, SessionFilter};
 

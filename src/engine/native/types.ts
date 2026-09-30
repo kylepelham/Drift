@@ -391,6 +391,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Copies finished history into a new, independent conversation. */
+        post: operations["forkSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/messages": {
         parameters: {
             query?: never;
@@ -401,6 +418,23 @@ export interface paths {
         get: operations["listMessages"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Moves a session and its subagents to another workspace. 409 while any of them is running. */
+        post: operations["moveSession"];
         delete?: never;
         options?: never;
         head?: never;
@@ -654,6 +688,10 @@ export interface components {
             /** @enum {string} */
             type: "question.replied";
         };
+        ForkBody: {
+            /** @description Copy through this message; default is the last finished one, leaving out a turn in flight. */
+            atMessage?: string | null;
+        };
         FormatterConfig: boolean | {
             command: string[];
             extensions: string[];
@@ -720,6 +758,13 @@ export interface components {
         ModelRef: {
             model: string;
             provider: string;
+        };
+        MoveBody: {
+            workspaceId: string;
+        };
+        Moved: {
+            /** @description The session and the subagents that moved with it. */
+            moved: string[];
         };
         NewSessionBody: {
             /** @description `build` unless the workspace defines others; see the workspace config. */
@@ -1707,6 +1752,43 @@ export interface operations {
             };
         };
     };
+    forkSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForkBody"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listMessages: {
         parameters: {
             query?: {
@@ -1731,6 +1813,43 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    moveSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveBody"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Moved"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

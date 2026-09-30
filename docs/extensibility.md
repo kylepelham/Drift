@@ -139,11 +139,9 @@ apart (see "Subagents and branches" in `docs/engine-rewrite.md`).
   pending asks, todos and the latest reply. It refuses sessions that were not branched from the
   caller.
 
-Manual forks (legacy engine) use a stable active-context projection by default: completed
-compaction summary, retained tail, and completed turns after it. The in-flight turn and
-task/spawn session links are excluded. `/fork all` is the explicit slower operation that
-copies all completed history. The behavior is implemented by the isolated
-`engine/overlays/active-fork.patch`; the upstream snapshot remains untouched.
+Forks copy a conversation's finished history into a new, independent conversation. A turn still
+running is left out, and `/fork active` and `/fork all` copy the same history until compaction
+exists (see "Fork and move" in `docs/engine-rewrite.md`).
 
 ## Prompt and agent editing
 

@@ -5,5 +5,6 @@ pub mod branch;
 mod convert;
 pub mod prompt;
 pub mod snapshot;
+pub mod tree;
 pub mod turn;
 pub mod types;

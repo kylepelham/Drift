@@ -75,6 +75,8 @@ export function createClient(target: Target) {
     createSession: (body: components["schemas"]["NewSessionBody"]) => request<Json<"createSession", 201>>("POST", "/sessions", body),
     draftBranch: (id: string, goal: string) => request<Json<"draftBranch", 200>>("POST", `/sessions/${id}/branch/draft`, { goal }),
     createBranch: (id: string, draft: components["schemas"]["BranchDraft"]) => request<Json<"createBranch", 201>>("POST", `/sessions/${id}/branch`, draft),
+    forkSession: (id: string, atMessage?: string) => request<Json<"forkSession", 201>>("POST", `/sessions/${id}/fork`, { atMessage }),
+    moveSession: (id: string, workspaceId: string) => request<Json<"moveSession", 200>>("POST", `/sessions/${id}/move`, { workspaceId }),
     session: (id: string) => request<Json<"getSession", 200>>("GET", `/sessions/${id}`),
     updateSession: (id: string, body: components["schemas"]["PatchSession"]) =>
       request<Json<"updateSession", 200>>("PATCH", `/sessions/${id}`, body),

@@ -7,7 +7,7 @@ use crate::session::types::{
     Visibility,
 };
 
-const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff";
+pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff";
 const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at";
 
 pub struct NewSession<'a> {
@@ -33,38 +33,8 @@ impl Store {
 
     /// A session that records which source message its handoff was cut from.
     pub fn create_branch(&self, new: NewSession, cutoff: Option<&str>) -> rusqlite::Result<Session> {
-        let now = id::now_ms();
-        let session = Session {
-            id: id::new("ses"),
-            workspace_id: new.workspace_id.into(),
-            parent_id: new.parent_id.map(Into::into),
-            visibility: new.visibility,
-            title: new.title.into(),
-            agent: new.agent.into(),
-            model: new.model.cloned(),
-            created_at: now,
-            updated_at: now,
-            archived_at: None,
-            branch_cutoff: cutoff.map(Into::into),
-            running: false,
-        };
-        self.lock().prepare_cached(
-            "INSERT INTO session(id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, branch_cutoff)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        )?
-        .execute(params![
-            session.id,
-            session.workspace_id,
-            session.parent_id,
-            visibility_str(session.visibility),
-            session.title,
-            session.agent,
-            session.model.as_ref().map(|m| &m.provider),
-            session.model.as_ref().map(|m| &m.model),
-            now,
-            now,
-            session.branch_cutoff
-        ])?;
+        let session = session_from(new, cutoff);
+        insert_session(&self.lock(), &session)?;
         Ok(session)
     }
 
@@ -195,13 +165,13 @@ impl Store {
     }
 }
 
-fn session_in(conn: &Connection, id: &str) -> rusqlite::Result<Option<Session>> {
+pub(super) fn session_in(conn: &Connection, id: &str) -> rusqlite::Result<Option<Session>> {
     conn.prepare_cached(&format!("SELECT {SESSION_COLUMNS} FROM session WHERE id = ?1"))?
         .query_row([id], map_session)
         .optional()
 }
 
-fn map_session(row: &Row) -> rusqlite::Result<Session> {
+pub(super) fn map_session(row: &Row) -> rusqlite::Result<Session> {
     let provider: Option<String> = row.get(6)?;
     let model: Option<String> = row.get(7)?;
     Ok(Session {
@@ -404,32 +374,74 @@ mod tests {
 impl Store {
     /// Records a user prompt as one unit: message, parts and the session's model, or nothing at all.
     pub fn admit_prompt(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<(Message, Vec<PartRow>, Session)> {
-        let conn = self.lock();
-        conn.execute_batch("BEGIN")?;
-        let result = (|| {
-            let message = insert_message(&conn, session_id, Role::User, Some(model))?;
+        transaction(&self.lock(), |conn| {
+            let message = insert_message(conn, session_id, Role::User, Some(model))?;
             if let Some((id, hash)) = submission {
                 conn.prepare_cached("INSERT INTO submission(id, session_id, message_id, payload_hash, created_at) VALUES(?1, ?2, ?3, ?4, ?5)")?
                     .execute(params![id, session_id, message.id, hash, id::now_ms()])?;
             }
             let rows = parts
                 .into_iter()
-                .map(|part| insert_part(&conn, &message.id, session_id, part))
+                .map(|part| insert_part(conn, &message.id, session_id, part))
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             conn.prepare_cached("UPDATE session SET model_provider = ?2, model_id = ?3, updated_at = ?4 WHERE id = ?1")?
                 .execute(params![session_id, model.provider, model.model, id::now_ms()])?;
-            let session = session_in(&conn, session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+            let session = session_in(conn, session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
             Ok((message, rows, session))
-        })();
-        match result {
-            Ok(value) => {
-                conn.execute_batch("COMMIT")?;
-                Ok(value)
-            }
-            Err(error) => {
-                let _ = conn.execute_batch("ROLLBACK");
-                Err(error)
-            }
+        })
+    }
+}
+
+pub(super) fn session_from(new: NewSession, cutoff: Option<&str>) -> Session {
+    let now = id::now_ms();
+    Session {
+        id: id::new("ses"),
+        workspace_id: new.workspace_id.into(),
+        parent_id: new.parent_id.map(Into::into),
+        visibility: new.visibility,
+        title: new.title.into(),
+        agent: new.agent.into(),
+        model: new.model.cloned(),
+        created_at: now,
+        updated_at: now,
+        archived_at: None,
+        branch_cutoff: cutoff.map(Into::into),
+        running: false,
+    }
+}
+
+pub(super) fn insert_session(conn: &Connection, session: &Session) -> rusqlite::Result<()> {
+    conn.prepare_cached(
+        "INSERT INTO session(id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, branch_cutoff)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+    )?
+    .execute(params![
+        session.id,
+        session.workspace_id,
+        session.parent_id,
+        visibility_str(session.visibility),
+        session.title,
+        session.agent,
+        session.model.as_ref().map(|m| &m.provider),
+        session.model.as_ref().map(|m| &m.model),
+        session.created_at,
+        session.updated_at,
+        session.branch_cutoff
+    ])?;
+    Ok(())
+}
+
+/// Runs `f` inside one transaction: all of its writes land, or none do.
+pub(super) fn transaction<T>(conn: &Connection, f: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> rusqlite::Result<T> {
+    conn.execute_batch("BEGIN")?;
+    match f(conn) {
+        Ok(value) => {
+            conn.execute_batch("COMMIT")?;
+            Ok(value)
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(error)
         }
     }
 }

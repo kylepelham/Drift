@@ -44,15 +44,22 @@ change the plan there when a decision changes.
 
 ## M3: tree and lifecycle
 
-- [x] `task` subagents (abort cascades, no nested delegation, sidebar only while active)
+- [x] Foreground `task` subagents (abort cascades, no nested delegation, sidebar only while active)
 - [x] Branches: `/spawn` drafts a handoff, user reviews, engine creates an independent conversation with its cutoff; the model cannot branch; `read_thread` for branches
-- [ ] Fork: bounded and active
-- [ ] Move with busy guard
+- [ ] Typed worker execution-mode resolver: explicit override, agent default, foreground fallback; no chat-keyword switches
+- [ ] Background `task` launch receipts and bounded engine-owned jobs, independent progress from the main session
+- [ ] Durable terminal results and idempotent parent completion delivery at safe provider boundaries
+- [ ] Parent-idle survival, worker/session Stop and restart interruption handling without automatic effect replay
+- [ ] Attributed worker permission/question waits, parent-scoped task output/stop API and generated lifecycle events
+- [ ] Async-worker conformance: concurrent progress, out-of-order results, cancellation races, reconnect and retained task history
+- [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
+- [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
 - [ ] Compaction with recovery
 - [ ] Retry with model switch
 - [ ] Revert and diff
 - [ ] Shell timeout
 - [ ] Per-session runtime config snapshots
+- [ ] Async questions and MCP reconnect/reload deferred from M2
 - [ ] Bedrock, Vertex, xAI, Z.ai
 
 ## M4: cutover
