@@ -1324,14 +1324,14 @@ function ProviderConnect(props: {
       <Show when={props.methods.length > 1 || props.connected}>
         <div class="flex items-center gap-2">
           <Show when={props.methods.length > 1} fallback={<div class="flex-1" />}>
-            <div class="flex min-w-0 flex-1 flex-wrap gap-1 rounded-lg border border-edge bg-overlay/50 p-1">
+            <div class="flex min-w-0 flex-1 flex-wrap gap-1.5">
               <For each={props.methods}>
                 {(item, index) => (
                   <button
-                    class="rounded-md px-2.5 py-1 text-xs transition-colors"
+                    class="rounded-full border px-3 py-1 text-xs transition-colors"
                     classList={{
-                      "bg-raised text-ink shadow-sm shadow-black/10": index() === methodIndex(),
-                      "text-ink-faint hover:bg-raised/60 hover:text-ink-muted": index() !== methodIndex(),
+                      "border-accent/50 bg-accent/10 text-ink": index() === methodIndex(),
+                      "border-edge text-ink-faint hover:border-edge-strong hover:text-ink-muted": index() !== methodIndex(),
                     }}
                     onClick={() => {
                       setMethodIndex(index())
@@ -1419,7 +1419,7 @@ function ProviderConnect(props: {
         </Show>
       </Show>
       <Show when={error()}>
-        <div class="text-xs text-danger">{error()}</div>
+        <div class="rounded-md border border-danger/30 bg-danger/5 px-2.5 py-2 text-xs text-danger">{error()}</div>
       </Show>
     </div>
   )
