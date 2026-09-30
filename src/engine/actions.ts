@@ -314,7 +314,8 @@ export function createActions(
     if (!code && !oauthState) return { ok: false, connected: false }
     try {
       await requireClient().finishOAuth(id, code ?? "", oauthState)
-    } catch {
+    } catch (cause) {
+      notice({ id: `oauth-${id}`, title: "Sign-in failed", message: errorMessage(cause), variant: "error", duration: 10_000 })
       return { ok: false, connected: false }
     } finally {
       oauthStates.delete(id)

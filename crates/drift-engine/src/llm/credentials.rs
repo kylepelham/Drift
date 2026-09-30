@@ -11,6 +11,9 @@ use super::Credential;
 const SERVICE: &str = "dev.drift.app";
 const INDEX: &str = "__providers";
 const FALLBACK_FILE: &str = "credentials.json";
+/// Windows stores secrets as UTF-16 under 2560 bytes; OAuth tokens are longer, so they are split.
+const CHUNK_CHARS: usize = 1000;
+const CHUNKED: &str = "\u{1}chunked:";
 
 pub struct Credentials {
     backend: Backend,
@@ -92,16 +95,28 @@ impl Credentials {
 
     fn read(&self, key: &str) -> Option<String> {
         match &self.backend {
-            Backend::Keyring => keyring::Entry::new(SERVICE, key).ok()?.get_password().ok(),
+            Backend::Keyring => {
+                let head = keyring::Entry::new(SERVICE, key).ok()?.get_password().ok()?;
+                let Some(count) = head.strip_prefix(CHUNKED).and_then(|n| n.parse::<usize>().ok()) else { return Some(head) };
+                (0..count).map(|i| keyring::Entry::new(SERVICE, &format!("{key}#{i}")).ok()?.get_password().ok()).collect()
+            }
             Backend::File(path) => file_map(path).get(key).and_then(Value::as_str).map(str::to_string),
         }
     }
 
     fn write(&self, key: &str, value: &str) -> Result<(), String> {
         match &self.backend {
-            Backend::Keyring => keyring::Entry::new(SERVICE, key)
-                .and_then(|entry| entry.set_password(value))
-                .map_err(|e| e.to_string()),
+            Backend::Keyring => {
+                let chunks: Vec<String> = value.chars().collect::<Vec<_>>().chunks(CHUNK_CHARS).map(|c| c.iter().collect()).collect();
+                let put = |name: String, text: &str| keyring::Entry::new(SERVICE, &name).and_then(|e| e.set_password(text)).map_err(|e| e.to_string());
+                if chunks.len() <= 1 {
+                    return put(key.into(), value);
+                }
+                for (i, chunk) in chunks.iter().enumerate() {
+                    put(format!("{key}#{i}"), chunk)?;
+                }
+                put(key.into(), &format!("{CHUNKED}{}", chunks.len()))
+            }
             Backend::File(path) => {
                 let mut map = file_map(path);
                 map.insert(key.into(), Value::String(value.into()));
@@ -112,10 +127,17 @@ impl Credentials {
 
     fn delete(&self, key: &str) -> Result<(), String> {
         match &self.backend {
-            Backend::Keyring => match keyring::Entry::new(SERVICE, key).and_then(|entry| entry.delete_credential()) {
-                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-                Err(error) => Err(error.to_string()),
-            },
+            Backend::Keyring => {
+                let head = keyring::Entry::new(SERVICE, key).ok().and_then(|e| e.get_password().ok()).unwrap_or_default();
+                let count = head.strip_prefix(CHUNKED).and_then(|n| n.parse::<usize>().ok()).unwrap_or(0);
+                for i in 0..count {
+                    let _ = keyring::Entry::new(SERVICE, &format!("{key}#{i}")).and_then(|e| e.delete_credential());
+                }
+                match keyring::Entry::new(SERVICE, key).and_then(|entry| entry.delete_credential()) {
+                    Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                    Err(error) => Err(error.to_string()),
+                }
+            }
             Backend::File(path) => {
                 let mut map = file_map(path);
                 map.remove(key);
@@ -205,5 +227,27 @@ mod tests {
         std::env::set_var(&name, "from-env");
         assert_eq!(store.resolve("x", std::slice::from_ref(&name)), Some(Credential::ApiKey { key: "from-env".into() }));
         std::env::remove_var(&name);
+    }
+}
+
+
+#[cfg(test)]
+mod keyring_tests {
+    use super::*;
+
+    #[test]
+    fn long_secrets_round_trip_through_the_real_keychain() {
+        if keyring::Entry::store_status().is_err() {
+            return;
+        }
+        let store = Credentials { backend: Backend::Keyring, write_lock: Mutex::default(), index: Mutex::default() };
+        let key = format!("probe-{}", crate::random_hex(3));
+        let long = Credential::OAuth { access: "a".repeat(2500), refresh: "r".repeat(700), expires_at: 1, account: Some("acc".into()) };
+        store.set(&key, &long).unwrap();
+        assert_eq!(store.get(&key), Some(long));
+        store.remove(&key).unwrap();
+        assert!(store.get(&key).is_none());
+        assert!(keyring::Entry::new(SERVICE, &format!("{key}#0")).unwrap().get_password().is_err(), "chunks are removed too");
+        store.remove(INDEX).ok();
     }
 }
