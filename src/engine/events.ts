@@ -148,6 +148,7 @@ export function purgeSession(draft: EngineState, id: string) {
   delete draft.permissions[id]
   delete draft.questions[id]
   delete draft.todos[id]
+  delete draft.tasks[id]
   delete draft.status[id]
   delete draft.activity[id]
   delete draft.errors[id]

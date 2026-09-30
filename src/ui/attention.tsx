@@ -16,11 +16,13 @@ import { t } from "../state/i18n"
 import { IconCheck } from "./icons"
 import { Chevron } from "./controls"
 import { RevertDock } from "./revert-dock"
+import { TaskDock } from "./task-dock"
 
 export function AttentionStrip() {
   return (
     <>
       <TodoStrip />
+      <TaskDock />
       <RevertDock />
     </>
   )

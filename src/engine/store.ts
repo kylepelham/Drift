@@ -11,6 +11,8 @@ import type {
   ToolPart,
 } from "@opencode-ai/sdk/client"
 import { createStore, produce, type SetStoreFunction } from "solid-js/store"
+import type { TaskRecord } from "./native/client"
+export type { TaskRecord }
 export type Connection = "idle" | "connecting" | "online" | "offline"
 
 export type ModelInfo = Model & { family?: string; release_date?: string; variants?: Record<string, unknown> }
@@ -122,6 +124,8 @@ export type EngineState = {
   questions: Record<string, QuestionRequest[]>
   askRevisions: Record<string, number>
   todos: Record<string, Todo[]>
+  /** Workers each session launched, keyed by the launching session, oldest first. */
+  tasks: Record<string, TaskRecord[]>
   providers: ProviderInfo[]
   connected: string[]
   defaultModels: Record<string, string>
@@ -183,6 +187,7 @@ export function createEngineState() {
     questions: {},
     askRevisions: {},
     todos: {},
+    tasks: {},
     providers: [],
     connected: [],
     defaultModels: {},
@@ -370,6 +375,36 @@ export function spawnLink(part: Part): { child: string; parent: string } | undef
   const meta = (("metadata" in state ? state.metadata : undefined) ?? part.metadata) as { sessionId?: string }
   if (!meta?.sessionId) return
   return { child: meta.sessionId, parent: part.sessionID }
+}
+
+export function taskActive(task: Pick<TaskRecord, "state">) {
+  return task.state === "queued" || task.state === "running"
+}
+
+// A task only moves forward (queued, running, ended, delivered), so the further one is the newer.
+function taskProgress(task: TaskRecord) {
+  const stage = task.state === "queued" ? 0 : task.state === "running" ? 1 : 2
+  return stage + (task.delivered ? 1 : 0)
+}
+
+/** Folds task records in; an older copy (a snapshot that raced an event) never replaces a newer one. */
+export function mergeTasks(current: readonly TaskRecord[] | undefined, incoming: readonly TaskRecord[]) {
+  const byId = new Map((current ?? []).map((task) => [task.id, task]))
+  for (const task of incoming) {
+    const known = byId.get(task.id)
+    if (!known || taskProgress(task) >= taskProgress(known)) byId.set(task.id, task)
+  }
+  return [...byId.values()].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+}
+
+export function putTasks(set: SetStoreFunction<EngineState>, state: EngineState, parentId: string, tasks: readonly TaskRecord[]) {
+  set("tasks", parentId, mergeTasks(state.tasks[parentId], tasks))
+}
+
+/** The task a `task` tool call launched, when the engine has reported it. */
+export function taskForCall(state: EngineState, sessionId: string, callId: string | undefined, taskId: unknown) {
+  const tasks = state.tasks[sessionId] ?? []
+  return tasks.find((task) => (typeof taskId === "string" && task.id === taskId) || (callId !== undefined && task.callId === callId))
 }
 
 export function sessionBusy(state: EngineState, id: string) {

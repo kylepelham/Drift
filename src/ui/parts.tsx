@@ -13,7 +13,7 @@ import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../st
 import { TextShimmer } from "./text-shimmer"
 import { openToolContextMenu } from "./tool-context-menu"
 import { permissionRequiresAttention } from "../state/permission-attention"
-import { childrenOf, type EngineState } from "../engine/store"
+import { childrenOf, taskActive, taskForCall, type EngineState } from "../engine/store"
 import { ToolDuration } from "./tool-duration"
 import { resolveAttachmentKind } from "../attachments"
 import { resolveFileLanguage } from "../syntax-language"
@@ -638,12 +638,16 @@ export type DelegatedTaskStatus = "running" | "completed" | "error"
 
 export function delegatedTaskStatus(
   state: EngineState,
-  part: Pick<ToolPart, "id" | "tool" | "sessionID" | "state">,
+  part: Pick<ToolPart, "id" | "tool" | "sessionID" | "state"> & { callID?: string },
   childId: string,
 ): DelegatedTaskStatus {
   // This invocation's result stays terminal even when another call resumes the same child.
   if (part.state.status === "error") return "error"
   if (part.tool === "spawn_thread") return part.state.status === "completed" ? "completed" : "running"
+  // The engine's record outranks the call: a background call finishes at launch, its worker later.
+  const metadata = "metadata" in part.state ? (part.state.metadata as { taskId?: unknown } | undefined) : undefined
+  const task = taskForCall(state, part.sessionID, part.callID, metadata?.taskId)
+  if (task) return taskActive(task) ? "running" : task.state === "replied" ? "completed" : "error"
   const terminal = delegatedTerminalState(state, part, childId)
   if (terminal) return terminal
   return state.errors[childId] ? "error" : "running"
@@ -658,7 +662,8 @@ function delegatedTerminalState(
   const pattern = new RegExp(`^\\s*<task\\s+id=["']${escapeRegExp(childId)}["']\\s+state=["'](running|completed|error)["']`)
   const result = part.state.output.match(pattern)?.[1]
   if (result === "completed" || result === "error") return result
-  if (part.tool === "task" && result !== "running" && part.state.metadata?.background !== true) return "completed"
+  const background = part.state.metadata?.background === true || part.state.metadata?.mode === "background"
+  if (part.tool === "task" && result !== "running" && !background) return "completed"
 
   // Background calls finish their tool part before the work. Find their first later result,
   // never an earlier invocation's result or a later foreground call's output.

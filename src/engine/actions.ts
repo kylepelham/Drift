@@ -14,6 +14,7 @@ import {
   interruptStaleTools,
   mergeTranscriptSnapshot,
   putSession,
+  putTasks,
   type EngineState,
   type MessageEntry,
   type ModelRef,
@@ -88,8 +89,19 @@ export function createActions(
     set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], loaded, id, captured, state.revisions))
     set("loaded", id, true)
     set("cursors", id, messages.length === pageSize ? messages[0]!.id : null)
-    const todos = await requireClient().todos(id).catch(() => undefined)
+    const [todos, tasks] = await Promise.all([requireClient().todos(id).catch(() => undefined), requireClient().tasks(id).catch(() => undefined)])
     if (todos) set("todos", id, adaptTodos(todos))
+    if (tasks) putTasks(set, state, id, tasks)
+  }
+
+  /** Stops one worker; the engine's `task.updated` reports how it ended. */
+  async function stopTask(taskId: string) {
+    try {
+      const task = await requireClient().stopTask(taskId)
+      putTasks(set, state, task.parentSessionId, [task])
+    } catch (cause) {
+      notice({ id: `task-stop-${taskId}`, title: t("drift.task.stopFailed"), message: errorMessage(cause), variant: "error" })
+    }
   }
 
   function openSession(id: string) {
@@ -515,6 +527,7 @@ export function createActions(
     newSession,
     send,
     abort,
+    stopTask,
     rename,
     remove,
     purgeSession,
@@ -573,6 +586,7 @@ function purge(draft: EngineState, id: string) {
   delete draft.status[id]
   delete draft.errors[id]
   delete draft.cursors[id]
+  delete draft.tasks[id]
 }
 
 export function errorMessage(cause: unknown) {

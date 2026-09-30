@@ -516,6 +516,15 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
 - `task.updated { task }` is published on launch, start, ending and delivery.
 - `task_output { task_id, wait_seconds? }` answers for the calling conversation's own tasks only,
   waiting at most 120 s; `task_stop { task_id }` likewise. Neither is offered to subagents.
+- UI: the engine store keeps `tasks[parentSessionId]`, loaded with the transcript
+  (`GET /sessions/{id}/tasks`) and folded from `task.updated`. A task only moves forward, so a
+  snapshot that raced an event never replaces the newer record. The transcript's `task` row takes
+  its state from the record (matched by `taskId` metadata or call id): a background receipt is a
+  finished call but stays running until its worker ends, and reads failed when the worker failed,
+  stopped or was interrupted. Above the composer, a Background tasks dock lists the conversation's
+  background workers while any is queued, running or not yet delivered, each with its state, the
+  running worker's current tool, Stop (`POST /tasks/{id}/abort`) and a link to its transcript.
+  Foreground workers are not listed there; their row in the transcript already waits for them.
 
 Initial async mode is selected at launch. Foreground-to-background promotion,
 agent teams, arbitrary cross-agent messaging and automatic post-crash execution

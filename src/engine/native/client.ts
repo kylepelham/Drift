@@ -15,6 +15,7 @@ export type Receipt = components["schemas"]["Receipt"]
 export type PermissionRequest = components["schemas"]["PermissionRequest"]
 export type QuestionRequest = components["schemas"]["QuestionRequest"]
 export type Todo = components["schemas"]["Todo"]
+export type TaskRecord = components["schemas"]["TaskRecord"]
 export type ReplyBody = components["schemas"]["ReplyBody"]
 export type ProviderStatus = components["schemas"]["ProviderStatus"]
 export type ErrorBody = components["schemas"]["ErrorBody"]
@@ -110,6 +111,8 @@ export function createClient(target: Target) {
     connectMcpServer: (name: string) => request<Json<"connectMcpServer", 200>>("POST", `/mcp/${name}/connect`),
     disconnectMcpServer: (name: string) => request<Json<"disconnectMcpServer", 200>>("POST", `/mcp/${name}/disconnect`),
     todos: (id: string) => request<Json<"listTodos", 200>>("GET", `/sessions/${id}/todos`),
+    tasks: (id: string) => request<Json<"listTasks", 200>>("GET", `/sessions/${id}/tasks`),
+    stopTask: (id: string) => request<Json<"abortTask", 200>>("POST", `/tasks/${id}/abort`),
   }
 }
 

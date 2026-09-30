@@ -10,7 +10,7 @@ import { adaptEvent, type WorkspaceIndex } from "./native/adapt"
 import { createClient, type Client, type Target } from "./native/client"
 import { connectEvents, type EventStream } from "./native/events"
 import { resolveTarget } from "./native/target"
-import { createEngineState, type EngineState } from "./store"
+import { createEngineState, putTasks, type EngineState } from "./store"
 
 export type Engine = {
   state: EngineState
@@ -84,6 +84,7 @@ export function EngineProvider(props: ParentProps) {
       hydrate: () => hydrate(),
       event: (envelope) => {
         if (envelope.type === "catalog.updated") void actions.refreshProviders().catch(() => undefined)
+        if (envelope.type === "task.updated") putTasks(set, state, envelope.task.parentSessionId, [envelope.task])
         const legacy = adaptEvent(envelope, workspaceIndex())
         if (legacy) reduce(set, legacy, directory ?? undefined, state)
       },
