@@ -42,6 +42,25 @@ impl Store {
             .collect()
     }
 
+    /// Every shadow blob a recorded change in the workspace refers to, archived sessions included:
+    /// what undo and redo could still need.
+    pub fn recorded_blobs(&self, workspace_id: &str) -> rusqlite::Result<Vec<String>> {
+        let conn = self.lock();
+        let mut statement = conn.prepare_cached(
+            "SELECT p.json FROM part p JOIN session s ON s.id = p.session_id WHERE s.workspace_id = ?1 AND p.json LIKE '%\"changes\"%'",
+        )?;
+        let rows = statement.query_map([workspace_id], |row| row.get::<_, String>(0))?;
+        let mut blobs = std::collections::BTreeSet::new();
+        for json in rows {
+            let Ok(Part::ToolCall { metadata: Some(metadata), .. }) = serde_json::from_str::<Part>(&json?) else { continue };
+            let Some(changes) = metadata.get("changes").and_then(|c| c.as_array()) else { continue };
+            for change in changes {
+                blobs.extend(["before", "after"].iter().filter_map(|side| change[side].as_str().map(str::to_string)));
+            }
+        }
+        Ok(blobs.into_iter().collect())
+    }
+
     pub fn move_sessions(&self, ids: &[String], workspace_id: &str) -> rusqlite::Result<()> {
         transaction(&self.lock(), |conn| {
             let mut update = conn.prepare_cached("UPDATE session SET workspace_id = ?2, updated_at = ?3 WHERE id = ?1")?;

@@ -144,6 +144,17 @@ impl Engine {
         config
     }
 
+    /// Drops recorded file content no stored call refers to any more. Runs at startup; failures only
+    /// mean the store keeps more than it needs.
+    pub async fn prune_snapshots(&self) {
+        let Ok(workspaces) = self.store.workspaces() else { return };
+        for workspace in workspaces {
+            let Ok(keep) = self.store.recorded_blobs(&workspace.id) else { continue };
+            let path = tool::canonical(Path::new(&workspace.path));
+            let _ = self.snapshots.prune(&path, &keep).await;
+        }
+    }
+
     /// Pulls a fresh catalog from models.dev when the cached one is stale; the bundled snapshot covers failure.
     pub async fn refresh_catalog(&self) {
         if Catalog::cache_is_fresh(&self.data_dir) {
@@ -183,6 +194,7 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
         starting.refresh_catalog().await;
         starting.mcp.connect_all(&starting.store, &starting.hub).await;
         starting.tools.set_dynamic(starting.mcp.tools());
+        starting.prune_snapshots().await;
     });
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let addr = listener.local_addr()?;

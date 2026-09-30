@@ -60,6 +60,21 @@ async fn undo_redo_and_moving_the_point_keep_files_and_history_in_step() {
 }
 
 #[tokio::test]
+async fn every_blob_undo_needs_is_kept_through_a_prune() {
+    let h = harness().await;
+    let (_, second) = two_writing_turns(&h).await;
+    let kept = h.engine.store.recorded_blobs(&h.session.workspace_id).unwrap();
+    let workspace = crate::tool::canonical(&h._dir.join("ws"));
+    let current = h.engine.snapshots.current(&workspace, "a.txt").await.unwrap().unwrap();
+    assert!(kept.contains(&current), "the blob a redo would restore is referenced");
+    assert_eq!(kept.len(), 3, "one, two and bee, each once; a file that did not exist has no blob");
+    h.engine.prune_snapshots().await;
+    h.engine.revert(&h.session.id, &second).await.unwrap();
+    h.engine.unrevert(&h.session.id).await.unwrap();
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("two"));
+}
+
+#[tokio::test]
 async fn undo_leaves_the_users_own_work_alone() {
     let h = harness().await;
     std::fs::write(h._dir.join("ws/notes.txt"), "mine\n").unwrap();

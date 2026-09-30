@@ -321,6 +321,15 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   No other file is read or rewritten. Calling revert again moves the point: back undoes the range
   in between, forward redoes it, with the same check.
 - `POST /sessions/{id}/unrevert` redoes the hidden range the same way and clears the marker.
+- The shadow repo is one per workspace, shared by every session and subagent in it, so creating it
+  and every index operation (tree captures, prunes) hold a per-workspace lock.
+- Files over 10 MB are never copied into it: a file tool refuses to change one, since the change
+  could not be undone, and tree captures leave them out through the shadow repo's own exclude file
+  (the workspace's `.gitignore` is untouched). A file that only grows past the limit through a
+  call is left out of undo.
+- Retention: at startup, `Engine::prune_snapshots` pins every blob a stored call's `changes` refers
+  to (archived sessions included) under a private ref and prunes the rest, sparing objects younger
+  than two hours so a capture in flight keeps its blobs. Tree captures are transient and go too.
 - Nothing is deleted while undone. The next prompt commits the undo: the hidden messages and their
   submission records are deleted in the same transaction that records the prompt, each announced
   as `message.removed`, and the files stay as the undo left them.
