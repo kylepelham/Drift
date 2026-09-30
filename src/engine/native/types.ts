@@ -634,6 +634,11 @@ export interface components {
             /** @description The thing being touched: a path, a command. Rules match it with globs. */
             pattern: string;
             title: string;
+            /**
+             * @description Files the shell line's redirections write. Any at all and only an exact approval of the whole
+             *     line allows it: approving `git status` never approves `git status > victim.txt`.
+             */
+            writes?: string[];
         };
         /** @description What the user reviews before a branch exists. Nothing is stored until they confirm. */
         BranchDraft: {

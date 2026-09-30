@@ -152,6 +152,9 @@ impl Permissions {
         let decisions: Vec<Decision> = commands.iter().map(|command| self.decide_target(session_id, workspace, "bash", command, true)).collect();
         if decisions.contains(&Decision::Deny) {
             Decision::Deny
+        } else if !ask.writes.is_empty() {
+            // A redirection that writes a file needs the line itself approved, never a grant for its program.
+            self.decide_target(session_id, workspace, "bash", &ask.pattern, false)
         } else if decisions.iter().all(|d| *d == Decision::Allow) {
             Decision::Allow
         } else {
@@ -235,11 +238,12 @@ impl Permissions {
 }
 
 /// What "always" covers: each command of a shell line on its own, widened only to a known subcommand;
-/// the exact target for everything else, including a shell line that hides what it runs.
+/// the exact target for everything else, including a shell line that hides what it runs or writes a
+/// file through a redirection.
 fn always_grants(ask: &Ask) -> Vec<Grant> {
     let exact = |target: &str| Grant::Exact { kind: ask.kind.clone(), target: target.into() };
     match (&ask.commands, ask.kind.as_str()) {
-        (Some(commands), "bash") => commands
+        (Some(commands), "bash") if ask.writes.is_empty() => commands
             .iter()
             .map(|command| match crate::tool::command::subcommand(command) {
                 Some(prefix) => Grant::Subcommand { prefix },
@@ -279,9 +283,36 @@ mod tests {
 
     /// A shell ask as the bash tool makes it: the line plus the commands it runs.
     fn shell(line: &str) -> Ask {
-        let mut ask = ask("bash", line);
-        ask.commands = crate::tool::command::split(crate::tool::command::Dialect::Bash, line);
-        ask
+        Ask::shell(crate::tool::command::Dialect::Bash, line, line)
+    }
+
+    fn powershell(line: &str) -> Ask {
+        Ask::shell(crate::tool::command::Dialect::PowerShell, line, line)
+    }
+
+    #[test]
+    fn a_redirection_that_writes_a_file_needs_the_line_itself_approved() {
+        let none = Policy::default();
+        let git = Policy { rules: vec![Rule { kind: "bash".into(), pattern: "git *".into(), decision: Decision::Allow }] };
+        let permissions = Permissions::new(Policy::default());
+        for line in ["git status > victim.txt", "git status >> victim.txt", "git status &> victim.txt", "git status 2> victim.txt"] {
+            assert_eq!(permissions.decide("ses_1", &git, &shell(line)), Decision::Ask, "git * does not cover {line}");
+        }
+        assert_eq!(permissions.decide("ses_1", &git, &powershell("git status *> victim.txt")), Decision::Ask);
+        assert_eq!(permissions.decide("ses_1", &git, &shell("git status 2>&1 >/dev/null")), Decision::Allow, "sinks write nothing");
+        assert_eq!(permissions.decide("ses_1", &git, &powershell("git status 2>&1 > $null")), Decision::Allow);
+        assert_eq!(permissions.decide("ses_1", &git, &shell("git log --grep='a > b'")), Decision::Allow, "a quoted operator is text");
+
+        approve_always(&permissions, shell("git status"));
+        assert_eq!(permissions.decide("ses_1", &none, &shell("git status --short")), Decision::Allow);
+        assert_eq!(permissions.decide("ses_1", &none, &shell("git status > victim.txt")), Decision::Ask, "the subcommand grant does not reach a redirection");
+        approve_always(&permissions, shell("git status > report.txt"));
+        assert_eq!(permissions.decide("ses_1", &none, &shell("git status > report.txt")), Decision::Allow, "always remembers that exact line");
+        assert_eq!(permissions.decide("ses_1", &none, &shell("git status > victim.txt")), Decision::Ask, "and only that line");
+        let exact = Policy { rules: vec![Rule { kind: "bash".into(), pattern: "git status > out.txt".into(), decision: Decision::Allow }] };
+        assert_eq!(permissions.decide("ses_1", &exact, &shell("git status > out.txt")), Decision::Allow);
+        let deny = Policy { rules: vec![Rule { kind: "bash".into(), pattern: "rm *".into(), decision: Decision::Deny }] };
+        assert_eq!(permissions.decide("ses_1", &deny, &shell("rm -rf x > log.txt")), Decision::Deny, "denies still judge each command");
     }
 
     fn approve_always(permissions: &Permissions, ask: Ask) {

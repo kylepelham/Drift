@@ -609,8 +609,16 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     `git status && rm -rf ~`.
   - A line that hides what it runs (command substitution, backticks, subshells, groups, script
     blocks, `eval`/`Invoke-Expression`, the `&` call operator, or a launcher such as `bash -c`,
-    `sudo`, `env`, `xargs`) is judged whole, and a wildcard rule never allows it: only a deny, or an
-    exact approval of that line.
+    `sudo`, `env`, `xargs`) is judged whole, and a wildcard rule never allows it, not even `bash *`
+    in drift.json or an "always" widened to a pattern: only an exact rule or approval of that line
+    allows it, while any matching deny still denies it.
+  - A redirection that writes a file (`>`, `>>`, `>|`, `n>`, `&>`, `&>>`, `>&file`, `<>`, and
+    PowerShell's `*>`) makes the line exact-only too: `git status > victim.txt` is covered by
+    neither `git *` nor an "always" for `git status`, and "always" on it records only that line.
+    Stream duplications (`2>&1`, `>&2`, `n>&-`) and sinks (`/dev/null`, `/dev/stdout`,
+    `/dev/stderr` in bash, `$null` in PowerShell) write nothing. Git Bash has no `nul` device, so
+    `> nul` counts as a write. Quoted or escaped operators are text. Redirections are listed after
+    the command's words (`Ask.writes` names the targets) so the program word stays first.
   - A secret read is held to the same bar: `read *` or an "always" widened to `**` never allows
     `.env`; a rule or approval naming that file does, and any matching deny still denies.
   - "Always" grants each command separately. Known subcommand tools (`git`, `cargo`, `npm run`,

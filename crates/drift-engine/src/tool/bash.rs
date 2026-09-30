@@ -91,9 +91,7 @@ impl Tool for Bash {
             Shell::Bash(_) => command::Dialect::Bash,
             Shell::PowerShell(_) => command::Dialect::PowerShell,
         };
-        let mut ask = Ask::new("bash", command, input["description"].as_str().unwrap_or(command));
-        ask.commands = command::split(dialect, command);
-        Some(ask)
+        Some(Ask::shell(dialect, command, input["description"].as_str().unwrap_or(command)))
     }
 
     fn mutates(&self) -> bool {

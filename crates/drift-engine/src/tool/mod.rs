@@ -170,11 +170,25 @@ pub struct Ask {
     /// hides what it runs, so only an exact approval of the whole line allows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commands: Option<Vec<String>>,
+    /// Files the shell line's redirections write. Any at all and only an exact approval of the whole
+    /// line allows it: approving `git status` never approves `git status > victim.txt`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub writes: Vec<String>,
 }
 
 impl Ask {
     pub fn new(kind: &str, pattern: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None }
+        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None, writes: Vec::new() }
+    }
+
+    /// A shell ask as the dialect reads `line`.
+    pub fn shell(dialect: command::Dialect, line: &str, title: impl Into<String>) -> Self {
+        let mut ask = Self::new("bash", line, title);
+        if let Some(split) = command::split(dialect, line) {
+            ask.commands = Some(split.commands);
+            ask.writes = split.writes;
+        }
+        ask
     }
 }
 

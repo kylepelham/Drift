@@ -71,7 +71,7 @@ change the plan there when a decision changes.
     - [x] Changes seen during a command are unattributed and never undone
     - [x] Oversized tracked files leave the shadow index; reported as unrecorded, not deleted
     - [x] Snapshot cost measured; no tree reuse without a reliable unchanged signal
-    - [ ] File-writing redirections need exact approval (bash and PowerShell)
+    - [x] File-writing redirections need exact approval (bash and PowerShell)
     - [ ] Permanent quota errors never retry; oversized `retry-after` cannot panic; failed jobs release the session; cap after jitter
     - [ ] Bounded shell capture; inherited pipes and background descendants
     - [ ] `.envrc`, `cd` chains, opaque-construct docs, periodic prune, OpenRouter caching verified
