@@ -94,6 +94,9 @@ pub struct Message {
     pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<i64>,
+    /// A compaction summary: from here on the model sees this instead of the history before it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub summary: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -142,6 +145,14 @@ pub enum Part {
         name: String,
         /// Data URL for now; a content-addressed blob store replaces this later.
         url: String,
+    },
+    /// The boundary of a compaction; its summary is the assistant message that follows.
+    #[serde(rename_all = "camelCase")]
+    Compaction {
+        auto: bool,
+        /// First message the model still sees verbatim after the summary; `None` keeps nothing.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tail_from: Option<String>,
     },
 }
 

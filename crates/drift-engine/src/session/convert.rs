@@ -9,22 +9,27 @@ fn replayable(message: &MessageWithParts) -> bool {
 }
 
 /// `target` is the model the messages are for: reasoning signatures only validate with the model that made them.
-pub fn messages(transcript: &[MessageWithParts], target: &ModelRef) -> Vec<ChatMessage> {
-    let mut out: Vec<ChatMessage> = Vec::new();
-    for message in transcript.iter().filter(|m| replayable(m)) {
-        match message.info.role {
-            Role::User => push(&mut out, LlmRole::User, user_blocks(message)),
-            Role::Assistant => {
-                push(&mut out, LlmRole::Assistant, assistant_blocks(message, message.info.model.as_ref() == Some(target)));
-                push(&mut out, LlmRole::User, result_blocks(message));
-            }
-        }
-    }
+pub fn messages<'a>(transcript: impl IntoIterator<Item = &'a MessageWithParts>, target: &ModelRef) -> Vec<ChatMessage> {
+    let mut out = Vec::new();
+    append(&mut out, transcript, target);
     out
 }
 
+/// Like `messages`, continuing `out` so a leading summary merges with what follows.
+pub fn append<'a>(out: &mut Vec<ChatMessage>, transcript: impl IntoIterator<Item = &'a MessageWithParts>, target: &ModelRef) {
+    for message in transcript.into_iter().filter(|m| replayable(m)) {
+        match message.info.role {
+            Role::User => push(out, LlmRole::User, user_blocks(message)),
+            Role::Assistant => {
+                push(out, LlmRole::Assistant, assistant_blocks(message, message.info.model.as_ref() == Some(target)));
+                push(out, LlmRole::User, result_blocks(message));
+            }
+        }
+    }
+}
+
 /// Adjacent messages of one role merge, since providers reject two in a row.
-fn push(out: &mut Vec<ChatMessage>, role: LlmRole, blocks: Vec<Block>) {
+pub fn push(out: &mut Vec<ChatMessage>, role: LlmRole, blocks: Vec<Block>) {
     if blocks.is_empty() {
         return;
     }
@@ -108,6 +113,7 @@ pub(super) mod tests_support {
                 error: None,
                 created_at: 0,
                 finished_at: None,
+                summary: false,
             },
             parts: parts
                 .into_iter()

@@ -326,17 +326,21 @@ function tokenCount(tokens: TokenUsage) {
 }
 
 // Ceiling on how much of the context window is set aside for the model's own reply, and the slice
-// of that reserved for compaction headroom. Both mirror the engine's session/overflow.ts - changing
-// one here without changing it there desynchronizes the meter from actual compaction.
+// of that reserved for compaction headroom. The reply cap mirrors MAX_REPLY_TOKENS in
+// crates/drift-engine/src/session/compaction.rs; change both or the meter drifts from real compaction.
 const maxOutputTokens = 32000
 const compactionReserveTokens = 20000
 const percentScale = 100
 
-// Mirrors the engine's session/overflow.ts so the meter predicts the same compaction point.
+// Mirrors the engine's `overflowing` (session/compaction.rs) so the meter predicts the same compaction point.
 // Limits come from the model the next prompt would use; token counts from the last reply.
 export function contextStats(state: EngineState, sessionId: string, modelRef?: ModelRef | null) {
   const entries = state.transcripts[sessionId] ?? []
-  const last = [...entries].reverse().find((entry) => {
+  // Usage from before the latest compaction no longer describes what the model sees.
+  const newestFirst = [...entries].reverse()
+  const summaryAt = newestFirst.findIndex((entry) => !!(entry.info as { summary?: boolean }).summary)
+  const sinceSummary = summaryAt < 0 ? newestFirst : newestFirst.slice(0, summaryAt)
+  const last = sinceSummary.find((entry) => {
     if (entry.info.role !== "assistant" || !("tokens" in entry.info)) return false
     return tokenCount(entry.info.tokens as TokenUsage) > 0
   })

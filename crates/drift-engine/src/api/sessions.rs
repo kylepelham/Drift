@@ -137,6 +137,13 @@ pub async fn abort(State(engine): State<Arc<Engine>>, Path(id): Path<String>) ->
     Json(Aborted { aborted: engine.abort(&id) })
 }
 
+/// Summarises the older history now. Runs as the session's job: 409 while a turn runs, Stop cancels it.
+#[utoipa::path(post, path = "/sessions/{id}/compact", operation_id = "compactSession", responses((status = 202), (status = 404), (status = 409)))]
+pub async fn compact(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
+    engine.start_compaction(&id)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
 #[utoipa::path(get, path = "/sessions/{id}/todos", operation_id = "listTodos", responses((status = 200, body = Vec<crate::session::types::Todo>), (status = 404)))]
 pub async fn todos(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Vec<crate::session::types::Todo>>, ApiError> {
     engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;

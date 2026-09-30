@@ -327,7 +327,7 @@ export function createActions(
     return { ok: true, connected: state.connected.includes(id) }
   }
 
-  /** Copies finished history into a new conversation. Until compaction exists, "active" and "full" copy the same thing. */
+  /** Copies finished history into a new conversation. The copy keeps compaction markers, so it sees the same context; "active" and "full" are one operation. */
   async function fork(id: string, _mode: "active" | "full" = "active") {
     try {
       const session = adaptSession(await requireClient().forkSession(id), workspaces())
@@ -336,6 +336,23 @@ export function createActions(
     } catch (cause) {
       notice({ id: `fork-${id}`, title: "Couldn't fork", message: errorMessage(cause), variant: "error", duration: 10_000 })
     }
+  }
+
+  /** `/compact`: the engine summarises now with the compaction agent's model, so the composer's model does not apply. */
+  async function summarize(id: string, _model?: unknown) {
+    try {
+      await requireClient().compactSession(id)
+    } catch (cause) {
+      notice({ id: `compact-${id}`, title: "Couldn't compact", message: errorMessage(cause), variant: "error", duration: 10_000 })
+    }
+  }
+
+  async function engineSettings() {
+    return requireClient().settings()
+  }
+
+  async function setAutoCompact(autoCompact: boolean) {
+    return requireClient().putSettings({ autoCompact })
   }
 
   /** Moves a session with its subagents; the engine refuses while any of them is running. */
@@ -482,7 +499,9 @@ export function createActions(
     moveWorkspaceSessions,
     removeAllSessions: async (..._args: unknown[]) => false,
     switchRetryModel: async (..._args: unknown[]): Promise<PromptSendResult> => ({ ok: false, error: "Retry model switching is not available yet" }),
-    summarize: notYet("Compaction"),
+    summarize,
+    engineSettings,
+    setAutoCompact,
     share: async (..._args: unknown[]): Promise<string | undefined> => {
       unavailable("Sharing")
       return undefined

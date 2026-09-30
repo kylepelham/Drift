@@ -55,7 +55,7 @@ change the plan there when a decision changes.
 - [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
 - [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
 - [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, handoff, subagent pins
-- [ ] Compaction with recovery
+- [x] Compaction with recovery: automatic (meter threshold, Settings off switch, stops after 3 failures), overflow compact-and-retry, `/compact`; summary plus 2-turn/15k tail, nothing deleted
 - [ ] Retry with model switch
 - [ ] Revert and diff
 - [ ] Shell timeout

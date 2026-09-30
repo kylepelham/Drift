@@ -140,8 +140,8 @@ apart (see "Subagents and branches" in `docs/engine-rewrite.md`).
   caller.
 
 Forks copy a conversation's finished history into a new, independent conversation. A turn still
-running is left out, and `/fork active` and `/fork all` copy the same history until compaction
-exists (see "Fork and move" in `docs/engine-rewrite.md`).
+running is left out. The copy keeps compaction markers, so it continues from the same context;
+`/fork active` and `/fork all` are one operation (see "Fork and move" in `docs/engine-rewrite.md`).
 
 ## Prompt and agent editing
 
@@ -188,15 +188,14 @@ the whole Drift agent override and restores the underlying agent configuration i
 Prompt and behavior edits are preserved when changing the model. The picker and behavior
 JSON edit the same value; unavailable saved models remain visible by ID until changed.
 
-The engine applies the agent model to both foreground and background tasks, including
-resumed tasks. A pinned model does not inherit the parent's reasoning variant. Agent
-types with mode `all` share this configuration when invoked directly too. Spawned sibling
-threads continue to use the spawning session's model.
+The engine runs a `task` subagent on its agent's pinned model, falling back to the parent's.
+Branches from `/spawn` start on the source conversation's model.
 
-The hidden `title` and `compaction` agents expose the same model picker. Title defaults
-to OpenCode's automatic small-model selection, while compaction defaults to the current
-session model. Their picker includes connected text-generation models even when they do
-not support tool calls. The `summary` agent has no runtime call sites and remains unpinned.
+The action agents `title`, `compaction` and `handoff` (the context a `/spawn` branch carries) have
+the same model picker and prompt editor. Title defaults to the cheapest priced model from the
+conversation's provider, or the conversation's own model when that is free; compaction and
+handoff default to the conversation's model. Their picker lists text models. The composer never
+offers them as agents. Details: "Per-action models" in `docs/engine-rewrite.md`.
 
 ## Workflows (design open)
 

@@ -2,6 +2,7 @@
 
 mod assemble;
 pub mod branch;
+pub mod compaction;
 mod convert;
 mod oneshot;
 pub mod prompt;

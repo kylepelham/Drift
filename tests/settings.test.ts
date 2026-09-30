@@ -174,6 +174,7 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 /** Keys that deliberately fall back to English until locale-specific translations ship. */
 const pendingTranslation = new Set([
   ...pendingKeys("drift.thread", "openSubagent"),
+  ...pendingKeys("drift.settings.autoCompact", "title description"),
   ...pendingKeys("drift.branch", "title description drafting goal name summary excerpts create"),
   ...pendingKeys("drift.about", "row.native.title row.native.description native.connected native.offline"),
   ...pendingKeys(

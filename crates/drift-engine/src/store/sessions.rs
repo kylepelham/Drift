@@ -8,7 +8,7 @@ use crate::session::types::{
 };
 
 pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff";
-const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at";
+const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary";
 
 pub struct NewSession<'a> {
     pub workspace_id: &'a str,
@@ -102,7 +102,12 @@ impl Store {
     }
 
     pub fn create_message(&self, session_id: &str, role: Role, model: Option<&ModelRef>) -> rusqlite::Result<Message> {
-        insert_message(&self.lock(), session_id, role, model)
+        insert_message(&self.lock(), session_id, role, model, false)
+    }
+
+    /// The streaming assistant message a compaction writes its summary into.
+    pub fn create_summary_message(&self, session_id: &str, model: &ModelRef) -> rusqlite::Result<Message> {
+        insert_message(&self.lock(), session_id, Role::Assistant, Some(model), true)
     }
 
     pub fn save_message(&self, message: &Message) -> rusqlite::Result<()> {
@@ -220,6 +225,7 @@ fn map_message(row: &Row) -> rusqlite::Result<Message> {
         error: row.get(8)?,
         created_at: row.get(9)?,
         finished_at: row.get(10)?,
+        summary: row.get(11)?,
     })
 }
 
@@ -387,7 +393,7 @@ impl Store {
     /// Records a user prompt as one unit: message, parts and the session's model, or nothing at all.
     pub fn admit_prompt(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<(Message, Vec<PartRow>, Session)> {
         transaction(&self.lock(), |conn| {
-            let message = insert_message(conn, session_id, Role::User, Some(model))?;
+            let message = insert_message(conn, session_id, Role::User, Some(model), false)?;
             if let Some((id, hash)) = submission {
                 conn.prepare_cached("INSERT INTO submission(id, session_id, message_id, payload_hash, created_at) VALUES(?1, ?2, ?3, ?4, ?5)")?
                     .execute(params![id, session_id, message.id, hash, id::now_ms()])?;
@@ -458,7 +464,7 @@ pub(super) fn transaction<T>(conn: &Connection, f: impl FnOnce(&Connection) -> r
     }
 }
 
-fn insert_message(conn: &Connection, session_id: &str, role: Role, model: Option<&ModelRef>) -> rusqlite::Result<Message> {
+fn insert_message(conn: &Connection, session_id: &str, role: Role, model: Option<&ModelRef>, summary: bool) -> rusqlite::Result<Message> {
     let message = Message {
         id: id::new("msg"),
         session_id: session_id.into(),
@@ -470,10 +476,11 @@ fn insert_message(conn: &Connection, session_id: &str, role: Role, model: Option
         error: None,
         created_at: id::now_ms(),
         finished_at: None,
+        summary,
     };
     conn.prepare_cached(
-        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, created_at)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8)",
+        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, created_at, summary)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9)",
     )?
     .execute(params![
         message.id,
@@ -483,7 +490,8 @@ fn insert_message(conn: &Connection, session_id: &str, role: Role, model: Option
         model.map(|m| &m.provider),
         model.map(|m| &m.model),
         serde_json::to_string(&message.usage).unwrap(),
-        message.created_at
+        message.created_at,
+        summary
     ])?;
     Ok(message)
 }

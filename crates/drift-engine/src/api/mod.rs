@@ -10,6 +10,7 @@ mod permissions;
 mod providers;
 mod questions;
 mod sessions;
+mod settings;
 mod workspaces;
 
 use std::sync::Arc;
@@ -44,6 +45,8 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::branch))
         .routes(routes!(sessions::fork))
         .routes(routes!(sessions::move_session))
+        .routes(routes!(sessions::compact))
+        .routes(routes!(settings::get, settings::put))
         .routes(routes!(providers::list))
         .routes(routes!(providers::set_key))
         .routes(routes!(providers::remove))

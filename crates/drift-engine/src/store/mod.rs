@@ -3,6 +3,7 @@
 mod migrations;
 mod mcp;
 mod sessions;
+mod settings;
 mod todos;
 mod tree;
 

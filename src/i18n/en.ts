@@ -726,6 +726,8 @@ export const drift = {
   "drift.storage.table.message.hint": "transcripts",
   "drift.storage.table.part": "Message content",
   "drift.storage.table.part.hint": "transcripts",
+  "drift.settings.autoCompact.title": "Compact automatically",
+  "drift.settings.autoCompact.description": "Summarise older messages when a conversation nears its model's context window. /compact always works.",
   "drift.settings.summaries.collapsed.description": "Start compaction summaries folded.",
   "drift.settings.summaries.collapsed.title": "Collapse summaries by default",
   "drift.settings.summaries.collapsible.description": "Fold engine compaction summaries behind an expandable divider.",

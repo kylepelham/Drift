@@ -12,14 +12,15 @@ use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
 use super::assemble::Assembler;
-use super::{convert, prompt};
+use super::compaction::{self, Trigger};
+use super::prompt;
 use crate::config::Config;
 use crate::event::{Event, SessionStatus};
 use crate::id;
 use crate::llm::catalog::Model;
 use crate::llm::{self, Credential, Provider, Request, StopReason};
 use crate::permission::{self, Outcome};
-use crate::session::types::{Message, MessageStatus, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage, Visibility};
+use crate::session::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage, Visibility};
 use crate::tool::{Context, SessionFiles};
 use crate::Engine;
 
@@ -87,11 +88,23 @@ pub struct Turns {
     finished: tokio::sync::Notify,
     files: Mutex<HashMap<String, Arc<SessionFiles>>>,
     refreshing: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Automatic compactions that failed in a row, per session; enough of them turn it off for that session.
+    pub(super) compaction_failures: Mutex<HashMap<String, u32>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
 }
 
 impl Turns {
+    /// Marks the session busy under `abort`; `false` if a turn or job already holds it.
+    pub(super) fn claim(&self, session_id: &str, abort: &CancellationToken) -> bool {
+        let mut active = self.active.lock().unwrap();
+        if active.contains_key(session_id) {
+            return false;
+        }
+        active.insert(session_id.into(), abort.clone());
+        true
+    }
+
     fn files_for(&self, session_id: &str) -> Arc<SessionFiles> {
         self.files.lock().unwrap().entry(session_id.into()).or_default().clone()
     }
@@ -146,12 +159,8 @@ impl Engine {
         }
         let plan = self.plan(session_id, &prompt).await?;
         let abort = parent.map_or_else(CancellationToken::new, CancellationToken::child_token);
-        {
-            let mut active = self.turns.active.lock().unwrap();
-            if active.contains_key(session_id) {
-                return Err(TurnError::Busy);
-            }
-            active.insert(session_id.into(), abort.clone());
+        if !self.turns.claim(session_id, &abort) {
+            return Err(TurnError::Busy);
         }
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash.as_str()));
         let admitted = self.store.admit_prompt(session_id, &plan.model_ref, prompt.parts, submission);
@@ -167,16 +176,22 @@ impl Engine {
             self.hub.publish(Event::PartCreated { part: row });
         }
         self.hub.publish(Event::SessionUpdated { session: session.clone() });
+        let engine = self.clone();
+        self.spawn_job(session_id, async move { engine.run(plan, abort).await });
+        Ok(Receipt { session, message })
+    }
+
+    /// Runs `job` in a session already claimed: reports it running, then idle and releases it when done.
+    pub(super) fn spawn_job(self: &Arc<Self>, session_id: &str, job: impl std::future::Future<Output = ()> + Send + 'static) {
         self.hub.publish(Event::SessionStatusChanged { session_id: session_id.into(), status: SessionStatus::Running });
         let engine = self.clone();
+        let id = session_id.to_string();
         tokio::spawn(async move {
-            let id = plan.session.id.clone();
-            engine.run(plan, abort).await;
+            job.await;
             engine.turns.active.lock().unwrap().remove(&id);
             engine.hub.publish(Event::SessionStatusChanged { session_id: id, status: SessionStatus::Idle });
             engine.turns.finished.notify_waiters();
         });
-        Ok(Receipt { session, message })
     }
 
     /// A known submission id replays its receipt from storage, so a retry after a restart is still one prompt.
@@ -262,12 +277,13 @@ impl Engine {
         // What was offered is what may run; a call to any other tool is refused before permission or snapshot.
         let offered: std::collections::HashSet<String> = tools.iter().map(|t| t.name.clone()).collect();
         let mut attempts = 0;
+        let mut recovered = false;
         loop {
-            let Ok(transcript) = self.store.transcript(&plan.session.id) else { break };
+            let Some(transcript) = self.transcript_for_step(&plan, &abort).await else { break };
             let request = Request {
                 model: plan.model_ref.model.clone(),
                 system: system.clone(),
-                messages: convert::messages(&transcript, &plan.model_ref),
+                messages: compaction::request_messages(&transcript, &plan.model_ref),
                 tools: tools.clone(),
                 max_tokens: max_tokens(&plan.model, plan.thinking_budget),
                 thinking_budget: plan.thinking_budget.filter(|_| plan.model.reasoning),
@@ -283,8 +299,30 @@ impl Engine {
                     tokio::time::sleep(Duration::from_millis(500 * 2u64.pow(attempts))).await;
                 }
                 Step::Retry => break,
+                // A request too long for the model is compacted once and retried.
+                Step::Overflow if !recovered => {
+                    recovered = true;
+                    if self.compact(&plan.session.id, Trigger::Overflow, &abort).await.is_err() {
+                        break;
+                    }
+                }
+                Step::Overflow => break,
             }
         }
+    }
+
+    /// The transcript for the next request, compacted first when the last reply left too little room.
+    /// A failed compaction still lets the request go; if it is too long, the overflow path tries once more.
+    async fn transcript_for_step(self: &Arc<Self>, plan: &Plan, abort: &CancellationToken) -> Option<Vec<MessageWithParts>> {
+        let transcript = self.store.transcript(&plan.session.id).ok()?;
+        if !self.wants_compaction(&plan.session.id, &plan.model, &transcript) {
+            return Some(transcript);
+        }
+        let _ = self.compact(&plan.session.id, Trigger::Auto, abort).await;
+        if abort.is_cancelled() {
+            return None;
+        }
+        self.store.transcript(&plan.session.id).ok()
     }
 
     /// One assistant message and the tool calls it makes.
@@ -300,6 +338,9 @@ impl Engine {
                 message.status = MessageStatus::Error;
                 message.error = Some(error.to_string());
                 let _ = self.finish(&mut message);
+                if error.is_context_overflow() {
+                    return Step::Overflow;
+                }
                 return if matches!(error, llm::Error::Api { retryable: true, .. } | llm::Error::Transport(_)) { Step::Retry } else { Step::Done };
             }
         };
@@ -508,6 +549,8 @@ enum Step {
     Done,
     Continue,
     Retry,
+    /// The request no longer fit the model's context.
+    Overflow,
 }
 
 struct CallScope<'a> {

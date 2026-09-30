@@ -55,6 +55,16 @@ test("assistant messages carry tokens, cost and errors in the legacy shape", () 
   expect(info.time).toEqual({ created: 1, completed: 2 })
 })
 
+test("a compaction becomes the boundary part and summary message the transcript already draws", () => {
+  const summary = adaptMessage(
+    { id: "msg_2", sessionId: "ses_1", role: "assistant", status: "done", model: { provider: "anthropic", model: "claude" }, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0, createdAt: 1, summary: true },
+    "C:/repo",
+  )
+  expect((summary as { summary?: boolean }).summary).toBeTrue()
+  const boundary = adaptPart({ id: "prt_1", messageId: "msg_1", sessionId: "ses_1", type: "compaction", auto: true, tailFrom: "msg_0" })
+  expect(boundary).toEqual({ id: "prt_1", sessionID: "ses_1", messageID: "msg_1", type: "compaction", auto: true })
+})
+
 test("tool call statuses become legacy tool states", () => {
   const base = { id: "prt_1", messageId: "msg_1", sessionId: "ses_1", type: "tool_call" as const, callId: "t", name: "read", input: { path: "a" } }
   const done = adaptPart({ ...base, status: "done", output: "1: a", title: "a", startedAt: 1, finishedAt: 2 })

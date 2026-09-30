@@ -391,6 +391,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/compact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Summarises the older history now. Runs as the session's job: 409 while a turn runs, Stop cancels it. */
+        post: operations["compactSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/fork": {
         parameters: {
             query?: never;
@@ -467,6 +484,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["submitTurn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getSettings"];
+        put: operations["putSettings"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -602,6 +635,11 @@ export interface components {
         Decision: "allow" | "deny" | "ask";
         EnabledBody: {
             enabled: boolean;
+        };
+        /** @description Engine-wide preferences the user changes in Settings. */
+        EngineSettings: {
+            /** @description Compact a conversation automatically when it nears its model's context window. */
+            autoCompact: boolean;
         };
         Envelope: components["schemas"]["Event"] & {
             /** Format: int64 */
@@ -739,6 +777,8 @@ export interface components {
             role: components["schemas"]["Role"];
             sessionId: string;
             status: components["schemas"]["MessageStatus"];
+            /** @description A compaction summary: from here on the model sees this instead of the history before it. */
+            summary?: boolean;
             usage: components["schemas"]["Usage"];
         };
         /** @enum {string} */
@@ -834,6 +874,12 @@ export interface components {
             type: "file";
             /** @description Data URL for now; a content-addressed blob store replaces this later. */
             url: string;
+        } | {
+            auto: boolean;
+            /** @description First message the model still sees verbatim after the summary; `None` keeps nothing. */
+            tailFrom?: string | null;
+            /** @enum {string} */
+            type: "compaction";
         };
         PartRow: components["schemas"]["Part"] & {
             id: string;
@@ -1755,6 +1801,37 @@ export interface operations {
             };
         };
     };
+    compactSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     forkSession: {
         parameters: {
             query?: never;
@@ -1921,6 +1998,48 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    getSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineSettings"];
+                };
+            };
+        };
+    };
+    putSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EngineSettings"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineSettings"];
+                };
             };
         };
     };

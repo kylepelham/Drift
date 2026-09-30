@@ -55,8 +55,8 @@ export function createClient(target: Target) {
       const error = (await response.json().catch(() => null)) as ErrorBody | null
       throw new EngineError(response.status, path, error?.code, error?.message)
     }
-    if (response.status === 204) return undefined as T
-    return response.json() as Promise<T>
+    const text = await response.text()
+    return (text ? JSON.parse(text) : undefined) as T
   }
   const query = (params: Record<string, string | number | boolean | null | undefined>) => {
     const search = new URLSearchParams()
@@ -77,6 +77,9 @@ export function createClient(target: Target) {
     createBranch: (id: string, draft: components["schemas"]["BranchDraft"]) => request<Json<"createBranch", 201>>("POST", `/sessions/${id}/branch`, draft),
     forkSession: (id: string, atMessage?: string) => request<Json<"forkSession", 201>>("POST", `/sessions/${id}/fork`, { atMessage }),
     moveSession: (id: string, workspaceId: string) => request<Json<"moveSession", 200>>("POST", `/sessions/${id}/move`, { workspaceId }),
+    compactSession: (id: string) => request<void>("POST", `/sessions/${id}/compact`),
+    settings: () => request<Json<"getSettings", 200>>("GET", "/settings"),
+    putSettings: (body: components["schemas"]["EngineSettings"]) => request<Json<"putSettings", 200>>("PUT", "/settings", body),
     session: (id: string) => request<Json<"getSession", 200>>("GET", `/sessions/${id}`),
     updateSession: (id: string, body: components["schemas"]["PatchSession"]) =>
       request<Json<"updateSession", 200>>("PATCH", `/sessions/${id}`, body),

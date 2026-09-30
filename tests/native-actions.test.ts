@@ -201,6 +201,18 @@ test("action agents are listed for Settings but hidden from the composer, with t
   expect(title!.model).toEqual({ providerID: "openai", modelID: "gpt-5-nano" })
 })
 
+test("/compact asks the engine to compact and reports a refusal; the auto setting round-trips", async () => {
+  const h = harness({
+    compactSession: (id: string) => (id === "ses_busy" ? Promise.reject(new EngineError(409, "/sessions/ses_busy/compact", "busy", "a turn is running")) : Promise.resolve(undefined)),
+    putSettings: (body: { autoCompact: boolean }) => Promise.resolve(body),
+  } as Partial<Client>)
+  await h.actions.summarize("ses_1")
+  expect(h.state.notices.length).toBe(0)
+  await h.actions.summarize("ses_busy")
+  expect(h.state.notices.some((n) => n.title === "Couldn't compact" && n.message === "a turn is running")).toBeTrue()
+  expect(await h.actions.setAutoCompact(false)).toEqual({ autoCompact: false })
+})
+
 test("a reviewed branch becomes a top-level session linked to its source", async () => {
   const draft = { goal: "fix lint", title: "Fix lint", summary: "Parser tidied.", excerpts: "", cutoff: "msg_9" }
   const h = harness({

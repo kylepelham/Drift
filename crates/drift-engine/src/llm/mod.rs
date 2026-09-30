@@ -125,6 +125,56 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// How each provider says the request no longer fits the model's context window.
+const OVERFLOW_PHRASES: [&str; 7] = [
+    "prompt is too long",
+    "context_length_exceeded",
+    "maximum context length",
+    "exceeds the context window",
+    "input is too long",
+    "too many input tokens",
+    "input token count",
+];
+
+impl Error {
+    /// The request did not fit the model's context; compacting can recover it where retrying cannot.
+    pub fn is_context_overflow(&self) -> bool {
+        matches!(self, Self::Api { status: 400 | 413, .. }) && mentions_context_overflow(&self.to_string())
+    }
+}
+
+/// Also used on errors already flattened to text, such as a failed summary request.
+pub fn mentions_context_overflow(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    OVERFLOW_PHRASES.iter().any(|phrase| text.contains(phrase))
+}
+
+#[cfg(test)]
+mod overflow_tests {
+    use super::Error;
+
+    fn api(status: u16, message: &str) -> Error {
+        Error::Api { status, kind: "invalid_request_error".into(), message: message.into(), retryable: false }
+    }
+
+    #[test]
+    fn each_providers_too_long_error_is_recognised_and_nothing_else_is() {
+        for message in [
+            "prompt is too long: 210432 tokens > 200000 maximum",
+            "Your input exceeds the context window of this model. Please adjust your input and try again.",
+            "This model's maximum context length is 128000 tokens. However, your messages resulted in 130211 tokens.",
+            "context_length_exceeded",
+            "The input token count (1048577) exceeds the maximum number of tokens allowed (1048576).",
+        ] {
+            assert!(api(400, message).is_context_overflow(), "{message}");
+        }
+        assert!(api(413, "Input is too long for requested model.").is_context_overflow());
+        assert!(!api(400, "messages: text content blocks must be non-empty").is_context_overflow());
+        assert!(!api(429, "prompt is too long").is_context_overflow(), "a rate limit is not an overflow");
+        assert!(!Error::Transport("prompt is too long".into()).is_context_overflow());
+    }
+}
+
 impl From<reqwest::Error> for Error {
     fn from(error: reqwest::Error) -> Self {
         Self::Transport(error.to_string())
@@ -180,7 +230,15 @@ pub mod scripted {
 
     use super::{Chunk, ChunkStream, Error, Request};
 
-    type Responses = Arc<Mutex<VecDeque<Result<Vec<Chunk>, Error>>>>;
+    #[derive(Debug)]
+    enum Response {
+        Chunks(Vec<Chunk>),
+        Fail(Error),
+        /// A response that never finishes, for exercising Stop.
+        Stall,
+    }
+
+    type Responses = Arc<Mutex<VecDeque<Response>>>;
 
     #[derive(Clone, Debug, Default)]
     pub struct Scripted {
@@ -190,20 +248,32 @@ pub mod scripted {
 
     impl Scripted {
         pub fn push(&self, chunks: Vec<Chunk>) -> &Self {
-            self.responses.lock().unwrap().push_back(Ok(chunks));
+            self.responses.lock().unwrap().push_back(Response::Chunks(chunks));
             self
         }
 
         pub fn push_error(&self, error: Error) -> &Self {
-            self.responses.lock().unwrap().push_back(Err(error));
+            self.responses.lock().unwrap().push_back(Response::Fail(error));
             self
+        }
+
+        pub fn push_stall(&self) -> &Self {
+            self.responses.lock().unwrap().push_back(Response::Stall);
+            self
+        }
+
+        pub fn responses_left(&self) -> usize {
+            self.responses.lock().unwrap().len()
         }
 
         pub fn stream(&self, request: &Request) -> Result<ChunkStream, Error> {
             self.requests.lock().unwrap().push(request.clone());
-            let next = self.responses.lock().unwrap().pop_front();
-            let chunks = next.unwrap_or_else(|| Err(Error::Transport("scripted provider has no more responses".into())))?;
-            Ok(Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok))))
+            match self.responses.lock().unwrap().pop_front() {
+                Some(Response::Chunks(chunks)) => Ok(Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok)))),
+                Some(Response::Fail(error)) => Err(error),
+                Some(Response::Stall) => Ok(Box::pin(futures_util::stream::pending())),
+                None => Err(Error::Transport("scripted provider has no more responses".into())),
+            }
         }
     }
 }

@@ -7,10 +7,11 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::convert;
-use super::oneshot::{push_user_text, Fallback, OneShot};
+use super::oneshot::{Fallback, OneShot};
 use super::turn::{Prompt, TurnError};
 use super::types::{MessageStatus, Part, Session, Visibility};
 use crate::event::Event;
+use crate::llm::{self, Block};
 use crate::store::NewSession;
 use crate::Engine;
 
@@ -63,7 +64,7 @@ impl Engine {
         let end = transcript.iter().rposition(|m| m.info.status == MessageStatus::Done);
         let cutoff = end.map(|i| transcript[i].info.id.clone());
         let mut messages = convert::messages(&transcript[..end.map_or(0, |i| i + 1)], &resolved.model_ref);
-        push_user_text(&mut messages, format!("{instructions}\n\nGoal for the new conversation:\n{goal}"));
+        convert::push(&mut messages, llm::Role::User, vec![Block::Text(format!("{instructions}\n\nGoal for the new conversation:\n{goal}"))]);
         let shot = OneShot { system: String::new(), messages, tools: self.tools.specs(resolved.model.profile), max_tokens: DRAFT_MAX_TOKENS, timeout: DRAFT_TIMEOUT };
         let text = self.complete(&resolved, shot).await.map_err(BranchError::Draft)?;
         Ok(parse_draft(goal, &text, cutoff))

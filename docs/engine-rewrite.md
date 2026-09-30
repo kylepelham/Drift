@@ -205,7 +205,8 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   Without `atMessage` it copies through the last stable message: if a turn is running, everything
   from its user message on is left out. With `atMessage` it stops at that message, which must be
   finished and outside a running turn. A fork has no parent link; it is a copy, not a worker or
-  a branch. `/fork active` and `/fork all` copy the same history until compaction exists.
+  a branch. The copy keeps compaction markers, so the fork sees the same context as its source;
+  `/fork active` and `/fork all` are one operation. Boundaries are remapped to the copied ids.
 - `POST /sessions/{id}/move {workspaceId}` moves the session and its subagents (hidden
   descendants at any depth). Branches stay where they are. It returns 409 while any of them is
   running, because a running turn keeps the workspace path it planned with.
@@ -238,6 +239,36 @@ Every job the engine does can run on its own model, chosen under Settings > Agen
   the placeholder.
 - Signed reasoning is replayed only to the model that produced it; any other model, including an
   action's, gets the history without it.
+
+#### Compaction
+
+Nothing is deleted. A compaction appends two messages: a user boundary holding
+`Part::Compaction { auto, tailFrom }` and an assistant message with `summary: true` holding the
+summary. The UI draws them as its existing collapsible "Context compacted" divider.
+
+- **Request view** (`session::compaction::view`): the latest *finished* summary as the opening user
+  turn, then every message from `tailFrom` on, skipping older boundaries and summaries (the new
+  summary covers them). A failed or aborted summary is ignored, so the previous view stands.
+- **Tail**: whole turns from the end, at most 2 turns and about 15k estimated tokens (4 chars a
+  token), starting at a user message so tool calls stay with their results, and never reaching the
+  first message: there is always something to summarise. When even the last turn is over budget,
+  everything is summarised.
+- **Summary request**: the `compaction` agent's model and prompt (per-action models above), the
+  previous summary and the history before the tail, one text-only request. If the provider says it
+  is too long, the oldest fifth of its turns is dropped with a note, up to three times.
+- **Triggers**
+  - Automatic, before each request in a turn: when the last finished reply since the latest summary
+    used at least `context - min(output limit, 32k)` tokens. The UI's context meter uses the same
+    sum (`contextStats` in `src/engine/store.ts`), so "until compaction" is where it happens. One
+    attempt per step; a failure still lets the request go.
+  - Overflow: a provider error recognised as too long (`llm::Error::is_context_overflow`, status
+    400 or 413 plus each provider's wording) compacts and retries once per turn; a second overflow
+    fails the turn.
+  - Manual: `POST /sessions/{id}/compact` (`/compact`) runs as the session's job, 409 while a turn
+    runs, cancelled by Stop.
+- **Off switch**: `GET`/`PUT /settings { autoCompact }`, stored in the engine's `setting` table,
+  default on, shown in Settings > General. Three automatic failures in a row also stop it for that
+  session until one succeeds; manual compaction always runs.
 
 #### Background-worker implementation
 
@@ -494,7 +525,7 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
 
 - `src/engine/` talks only to the native engine. `native/client.ts` wraps the generated
   types, `native/events.ts` runs the socket, `actions.ts` implements every action the UI
-  calls. Actions the engine cannot serve yet (share, compaction, revert,
+  calls. Actions the engine cannot serve yet (share, revert,
   retry model switch) raise a "not available yet" notice and return the
   neutral value their callers expect; each comes back native in the milestone that owns it.
 - `native/adapt.ts` maps native sessions, messages, parts, permissions, providers and events

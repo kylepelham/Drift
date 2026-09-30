@@ -766,6 +766,12 @@ test("context usage skips a trailing zero-token assistant message", async () => 
   ] as never)
   expect(contextStats(state, "s1")?.count).toBe(50_000)
   expect(contextStats(state, "s1")?.percent).toBe(50)
+
+  const summary = { ...assistant("s", 0), info: { ...assistant("s", 0).info, summary: true } }
+  set("transcripts", "s1", [assistant("a1", 90_000), summary] as never)
+  expect(contextStats(state, "s1")).toBeNull()
+  set("transcripts", "s1", [assistant("a1", 90_000), summary, assistant("a3", 12_000)] as never)
+  expect(contextStats(state, "s1")?.count).toBe(12_000)
 })
 
 test("GPT-6 context meter retains catalog input headroom past the old OAuth threshold", async () => {

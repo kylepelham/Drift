@@ -204,6 +204,7 @@ const settingsSearchDefinitions = {
     { title: "command.permissions.autoaccept.enable", description: "toast.permissions.autoaccept.on.description" },
     { title: "settings.general.row.reasoningSummaries.title", description: "settings.general.row.reasoningSummaries.description" },
     { title: "drift.settings.toolErrors.title", description: "drift.settings.toolErrors.description" },
+    { title: "drift.settings.autoCompact.title", description: "drift.settings.autoCompact.description" },
     { title: "drift.settings.summaries.collapsible.title", description: "drift.settings.summaries.collapsible.description" },
     { title: "drift.settings.summaries.collapsed.title", description: "drift.settings.summaries.collapsed.description" },
     { title: "settings.updates.row.startup.title", description: "settings.updates.row.startup.description" },
@@ -596,6 +597,18 @@ function SettingsSearchResults(props: { items: SettingsSearchItem[]; onSelect: (
 }
 
 function GeneralSection() {
+  const engine = useEngine()
+  // The engine owns this preference; null until it answers.
+  const [autoCompact, setAutoCompactShown] = createSignal<boolean | null>(null)
+  onMount(() => void engine.actions.engineSettings().then((settings) => setAutoCompactShown(settings.autoCompact)).catch(() => undefined))
+  function toggleAutoCompact() {
+    const next = !autoCompact()
+    setAutoCompactShown(next)
+    void engine.actions
+      .setAutoCompact(next)
+      .then((settings) => setAutoCompactShown(settings.autoCompact))
+      .catch(() => setAutoCompactShown(!next))
+  }
   return (
     <div class="space-y-5">
       <SettingsGroup title={t("settings.general.section.display")}>
@@ -728,6 +741,19 @@ function GeneralSection() {
       </SettingsGroup>
 
       <SettingsGroup title={t("drift.settings.summaries")}>
+        <SettingsRow
+          title={t("drift.settings.autoCompact.title")}
+          description={t("drift.settings.autoCompact.description")}
+          disabled={autoCompact() === null}
+          onClick={() => autoCompact() !== null && toggleAutoCompact()}
+        >
+          <Toggle
+            label={t("drift.settings.autoCompact.title")}
+            checked={autoCompact() ?? false}
+            disabled={autoCompact() === null}
+            onChange={toggleAutoCompact}
+          />
+        </SettingsRow>
         <SettingsRow
           title={t("drift.settings.summaries.collapsible.title")}
           description={t("drift.settings.summaries.collapsible.description")}

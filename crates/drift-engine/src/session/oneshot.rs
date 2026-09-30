@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 use super::turn::{Prompt, TurnError};
 use super::types::ModelRef;
 use crate::llm::catalog::Model;
-use crate::llm::{self, Block, ChatMessage, Chunk, Credential, Provider, Request, ToolSpec};
+use crate::llm::{ChatMessage, Chunk, Credential, Provider, Request, ToolSpec};
 use crate::config::Config;
 use crate::Engine;
 
@@ -97,12 +97,4 @@ async fn collect_text(provider: &Provider, request: &Request, credential: &Crede
         return Err("the model returned no text".into());
     }
     Ok(text)
-}
-
-/// Adds a user turn, joining the last one when it is already the user's so roles still alternate.
-pub(crate) fn push_user_text(messages: &mut Vec<ChatMessage>, text: String) {
-    match messages.last_mut() {
-        Some(last) if last.role == llm::Role::User => last.blocks.push(Block::Text(text)),
-        _ => messages.push(ChatMessage { role: llm::Role::User, blocks: vec![Block::Text(text)] }),
-    }
 }

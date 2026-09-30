@@ -70,6 +70,7 @@ export function adaptMessage(message: NativeMessage, directory: string): Message
   if (message.status === "error") assistant.error = { name: "UnknownError", data: { message: message.error ?? "The turn failed" } }
   if (message.status === "aborted") assistant.error = { name: "MessageAbortedError", data: { message: "Interrupted" } }
   if (message.status === "done") assistant.finish = "stop"
+  if (message.summary) assistant.summary = true
   return assistant
 }
 
@@ -84,6 +85,8 @@ export function adaptPart(row: NativePartRow): Part {
       return { ...base, type: "file", mime: row.mime, filename: row.name, url: row.url }
     case "tool_call":
       return { ...base, type: "tool", callID: row.callId, tool: row.name, state: toolState(row) }
+    case "compaction":
+      return { ...base, type: "compaction", auto: row.auto }
   }
 }
 
