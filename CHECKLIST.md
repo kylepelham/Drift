@@ -53,6 +53,17 @@ change the plan there when a decision changes.
 - [x] Attributed worker permission/question waits, parent-scoped task output/stop API and generated lifecycle events
 - [x] Async-worker conformance: engine-level gates (concurrent progress, out-of-order results, bounded slots, Stop while idle, single-worker stop, attributed asks, restart) and HTTP/WS conformance against the fake provider (progress events, parent carries on, single delivery, cursor replay, idle Stop wakes nothing)
 - [ ] UI task views: running/finished workers from `GET /sessions/{id}/tasks` and `task.updated` (today the sidebar shows running worker sessions and results arrive as the parent's next turn)
+- Agent-loop review at b93cbc9 (`docs/research/agent-loop-review-b93cbc9.md`):
+  - [x] Undo/redo keep a path whose change chain another edit broke
+  - [x] `apply_patch`: read-before-write for every existing target and move destination, an ask per path, whole patch checked before any write, rollback on a failed write
+  - [x] SSE decoding keeps characters split across reads whole
+  - [x] A worker cut off at its output limit is `incomplete`, not `replied`
+  - [x] Malformed data URLs refused at admission; full mentions count as reads; mention reads bounded; steering judged against the running model
+  - [x] Error and token bodies read within size and time bounds
+  - [x] A session reads its own spilled output without asking
+  - [x] Runners and installers approved only exactly; deny rules see past assignments and PowerShell aliases
+  - [x] Undo history owned by workspace id; moves keep it; pruning parses outside the database lock
+  - [x] Route-configurable timeouts, local routes 600 s; Deny and stop scope stated; OpenAI `prompt_cache_key`; `require_git(false)` for the large-file walk; stale concurrency doc fixed
 - [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
 - [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
 - [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, handoff, subagent pins
