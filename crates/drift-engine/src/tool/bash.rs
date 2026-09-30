@@ -92,9 +92,7 @@ impl Tool for Bash {
             Shell::PowerShell(_) => command::Dialect::PowerShell,
         };
         let mut ask = Ask::shell(dialect, command, input["description"].as_str().unwrap_or(command));
-        if let Some(commands) = &mut ask.commands {
-            drop_moves_within(ctx, commands);
-        }
+        drop_moves_within(ctx, &mut ask);
         Some(ask)
     }
 
@@ -243,9 +241,9 @@ const MOVES: [&str; 6] = ["cd", "chdir", "set-location", "sl", "pushd", "push-lo
 /// approval of its own and `cd crates && cargo test` asks only about `cargo test`. The directory is
 /// followed along the chain; once a move leaves the workspace or cannot be read (`~`, `-`, a
 /// variable, a glob), it and every later move still ask.
-fn drop_moves_within(ctx: &Context, commands: &mut Vec<String>) {
+fn drop_moves_within(ctx: &Context, ask: &mut Ask) {
     let mut here = Some(ctx.workspace.clone());
-    commands.retain(|command| {
+    ask.retain_commands(|command| {
         let Some(from) = &here else { return true };
         match move_within(ctx, from, command) {
             Move::Inside(next) => {

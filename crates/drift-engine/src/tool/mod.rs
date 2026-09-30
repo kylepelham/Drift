@@ -193,11 +193,14 @@ pub struct Ask {
     /// line allows it: approving `git status` never approves `git status > victim.txt`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub writes: Vec<String>,
+    /// `commands` as deny rules also see them (assignments dropped, aliases spelt out), one for one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub canonical: Vec<String>,
 }
 
 impl Ask {
     pub fn new(kind: &str, pattern: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None, writes: Vec::new() }
+        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None, writes: Vec::new(), canonical: Vec::new() }
     }
 
     /// A shell ask as the dialect reads `line`.
@@ -205,9 +208,19 @@ impl Ask {
         let mut ask = Self::new("bash", line, title);
         if let Some(split) = command::split(dialect, line) {
             ask.commands = Some(split.commands);
+            ask.canonical = split.canonical;
             ask.writes = split.writes;
         }
         ask
+    }
+
+    /// Keeps only the commands `keep` says, their canonical forms with them.
+    pub fn retain_commands(&mut self, mut keep: impl FnMut(&str) -> bool) {
+        let Some(commands) = self.commands.take() else { return };
+        let canonical = std::mem::take(&mut self.canonical);
+        let pairs: Vec<(String, String)> = commands.into_iter().zip(canonical.into_iter().chain(std::iter::repeat(String::new()))).filter(|(command, _)| keep(command)).collect();
+        self.canonical = pairs.iter().map(|(_, canonical)| canonical.clone()).collect();
+        self.commands = Some(pairs.into_iter().map(|(command, _)| command).collect());
     }
 }
 

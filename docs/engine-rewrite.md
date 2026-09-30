@@ -777,7 +777,16 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   - "Always" grants each command separately. Known subcommand tools (`git`, `cargo`, `npm run`,
     `docker compose`, `gh`, ...) widen to their subcommand with any arguments (`cargo test` covers
     `cargo test --release`, not `cargo publish`); anything else, and every non-shell target such as
-    a path, is granted literally. Nothing widens to a bare program name.
+    a path, is granted literally. Nothing widens to a bare program name. Subcommands that run or
+    install arbitrary code (`run`, `exec`, `x`, `dlx`, `install`, `i`, `add`, `ci`, `get`, `update`,
+    `upgrade`) never widen: `cargo run`, `uv run python`, `docker run`, `npm install` and
+    `pip install` are approved exactly as written. `npm`/`pnpm`/`yarn run <script>` still widen,
+    since the script is the project's own and is named.
+  - Deny rules also see each command as it runs: leading `NAME=value` assignments dropped (bash)
+    and PowerShell's built-in aliases spelt as their cmdlets (`rm` is `Remove-Item`, `iwr` is
+    `Invoke-WebRequest`, `saps` is `Start-Process`). So `FOO=1 git push` meets a deny for
+    `git push*`. Approvals, allow rules and the line the user sees keep the command as written, and
+    an assignment or alias never hides a launcher (`X=1 bash -c ...` is still opaque).
 - **Sign-in.** Anthropic offers Claude Pro/Max and Console (paste-the-code flows); OpenAI
   offers ChatGPT through the Codex flow, where the engine listens on `localhost:1455` and
   the callback route completes on its own.

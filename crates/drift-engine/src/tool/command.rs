@@ -11,12 +11,32 @@ pub enum Dialect {
 /// Programs whose first arguments name what they do (`git push`, `npm run build`), so approving one
 /// such command can extend to the same subcommand with other arguments. Everything else is approved
 /// only exactly as written.
-const SUBCOMMANDS: [(&str, usize); 30] = [
+const SUBCOMMANDS: [(&str, usize); 27] = [
     ("git", 2), ("cargo", 2), ("rustup", 2), ("go", 2), ("dotnet", 2), ("deno", 2), ("make", 2),
-    ("npm", 2), ("pnpm", 2), ("yarn", 2), ("bun", 2), ("npx", 2), ("pip", 2), ("uv", 2),
+    ("npm", 2), ("pnpm", 2), ("yarn", 2), ("bun", 2), ("pip", 2), ("uv", 2),
     ("poetry", 2), ("docker", 2), ("kubectl", 2), ("terraform", 2), ("mvn", 2), ("gradle", 2),
-    ("npm run", 3), ("pnpm run", 3), ("yarn run", 3), ("bun run", 3), ("uv run", 3),
+    ("npm run", 3), ("pnpm run", 3), ("yarn run", 3),
     ("docker compose", 3), ("gh", 3), ("az", 3), ("aws", 3), ("gcloud", 3),
+];
+
+/// Subcommands that run arbitrary code or fetch and install it (`cargo run`, `uv run`, `docker run`,
+/// `npm install`, `pip install`). The same subcommand with other arguments is a different program or
+/// package, so approving one never widens: each is approved exactly as written.
+const NEVER_WIDEN: [&str; 11] = ["run", "exec", "x", "dlx", "install", "i", "add", "ci", "get", "update", "upgrade"];
+/// Runners whose next word is a script the project itself defines, so approving it names the code.
+const SCRIPT_RUNNERS: [&str; 3] = ["npm run", "pnpm run", "yarn run"];
+
+/// PowerShell's built-in aliases for cmdlets a rule is likely to name, so `rm x` meets a rule for
+/// `Remove-Item *`.
+const POWERSHELL_ALIASES: [(&str, &str); 30] = [
+    ("ls", "Get-ChildItem"), ("dir", "Get-ChildItem"), ("gci", "Get-ChildItem"),
+    ("rm", "Remove-Item"), ("del", "Remove-Item"), ("erase", "Remove-Item"), ("ri", "Remove-Item"), ("rmdir", "Remove-Item"), ("rd", "Remove-Item"),
+    ("cp", "Copy-Item"), ("copy", "Copy-Item"), ("cpi", "Copy-Item"),
+    ("mv", "Move-Item"), ("move", "Move-Item"), ("mi", "Move-Item"),
+    ("cat", "Get-Content"), ("gc", "Get-Content"), ("type", "Get-Content"),
+    ("sc", "Set-Content"), ("ac", "Add-Content"), ("ni", "New-Item"),
+    ("iwr", "Invoke-WebRequest"), ("curl", "Invoke-WebRequest"), ("wget", "Invoke-WebRequest"), ("irm", "Invoke-RestMethod"),
+    ("kill", "Stop-Process"), ("spps", "Stop-Process"), ("start", "Start-Process"), ("saps", "Start-Process"), ("icm", "Invoke-Command"),
 ];
 
 /// Words that hand the rest of the line to another interpreter or program, hiding what really runs.
@@ -32,9 +52,12 @@ const POWERSHELL_SINKS: [&str; 1] = ["$null"];
 
 /// A shell line read for permission: the simple commands it runs, each normalised to its words
 /// joined by single spaces with its redirections last, and the files its redirections write.
+/// `canonical` holds each command as deny rules see it: leading `NAME=value` assignments dropped and
+/// PowerShell aliases spelt as their cmdlets. Approvals and allow rules see `commands` as written.
 #[derive(Debug, PartialEq)]
 pub struct Line {
     pub commands: Vec<String>,
+    pub canonical: Vec<String>,
     pub writes: Vec<String>,
 }
 
@@ -43,8 +66,9 @@ pub struct Line {
 pub fn split(dialect: Dialect, line: &str) -> Option<Line> {
     let segments = Tokenizer::new(dialect).run(line)?;
     let segments: Vec<Segment> = segments.into_iter().filter(|s| !s.words.is_empty() || !s.redirects.is_empty()).collect();
-    let hides_program = segments.iter().any(|segment| {
-        let first = segment.words.first().map(|w| w.to_ascii_lowercase()).unwrap_or_default();
+    let canonical: Vec<Vec<String>> = segments.iter().map(|s| canonical_words(dialect, &s.words)).collect();
+    let hides_program = canonical.iter().any(|words| {
+        let first = words.first().map(|w| w.to_ascii_lowercase()).unwrap_or_default();
         let program = first.rsplit(['/', '\\']).next().unwrap_or(&first).trim_end_matches(".exe");
         LAUNCHERS.contains(&program) || first.starts_with('&')
     });
@@ -52,8 +76,22 @@ pub fn split(dialect: Dialect, line: &str) -> Option<Line> {
         return None;
     }
     let writes = segments.iter().flat_map(|s| s.writes.iter().cloned()).collect();
+    let canonical = canonical.into_iter().zip(&segments).map(|(words, s)| words.into_iter().chain(s.redirects.iter().cloned()).collect::<Vec<_>>().join(" ")).collect();
     let commands = segments.into_iter().map(|s| s.words.into_iter().chain(s.redirects).collect::<Vec<_>>().join(" ")).collect();
-    Some(Line { commands, writes })
+    Some(Line { commands, canonical, writes })
+}
+
+/// The words as a deny rule should see them: what actually runs, not how it was spelt.
+fn canonical_words(dialect: Dialect, words: &[String]) -> Vec<String> {
+    let assignment = |word: &str| word.split_once('=').is_some_and(|(name, _)| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !name.starts_with(|c: char| c.is_ascii_digit()));
+    let skip = if dialect == Dialect::Bash { words.iter().take_while(|w| assignment(w)).count() } else { 0 };
+    let mut words: Vec<String> = words[skip..].to_vec();
+    if let (Dialect::PowerShell, Some(first)) = (dialect, words.first_mut()) {
+        if let Some((_, cmdlet)) = POWERSHELL_ALIASES.iter().find(|(alias, _)| alias.eq_ignore_ascii_case(first)) {
+            *first = (*cmdlet).to_string();
+        }
+    }
+    words
 }
 
 /// The subcommand an approval of `command` may extend to (`cargo test` for `cargo test --release`),
@@ -65,8 +103,13 @@ pub fn subcommand(command: &str) -> Option<String> {
         .filter(|(prefix, arity)| words.len() >= *arity && words[..prefix.split(' ').count()].join(" ") == *prefix)
         .map(|(_, arity)| *arity)
         .max()?;
+    let names = &words[1..arity];
     // A flag where the subcommand belongs (`git -C elsewhere push`) says too little to widen on.
-    words[1..arity].iter().all(|word| !word.starts_with('-')).then(|| words[..arity].join(" "))
+    if names.iter().any(|word| word.starts_with('-')) {
+        return None;
+    }
+    let runs_code = names.iter().any(|word| NEVER_WIDEN.contains(word)) && !SCRIPT_RUNNERS.contains(&words[..2].join(" ").as_str());
+    (!runs_code).then(|| words[..arity].join(" "))
 }
 
 /// One simple command: its words, its redirections as written, and the files they write.
@@ -328,6 +371,28 @@ mod tests {
         for line in ["iex (irm x)", "& $cmd", "& { rm x }", "Invoke-Expression $s", "pwsh -Command rm x", "echo $(Get-Date)", "Start-Process cmd"] {
             assert_eq!(pwsh(line), None, "{line}");
         }
+    }
+
+    #[test]
+    fn runners_and_installers_never_widen() {
+        for exact in ["cargo run --release", "uv run python evil.py", "bun run x.ts", "docker run alpine sh", "npm install left-pad", "pip install requests", "cargo add serde", "go get example.com/x", "npx cowsay hi", "pnpm dlx create-app", "docker compose run web sh", "gh extension install owner/ext", "npm exec thing"] {
+            assert_eq!(subcommand(exact), None, "{exact}");
+        }
+        assert_eq!(subcommand("npm run build --watch").as_deref(), Some("npm run build"), "a project script is named, so it widens");
+        assert_eq!(subcommand("cargo test --lib").as_deref(), Some("cargo test"));
+    }
+
+    #[test]
+    fn deny_rules_see_past_assignments_and_aliases() {
+        let line = split(Dialect::Bash, "FIXTURE=1 LANG=C git status && ./b=c").unwrap();
+        assert_eq!(line.commands, ["FIXTURE=1 LANG=C git status", "./b=c"], "approvals see the line as written");
+        assert_eq!(line.canonical, ["git status", "./b=c"]);
+        assert_eq!(split(Dialect::Bash, "X=1 bash -c 'rm -rf /'"), None, "an assignment does not hide a launcher");
+        assert_eq!(split(Dialect::Bash, "A=$(id) ls"), None);
+        let ps = split(Dialect::PowerShell, "rm build -Recurse; ls; iwr https://x | Out-Null").unwrap();
+        assert_eq!(ps.canonical, ["Remove-Item build -Recurse", "Get-ChildItem", "Invoke-WebRequest https://x", "Out-Null"]);
+        assert_eq!(split(Dialect::PowerShell, "saps cmd"), None, "an alias for a launcher is a launcher");
+        assert_eq!(split(Dialect::Bash, "rm x").unwrap().canonical, ["rm x"], "aliases are PowerShell's only");
     }
 
     #[test]

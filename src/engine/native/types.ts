@@ -701,6 +701,8 @@ export interface components {
         };
         /** @description What a call wants to do, for the permission service to judge before it runs. */
         Ask: {
+            /** @description `commands` as deny rules also see them (assignments dropped, aliases spelt out), one for one. */
+            canonical?: string[];
             /**
              * @description For a shell command, the simple commands it runs, each judged on its own; `None` when the line
              *     hides what it runs, so only an exact approval of the whole line allows it.

@@ -178,7 +178,7 @@ impl Permissions {
         let Some(commands) = &ask.commands else {
             return self.decide_target(session_id, workspace, "bash", &ask.pattern, false);
         };
-        let decisions: Vec<Decision> = commands.iter().map(|command| self.decide_target(session_id, workspace, "bash", command, true)).collect();
+        let decisions: Vec<Decision> = commands.iter().enumerate().map(|(index, command)| self.decide_command(session_id, workspace, command, ask.canonical.get(index))).collect();
         if decisions.contains(&Decision::Deny) {
             Decision::Deny
         } else if !ask.writes.is_empty() {
@@ -189,6 +189,16 @@ impl Permissions {
         } else {
             Decision::Ask
         }
+    }
+
+    /// One command as written; and, for deny rules only, as it actually runs (`FOO=1 git push` is a
+    /// `git push`, PowerShell's `rm` is `Remove-Item`). Approvals and allow rules see only what was written.
+    fn decide_command(&self, session_id: &str, workspace: &Policy, command: &str, canonical: Option<&String>) -> Decision {
+        let written = self.decide_target(session_id, workspace, "bash", command, true);
+        let Some(canonical) = canonical.filter(|c| !c.is_empty() && c.as_str() != command) else { return written };
+        let global = self.policy.lock().unwrap().rules.clone();
+        let denied = workspace.rules.iter().chain(global.iter()).find(|rule| rule.matches_target("bash", canonical)).is_some_and(|rule| rule.decision == Decision::Deny);
+        if denied { Decision::Deny } else { written }
     }
 
     /// Session approvals first (a subagent's parents' included), then the workspace's drift.json,
@@ -403,6 +413,20 @@ mod tests {
         permissions.apply(&new_request("ses_1", "m", "c", "edit", literal.clone()), &ReplyBody { reply: Reply::Always, pattern: None, message: None });
         assert_eq!(permissions.decide("ses_1", &none, &literal), Decision::Allow);
         assert_eq!(permissions.decide("ses_1", &none, &ask("edit", "C:/repo/app/i.tsx")), Decision::Ask, "a bracketed file name is not a glob");
+    }
+
+    #[test]
+    fn deny_rules_catch_assignment_prefixes_and_powershell_aliases_but_approvals_stay_literal() {
+        let permissions = Permissions::new(Policy::default());
+        let deny = |pattern: &str| Policy { rules: vec![Rule { kind: "bash".into(), pattern: pattern.into(), decision: Decision::Deny }] };
+        assert_eq!(permissions.decide("ses_1", &deny("git status*"), &shell("FIXTURE=1 git status")), Decision::Deny);
+        assert_eq!(permissions.decide("ses_1", &deny("git push*"), &shell("ls && GIT_TRACE=1 git push --force")), Decision::Deny);
+        assert_eq!(permissions.decide("ses_1", &deny("Remove-Item *"), &powershell("rm build -Recurse")), Decision::Deny);
+        let allow = Policy { rules: vec![Rule { kind: "bash".into(), pattern: "git status*".into(), decision: Decision::Allow }] };
+        assert_eq!(permissions.decide("ses_1", &allow, &shell("EVIL=1 git status")), Decision::Ask, "an allow rule does not reach past what was written");
+        approve_always(&permissions, shell("LANG=C git status"));
+        assert_eq!(permissions.decide("ses_1", &Policy::default(), &shell("LANG=C git status")), Decision::Allow, "approved as written");
+        assert_eq!(permissions.decide("ses_1", &Policy::default(), &shell("PATH=/tmp git status")), Decision::Ask);
     }
 
     #[test]
