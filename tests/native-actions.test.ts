@@ -188,14 +188,18 @@ test("action agents are listed for Settings but hidden from the composer, with t
     agents: [
       { name: "build", description: "", builtin: true, kind: "primary" },
       { name: "title", description: "", builtin: true, kind: "action", prompt: "Name it.", model: { provider: "openai", model: "gpt-5-nano" } },
+      { name: "explore", description: "", builtin: true, kind: "subagent", prompt: "Search." },
     ],
     commands: [],
     skills: [],
   }
   const h = harness({ workspaceConfig: () => Promise.resolve(config) } as Partial<Client>)
   await h.actions.refreshAgents()
-  const [build, title] = h.state.agents as ((typeof h.state.agents)[number] & { hidden?: boolean; prompt?: string })[]
+  const [build, title, explore] = h.state.agents as ((typeof h.state.agents)[number] & { hidden?: boolean; prompt?: string })[]
   expect(build!.hidden).toBeFalse()
+  expect(build!.mode).toBe("primary")
+  expect(explore!.mode).toBe("subagent")
+  expect(explore!.prompt).toBe("Search.")
   expect(title!.hidden).toBeTrue()
   expect(title!.prompt).toBe("Name it.")
   expect(title!.model).toEqual({ providerID: "openai", modelID: "gpt-5-nano" })

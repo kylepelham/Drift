@@ -188,7 +188,10 @@ the whole Drift agent override and restores the underlying agent configuration i
 Prompt and behavior edits are preserved when changing the model. The picker and behavior
 JSON edit the same value; unavailable saved models remain visible by ID until changed.
 
-The engine runs a `task` subagent on its agent's pinned model, falling back to the parent's.
+Built-in subagents are `general` (the default `task` type, full tools) and `explore` (read-only
+search); a workspace `.drift/agents/<name>.md` with `mode: subagent` adds another. All appear in
+Settings > Agents with their prompts and model pickers, never in the composer. The engine runs a
+`task` subagent on its agent's pinned model, falling back to the parent's.
 Branches from `/spawn` start on the source conversation's model.
 
 The action agents `title`, `compaction` and `handoff` (the context a `/spawn` branch carries) have

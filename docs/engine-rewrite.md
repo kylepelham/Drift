@@ -220,7 +220,8 @@ Every job the engine does can run on its own model, chosen under Settings > Agen
 
 | Agent | Kind | Runs | Default model |
 | --- | --- | --- | --- |
-| `build`, `plan`, workspace agents | primary | conversations and `task` subagents | the one the conversation was prompted with; a subagent inherits its parent's |
+| `build`, `plan`, workspace agents | primary | conversations (picked in the composer); can also take a `task` | the one the conversation was prompted with |
+| `general` (default `task` type), `explore` (read-only search), workspace agents with `mode: subagent` | subagent | `task` subagents only; listed for the model under "# Subagents" in the system prompt when `task` is offered | the parent's |
 | `title` | action | naming a new conversation | the cheapest priced model from the conversation's provider (the conversation's own model when it is free, as with local providers) |
 | `compaction` | action | summarising a long conversation | the conversation's |
 | `handoff` | action | drafting the context a `/spawn` branch carries | the source conversation's |

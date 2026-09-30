@@ -411,11 +411,11 @@ export function createActions(
     const workspace = workspaces().id(state.directory)
     if (!workspace) return
     const config = await requireClient().workspaceConfig(workspace)
-    // Action agents (title, compaction, handoff) are configurable in Settings but never picked in the composer.
+    // Subagents and actions are configurable in Settings but never picked in the composer.
     const agents: Agent[] = config.agents.map((agent) => ({
       name: agent.name,
       description: agent.description,
-      mode: "primary",
+      mode: agent.kind === "subagent" ? "subagent" : "primary",
       hidden: agent.kind === "action",
       ...(agent.prompt ? { prompt: agent.prompt } : {}),
       builtIn: agent.builtin,

@@ -475,7 +475,7 @@ async fn a_task_runs_a_hidden_child_and_returns_its_reply() {
     let child = h.engine.store.session(&child_id).unwrap().unwrap();
     assert_eq!(child.parent_id.as_deref(), Some(h.session.id.as_str()));
     assert_eq!(child.visibility, Visibility::Hidden);
-    assert_eq!(child.title, "Check a.txt (@build subagent)");
+    assert_eq!(child.title, "Check a.txt (@general subagent)", "general takes a task when no type is given");
     assert_eq!(h.engine.store.transcript(&child_id).unwrap().len(), 3);
     let listed = h.engine.store.sessions(crate::store::SessionFilter { workspace_id: None, archived: false, before: None, limit: 10 }).unwrap();
     assert!(listed.iter().any(|s| s.id == child_id && s.parent_id.as_deref() == Some(h.session.id.as_str())), "subagents are listed so the UI can nest them");
@@ -486,7 +486,7 @@ async fn a_subagent_runs_on_its_agents_pinned_model_and_actions_are_not_agents()
     let h = harness().await;
     let pinned = h.engine.catalog.read().unwrap().providers["anthropic"].models.keys().find(|id| id.as_str() != "claude-sonnet-4-5").unwrap().clone();
     let pin = crate::config::AgentOverride::from_json(&json!({ "model": format!("anthropic/{pinned}") }));
-    h.engine.set_agent_overrides(std::collections::HashMap::from([("build".to_string(), pin)]));
+    h.engine.set_agent_overrides(std::collections::HashMap::from([("general".to_string(), pin)]));
     h.provider
         .push(tool_call("task", r#"{"description": "Pinned", "prompt": "go"}"#))
         .push(text("child done"))
@@ -496,7 +496,10 @@ async fn a_subagent_runs_on_its_agents_pinned_model_and_actions_are_not_agents()
     until_idle(&h).await;
     let requests = h.provider.requests.lock().unwrap().clone();
     assert_eq!(requests[0].model, "claude-sonnet-4-5", "the parent keeps the model it was prompted with");
-    assert_eq!(requests[1].model, pinned, "the subagent runs on the build agent's pin");
+    assert_eq!(requests[1].model, pinned, "the subagent runs on the general agent's pin");
+    assert!(requests[1].system.contains("delegated job"), "and with the general agent's prompt");
+    assert!(requests[0].system.contains("# Subagents"), "the parent is told which subagents exist");
+    assert!(!requests[1].system.contains("# Subagents"), "a subagent cannot delegate, so it is not told");
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let Part::ToolCall { status, output, .. } = &transcript[2].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Error);

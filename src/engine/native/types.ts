@@ -557,7 +557,7 @@ export interface components {
             tools?: string[];
         };
         /** @enum {string} */
-        AgentKind: "primary" | "action";
+        AgentKind: "primary" | "subagent" | "action";
         AnswerBody: {
             /** @description One list of chosen labels per question, in order. */
             answers: string[][];

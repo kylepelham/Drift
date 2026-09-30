@@ -61,11 +61,23 @@ pub struct Agent {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentKind {
-    /// Runs conversations and subagents.
+    /// Picked in the composer to run a conversation; can also take a `task`.
     #[default]
     Primary,
+    /// Only runs `task` subagents; never offered in the composer.
+    Subagent,
     /// Does one engine job (titles, compaction, branch handoffs); never runs a conversation.
     Action,
+}
+
+impl AgentKind {
+    /// Front matter `mode: subagent` marks a workspace agent for delegation only.
+    fn from_mode(mode: Option<&str>) -> Self {
+        match mode {
+            Some("subagent") => Self::Subagent,
+            _ => Self::Primary,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -164,6 +176,15 @@ impl Config {
         }
     }
 
+    /// A file named after an action customises that action; otherwise `mode` decides, then the agent it replaces.
+    fn workspace_kind(&self, name: &str, mode: Option<&str>) -> AgentKind {
+        match self.agent(name).map(|existing| existing.kind) {
+            Some(AgentKind::Action) => AgentKind::Action,
+            existing if mode.is_none() => existing.unwrap_or_default(),
+            _ => AgentKind::from_mode(mode),
+        }
+    }
+
     fn apply_dir(&mut self, dir: &Path) {
         for (name, doc) in markdown_files(&dir.join("agents")) {
             let agent = Agent {
@@ -172,8 +193,7 @@ impl Config {
                 model: doc.field("model").and_then(|m| parse_model(&m)),
                 tools: doc.field("tools").map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()).unwrap_or_default(),
                 builtin: false,
-                // A workspace file named after an action customises that action rather than replacing it.
-                kind: self.agent(&name).map_or(AgentKind::Primary, |existing| existing.kind),
+                kind: self.workspace_kind(&name, doc.field("mode").as_deref()),
                 name: name.clone(),
             };
             self.agents.retain(|a| a.name != name);
@@ -228,6 +248,8 @@ fn builtin_agents() -> Vec<Agent> {
     vec![
         agent("build", "Reads, edits and runs code.", "", &[], AgentKind::Primary),
         agent("plan", "Explores and proposes; changes nothing.", include_str!("prompts/plan.txt"), &["read", "glob", "grep", "webfetch", "question", "todowrite"], AgentKind::Primary),
+        agent("general", "General-purpose subagent for multi-step work: researching, and making changes. The default for task.", include_str!("prompts/general.txt"), &[], AgentKind::Subagent),
+        agent("explore", "Fast read-only subagent for finding files and code and answering questions about a codebase.", include_str!("prompts/explore.txt"), &["read", "glob", "grep", "bash", "webfetch"], AgentKind::Subagent),
         agent("title", "Names new conversations. Default model: a small one from the conversation's provider.", include_str!("prompts/title.txt"), &[], AgentKind::Action),
         agent("compaction", "Summarises long conversations to free context. Default model: the conversation's.", include_str!("prompts/compaction.txt"), &[], AgentKind::Action),
         agent("handoff", "Drafts the carried context for a /spawn branch. Default model: the source conversation's.", include_str!("prompts/handoff.txt"), &[], AgentKind::Action),
@@ -286,7 +308,8 @@ mod tests {
         write(&ws, "docs/rules.md", "Be careful.");
         write(&ws, "AGENTS.md", "Repo rules.");
         write(&ws, "CLAUDE.md", "ignored when AGENTS.md exists");
-        write(&ws, ".drift/agents/reviewer.md", "---\ndescription: Reviews PRs\nmodel: openai/gpt-5.5\ntools: read, grep\n---\nYou review.");
+        write(&ws, ".drift/agents/reviewer.md", "---\ndescription: Reviews PRs\nmode: subagent\nmodel: openai/gpt-5.5\ntools: read, grep\n---\nYou review.");
+        write(&ws, ".drift/agents/explore.md", "---\ndescription: Our explorer\n---\nSearch our monorepo.");
         write(&ws, ".drift/agents/plan.md", "---\ndescription: My plan\n---\nCustom plan.");
         write(&ws, ".drift/agents/title.md", "---\nmodel: openai/gpt-5-nano\n---\nShort titles.");
         write(&ws, ".drift/commands/test.md", "---\ndescription: Run tests\n---\nRun the tests for $ARGUMENTS and report.");
@@ -299,7 +322,10 @@ mod tests {
         assert_eq!(config.policy().decide(&crate::tool::Ask { kind: "bash".into(), pattern: "git push origin".into(), title: String::new() }), Decision::Deny);
 
         let names: Vec<&str> = config.agents.iter().map(|a| a.name.as_str()).collect();
-        assert_eq!(names, ["build", "compaction", "handoff", "plan", "reviewer", "title"]);
+        assert_eq!(names, ["build", "general", "compaction", "handoff", "explore", "plan", "reviewer", "title"]);
+        assert_eq!(config.agent("reviewer").unwrap().kind, AgentKind::Subagent, "mode: subagent keeps it out of the composer");
+        assert_eq!(config.agent("explore").unwrap().kind, AgentKind::Subagent, "replacing a subagent without a mode keeps its kind");
+        assert_eq!(config.agent("plan").unwrap().kind, AgentKind::Primary);
         let title = config.agent("title").unwrap();
         assert_eq!((title.kind, title.prompt.as_str()), (AgentKind::Action, "Short titles."), "a project file customises an action, it does not replace it");
         assert_eq!(config.agent_model("title"), Some(ModelRef { provider: "openai".into(), model: "gpt-5-nano".into() }));
@@ -325,7 +351,19 @@ mod tests {
         std::fs::create_dir_all(&ws).unwrap();
         let config = Config::load_with_home(&ws, None);
         let kinds: Vec<(&str, AgentKind)> = config.agents.iter().map(|a| (a.name.as_str(), a.kind)).collect();
-        assert_eq!(kinds, [("build", AgentKind::Primary), ("plan", AgentKind::Primary), ("title", AgentKind::Action), ("compaction", AgentKind::Action), ("handoff", AgentKind::Action)]);
+        assert_eq!(
+            kinds,
+            [
+                ("build", AgentKind::Primary),
+                ("plan", AgentKind::Primary),
+                ("general", AgentKind::Subagent),
+                ("explore", AgentKind::Subagent),
+                ("title", AgentKind::Action),
+                ("compaction", AgentKind::Action),
+                ("handoff", AgentKind::Action),
+            ]
+        );
+        assert!(!config.agent("explore").unwrap().tools.contains(&"edit".to_string()), "explore is read-only");
         assert!(config.agent("plan").unwrap().tools.contains(&"read".to_string()));
         assert!(config.commands.is_empty() && config.skills.is_empty() && config.instructions.is_empty());
         std::fs::remove_dir_all(ws).ok();

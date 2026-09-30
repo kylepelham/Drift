@@ -61,13 +61,13 @@ mod tests {
         let overrides = HashMap::from([
             ("title".to_string(), AgentOverride::from_json(&json!({ "model": "openai/gpt-5-nano" }))),
             ("plan".to_string(), AgentOverride::from_json(&json!({ "model": "", "prompt": "Plan briefly." }))),
-            ("general".to_string(), AgentOverride::from_json(&json!({ "model": "openai/gpt-5" }))),
+            ("summary".to_string(), AgentOverride::from_json(&json!({ "model": "openai/gpt-5" }))),
         ]);
         config.agents.iter_mut().find(|a| a.name == "plan").unwrap().model = parse_model("anthropic/claude");
         config.apply_overrides(&overrides);
         assert_eq!(config.agent_model("title"), parse_model("openai/gpt-5-nano"));
         assert_eq!(config.agent_model("plan"), None, "an empty model restores inheritance");
         assert_eq!(config.agent("plan").unwrap().prompt, "Plan briefly.");
-        assert!(config.agent("general").is_none());
+        assert!(config.agent("summary").is_none(), "an override never creates an agent");
     }
 }

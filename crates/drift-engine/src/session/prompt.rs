@@ -2,11 +2,12 @@
 
 use std::path::Path;
 
-use crate::config::{Agent, Config};
+use crate::config::{Agent, AgentKind, Config};
 
 const IDENTITY: &str = include_str!("prompts/system.txt");
 
-pub fn system(workspace: &Path, config: &Config, agent: Option<&Agent>) -> String {
+/// `delegates` is whether the `task` tool is offered; only then are the subagents listed.
+pub fn system(workspace: &Path, config: &Config, agent: Option<&Agent>, delegates: bool) -> String {
     let mut prompt = IDENTITY.trim().to_string();
     if let Some(agent) = agent.filter(|a| !a.prompt.is_empty()) {
         prompt.push_str(&format!("\n\n{}", agent.prompt));
@@ -19,6 +20,13 @@ pub fn system(workspace: &Path, config: &Config, agent: Option<&Agent>) -> Strin
         prompt.push_str("\n# Skills\n\nLoad one with the `skill` tool when its description matches the task.\n\n");
         for skill in &config.skills {
             prompt.push_str(&format!("- {}: {}\n", skill.name, skill.description));
+        }
+    }
+    let subagents: Vec<&Agent> = config.agents.iter().filter(|a| a.kind == AgentKind::Subagent).collect();
+    if delegates && !subagents.is_empty() {
+        prompt.push_str("\n# Subagents\n\nPass one as `subagent_type` to the `task` tool.\n\n");
+        for subagent in subagents {
+            prompt.push_str(&format!("- {}: {}\n", subagent.name, subagent.description));
         }
     }
     for instruction in &config.instructions {
@@ -61,12 +69,16 @@ mod tests {
         std::fs::write(workspace.join("CLAUDE.md"), "claude rules").unwrap();
         std::fs::write(workspace.join("AGENTS.md"), "agent rules").unwrap();
         let config = Config::load_with_home(&workspace, None);
-        let prompt = system(&workspace, &config, config.agent("plan"));
+        let prompt = system(&workspace, &config, config.agent("plan"), false);
         assert!(prompt.starts_with("You are Drift"));
         assert!(prompt.contains("# Plan mode"));
         assert!(prompt.contains("Working directory: "));
         assert!(prompt.contains("# Instructions from AGENTS.md\n\nagent rules"));
         assert!(!prompt.contains("claude rules"));
+        assert!(!prompt.contains("# Subagents"), "no task tool, no subagent list");
+        let delegating = system(&workspace, &config, config.agent("build"), true);
+        assert!(delegating.contains("# Subagents") && delegating.contains("- general: ") && delegating.contains("- explore: "));
+        assert!(!delegating.contains("- title: "), "actions are not subagents");
         std::fs::remove_dir_all(workspace).ok();
     }
 

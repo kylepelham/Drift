@@ -29,7 +29,7 @@ impl Tool for Task {
                 "properties": {
                     "description": { "type": "string", "description": "Three to six words naming the job, shown to the user." },
                     "prompt": { "type": "string", "description": "Everything the subagent needs: the goal, what to return, constraints. It sees none of this conversation." },
-                    "subagent_type": { "type": "string", "description": "An agent from the workspace config. Default: build." }
+                    "subagent_type": { "type": "string", "description": "A subagent from the list in the system prompt, such as explore for read-only searching. Default: general." }
                 },
                 "required": ["description", "prompt"]
             }),
@@ -44,14 +44,14 @@ impl Tool for Task {
         Box::pin(async move {
             let description = required_str(&input, "description")?;
             let text = required_str(&input, "prompt")?;
-            let agent = input["subagent_type"].as_str().unwrap_or("build");
+            let agent = input["subagent_type"].as_str().unwrap_or("general");
             let parent = ctx.engine.store.session(&ctx.session_id)?.ok_or(ToolError("parent session is gone".into()))?;
             if parent.visibility == Visibility::Hidden {
                 return Err(ToolError("subagents cannot delegate".into()));
             }
             let config = ctx.engine.workspace_config(&ctx.workspace);
             match config.agent(agent) {
-                Some(found) if found.kind == AgentKind::Primary => {}
+                Some(found) if found.kind != AgentKind::Action => {}
                 Some(_) => return Err(ToolError(format!("{agent} is an engine action, not an agent that can take a task"))),
                 None => return Err(ToolError(format!("no agent named {agent}"))),
             }
