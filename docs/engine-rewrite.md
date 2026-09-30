@@ -213,6 +213,32 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   the shell rewrites the shared `workspace` row. The UI refuses while any session there is running,
   for the same reason as move.
 
+#### Per-action models
+
+Every job the engine does can run on its own model, chosen under Settings > Agents.
+
+| Agent | Kind | Runs | Default model |
+| --- | --- | --- | --- |
+| `build`, `plan`, workspace agents | primary | conversations and `task` subagents | the one the conversation was prompted with; a subagent inherits its parent's |
+| `title` | action | naming a new conversation | the cheapest priced model from the conversation's provider (the conversation's own model when it is free, as with local providers) |
+| `compaction` | action | summarising a long conversation | the conversation's |
+| `handoff` | action | drafting the context a `/spawn` branch carries | the source conversation's |
+
+- Settings overrides are stored by the shell (`prompt_override`, key `agent:<name>`, value
+  `{ model: "provider/model", prompt }`). The shell hands them to the engine with
+  `Engine::set_agent_overrides` at startup and after every save or reset. An empty `model` means
+  inherit and masks a pin from the agent's definition. `Engine::workspace_config` applies them over
+  built-in and workspace definitions, so Settings wins. Overrides for unknown agents are ignored.
+- A workspace `.drift/agents/<action>.md` customises that action; it never turns it into an agent
+  that can hold a conversation. `task` refuses action agents as `subagent_type`.
+- Actions are one request each (`session::oneshot`), text only; tools are offered only so a
+  history with tool calls stays valid, and calls the model attempts anyway are ignored.
+- Titles: the first message becomes the title at once; the title model's answer replaces it in the
+  background, only while the title is still that placeholder, so a rename wins. Any failure keeps
+  the placeholder.
+- Signed reasoning is replayed only to the model that produced it; any other model, including an
+  action's, gets the history without it.
+
 #### Background-worker implementation
 
 RE evidence, exact binary offsets, selection paths and the acceptance matrix are

@@ -1,7 +1,6 @@
 use serde_json::{json, Value};
 
 use super::{required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
-use crate::config::Config;
 use crate::llm::ToolSpec;
 
 pub struct Skill;
@@ -26,7 +25,7 @@ impl Tool for Skill {
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let name = required_str(&input, "name")?;
-            let config = Config::load(&ctx.workspace);
+            let config = ctx.engine.workspace_config(&ctx.workspace);
             let skill = config.skill(name).ok_or_else(|| ToolError(format!("no skill named `{name}`; the available skills are listed in the system prompt")))?;
             let text = tokio::fs::read_to_string(std::path::Path::new(&skill.path).join("SKILL.md")).await?;
             let body = crate::config::body(&text);

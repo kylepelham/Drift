@@ -52,5 +52,5 @@ pub async fn create(
 pub async fn config(State(engine): State<Arc<Engine>>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<Json<crate::config::Config>, StatusCode> {
     let workspace = engine.store.workspace(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
     let path = crate::tool::canonical(std::path::Path::new(&workspace.path));
-    Ok(Json(crate::config::Config::load(&path)))
+    Ok(Json(engine.workspace_config(&path)))
 }

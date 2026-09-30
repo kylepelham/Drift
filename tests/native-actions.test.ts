@@ -183,6 +183,24 @@ test("hydration rejects when any of its loads fail, instead of pretending the sn
   await expect(hydrateFrom({ ...good, refreshPermissions: () => Promise.reject(new Error("perm")) }, null)).rejects.toThrow("perm")
 })
 
+test("action agents are listed for Settings but hidden from the composer, with their pins and prompts", async () => {
+  const config = {
+    agents: [
+      { name: "build", description: "", builtin: true, kind: "primary" },
+      { name: "title", description: "", builtin: true, kind: "action", prompt: "Name it.", model: { provider: "openai", model: "gpt-5-nano" } },
+    ],
+    commands: [],
+    skills: [],
+  }
+  const h = harness({ workspaceConfig: () => Promise.resolve(config) } as Partial<Client>)
+  await h.actions.refreshAgents()
+  const [build, title] = h.state.agents as ((typeof h.state.agents)[number] & { hidden?: boolean; prompt?: string })[]
+  expect(build!.hidden).toBeFalse()
+  expect(title!.hidden).toBeTrue()
+  expect(title!.prompt).toBe("Name it.")
+  expect(title!.model).toEqual({ providerID: "openai", modelID: "gpt-5-nano" })
+})
+
 test("a reviewed branch becomes a top-level session linked to its source", async () => {
   const draft = { goal: "fix lint", title: "Fix lint", summary: "Parser tidied.", excerpts: "", cutoff: "msg_9" }
   const h = harness({

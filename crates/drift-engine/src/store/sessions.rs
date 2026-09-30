@@ -74,6 +74,18 @@ impl Store {
         session_in(&conn, id)
     }
 
+    /// Retitles only while the title is still `expected`, so a concurrent rename wins. `None` if it changed.
+    pub fn retitle_if(&self, id: &str, expected: &str, title: &str) -> rusqlite::Result<Option<Session>> {
+        let conn = self.lock();
+        let changed = conn
+            .prepare_cached("UPDATE session SET title = ?3, updated_at = ?4 WHERE id = ?1 AND title = ?2")?
+            .execute(params![id, expected, title, id::now_ms()])?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        session_in(&conn, id)
+    }
+
     pub fn touch_session(&self, id: &str) -> rusqlite::Result<()> {
         self.lock()
             .prepare_cached("UPDATE session SET updated_at = ?2 WHERE id = ?1")?

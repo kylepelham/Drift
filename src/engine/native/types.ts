@@ -515,6 +515,7 @@ export interface components {
         Agent: {
             builtin: boolean;
             description: string;
+            kind?: components["schemas"]["AgentKind"];
             model?: components["schemas"]["ModelRef"] | null;
             name: string;
             /** @description Appended to the system prompt when this agent runs. */
@@ -522,6 +523,8 @@ export interface components {
             /** @description Tool names this agent may use; empty means every tool. */
             tools?: string[];
         };
+        /** @enum {string} */
+        AgentKind: "primary" | "action";
         AnswerBody: {
             /** @description One list of chosen labels per question, in order. */
             answers: string[][];

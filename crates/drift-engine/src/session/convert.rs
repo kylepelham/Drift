@@ -1,20 +1,21 @@
 //! Stored transcript to model messages. Tool results become the user turn that follows each call.
 
 use crate::llm::{Block, ChatMessage, Role as LlmRole};
-use crate::session::types::{MessageStatus, MessageWithParts, Part, Role, ToolStatus};
+use crate::session::types::{MessageStatus, ModelRef, MessageWithParts, Part, Role, ToolStatus};
 
 /// Only what the provider actually finished is replayed; failed and still-streaming attempts are audit history.
 fn replayable(message: &MessageWithParts) -> bool {
     message.info.role == Role::User || matches!(message.info.status, MessageStatus::Done | MessageStatus::Aborted)
 }
 
-pub fn messages(transcript: &[MessageWithParts]) -> Vec<ChatMessage> {
+/// `target` is the model the messages are for: reasoning signatures only validate with the model that made them.
+pub fn messages(transcript: &[MessageWithParts], target: &ModelRef) -> Vec<ChatMessage> {
     let mut out: Vec<ChatMessage> = Vec::new();
     for message in transcript.iter().filter(|m| replayable(m)) {
         match message.info.role {
             Role::User => push(&mut out, LlmRole::User, user_blocks(message)),
             Role::Assistant => {
-                push(&mut out, LlmRole::Assistant, assistant_blocks(message));
+                push(&mut out, LlmRole::Assistant, assistant_blocks(message, message.info.model.as_ref() == Some(target)));
                 push(&mut out, LlmRole::User, result_blocks(message));
             }
         }
@@ -47,13 +48,13 @@ fn user_blocks(message: &MessageWithParts) -> Vec<Block> {
         .collect()
 }
 
-fn assistant_blocks(message: &MessageWithParts) -> Vec<Block> {
+fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> {
     message
         .parts
         .iter()
         .filter_map(|row| match &row.part {
             Part::Text { text } if !text.is_empty() => Some(Block::Text(text.clone())),
-            Part::Reasoning { text, signature, redacted } if signature.is_some() || redacted.is_some() => {
+            Part::Reasoning { text, signature, redacted } if same_model && (signature.is_some() || redacted.is_some()) => {
                 Some(Block::Reasoning { text: text.clone(), signature: signature.clone(), redacted: redacted.clone() })
             }
             Part::ToolCall { call_id, name, input, .. } if input.is_object() => {
@@ -90,6 +91,10 @@ pub(super) mod tests_support {
     use super::*;
     use crate::session::types::{Message, MessageStatus, PartRow, Usage};
 
+    pub(super) fn target() -> ModelRef {
+        ModelRef { provider: "anthropic".into(), model: "claude".into() }
+    }
+
     pub(super) fn message_with(role: Role, status: MessageStatus, parts: Vec<Part>) -> MessageWithParts {
         MessageWithParts {
             info: Message {
@@ -97,7 +102,7 @@ pub(super) mod tests_support {
                 session_id: "s".into(),
                 role,
                 status,
-                model: None,
+                model: Some(target()),
                 usage: Usage::default(),
                 cost: 0.0,
                 error: None,
@@ -144,7 +149,7 @@ mod tests {
             message(Role::Assistant, vec![Part::Text { text: "ok".into() }, call(ToolStatus::Done, Some("1: x"))]),
             message(Role::Assistant, vec![Part::Text { text: "done".into() }]),
         ];
-        let out = messages(&transcript);
+        let out = messages(&transcript, &target());
         assert_eq!(out.len(), 4);
         assert_eq!(out[1].role, LlmRole::Assistant);
         assert!(matches!(&out[1].blocks[1], Block::ToolUse { id, .. } if id == "c1"));
@@ -155,10 +160,19 @@ mod tests {
     #[test]
     fn unfinished_and_denied_calls_still_produce_results() {
         let transcript = vec![message(Role::Assistant, vec![call(ToolStatus::Running, None)]), message(Role::Assistant, vec![call(ToolStatus::Denied, None)])];
-        let out = messages(&transcript);
+        let out = messages(&transcript, &target());
         let Block::ToolResult { is_error, content, .. } = &out[1].blocks[0] else { panic!() };
         assert!(*is_error && content.contains("interrupted"));
         assert!(matches!(&out[3].blocks[0], Block::ToolResult { content, .. } if content.contains("denied")));
+    }
+
+    #[test]
+    fn signed_reasoning_goes_back_only_to_the_model_that_made_it() {
+        let signed = Part::Reasoning { text: "hm".into(), signature: Some("sig".into()), redacted: None };
+        let transcript = vec![message(Role::User, vec![Part::Text { text: "a".into() }]), message(Role::Assistant, vec![signed, Part::Text { text: "x".into() }])];
+        assert_eq!(messages(&transcript, &target())[1].blocks.len(), 2);
+        let other = ModelRef { provider: "openai".into(), model: "gpt-5".into() };
+        assert_eq!(messages(&transcript, &other)[1].blocks, vec![Block::Text("x".into())]);
     }
 
     #[test]
@@ -168,7 +182,7 @@ mod tests {
             message(Role::User, vec![Part::Text { text: "b".into() }]),
             message(Role::Assistant, vec![Part::Reasoning { text: "hm".into(), signature: None, redacted: None }, Part::Text { text: "x".into() }]),
         ];
-        let out = messages(&transcript);
+        let out = messages(&transcript, &target());
         assert_eq!(out[0].blocks, vec![Block::Text("a".into()), Block::Text("b".into())]);
         assert_eq!(out[1].blocks, vec![Block::Text("x".into())]);
     }
@@ -189,7 +203,7 @@ mod eligibility_tests {
             message_with(Role::Assistant, MessageStatus::Aborted, vec![Part::Text { text: "partial".into() }]),
             message_with(Role::Assistant, MessageStatus::Done, vec![Part::Text { text: "final".into() }]),
         ];
-        let out = messages(&transcript);
+        let out = messages(&transcript, &target());
         let texts: Vec<String> = out.iter().flat_map(|m| m.blocks.iter()).filter_map(|b| match b { Block::Text(t) => Some(t.clone()), _ => None }).collect();
         assert_eq!(texts, ["q", "partial", "final"]);
     }
@@ -223,7 +237,7 @@ mod incomplete_block_tests {
                 broken,
             ],
         )];
-        let out = messages(&transcript);
+        let out = messages(&transcript, &target());
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].blocks, vec![Block::Text("partial".into())]);
     }

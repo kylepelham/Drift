@@ -3,23 +3,20 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::convert;
+use super::oneshot::{push_user_text, Fallback, OneShot};
 use super::turn::{Prompt, TurnError};
 use super::types::{MessageStatus, Part, Session, Visibility};
 use crate::event::Event;
-use crate::llm::{self, Block, ChatMessage, Chunk, Request};
 use crate::store::NewSession;
 use crate::Engine;
 
 const DRAFT_TIMEOUT: Duration = Duration::from_secs(120);
 const DRAFT_MAX_TOKENS: u32 = 4096;
 const TITLE_WORDS: usize = 6;
-
-const INSTRUCTIONS: &str = include_str!("prompts/branch.txt");
 
 /// What the user reviews before a branch exists. Nothing is stored until they confirm.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -60,24 +57,15 @@ impl Engine {
             return Err(BranchError::EmptyGoal);
         }
         self.branchable(source_id)?;
-        let plan = self.plan(source_id, &Prompt { parts: Vec::new(), model: None, thinking_budget: None, submission_id: None }).await.map_err(BranchError::Turn)?;
+        let (resolved, config) = self.action_model(source_id, "handoff", Fallback::Conversation).await.map_err(BranchError::Turn)?;
+        let instructions = config.agent("handoff").map(|agent| agent.prompt.clone()).unwrap_or_default();
         let transcript = self.store.transcript(source_id)?;
         let end = transcript.iter().rposition(|m| m.info.status == MessageStatus::Done);
         let cutoff = end.map(|i| transcript[i].info.id.clone());
-        let mut messages = convert::messages(&transcript[..end.map_or(0, |i| i + 1)]);
-        push_user_text(&mut messages, format!("{INSTRUCTIONS}\n\nGoal for the new conversation:\n{goal}"));
-        let request = Request {
-            model: plan.model_ref.model.clone(),
-            system: String::new(),
-            messages,
-            tools: self.tools.specs(plan.model.profile),
-            max_tokens: DRAFT_MAX_TOKENS,
-            thinking_budget: None,
-            temperature: None,
-        };
-        let text = tokio::time::timeout(DRAFT_TIMEOUT, collect_text(&plan.provider, &request, &plan.credential))
-            .await
-            .map_err(|_| BranchError::Draft("the model took too long to draft the handoff".into()))??;
+        let mut messages = convert::messages(&transcript[..end.map_or(0, |i| i + 1)], &resolved.model_ref);
+        push_user_text(&mut messages, format!("{instructions}\n\nGoal for the new conversation:\n{goal}"));
+        let shot = OneShot { system: String::new(), messages, tools: self.tools.specs(resolved.model.profile), max_tokens: DRAFT_MAX_TOKENS, timeout: DRAFT_TIMEOUT };
+        let text = self.complete(&resolved, shot).await.map_err(BranchError::Draft)?;
         Ok(parse_draft(goal, &text, cutoff))
     }
 
@@ -118,31 +106,6 @@ impl Engine {
             return Err(BranchError::FromSubagent);
         }
         Ok(source)
-    }
-}
-
-async fn collect_text(provider: &llm::Provider, request: &Request, credential: &llm::Credential) -> Result<String, BranchError> {
-    let mut chunks = provider.stream(request, credential).await.map_err(|e| BranchError::Draft(e.to_string()))?;
-    let mut text = String::new();
-    let mut stopped = false;
-    while let Some(chunk) = chunks.next().await {
-        match chunk.map_err(|e| BranchError::Draft(e.to_string()))? {
-            Chunk::TextDelta(delta) => text.push_str(&delta),
-            Chunk::Stop(_) => stopped = true,
-            _ => {}
-        }
-    }
-    if !stopped || text.trim().is_empty() {
-        return Err(BranchError::Draft("the model returned no handoff".into()));
-    }
-    Ok(text)
-}
-
-/// The handoff rides on the last user turn when one is open, so roles still alternate.
-fn push_user_text(messages: &mut Vec<ChatMessage>, text: String) {
-    match messages.last_mut() {
-        Some(last) if last.role == llm::Role::User => last.blocks.push(Block::Text(text)),
-        _ => messages.push(ChatMessage { role: llm::Role::User, blocks: vec![Block::Text(text)] }),
     }
 }
 

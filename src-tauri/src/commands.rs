@@ -169,6 +169,7 @@ pub(crate) fn prompt_save(
     original: Option<Value>,
 ) -> Result<(), String> {
     runtime.save_prompt(&store, &key, value, original)?;
+    crate::native::push_agent_overrides(&app, &store)?;
     publish_prompt_change(&app)
 }
 
@@ -180,6 +181,7 @@ pub(crate) fn prompt_reset(
     key: String,
 ) -> Result<(), String> {
     runtime.reset_prompt(&store, &key)?;
+    crate::native::push_agent_overrides(&app, &store)?;
     publish_prompt_change(&app)
 }
 

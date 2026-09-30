@@ -3,6 +3,7 @@
 use serde_json::{json, Value};
 
 use super::{required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
+use crate::config::AgentKind;
 use crate::event::Event;
 use crate::llm::ToolSpec;
 use crate::session::turn::Prompt;
@@ -48,6 +49,14 @@ impl Tool for Task {
             if parent.visibility == Visibility::Hidden {
                 return Err(ToolError("subagents cannot delegate".into()));
             }
+            let config = ctx.engine.workspace_config(&ctx.workspace);
+            match config.agent(agent) {
+                Some(found) if found.kind == AgentKind::Primary => {}
+                Some(_) => return Err(ToolError(format!("{agent} is an engine action, not an agent that can take a task"))),
+                None => return Err(ToolError(format!("no agent named {agent}"))),
+            }
+            // An agent pinned to a model in Settings or its definition runs on it; otherwise the parent's model.
+            let model = config.agent_model(agent).or(parent.model.clone());
             let title = format!("{description} (@{agent} subagent)");
             let child = ctx.engine.store.create_session(NewSession {
                 workspace_id: &parent.workspace_id,
@@ -55,10 +64,10 @@ impl Tool for Task {
                 visibility: Visibility::Hidden,
                 title: &title,
                 agent,
-                model: parent.model.as_ref(),
+                model: model.as_ref(),
             })?;
             ctx.engine.hub.publish(Event::SessionCreated { session: child.clone() });
-            let prompt = Prompt { parts: vec![Part::Text { text: text.into() }], model: parent.model.clone(), thinking_budget: None, submission_id: None };
+            let prompt = Prompt { parts: vec![Part::Text { text: text.into() }], model, thinking_budget: None, submission_id: None };
             ctx.engine.submit_under(&child.id, prompt, Some(&ctx.abort)).await.map_err(|e| ToolError(format!("could not start subagent: {e}")))?;
             ctx.engine.turns.wait_idle(&child.id, &ctx.abort).await;
             if ctx.abort.is_cancelled() {

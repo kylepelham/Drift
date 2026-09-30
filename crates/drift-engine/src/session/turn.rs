@@ -26,7 +26,6 @@ use crate::Engine;
 const MAX_ATTEMPTS: u32 = 3;
 /// Output cap when the model allows more; keeps a runaway response from burning the budget.
 const MAX_OUTPUT_TOKENS: u32 = 32_000;
-const TITLE_CHARS: usize = 80;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -121,9 +120,9 @@ impl Turns {
 }
 
 pub(super) struct Plan {
-    session: Session,
+    pub(super) session: Session,
     workspace: PathBuf,
-    config: Config,
+    pub(super) config: Config,
     pub(super) model_ref: ModelRef,
     pub(super) model: Model,
     pub(super) provider: Provider,
@@ -205,31 +204,24 @@ impl Engine {
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         let workspace_path = crate::tool::canonical(Path::new(&workspace.path));
-        let config = Config::load(&workspace_path);
+        let config = self.workspace_config(&workspace_path);
         let agent_model = config.agent(&session.agent).and_then(|a| a.model.clone());
         let model_ref = prompt.model.clone().or_else(|| session.model.clone()).or(agent_model).or_else(|| config.model.clone()).ok_or(TurnError::NoModel)?;
-        let (model, env, api) = {
-            let catalog = self.catalog.read().unwrap();
-            let info = catalog.providers.get(&model_ref.provider).ok_or(TurnError::UnknownModel)?;
-            (info.models.get(&model_ref.model).cloned().ok_or(TurnError::UnknownModel)?, info.env.clone(), info.api.clone())
-        };
-        let credential = self.credentials.resolve(&model_ref.provider, &env).ok_or(TurnError::NoCredentials)?;
-        let credential = self.fresh_credential(&model_ref.provider, credential).await?;
-        let provider = self.provider_for(&model_ref.provider, api.as_deref()).ok_or(TurnError::UnknownModel)?;
+        let resolved = self.resolve(&model_ref).await?;
         Ok(Plan {
             session,
             workspace: workspace_path,
             config,
-            model_ref,
-            model,
-            provider,
-            credential,
+            model_ref: resolved.model_ref,
+            model: resolved.model,
+            provider: resolved.provider,
+            credential: resolved.credential,
             thinking_budget: prompt.thinking_budget,
         })
     }
 
     /// Expired subscription tokens are refreshed once, however many turns notice at the same time.
-    async fn fresh_credential(&self, provider: &str, credential: Credential) -> Result<Credential, TurnError> {
+    pub(super) async fn fresh_credential(&self, provider: &str, credential: Credential) -> Result<Credential, TurnError> {
         if !credential.is_expired() {
             return Ok(credential);
         }
@@ -253,7 +245,7 @@ impl Engine {
         Ok(fresh)
     }
 
-    fn provider_for(&self, id: &str, catalog_api: Option<&str>) -> Option<Provider> {
+    pub(super) fn provider_for(&self, id: &str, catalog_api: Option<&str>) -> Option<Provider> {
         if let Some(provider) = self.turns.provider_override.lock().unwrap().clone() {
             return Some(provider);
         }
@@ -261,6 +253,7 @@ impl Engine {
     }
 
     async fn run(self: &Arc<Self>, plan: Plan, abort: CancellationToken) {
+        self.title_untitled(&plan.session);
         let agent = plan.config.agent(&plan.session.agent).cloned();
         let system = prompt::system(&plan.workspace, &plan.config, agent.as_ref());
         let allowed = agent.as_ref().map(|a| a.tools.clone()).unwrap_or_default();
@@ -274,7 +267,7 @@ impl Engine {
             let request = Request {
                 model: plan.model_ref.model.clone(),
                 system: system.clone(),
-                messages: convert::messages(&transcript),
+                messages: convert::messages(&transcript, &plan.model_ref),
                 tools: tools.clone(),
                 max_tokens: max_tokens(&plan.model, plan.thinking_budget),
                 thinking_budget: plan.thinking_budget.filter(|_| plan.model.reasoning),
@@ -292,7 +285,6 @@ impl Engine {
                 Step::Retry => break,
             }
         }
-        self.title_if_untitled(&plan.session).await;
     }
 
     /// One assistant message and the tool calls it makes.
@@ -509,23 +501,6 @@ impl Engine {
             let _ = self.store.save_part(row);
         }
         self.hub.publish(Event::PartUpdated { part: row.clone() });
-    }
-    async fn title_if_untitled(&self, session: &Session) {
-        if !session.title.is_empty() {
-            return;
-        }
-        let Ok(transcript) = self.store.transcript(&session.id) else { return };
-        let first = transcript.iter().find(|m| m.info.role == Role::User).and_then(|m| {
-            m.parts.iter().find_map(|row| match &row.part {
-                Part::Text { text } => Some(text.clone()),
-                _ => None,
-            })
-        });
-        let Some(text) = first else { return };
-        let title: String = text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(TITLE_CHARS).collect();
-        if let Ok(Some(updated)) = self.store.update_session(&session.id, Some(&title), None, None) {
-            self.hub.publish(Event::SessionUpdated { session: updated });
-        }
     }
 }
 

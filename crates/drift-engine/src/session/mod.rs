@@ -3,8 +3,10 @@
 mod assemble;
 pub mod branch;
 mod convert;
+mod oneshot;
 pub mod prompt;
 pub mod snapshot;
+mod title;
 pub mod tree;
 pub mod turn;
 pub mod types;

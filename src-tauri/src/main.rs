@@ -182,6 +182,7 @@ fn main() {
             app.manage(ConfigRoot(config_dir));
             let engine = native::start(app.handle(), &data_dir).expect("failed to open the drift engine");
             let store = store::attach(engine.store.clone()).expect("failed to open drift store");
+            native::push_agent_overrides(app.handle(), &store).expect("failed to load agent settings");
             let ui_state = ui_state::UiStateAuthority::load(&store)
                 .expect("failed to load UI mirror state");
             let shell_timeout = ui_state::ShellTimeoutAuthority::load(&store)

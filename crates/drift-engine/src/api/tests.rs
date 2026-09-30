@@ -219,7 +219,7 @@ async fn session_with_model(h: &Harness) -> (String, String) {
     let ws_id = ws["id"].as_str().unwrap().to_string();
     let created: Value = h
         .post("/sessions")
-        .json(&json!({ "workspaceId": ws_id, "model": { "provider": "anthropic", "model": "claude-sonnet-4-5" } }))
+        .json(&json!({ "workspaceId": ws_id, "title": "Test", "model": { "provider": "anthropic", "model": "claude-sonnet-4-5" } }))
         .send()
         .await
         .unwrap()
@@ -281,7 +281,7 @@ async fn a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket() {
     assert_eq!(messages[1]["parts"][0]["status"], "done");
     assert_eq!(messages[2]["parts"][0]["text"], "Wrote it");
     let listed: Value = h.get("/sessions").send().await.unwrap().json().await.unwrap();
-    assert_eq!(listed[0]["title"], "write out.txt");
+    assert_eq!(listed[0]["id"], session_id.as_str());
 }
 
 #[tokio::test]
@@ -394,7 +394,8 @@ async fn workspace_config_and_commands_are_served() {
 
     let config: Value = h.get(&format!("/workspaces/{ws_id}/config")).send().await.unwrap().json().await.unwrap();
     assert_eq!(config["commands"][0]["name"], "test");
-    assert_eq!(config["agents"].as_array().unwrap().len(), 2);
+    let agents: Vec<(&str, &str)> = config["agents"].as_array().unwrap().iter().map(|a| (a["name"].as_str().unwrap(), a["kind"].as_str().unwrap())).collect();
+    assert_eq!(agents, [("build", "primary"), ("plan", "primary"), ("title", "action"), ("compaction", "action"), ("handoff", "action")]);
 
     let ran = h.post(&format!("/sessions/{session_id}/command")).json(&json!({ "name": "test", "arguments": "the parser" })).send().await.unwrap();
     assert_eq!(ran.status(), 202);

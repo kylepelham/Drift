@@ -54,6 +54,7 @@ change the plan there when a decision changes.
 - [ ] Async-worker conformance: concurrent progress, out-of-order results, cancellation races, reconnect and retained task history
 - [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
 - [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
+- [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, handoff, subagent pins
 - [ ] Compaction with recovery
 - [ ] Retry with model switch
 - [ ] Revert and diff

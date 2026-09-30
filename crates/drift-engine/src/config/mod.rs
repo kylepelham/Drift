@@ -1,6 +1,9 @@
 //! What a workspace tells the engine: drift.json, agents, commands, skills and instruction files.
 
 mod frontmatter;
+mod overrides;
+
+pub use overrides::{AgentOverride, ModelPin};
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -51,6 +54,18 @@ pub struct Agent {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<String>,
     pub builtin: bool,
+    #[serde(default)]
+    pub kind: AgentKind,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentKind {
+    /// Runs conversations and subagents.
+    #[default]
+    Primary,
+    /// Does one engine job (titles, compaction, branch handoffs); never runs a conversation.
+    Action,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -122,6 +137,11 @@ impl Config {
         self.agents.iter().find(|a| a.name == name)
     }
 
+    /// The model an agent is pinned to, if any; unpinned agents inherit from whatever runs them.
+    pub fn agent_model(&self, name: &str) -> Option<ModelRef> {
+        self.agent(name).and_then(|agent| agent.model.clone())
+    }
+
     pub fn skill(&self, name: &str) -> Option<&Skill> {
         self.skills.iter().find(|s| s.name == name)
     }
@@ -152,6 +172,8 @@ impl Config {
                 model: doc.field("model").and_then(|m| parse_model(&m)),
                 tools: doc.field("tools").map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()).unwrap_or_default(),
                 builtin: false,
+                // A workspace file named after an action customises that action rather than replacing it.
+                kind: self.agent(&name).map_or(AgentKind::Primary, |existing| existing.kind),
                 name: name.clone(),
             };
             self.agents.retain(|a| a.name != name);
@@ -194,16 +216,21 @@ pub fn body(text: &str) -> String {
 }
 
 fn builtin_agents() -> Vec<Agent> {
+    let agent = |name: &str, description: &str, prompt: &str, tools: &[&str], kind| Agent {
+        name: name.into(),
+        description: description.into(),
+        prompt: prompt.trim().into(),
+        model: None,
+        tools: tools.iter().map(|t| t.to_string()).collect(),
+        builtin: true,
+        kind,
+    };
     vec![
-        Agent { name: "build".into(), description: "Reads, edits and runs code.".into(), prompt: String::new(), model: None, tools: vec![], builtin: true },
-        Agent {
-            name: "plan".into(),
-            description: "Explores and proposes; changes nothing.".into(),
-            prompt: include_str!("prompts/plan.txt").trim().into(),
-            model: None,
-            tools: ["read", "glob", "grep", "webfetch", "question", "todowrite"].into_iter().map(String::from).collect(),
-            builtin: true,
-        },
+        agent("build", "Reads, edits and runs code.", "", &[], AgentKind::Primary),
+        agent("plan", "Explores and proposes; changes nothing.", include_str!("prompts/plan.txt"), &["read", "glob", "grep", "webfetch", "question", "todowrite"], AgentKind::Primary),
+        agent("title", "Names new conversations. Default model: a small one from the conversation's provider.", include_str!("prompts/title.txt"), &[], AgentKind::Action),
+        agent("compaction", "Summarises long conversations to free context. Default model: the conversation's.", include_str!("prompts/compaction.txt"), &[], AgentKind::Action),
+        agent("handoff", "Drafts the carried context for a /spawn branch. Default model: the source conversation's.", include_str!("prompts/handoff.txt"), &[], AgentKind::Action),
     ]
 }
 
@@ -261,6 +288,7 @@ mod tests {
         write(&ws, "CLAUDE.md", "ignored when AGENTS.md exists");
         write(&ws, ".drift/agents/reviewer.md", "---\ndescription: Reviews PRs\nmodel: openai/gpt-5.5\ntools: read, grep\n---\nYou review.");
         write(&ws, ".drift/agents/plan.md", "---\ndescription: My plan\n---\nCustom plan.");
+        write(&ws, ".drift/agents/title.md", "---\nmodel: openai/gpt-5-nano\n---\nShort titles.");
         write(&ws, ".drift/commands/test.md", "---\ndescription: Run tests\n---\nRun the tests for $ARGUMENTS and report.");
         write(&ws, ".drift/skills/review/SKILL.md", "---\nname: review\ndescription: Project review\n---\nProject way.");
         write(&ws, ".claude/skills/deploy/SKILL.md", "---\ndescription: Deploys\n---\nShip it.");
@@ -271,7 +299,10 @@ mod tests {
         assert_eq!(config.policy().decide(&crate::tool::Ask { kind: "bash".into(), pattern: "git push origin".into(), title: String::new() }), Decision::Deny);
 
         let names: Vec<&str> = config.agents.iter().map(|a| a.name.as_str()).collect();
-        assert_eq!(names, ["build", "plan", "reviewer"]);
+        assert_eq!(names, ["build", "compaction", "handoff", "plan", "reviewer", "title"]);
+        let title = config.agent("title").unwrap();
+        assert_eq!((title.kind, title.prompt.as_str()), (AgentKind::Action, "Short titles."), "a project file customises an action, it does not replace it");
+        assert_eq!(config.agent_model("title"), Some(ModelRef { provider: "openai".into(), model: "gpt-5-nano".into() }));
         let reviewer = config.agent("reviewer").unwrap();
         assert_eq!(reviewer.tools, ["read", "grep"]);
         assert_eq!(reviewer.model, Some(ModelRef { provider: "openai".into(), model: "gpt-5.5".into() }));
@@ -293,7 +324,8 @@ mod tests {
         let ws = std::env::temp_dir().join(format!("drift-config-empty-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&ws).unwrap();
         let config = Config::load_with_home(&ws, None);
-        assert_eq!(config.agents.len(), 2);
+        let kinds: Vec<(&str, AgentKind)> = config.agents.iter().map(|a| (a.name.as_str(), a.kind)).collect();
+        assert_eq!(kinds, [("build", AgentKind::Primary), ("plan", AgentKind::Primary), ("title", AgentKind::Action), ("compaction", AgentKind::Action), ("handoff", AgentKind::Action)]);
         assert!(config.agent("plan").unwrap().tools.contains(&"read".to_string()));
         assert!(config.commands.is_empty() && config.skills.is_empty() && config.instructions.is_empty());
         std::fs::remove_dir_all(ws).ok();

@@ -72,7 +72,8 @@ export async function startEngine(providerUrl: string, dataDir = mkdtempSync(pat
     async setup() {
       await call("PUT", "/providers/anthropic/key", { key: "sk-conformance" })
       const ws = await call<{ id: string }>("POST", "/workspaces", { path: workspace, name: "ws" })
-      const session = await call<{ id: string }>("POST", "/sessions", { workspaceId: ws.json.id, model })
+      // Titled, so the background title request stays out of the recorded exchanges.
+      const session = await call<{ id: string }>("POST", "/sessions", { workspaceId: ws.json.id, model, title: "Conformance" })
       return session.json.id
     },
     events(cursor?: number) {

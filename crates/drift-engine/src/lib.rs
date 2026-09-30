@@ -89,6 +89,8 @@ pub struct Engine {
     pub http: reqwest::Client,
     /// Sign-in flows waiting for their callback code, keyed by state.
     pub oauth: std::sync::Mutex<std::collections::HashMap<String, String>>,
+    /// The user's per-agent model and prompt choices from Settings; the shell sets them.
+    agent_overrides: RwLock<std::collections::HashMap<String, config::AgentOverride>>,
 }
 
 impl Engine {
@@ -114,7 +116,19 @@ impl Engine {
             turns: Turns::default(),
             http: reqwest::Client::new(),
             oauth: Default::default(),
+            agent_overrides: Default::default(),
         }))
+    }
+
+    pub fn set_agent_overrides(&self, overrides: std::collections::HashMap<String, config::AgentOverride>) {
+        *self.agent_overrides.write().unwrap() = overrides;
+    }
+
+    /// The workspace's agents, commands and skills with the user's Settings overrides applied.
+    pub fn workspace_config(&self, workspace: &Path) -> config::Config {
+        let mut config = config::Config::load(workspace);
+        config.apply_overrides(&self.agent_overrides.read().unwrap());
+        config
     }
 
     /// Pulls a fresh catalog from models.dev when the cached one is stale; the bundled snapshot covers failure.

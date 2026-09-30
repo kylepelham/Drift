@@ -1,12 +1,16 @@
 //! The in-process Drift engine: opened at setup, served on loopback, handed to the UI by URL.
 
+use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use drift_engine::config::AgentOverride;
 use drift_engine::{Engine, Server};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+
+use crate::store::Store;
 
 pub(crate) struct Native {
     engine: Arc<Engine>,
@@ -51,6 +55,21 @@ pub(crate) fn start(app: &AppHandle, data_dir: &Path) -> Result<Arc<Engine>, dri
         };
     });
     Ok(started)
+}
+
+/// Hands the engine the per-agent model and prompt choices saved in Settings.
+pub(crate) fn push_agent_overrides(app: &AppHandle, store: &Store) -> Result<(), String> {
+    let overrides = store
+        .prompt_overrides()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter_map(|item| {
+            let name = item.key.strip_prefix("agent:")?.to_string();
+            Some((name, AgentOverride::from_json(&item.value)))
+        })
+        .collect::<HashMap<_, _>>();
+    app.state::<Native>().engine.set_agent_overrides(overrides);
+    Ok(())
 }
 
 pub(crate) fn stop(app: &AppHandle) {

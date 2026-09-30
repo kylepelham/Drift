@@ -36,7 +36,7 @@ pub(crate) async fn harness() -> Harness {
     let ws = engine.store.add_workspace(&workspace.to_string_lossy(), "ws", "").unwrap();
     let session = engine
         .store
-        .create_session(NewSession { workspace_id: &ws.id, parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None })
+        .create_session(NewSession { workspace_id: &ws.id, parent_id: None, visibility: Visibility::Sibling, title: "Test", agent: "build", model: None })
         .unwrap();
     Harness { engine, session, provider, _dir: dir }
 }
@@ -73,7 +73,7 @@ pub(crate) fn prompt(text: &str) -> Prompt {
 }
 
 #[tokio::test]
-async fn a_plain_reply_is_stored_costed_and_titles_the_session() {
+async fn a_plain_reply_is_stored_and_costed() {
     let h = harness().await;
     h.provider.push(text("Hello there"));
     let receipt = h.engine.submit(&h.session.id, prompt("say hello please")).await.await_ok();
@@ -87,7 +87,6 @@ async fn a_plain_reply_is_stored_costed_and_titles_the_session() {
     assert!(reply.info.cost > 0.0);
     assert_eq!(reply.parts[0].part, Part::Text { text: "Hello there".into() });
     let session = h.engine.store.session(&h.session.id).unwrap().unwrap();
-    assert_eq!(session.title, "say hello please");
     assert_eq!(session.model, Some(model()));
     let request = &h.provider.requests.lock().unwrap()[0];
     assert!(request.system.starts_with("You are Drift"));
@@ -480,6 +479,28 @@ async fn a_task_runs_a_hidden_child_and_returns_its_reply() {
     assert_eq!(h.engine.store.transcript(&child_id).unwrap().len(), 3);
     let listed = h.engine.store.sessions(crate::store::SessionFilter { workspace_id: None, archived: false, before: None, limit: 10 }).unwrap();
     assert!(listed.iter().any(|s| s.id == child_id && s.parent_id.as_deref() == Some(h.session.id.as_str())), "subagents are listed so the UI can nest them");
+}
+
+#[tokio::test]
+async fn a_subagent_runs_on_its_agents_pinned_model_and_actions_are_not_agents() {
+    let h = harness().await;
+    let pinned = h.engine.catalog.read().unwrap().providers["anthropic"].models.keys().find(|id| id.as_str() != "claude-sonnet-4-5").unwrap().clone();
+    let pin = crate::config::AgentOverride::from_json(&json!({ "model": format!("anthropic/{pinned}") }));
+    h.engine.set_agent_overrides(std::collections::HashMap::from([("build".to_string(), pin)]));
+    h.provider
+        .push(tool_call("task", r#"{"description": "Pinned", "prompt": "go"}"#))
+        .push(text("child done"))
+        .push(tool_call("task", r#"{"description": "Nope", "prompt": "go", "subagent_type": "title"}"#))
+        .push(text("parent done"));
+    h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
+    until_idle(&h).await;
+    let requests = h.provider.requests.lock().unwrap().clone();
+    assert_eq!(requests[0].model, "claude-sonnet-4-5", "the parent keeps the model it was prompted with");
+    assert_eq!(requests[1].model, pinned, "the subagent runs on the build agent's pin");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[2].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error);
+    assert!(output.as_deref().unwrap().contains("engine action"));
 }
 
 #[tokio::test]

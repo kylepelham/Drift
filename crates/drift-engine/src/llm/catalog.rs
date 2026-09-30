@@ -6,10 +6,13 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::session::types::ModelRef;
+
 const SNAPSHOT: &str = include_str!("../../data/models.json");
 const SOURCE_URL: &str = "https://models.dev/api.json";
 const CACHE_FILE: &str = "models.json";
 const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+const SMALL_MODEL_MIN_CONTEXT: u64 = 16_000;
 pub const PROVIDERS: [&str; 10] = [
     "anthropic",
     "openai",
@@ -96,6 +99,22 @@ impl Catalog {
         Self::parse(SNAPSHOT).expect("bundled catalog is valid")
     }
 
+    /// The cheapest priced model from the same provider, for small jobs like titles. Free models
+    /// (local providers) keep the conversation's own model rather than loading another.
+    pub fn small_model(&self, like: &ModelRef) -> Option<ModelRef> {
+        let provider = self.providers.get(&like.provider)?;
+        let current = provider.models.get(&like.model)?;
+        if current.cost.input + current.cost.output == 0.0 {
+            return None;
+        }
+        let price = |m: &Model| m.cost.input + m.cost.output;
+        let chosen = provider
+            .models
+            .values()
+            .filter(|m| m.cost.input > 0.0 && m.limit.context >= SMALL_MODEL_MIN_CONTEXT)
+            .min_by(|a, b| price(a).total_cmp(&price(b)).then_with(|| b.release_date.cmp(&a.release_date)))?;
+        Some(ModelRef { provider: like.provider.clone(), model: chosen.id.clone() })
+    }
     pub fn cache_is_fresh(data_dir: &Path) -> bool {
         std::fs::metadata(cache_path(data_dir))
             .and_then(|meta| meta.modified())

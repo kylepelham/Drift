@@ -48,6 +48,22 @@ async fn a_draft_summarises_the_source_without_changing_it() {
     assert_eq!(request.messages.len(), 3, "source history plus the handoff instruction");
     let Some(Block::Text(instruction)) = request.messages[2].blocks.last() else { panic!() };
     assert!(instruction.contains("fix the lint errors") && instruction.contains("do not call tools"));
+    assert_eq!(request.model, "claude-sonnet-4-5", "unpinned, the handoff uses the conversation's model");
+}
+
+#[tokio::test]
+async fn a_handoff_model_pinned_in_settings_drafts_the_branch() {
+    let h = harness().await;
+    conversation(&h).await;
+    let pinned = h.engine.catalog.read().unwrap().providers["anthropic"].models.keys().find(|id| id.as_str() != "claude-sonnet-4-5").unwrap().clone();
+    let pin = crate::config::AgentOverride::from_json(&json!({ "model": format!("anthropic/{pinned}"), "prompt": "Hand off tersely." }));
+    h.engine.set_agent_overrides(std::collections::HashMap::from([("handoff".to_string(), pin)]));
+    h.provider.push(text(HANDOFF));
+    h.engine.draft_branch(&h.session.id, "fix the lint errors").await.unwrap();
+    let request = h.provider.requests.lock().unwrap().last().unwrap().clone();
+    assert_eq!(request.model, pinned);
+    let Some(Block::Text(instruction)) = request.messages.last().unwrap().blocks.last() else { panic!() };
+    assert!(instruction.starts_with("Hand off tersely."), "the Settings prompt replaces the default");
 }
 
 #[tokio::test]
