@@ -310,7 +310,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   nothing at all (not even a ping or comment) for 300 s ends as a stalled stream; both retry like any
   transport failure. Reasoning models can think silently for minutes, hence the long idle limit;
   both limits are per adapter (`Timeouts`). Stop ends a turn while its request is still being sent
-  or waiting for the response to begin, not only once it streams.
+  or waiting for the response to begin, not only once it streams. A body read whole rather than
+  streamed (an error response, an OAuth token exchange) goes through `http::bounded_body`: at most
+  64 KB and at most the idle limit (capped at 10 s), so an error that trickles in or never ends
+  cannot hold the turn; whatever arrived is what the error says.
 - Each wait publishes `session.retry { attempt, message, nextAt }`, which the UI draws as the retry
   notice with a model picker; `session.status running` follows when the wait ends. Stop ends a wait
   at once.

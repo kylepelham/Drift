@@ -171,6 +171,36 @@ async fn a_stream_that_stalls_mid_reply_fails_instead_of_hanging() {
     assert!(matches!(&stalled, Some(Err(Error::Transport(message))) if message.contains("stalled")), "{stalled:?}");
 }
 
+async fn error_server(body: Body) -> String {
+    let body = Arc::new(Mutex::new(Some(body)));
+    let router = Router::new().route("/v1/messages", post(move || {
+        let body = body.lock().unwrap().take().unwrap_or_else(Body::empty);
+        async move { Response::builder().status(429).header("content-type", "application/json").body(body).unwrap() }
+    }));
+    let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    url
+}
+
+#[tokio::test]
+async fn an_error_body_that_stalls_or_never_ends_is_cut_short() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let start: Result<&'static str, std::io::Error> = Ok("{\"error\":{\"type\":\"rate_limit_error\"");
+    let stalled = Body::from_stream(futures_util::stream::iter([start]).chain(futures_util::stream::pending()));
+    let mut provider = Anthropic::new(&error_server(stalled).await);
+    provider.timeouts.idle = std::time::Duration::from_millis(200);
+    let started = std::time::Instant::now();
+    let error = tokio::time::timeout(std::time::Duration::from_secs(3), provider.stream(&request(), &Credential::ApiKey { key: "k".into() })).await.expect("bounded").err().unwrap();
+    assert!(matches!(error, Error::Api { status: 429, retryable: true, .. }), "{error:?}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+
+    let endless = Body::from(vec![b'x'; 1024 * 1024]);
+    let provider = Anthropic::new(&error_server(endless).await);
+    let Err(Error::Api { message, .. }) = provider.stream(&request(), &Credential::ApiKey { key: "k".into() }).await else { panic!("expected an error") };
+    assert!(message.len() <= 64 * 1024, "{}", message.len());
+}
+
 #[tokio::test]
 async fn http_errors_become_api_errors() {
     let (_, url) = fake(529, r#"{"error":{"type":"overloaded_error","message":"Overloaded"}}"#).await;

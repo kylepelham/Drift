@@ -52,7 +52,7 @@ impl Anthropic {
         let status = response.status();
         if !status.is_success() {
             let headers = response.headers().clone();
-            return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()).with_headers(&headers));
+            return Err(api_error(status.as_u16(), &super::http::bounded_body(response, &self.timeouts).await).with_headers(&headers));
         }
         let events = sse::events(response.bytes_stream(), self.timeouts.idle);
         Ok(Box::pin(events.flat_map(move |event| {

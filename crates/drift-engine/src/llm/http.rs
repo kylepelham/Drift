@@ -32,6 +32,28 @@ pub fn client() -> reqwest::Client {
         .clone()
 }
 
+/// A non-streamed body (an error, a token exchange) is read no further than this: enough for any
+/// provider's JSON.
+const MAX_ERROR_BODY: usize = 64 * 1024;
+/// And for no longer than this, however slowly it trickles in.
+const MAX_ERROR_WAIT: Duration = Duration::from_secs(10);
+
+/// A response body cut at a size and a time limit, so a stalled or endless one cannot hold the turn:
+/// whatever arrived in time is what it says.
+pub async fn bounded_body(response: reqwest::Response, timeouts: &Timeouts) -> String {
+    use futures_util::StreamExt;
+    let deadline = tokio::time::Instant::now() + timeouts.idle.min(MAX_ERROR_WAIT);
+    let mut stream = response.bytes_stream();
+    let mut body = Vec::new();
+    while body.len() < MAX_ERROR_BODY {
+        match tokio::time::timeout_at(deadline, stream.next()).await {
+            Ok(Some(Ok(chunk))) => body.extend_from_slice(&chunk[..chunk.len().min(MAX_ERROR_BODY - body.len())]),
+            _ => break,
+        }
+    }
+    String::from_utf8_lossy(&body).into_owned()
+}
+
 /// Sends `request`, failing as a transport error if the response has not begun within `timeouts.headers`.
 pub async fn send(request: reqwest::RequestBuilder, timeouts: &Timeouts) -> Result<reqwest::Response, Error> {
     match tokio::time::timeout(timeouts.headers, request.send()).await {

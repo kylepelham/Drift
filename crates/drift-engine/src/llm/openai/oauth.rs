@@ -94,15 +94,11 @@ pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Cr
 
 async fn token_request(client: &reqwest::Client, form: &[(&str, &str)]) -> Result<Credential, String> {
     let encoded: Vec<String> = form.iter().map(|(k, v)| format!("{k}={}", encode(v))).collect();
-    let response = client
-        .post(format!("{ISSUER}/oauth/token"))
-        .header("content-type", "application/x-www-form-urlencoded")
-        .body(encoded.join("&"))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let timeouts = crate::llm::http::Timeouts::default();
+    let request = client.post(format!("{ISSUER}/oauth/token")).header("content-type", "application/x-www-form-urlencoded").body(encoded.join("&"));
+    let response = crate::llm::http::send(request, &timeouts).await.map_err(|e| e.to_string())?;
     let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::llm::http::bounded_body(response, &timeouts).await;
     if !status.is_success() {
         return Err(format!("token request failed ({status}): {text}"));
     }

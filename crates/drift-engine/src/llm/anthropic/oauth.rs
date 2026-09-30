@@ -86,16 +86,11 @@ pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Cr
 }
 
 async fn token_request(client: &reqwest::Client, body: &Value) -> Result<Credential, String> {
-    let response = client
-        .post(token_url())
-        .header("accept", "application/json, text/plain, */*")
-        .header("user-agent", TOKEN_USER_AGENT)
-        .json(body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let timeouts = crate::llm::http::Timeouts::default();
+    let request = client.post(token_url()).header("accept", "application/json, text/plain, */*").header("user-agent", TOKEN_USER_AGENT).json(body);
+    let response = crate::llm::http::send(request, &timeouts).await.map_err(|e| e.to_string())?;
     let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::llm::http::bounded_body(response, &timeouts).await;
     if !status.is_success() {
         return Err(format!("token request failed ({status}): {text}"));
     }
