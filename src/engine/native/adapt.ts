@@ -71,6 +71,11 @@ export function adaptMessage(message: NativeMessage, directory: string): Message
   if (message.status === "error") assistant.error = { name: "UnknownError", data: { message: message.error ?? "The turn failed" } }
   if (message.status === "aborted") assistant.error = { name: "MessageAbortedError", data: { message: "Interrupted" } }
   if (message.status === "done") assistant.finish = "stop"
+  // A finished reply that carries an error stopped at its output limit rather than ending on its own.
+  if (message.status === "done" && message.error) {
+    assistant.finish = "length"
+    assistant.error = { name: "MessageOutputLengthError", data: { message: message.error } }
+  }
   if (message.summary) assistant.summary = true
   return assistant
 }

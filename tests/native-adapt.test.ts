@@ -55,6 +55,16 @@ test("assistant messages carry tokens, cost and errors in the legacy shape", () 
   expect(info.time).toEqual({ created: 1, completed: 2 })
 })
 
+test("a reply that stopped at its output limit shows why", () => {
+  const base = { id: "msg_3", sessionId: "ses_1", role: "assistant" as const, model: { provider: "anthropic", model: "claude" }, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0, createdAt: 1 }
+  const cut = adaptMessage({ ...base, status: "done", error: "The reply stopped at the output limit (32000 tokens)." }, "C:/repo") as { finish?: string; error?: { name: string; data: { message: string } } }
+  expect(cut.finish).toBe("length")
+  expect(cut.error).toEqual({ name: "MessageOutputLengthError", data: { message: "The reply stopped at the output limit (32000 tokens)." } })
+  const whole = adaptMessage({ ...base, status: "done" }, "C:/repo") as { finish?: string; error?: unknown }
+  expect(whole.finish).toBe("stop")
+  expect(whole.error).toBeUndefined()
+})
+
 test("a compaction becomes the boundary part and summary message the transcript already draws", () => {
   const summary = adaptMessage(
     { id: "msg_2", sessionId: "ses_1", role: "assistant", status: "done", model: { provider: "anthropic", model: "claude" }, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0, createdAt: 1, summary: true },

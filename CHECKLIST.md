@@ -77,7 +77,7 @@ change the plan there when a decision changes.
     - [x] Bounded shell capture; inherited pipes and background descendants
     - [x] `.envrc`, `cd` chains, opaque-construct docs, periodic prune (OpenRouter caching checked, left open above)
   - [x] Shared HTTP client with connect, header and stream-idle timeouts; Stop cancels while waiting
-  - [ ] Thinking budget within the output limit; max-tokens endings surfaced; unexecuted calls settled
+  - [x] Thinking budget within the output limit; max-tokens endings surfaced; unexecuted calls settled
   - [ ] Configurable step limits and repeated-call intervention
   - [ ] Shared tool-output limits with full-output artifacts (read, list, MCP, shell)
   - [ ] Engine-owned steering and queueing at safe boundaries

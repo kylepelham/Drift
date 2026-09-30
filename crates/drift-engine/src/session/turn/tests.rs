@@ -447,8 +447,9 @@ async fn a_stream_that_ends_without_a_stop_reason_runs_no_tools() {
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     for message in transcript.iter().skip(1) {
         assert_eq!(message.info.status, MessageStatus::Error);
-        let Part::ToolCall { status, .. } = &message.parts[0].part else { panic!() };
-        assert_eq!(*status, ToolStatus::Pending, "the call must never run");
+        let Part::ToolCall { status, output, .. } = &message.parts[0].part else { panic!() };
+        assert_eq!(*status, ToolStatus::Error, "the call must never run, and is closed rather than left pending");
+        assert!(output.as_deref().is_some_and(|o| o.starts_with("Not run:")), "{output:?}");
     }
     assert_eq!(transcript.len(), 2 + MAX_RETRIES as usize, "the first attempt and every retry, then it gives up");
 }
@@ -583,8 +584,46 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
     h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
-    let Part::ToolCall { status, .. } = &transcript.last().unwrap().parts[0].part else { panic!() };
-    assert_eq!(*status, ToolStatus::Pending, "a max_tokens stop dispatches nothing");
+    let last = transcript.last().unwrap();
+    let Part::ToolCall { status, output, .. } = &last.parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error, "a max_tokens stop dispatches nothing, and says so");
+    assert!(output.as_deref().unwrap().starts_with("Not run: the reply hit its output limit"), "{output:?}");
+    assert_eq!(last.info.status, MessageStatus::Done);
+    assert!(last.info.error.as_deref().unwrap().starts_with(OUTPUT_LIMIT_ENDING), "the ending is visible: {:?}", last.info.error);
+}
+
+#[tokio::test]
+async fn a_reply_cut_off_without_calls_still_says_so() {
+    let h = harness().await;
+    h.provider.push(vec![Chunk::TextStart, Chunk::TextDelta("The answer is".into()), Chunk::BlockStop, Chunk::Stop(StopReason::MaxTokens)]);
+    h.engine.submit(&h.session.id, prompt("long")).await.await_ok();
+    until_idle(&h).await;
+    let last = h.engine.store.transcript(&h.session.id).unwrap().pop().unwrap();
+    assert_eq!(last.info.status, MessageStatus::Done);
+    assert!(last.info.error.as_deref().is_some_and(|e| e.starts_with(OUTPUT_LIMIT_ENDING)));
+}
+
+fn model_with(output: u64, reasoning: bool) -> crate::llm::catalog::Model {
+    let mut model = crate::llm::catalog::Catalog::bundled().providers["anthropic"].models["claude-sonnet-4-5"].clone();
+    model.limit.output = output;
+    model.reasoning = reasoning;
+    model
+}
+
+#[test]
+fn output_and_thinking_budgets_are_valid_together() {
+    assert_eq!(budgets(&model_with(32_000, true), Some(32_000)), (32_000, Some(32_000 - MIN_ANSWER_TOKENS)), "never past the model's own limit");
+    assert_eq!(budgets(&model_with(64_000, true), Some(32_000)), (33_024, Some(32_000)), "a budget may raise the output past our cap");
+    assert_eq!(budgets(&model_with(64_000, true), Some(100_000)), (64_000, Some(64_000 - MIN_ANSWER_TOKENS)));
+    assert_eq!(budgets(&model_with(64_000, true), Some(10)), (32_000, Some(MIN_THINKING_TOKENS)), "raised to the provider's minimum");
+    assert_eq!(budgets(&model_with(1_500, true), Some(8_000)), (1_500, None), "no room for thinking and an answer");
+    assert_eq!(budgets(&model_with(64_000, false), Some(8_000)), (32_000, None), "a model that does not reason gets no budget");
+    assert_eq!(budgets(&model_with(0, false), None), (MAX_OUTPUT_TOKENS, None), "an unknown limit uses our cap");
+    for (limit, wanted) in [(4_096, 4_096), (8_192, 8_000), (128_000, 127_000), (2_048, 1_024)] {
+        let (max, thinking) = budgets(&model_with(limit, true), Some(wanted));
+        assert!(max as u64 <= limit, "{limit}/{wanted}");
+        assert!(thinking.is_none_or(|t| t + MIN_ANSWER_TOKENS <= max && t >= MIN_THINKING_TOKENS), "{limit}/{wanted}: {max} {thinking:?}");
+    }
 }
 
 #[tokio::test]

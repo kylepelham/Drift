@@ -38,6 +38,12 @@ const MAX_BACKOFF: Duration = Duration::from_secs(60);
 const MAX_REQUESTED_WAIT: Duration = Duration::from_secs(10 * 60);
 /// Output cap when the model allows more; keeps a runaway response from burning the budget.
 const MAX_OUTPUT_TOKENS: u32 = 32_000;
+/// A finished reply's `error` when it stopped at the output limit rather than ending on its own.
+pub const OUTPUT_LIMIT_ENDING: &str = "The reply stopped at the output limit";
+/// What a thinking budget always leaves for the answer itself.
+const MIN_ANSWER_TOKENS: u32 = 1024;
+/// The smallest thinking budget providers accept.
+const MIN_THINKING_TOKENS: u32 = 1024;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -339,13 +345,14 @@ impl Engine {
         let mut recovered = false;
         loop {
             let Some(transcript) = self.transcript_for_step(&plan, &abort).await else { break };
+            let (max_tokens, thinking_budget) = budgets(&plan.model, plan.thinking_budget);
             let request = Request {
                 model: plan.model_ref.model.clone(),
                 system: offer.system.clone(),
                 messages: compaction::request_messages(&transcript, &plan.model_ref),
                 tools: offer.tools.clone(),
-                max_tokens: max_tokens(&plan.model, plan.thinking_budget),
-                thinking_budget: plan.thinking_budget.filter(|_| plan.model.reasoning),
+                max_tokens,
+                thinking_budget,
                 temperature: None,
             };
             let Ok(message) = self.store.create_message(&plan.session.id, Role::Assistant, Some(&plan.model_ref)) else { break };
@@ -477,12 +484,14 @@ impl Engine {
             Err(StreamError::Aborted) => {
                 message.status = MessageStatus::Aborted;
                 let _ = self.finish(&mut message);
+                self.settle_unrun(&message, "the reply was stopped before this call ran.");
                 return Step::Done;
             }
             Err(StreamError::Provider(error)) => {
                 message.status = MessageStatus::Error;
                 message.error = Some(error.to_string());
                 let _ = self.finish(&mut message);
+                self.settle_unrun(&message, "the reply failed before it finished, so its calls were not trusted to run.");
                 if error.is_context_overflow() {
                     return Step::Overflow;
                 }
@@ -492,11 +501,16 @@ impl Engine {
         message.usage = streamed.usage;
         message.cost = if matches!(plan.credential, Credential::OAuth { .. }) { 0.0 } else { cost(&plan.model, streamed.usage) };
         message.status = MessageStatus::Done;
+        // The reply hit its output limit: say so, and run nothing, since a call's input may be cut short.
+        let cut_off = streamed.stop == StopReason::MaxTokens;
+        if cut_off {
+            message.error = Some(format!("{OUTPUT_LIMIT_ENDING} ({} tokens).", request.max_tokens));
+        }
         if self.finish(&mut message).is_err() || streamed.calls.is_empty() {
             return Step::Done;
         }
-        // The model already said it ran out of room; running its calls would only invite a continuation it cannot make.
-        if streamed.stop == StopReason::MaxTokens {
+        if cut_off {
+            self.settle_unrun(&message, "the reply hit its output limit, so this call's input may be cut short.");
             return Step::Done;
         }
         match self.run_calls(plan, &message, streamed.calls, offered, abort).await {
@@ -688,6 +702,17 @@ impl Engine {
         Ok(())
     }
 
+    /// Closes the calls a message made that will never run, with the reason, so none stays pending.
+    fn settle_unrun(&self, message: &Message, reason: &str) {
+        let Ok(transcript) = self.store.transcript(&message.session_id) else { return };
+        let Some(found) = transcript.into_iter().find(|m| m.info.id == message.id) else { return };
+        for mut row in found.parts {
+            if matches!(row.part, Part::ToolCall { status: ToolStatus::Pending, .. }) {
+                self.settle(&mut row, ToolStatus::Error, None, format!("Not run: {reason}"), None);
+            }
+        }
+    }
+
     /// Writes the outcome. If that write fails, what is published is the failure, never a success the store lacks.
     fn settle(&self, row: &mut PartRow, new_status: ToolStatus, new_title: Option<String>, text: String, meta: Option<serde_json::Value>) {
         if let Part::ToolCall { status, title, output, metadata, finished_at, .. } = &mut row.part {
@@ -789,9 +814,19 @@ fn payload_hash(prompt: &Prompt) -> String {
     sha2::Sha256::digest(body.to_string().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn max_tokens(model: &Model, thinking_budget: Option<u32>) -> u32 {
-    let cap = (model.limit.output as u32).clamp(1024, MAX_OUTPUT_TOKENS);
-    cap.max(thinking_budget.unwrap_or(0) + 1024)
+/// The output limit and thinking budget for one request, valid together: the output never exceeds the
+/// model's own limit, a thinking budget may raise it past our usual cap but always leaves
+/// [`MIN_ANSWER_TOKENS`] for the answer, and a budget that cannot fit is reduced, or dropped when even
+/// the provider's minimum would not fit.
+fn budgets(model: &Model, requested: Option<u32>) -> (u32, Option<u32>) {
+    let model_limit = u32::try_from(model.limit.output).ok().filter(|limit| *limit > 0).unwrap_or(MAX_OUTPUT_TOKENS);
+    let Some(wanted) = requested.filter(|_| model.reasoning) else {
+        return (model_limit.min(MAX_OUTPUT_TOKENS), None);
+    };
+    let max_tokens = model_limit.min(MAX_OUTPUT_TOKENS.max(wanted.saturating_add(MIN_ANSWER_TOKENS)));
+    let room = max_tokens.saturating_sub(MIN_ANSWER_TOKENS);
+    let thinking = (room >= MIN_THINKING_TOKENS).then(|| wanted.clamp(MIN_THINKING_TOKENS, room));
+    (max_tokens, thinking)
 }
 
 /// Prices are per million tokens.

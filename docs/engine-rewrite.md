@@ -536,9 +536,19 @@ Settled after the first external review of M1; each has a regression test.
   `message_delta.stop_reason`, OpenAI `response.completed`/`response.incomplete`, Gemini
   `finishReason`, Chat Completions `finish_reason` then `[DONE]`). `message_stop` alone is
   not completion. A stream that ends without one is an error, not a completed message: its
-  tool calls stay `pending`, never run, and the turn retries like any transport fault. A
-  `max_tokens` stop dispatches nothing either, since the call input may be cut short. A call
-  whose arguments did not parse as a JSON object fails before dispatch.
+  tool calls never run, and the turn retries like any transport fault. A `max_tokens` stop
+  dispatches nothing either, since the call input may be cut short. Calls that will never run
+  (after a failed, stopped or cut-off reply) are closed as `error` with `Not run: <reason>`, never
+  left `pending`, so the UI and the model's next request both see why. A call whose arguments did
+  not parse as a JSON object fails before dispatch.
+- A reply that stops at its output limit stays `done` but carries `error: "The reply stopped at the
+  output limit (N tokens)."`, which the UI shows as `MessageOutputLengthError` with finish
+  `length`. The turn ends there.
+- Output limit and thinking budget are computed together (`turn::budgets`): the output never
+  exceeds the model's own limit; a thinking budget may raise it past the usual 32,000 cap but always
+  leaves 1,024 tokens for the answer; a larger budget is reduced to fit, and one that cannot reach
+  the 1,024 minimum is dropped. A 32,000 budget on a 32,000-output model sends 32,000 with a
+  30,976 budget, never 33,024.
 - Only valid completed blocks are replayed. An aborted message keeps its finished text; its
   unsigned reasoning and any call with unparsed arguments are dropped, along with the
   results those calls would have needed.
