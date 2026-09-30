@@ -1307,6 +1307,7 @@ export const drift = {
   "drift.message.interrupted": "Перервано",
   "drift.permission.denyStop": "Відхилити й зупинити",
   "drift.permission.feedback": "Поясніть моделі причину (необов'язково, надсилається з Відхилити)",
+  "drift.permission.denyStopHint": "Відхиляє цей виклик і завершує хід, який його попросив. Запит субагента зупиняє лише цього субагента; інші розмови й субагенти працюють далі.",
   "drift.move.sessionBusy": "Сесія все ще зайнята; зупиніть її перед переміщенням.",
   "drift.message.revertHere": "Повернутися сюди",
   "drift.message.tokenCounts": "{{input}} вх. / {{output}} вих.",

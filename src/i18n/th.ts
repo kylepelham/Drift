@@ -1289,6 +1289,7 @@ export const drift = {
   "drift.message.interrupted": "ถูกขัดจังหวะ",
   "drift.permission.denyStop": "ปฏิเสธและหยุด",
   "drift.permission.feedback": "บอกเหตุผลแก่โมเดล (ไม่บังคับ ส่งพร้อมการปฏิเสธ)",
+  "drift.permission.denyStopHint": "ปฏิเสธคำขอนี้และจบเทิร์นที่ขอ คำขอของเอเจนต์ย่อยจะหยุดเฉพาะเอเจนต์ย่อยนั้น บทสนทนาและเอเจนต์ย่อยอื่นยังทำงานต่อ",
   "drift.move.sessionBusy": "เซสชันยังทำงานอยู่ หยุดเซสชันก่อนย้าย",
   "drift.message.revertHere": "ย้อนกลับมาที่นี่",
   "drift.message.tokenCounts": "เข้า {{input}} / ออก {{output}}",

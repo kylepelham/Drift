@@ -1228,6 +1228,7 @@ export const drift = {
   "drift.message.interrupted": "Przerwano",
   "drift.permission.denyStop": "Odmów i zatrzymaj",
   "drift.permission.feedback": "Powiedz modelowi dlaczego (opcjonalnie, wysyłane z Odmów)",
+  "drift.permission.denyStopHint": "Odrzuca to wywołanie i kończy turę, która o nie poprosiła. Prośba podagenta zatrzymuje tylko tego podagenta; inne rozmowy i podagenci działają dalej.",
   "drift.move.sessionBusy": "Sesja jest nadal zajęta; zatrzymaj ją przed przeniesieniem.",
   "drift.message.revertHere": "Cofnij do tego miejsca",
   "drift.message.tokenCounts": "{{input}} wej. / {{output}} wyj.",

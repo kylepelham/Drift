@@ -1309,6 +1309,7 @@ export const drift = {
   "drift.message.interrupted": "Interrumpido",
   "drift.permission.denyStop": "Denegar y detener",
   "drift.permission.feedback": "Dile al modelo por qué (opcional, se envía con Denegar)",
+  "drift.permission.denyStopHint": "Rechaza esta llamada y termina el turno que la pidió. La solicitud de un subagente detiene solo ese subagente; las demás conversaciones y subagentes siguen.",
   "drift.move.sessionBusy": "La sesión sigue ocupada; deténgala antes de moverla.",
   "drift.message.revertHere": "Revertir hasta aquí",
   "drift.message.tokenCounts": "{{input}} entrada / {{output}} salida",

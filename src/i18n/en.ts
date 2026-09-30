@@ -606,6 +606,7 @@ export const drift = {
   "drift.message.interrupted": "Interrupted",
   "drift.permission.denyStop": "Deny and stop",
   "drift.permission.feedback": "Tell the model why (optional, sent with Deny)",
+  "drift.permission.denyStopHint": "Refuses this call and ends the turn that asked for it. A subagent's request stops only that subagent; other conversations and subagents keep running.",
   "drift.move.sessionBusy": "The session is still busy; stop it before moving.",
   "drift.message.revertHere": "Revert to here",
   "drift.message.tokenCounts": "{{input}} in / {{output}} out",

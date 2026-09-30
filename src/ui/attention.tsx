@@ -137,7 +137,7 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
         <ActionButton label={t("settings.permissions.action.allow")} onClick={() => reply("once")} />
         <ActionButton label={t("command.permissions.autoaccept.enable")} onClick={() => reply("always")} />
         <ActionButton label={t("settings.permissions.action.deny")} danger onClick={() => reply("reject")} />
-        <ActionButton label={t("drift.permission.denyStop")} danger onClick={() => reply("stop")} />
+        <ActionButton label={t("drift.permission.denyStop")} title={t("drift.permission.denyStopHint")} danger onClick={() => reply("stop")} />
       </div>
     </div>
   )
@@ -402,9 +402,10 @@ function ChoiceMark(props: { checked: boolean; multiple: boolean }) {
   )
 }
 
-function ActionButton(props: { label: string; danger?: boolean; onClick: () => void }) {
+function ActionButton(props: { label: string; danger?: boolean; title?: string; onClick: () => void }) {
   return (
     <button
+      title={props.title}
       class="rounded-md border px-2.5 py-1 text-xs transition-colors"
       classList={{
         "border-edge text-ink-muted hover:border-edge-strong hover:text-ink": !props.danger,

@@ -1241,6 +1241,7 @@ export const drift = {
   "drift.message.interrupted": "Interrompu",
   "drift.permission.denyStop": "Refuser et arrêter",
   "drift.permission.feedback": "Dites au modèle pourquoi (facultatif, envoyé avec Refuser)",
+  "drift.permission.denyStopHint": "Refuse cet appel et termine le tour qui l'a demandé. La demande d'un sous-agent n'arrête que ce sous-agent ; les autres conversations et sous-agents continuent.",
   "drift.move.sessionBusy": "La session est encore occupée ; arrêtez-la avant de la déplacer.",
   "drift.message.revertHere": "Revenir ici",
   "drift.message.tokenCounts": "{{input}} en entrée / {{output}} en sortie",

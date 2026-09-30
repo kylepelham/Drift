@@ -1210,6 +1210,7 @@ export const drift = {
   "drift.message.interrupted": "تمت المقاطعة",
   "drift.permission.denyStop": "رفض وإيقاف",
   "drift.permission.feedback": "أخبر النموذج بالسبب (اختياري، يُرسل مع الرفض)",
+  "drift.permission.denyStopHint": "يرفض هذا الطلب وينهي الدور الذي طلبه. طلب الوكيل الفرعي يوقف ذلك الوكيل فقط؛ وتستمر المحادثات والوكلاء الآخرون.",
   "drift.move.sessionBusy": "الجلسة لا تزال مشغولة؛ أوقفها قبل النقل.",
   "drift.message.revertHere": "التراجع إلى هنا",
   "drift.message.tokenCounts": "{{input}} إدخال / {{output}} إخراج",

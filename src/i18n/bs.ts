@@ -1302,6 +1302,7 @@ export const drift = {
   "drift.message.interrupted": "Prekinuto",
   "drift.permission.denyStop": "Odbij i zaustavi",
   "drift.permission.feedback": "Recite modelu zašto (neobavezno, šalje se uz Odbij)",
+  "drift.permission.denyStopHint": "Odbija ovaj poziv i završava potez koji ga je tražio. Zahtjev podagenta zaustavlja samo tog podagenta; ostali razgovori i podagenti nastavljaju.",
   "drift.move.sessionBusy": "Sesija je još uvijek zauzeta; zaustavite je prije premještanja.",
   "drift.message.revertHere": "Vrati do ovdje",
   "drift.message.tokenCounts": "{{input}} ulaz / {{output}} izlaz",

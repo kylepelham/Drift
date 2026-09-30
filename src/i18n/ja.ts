@@ -1219,6 +1219,7 @@ export const drift = {
   "drift.message.interrupted": "中断",
   "drift.permission.denyStop": "拒否して停止",
   "drift.permission.feedback": "理由をモデルに伝える（任意、拒否と一緒に送信）",
+  "drift.permission.denyStopHint": "この呼び出しを拒否し、それを求めたターンを終了します。サブエージェントの要求ではそのサブエージェントだけが止まり、他の会話やサブエージェントは続行します。",
   "drift.move.sessionBusy": "セッションはまだ実行中です。移動する前に停止してください。",
   "drift.message.revertHere": "ここまで戻す",
   "drift.message.tokenCounts": "入力 {{input}} / 出力 {{output}}",

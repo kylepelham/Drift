@@ -1294,6 +1294,7 @@ export const drift = {
   "drift.message.interrupted": "Afbrudt",
   "drift.permission.denyStop": "Afvis og stop",
   "drift.permission.feedback": "Fortæl modellen hvorfor (valgfrit, sendes med Afvis)",
+  "drift.permission.denyStopHint": "Afviser dette kald og afslutter den tur, der bad om det. En underagents anmodning stopper kun den underagent; andre samtaler og underagenter fortsætter.",
   "drift.move.sessionBusy": "Sessionen er stadig optaget; stop den, før du flytter den.",
   "drift.message.revertHere": "Rul tilbage hertil",
   "drift.message.tokenCounts": "{{input}} ind / {{output}} ud",

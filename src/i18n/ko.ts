@@ -1217,6 +1217,7 @@ export const drift = {
   "drift.message.interrupted": "중단됨",
   "drift.permission.denyStop": "거부하고 중지",
   "drift.permission.feedback": "모델에게 이유 알리기 (선택 사항, 거부와 함께 전송)",
+  "drift.permission.denyStopHint": "이 호출을 거부하고 요청한 턴을 끝냅니다. 서브에이전트의 요청이면 그 서브에이전트만 멈추고, 다른 대화와 서브에이전트는 계속됩니다.",
   "drift.move.sessionBusy": "세션이 아직 작업 중입니다. 이동하기 전에 중단하세요.",
   "drift.message.revertHere": "여기로 되돌리기",
   "drift.message.tokenCounts": "입력 {{input}} / 출력 {{output}}",

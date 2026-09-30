@@ -1308,6 +1308,7 @@ export const drift = {
   "drift.message.interrupted": "Прервано",
   "drift.permission.denyStop": "Отклонить и остановить",
   "drift.permission.feedback": "Объясните модели причину (необязательно, отправляется с Отклонить)",
+  "drift.permission.denyStopHint": "Отклоняет этот вызов и завершает ход, который его запросил. Запрос субагента останавливает только этого субагента; другие беседы и субагенты продолжают работу.",
   "drift.move.sessionBusy": "Сессия всё ещё занята; остановите её перед перемещением.",
   "drift.message.revertHere": "Вернуться сюда",
   "drift.message.tokenCounts": "{{input}} вх. / {{output}} вых.",

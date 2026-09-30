@@ -1235,6 +1235,7 @@ export const drift = {
   "drift.message.interrupted": "Unterbrochen",
   "drift.permission.denyStop": "Ablehnen und stoppen",
   "drift.permission.feedback": "Dem Modell den Grund nennen (optional, wird mit Ablehnen gesendet)",
+  "drift.permission.denyStopHint": "Lehnt diesen Aufruf ab und beendet den Zug, der ihn angefordert hat. Die Anfrage eines Subagenten stoppt nur diesen Subagenten; andere Unterhaltungen und Subagenten laufen weiter.",
   "drift.move.sessionBusy": "Die Sitzung ist noch beschäftigt; stoppen Sie sie vor dem Verschieben.",
   "drift.message.revertHere": "Bis hierher zurücksetzen",
   "drift.message.tokenCounts": "{{input}} ein / {{output}} aus",

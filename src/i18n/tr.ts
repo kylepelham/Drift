@@ -1304,6 +1304,7 @@ export const drift = {
   "drift.message.interrupted": "Kesintiye uğradı",
   "drift.permission.denyStop": "Reddet ve durdur",
   "drift.permission.feedback": "Modele nedenini söyleyin (isteğe bağlı, Reddet ile gönderilir)",
+  "drift.permission.denyStopHint": "Bu çağrıyı reddeder ve onu isteyen turu bitirir. Bir alt ajanın isteği yalnızca o alt ajanı durdurur; diğer sohbetler ve alt ajanlar devam eder.",
   "drift.move.sessionBusy": "Oturum hâlâ meşgul; taşımadan önce durdurun.",
   "drift.message.revertHere": "Buraya geri dön",
   "drift.message.tokenCounts": "{{input}} giriş / {{output}} çıkış",

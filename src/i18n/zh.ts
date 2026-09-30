@@ -1276,6 +1276,7 @@ export const drift = {
   "drift.message.interrupted": "已中断",
   "drift.permission.denyStop": "拒绝并停止",
   "drift.permission.feedback": "告诉模型原因（可选，随拒绝一起发送）",
+  "drift.permission.denyStopHint": "拒绝此调用并结束发起它的回合。子代理的请求只会停止该子代理；其他对话和子代理继续运行。",
   "drift.move.sessionBusy": "会话仍在运行；移动前请先停止它。",
   "drift.message.revertHere": "还原到此处",
   "drift.message.tokenCounts": "输入 {{input}} / 输出 {{output}}",
