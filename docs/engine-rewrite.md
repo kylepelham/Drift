@@ -671,7 +671,9 @@ Settled after the first external review of M1; each has a regression test.
   and a directory listing shows 1,000 entries and counts the rest. Anything else past the bound
   (MCP results, skills, fetched pages, tools yet to come) is cut to its first and last 16 KB in
   `run_call`, with the whole result in `<data>/tool-output/<session>/<call>.result.log` and
-  `metadata.resultFile` pointing at it.
+  `metadata.resultFile` pointing at it. A session reads files under its own
+  `<data>/tool-output/<session>/` without asking (paths resolved first, so `..` cannot leave it);
+  other sessions' output and the rest of the data directory ask like any path outside the workspace.
 - Background processes do not outlive the call. Once the shell exits, output still in flight gets
   500 ms; a pipe still open after that is held by a background descendant, so the call finishes
   with the shell's exit code, the descendants are stopped, and the result says so. A command with

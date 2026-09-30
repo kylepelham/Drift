@@ -80,7 +80,17 @@ impl Context {
     /// Reading asks for anything outside the workspace and for any file likely to hold secrets, even
     /// inside it. Everything else in the workspace is free to read.
     pub fn ask_to_read(&self, path: &Path, verb: &str) -> Option<Ask> {
+        if self.owns_output(path) {
+            return None;
+        }
         read_ask(&self.workspace, path, verb)
+    }
+
+    /// Output this session's own calls spilled to disk, which their results name: reading it back asks
+    /// nothing. Only this session's directory, compared as resolved paths; nothing else in the data dir.
+    fn owns_output(&self, path: &Path) -> bool {
+        let owned = canonical(&self.engine.data_dir.join("tool-output").join(&self.session_id));
+        path.starts_with(&owned) && path != owned
     }
 }
 

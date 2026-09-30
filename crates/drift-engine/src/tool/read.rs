@@ -174,6 +174,24 @@ mod tests {
     }
 
     #[test]
+    fn this_sessions_own_spilled_output_reads_without_asking_and_nothing_else_of_the_data_dir_does() {
+        let sandbox = Sandbox::new("read-own-output");
+        let data = &sandbox.ctx.engine.data_dir;
+        let own = data.join("tool-output").join(&sandbox.ctx.session_id).join("call_1.log");
+        let other = data.join("tool-output").join("ses_someone_else").join("call_1.log");
+        for file in [&own, &other] {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, "output").unwrap();
+        }
+        let ask = |path: &std::path::Path| Read.ask(&sandbox.ctx, &json!({ "path": path.to_string_lossy() }));
+        assert!(ask(&own).is_none(), "its own output");
+        assert!(ask(&other).is_some(), "another session's output");
+        assert!(ask(&data.join("drift.db")).is_some(), "the rest of the data dir");
+        let escape = data.join("tool-output").join(&sandbox.ctx.session_id).join("..").join("ses_someone_else").join("call_1.log");
+        assert!(ask(&escape).is_some(), "resolved before it is judged");
+    }
+
+    #[test]
     fn secrets_inside_the_workspace_ask_and_their_examples_do_not() {
         let sandbox = Sandbox::new("read-secret");
         let ask = Read.ask(&sandbox.ctx, &json!({ "path": "config/.env.local" })).expect("a secret must ask");
