@@ -297,6 +297,21 @@ async fn retryable_provider_errors_are_retried_and_others_are_not() {
 }
 
 #[tokio::test]
+async fn stop_ends_a_request_still_waiting_for_its_response() {
+    let h = harness().await;
+    let url = crate::llm::tests::silent_server().await;
+    *h.engine.turns.provider_override.lock().unwrap() = Some(llm::Provider::Anthropic(llm::anthropic::Anthropic::new(&url)));
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let started = std::time::Instant::now();
+    assert!(h.engine.abort(&h.session.id));
+    until_idle(&h).await;
+    assert!(started.elapsed() < Duration::from_secs(1), "no wait for the 120 s header limit");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert_eq!(transcript.last().unwrap().info.status, MessageStatus::Aborted);
+}
+
+#[tokio::test]
 async fn an_overload_inside_the_stream_is_retried() {
     let h = harness().await;
     let partial = vec![Chunk::TextStart, Chunk::TextDelta("Let me".into())];

@@ -300,6 +300,13 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   its retry wait cleared and `idle` published.
 - At most 8 retries per step (the count resets after a step succeeds). A provider asking for more
   than 10 minutes, as a spent quota does, is not waited on: the error stands.
+- Every provider, OAuth, catalog and MCP HTTP request goes through one shared client
+  (`llm::http::client`): shared connection pool, 15 s connect timeout, TCP keepalive. A provider
+  request whose response has not begun within 120 s fails as a transport error, and a stream with
+  nothing at all (not even a ping or comment) for 300 s ends as a stalled stream; both retry like any
+  transport failure. Reasoning models can think silently for minutes, hence the long idle limit;
+  both limits are per adapter (`Timeouts`). Stop ends a turn while its request is still being sent
+  or waiting for the response to begin, not only once it streams.
 - Each wait publishes `session.retry { attempt, message, nextAt }`, which the UI draws as the retry
   notice with a model picker; `session.status running` follows when the wait ends. Stop ends a wait
   at once.

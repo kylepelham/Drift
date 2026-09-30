@@ -116,7 +116,7 @@ impl Engine {
             catalog: RwLock::new(Catalog::load(data_dir)),
             snapshots: Snapshots::new(data_dir),
             turns: Turns::default(),
-            http: reqwest::Client::new(),
+            http: llm::http::client(),
             oauth: Default::default(),
             agent_overrides: Default::default(),
             shell_timeout: Default::default(),

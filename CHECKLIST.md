@@ -76,7 +76,7 @@ change the plan there when a decision changes.
     - [x] Permanent quota errors never retry; oversized `retry-after` cannot panic; failed jobs release the session; cap after jitter
     - [x] Bounded shell capture; inherited pipes and background descendants
     - [x] `.envrc`, `cd` chains, opaque-construct docs, periodic prune (OpenRouter caching checked, left open above)
-  - [ ] Shared HTTP client with connect, header and stream-idle timeouts; Stop cancels while waiting
+  - [x] Shared HTTP client with connect, header and stream-idle timeouts; Stop cancels while waiting
   - [ ] Thinking budget within the output limit; max-tokens endings surfaced; unexecuted calls settled
   - [ ] Configurable step limits and repeated-call intervention
   - [ ] Shared tool-output limits with full-output artifacts (read, list, MCP, shell)

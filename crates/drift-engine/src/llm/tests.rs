@@ -125,6 +125,52 @@ async fn subscription_tokens_send_the_claude_code_shape_and_unprefix_tool_names(
     assert_eq!(seen.body["tools"][0]["name"], "mcp_Read");
 }
 
+/// A server that accepts connections and never answers.
+pub(crate) async fn silent_server() -> String {
+    let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((socket, _)) = listener.accept().await {
+            held.push(socket);
+        }
+    });
+    url
+}
+
+#[tokio::test]
+async fn a_response_that_never_begins_is_a_transport_failure() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let mut provider = Anthropic::new(&silent_server().await);
+    provider.timeouts.headers = std::time::Duration::from_millis(200);
+    let started = std::time::Instant::now();
+    let Err(error) = provider.stream(&request(), &Credential::ApiKey { key: "k".into() }).await else { panic!("expected an error") };
+    assert!(matches!(&error, Error::Transport(message) if message.contains("no response")), "{error:?}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+}
+
+#[tokio::test]
+async fn a_stream_that_stalls_mid_reply_fails_instead_of_hanging() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let router = Router::new().route(
+        "/v1/messages",
+        post(|| async {
+            let start: Result<&'static str, std::io::Error> = Ok("event: message_start\ndata: {\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n");
+            let body = Body::from_stream(futures_util::stream::iter([start]).chain(futures_util::stream::pending()));
+            Response::builder().header("content-type", "text/event-stream").body(body).unwrap()
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let mut provider = Anthropic::new(&url);
+    provider.timeouts.idle = std::time::Duration::from_millis(300);
+    let mut stream = provider.stream(&request(), &Credential::ApiKey { key: "k".into() }).await.unwrap();
+    assert!(matches!(stream.next().await, Some(Ok(Chunk::Usage(_)))));
+    let stalled = tokio::time::timeout(std::time::Duration::from_secs(3), stream.next()).await.expect("the idle limit ends it");
+    assert!(matches!(&stalled, Some(Err(Error::Transport(message))) if message.contains("stalled")), "{stalled:?}");
+}
+
 #[tokio::test]
 async fn http_errors_become_api_errors() {
     let (_, url) = fake(529, r#"{"error":{"type":"overloaded_error","message":"Overloaded"}}"#).await;

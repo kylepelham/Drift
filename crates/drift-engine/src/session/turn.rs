@@ -519,7 +519,11 @@ impl Engine {
     }
 
     async fn stream(&self, message: &Message, plan: &Plan, request: &Request, abort: &CancellationToken) -> Result<Streamed, StreamError> {
-        let mut chunks = plan.provider.stream(request, &plan.credential).await.map_err(StreamError::Provider)?;
+        // Stop counts while the request is still being sent or the response has not begun.
+        let mut chunks = tokio::select! {
+            opened = plan.provider.stream(request, &plan.credential) => opened.map_err(StreamError::Provider)?,
+            () = abort.cancelled() => return Err(StreamError::Aborted),
+        };
         let mut assembler = Assembler::new(&self.store, &self.hub, message);
         loop {
             let next = tokio::select! {

@@ -13,11 +13,12 @@ use crate::session::types::Usage;
 pub struct Compat {
     base_url: String,
     client: reqwest::Client,
+    pub timeouts: super::http::Timeouts,
 }
 
 impl Compat {
     pub fn new(base_url: &str) -> Self {
-        Self { base_url: base_url.trim_end_matches('/').to_string(), client: reqwest::Client::new() }
+        Self { base_url: base_url.trim_end_matches('/').to_string(), client: super::http::client(), timeouts: super::http::Timeouts::default() }
     }
 
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
@@ -25,24 +26,18 @@ impl Compat {
             Credential::ApiKey { key } => key.clone(),
             Credential::OAuth { access, .. } => access.clone(),
         };
-        let response = self
-            .client
-            .post(format!("{}/chat/completions", self.base_url))
-            .bearer_auth(key)
-            .header("accept", "text/event-stream")
-            .json(&body(request))
-            .send()
-            .await?;
+        let sending = self.client.post(format!("{}/chat/completions", self.base_url)).bearer_auth(key).header("accept", "text/event-stream").json(&body(request));
+        let response = super::http::send(sending, &self.timeouts).await?;
         let status = response.status();
         if !status.is_success() {
             let headers = response.headers().clone();
             return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()).with_headers(&headers));
         }
         let mut state = StreamState::default();
-        let events = sse::events(response.bytes_stream());
+        let events = sse::events(response.bytes_stream(), self.timeouts.idle);
         Ok(Box::pin(events.flat_map(move |event| {
             let items: Vec<Result<Chunk, Error>> = match event {
-                Err(error) => vec![Err(Error::Transport(error.to_string()))],
+                Err(error) => vec![Err(Error::Transport(error))],
                 Ok(event) => match state.chunks(&event.data) {
                     Ok(chunks) => chunks.into_iter().map(Ok).collect(),
                     Err(error) => vec![Err(error)],

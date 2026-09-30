@@ -192,7 +192,7 @@ impl Servers {
                     custom.insert(name, value);
                 }
                 config = config.custom_headers(custom);
-                let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
+                let transport = StreamableHttpClientTransport::with_client(crate::llm::http::client(), config);
                 ().serve(transport).await.map_err(|e| e.to_string())?
             }
         };

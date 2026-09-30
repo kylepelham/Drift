@@ -17,6 +17,7 @@ const API_VERSION: &str = "2023-06-01";
 pub struct Anthropic {
     pub base_url: String,
     client: reqwest::Client,
+    pub timeouts: super::http::Timeouts,
 }
 
 impl Default for Anthropic {
@@ -29,7 +30,8 @@ impl Anthropic {
     pub fn new(base_url: &str) -> Self {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
-            client: reqwest::Client::new(),
+            client: super::http::client(),
+            timeouts: super::http::Timeouts::default(),
         }
     }
 
@@ -46,16 +48,16 @@ impl Anthropic {
                 http.bearer_auth(access).header("anthropic-beta", claude_code::BETAS).header("user-agent", claude_code::user_agent())
             }
         };
-        let response = http.json(&body).send().await?;
+        let response = super::http::send(http.json(&body), &self.timeouts).await?;
         let status = response.status();
         if !status.is_success() {
             let headers = response.headers().clone();
             return Err(api_error(status.as_u16(), &response.text().await.unwrap_or_default()).with_headers(&headers));
         }
-        let events = sse::events(response.bytes_stream());
+        let events = sse::events(response.bytes_stream(), self.timeouts.idle);
         Ok(Box::pin(events.flat_map(move |event| {
             let items: Vec<Result<Chunk, Error>> = match event {
-                Err(error) => vec![Err(Error::Transport(error.to_string()))],
+                Err(error) => vec![Err(Error::Transport(error))],
                 Ok(event) => match chunks(&event.event, &event.data) {
                     Ok(chunks) => chunks.into_iter().map(|c| Ok(unprefix(c, subscription))).collect(),
                     Err(error) => vec![Err(error)],

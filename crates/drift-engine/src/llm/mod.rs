@@ -5,10 +5,11 @@ pub mod catalog;
 pub mod compat;
 pub mod credentials;
 pub mod gemini;
+pub mod http;
 pub mod openai;
 mod sse;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::pin::Pin;
 
@@ -150,7 +151,7 @@ impl Error {
 
     /// Takes what the response headers say about retrying: the wait the provider asks for, and its
     /// explicit `x-should-retry` verdict, which cannot make a permanent fault retryable.
-    pub fn with_headers(mut self, headers: &http::HeaderMap) -> Self {
+    pub fn with_headers(mut self, headers: &::http::HeaderMap) -> Self {
         if let Self::Api { kind, retryable, retry_after, .. } = &mut self {
             *retry_after = requested_wait(headers);
             match headers.get("x-should-retry").and_then(|v| v.to_str().ok()) {
@@ -165,7 +166,7 @@ impl Error {
 
 /// `retry-after-ms`, else `retry-after` as seconds or as an HTTP date. A wait too long to represent
 /// saturates, so the caller sees it as longer than it will wait rather than failing to parse it.
-fn requested_wait(headers: &http::HeaderMap) -> Option<std::time::Duration> {
+fn requested_wait(headers: &::http::HeaderMap) -> Option<std::time::Duration> {
     let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim);
     let seconds = |text: &str| text.parse::<f64>().ok().filter(|n| !n.is_nan() && *n >= 0.0);
     let span = |secs: f64| std::time::Duration::try_from_secs_f64(secs).unwrap_or(std::time::Duration::MAX);
@@ -185,8 +186,8 @@ mod retry_tests {
     use super::*;
     use std::time::{Duration, SystemTime};
 
-    fn headers(pairs: &[(&'static str, String)]) -> http::HeaderMap {
-        pairs.iter().map(|(name, value)| (http::HeaderName::from_static(name), value.parse().unwrap())).collect()
+    fn headers(pairs: &[(&'static str, String)]) -> ::http::HeaderMap {
+        pairs.iter().map(|(name, value)| (::http::HeaderName::from_static(name), value.parse().unwrap())).collect()
     }
 
     fn wait(error: &Error) -> Option<Duration> {
