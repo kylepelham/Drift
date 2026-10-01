@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, Match, onCleanup, onMount, Show, Switch, For, type JSX } from "solid-js"
-import { useEngine } from "../engine"
+import { useEngine, type Engine } from "../engine"
 import { cachedSessions, rememberSessions, type CachedSession } from "../state/session-cache"
 import { TextShimmer } from "./text-shimmer"
 import { createDismissOnOutside } from "./dismiss"
@@ -264,8 +264,9 @@ function ThreadItem(props: {
           title={t("command.session.archive")}
           onClick={() => {
             if (selectedSession() === props.sessionId) selectSession(null)
-            void archiveSession(props.sessionId, props.workspace.id)
-            emitThreadArchived(props.sessionId)
+            void archiveSession(props.sessionId, props.workspace.id, engine.actions.setArchived)
+              .then(() => emitThreadArchived(props.sessionId))
+              .catch((cause: unknown) => archiveFailed(engine, cause))
           }}
         >
           <IconArchive />
@@ -273,6 +274,11 @@ function ThreadItem(props: {
       </span>
     </div>
   )
+}
+
+/** The engine refused to archive or restore; the thread stays where it was. */
+export function archiveFailed(engine: Engine, cause: unknown) {
+  engine.actions.notice({ title: t("command.session.archive"), message: cause instanceof Error ? cause.message : String(cause), variant: "error" })
 }
 
 function StatusDot(props: { sessionId: string }) {

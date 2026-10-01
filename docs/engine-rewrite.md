@@ -1098,6 +1098,11 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   the components were written against. That keeps the whole UI working on the new engine
   without touching a component. At M4 the store adopts the generated types, the adapter
   goes, and `@opencode-ai/sdk` leaves `package.json`.
+- Archive and restore go through the engine first: the sidebar button, `/archive` and the
+  Archive dialog call `PATCH /sessions/{id} {archived}` (archiving stops the session's turn and
+  workers and forgets its permissions), and only once that succeeds is the shell's archive record
+  written or cleared. That record still hides the thread and is the seven-day purge tombstone. A
+  refused archive leaves the thread in place with an error; a refused restore leaves it archived.
 - Model-family system prompts are not a native feature: the engine sends one Drift base prompt
   (`session/prompts/system.txt`) to every model, plus the agent's prompt. Settings shows the
   family prompts read-only under a notice saying they are not applied, offers no save, and keeps

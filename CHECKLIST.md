@@ -130,6 +130,7 @@ change the plan there when a decision changes.
 - [x] Agent Settings apply what they show: overrides carry prompt, model, steps and tools (applied natively), any other field refused; editor projects the native agent
 - [x] Model-family prompt editor states it is not applied and is read-only (no native family prompts)
 - [ ] Native base-prompt override (global or per model family) so the Prompts editor can save again
+- [x] Archive and restore (sidebar, `/archive`, Archive dialog) archive in the engine first, with its Stop, then update the shell record
 
 ## M4: cutover
 

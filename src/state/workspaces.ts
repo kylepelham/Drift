@@ -165,12 +165,19 @@ export async function restoreWorkspace(workspace: Workspace) {
   selectWorkspace(restored.id)
 }
 
-export async function archiveSession(sessionId: string, workspaceId: string) {
+/** How the engine archives or restores a session; the engine is the authority, the sidebar record follows it. */
+export type ArchiveInEngine = (sessionId: string, archived: boolean) => Promise<void>
+
+/** The engine archives first, stopping the session; only then is it hidden and its seven days start. */
+export async function archiveSession(sessionId: string, workspaceId: string, inEngine: ArchiveInEngine) {
+  await inEngine(sessionId, true)
   await driftStore.archiveSession(sessionId, workspaceId)
   await refreshArchives()
 }
 
-export async function unarchiveSession(sessionId: string) {
+/** The engine restores first, so a thread back in the sidebar is never one the engine still treats as archived. */
+export async function unarchiveSession(sessionId: string, inEngine: ArchiveInEngine) {
+  await inEngine(sessionId, false)
   await driftStore.unarchiveSession(sessionId)
   await refreshArchives()
 }

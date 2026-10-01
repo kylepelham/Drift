@@ -132,7 +132,7 @@ test("permission replies translate reject to deny and forget stale requests", as
   expect(h.state.permissions.ses_1).toEqual([])
 })
 
-test("new sessions are created in the active workspace and removal archives", async () => {
+test("new sessions are created in the active workspace", async () => {
   const h = harness()
   const created = await h.actions.newSession()
   expect(h.calls[0]).toEqual({ method: "createSession", args: [{ workspaceId: "w1" }] })
@@ -140,9 +140,6 @@ test("new sessions are created in the active workspace and removal archives", as
   expect(h.state.sessions.ses_new).toBeDefined()
   expect(h.state.loaded.ses_new).toBe(true)
   expect(h.state.transcripts.ses_new).toEqual([])
-  await h.actions.remove("ses_new")
-  expect(h.calls.at(-1)).toEqual({ method: "updateSession", args: ["ses_new", { archived: true }] })
-  expect(h.state.sessions.ses_new).toBeUndefined()
 })
 
 test("session listings page to the end and restore running status from every page", async () => {
@@ -198,6 +195,24 @@ test("hydration rejects when any of its loads fail, instead of pretending the sn
   await expect(hydrateFrom({ ...good, refreshMcp: () => Promise.reject(new Error("mcp")) }, null)).rejects.toThrow("mcp")
   await expect(hydrateFrom({ ...good, refreshProviders: async () => false }, null)).rejects.toThrow("provider catalog")
   await expect(hydrateFrom({ ...good, refreshPermissions: () => Promise.reject(new Error("perm")) }, null)).rejects.toThrow("perm")
+})
+
+test("archiving and restoring go to the engine and keep the session's record in the store", async () => {
+  const sent: unknown[] = []
+  const h = harness({
+    updateSession: async (id: string, body: { archived?: boolean }) => {
+      sent.push([id, body])
+      return { ...session(id), ...(body.archived ? { archivedAt: 50 } : {}) }
+    },
+  } as Partial<Client>)
+  await h.actions.setArchived("ses_1", true)
+  expect(h.state.sessions.ses_1?.time.archived).toBe(50)
+  await h.actions.setArchived("ses_1", false)
+  expect(h.state.sessions.ses_1?.time.archived).toBeUndefined()
+  expect(sent).toEqual([
+    ["ses_1", { archived: true }],
+    ["ses_1", { archived: false }],
+  ])
 })
 
 type McpServer = components["schemas"]["ServerStatus"]

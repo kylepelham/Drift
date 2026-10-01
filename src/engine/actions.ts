@@ -230,10 +230,10 @@ export function createActions(
     putSession(set, adaptSession(updated, workspaces()))
   }
 
-  /** Archives; the engine never deletes a session outright. */
-  async function remove(id: string) {
-    await requireClient().updateSession(id, { archived: true })
-    set(produce((draft) => purge(draft, id)))
+  /** Archiving stops whatever the session is running, in the engine, before anything else hides it. */
+  async function setArchived(id: string, archived: boolean) {
+    const updated = await requireClient().updateSession(id, { archived })
+    putSession(set, adaptSession(updated, workspaces()))
   }
 
   /// Permanent deletion; true only once the engine confirms the row is gone.
@@ -533,7 +533,7 @@ export function createActions(
     abort,
     stopTask,
     rename,
-    remove,
+    setArchived,
     purgeSession,
     refreshProviders,
     reloadProviders: refreshProviders,

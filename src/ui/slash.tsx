@@ -10,6 +10,7 @@ import { t } from "../state/i18n"
 import { openBranch } from "./branch"
 import { openMcpServers } from "./mcp"
 import { restoreReverted } from "./revert"
+import { archiveFailed } from "./workspaces"
 
 export type SlashPreset = { value: string; label: string; description: string; usage?: string; execute?: boolean; literal?: boolean }
 export type SlashItem = {
@@ -126,8 +127,9 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
     const workspace = activeWorkspace()
     if (!workspace) return
     selectSession(null)
-    emitThreadArchived(current)
-    return archiveSession(current, workspace.id)
+    return archiveSession(current, workspace.id, engine.actions.setArchived)
+      .then(() => emitThreadArchived(current))
+      .catch((cause: unknown) => archiveFailed(engine, cause))
   }
   if (item.name === "compact" && current) {
     return engine.actions.summarize(current, resolveModel(engine.state, prefsFor(current).model))
