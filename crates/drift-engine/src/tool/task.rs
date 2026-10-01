@@ -7,10 +7,10 @@ use super::{required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::config::AgentKind;
 use crate::event::Event;
 use crate::llm::ToolSpec;
-use crate::session::tasks::{clip, last_attempt, resolve_mode, Attempt, Mode, TaskRecord, TaskState, MAX_WAIT};
+use crate::session::tasks::{clip, last_attempt, resolve_mode, Attempt, Claimant, Mode, TaskRecord, TaskState, MAX_WAIT};
 use crate::session::turn::Prompt;
 use crate::session::types::{Part, Visibility};
-use crate::store::{NewSession, NewTask};
+use crate::store::{Launch, NewSession, NewTask};
 
 /// Tools a subagent is never offered: delegation stays one level deep and branches belong to conversations.
 pub const DELEGATION: [&str; 4] = ["task", "task_output", "task_stop", "read_thread"];
@@ -60,29 +60,30 @@ impl Tool for Task {
             // An agent pinned to a model in Settings or its definition runs on it; otherwise the parent's model.
             let model = config.agent_model(agent).or(parent.model.clone());
             let title = format!("{description} (@{agent} subagent)");
-            let child = ctx.engine.store.create_session(NewSession {
-                workspace_id: &parent.workspace_id,
-                parent_id: Some(&parent.id),
-                visibility: Visibility::Hidden,
-                title: &title,
-                agent,
-                model: model.as_ref(),
-            })?;
-            let new = NewTask { parent_session_id: &parent.id, session_id: &child.id, call_id: &ctx.call_id, description, agent, mode, reason };
-            let (task, created) = ctx.engine.store.create_task(new)?;
+            let (scope, generation) = ctx.engine.worker_scope(&parent.id);
+            let new = NewTask { parent_session_id: &parent.id, call_id: &ctx.call_id, description, agent, mode, reason, generation };
+            let child = NewSession { workspace_id: &parent.workspace_id, parent_id: Some(&parent.id), visibility: Visibility::Hidden, title: &title, agent, model: model.as_ref() };
+            let Launch { task, child, created } = ctx.engine.store.launch_task(new, child)?;
             if !created {
-                return Ok(receipt(&task));
+                return replay(ctx, task).await;
             }
             ctx.engine.hub.publish(Event::SessionCreated { session: child.clone() });
             ctx.engine.publish_task(&task.id);
             ctx.engine.permissions.inherit(&child.id, &parent.id);
             let prompt = Prompt { parts: vec![Part::Text { text: text.into() }], model, thinking_budget: None, submission_id: None };
-            if mode == Mode::Background {
-                ctx.engine.launch(task.clone(), prompt);
-                return Ok(receipt(&task));
+            // Its own stop: a background worker's descends from its owner's scope, a foreground one's from this call.
+            let token = if mode == Mode::Background { scope.child_token() } else { ctx.abort.child_token() };
+            let outcome = ctx.engine.admit_worker(&task, prompt, token).await.map_err(ToolError)?;
+            match outcome {
+                None => Ok(receipt(&task)),
+                Some(outcome) => foreground_result(ctx, &task.id, outcome),
             }
-            foreground(ctx, &task, prompt).await
         })
+    }
+
+    /// A foreground worker is waited for here even when Stop comes, so it ends, and is recorded, before the call does.
+    fn stops_itself(&self) -> bool {
+        true
     }
 
     /// Only a reply or a launch is a result; a failed or stopped subagent is a failed call that still links to its transcript.
@@ -91,24 +92,44 @@ impl Tool for Task {
     }
 }
 
-/// Runs the worker under the launching call and hands its result back as the call's result.
-async fn foreground(ctx: &Context, task: &TaskRecord, prompt: Prompt) -> Result<Output, ToolError> {
-    let engine = &ctx.engine;
-    let started = engine.submit_under(&task.session_id, prompt, Some(&ctx.abort)).await;
-    if let Err(error) = started {
-        engine.end_task(&task.id, TaskState::Failed, &error.to_string());
-        return Err(ToolError(format!("could not start subagent: {error}")));
+/// The same call again gets what it launched, in its own mode; nothing new is recorded or started.
+async fn replay(ctx: &Context, task: TaskRecord) -> Result<Output, ToolError> {
+    if task.mode == Mode::Background {
+        return Ok(receipt(&task));
     }
-    engine.turns.wait_idle(&task.session_id, &ctx.abort).await;
-    let (state, text, outcome) = if ctx.abort.is_cancelled() { (TaskState::Stopped, "aborted".to_string(), "stopped") } else { engine.worker_result(&task.session_id) };
-    engine.end_task(&task.id, state, &text);
-    engine.store.mark_task_delivered(&task.id)?;
-    engine.publish_task(&task.id);
+    let mut task = task;
+    while !task.state.is_terminal() {
+        tokio::select! {
+            () = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
+            () = ctx.abort.cancelled() => return Err(ToolError("aborted".into())),
+        }
+        task = ctx.engine.store.task(&task.id)?.ok_or_else(|| ToolError("the task is gone".into()))?;
+    }
+    let outcome = match task.state {
+        TaskState::Replied => "replied",
+        TaskState::Stopped => "stopped",
+        TaskState::Interrupted => "interrupted",
+        _ => "failed",
+    };
+    foreground_result(ctx, &task.id, outcome)
+}
+
+/// A finished foreground worker's result as this call's own, claimed for the write that saves it.
+fn foreground_result(ctx: &Context, task_id: &str, outcome: &str) -> Result<Output, ToolError> {
+    let engine = &ctx.engine;
+    let task = engine.store.task(task_id)?.ok_or_else(|| ToolError("the task is gone".into()))?;
     if ctx.abort.is_cancelled() {
+        engine.store.mark_task_delivered(&task.id)?;
+        engine.publish_task(&task.id);
         return Err(ToolError("aborted".into()));
     }
-    let metadata = json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": outcome, "mode": "foreground" });
-    Ok(Output { title: task.description.clone(), output: text, metadata })
+    let claimed = !task.delivered && engine.workers.claim(&task.id, Claimant::call(&ctx.session_id, &ctx.call_id));
+    let output = if task.delivered { "This subagent's result was already handed over.".to_string() } else { task.result.clone().unwrap_or_default() };
+    let mut metadata = json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": outcome, "mode": "foreground" });
+    if claimed {
+        metadata["delivers"] = json!(task.id);
+    }
+    Ok(Output { title: task.description.clone(), output, metadata })
 }
 
 /// What a background launch returns at once: the task, never its result.
@@ -131,11 +152,14 @@ fn owned(ctx: &Context, input: &Value) -> Result<TaskRecord, ToolError> {
     Ok(task)
 }
 
-fn describe(task: &TaskRecord) -> String {
+/// The task's state, and its result only when this call is the one handing it over.
+fn describe(task: &TaskRecord, hands_over: bool) -> String {
     let head = format!("{} (@{}, {}): {}", task.id, task.agent, task.description, task.state.as_str());
     match &task.result {
-        Some(result) if task.state.is_terminal() => format!("{head}\n\n{result}"),
-        _ => head,
+        Some(result) if hands_over => format!("{head}\n\n{result}"),
+        _ if !task.state.is_terminal() => head,
+        _ if task.delivered => format!("{head}\n\nIts result was already handed to this conversation."),
+        _ => format!("{head}\n\nIts result is arriving in this conversation as a message."),
     }
 }
 
@@ -164,18 +188,20 @@ impl Tool for TaskOutput {
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let mut task = owned(ctx, &input)?;
+            // Claimed while it waits, so a result finishing meanwhile comes here and not also as a message.
+            let claimed = !task.delivered && ctx.engine.workers.claim(&task.id, Claimant::call(&ctx.session_id, &ctx.call_id));
             let wait = std::time::Duration::from_secs(input["wait_seconds"].as_u64().unwrap_or(0)).min(MAX_WAIT);
             let until = tokio::time::Instant::now() + wait;
             while !task.state.is_terminal() && tokio::time::Instant::now() < until && !ctx.abort.is_cancelled() {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 task = owned(ctx, &input)?;
             }
-            // Read here, it need not arrive again as a message.
-            if task.state.is_terminal() && !task.delivered {
-                ctx.engine.store.mark_task_delivered(&task.id)?;
-                ctx.engine.publish_task(&task.id);
+            let hands_over = claimed && task.state.is_terminal() && !task.delivered;
+            let mut metadata = json!({ "taskId": task.id, "state": task.state.as_str(), "sessionId": task.session_id });
+            if hands_over {
+                metadata["delivers"] = json!(task.id);
             }
-            Ok(Output { title: task.description.clone(), output: describe(&task), metadata: json!({ "taskId": task.id, "state": task.state.as_str(), "sessionId": task.session_id }) })
+            Ok(Output { title: task.description.clone(), output: describe(&task, hands_over), metadata })
         })
     }
 }

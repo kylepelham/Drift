@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
 use super::turn::{Prompt, TurnEnd, TurnError};
-use super::types::{MessageStatus, Part, Role};
+use super::types::{MessageStatus, Part, PartRow, Role, ToolStatus};
 use crate::event::Event;
 use crate::Engine;
 
@@ -112,6 +112,9 @@ pub struct TaskRecord {
     pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<i64>,
+    /// The owner's Stop count when it was launched.
+    #[serde(skip)]
+    pub generation: i64,
 }
 
 /// How a worker runs, and why. An explicit choice wins; otherwise the agent's default; otherwise the
@@ -128,44 +131,108 @@ pub fn resolve_mode(explicit: Option<bool>, agent_default: Option<bool>, enabled
     }
 }
 
-/// Background workers' shared slots, and each owner's stop scope.
+/// Shared slots, owners' stop scopes, each worker's own stop, and who is handing each result over.
 pub struct Workers {
     slots: tokio::sync::Semaphore,
+    /// Also the fence: a Stop and the last check before a prompt is admitted both hold it.
     owners: Mutex<HashMap<String, Owner>>,
+    tokens: Mutex<HashMap<String, CancellationToken>>,
+    claims: Mutex<HashMap<String, Claimant>>,
 }
 
-/// What an owner's background workers run under: a token its Stop cancels, and how many Stops so far.
-struct Owner {
+/// What an owner's background workers run under: a token its Stop cancels, and its durable Stop count.
+pub(crate) struct Owner {
     token: CancellationToken,
-    generation: u64,
+    generation: i64,
+}
+
+pub(crate) type Owners = HashMap<String, Owner>;
+
+/// Who is handing a finished result to its parent. One at a time, so it lands once.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Claimant {
+    /// The engine, as a prompt to the parent.
+    Automatic,
+    /// A call of the parent's, as its result (`task_output`, or the foreground `task` call itself).
+    Call { session_id: String, call_id: String },
+}
+
+impl Claimant {
+    pub(crate) fn call(session_id: &str, call_id: &str) -> Self {
+        Self::Call { session_id: session_id.into(), call_id: call_id.into() }
+    }
 }
 
 impl Default for Workers {
     fn default() -> Self {
-        Self { slots: tokio::sync::Semaphore::new(MAX_BACKGROUND), owners: Mutex::default() }
+        Self { slots: tokio::sync::Semaphore::new(MAX_BACKGROUND), owners: Mutex::default(), tokens: Mutex::default(), claims: Mutex::default() }
     }
 }
 
 impl Workers {
-    /// The token a new background worker of `owner` descends from, and the Stop generation it starts in.
-    fn scope(&self, owner: &str) -> (CancellationToken, u64) {
-        let mut owners = self.owners.lock().unwrap();
-        let entry = owners.entry(owner.into()).or_insert_with(|| Owner { token: CancellationToken::new(), generation: 0 });
-        (entry.token.clone(), entry.generation)
+    pub(crate) fn fence(&self) -> std::sync::MutexGuard<'_, Owners> {
+        self.owners.lock().unwrap()
     }
 
-    fn generation(&self, owner: &str) -> u64 {
-        self.owners.lock().unwrap().get(owner).map_or(0, |o| o.generation)
+    /// Gives a worker its own stop before it is queued. A Stop that came first leaves it stopped.
+    pub(crate) fn register(&self, task_id: &str, token: &CancellationToken) {
+        let mut tokens = self.tokens.lock().unwrap();
+        if tokens.get(task_id).is_some_and(CancellationToken::is_cancelled) {
+            token.cancel();
+        }
+        tokens.insert(task_id.into(), token.clone());
     }
 
-    /// Cancels everything `owner` launched in the background; later launches start a fresh scope.
-    fn stop(&self, owner: &str) {
-        let mut owners = self.owners.lock().unwrap();
-        let entry = owners.entry(owner.into()).or_insert_with(|| Owner { token: CancellationToken::new(), generation: 0 });
-        entry.token.cancel();
-        entry.token = CancellationToken::new();
-        entry.generation += 1;
+    /// Stops one worker wherever it is; a Stop for one not yet registered waits for it.
+    pub(crate) fn cancel(&self, task_id: &str) -> bool {
+        let mut tokens = self.tokens.lock().unwrap();
+        let token = tokens.entry(task_id.into()).or_default();
+        let live = !token.is_cancelled();
+        token.cancel();
+        live
     }
+
+    pub(crate) fn forget(&self, task_id: &str) {
+        self.tokens.lock().unwrap().remove(task_id);
+    }
+
+    /// Takes the right to hand `task_id`'s result over; `false` if someone else has it.
+    pub(crate) fn claim(&self, task_id: &str, claimant: Claimant) -> bool {
+        let mut claims = self.claims.lock().unwrap();
+        match claims.get(task_id) {
+            Some(holder) => *holder == claimant,
+            None => {
+                claims.insert(task_id.into(), claimant);
+                true
+            }
+        }
+    }
+
+    pub(crate) fn holds(&self, task_id: &str, claimant: &Claimant) -> bool {
+        self.claims.lock().unwrap().get(task_id) == Some(claimant)
+    }
+
+    fn release_where_task(&self, task_id: &str, claimant: &Claimant) {
+        let mut claims = self.claims.lock().unwrap();
+        if claims.get(task_id) == Some(claimant) {
+            claims.remove(task_id);
+        }
+    }
+
+    /// Gives up every claim `matches` selects; returns the tasks given up.
+    fn release_where(&self, matches: impl Fn(&Claimant) -> bool) -> Vec<String> {
+        let mut claims = self.claims.lock().unwrap();
+        let released: Vec<String> = claims.iter().filter(|(_, holder)| matches(holder)).map(|(task, _)| task.clone()).collect();
+        for task in &released {
+            claims.remove(task);
+        }
+        released
+    }
+}
+
+/// The owner's entry, its Stop count read from the store the first time it is needed.
+fn owner_entry<'a>(owners: &'a mut Owners, store: &crate::store::Store, owner: &str) -> &'a mut Owner {
+    owners.entry(owner.into()).or_insert_with(|| Owner { token: CancellationToken::new(), generation: store.stop_generation(owner).unwrap_or(0) })
 }
 
 impl Engine {
@@ -173,34 +240,77 @@ impl Engine {
         self.store.setting(BACKGROUND_TASKS_KEY).ok().flatten().unwrap_or(true)
     }
 
-    /// Runs a recorded background task and returns at once; the worker outlives the call that launched it.
-    pub fn launch(self: &Arc<Self>, task: TaskRecord, prompt: Prompt) {
-        let (scope, generation) = self.workers.scope(&task.parent_session_id);
-        let engine = self.clone();
-        tokio::spawn(async move { engine.work(task, prompt, scope, generation).await });
+    /// The token a new background worker of `owner` descends from, and the owner's Stop count now.
+    pub(crate) fn worker_scope(&self, owner: &str) -> (CancellationToken, i64) {
+        let mut owners = self.workers.fence();
+        let entry = owner_entry(&mut owners, &self.store, owner);
+        (entry.token.clone(), entry.generation)
     }
 
-    async fn work(self: Arc<Self>, task: TaskRecord, prompt: Prompt, scope: CancellationToken, generation: u64) {
+    /// The owner's scope if it has not been stopped since `generation`, which a restart does not reset.
+    fn scope_at(&self, owner: &str, generation: i64) -> Option<CancellationToken> {
+        let mut owners = self.workers.fence();
+        let entry = owner_entry(&mut owners, &self.store, owner);
+        (entry.generation == generation).then(|| entry.token.clone())
+    }
+
+    /// Plans a worker under its own token, then queues it or runs it to the end; `Err` is why it could not start.
+    pub(crate) async fn admit_worker(self: &Arc<Self>, task: &TaskRecord, prompt: Prompt, token: CancellationToken) -> Result<Option<&'static str>, String> {
+        self.workers.register(&task.id, &token);
+        let planned = tokio::select! {
+            planned = self.plan(&task.session_id, &prompt) => planned,
+            () = token.cancelled() => Err(TurnError::Stopped),
+        };
+        let plan = match planned {
+            Ok(plan) => plan,
+            Err(error) => {
+                let (state, text) = if error == TurnError::Stopped { (TaskState::Stopped, STOPPED.to_string()) } else { (TaskState::Failed, format!("The subagent could not start: {error}")) };
+                self.end_task(&task.id, state, &text);
+                self.workers.forget(&task.id);
+                // The launching call reports it as its own result.
+                self.settle_delivery(&task.id);
+                return Err(text);
+            }
+        };
+        if task.mode == Mode::Foreground {
+            return Ok(Some(self.run_worker(task, prompt, plan, &token).await));
+        }
+        let (engine, task) = (self.clone(), task.clone());
+        tokio::spawn(async move { engine.work(task, prompt, plan, token).await });
+        Ok(None)
+    }
+
+    /// A queued worker: waits for a slot, then runs unless it was stopped meanwhile, however the wait ended.
+    async fn work(self: Arc<Self>, task: TaskRecord, prompt: Prompt, plan: super::turn::Plan, token: CancellationToken) {
         let permit = tokio::select! {
             permit = self.workers.slots.acquire() => permit.ok(),
-            () = scope.cancelled() => None,
+            () = token.cancelled() => None,
         };
-        let started = permit.is_some() && self.store.start_task(&task.id).unwrap_or(false);
-        if started {
+        let dispatch = permit.is_some() && !token.is_cancelled() && self.store.start_task(&task.id).unwrap_or(false);
+        if dispatch {
             self.publish_task(&task.id);
-            match self.submit_under(&task.session_id, prompt, Some(&scope)).await {
-                Ok(_) => {
-                    self.turns.wait_idle(&task.session_id, &CancellationToken::new()).await;
-                    let (state, text, _) = self.worker_result(&task.session_id);
-                    self.end_task(&task.id, state, &text);
-                }
-                Err(error) => self.end_task(&task.id, TaskState::Failed, &format!("The subagent could not start: {error}")),
-            }
+            self.run_worker(&task, prompt, plan, &token).await;
         } else {
             self.end_task(&task.id, TaskState::Stopped, STOPPED);
+            self.workers.forget(&task.id);
         }
         drop(permit);
-        self.deliver(&task.id, generation).await;
+        self.deliver(&task.id).await;
+    }
+
+    /// Runs an admitted worker's turn to its end under its token, records how it ended, and returns the outcome.
+    async fn run_worker(self: &Arc<Self>, task: &TaskRecord, prompt: Prompt, plan: super::turn::Plan, token: &CancellationToken) -> &'static str {
+        let (state, text, outcome) = match self.submit_planned(&task.session_id, prompt, plan, token).await {
+            Ok(_) => {
+                self.turns.wait_idle(&task.session_id, &CancellationToken::new()).await;
+                self.worker_result(&task.session_id)
+            }
+            Err(TurnError::Stopped) => (TaskState::Stopped, STOPPED.to_string(), "stopped"),
+            Err(error) => (TaskState::Failed, format!("The subagent could not start: {error}"), "failed"),
+        };
+        self.end_task(&task.id, state, &text);
+        self.workers.forget(&task.id);
+        outcome
     }
 
     /// How a worker's turn ended, what it said, and the outcome to report. A stop wins however late it
@@ -237,22 +347,24 @@ impl Engine {
         }
     }
 
-    /// Hands a finished worker's result to its parent once. A reply or failure goes in as an
-    /// engine-origin prompt (submission `task:<id>`, so it can land only once): a running turn takes it
-    /// at its next request, an idle parent starts a turn for it. A stopped or interrupted worker never
-    /// wakes an idle parent, and nothing wakes a parent the user has stopped since the launch.
-    pub async fn deliver(self: &Arc<Self>, task_id: &str, generation: u64) {
-        let Ok(Some(task)) = self.store.task(task_id) else { return };
-        if task.delivered || !task.state.is_terminal() {
+    /// Hands a finished background result to its parent as a prompt, once, unless a call of the parent's is taking it.
+    pub async fn deliver(self: &Arc<Self>, task_id: &str) {
+        if !self.workers.claim(task_id, Claimant::Automatic) {
             return;
         }
+        // Read after claiming: a call may have taken it just before.
+        if let Ok(Some(task)) = self.store.task(task_id) {
+            if !task.delivered && task.state.is_terminal() && task.mode == Mode::Background {
+                self.deliver_claimed(&task).await;
+            }
+        }
+        self.workers.release_where_task(task_id, &Claimant::Automatic);
+    }
+
+    async fn deliver_claimed(self: &Arc<Self>, task: &TaskRecord) {
         let owner = &task.parent_session_id;
-        let stopped_since = self.workers.generation(owner) != generation;
-        let wakes = matches!(task.state, TaskState::Replied | TaskState::Failed);
-        if stopped_since || (!wakes && !self.turns.is_steerable(owner)) {
-            self.settle_delivery(task_id);
-            return;
-        }
+        // Every wait before admission, and admission itself, ends when a Stop cancels this.
+        let Some(scope) = self.scope_at(owner, task.generation) else { return self.settle_delivery(&task.id) };
         let part = Part::TaskResult {
             task_id: task.id.clone(),
             worker_session_id: task.session_id.clone(),
@@ -260,46 +372,87 @@ impl Engine {
             outcome: task.state.as_str().into(),
             text: task.result.clone().unwrap_or_default(),
         };
-        let prompt = Prompt { parts: vec![part], model: None, thinking_budget: None, submission_id: Some(format!("task:{task_id}")) };
-        match self.submit(owner, prompt).await {
-            Ok(_) | Err(TurnError::SubmissionReused) => self.settle_delivery(task_id),
-            // Left undelivered: the next start delivers it.
-            Err(error) => eprintln!("drift: task {task_id} result not delivered: {error}"),
+        let prompt = Prompt { parts: vec![part], model: None, thinking_budget: None, submission_id: Some(format!("task:{}", task.id)) };
+        let wakes = matches!(task.state, TaskState::Replied | TaskState::Failed);
+        let how = super::turn::Admission { parent: Some(&scope), delivery: Some(&task.id), steer_only: !wakes };
+        match self.admit(owner, prompt, how).await {
+            Ok(_) => self.publish_task(&task.id),
+            Err(TurnError::Stopped | TurnError::SubmissionReused) => self.settle_delivery(&task.id),
+            // Left owed: the next start delivers it.
+            Err(error) => eprintln!("drift: task {} result not delivered: {error}", task.id),
         }
     }
 
+    /// Settles a result that is not handed over: its parent was stopped, or it has nothing to wake it for.
     fn settle_delivery(&self, task_id: &str) {
         if self.store.mark_task_delivered(task_id).is_ok() {
             self.publish_task(task_id);
         }
     }
 
-    /// Stops one worker: a queued one never starts, a running one stops as its turn would.
+    /// Gives up the claims `claimant` holds. A finished background result left owed goes out by itself.
+    pub(super) fn release_claims(self: &Arc<Self>, claimant: &Claimant) {
+        for task in self.workers.release_where(|holder| holder == claimant) {
+            self.redeliver(&task);
+        }
+    }
+
+    /// Gives up every claim held by a call of `session_id`.
+    pub(super) fn release_claims_of(self: &Arc<Self>, session_id: &str) {
+        for task in self.workers.release_where(|holder| matches!(holder, Claimant::Call { session_id: s, .. } if s == session_id)) {
+            self.redeliver(&task);
+        }
+    }
+
+    fn redeliver(self: &Arc<Self>, task_id: &str) {
+        let owed = self.store.task(task_id).ok().flatten().is_some_and(|t| t.mode == Mode::Background && t.state.is_terminal() && !t.delivered);
+        if owed {
+            let (engine, task_id) = (self.clone(), task_id.to_string());
+            tokio::spawn(async move { engine.deliver(&task_id).await });
+        }
+    }
+
+    /// Stops one worker and nothing else, wherever it is: queued, starting, planning or running.
     pub fn stop_task(&self, task_id: &str) -> Result<TaskRecord, TurnError> {
         let task = self.store.task(task_id)?.ok_or(TurnError::NoSession)?;
-        match task.state {
-            TaskState::Queued => self.end_task(task_id, TaskState::Stopped, STOPPED),
-            TaskState::Running => {
-                self.abort(&task.session_id);
+        if !task.state.is_terminal() {
+            self.workers.cancel(task_id);
+            if task.state == TaskState::Queued {
+                self.end_task(task_id, TaskState::Stopped, STOPPED);
             }
-            _ => {}
         }
         Ok(self.store.task(task_id)?.unwrap_or(task))
     }
 
-    /// Session Stop reaches its background workers too, even with no turn running.
-    pub(super) fn stop_workers(&self, owner: &str) -> bool {
+    /// Stops the owner's background workers and counts the Stop durably, so nothing launched before it wakes the owner.
+    pub(super) fn stop_workers(&self, owners: &mut Owners, owner: &str) -> bool {
         let running = self.store.tasks_of(owner).unwrap_or_default().iter().any(|t| t.mode == Mode::Background && !t.state.is_terminal());
-        self.workers.stop(owner);
+        let entry = owner_entry(owners, &self.store, owner);
+        entry.generation = self.store.bump_stop_generation(owner).unwrap_or(entry.generation + 1);
+        entry.token.cancel();
+        entry.token = CancellationToken::new();
         running
     }
 
-    /// After a restart, finished results that had not reached their parent are delivered, once. (Workers
-    /// that were still going were marked interrupted when the store opened.)
+    /// After a restart, owed results go where they belong: background ones as prompts, foreground ones into their own call.
     pub async fn recover_tasks(self: &Arc<Self>) {
         for task in self.store.undelivered_tasks().unwrap_or_default() {
-            self.deliver(&task.id, self.workers.generation(&task.parent_session_id)).await;
+            match task.mode {
+                Mode::Background => self.deliver(&task.id).await,
+                Mode::Foreground => self.recover_foreground(&task),
+            }
         }
+    }
+
+    /// Writes a foreground result into its launching call if that call's own result never landed.
+    fn recover_foreground(&self, task: &TaskRecord) {
+        let transcript = self.store.transcript(&task.parent_session_id).unwrap_or_default();
+        let call = transcript.into_iter().flat_map(|m| m.parts).find(|row| matches!(&row.part, Part::ToolCall { call_id, .. } if *call_id == task.call_id));
+        let unsettled = |row: &PartRow| matches!(row.part, Part::ToolCall { status: ToolStatus::Pending | ToolStatus::Running | ToolStatus::Error, .. });
+        let Some(mut row) = call.filter(unsettled) else { return self.settle_delivery(&task.id) };
+        let status = if task.state == TaskState::Replied { ToolStatus::Done } else { ToolStatus::Error };
+        let metadata = serde_json::json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": task.state.as_str(), "mode": "foreground" });
+        self.settle_delivering(&mut row, status, Some(task.description.clone()), task.result.clone().unwrap_or_default(), Some(metadata), Some(&task.id));
     }
 }
 

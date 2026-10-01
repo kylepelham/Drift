@@ -136,8 +136,7 @@ impl Plan {
         Ok(())
     }
 
-    /// Makes every change; if one fails, every step up to and including it is put back (the failing
-    /// one may have changed its file before failing) and the error names any file left changed.
+    /// Makes every change; on a failure, puts back every step through the failing one and names any file it could not.
     async fn apply(&self) -> Result<(), ToolError> {
         for (index, step) in self.steps.iter().enumerate() {
             if let Err(error) = set(&step.path, step.after.as_deref()).await {
@@ -161,9 +160,7 @@ impl Plan {
     }
 }
 
-/// A file's bytes if it exists, which it may only if this session has read it: a patch must not
-/// overwrite, rewrite or remove what the model has not seen (and a secret needs its own read approval).
-/// Only a missing file is absent; a file that cannot be read (locked, denied, a directory) stops the patch.
+/// A file's bytes if it exists and was read this session; only a missing file is absent, any other read error stops the patch.
 async fn existing(ctx: &Context, path: &Path) -> Result<Option<Vec<u8>>, ToolError> {
     let bytes = match tokio::fs::read(path).await {
         Ok(bytes) => bytes,
@@ -176,8 +173,7 @@ async fn existing(ctx: &Context, path: &Path) -> Result<Option<Vec<u8>>, ToolErr
     Ok(Some(bytes))
 }
 
-/// Puts a file back as it was: nothing to do if it already is, and a directory where there was no
-/// file is not this patch's, so it is left alone.
+/// Puts a file back as it was; a directory where no file was is not this patch's, so it is left alone.
 async fn restore(path: &Path, before: Option<&[u8]>) -> std::io::Result<()> {
     match before {
         Some(bytes) if tokio::fs::read(path).await.is_ok_and(|now| now == bytes) => Ok(()),

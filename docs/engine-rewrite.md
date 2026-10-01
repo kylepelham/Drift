@@ -29,7 +29,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the upstream hook points. Compiled Rust plugins through a Drift SDK come later and are not designed for now. |
 | Tools | `read`, `edit`, `write`, `apply_patch`, `bash`, `glob`, `grep`, `webfetch`, `todowrite`, `skill`, `question`, `task`, `read_thread`. M3 adds parent-scoped `task_output` and `task_stop` for background workers. Branch creation is never a model tool. |
 | Dropped | `websearch`, `lsp`, `execute`, `plan`, share, ACP, TUI, CLI, Jev tool routing, Copilot, Azure, Cohere, Perplexity, GitLab, Venice, Poe, Alibaba, Gateway. |
-| Edit | Exact match only, with line ending normalisation on both sides. On a miss, return the closest region so the model can re-read cheaply. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. It follows the same rules: every existing file it adds over, updates, deletes or moves onto must have been read this session (so a secret needs its own read approval before it can reach a diff); every source and move destination is a separate edit ask (`Tool::asks`), any refusal refusing the call; and the whole patch is read, checked and worked out before any file changes, a write failing part way putting back the files already changed. |
+| Edit | Exact match only, with line ending normalisation on both sides. On a miss, return the closest region so the model can re-read cheaply. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. It follows the same rules: every existing file it adds over, updates, deletes or moves onto must have been read this session (so a secret needs its own read approval before it can reach a diff); every source and move destination is a separate edit ask (`Tool::asks`), any refusal refusing the call; and the whole patch is read, checked and worked out before any file changes. Only a missing file counts as absent; any other read error (denied, locked, a directory) stops preparation. Each write goes to a sibling file renamed into place, so a failed write never truncates its target; on a failure every step through the failing one is put back (a step already in its before state is left alone) and the error names any file that could not be. |
 | Post-edit | Formatter hooks only: built-in table, `drift.json` can add or disable, failures logged and never surfaced to the model. No language servers. |
 | Snapshot and revert | Kept. Shell out to `git` with a shadow git dir per worktree. Snapshot before every writing tool. Revert restores a snapshot; diffs are computed between snapshots. |
 | MCP | Native `rmcp` (stdio, streamable HTTP, OAuth). Approval, reconnect and reload designed in rather than patched on. |
@@ -484,35 +484,64 @@ Drift uses the explicit contract below rather than copying hidden feature gates.
 
 What is built (`session::tasks`, `store::tasks`, `tool::task`):
 
-- Every `task` call is a row in `task` (migration 9), unique per parent session and call id, so a
-  launch repeated for the same call resolves to the same worker. It records owner, worker session,
-  agent, `mode` and `reason`, `state` (`queued`, `running`, `replied`, `failed`, `stopped`,
-  `interrupted`), the result text and whether the parent has it (`delivered`).
+- Every `task` call is a row in `task` (migration 9), unique per parent session and call id. It
+  records owner, worker session, agent, `mode` and `reason`, `state` (`queued`, `running`,
+  `replied`, `failed`, `stopped`, `interrupted`), the result text, whether the parent has it
+  (`delivered`) and the owner's Stop count at launch (`generation`, migration 10).
+- Identity: `Store::launch_task` creates the row and its hidden child session in one transaction,
+  or returns the pair the call already made. A repeated call creates nothing and gets what it
+  launched in its own mode: a background receipt, or the foreground result once that worker ends.
 - `resolve_mode(explicit, agent default, enabled)`: `run_in_background` if given, else the
   agent's front matter `background: true|false`, else foreground. With the Settings switch off
   (`backgroundTasks`, on by default) an explicit request fails the call with the reason and an
   agent default falls back to foreground, recorded as `background turned off`.
-- Foreground: unchanged behaviour, now also recorded; its result is the call's result and the row
-  is marked delivered.
-- Background: the call returns a receipt at once (`outcome: launched`, a successful call naming
-  the task id). The engine runs the worker in its own task under a four-slot semaphore
-  (`MAX_BACKGROUND`); the rest wait `queued`. Its abort token descends from its owner's worker
-  scope, not the launching turn, so the parent's turn ending does not touch it.
-- Delivery: a replied or failed worker's result is submitted to the parent as an engine-origin
-  prompt holding a `task_result` part (`<task-result id= description= outcome=>` for the model;
-  synthetic text in the UI) with submission id `task:<id>`, so it lands once however often it is
-  delivered. A running parent takes it at its next request (steering); an idle one starts a turn
-  for it. Stopped and interrupted workers never wake an idle parent, and nothing wakes a parent
-  whose session was stopped after the launch (a per-owner stop generation). `task_output` that
-  reads a finished result marks it delivered, so it does not arrive twice.
-- Stop: session Stop (`POST /sessions/{id}/abort`) cancels the owner's worker scope too, even with
-  no turn running, and reports whether anything was stopped; queued workers never start.
-  `task_stop` and `POST /tasks/{id}/abort` stop one worker. Worker permission and question asks
-  carry the worker's session id and inherit the owner's approvals (see Permissions).
+- Admission (`Engine::admit_worker`): each worker gets its own cancellation token, registered
+  before it is planned or queued; a background worker's descends from its owner's scope, a
+  foreground one's from the launching call. The worker's turn is planned then, under that token:
+  session, workspace, config (agent prompt, policy, limits, formatters), model, provider and the
+  offered tools and system prompt are fixed in the `Plan`. A queued worker runs on that plan; when
+  it starts (`submit_planned`) only the credential is looked up again, and a session that moved
+  workspace fails it (`TurnError::Moved`) instead of quietly re-planning.
+- Foreground: runs to its end within the call (`Task` stops itself, so a Stop waits for the worker
+  to wind down and be recorded), and its result is the call's result.
+- Background: the call returns a receipt at once (`outcome: launched`). The worker waits for one
+  of four slots (`MAX_BACKGROUND`) or its token, whichever comes first, and checks its token again
+  after getting a slot, before it is marked running. Its turn's abort token descends from the
+  worker's, so Stop reaches it while queued, starting (before its turn claims the session),
+  planning and running.
+- Handing a result over is claimed and transactional. A claim (`Workers::claim`, in memory: the
+  engine, or one call of the parent's) gives one path at a time the right to attach the result.
+  `delivered` is set only in the same SQLite write that saves what carries it: the prompt
+  (`Store::admit_delivering`) or the call's result (`Store::save_part_delivering`, via
+  `settle_delivering`). A tool marks its output with `metadata.delivers`, honoured only if that
+  call holds the claim. When a call's claim is released (at the end of every call, and when a turn
+  job ends) a background result still owed goes out automatically, so a call whose result failed to
+  save leaves it owed, not lost.
+- Automatic delivery: a replied or failed background result is submitted to the parent as an
+  engine-origin prompt holding a `task_result` part (`<task-result id= description= outcome=>` for
+  the model; synthetic text in the UI) with submission id `task:<id>`. A running parent takes it at
+  its next request (steering); an idle one starts a turn for it. Stopped and interrupted workers
+  only ever steer into a running turn (`Admission::steer_only`). `task_output` claims the task while
+  it waits, so a result finishing meanwhile comes back as its output and not also as a message; one
+  already being delivered is reported as arriving, without its text.
+- Stop fencing: every Stop takes the workers' owner lock, bumps the owner's durable Stop count
+  (`stop_generation` table), cancels the owner's scope, the running turn, and for a worker's own
+  transcript that worker. The last check before any prompt is written (`admit_fenced`) runs under
+  the same lock, so a prompt lands wholly before a Stop or not at all. A delivery carries the
+  owner's scope from the launch's generation as its parent token through every wait (a job holding
+  the session, planning, credential refresh) and into that final check. A delivery for a task
+  launched before the owner's latest Stop is settled without waking it.
+- Stop: session Stop (`POST /sessions/{id}/abort`) reaches its workers even with no turn running
+  and reports whether anything was stopped. `task_stop` and `POST /tasks/{id}/abort` cancel one
+  worker's token; a Stop that arrives before the worker registers waits for it. Worker permission
+  and question asks carry the worker's session id and inherit the owner's approvals.
 - Restart: opening the store marks rows still `queued` or `running` `interrupted` (never rerun,
   never delivered as a prompt), before anything in the new process can launch a worker. Once the
-  engine listens, `recover_tasks` delivers finished rows not yet delivered, once; delivery is
-  idempotent, so racing a live delivery is harmless.
+  engine listens, `recover_tasks` handles owed results by mode. A background one is delivered as
+  above, compared against the durable Stop count, so a Stop before the restart still suppresses
+  it. A foreground one is never a prompt: if its launching call's result never landed (still
+  pending or running, or failed to save), the result is written into that call and marked handed
+  over in the same write; otherwise it is settled.
 - `task.updated { task }` is published on launch, start, ending and delivery.
 - `task_output { task_id, wait_seconds? }` answers for the calling conversation's own tasks only,
   waiting at most 120 s; `task_stop { task_id }` likewise. Neither is offered to subagents.

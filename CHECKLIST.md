@@ -64,6 +64,14 @@ change the plan there when a decision changes.
   - [x] Runners and installers approved only exactly; deny rules see past assignments and PowerShell aliases
   - [x] Undo history owned by workspace id; moves keep it; pruning parses outside the database lock
   - [x] Route-configurable timeouts, local routes 600 s; Deny and stop scope stated; OpenAI `prompt_cache_key`; `require_git(false)` for the large-file walk; stale concurrency doc fixed
+- Worker review at 06a5e0c (`docs/research/worker-review-06a5e0c.md`):
+  - [x] Each worker has its own token, registered before planning or queueing; Stop reaches it queued, starting, planning and running; checked again after a slot is granted
+  - [x] Stop and prompt admission share one fence; deliveries carry the launch-generation scope through every wait into it
+  - [x] Durable per-owner Stop count and per-task launch generation; restart recovery suppresses results launched before a Stop
+  - [x] One claim-and-acknowledge delivery path: `delivered` set only in the write that saves the prompt or call result; task_output and foreground included; foreground recovery writes into its own call
+  - [x] Worker plan (prompt, tools, limits, workspace, model) fixed at admission; only credentials refreshed at start
+  - [x] Task and child session created or reused in one transaction; replays return the mode's own result
+  - [x] `apply_patch` writes through staged copies, restores the failing step too, names files it could not restore; only NotFound is absence
 - [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
 - [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
 - [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, handoff, subagent pins

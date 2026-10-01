@@ -4,12 +4,12 @@ mod migrations;
 mod mcp;
 mod sessions;
 mod settings;
-mod tasks;
+pub(crate) mod tasks;
 mod todos;
 mod tree;
 
 pub use sessions::{Admitted, NewSession, SessionFilter};
-pub use tasks::NewTask;
+pub use tasks::{Launch, NewTask};
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};

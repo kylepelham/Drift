@@ -422,8 +422,9 @@ async fn tasks_are_listed_read_and_stopped_and_background_can_be_turned_off() {
     let (_, session_id) = session_with_model(&h).await;
     let listed: Value = h.get(&format!("/sessions/{session_id}/tasks")).send().await.unwrap().json().await.unwrap();
     assert_eq!(listed, json!([]));
-    let new = crate::store::NewTask { parent_session_id: &session_id, session_id: "ses_w", call_id: "c", description: "Look", agent: "general", mode: Mode::Background, reason: "requested" };
-    let (task, _) = h.engine.store.create_task(new).unwrap();
+    let parent = h.engine.store.session(&session_id).unwrap().unwrap();
+    let new = crate::store::tasks::tests::new_task(&session_id, "c", Mode::Background);
+    let task = h.engine.store.launch_task(new, crate::store::tasks::tests::child(&parent)).unwrap().task;
     let read: Value = h.get(&format!("/tasks/{}", task.id)).send().await.unwrap().json().await.unwrap();
     assert_eq!((read["state"].as_str(), read["mode"].as_str()), (Some("queued"), Some("background")));
     let stopped: Value = h.post(&format!("/tasks/{}/abort", task.id)).send().await.unwrap().json().await.unwrap();

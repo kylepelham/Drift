@@ -23,6 +23,7 @@ use crate::llm::catalog::Model;
 use crate::llm::{self, Credential, Provider, Request, StopReason};
 use crate::permission::{self, Outcome};
 use crate::session::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage, Visibility};
+use super::tasks::Claimant;
 use crate::store::Admitted;
 use crate::tool::{Context, SessionFiles};
 use crate::Engine;
@@ -84,6 +85,10 @@ pub enum TurnError {
     /// A file in the prompt cannot go to this model; says which and why.
     Attachment(String),
     Store(String),
+    /// Stopped before the prompt was admitted; nothing was written.
+    Stopped,
+    /// The session moved to another workspace after its turn was planned.
+    Moved,
 }
 
 impl std::fmt::Display for TurnError {
@@ -100,6 +105,8 @@ impl std::fmt::Display for TurnError {
             Self::Reverted => write!(f, "the session is undone; send a prompt or redo first"),
             Self::Attachment(message) => write!(f, "{message}"),
             Self::Store(message) => write!(f, "store: {message}"),
+            Self::Stopped => write!(f, "stopped before it started"),
+            Self::Moved => write!(f, "the session moved to another workspace while it waited"),
         }
     }
 }
@@ -184,6 +191,11 @@ impl Turns {
         self.active.lock().unwrap().contains_key(session_id)
     }
 
+    /// Cancels whatever holds the session, if anything does.
+    pub(super) fn cancel(&self, session_id: &str) -> bool {
+        self.active.lock().unwrap().get(session_id).inspect(|token| token.cancel()).is_some()
+    }
+
     /// A turn is running in the session and still takes prompts sent to it.
     pub fn is_steerable(&self, session_id: &str) -> bool {
         self.steering.lock().unwrap().contains_key(session_id)
@@ -204,7 +216,8 @@ impl Turns {
     }
 }
 
-pub(super) struct Plan {
+/// Everything a turn runs on, fixed when it is admitted: a queued worker keeps what it was given.
+pub(crate) struct Plan {
     pub(super) session: Session,
     workspace: PathBuf,
     pub(super) config: Config,
@@ -213,6 +226,18 @@ pub(super) struct Plan {
     pub(super) provider: Provider,
     pub(super) credential: Credential,
     thinking_budget: Option<u32>,
+    offer: Offer,
+}
+
+/// How a prompt is admitted beyond the session itself.
+#[derive(Clone, Copy, Default)]
+pub(super) struct Admission<'a> {
+    /// Its turn's abort token descends from this, and every wait before admission ends with it.
+    pub(super) parent: Option<&'a CancellationToken>,
+    /// It carries this worker's result, marked handed over in the same write.
+    pub(super) delivery: Option<&'a str>,
+    /// Only into a turn already running; it never starts one.
+    pub(super) steer_only: bool,
 }
 
 impl Engine {
@@ -223,6 +248,10 @@ impl Engine {
 
     /// A turn whose abort token descends from parent, so aborting the parent aborts it however the wait ends.
     pub async fn submit_under(self: &Arc<Self>, session_id: &str, prompt: Prompt, parent: Option<&CancellationToken>) -> Result<Receipt, TurnError> {
+        self.admit(session_id, prompt, Admission { parent, ..Admission::default() }).await
+    }
+
+    pub(super) async fn admit(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>) -> Result<Receipt, TurnError> {
         let payload_hash = payload_hash(&prompt);
         if let Some(id) = prompt.submission_id.as_deref() {
             if let Some(receipt) = self.replayed_receipt(id, session_id, &payload_hash)? {
@@ -230,32 +259,77 @@ impl Engine {
             }
         }
         // Claimed before planning: the plan captures the workspace, so a move must not slip in while it resolves.
-        let abort = parent.map_or_else(CancellationToken::new, CancellationToken::child_token);
-        if !self.turns.claim(session_id, &abort) {
-            return self.steer_or_queue(session_id, prompt, parent, &payload_hash).await;
+        let abort = how.parent.map_or_else(CancellationToken::new, CancellationToken::child_token);
+        if abort.is_cancelled() {
+            return Err(TurnError::Stopped);
         }
-        let plan = match self.plan(session_id, &prompt).await {
-            Ok(plan) => plan,
+        if !self.turns.claim(session_id, &abort) {
+            return self.steer_or_queue(session_id, prompt, how, &payload_hash).await;
+        }
+        if how.steer_only {
+            self.turns.release(session_id);
+            return Err(TurnError::Stopped);
+        }
+        let planned = tokio::select! {
+            planned = self.plan(session_id, &prompt) => planned,
+            () = abort.cancelled() => Err(TurnError::Stopped),
+        };
+        match planned {
+            Ok(plan) => self.start(session_id, prompt, plan, abort, &payload_hash, how.delivery),
             Err(error) => {
                 self.turns.release(session_id);
-                return Err(error);
+                Err(error)
             }
+        }
+    }
+
+    /// Starts a turn on a queued worker's plan as admitted; only the credential is looked up afresh.
+    pub(super) async fn submit_planned(self: &Arc<Self>, session_id: &str, prompt: Prompt, mut plan: Plan, parent: &CancellationToken) -> Result<Receipt, TurnError> {
+        let abort = parent.child_token();
+        loop {
+            if abort.is_cancelled() {
+                return Err(TurnError::Stopped);
+            }
+            if self.turns.claim(session_id, &abort) {
+                break;
+            }
+            self.turns.wait_idle(session_id, &abort).await;
+        }
+        let ready = tokio::select! {
+            ready = self.refresh_plan(&mut plan) => ready,
+            () = abort.cancelled() => Err(TurnError::Stopped),
         };
-        let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash.as_str()));
+        if let Err(error) = ready {
+            self.turns.release(session_id);
+            return Err(error);
+        }
+        let hash = payload_hash(&prompt);
+        self.start(session_id, prompt, plan, abort, &hash, None)
+    }
+
+    async fn refresh_plan(&self, plan: &mut Plan) -> Result<(), TurnError> {
+        let session = self.store.session(&plan.session.id)?.ok_or(TurnError::NoSession)?;
+        if session.workspace_id != plan.session.workspace_id {
+            return Err(TurnError::Moved);
+        }
+        let provider = plan.model_ref.provider.clone();
+        let env = self.catalog.read().unwrap().providers.get(&provider).map(|p| p.env.clone()).unwrap_or_default();
+        let stored = self.credentials.resolve(&provider, &env).ok_or(TurnError::NoCredentials)?;
+        plan.credential = self.fresh_credential(&provider, stored).await?;
+        Ok(())
+    }
+
+    /// Admits the prompt into a session this call has claimed and starts its turn; releases the claim if it cannot.
+    fn start(self: &Arc<Self>, session_id: &str, prompt: Prompt, plan: Plan, abort: CancellationToken, payload_hash: &str, delivery: Option<&str>) -> Result<Receipt, TurnError> {
         let files = self.turns.files_for(session_id);
         let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), model: &plan.model, files: &files };
-        let parts = match attach.prepare(prompt.parts) {
-            Ok(parts) => parts,
-            Err(error) => {
-                self.turns.release(session_id);
-                return Err(error);
-            }
-        };
-        let admitted = match self.store.admit_prompt(session_id, &plan.model_ref, parts, submission) {
+        let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
+        let admitted = attach.prepare(prompt.parts).and_then(|parts| self.admit_fenced(session_id, &plan.model_ref, parts, submission, Some(&abort), delivery));
+        let admitted = match admitted {
             Ok(admitted) => admitted,
             Err(error) => {
                 self.turns.release(session_id);
-                return Err(error.into());
+                return Err(error);
             }
         };
         let receipt = self.announce(session_id, admitted);
@@ -263,6 +337,16 @@ impl Engine {
         let engine = self.clone();
         self.spawn_job(session_id, async move { engine.run(plan, abort).await });
         Ok(receipt)
+    }
+
+    /// The last check before a prompt is written, under the lock every Stop holds, so it lands wholly before a Stop or not at all.
+    fn admit_fenced(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>, abort: Option<&CancellationToken>, delivery: Option<&str>) -> Result<Admitted, TurnError> {
+        let _fence = self.workers.fence();
+        if abort.is_some_and(CancellationToken::is_cancelled) {
+            return Err(TurnError::Stopped);
+        }
+        // Already handed over by another path: this copy is not written.
+        self.store.admit_delivering(session_id, model, parts, submission, delivery)?.ok_or(TurnError::SubmissionReused)
     }
 
     fn announce(&self, session_id: &str, admitted: Admitted) -> Receipt {
@@ -281,21 +365,28 @@ impl Engine {
     /// A prompt for a busy session. A running turn takes it at its next model request (after the
     /// calls in flight finish, so their results come first). Any other job, such as a compaction or an
     /// undo, is waited out for up to [`QUEUE_WAIT`], then the prompt starts a turn of its own.
-    async fn steer_or_queue(self: &Arc<Self>, session_id: &str, prompt: Prompt, parent: Option<&CancellationToken>, payload_hash: &str) -> Result<Receipt, TurnError> {
-        if let Some(receipt) = self.steer(session_id, &prompt, payload_hash)? {
+    async fn steer_or_queue(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>, payload_hash: &str) -> Result<Receipt, TurnError> {
+        if let Some(receipt) = self.steer(session_id, &prompt, payload_hash, how)? {
             return Ok(receipt);
         }
+        if how.steer_only {
+            return Err(TurnError::Stopped);
+        }
         let never = CancellationToken::new();
-        if tokio::time::timeout(QUEUE_WAIT, self.turns.wait_idle(session_id, &never)).await.is_err() {
+        let stop = how.parent.unwrap_or(&never);
+        if tokio::time::timeout(QUEUE_WAIT, self.turns.wait_idle(session_id, stop)).await.is_err() {
             return Err(TurnError::Busy);
         }
-        Box::pin(self.submit_under(session_id, prompt, parent)).await
+        if stop.is_cancelled() {
+            return Err(TurnError::Stopped);
+        }
+        Box::pin(self.admit(session_id, prompt, how)).await
     }
 
     /// Admits `prompt` into the turn running in `session_id`, if one is running and still taking
     /// prompts. Its files are judged against the model that turn is running on, not one the prompt
     /// names: the running turn does not switch models for a steered prompt.
-    fn steer(&self, session_id: &str, prompt: &Prompt, payload_hash: &str) -> Result<Option<Receipt>, TurnError> {
+    fn steer(&self, session_id: &str, prompt: &Prompt, payload_hash: &str, how: Admission<'_>) -> Result<Option<Receipt>, TurnError> {
         let Some(running) = self.turns.steering.lock().unwrap().get(session_id).cloned() else { return Ok(None) };
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let model = self.catalog.read().unwrap().providers.get(&running.provider).and_then(|p| p.models.get(&running.model)).cloned().ok_or(TurnError::UnknownModel)?;
@@ -310,12 +401,12 @@ impl Engine {
             // The turn moved to another model meanwhile; judge the files again against that one.
             Some(now) if *now != running => {
                 drop(steering);
-                return self.steer(session_id, prompt, payload_hash);
+                return self.steer(session_id, prompt, payload_hash, how);
             }
             Some(_) => {}
         }
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
-        let admitted = self.store.admit_prompt(session_id, &running, parts, submission)?;
+        let admitted = self.admit_fenced(session_id, &running, parts, submission, how.parent, how.delivery)?;
         drop(steering);
         Ok(Some(self.announce(session_id, admitted)))
     }
@@ -333,6 +424,8 @@ impl Engine {
             engine.turns.retry_waits.lock().unwrap().remove(&id);
             engine.turns.steering.lock().unwrap().remove(&id);
             engine.turns.active.lock().unwrap().remove(&id);
+            // A call that panicked never released what it was handing over.
+            engine.release_claims_of(&id);
             engine.hub.publish(Event::SessionStatusChanged { session_id: id, status: SessionStatus::Idle });
             engine.turns.finished.notify_waiters();
         });
@@ -349,17 +442,13 @@ impl Engine {
         Ok(Some(Receipt { session, message }))
     }
 
-    /// Stops the session's turn and the background workers it owns, running or idle.
+    /// Stops the session's turn, its background workers and, for a worker's transcript, that worker, all under the admission fence.
     pub fn abort(&self, session_id: &str) -> bool {
-        let turn = match self.turns.active.lock().unwrap().get(session_id) {
-            Some(token) => {
-                token.cancel();
-                true
-            }
-            None => false,
-        };
-        let workers = self.stop_workers(session_id);
-        turn || workers
+        let mut owners = self.workers.fence();
+        let workers = self.stop_workers(&mut owners, session_id);
+        let turn = self.turns.cancel(session_id);
+        let worker = self.store.task_for_session(session_id).ok().flatten().is_some_and(|task| !task.state.is_terminal() && self.workers.cancel(&task.id));
+        turn || workers || worker
     }
 
     pub(super) async fn plan(&self, session_id: &str, prompt: &Prompt) -> Result<Plan, TurnError> {
@@ -371,7 +460,7 @@ impl Engine {
         let model_ref = prompt.model.clone().or_else(|| session.model.clone()).or(agent_model).or_else(|| config.model.clone()).ok_or(TurnError::NoModel)?;
         let resolved = self.resolve(&model_ref).await?;
         let provider = resolved.provider.with_timeouts(config.route_timeouts(&resolved.model_ref.provider));
-        Ok(Plan {
+        let mut plan = Plan {
             session,
             workspace: workspace_path,
             config,
@@ -380,7 +469,10 @@ impl Engine {
             provider,
             credential: resolved.credential,
             thinking_budget: prompt.thinking_budget,
-        })
+            offer: Offer::default(),
+        };
+        plan.offer = self.offer(&plan);
+        Ok(plan)
     }
 
     /// Expired subscription tokens are refreshed once, however many turns notice at the same time.
@@ -443,7 +535,6 @@ impl Engine {
 
     /// One run of model steps; returns the newest prompt the last request included.
     async fn run_steps(self: &Arc<Self>, plan: &mut Plan, abort: &CancellationToken) -> Option<String> {
-        let mut offer = self.offer(plan);
         let mut attempts = 0;
         let mut recovered = false;
         let limits = plan.config.limits_for(&plan.session.agent);
@@ -460,9 +551,9 @@ impl Engine {
             let (max_tokens, thinking_budget) = budgets(&plan.model, plan.thinking_budget);
             let request = Request {
                 model: plan.model_ref.model.clone(),
-                system: offer.system.clone(),
+                system: plan.offer.system.clone(),
                 messages: compaction::request_messages(&transcript, &plan.model_ref),
-                tools: offer.tools.clone(),
+                tools: plan.offer.tools.clone(),
                 max_tokens,
                 thinking_budget,
                 temperature: None,
@@ -470,7 +561,7 @@ impl Engine {
             };
             let Ok(message) = self.store.create_message(&plan.session.id, Role::Assistant, Some(&plan.model_ref)) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });
-            match self.step(plan, message, &request, &offer.offered, abort).await {
+            match self.step(plan, message, &request, &plan.offer.offered, abort).await {
                 Step::Done => break,
                 Step::Continue => {
                     attempts = 0;
@@ -487,7 +578,6 @@ impl Engine {
                         Wait::Elapsed => {}
                         Wait::Switched(resolved) => {
                             self.adopt(plan, *resolved);
-                            offer = self.offer(plan);
                             attempts = 0;
                         }
                         Wait::Stopped => break,
@@ -552,6 +642,8 @@ impl Engine {
         plan.model = resolved.model;
         plan.provider = resolved.provider.with_timeouts(plan.config.route_timeouts(&plan.model_ref.provider));
         plan.credential = resolved.credential;
+        // The user chose another model, whose tool profile may differ.
+        plan.offer = self.offer(plan);
         if let Ok(Some(session)) = self.store.update_session(&plan.session.id, None, Some(&plan.model_ref), None) {
             self.hub.publish(Event::SessionUpdated { session });
         }
@@ -802,7 +894,11 @@ impl Engine {
             }),
             None => None,
         };
-        self.settle(&mut row, status, title, text, merge(meta, changes));
+        // A result this call hands over is acknowledged in the write that saves it, if the call holds its claim.
+        let claimant = Claimant::call(&scope.plan.session.id, &call_id);
+        let delivers = meta.get("delivers").and_then(serde_json::Value::as_str).filter(|task| self.workers.holds(task, &claimant)).map(str::to_owned);
+        self.settle_delivering(&mut row, status, title, text, merge(meta, changes), delivers.as_deref());
+        self.release_claims(&claimant);
         if scope.abort.is_cancelled() { Outcome::Aborted } else { Outcome::Allowed }
     }
 
@@ -890,6 +986,11 @@ impl Engine {
 
     /// Writes the outcome. If that write fails, what is published is the failure, never a success the store lacks.
     fn settle(&self, row: &mut PartRow, new_status: ToolStatus, new_title: Option<String>, text: String, meta: Option<serde_json::Value>) {
+        self.settle_delivering(row, new_status, new_title, text, meta, None);
+    }
+
+    /// [`Self::settle`] that also marks `delivers` handed over in the same write; a failed write leaves it owed.
+    pub(super) fn settle_delivering(&self, row: &mut PartRow, new_status: ToolStatus, new_title: Option<String>, text: String, meta: Option<serde_json::Value>, delivers: Option<&str>) {
         if let Part::ToolCall { status, title, output, metadata, finished_at, .. } = &mut row.part {
             *status = new_status;
             *title = new_title.or(title.take());
@@ -897,7 +998,11 @@ impl Engine {
             *metadata = meta;
             *finished_at = Some(id::now_ms());
         }
-        if let Err(error) = self.store.save_part(row) {
+        let saved = match delivers {
+            Some(task) => self.store.save_part_delivering(row, task).map(|_| ()),
+            None => self.store.save_part(row),
+        };
+        if let Err(error) = &saved {
             if let Part::ToolCall { status, output, .. } = &mut row.part {
                 *status = ToolStatus::Error;
                 *output = Some(format!("result was not persisted ({error}); treat this call as failed"));
@@ -905,6 +1010,9 @@ impl Engine {
             let _ = self.store.save_part(row);
         }
         self.hub.publish(Event::PartUpdated { part: row.clone() });
+        if let (Some(task), Ok(())) = (delivers, saved) {
+            self.publish_task(task);
+        }
     }
 }
 
@@ -1000,6 +1108,7 @@ enum Wait {
     Stopped,
 }
 
+#[derive(Default)]
 struct Offer {
     tools: Vec<llm::ToolSpec>,
     offered: std::collections::HashSet<String>,

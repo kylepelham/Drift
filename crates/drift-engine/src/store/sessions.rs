@@ -164,10 +164,7 @@ impl Store {
     }
 
     pub fn save_part(&self, row: &PartRow) -> rusqlite::Result<()> {
-        self.lock()
-            .prepare_cached("UPDATE part SET json = ?2 WHERE id = ?1")?
-            .execute(params![row.id, serde_json::to_string(&row.part).unwrap()])?;
-        Ok(())
+        save_part_in(&self.lock(), row)
     }
 
     /// Anything still streaming when the engine last stopped did not finish.
@@ -177,6 +174,11 @@ impl Store {
             [id::now_ms()],
         )
     }
+}
+
+pub(super) fn save_part_in(conn: &Connection, row: &PartRow) -> rusqlite::Result<()> {
+    conn.prepare_cached("UPDATE part SET json = ?2 WHERE id = ?1")?.execute(params![row.id, serde_json::to_string(&row.part).unwrap()])?;
+    Ok(())
 }
 
 pub(super) fn session_in(conn: &Connection, id: &str) -> rusqlite::Result<Option<Session>> {
@@ -393,24 +395,42 @@ impl Store {
     /// Records a user prompt as one unit: message, parts and the session's model, or nothing at all.
     /// A prompt sent while undone commits the undo: the hidden messages go, in the same write.
     pub fn admit_prompt(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<Admitted> {
-        transaction(&self.lock(), |conn| {
-            let discarded = discard_reverted(conn, session_id)?;
-            let message = insert_message(conn, session_id, Role::User, Some(model), false)?;
-            if let Some((id, hash)) = submission {
-                conn.prepare_cached("INSERT INTO submission(id, session_id, message_id, payload_hash, created_at) VALUES(?1, ?2, ?3, ?4, ?5)")?
-                    .execute(params![id, session_id, message.id, hash, id::now_ms()])?;
-            }
-            let rows = parts
-                .into_iter()
-                .map(|part| insert_part(conn, &message.id, session_id, part))
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            conn.prepare_cached("UPDATE session SET model_provider = ?2, model_id = ?3, updated_at = ?4 WHERE id = ?1")?
-                .execute(params![session_id, model.provider, model.model, id::now_ms()])?;
-            let session = session_in(conn, session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-            Ok(Admitted { message, parts: rows, session, discarded })
-        })
+        self.admit_delivering(session_id, model, parts, submission, None)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 
+    /// [`Self::admit_prompt`] that also marks `task_id` handed over in the same write; `None` if it already was.
+    pub fn admit_delivering(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>, task_id: Option<&str>) -> rusqlite::Result<Option<Admitted>> {
+        let conn = self.lock();
+        let admitted = transaction(&conn, |conn| {
+            if let Some(task_id) = task_id {
+                if !super::tasks::acknowledge(conn, task_id, session_id)? {
+                    return Err(rusqlite::Error::StatementChangedRows(0));
+                }
+            }
+            admit_in(conn, session_id, model, parts, submission)
+        });
+        match admitted {
+            Err(rusqlite::Error::StatementChangedRows(0)) if task_id.is_some() => Ok(None),
+            other => other.map(Some),
+        }
+    }
+}
+
+fn admit_in(conn: &Connection, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<Admitted> {
+    let discarded = discard_reverted(conn, session_id)?;
+    let message = insert_message(conn, session_id, Role::User, Some(model), false)?;
+    if let Some((id, hash)) = submission {
+        conn.prepare_cached("INSERT INTO submission(id, session_id, message_id, payload_hash, created_at) VALUES(?1, ?2, ?3, ?4, ?5)")?
+            .execute(params![id, session_id, message.id, hash, id::now_ms()])?;
+    }
+    let rows = parts.into_iter().map(|part| insert_part(conn, &message.id, session_id, part)).collect::<rusqlite::Result<Vec<_>>>()?;
+    conn.prepare_cached("UPDATE session SET model_provider = ?2, model_id = ?3, updated_at = ?4 WHERE id = ?1")?
+        .execute(params![session_id, model.provider, model.model, id::now_ms()])?;
+    let session = session_in(conn, session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+    Ok(Admitted { message, parts: rows, session, discarded })
+}
+
+impl Store {
     /// Sets or clears the session's undo marker.
     pub fn set_revert(&self, session_id: &str, revert: Option<&Revert>) -> rusqlite::Result<Option<Session>> {
         let conn = self.lock();

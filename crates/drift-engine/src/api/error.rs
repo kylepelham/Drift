@@ -50,6 +50,8 @@ impl From<TurnError> for ApiError {
             TurnError::Busy => (StatusCode::CONFLICT, "busy"),
             TurnError::NotRetrying => (StatusCode::CONFLICT, "not_retrying"),
             TurnError::Reverted => (StatusCode::CONFLICT, "reverted"),
+            TurnError::Stopped => (StatusCode::CONFLICT, "stopped"),
+            TurnError::Moved => (StatusCode::CONFLICT, "moved"),
             TurnError::SubmissionReused => (StatusCode::CONFLICT, "submission"),
             TurnError::NoModel | TurnError::UnknownModel => (StatusCode::BAD_REQUEST, "model"),
             TurnError::Attachment(_) => (StatusCode::BAD_REQUEST, "attachment"),
