@@ -40,6 +40,7 @@ test("the waiting row says who the prompt runs as, or why it could not start", a
   const { queuedNotice } = await import("../src/ui/composer-queued")
   const waiting = { agent: "plan", variant: "high", text: "plan it", files: 0, since: 1 }
   expect(queuedNotice(waiting)).toEqual({ failed: false, text: "Waiting for the current step to finish. Runs as Plan, High" })
+  expect(queuedNotice(waiting, "GPT-5").text).toBe("Waiting for the current step to finish. Runs as Plan, High, GPT-5")
   expect(queuedNotice({ ...waiting, variant: undefined, error: "provider has no credentials" })).toEqual({
     failed: true,
     text: "Couldn't start as Plan: provider has no credentials",

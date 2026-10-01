@@ -431,12 +431,16 @@ export function queuedPrompt(state: EngineState, id: string | null | undefined) 
   return (id ? (state.sessions[id] as SavedSession | undefined)?.queued : undefined) ?? undefined
 }
 
-/** The agent and reasoning level a session runs as next (what waits, else what the engine saved), and its model. */
+/** The model, agent and reasoning level a session runs as next: what waits, else what the engine saved. */
 export function savedChoice(state: EngineState, id: string | null | undefined): { agent?: string; variant?: string | null; model?: ModelRef } {
   const session = id ? (state.sessions[id] as SavedSession | undefined) : undefined
   if (!session) return {}
   const next = session.queued ?? session
-  const model = session.model ? { model: { providerID: session.model.providerID, modelID: session.model.id } } : {}
+  const model = session.queued?.model
+    ? { model: { providerID: session.queued.model.provider, modelID: session.queued.model.model } }
+    : session.model
+      ? { model: { providerID: session.model.providerID, modelID: session.model.id } }
+      : {}
   return { agent: next.agent, variant: next.variant ?? null, ...model }
 }
 

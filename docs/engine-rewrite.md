@@ -330,27 +330,27 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   still ends the turn; the steered prompt stays in the transcript for the next one. A session held
   by a job that is not a turn (a compaction, an undo) makes the prompt wait up to 30 s and then
   start a turn of its own; past that it is 409 `busy`.
-- A prompt that names another agent or reasoning level than the running turn's never joins it,
-  since that turn's system prompt, tools and level would answer it as the old agent. It is
+- A prompt that names another model, agent or reasoning level than the running turn's never
+  joins it, since that turn's model, system prompt, tools and level would answer it. It is
   queued instead (`session::queue`, table `queued_prompt`, migration 18: one row per submission,
   the prompt as sent) and the call returns 202 at once with no `message`; `session.queued` shows
-  what waits (`agent`, `variant`, `text`, `files`, `since`, `error`) on every read of the session
+  what waits (`model`, `agent`, `variant`, `text`, `files`, `since`, `error`) on every read of the session
   and every `session.updated`. While anything waits, the running turn ends before its next step
   (the step under way finishes; nothing is cut mid-call). When the session's job ends, everything
-  waiting is admitted as one prompt (the oldest's agent and level, all parts in order) and starts a
+  waiting is admitted as one prompt (the oldest's model, agent and level, all parts in order) and starts a
   turn of its own; the rows go in the same write that admits it, under all their submission ids,
   so a crash leaves either the rows or the message, never both, and a resent id replays either
   way. That write first requires every row it read to still wait (same id and payload); one
   taken back while the turn was planned (Discard, Stop, a replacement) means nothing is written
   and the claim is let go, so a prompt handed back to the user never runs. If a replacement waits
-  by then, it starts next. A queue left at shutdown starts when the engine does (`resume_queued`). Prompts that change
-  neither keep steering into the running turn. "Another" is judged by effect, not spelling: an
-  agent by name, a level by the reasoning it resolves to on the model the turn is running on
-  (after a retry switch, the new one). A level that model does not offer asks for nothing, so it
-  matches a turn with no level, and a prompt naming the turn's own agent and level is an ordinary
-  follow-up.
+  by then, it starts next. A queue left at shutdown starts when the engine does
+  (`resume_queued`). Prompts that change none of these keep steering into the running turn.
+  "Another" is judged by effect, not spelling: a model and an agent by name, a level by the
+  reasoning it resolves to on the model the turn is running on (after a retry switch, the new
+  one). A level that model does not offer asks for nothing, so it matches a turn with no level,
+  and a prompt naming the turn's own model, agent and level is an ordinary follow-up.
 - While something waits, a user's prompt is judged against what waits, not the running turn: one
-  that names nothing else joins it, and one asking for another agent or level replaces it, with
+  that names nothing else joins it, and one asking for another model, agent or level replaces it, with
   the replaced parts in the receipt's `returned` for the client to put back. Results and answers
   (engine-origin parts) never queue. A waiting prompt that cannot start (its model is gone, no
   credentials) stays with `error` and holds no turn; the next prompt added to it tries again.
@@ -358,11 +358,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   carries on. Stop (`POST /sessions/{id}/abort`, and every engine-side stop: archive, delete)
   discards what waits first, so nothing starts after it, and returns the parts in `returned`.
 - The composer draws what waits as a row above the input ("Waiting for the current step to
-  finish. Runs as Plan, High", or why it could not start) with Discard. Whatever the engine gives
-  back (Discard, Stop, or a newer prompt replacing it) goes into that session's draft ahead of
-  anything typed since; pasted files come back as attachments, mentions as text only. While
-  something waits, the composer shows its agent and level, since that is what the session runs as
-  next.
+  finish. Runs as Plan, High", plus the model's name when it is not the session's current one, or
+  why it could not start) with Discard. Whatever the engine gives back (Discard, Stop, or a newer
+  prompt replacing it) goes into that session's draft ahead of anything typed since; pasted files
+  come back as attachments, mentions as text only. While something waits, the composer shows its
+  model, agent and level, since that is what the session runs as next, so a follow-up joins it.
 - Turn limits (`config::Limits`, drift.json `limits: { steps, repeats, polls }`, later files
   override field by field; an agent's front matter `steps:` replaces `steps` for its turns):
   - `steps` (default 200): model steps that ran tools in one turn. Reaching it pauses the turn.

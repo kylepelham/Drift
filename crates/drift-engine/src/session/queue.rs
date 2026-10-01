@@ -83,7 +83,7 @@ impl Engine {
         let model = first.model.as_ref().or(session.model.as_ref());
         let catalog = self.catalog.read().unwrap();
         let variants = model.and_then(|m| catalog.providers.get(&m.provider)?.models.get(&m.model)).map(|m| m.variants.clone()).unwrap_or_default();
-        Choice::new(agent, variant.as_deref(), variants)
+        Choice::new(model.cloned(), agent, variant.as_deref(), variants)
     }
 
     /// Starts what waits in the background; see [`Self::start_queued`].
@@ -144,13 +144,12 @@ fn prompts(rows: &[QueuedRow]) -> Vec<Prompt> {
     rows.iter().filter_map(|row| serde_json::from_str(&row.prompt_json).ok()).collect()
 }
 
-/// The waiting prompts as one: the oldest's agent and level, everyone's parts in order, the newest model named.
+/// The waiting prompts as one: the oldest's model, agent and level (later ones joined only by matching them), everyone's parts in order.
 fn merged(rows: &[QueuedRow]) -> Option<Prompt> {
     let mut all = prompts(rows).into_iter();
     let mut first = all.next()?;
     for later in all {
         first.parts.extend(later.parts);
-        first.model = later.model.or(first.model);
     }
     Some(first)
 }

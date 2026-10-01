@@ -869,10 +869,15 @@ async fn a_steered_image_is_judged_against_the_model_the_turn_runs_on() {
     h.engine.submit(&h.session.id, prompt("slow")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(100)).await;
     let image = Part::File { mime: "image/png".into(), name: "shot.png".into(), url: "data:image/png;base64,iVBORw0KGgo=".into() };
-    let mut steered = with_files("look at this", vec![image]);
-    steered.model = Some(ModelRef { provider: "anthropic".into(), model: other });
+    let mut steered = with_files("look at this", vec![image.clone()]);
+    steered.model = None;
     let refused = h.engine.submit(&h.session.id, steered).await.unwrap_err();
     assert!(matches!(&refused, TurnError::Attachment(m) if m.contains("cannot read images")), "the running model decides: {refused:?}");
+    let mut elsewhere = with_files("look at this", vec![image]);
+    elsewhere.model = Some(ModelRef { provider: "anthropic".into(), model: other.clone() });
+    let waiting = h.engine.submit(&h.session.id, elsewhere).await.unwrap();
+    assert_eq!(waiting.session.queued.and_then(|q| q.model).map(|m| m.model), Some(other), "naming another model waits for a turn on it");
+    h.engine.discard_queued(&h.session.id);
     until_idle(&h).await;
 }
 

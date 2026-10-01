@@ -54,6 +54,25 @@ async fn a_prompt_for_another_agent_waits_without_holding_the_caller_then_runs_a
 }
 
 #[tokio::test]
+async fn a_model_change_sent_mid_turn_waits_and_runs_on_that_model() {
+    let h = harness().await;
+    busy(&h).await;
+    h.provider.push(text("on the other model"));
+    let other = h.engine.catalog.read().unwrap().providers["anthropic"].models.keys().find(|id| *id != "claude-sonnet-4-5").unwrap().clone();
+    let other = crate::session::types::ModelRef { provider: "anthropic".into(), model: other };
+    let receipt = h.engine.submit(&h.session.id, Prompt { model: Some(other.clone()), ..prompt("try opus") }).await.unwrap();
+    assert!(receipt.message.is_none(), "it does not join a turn on the old model");
+    assert_eq!(receipt.session.queued.unwrap().model.as_ref(), Some(&other), "the composer can show what it waits on");
+    let joined = h.engine.submit(&h.session.id, Prompt { model: Some(other.clone()), ..prompt("and then") }).await.unwrap();
+    assert!(joined.returned.is_empty(), "a follow-up on the waiting model joins it");
+    until_settled(&h.engine, &h.session.id).await;
+    let requests = h.provider.requests.lock().unwrap();
+    assert_eq!(requests.last().unwrap().model, other.model);
+    assert!(format!("{:?}", requests.last().unwrap().messages).contains("and then"));
+    assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().model, Some(other));
+}
+
+#[tokio::test]
 async fn a_waiting_submission_sent_again_is_one_prompt_and_its_id_cannot_carry_another() {
     let h = harness().await;
     busy(&h).await;

@@ -56,6 +56,8 @@ pub struct Session {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Queued {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelRef>,
     pub agent: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,

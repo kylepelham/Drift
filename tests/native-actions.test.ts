@@ -92,7 +92,7 @@ test("send maps model, agent, files and reasoning effort onto the native prompt"
 
 test("a waiting prompt shows on the session, runs as its own choice next, and comes back from replace, Stop and Discard", async () => {
   const { savedChoice } = await import("../src/engine/store")
-  const queued = { agent: "plan", variant: "high", text: "plan it", files: 0, since: 1 }
+  const queued = { model: { provider: "openai", model: "gpt-5" }, agent: "plan", variant: "high", text: "plan it", files: 0, since: 1 }
   const given = [{ type: "text", text: "plan it" }, { type: "file", mime: "image/png", name: "a.png", url: "data:image/png;base64,AA" }]
   const h = harness({
     submit: () => Promise.resolve({ session: { ...session("ses_1"), queued }, returned: given }),
@@ -102,7 +102,7 @@ test("a waiting prompt shows on the session, runs as its own choice next, and co
   const sent = await h.actions.send("ses_1", "plan again", { model: null, agent: "plan" })
   const back = { text: "plan it", files: [{ mime: "image/png", name: "a.png", url: "data:image/png;base64,AA" }] }
   expect(sent).toEqual({ ok: true, returned: back })
-  expect(savedChoice(h.state, "ses_1")).toEqual({ agent: "plan", variant: "high" })
+  expect(savedChoice(h.state, "ses_1")).toEqual({ agent: "plan", variant: "high", model: { providerID: "openai", modelID: "gpt-5" } })
   expect(await h.actions.abort("ses_1")).toEqual(back)
   expect(await h.actions.discardQueued("ses_1")).toEqual(back)
   expect(await h.actions.discardQueued("ses_2")).toBeUndefined()

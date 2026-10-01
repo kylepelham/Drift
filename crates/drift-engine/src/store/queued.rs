@@ -6,7 +6,7 @@ use serde::Deserialize;
 use super::sessions::transaction;
 use super::Store;
 use crate::id;
-use crate::session::types::{Part, Queued, Session};
+use crate::session::types::{ModelRef, Part, Queued, Session};
 
 /// One waiting submission, its prompt as the client sent it.
 #[derive(Clone, Debug, PartialEq)]
@@ -23,6 +23,8 @@ pub struct QueuedRow {
 struct Stored {
     #[serde(default)]
     parts: Vec<Part>,
+    #[serde(default)]
+    model: Option<ModelRef>,
     #[serde(default)]
     agent: Option<String>,
     #[serde(default, deserialize_with = "crate::session::turn::present")]
@@ -122,6 +124,7 @@ fn view(session: &Session, rows: &[QueuedRow]) -> Option<Queued> {
     let parts = || stored.iter().flat_map(|prompt| &prompt.parts);
     let texts: Vec<&str> = parts().filter_map(|part| if let Part::Text { text } = part { Some(text.as_str()) } else { None }).collect();
     Some(Queued {
+        model: first.model.clone().or_else(|| session.model.clone()),
         agent: first.agent.clone().unwrap_or_else(|| session.agent.clone()),
         variant: first.variant.clone().unwrap_or_else(|| session.variant.clone()),
         text: texts.join("\n\n"),
@@ -134,7 +137,7 @@ fn view(session: &Session, rows: &[QueuedRow]) -> Option<Queued> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::types::{ModelRef, Visibility};
+    use crate::session::types::Visibility;
     use crate::store::tests::store;
     use crate::store::{Admit, Handover, NewSession, Pick};
 

@@ -173,28 +173,31 @@ struct Steering {
 
 impl Steering {
     fn of(plan: &Plan) -> Self {
-        Self { model: plan.model_ref.clone(), choice: Choice::new(plan.session.agent.clone(), plan.variant.as_deref(), plan.model.variants.clone()) }
+        let choice = Choice::new(Some(plan.model_ref.clone()), plan.session.agent.clone(), plan.variant.as_deref(), plan.model.variants.clone());
+        Self { model: plan.model_ref.clone(), choice }
     }
 }
 
-/// The agent a turn runs as and the reasoning its level comes to on its model.
+/// The model and agent a turn runs as, and the reasoning its level comes to on that model.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Choice {
+    model: Option<ModelRef>,
     agent: String,
     reasoning: Option<Reasoning>,
     variants: Vec<Variant>,
 }
 
 impl Choice {
-    pub(super) fn new(agent: String, variant: Option<&str>, variants: Vec<Variant>) -> Self {
-        Self { agent, reasoning: reasoning_in(&variants, variant), variants }
+    pub(super) fn new(model: Option<ModelRef>, agent: String, variant: Option<&str>, variants: Vec<Variant>) -> Self {
+        Self { model, agent, reasoning: reasoning_in(&variants, variant), variants }
     }
 
-    /// Whether `prompt` asks for another agent, or a level this model would reason at differently.
+    /// Whether `prompt` asks for another model or agent, or a level this model would reason at differently.
     pub(super) fn differs(&self, prompt: &Prompt) -> bool {
+        let model = prompt.model.as_ref().is_some_and(|model| Some(model) != self.model.as_ref());
         let agent = prompt.agent.as_ref().is_some_and(|agent| *agent != self.agent);
         let level = prompt.variant.as_ref().is_some_and(|variant| reasoning_in(&self.variants, variant.as_deref()) != self.reasoning);
-        agent || level
+        model || agent || level
     }
 }
 

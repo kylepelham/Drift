@@ -1213,6 +1213,7 @@ export interface components {
             /** @description Why it could not start; it stays until discarded or joined by another prompt, which tries again. */
             error?: string | null;
             files: number;
+            model?: components["schemas"]["ModelRef"] | null;
             /** Format: int64 */
             since: number;
             /** @description The waiting prompts' text, oldest first, a blank line apart. */

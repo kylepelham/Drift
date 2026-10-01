@@ -373,6 +373,13 @@ export function Composer() {
 
   const prefs = () => prefsFor(selectedSession(), savedChoice(engine.state, selectedSession()))
   const queued = () => queuedPrompt(engine.state, selectedSession())
+  /** The waiting prompt's model by name, when it is not the one the session runs on now. */
+  const queuedModel = (waiting: NonNullable<ReturnType<typeof queuedPrompt>>) => {
+    const current = (engine.state.sessions[selectedSession() ?? ""] as { model?: { providerID: string; id: string } } | undefined)?.model
+    const next = waiting.model
+    if (!next || (current?.providerID === next.provider && current.id === next.model)) return undefined
+    return modelInfo(engine.state, { providerID: next.provider, modelID: next.model })?.name ?? next.model
+  }
 
   async function discardQueued() {
     const id = selectedSession()
@@ -745,7 +752,7 @@ export function Composer() {
         </Show>
         <Show when={queued()}>
           {(waiting) => {
-            const notice = () => queuedNotice(waiting())
+            const notice = () => queuedNotice(waiting(), queuedModel(waiting()))
             return (
               <div class="flex items-center gap-2 px-4 pt-2.5 text-xs">
                 <span class="size-1.5 shrink-0 rounded-full" classList={{ "animate-pulse bg-accent": !notice().failed, "bg-danger": notice().failed }} />
