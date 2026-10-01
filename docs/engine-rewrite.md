@@ -520,7 +520,7 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   between, and a stale before state would put the wrong content into undo.
 - `POST /sessions/{id}/revert { messageId }` takes a prompt the user sent. It hides that prompt and
   everything after it (`session.revert.messageId`, the UI filters) and puts each file the hidden
-  turns changed, subagents included (ids are time-ordered, so calls sort across sessions), back to
+  turns changed, subagents included, back to
   its state before the first of those changes. Only if the file still holds what the session last
   wrote: anything changed since is kept, never overwritten, and listed (`kept`, shown as a notice).
   No other file is read or rewritten. Calling revert again moves the point: back undoes the range
@@ -533,6 +533,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   same way, so files and history never disagree. A retry then finds every file as the session left
   it, so none is wrongly reported as kept.
 - `POST /sessions/{id}/unrevert` redoes the hidden range the same way and clears the marker.
+- Calls are replayed in the order their writes finished: each record carries `at`, a time-ordered
+  stamp taken once the call's writes (and formatters) are done, so two workers that start in one
+  order and write in the other are still undone as they happened. Records made before `at` use
+  their message's id.
 - Changes to one path merge only while they chain: each change's `before` must equal the previous
   one's `after`. A gap means someone else edited the file between two of the session's writes;
   that path is kept and reported in both directions, since undoing to the first `before` (or

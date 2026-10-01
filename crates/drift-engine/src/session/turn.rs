@@ -1053,7 +1053,7 @@ impl Engine {
         let owner = &plan.session.workspace_id;
         match self.record_call(&plan.workspace, capture).await {
             Ok(recorded) => {
-                let mut changes = json!({ "changes": recorded.changes, "owner": owner });
+                let mut changes = json!({ "changes": recorded.changes, "owner": owner, "at": recorded.at });
                 if !recorded.unrecorded.is_empty() {
                     changes["unrecorded"] = json!(recorded.unrecorded);
                 }

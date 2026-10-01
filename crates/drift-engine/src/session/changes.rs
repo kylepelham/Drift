@@ -20,6 +20,8 @@ pub(super) enum Capture {
 pub(super) struct Recorded {
     pub changes: Vec<FileChange>,
     pub unrecorded: Vec<String>,
+    /// A time-ordered stamp taken once the call's writes are done: the order undo replays calls in.
+    pub at: String,
 }
 
 /// A call whose after state could not be recorded: what was done about it, in words for the model and the user.
@@ -53,8 +55,10 @@ impl Engine {
             Capture::Paths(paths) => Some(paths.clone()),
             Capture::Tree(_) => None,
         };
+        // Stamped where this call's writes have finished, not where its message began: two workers can start in one order and write in the other.
+        let at = crate::id::new("chg");
         let error = match self.capture_after(workspace, capture).await {
-            Ok(recorded) => return Ok(recorded),
+            Ok(recorded) => return Ok(Recorded { at, ..recorded }),
             Err(error) => error,
         };
         let Some(paths) = before else {
@@ -82,7 +86,7 @@ impl Engine {
                 let after = self.snapshots.take(workspace).await.map_err(|e| e.to_string())?;
                 let diff = self.snapshots.changes_between(workspace, &before, &after).await.map_err(|e| e.to_string())?;
                 let changes = diff.changes.into_iter().map(|change| FileChange { observed: true, ..change }).collect();
-                Ok(Recorded { changes, unrecorded: diff.unrecorded })
+                Ok(Recorded { changes, unrecorded: diff.unrecorded, ..Recorded::default() })
             }
             Capture::Paths(paths) => {
                 let mut changes = Vec::new();
@@ -92,7 +96,7 @@ impl Engine {
                         changes.push(FileChange { path, before, after, observed: false });
                     }
                 }
-                Ok(Recorded { changes, unrecorded: Vec::new() })
+                Ok(Recorded { changes, ..Recorded::default() })
             }
         }
     }

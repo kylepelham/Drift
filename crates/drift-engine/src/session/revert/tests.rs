@@ -96,6 +96,41 @@ async fn an_undo_that_fails_partway_puts_back_what_it_already_changed() {
     assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt").as_deref()), (Some("one"), Some("uno")));
 }
 
+#[tokio::test]
+async fn undo_follows_the_order_writes_finished_not_the_order_their_messages_began() {
+    let h = harness().await;
+    let ws = crate::tool::canonical(&h._dir.join("ws"));
+    h.engine.snapshots.bind(&h.session.workspace_id, &ws);
+    let mut blobs = Vec::new();
+    for content in ["ORIGINAL", "FROM_B", "FROM_A"] {
+        std::fs::write(ws.join("shared.txt"), content).unwrap();
+        blobs.push(h.engine.snapshots.record(&ws, "shared.txt").await.unwrap());
+    }
+    let model = crate::session::turn::tests::model();
+    let prompt = h.engine.store.admit_prompt(&h.session.id, &model, vec![Part::Text { text: "both".into() }], None).unwrap().message.id;
+    // A's message began first; B wrote first, then A wrote over what B left.
+    let (a, b) = (h.engine.store.create_reply(&h.session.id, &model, "build").unwrap(), h.engine.store.create_reply(&h.session.id, &model, "build").unwrap());
+    let (b_at, a_at) = (crate::id::new("chg"), crate::id::new("chg"));
+    let call = |at: &str, before: &Option<String>, after: &Option<String>| Part::ToolCall {
+        call_id: crate::id::new("call"),
+        name: "write".into(),
+        input: json!({}),
+        status: crate::session::types::ToolStatus::Done,
+        title: None,
+        output: None,
+        metadata: Some(json!({ "changes": [{ "path": "shared.txt", "before": before, "after": after }], "owner": h.session.workspace_id, "at": at })),
+        started_at: None,
+        finished_at: None,
+    };
+    h.engine.store.add_part(&a.id, &h.session.id, call(&a_at, &blobs[1], &blobs[2])).unwrap();
+    h.engine.store.add_part(&b.id, &h.session.id, call(&b_at, &blobs[0], &blobs[1])).unwrap();
+    let undone = h.engine.revert(&h.session.id, &prompt).await.unwrap();
+    assert!(undone.kept.is_empty(), "an unbroken chain of the session's own writes: {:?}", undone.kept);
+    assert_eq!(read(&h, "shared.txt").as_deref(), Some("ORIGINAL"));
+    h.engine.unrevert(&h.session.id).await.unwrap();
+    assert_eq!(read(&h, "shared.txt").as_deref(), Some("FROM_A"));
+}
+
 /// Makes every save of the session's undo point fail, as a database error would, until `allow` is called.
 fn refuse_marker(h: &Harness) {
     h.engine.store.lock().execute_batch("CREATE TRIGGER refuse_marker BEFORE UPDATE OF revert_json ON session BEGIN SELECT RAISE(FAIL, 'injected'); END;").unwrap();

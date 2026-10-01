@@ -178,17 +178,19 @@ impl Engine {
     }
 
     /// Per path, the state before its first change and after its last one in `[from, to)`, across the
-    /// session and its subagents. Ids are time-ordered, so sorting by them orders calls across sessions.
-    /// A path whose next change did not start where the previous one ended is `broken`.
+    /// session and its subagents, in the order the calls' writes finished (their `at` stamp; records
+    /// made before it fall back to their message's id). A path whose next change did not start where
+    /// the previous one ended is `broken`.
     fn net_changes(&self, session: &Session, from: &str, to: Option<&str>) -> Result<Vec<Net>, RevertError> {
         let mut calls: Vec<(String, String, String, Vec<FileChange>)> = Vec::new();
         for member in self.store.session_tree(&session.id)? {
             for message in self.store.transcript(&member)?.iter().filter(|m| m.info.id.as_str() >= from && to.is_none_or(|to| m.info.id.as_str() < to)) {
                 for row in &message.parts {
-                    if let Some((owner, changes)) = recorded_changes(&row.part) {
+                    if let Some(record) = recorded_changes(&row.part) {
                         // Recorded before changes named their owner: the session's workspace then and now.
-                        let owner = owner.unwrap_or_else(|| session.workspace_id.clone());
-                        calls.push((message.info.id.clone(), row.id.clone(), owner, changes));
+                        let owner = record.owner.unwrap_or_else(|| session.workspace_id.clone());
+                        let at = record.at.unwrap_or_else(|| message.info.id.clone());
+                        calls.push((stamp(&at).to_string(), row.id.clone(), owner, record.changes));
                     }
                 }
             }
@@ -228,11 +230,23 @@ fn is_prompt(message: &MessageWithParts) -> bool {
     message.info.role == Role::User && !message.parts.iter().any(|row| matches!(row.part, Part::Compaction { .. }))
 }
 
-/// A call's recorded changes and the workspace that owns their history, when the record says.
-fn recorded_changes(part: &Part) -> Option<(Option<String>, Vec<FileChange>)> {
+/// A call's recorded changes, with the workspace that owns their history and when its writes finished, when the record says.
+struct Record {
+    owner: Option<String>,
+    at: Option<String>,
+    changes: Vec<FileChange>,
+}
+
+fn recorded_changes(part: &Part) -> Option<Record> {
     let Part::ToolCall { metadata: Some(metadata), .. } = part else { return None };
     let changes = serde_json::from_value(metadata.get("changes")?.clone()).ok()?;
-    Some((metadata["owner"].as_str().map(str::to_string), changes))
+    let text = |key: &str| metadata[key].as_str().map(str::to_string);
+    Some(Record { owner: text("owner"), at: text("at"), changes })
+}
+
+/// An id's time-ordered part without its prefix, so a change stamp and a message id compare by time.
+fn stamp(id: &str) -> &str {
+    id.split_once('_').map_or(id, |(_, rest)| rest)
 }
 
 #[cfg(test)]
