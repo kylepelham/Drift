@@ -40,6 +40,7 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
         abort: Default::default(),
         engine: engine.clone(),
         config: Default::default(),
+        progress: Default::default(),
     };
     let echo = tools.iter().find(|t| t.spec().name == "echo_echo").unwrap();
     assert!(echo.ask(&ctx, &json!({})).is_none(), "read-only tools need no ask");
@@ -66,6 +67,7 @@ fn context(engine: &Arc<crate::Engine>) -> Context {
         abort: Default::default(),
         engine: engine.clone(),
         config: Default::default(),
+        progress: Default::default(),
     }
 }
 

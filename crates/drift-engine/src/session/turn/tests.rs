@@ -1252,6 +1252,36 @@ async fn workspace_config_shapes_the_turn() {
 }
 
 #[tokio::test]
+async fn a_running_command_shows_its_output_before_it_ends() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    let command = if cfg!(windows) { "echo early && ping -n 3 127.0.0.1 > /dev/null" } else { "echo early; sleep 2" };
+    let mut events = h.engine.hub.attach(None).rx;
+    h.provider.push(tool_call("bash", &json!({ "command": command }).to_string())).push(text("done"));
+    h.engine.submit(&h.session.id, prompt("run")).await.await_ok();
+    let shown = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let envelope = events.recv().await.unwrap();
+            if let Event::PartUpdated { part } = envelope.event {
+                if let Part::ToolCall { status: ToolStatus::Running, metadata: Some(metadata), .. } = part.part {
+                    if metadata["output"].as_str().is_some_and(|out| out.contains("early")) {
+                        return metadata;
+                    }
+                }
+            }
+        }
+    })
+    .await
+    .expect("the output so far is published while the command runs");
+    assert!(shown.get("shellTimeoutMs").is_some(), "running metadata is kept beside it");
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Done);
+    assert!(output.as_deref().unwrap().contains("early"));
+}
+
+#[tokio::test]
 async fn a_configured_formatter_runs_after_a_write() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });

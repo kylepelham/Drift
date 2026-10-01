@@ -66,6 +66,25 @@ pub struct Context {
     pub engine: Arc<crate::Engine>,
     /// The configuration the turn was admitted with; a call never reads a newer one.
     pub config: Arc<crate::config::Config>,
+    /// Shows what a running call has done so far on its part; unset outside a turn.
+    pub progress: Progress,
+}
+
+/// Metadata a running call publishes as it goes (a command's output so far). It is shown, never
+/// stored: the part's saved state is its result.
+#[derive(Clone, Default)]
+pub struct Progress(Option<Arc<dyn Fn(Value) + Send + Sync>>);
+
+impl Progress {
+    pub fn new(show: impl Fn(Value) + Send + Sync + 'static) -> Self {
+        Self(Some(Arc::new(show)))
+    }
+
+    pub fn show(&self, metadata: Value) {
+        if let Some(show) = &self.0 {
+            show(metadata);
+        }
+    }
 }
 
 impl Context {
@@ -382,6 +401,7 @@ pub(crate) mod tests {
             Self {
                 ctx: Context {
                     config: Arc::new(engine.workspace_config(&workspace)),
+                    progress: Default::default(),
                     workspace,
                     session_id: "ses_test".into(),
                     message_id: "msg_test".into(),
@@ -403,6 +423,7 @@ pub(crate) mod tests {
                 abort: self.ctx.abort.clone(),
                 engine: self.ctx.engine.clone(),
                 config: self.ctx.config.clone(),
+                progress: self.ctx.progress.clone(),
             }
         }
 

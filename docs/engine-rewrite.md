@@ -928,6 +928,10 @@ Settled after the first external review of M1; each has a regression test.
   `outputBytes` and `outputFile`. A timeout or Stop keeps what was printed; the shell tool handles
   Stop itself (`Tool::stops_itself`), so the turn awaits its result rather than dropping it, and the
   call ends `error` with `stopped` or `timedOut` in its metadata.
+- While a command runs, every 500 ms that it has printed more, its part is republished with
+  `metadata.output` = the output so far, bounded like the result (`Spool::so_far`), through the
+  call's `tool::Progress`. That is shown, never stored: the saved part is the result, and the UI
+  shows the result once the call ends, failed ones included.
 - Every tool result reaches the model within 64 KB (`tool::spool::MAX_RESULT_BYTES`). `read`
   pages within it by itself (whole lines, at least one per page, with the offset to continue from)
   and a directory listing shows 1,000 entries and counts the rest. Anything else past the bound

@@ -972,7 +972,7 @@ impl Engine {
 
     async fn run_call(self: &Arc<Self>, scope: &CallScope<'_>, mut row: PartRow) -> Outcome {
         let Part::ToolCall { call_id, name, input, .. } = row.part.clone() else { return Outcome::Allowed };
-        let ctx = Context {
+        let mut ctx = Context {
             workspace: scope.plan.workspace.clone(),
             session_id: scope.plan.session.id.clone(),
             message_id: scope.message.id.clone(),
@@ -981,6 +981,7 @@ impl Engine {
             abort: scope.abort.clone(),
             engine: self.clone(),
             config: scope.plan.config.clone(),
+            progress: Default::default(),
         };
         // Only what this turn was offered runs, as it was when offered.
         let Some(tool) = scope.plan.offer.tool(&name) else {
@@ -1016,6 +1017,7 @@ impl Engine {
             self.settle(&mut row, ToolStatus::Error, None, format!("refused to run: could not record the call ({error})"), None);
             return Outcome::Allowed;
         }
+        ctx.progress = self.progress_for(&row);
         let result = if tool.stops_itself() {
             tool.run(&ctx, input).await
         } else {
@@ -1110,6 +1112,20 @@ impl Engine {
             }
         }
         formatted
+    }
+
+    /// Publishes a running call's part with what it reports merged into its metadata; nothing is stored.
+    fn progress_for(self: &Arc<Self>, row: &PartRow) -> crate::tool::Progress {
+        let engine = Arc::downgrade(self);
+        let running = Mutex::new(row.clone());
+        crate::tool::Progress::new(move |patch| {
+            let Some(engine) = engine.upgrade() else { return };
+            let mut row = running.lock().unwrap();
+            if let Part::ToolCall { metadata, .. } = &mut row.part {
+                *metadata = merge(metadata.take().unwrap_or_default(), Some(patch));
+            }
+            engine.hub.publish(Event::PartUpdated { part: row.clone() });
+        })
     }
 
     /// Marks the call running in storage before it does anything; a call that cannot be recorded does not run.

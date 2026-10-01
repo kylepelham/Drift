@@ -716,10 +716,13 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
   const engine = useEngine()
   const state = () => props.part.state
   const shellCommand = () => (state().input as { command?: string }).command ?? ""
-  const shellOutput = () =>
-    state().status === "completed"
-      ? (state() as { output: string }).output
-      : ((toolMeta(props.part)?.output as string | undefined) ?? "")
+  // While running, the output so far rides on the part's metadata; once ended, the saved result is the output.
+  const shellOutput = () => {
+    const current = state()
+    if (current.status === "completed") return current.output
+    if (current.status === "error") return current.error
+    return (toolMeta(props.part)?.output as string | undefined) ?? ""
+  }
   const written = () => {
     if (props.part.tool !== "write") return null
     const input = state().input as { content?: string; filePath?: string }

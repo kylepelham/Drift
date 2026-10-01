@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use tokio::io::AsyncReadExt;
 
 use super::spool::{Spool, Spooled};
-use super::{command, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
+use super::{command, required_str, Ask, Context, Output, Progress, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
 
 /// Until the user's Settings value arrives.
@@ -135,7 +135,7 @@ impl Tool for Bash {
             let path = ctx.engine.data_dir.join("tool-output").join(&ctx.session_id).join(format!("{}.log", ctx.call_id));
             let mut spool = Spool::new(Some(path));
             let ended = {
-                let collecting = bounded(limit, collect(&mut child, &mut spool));
+                let collecting = bounded(limit, collect(&mut child, &mut spool, &ctx.progress));
                 tokio::select! {
                     ended = collecting => ended.unwrap_or(Ended::TimedOut),
                     () = ctx.abort.cancelled() => Ended::Stopped,
@@ -177,9 +177,11 @@ enum Ended {
 /// After the shell exits, output still in flight gets this long to arrive; a pipe open past it is
 /// held by a background process, which does not outlive the call.
 const DRAIN: Duration = Duration::from_millis(500);
+/// How often a running command's output so far is shown.
+const SHOW_EVERY: Duration = Duration::from_millis(500);
 
 /// Reads stdout and stderr into one spool in arrival order until both close and the shell exits.
-async fn collect(child: &mut tokio::process::Child, spool: &mut Spool) -> Ended {
+async fn collect(child: &mut tokio::process::Child, spool: &mut Spool, progress: &Progress) -> Ended {
     let (Some(mut stdout), Some(mut stderr)) = (child.stdout.take(), child.stderr.take()) else {
         return Ended::Failed("the shell's output was not captured".into());
     };
@@ -188,6 +190,8 @@ async fn collect(child: &mut tokio::process::Child, spool: &mut Spool) -> Ended 
     let mut exited: Option<i32> = None;
     let drain = tokio::time::sleep(Duration::MAX);
     tokio::pin!(drain);
+    let mut tick = tokio::time::interval(SHOW_EVERY);
+    let mut shown = 0;
     loop {
         if let (Some(code), false, false) = (exited, out_open, err_open) {
             return Ended::Exited { code, lingering: false };
@@ -200,6 +204,10 @@ async fn collect(child: &mut tokio::process::Child, spool: &mut Spool) -> Ended 
                 drain.as_mut().reset(tokio::time::Instant::now() + DRAIN);
             }
             () = &mut drain, if exited.is_some() => return Ended::Exited { code: exited.unwrap_or(-1), lingering: true },
+            _ = tick.tick(), if spool.total() != shown => {
+                shown = spool.total();
+                progress.show(json!({ "output": spool.so_far() }));
+            }
         }
     }
 }

@@ -83,6 +83,20 @@ impl Spool {
         }
     }
 
+    /// What has come so far, bounded like the result, for showing while the command still runs.
+    pub fn so_far(&self) -> String {
+        if self.head.is_empty() {
+            return String::from_utf8_lossy(&self.small).into_owned();
+        }
+        let tail: Vec<u8> = self.tail.iter().copied().collect();
+        let omitted = self.total - (self.head.len() + self.tail.len()) as u64;
+        format!("{}\n\n... {omitted} bytes so far not shown ...\n\n{}", String::from_utf8_lossy(&self.head), String::from_utf8_lossy(&tail))
+    }
+
+    pub fn total(&self) -> u64 {
+        self.total
+    }
+
     pub fn finish(mut self) -> Spooled {
         if self.head.is_empty() {
             return Spooled { text: String::from_utf8_lossy(&self.small).into_owned(), total: self.total, file: None };
