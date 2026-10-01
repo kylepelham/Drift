@@ -398,7 +398,7 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
         "google" => Provider::Gemini(override_url.as_deref().map_or_else(gemini::Gemini::default, gemini::Gemini::new)),
         "xai" => Provider::Compat(compat::Compat::new(&base("https://api.x.ai/v1"))),
         "zai" => Provider::Compat(compat::Compat::new(&base("https://api.z.ai/api/paas/v4"))),
-        "openrouter" => Provider::Compat(compat::Compat::new(&base("https://openrouter.ai/api/v1"))),
+        "openrouter" => Provider::Compat(compat::Compat::caching_claude(&base("https://openrouter.ai/api/v1"))),
         "lmstudio" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:1234/v1"))),
         "ollama" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:11434/v1"))),
         "amazon-bedrock" => Provider::Bedrock(bedrock::Bedrock::new(override_url)),

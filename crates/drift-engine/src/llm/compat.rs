@@ -14,11 +14,18 @@ pub struct Compat {
     base_url: String,
     client: reqwest::Client,
     pub timeouts: super::http::Timeouts,
+    /// The gateway passes Anthropic's per-block `cache_control` through to Claude (OpenRouter does).
+    claude_breakpoints: bool,
 }
 
 impl Compat {
     pub fn new(base_url: &str) -> Self {
-        Self { base_url: base_url.trim_end_matches('/').to_string(), client: super::http::client(), timeouts: super::http::Timeouts::default() }
+        Self { base_url: base_url.trim_end_matches('/').to_string(), client: super::http::client(), timeouts: super::http::Timeouts::default(), claude_breakpoints: false }
+    }
+
+    /// A gateway that forwards `cache_control` on content blocks to Claude models.
+    pub fn caching_claude(base_url: &str) -> Self {
+        Self { claude_breakpoints: true, ..Self::new(base_url) }
     }
 
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
@@ -27,7 +34,11 @@ impl Compat {
             Credential::OAuth { access, .. } => access.clone(),
             Credential::Ambient { .. } => return Err(Error::Unauthenticated),
         };
-        let sending = self.client.post(format!("{}/chat/completions", self.base_url)).bearer_auth(key).header("accept", "text/event-stream").json(&body(request));
+        let mut body = body(request);
+        if self.claude_breakpoints && is_claude(&request.model) {
+            mark_breakpoints(&mut body);
+        }
+        let sending = self.client.post(format!("{}/chat/completions", self.base_url)).bearer_auth(key).header("accept", "text/event-stream").json(&body);
         let response = super::http::send(sending, &self.timeouts).await?;
         let status = response.status();
         if !status.is_success() {
@@ -73,6 +84,27 @@ fn body(request: &Request) -> Value {
         body["temperature"] = json!(temperature);
     }
     body
+}
+
+/// OpenRouter names Claude `anthropic/...`, or `~anthropic/...` for its moving aliases.
+fn is_claude(model: &str) -> bool {
+    model.trim_start_matches('~').starts_with("anthropic/")
+}
+
+/// Claude's three explicit breakpoints, as the Anthropic adapter places them: the system prompt and the last two user messages.
+fn mark_breakpoints(body: &mut Value) {
+    let ephemeral = || json!({ "type": "ephemeral" });
+    let Some(messages) = body["messages"].as_array_mut() else { return };
+    if let Some(system) = messages.iter_mut().find(|m| m["role"] == "system") {
+        let text = system["content"].as_str().unwrap_or_default().to_string();
+        system["content"] = json!([{ "type": "text", "text": text, "cache_control": ephemeral() }]);
+    }
+    for user in messages.iter_mut().rev().filter(|m| m["role"] == "user").take(2) {
+        let last = user["content"].as_array_mut().and_then(|parts| parts.iter_mut().rev().find(|p| p["type"] == "text" && p["text"] != ""));
+        if let Some(part) = last {
+            part["cache_control"] = ephemeral();
+        }
+    }
 }
 
 /// Tool results are their own `tool` messages; everything else folds into one message per role.
@@ -237,8 +269,10 @@ impl StreamState {
 
 fn usage_from(usage: &Value) -> Usage {
     let count = |key: &str| usage[key].as_u64().unwrap_or(0);
-    let cache_read = usage["prompt_tokens_details"]["cached_tokens"].as_u64().unwrap_or(0);
-    Usage { input: count("prompt_tokens").saturating_sub(cache_read), output: count("completion_tokens"), cache_read, cache_write: 0 }
+    let details = &usage["prompt_tokens_details"];
+    let cache_read = details["cached_tokens"].as_u64().unwrap_or(0);
+    let cache_write = details["cache_write_tokens"].as_u64().unwrap_or(0);
+    Usage { input: count("prompt_tokens").saturating_sub(cache_read + cache_write), output: count("completion_tokens"), cache_read, cache_write }
 }
 
 #[cfg(test)]
@@ -303,6 +337,58 @@ mod tests {
         assert_eq!(feed(&mut state, r#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#), vec![]);
         assert_eq!(feed(&mut state, r#"{"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":20}}}"#), vec![]);
         assert_eq!(feed(&mut state, "[DONE]"), vec![Chunk::BlockStop, Chunk::Usage(Usage { input: 30, output: 7, cache_read: 20, cache_write: 0 }), Chunk::Stop(StopReason::ToolUse)]);
+    }
+
+    fn conversation(model: &str) -> Request {
+        let user = |text: &str| ChatMessage { role: Role::User, blocks: vec![Block::Text(text.into())] };
+        let assistant = ChatMessage { role: Role::Assistant, blocks: vec![Block::Text("ok".into())] };
+        Request { model: model.into(), messages: vec![user("one"), assistant.clone(), user("two"), assistant, user("three")], ..request() }
+    }
+
+    fn marked(body: &Value) -> Vec<String> {
+        let mut out = Vec::new();
+        for message in body["messages"].as_array().unwrap() {
+            for part in message["content"].as_array().into_iter().flatten().filter(|p| p.get("cache_control").is_some()) {
+                out.push(format!("{}:{}", message["role"].as_str().unwrap(), part["text"].as_str().unwrap()));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn claude_through_a_caching_gateway_gets_the_anthropic_breakpoints_and_nothing_else_does() {
+        let mut body = body(&conversation("anthropic/claude-sonnet-4.5"));
+        mark_breakpoints(&mut body);
+        assert_eq!(marked(&body), ["system:sys", "user:two", "user:three"]);
+        assert!(is_claude("~anthropic/claude-sonnet-latest") && !is_claude("openai/gpt-6"));
+        let usage = usage_from(&json!({ "prompt_tokens": 10_339, "completion_tokens": 60, "prompt_tokens_details": { "cached_tokens": 10_000, "cache_write_tokens": 300 } }));
+        assert_eq!(usage, Usage { input: 39, output: 60, cache_read: 10_000, cache_write: 300 });
+    }
+
+    /// A local OpenRouter: records the body it got and replies with cache-hit usage.
+    #[tokio::test]
+    async fn an_openrouter_exchange_sends_breakpoints_for_claude_only_and_reads_cache_usage() {
+        use axum::extract::State;
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let seen: std::sync::Arc<std::sync::Mutex<Vec<Value>>> = Default::default();
+        let handler = |State(seen): State<std::sync::Arc<std::sync::Mutex<Vec<Value>>>>, axum::Json(body): axum::Json<Value>| async move {
+            seen.lock().unwrap().push(body);
+            let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":900,\"completion_tokens\":2,\"prompt_tokens_details\":{\"cached_tokens\":800,\"cache_write_tokens\":0}}}\n\ndata: [DONE]\n\n";
+            ([("content-type", "text/event-stream")], sse)
+        };
+        let app = axum::Router::new().route("/chat/completions", axum::routing::post(handler)).with_state(seen.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let gateway = Compat::caching_claude(&url);
+        let key = Credential::ApiKey { key: "or-key".into() };
+        let chunks: Vec<Chunk> = gateway.stream(&conversation("anthropic/claude-sonnet-4.5"), &key).await.unwrap().map(Result::unwrap).collect().await;
+        assert!(chunks.contains(&Chunk::Usage(Usage { input: 100, output: 2, cache_read: 800, cache_write: 0 })));
+        gateway.stream(&conversation("openai/gpt-6"), &key).await.unwrap().map(Result::unwrap).collect::<Vec<_>>().await;
+        let seen = seen.lock().unwrap();
+        assert_eq!(marked(&seen[0]), ["system:sys", "user:two", "user:three"]);
+        assert!(marked(&seen[1]).is_empty(), "other vendors' models are sent as they were");
     }
 
     #[test]

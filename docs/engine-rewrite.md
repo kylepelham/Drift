@@ -729,13 +729,17 @@ these async criteria are new pending M3 work.
 - OpenAI caching is automatic, keyed by routing: every request of a conversation carries
   `prompt_cache_key` = the session id (API key and Codex routes alike, as Codex itself does), so
   its steps and turns stay on one cache. Title, compaction and handoff requests carry none.
-- OpenRouter is not covered. Its Chat Completions route caches Claude only with explicit
-  `cache_control`: a top-level `cache_control` for automatic caching, or per-block breakpoints
-  (at most four) on Anthropic-compatible upstreams (OpenRouter prompt-caching guide, checked
-  2026-09-30). The compat adapter sends neither. OpenRouter is not a catalog provider, so the route
-  cannot be selected yet; when it joins the catalog, the choice between the two forms should come
-  from its catalog entry and be verified with a recorded exchange before gateway caching counts as
-  done.
+- OpenRouter is a catalog provider (`openrouter`, from models.dev at the first refresh; the
+  bundled offline snapshot does not list it). Its Chat Completions route caches Claude only with
+  explicit `cache_control`: a top-level field for automatic caching, which OpenRouter supports only
+  for some upstreams, or per-block breakpoints (at most four), which it passes to every
+  Anthropic-compatible upstream, Bedrock and Vertex included (OpenRouter prompt-caching guide,
+  checked 2026-10-01). Drift uses the per-block form, placed as the Anthropic adapter places it:
+  the system prompt (sent as a text block) and the last text block of the last two user messages,
+  three breakpoints. It applies only to `anthropic/...` (and `~anthropic/...` alias) models on that
+  route (`Compat::caching_claude`); every other model and gateway is sent unchanged. Usage reads
+  `prompt_tokens_details.cached_tokens` and `cache_write_tokens`. Verified with a recorded exchange
+  against a local stand-in, not a live account.
 - Tool calls keep the order the model issued them in, but not one at a time: a run of consecutive
   read-only calls executes together, a mutating call waits for everything before it, and reads
   after it wait for it (see the M1 guarantees). Foreground `task` workers run within their parent's

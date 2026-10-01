@@ -13,12 +13,13 @@ const SOURCE_URL: &str = "https://models.dev/api.json";
 const CACHE_FILE: &str = "models.json";
 const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 const SMALL_MODEL_MIN_CONTEXT: u64 = 16_000;
-pub const PROVIDERS: [&str; 10] = [
+pub const PROVIDERS: [&str; 11] = [
     "anthropic",
     "openai",
     "google",
     "xai",
     "zai",
+    "openrouter",
     "amazon-bedrock",
     "google-vertex",
     "google-vertex-anthropic",
@@ -267,6 +268,17 @@ mod tests {
         for id in catalog.providers.keys() {
             assert!(PROVIDERS.contains(&id.as_str()), "{id}");
         }
+    }
+
+    #[test]
+    fn cloud_routes_offer_only_what_their_adapters_speak_and_openrouter_is_a_provider() {
+        let catalog = Catalog::bundled();
+        assert!(!catalog.providers["amazon-bedrock"].models.is_empty());
+        assert!(catalog.providers["amazon-bedrock"].models.values().all(|m| m.id.contains("anthropic.")));
+        assert!(catalog.providers["google-vertex"].models.values().all(|m| m.id.starts_with("claude") || m.id.starts_with("gemini")));
+        let raw = r#"{"openrouter":{"id":"openrouter","name":"OpenRouter","env":["OPENROUTER_API_KEY"],"api":"https://openrouter.ai/api/v1","models":{"anthropic/claude-sonnet-4.5":{"id":"anthropic/claude-sonnet-4.5","name":"Claude Sonnet 4.5","tool_call":true}}}}"#;
+        let parsed = Catalog::parse(raw).unwrap();
+        assert!(parsed.model("openrouter", "anthropic/claude-sonnet-4.5").is_some(), "selectable once the catalog lists it");
     }
 
     #[test]

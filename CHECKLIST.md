@@ -96,7 +96,7 @@ change the plan there when a decision changes.
   - [x] Shell-aware approvals: per-command decisions, no widening to the program name
   - [x] Secret files ask to be read inside the workspace, grep withholds them, examples exempt; `.git` and binaries skipped by search
   - [x] Anthropic conversation cache breakpoints (API key, subscription, Anthropic-dialect gateways)
-  - [ ] OpenRouter Claude caching: contract checked (top-level or per-block `cache_control`), route not selectable until OpenRouter is a catalog provider; verify with a recorded exchange
+  - [x] OpenRouter Claude caching: OpenRouter is a catalog provider; Claude models get per-block `cache_control` (system and the last two user messages) and cache usage is read; verified with a recorded exchange against a local stand-in
   - [x] SSE error classification and bounded, cancellable, `retry-after`-aware backoff
   - Review of items 1 to 6:
     - [x] Byte-exact shadow snapshots (attributes overridden, existing repos migrated)
