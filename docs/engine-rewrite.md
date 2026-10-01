@@ -1034,7 +1034,11 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   (project rules first, so they win), plus `.drift/agents/*.md`, `.drift/commands/*.md` and
   skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at both roots (project
   shadows home). `AGENTS.md` beats `CLAUDE.md`. `GET /workspaces/{id}/config` serves the
-  merged result. Front matter is `key: value` lines only.
+  merged result. Front matter is `key: value` lines only. `drift.json` may hold `//` and `/* */`
+  comments and trailing commas (`config::jsonc`). One that still cannot be parsed is named in
+  `Config.problems`, and every turn in that workspace refuses with 400 `config` until it is fixed,
+  because running without its rules would drop its denies; the UI shows the problem when the
+  workspace config loads.
 - **Agents.** `build` and `plan` are built in; `plan` gets only read-only tools and its
   prompt. A project agent of the same name replaces a built-in. A session's `agent` is set
   on create or `PATCH`; the agent's prompt is appended to the system prompt, its `tools`

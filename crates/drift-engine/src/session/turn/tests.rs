@@ -1214,6 +1214,15 @@ fn output_and_thinking_budgets_are_valid_together() {
 }
 
 #[tokio::test]
+async fn a_drift_json_that_cannot_be_read_stops_the_turn_instead_of_dropping_its_rules() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws").join("drift.json"), r#"{ "permissions": [ "#).unwrap();
+    let refused = h.engine.submit(&h.session.id, prompt("run")).await.err();
+    assert!(matches!(&refused, Some(TurnError::Config(problem)) if problem.contains("drift.json could not be read")), "{refused:?}");
+    assert!(h.engine.store.transcript(&h.session.id).unwrap().is_empty(), "nothing was admitted");
+}
+
+#[tokio::test]
 async fn workspace_config_shapes_the_turn() {
     let h = harness().await;
     let ws = h._dir.join("ws");

@@ -1,6 +1,7 @@
 //! What a workspace tells the engine: drift.json, agents, commands, skills and instruction files.
 
 mod frontmatter;
+mod jsonc;
 mod overrides;
 
 pub use overrides::{AgentOverride, ModelPin};
@@ -165,6 +166,9 @@ pub struct Config {
     pub formatters: BTreeMap<String, FormatterConfig>,
     pub limits: Limits,
     pub timeouts: BTreeMap<String, RouteTimeouts>,
+    /// Config files that could not be read; a turn refuses to start rather than run without their rules.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub problems: Vec<String>,
 }
 
 impl Config {
@@ -230,8 +234,15 @@ impl Config {
     }
 
     fn apply_file(&mut self, root: &Path) {
-        let Ok(text) = std::fs::read_to_string(root.join(FILE)) else { return };
-        let Ok(file) = serde_json::from_str::<File>(&text) else { return };
+        let path = root.join(FILE);
+        let Ok(text) = std::fs::read_to_string(&path) else { return };
+        let file = match serde_json::from_str::<File>(&jsonc::strip(&text)) {
+            Ok(file) => file,
+            Err(error) => {
+                self.problems.push(format!("{} could not be read ({error}), so none of its settings or permission rules apply; fix it to carry on", path.display()));
+                return;
+            }
+        };
         if file.model.is_some() {
             self.model = file.model;
         }
@@ -445,6 +456,20 @@ mod tests {
         assert!(!config.agent("explore").unwrap().tools.contains(&"edit".to_string()), "explore is read-only");
         assert!(config.agent("plan").unwrap().tools.contains(&"read".to_string()));
         assert!(config.commands.is_empty() && config.skills.is_empty() && config.instructions.is_empty());
+        std::fs::remove_dir_all(ws).ok();
+    }
+
+    #[test]
+    fn a_jsonc_drift_json_applies_and_a_broken_one_is_reported_not_ignored() {
+        let ws = std::env::temp_dir().join(format!("drift-config-jsonc-{}", crate::random_hex(4)));
+        write(&ws, "drift.json", "{\n  // never push\n  \"permissions\": [{ \"kind\": \"bash\", \"pattern\": \"git push*\", \"decision\": \"deny\", },],\n}");
+        let config = Config::load_with_home(&ws, None);
+        assert!(config.problems.is_empty(), "{:?}", config.problems);
+        assert_eq!(config.permissions.len(), 1);
+        write(&ws, "drift.json", r#"{ "permissions": [{ "kind": "bash" "pattern": "*" }] }"#);
+        let broken = Config::load_with_home(&ws, None);
+        assert!(broken.permissions.is_empty());
+        assert!(broken.problems[0].contains("drift.json could not be read") && broken.problems[0].contains("permission rules"), "{:?}", broken.problems);
         std::fs::remove_dir_all(ws).ok();
     }
 }

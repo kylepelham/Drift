@@ -733,6 +733,8 @@ export interface components {
             limits: components["schemas"]["Limits"];
             model?: components["schemas"]["ModelRef"] | null;
             permissions: components["schemas"]["Rule"][];
+            /** @description Config files that could not be read; a turn refuses to start rather than run without their rules. */
+            problems?: string[];
             skills: components["schemas"]["Skill"][];
             timeouts: {
                 [key: string]: components["schemas"]["RouteTimeouts"];

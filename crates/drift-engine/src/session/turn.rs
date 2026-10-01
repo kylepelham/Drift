@@ -93,6 +93,8 @@ pub enum TurnError {
     NoCredentials,
     /// The sign-in's token could not be renewed; carries the provider's reason.
     SignInExpired(String),
+    /// A config file could not be read, so its rules are unknown; says which and why.
+    Config(String),
     /// The session is not waiting to retry a failed request, so there is nothing to switch.
     NotRetrying,
     /// The session is undone back to a prompt; send a prompt or redo first.
@@ -120,6 +122,7 @@ impl std::fmt::Display for TurnError {
             Self::NoModel => write!(f, "no model selected"),
             Self::UnknownModel => write!(f, "model is not in the catalog"),
             Self::NoCredentials => write!(f, "provider has no credentials"),
+            Self::Config(problem) => write!(f, "{problem}"),
             Self::SignInExpired(reason) => write!(f, "the sign-in has expired and could not be renewed; sign in again under Settings > Providers ({reason})"),
             Self::NotRetrying => write!(f, "the session is not waiting to retry"),
             Self::Reverted => write!(f, "the session is undone; send a prompt or redo first"),
@@ -548,6 +551,9 @@ impl Engine {
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         let workspace_path = crate::tool::canonical(Path::new(&workspace.path));
         let config = self.workspace_config(&workspace_path);
+        if let Some(problem) = config.problems.first() {
+            return Err(TurnError::Config(problem.clone()));
+        }
         if let Some(agent) = &prompt.agent {
             pickable(&config, agent)?;
             session.agent = agent.clone();
