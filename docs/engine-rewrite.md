@@ -832,6 +832,9 @@ Settled after the first external review of M1; each has a regression test.
   (after a failed, stopped or cut-off reply) are closed as `error` with `Not run: <reason>`, never
   left `pending`, so the UI and the model's next request both see why. A call whose arguments did
   not parse as a JSON object fails before dispatch.
+- Gemini tool schemas are adapted, not rejected: `$schema`, `additionalProperties`, `default` and
+  `examples` keywords go (a parameter of that name stays), `type: [x, "null"]` becomes `type: x,
+  nullable: true`, enum values become strings, and `required` keeps only real properties.
 - A reply that stops at its output limit stays `done` but carries `error: "The reply stopped at the
   output limit (N tokens)."`, which the UI shows as `MessageOutputLengthError` with finish
   `length`. The turn ends there.

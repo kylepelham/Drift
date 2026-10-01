@@ -92,17 +92,48 @@ fn body(request: &Request) -> Value {
     body
 }
 
-/// Gemini's schema dialect rejects a few JSON Schema keywords; drop them rather than fail the call.
+/// Gemini's schema dialect rejects some JSON Schema keywords and shapes; adapt them rather than fail the call.
 fn schema(value: &Value) -> Value {
     match value {
-        Value::Object(map) => Value::Object(
-            map.iter()
+        Value::Object(map) => {
+            let mut out: serde_json::Map<String, Value> = map
+                .iter()
                 .filter(|(key, _)| !matches!(key.as_str(), "$schema" | "additionalProperties" | "default" | "examples"))
-                .map(|(key, value)| (key.clone(), schema(value)))
-                .collect(),
-        ),
+                .map(|(key, value)| (key.clone(), if key == "properties" { properties(value) } else { schema(value) }))
+                .collect();
+            adapt(&mut out);
+            Value::Object(out)
+        }
         Value::Array(items) => Value::Array(items.iter().map(schema).collect()),
         other => other.clone(),
+    }
+}
+
+/// A `properties` map's keys are parameter names, so one named `default` or `examples` stays.
+fn properties(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(map.iter().map(|(name, value)| (name.clone(), schema(value))).collect()),
+        other => schema(other),
+    }
+}
+
+/// `type: [x, "null"]` becomes `type: x, nullable: true`; enum values become strings; `required` names only real properties.
+fn adapt(map: &mut serde_json::Map<String, Value>) {
+    if let Some(Value::Array(types)) = map.get("type").cloned() {
+        let real: Vec<&Value> = types.iter().filter(|t| t.as_str() != Some("null")).collect();
+        if real.len() < types.len() {
+            map.insert("nullable".into(), Value::Bool(true));
+        }
+        map.insert("type".into(), real.first().map_or(Value::String("string".into()), |t| (*t).clone()));
+    }
+    if let Some(Value::Array(values)) = map.get("enum").cloned() {
+        let strings = values.iter().filter(|v| !v.is_null()).map(|v| Value::String(v.as_str().map_or_else(|| v.to_string(), str::to_string))).collect();
+        map.insert("enum".into(), Value::Array(strings));
+        map.insert("type".into(), Value::String("string".into()));
+    }
+    if let Some(Value::Array(required)) = map.get("required").cloned() {
+        let known = map.get("properties").and_then(Value::as_object).cloned().unwrap_or_default();
+        map.insert("required".into(), Value::Array(required.into_iter().filter(|name| name.as_str().is_some_and(|n| known.contains_key(n))).collect()));
     }
 }
 
@@ -285,6 +316,24 @@ mod tests {
         assert_eq!(contents[2]["parts"][0]["functionResponse"]["response"]["output"], "1: x");
         let declaration = &built["tools"][0]["functionDeclarations"][0];
         assert!(declaration["parameters"].get("additionalProperties").is_none());
+    }
+
+    #[test]
+    fn schemas_keep_parameters_named_like_keywords_and_take_gemini_shapes() {
+        let input = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "default": { "type": "string", "default": "x" },
+                "examples": { "type": ["integer", "null"], "examples": [1] },
+                "level": { "type": "integer", "enum": [1, 2] }
+            },
+            "required": ["default", "gone"]
+        });
+        let out = schema(&input);
+        assert_eq!(out["properties"]["default"], serde_json::json!({ "type": "string" }), "the parameter stays, its own default goes");
+        assert_eq!(out["properties"]["examples"], serde_json::json!({ "type": "integer", "nullable": true }));
+        assert_eq!(out["properties"]["level"], serde_json::json!({ "type": "string", "enum": ["1", "2"] }));
+        assert_eq!(out["required"], serde_json::json!(["default"]));
     }
 
     #[test]
