@@ -62,7 +62,9 @@ impl Tool for Edit {
             let ending = LineEnding::detect(&raw);
             let content = ending.normalise(&raw);
             let updated = replace(&content, &ending.normalise(old), &ending.normalise(new), replace_all)?;
-            super::stage::replace(&ctx.engine.store, &path, ending.apply(&updated).as_bytes()).await?;
+            let written = ending.apply(&updated);
+            super::fits_history(&name, written.len())?;
+            super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
             Ok(Output {
                 title: name.clone(),
                 output: diff(&name, &content, &updated),

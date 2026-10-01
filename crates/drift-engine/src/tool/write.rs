@@ -50,7 +50,9 @@ impl Tool for Write {
                 return Err(ToolError(format!("{name} exists and has not been read this session; read it before overwriting")));
             }
             let ending = existing.as_deref().map(LineEnding::detect).unwrap_or_default();
-            super::stage::replace(&ctx.engine.store, &path, ending.apply(content).as_bytes()).await?;
+            let written = ending.apply(content);
+            super::fits_history(&name, written.len())?;
+            super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
             ctx.files.mark_read(&path);
             let created = existing.is_none();
             let before = existing.unwrap_or_default();

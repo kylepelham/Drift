@@ -70,6 +70,9 @@ impl Tool for ApplyPatch {
                 plan.prepare(ctx, op, &path).await.map_err(|e| ToolError(format!("{name}: {}", e.0)))?;
                 plan.touched.push(name);
             }
+            for step in &plan.steps {
+                super::fits_history(&display(&step.path, &ctx.workspace), step.after.as_ref().map_or(0, Vec::len))?;
+            }
             plan.apply(&ctx.engine.store).await?;
             for step in plan.steps.iter().filter(|s| s.after.is_some()) {
                 ctx.files.mark_read(&step.path);

@@ -1000,6 +1000,23 @@ fn model_with(output: u64, reasoning: bool) -> crate::llm::catalog::Model {
 }
 
 #[tokio::test]
+async fn an_edit_that_would_grow_a_file_past_what_undo_keeps_is_refused_before_it_writes() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    let original = "x".repeat(50_000);
+    std::fs::write(h._dir.join("ws/big.txt"), &original).unwrap();
+    let edit = json!({ "path": "big.txt", "old_string": "x", "new_string": "y".repeat(256), "replace_all": true }).to_string();
+    h.provider.push(tool_call("read", r#"{"path": "big.txt"}"#)).push(tool_call("edit", &edit)).push(text("tried"));
+    h.engine.submit(&h.session.id, prompt("expand it")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(std::fs::read_to_string(h._dir.join("ws/big.txt")).unwrap(), original, "nothing was written");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[2].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error);
+    assert!(output.as_deref().unwrap().contains("over the 10 MB undo can keep"), "{output:?}");
+}
+
+#[tokio::test]
 async fn a_follow_up_naming_what_the_turn_already_runs_as_joins_it() {
     let h = harness().await;
     let with = |text: &str, agent: Option<&str>, variant: Option<Option<&str>>| Prompt { agent: agent.map(String::from), variant: variant.map(|v| v.map(String::from)), ..prompt(text) };

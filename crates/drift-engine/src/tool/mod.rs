@@ -326,6 +326,15 @@ fn required_str<'a>(input: &'a Value, key: &str) -> Result<&'a str, ToolError> {
         .ok_or_else(|| ToolError(format!("`{key}` is required")))
 }
 
+/// Refuses, before anything is written, a file too large for undo to keep: it could never be put back.
+fn fits_history(name: &str, bytes: usize) -> Result<(), ToolError> {
+    let limit = crate::session::snapshot::MAX_RECORDED_BYTES;
+    if bytes as u64 > limit {
+        return Err(ToolError(format!("{name} would be {} MB, over the {} MB undo can keep, so it was not written", bytes / 1024 / 1024, limit / 1024 / 1024)));
+    }
+    Ok(())
+}
+
 pub fn display(path: &Path, workspace: &Path) -> String {
     path.strip_prefix(workspace)
         .unwrap_or(path)

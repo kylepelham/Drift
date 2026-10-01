@@ -1035,16 +1035,9 @@ impl Engine {
             meta = merge(meta, Some(json!({ "resultFile": file.to_string_lossy() }))).unwrap_or_default();
         }
         // After formatting, and on failure too: a failed or stopped command may still have written.
-        let changes = match capture {
-            // `owner` names the workspace whose history holds these blobs, wherever it or the session moves.
-            Some(capture) => self.capture_after(&scope.plan.workspace, capture).await.ok().map(|recorded| {
-                let mut changes = json!({ "changes": recorded.changes, "owner": scope.plan.session.workspace_id });
-                if !recorded.unrecorded.is_empty() {
-                    changes["unrecorded"] = json!(recorded.unrecorded);
-                }
-                changes
-            }),
-            None => None,
+        let (status, text, changes) = match capture {
+            Some(capture) => self.history_of(scope.plan, capture, status, text).await,
+            None => (status, text, None),
         };
         // A result this call hands over is acknowledged in the write that saves it, if the call holds its claim.
         let claimant = Claimant::call(&scope.plan.session.id, &call_id);
@@ -1052,6 +1045,26 @@ impl Engine {
         self.settle_delivering(&mut row, status, title, text, merge(meta, changes), delivers.as_deref());
         self.release_claims(&claimant);
         if scope.abort.is_cancelled() { Outcome::Aborted } else { Outcome::Allowed }
+    }
+
+    /// The call's change record; one that could not be taken is said in its result, and a call whose files were put back fails.
+    async fn history_of(&self, plan: &Plan, capture: super::changes::Capture, status: ToolStatus, text: String) -> (ToolStatus, String, Option<serde_json::Value>) {
+        // `owner` names the workspace whose history holds these blobs, wherever it or the session moves.
+        let owner = &plan.session.workspace_id;
+        match self.record_call(&plan.workspace, capture).await {
+            Ok(recorded) => {
+                let mut changes = json!({ "changes": recorded.changes, "owner": owner });
+                if !recorded.unrecorded.is_empty() {
+                    changes["unrecorded"] = json!(recorded.unrecorded);
+                }
+                (status, text, Some(changes))
+            }
+            Err(lost) => {
+                let status = if lost.put_back { ToolStatus::Error } else { status };
+                let history = json!({ "changes": [], "owner": owner, "unrecorded": lost.unrecorded, "historyError": lost.note });
+                (status, format!("{text}\n\n{}", lost.note), Some(history))
+            }
+        }
     }
 
     /// Checks one of a call's asks. `None` lets the call go on; otherwise the call is settled as

@@ -501,6 +501,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   recorded with `observed: true`, and undo and redo never apply them; they are listed as
   `unattributed` and shown in their own notice. A path whose recorded history includes any observed
   change is left alone as a whole. A call whose files cannot be recorded does not run.
+- A record that fails after the call (`record_call`) is never dropped. For a file tool the named
+  files go back to their recorded before state, the call fails, and its result says so; any file
+  that could not be put back is listed in `metadata.unrecorded` with the reason in
+  `metadata.historyError`. A shell command's tree cannot be put back, so its result and
+  `historyError` say undo cannot restore what it changed.
 - The shadow repo stores exact bytes. Its `info/attributes` (which outranks every in-tree
   `.gitattributes`) unsets `text`, `eol`, `filter`, `ident` and `working-tree-encoding`, so a CRLF
   file under `* text=auto` or a file with a clean filter is stored as it is on disk and compares
@@ -539,8 +544,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   moved from A to B undoes A's files in A with A's history; a workspace pointed at a new directory
   keeps its history there. Records older than `owner` use the session's workspace; a change whose
   workspace no longer exists is kept and reported.
-- Files over 10 MB are never copied into it: a file tool refuses to change one, since the change
-  could not be undone, and tree captures leave them out through the shadow repo's own exclude file
+- Files over 10 MB are never copied into it: a file tool refuses to change one, or to write
+  content that would make one (`edit`, `write` and `apply_patch` check the prepared bytes before
+  anything changes), since the change could not be undone, and tree captures leave them out through the shadow repo's own exclude file
   (the workspace's `.gitignore` is untouched). Exclusion only stops untracked files, so each capture
   also removes oversized paths from the shadow index before adding: a file recorded while small that
   grows past the limit never enters the object store. Each capture carries the oversized paths it
