@@ -55,21 +55,54 @@ pub fn target() -> Result<Target, Error> {
     Ok(Target { project, location })
 }
 
-static CACHE: Mutex<Option<(PathBuf, String, i64)>> = Mutex::new(None);
-
-/// A current access token, minted again only near its expiry or when the credentials file changes.
-pub async fn token(client: &reqwest::Client) -> Result<String, Error> {
-    token_from(client, credentials_file().ok_or(Error::Unauthenticated)?).await
+/// A token, a hash of the credentials it came from, and when it expires; kept per credentials path.
+struct Cached {
+    contents: String,
+    token: String,
+    expires: i64,
 }
 
-async fn token_from(client: &reqwest::Client, path: PathBuf) -> Result<String, Error> {
-    let now = crate::id::now_ms() / 1000;
-    if let Some((cached, token, expires)) = CACHE.lock().unwrap().clone() {
-        if cached == path && now < expires - EARLY_SECONDS {
-            return Ok(token);
-        }
+static CACHE: Mutex<Option<std::collections::HashMap<PathBuf, Cached>>> = Mutex::new(None);
+/// One exchange at a time: requests that need a token while one is being minted wait for it.
+static MINTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// A current access token, minted again only near its expiry or when the credentials (path or contents) change.
+pub async fn token(client: &reqwest::Client, timeouts: &super::http::Timeouts) -> Result<String, Error> {
+    token_from(client, credentials_file().ok_or(Error::Unauthenticated)?, timeouts).await
+}
+
+async fn token_from(client: &reqwest::Client, path: PathBuf, timeouts: &super::http::Timeouts) -> Result<String, Error> {
+    let text = std::fs::read_to_string(&path).map_err(|e| Error::Malformed(format!("{}: {e}", path.display())))?;
+    let contents = hex_digest(&text);
+    if let Some(token) = cached(&path, &contents) {
+        return Ok(token);
     }
-    let file = read(&path)?;
+    let _minting = MINTING.lock().await;
+    // Another request may have minted it while this one waited.
+    if let Some(token) = cached(&path, &contents) {
+        return Ok(token);
+    }
+    let file: Value = serde_json::from_str(&text).map_err(|e| Error::Malformed(format!("{}: {e}", path.display())))?;
+    let (token, lifetime) = exchange(client, &file, timeouts).await?;
+    let expires = crate::id::now_ms() / 1000 + lifetime;
+    CACHE.lock().unwrap().get_or_insert_with(Default::default).insert(path, Cached { contents, token: token.clone(), expires });
+    Ok(token)
+}
+
+/// The cached token if it came from these exact credentials and is not about to expire.
+fn cached(path: &PathBuf, contents: &str) -> Option<String> {
+    let now = crate::id::now_ms() / 1000;
+    let cache = CACHE.lock().unwrap();
+    cache.as_ref()?.get(path).filter(|c| c.contents == contents && now < c.expires - EARLY_SECONDS).map(|c| c.token.clone())
+}
+
+fn hex_digest(text: &str) -> String {
+    ring::digest::digest(&ring::digest::SHA256, text.as_bytes()).as_ref().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Trades the credentials for a token and its lifetime in seconds, within the route's time limits.
+async fn exchange(client: &reqwest::Client, file: &Value, timeouts: &super::http::Timeouts) -> Result<(String, i64), Error> {
+    let now = crate::id::now_ms() / 1000;
     let form = match file["type"].as_str() {
         Some("service_account") => vec![("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string()), ("assertion", assertion(&file, now)?)],
         Some("authorized_user") => vec![
@@ -83,16 +116,26 @@ async fn token_from(client: &reqwest::Client, path: PathBuf) -> Result<String, E
     let url = file["token_uri"].as_str().unwrap_or(TOKEN_URL);
     let encoded = form.iter().map(|(key, value)| format!("{key}={}", percent_encoding::utf8_percent_encode(value, percent_encoding::NON_ALPHANUMERIC))).collect::<Vec<_>>().join("&");
     let sending = client.post(url).header("content-type", "application/x-www-form-urlencoded").body(encoded);
-    let response = sending.send().await.map_err(|e| Error::Transport(e.to_string()))?;
-    let status = response.status();
-    let body: Value = response.json().await.map_err(|e| Error::Transport(e.to_string()))?;
-    if !status.is_success() {
-        return Err(Error::Unauthenticated);
+    let response = super::http::send(sending, timeouts).await?;
+    let status = response.status().as_u16();
+    let headers = response.headers().clone();
+    let body: Value = serde_json::from_str(&super::http::bounded_body(response, timeouts).await).unwrap_or_default();
+    if !(200..300).contains(&status) {
+        return Err(token_error(status, &body).with_headers(&headers));
     }
-    let token = body["access_token"].as_str().ok_or(Error::Unauthenticated)?.to_string();
-    let expires = now + body["expires_in"].as_i64().unwrap_or(3600);
-    *CACHE.lock().unwrap() = Some((path, token.clone(), expires));
-    Ok(token)
+    let token = body["access_token"].as_str().ok_or_else(|| Error::Malformed("the token response had no access_token".into()))?.to_string();
+    Ok((token, body["expires_in"].as_i64().unwrap_or(3600)))
+}
+
+/// Credentials Google refuses are unauthenticated; its own trouble (rate limits, server faults) is worth retrying.
+fn token_error(status: u16, body: &Value) -> Error {
+    let kind = body["error"].as_str().unwrap_or("token_exchange_failed");
+    let message = body["error_description"].as_str().unwrap_or(kind);
+    let refused = ["invalid_grant", "invalid_client", "unauthorized_client", "invalid_scope"].contains(&kind);
+    if refused || matches!(status, 401 | 403) {
+        return Error::Unauthenticated;
+    }
+    Error::api(status, kind, format!("Google token exchange: {message}"))
 }
 
 fn text(file: &Value, key: &str) -> Result<String, Error> {
@@ -140,27 +183,76 @@ mod tests {
         assert_eq!(base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[2]).unwrap().len(), 256, "a 2048-bit signature");
     }
 
-    #[tokio::test]
-    async fn adc_user_credentials_are_exchanged_once_and_the_token_is_reused() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use crate::llm::http::Timeouts;
+
+    /// A local token endpoint answering every exchange with `status` and `body` after `delay`; returns its URL and call count.
+    async fn endpoint(status: u16, body: Value, headers: Vec<(&'static str, &'static str)>, delay: Duration) -> (String, Arc<AtomicUsize>) {
         use axum::extract::State;
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let handler = |State(calls): State<std::sync::Arc<std::sync::atomic::AtomicUsize>>, body: String| async move {
-            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            assert!(body.contains("grant_type=refresh%5Ftoken") || body.contains("grant_type=refresh_token"), "{body}");
-            axum::Json(json!({ "access_token": "ya29.test", "expires_in": 3599 }))
+        let calls = Arc::new(AtomicUsize::new(0));
+        let handler = move |State(calls): State<Arc<AtomicUsize>>, form: String| {
+            let (body, headers) = (body.clone(), headers.clone());
+            async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                assert!(form.contains("grant_type="), "{form}");
+                tokio::time::sleep(delay).await;
+                let mut response = axum::response::IntoResponse::into_response((axum::http::StatusCode::from_u16(status).unwrap(), axum::Json(body)));
+                for (name, value) in headers {
+                    response.headers_mut().insert(name, value.parse().unwrap());
+                }
+                response
+            }
         };
         let app = axum::Router::new().route("/token", axum::routing::post(handler)).with_state(calls.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/token", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (url, calls)
+    }
+
+    fn user_file(url: &str, refresh: &str) -> PathBuf {
         let file = std::env::temp_dir().join(format!("drift-adc-{}.json", crate::random_hex(4)));
-        std::fs::write(&file, json!({ "type": "authorized_user", "client_id": "id", "client_secret": "s", "refresh_token": "r", "token_uri": url }).to_string()).unwrap();
+        write_user(&file, url, refresh);
+        file
+    }
+
+    fn write_user(file: &PathBuf, url: &str, refresh: &str) {
+        std::fs::write(file, json!({ "type": "authorized_user", "client_id": "id", "client_secret": "s", "refresh_token": refresh, "token_uri": url }).to_string()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn one_exchange_serves_concurrent_requests_until_the_credentials_change() {
+        let (url, calls) = endpoint(200, json!({ "access_token": "ya29.test", "expires_in": 3599 }), vec![], Duration::from_millis(150)).await;
+        let file = user_file(&url, "r1");
         let client = crate::llm::http::client();
-        assert_eq!(token_from(&client, file.clone()).await.unwrap(), "ya29.test");
-        assert_eq!(token_from(&client, file.clone()).await.unwrap(), "ya29.test");
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "cached until near its expiry");
+        let limits = Timeouts::default();
+        let all = futures_util::future::join_all((0..5).map(|_| token_from(&client, file.clone(), &limits))).await;
+        assert!(all.iter().all(|t| t.as_deref().ok() == Some("ya29.test")));
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "concurrent requests wait for the one exchange");
+        token_from(&client, file.clone(), &Timeouts::default()).await.unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "cached until near its expiry");
+        write_user(&file, &url, "r2");
+        token_from(&client, file.clone(), &Timeouts::default()).await.unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "new contents at the same path are new credentials");
         let _ = std::fs::remove_file(file);
+    }
+
+    #[tokio::test]
+    async fn refused_credentials_and_googles_own_trouble_are_told_apart() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let client = crate::llm::http::client();
+        let (url, _) = endpoint(400, json!({ "error": "invalid_grant", "error_description": "Token has been expired or revoked." }), vec![], Duration::ZERO).await;
+        assert!(matches!(token_from(&client, user_file(&url, "r"), &Timeouts::default()).await, Err(Error::Unauthenticated)));
+        let (url, _) = endpoint(503, json!({ "error": "backend_error" }), vec![("retry-after", "7")], Duration::ZERO).await;
+        let busy = token_from(&client, user_file(&url, "r"), &Timeouts::default()).await.unwrap_err();
+        assert!(matches!(busy, Error::Api { status: 503, retryable: true, retry_after: Some(wait), .. } if wait == Duration::from_secs(7)), "{busy:?}");
+        let (url, _) = endpoint(200, json!({ "access_token": "late" }), vec![], Duration::from_secs(5)).await;
+        let quick = Timeouts { headers: Duration::from_millis(200), idle: Duration::from_secs(1) };
+        assert!(matches!(token_from(&client, user_file(&url, "r"), &quick).await, Err(Error::Transport(_))), "bounded by the route's time limit");
     }
 
     #[test]

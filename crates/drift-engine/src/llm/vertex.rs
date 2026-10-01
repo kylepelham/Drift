@@ -20,7 +20,7 @@ impl Vertex {
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
         let token = match credential {
             Credential::OAuth { access, .. } | Credential::ApiKey { key: access } => access.clone(),
-            Credential::Ambient { .. } => google::token(&self.client).await?,
+            Credential::Ambient { .. } => google::token(&self.client, &self.timeouts).await?,
         };
         self.send(request, &token, &google::target()?).await
     }

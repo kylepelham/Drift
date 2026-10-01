@@ -401,7 +401,12 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   offered. SSO, `credential_process` and instance metadata are not read.
 - Vertex: `GOOGLE_APPLICATION_CREDENTIALS`, else gcloud's application-default file. A service
   account key signs an RS256 assertion (ring) for a cloud-platform token; user credentials refresh
-  theirs. The token is cached until five minutes before it expires. Project:
+  theirs. The token is cached per credentials path and a hash of the file's contents, until five
+  minutes before it expires, so rewritten credentials at the same path mint a new one. One exchange
+  runs at a time; requests arriving meanwhile wait for it and use its token. The exchange is bounded
+  by the route's time limits and its body read is bounded; refused credentials (`invalid_grant`,
+  `invalid_client`, 401, 403) are unauthenticated, while Google's own trouble (429, 5xx) is a
+  retryable error that keeps its `retry-after`. Project:
   `GOOGLE_VERTEX_PROJECT`, `GOOGLE_CLOUD_PROJECT`, then the file's `project_id` or
   `quota_project_id`; location: `GOOGLE_VERTEX_LOCATION`, `GOOGLE_CLOUD_LOCATION`, else `global`
   (whose host has no region). Claude models go to Anthropic's publisher (`streamRawPredict`, body
