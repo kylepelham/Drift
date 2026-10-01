@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import type { components } from "../src/engine/native/types"
 import { registryConfig, registryServerName } from "../src/mcp-registry"
-import { mcpConfigFromForm, mcpFormState, mcpRemoteUrlAllowed } from "../src/state/mcp-form"
+import { mcpConfigFromForm, mcpFormState, mcpRemoteUrlAllowed, updatePair } from "../src/state/mcp-form"
 
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
@@ -11,20 +11,24 @@ if (!("localStorage" in globalThis))
 
 type McpServer = components["schemas"]["ServerStatus"]
 
-function server(name: string, state: McpServer["state"], config: McpServer["config"] = { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"] }): McpServer {
-  return { name, config, enabled: true, updatedAt: 1, state, tools: [] }
+function server(name: string, state: McpServer["state"], config: McpServer["config"] = { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] }, hash = "h1"): McpServer {
+  return { name, config, enabled: true, hash, approved: state !== "needs_approval", updatedAt: 1, state, tools: [] }
 }
 
-test("the editor round-trips exactly the engine's config, nothing it cannot run", () => {
-  const stdio = { type: "stdio" as const, command: "npx", args: ["-y", "pkg@1.0.0"], env: { TOKEN: "abc" } }
-  expect(mcpConfigFromForm(mcpFormState(stdio))).toEqual({ config: stdio })
-  const http = { type: "http" as const, url: "https://example.com/mcp", headers: { Authorization: "Bearer x" } }
-  expect(mcpConfigFromForm(mcpFormState(http))).toEqual({ config: http })
+test("the editor never holds a saved secret: untouched ones are kept by name, typed ones replace them", () => {
+  const form = mcpFormState({ type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: ["TOKEN", "MODE"] })
+  expect(form.environment.every((pair) => pair.value === "" && pair.saved)).toBeTrue()
+  const typed = { ...form, environment: updatePair(form.environment, 1, { value: "fast" }) }
+  expect(mcpConfigFromForm(typed)).toEqual({ config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: { TOKEN: null, MODE: "fast" } } })
+  const renamed = { ...form, environment: updatePair(form.environment, 0, { key: "API_TOKEN", value: "new" }) }
+  expect(renamed.environment[0].saved).toBeFalse()
+  const http = mcpFormState({ type: "http", url: "https://example.com/mcp", headers: ["Authorization"] })
+  expect(mcpConfigFromForm(http)).toEqual({ config: { type: "http", url: "https://example.com/mcp", headers: { Authorization: null } } })
   expect(mcpConfigFromForm(mcpFormState())).toEqual({ issue: "commandRequired" })
 })
 
 test("the editor validates URLs and pairs", () => {
-  const http = mcpFormState({ type: "http", url: "" })
+  const http = mcpFormState({ type: "http", url: "", headers: [] })
   expect(mcpConfigFromForm(http)).toEqual({ issue: "urlRequired" })
   expect(mcpConfigFromForm({ ...http, url: "ftp://example.com" })).toEqual({ issue: "urlInvalid" })
   const duplicate = [
@@ -91,8 +95,9 @@ test("approval prompts list servers awaiting approval and change key when the de
   const targets = mcpPromptTargets({ docs: server("docs", "connected"), files: pending })
   expect(targets.map((target) => target.name)).toEqual(["files"])
   expect(mcpCommandLine(pending)).toBe("npx -y pkg@1.0.0")
-  const changed = server("files", "needs_approval", { type: "stdio", command: "node", args: [] })
+  const changed = server("files", "needs_approval", { type: "stdio", command: "node", args: [], env: [] }, "h2")
   expect(mcpPromptKey(changed)).not.toBe(mcpPromptKey(pending))
+  expect(mcpPromptKey(pending)).toBe("files:h1")
 })
 
 test("rows offer connect or disconnect only where the engine can do it", async () => {

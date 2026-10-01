@@ -1,7 +1,7 @@
 import { createSignal, Index, onCleanup, onMount, Show, type JSX, type Setter } from "solid-js"
 import { Portal } from "solid-js/web"
-import type { McpServerConfig } from "../../engine/store"
-import { mcpConfigFromForm, mcpFormState, type McpFormState, type McpPair } from "../../state/mcp-form"
+import type { McpServerConfig, McpServerConfigView } from "../../engine/store"
+import { mcpConfigFromForm, mcpFormState, updatePair, type McpFormState, type McpPair } from "../../state/mcp-form"
 import { t } from "../../state/i18n"
 import { IconPlus, IconX } from "../icons"
 import { activateModal, closeOnBackdropPointerDown } from "../modal"
@@ -10,7 +10,7 @@ import { activateModal, closeOnBackdropPointerDown } from "../modal"
 export const mcpServerName = /^[A-Za-z0-9_-]{1,128}$/
 
 export function McpEditor(props: {
-  server?: { name: string; config: McpServerConfig }
+  server?: { name: string; config: McpServerConfigView }
   pending: boolean
   onClose: () => void
   onSave: (name: string, config: McpServerConfig) => Promise<void>
@@ -185,10 +185,13 @@ function PairFields(props: { label: string; pairs: McpPair[]; onChange: (pairs: 
                 placeholder="NAME"
                 mono
               />
+              {/* Values are often keys or tokens: masked while typed, and a saved one is never shown at all. */}
               <TextInput
+                type="password"
                 value={pair().value}
                 onInput={(value) => props.onChange(updatePair(props.pairs, index, { value }))}
                 label={t("drift.mcp.form.value")}
+                placeholder={pair().saved ? t("drift.mcp.form.savedValue") : undefined}
                 mono
               />
               <button
@@ -205,10 +208,6 @@ function PairFields(props: { label: string; pairs: McpPair[]; onChange: (pairs: 
       </div>
     </Field>
   )
-}
-
-function updatePair(pairs: McpPair[], index: number, patch: Partial<McpPair>) {
-  return pairs.map((pair, item) => (item === index ? { ...pair, ...patch } : pair))
 }
 
 function Field(props: { label: string; required?: boolean; children: JSX.Element }) {

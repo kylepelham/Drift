@@ -56,7 +56,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Saving a changed config disconnects the server and withdraws approval until the user approves it again. */
+        /** Saving a changed config disconnects the server and withdraws approval; env and header values sent as null keep the saved ones. */
         put: operations["saveMcpServer"];
         post?: never;
         delete: operations["removeMcpServer"];
@@ -74,7 +74,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Approves the config exactly as stored now, then connects. */
+        /** Approves the config exactly as stored now, then connects. With `hash`, only if that is still what is stored. */
         post: operations["approveMcpServer"];
         delete?: never;
         options?: never;
@@ -124,6 +124,23 @@ export interface paths {
         get?: never;
         put: operations["setMcpServerEnabled"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp/{name}/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Renames a server, approval and saved secrets included. 409 if the new name is taken: nothing is replaced. */
+        post: operations["renameMcpServer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1180,6 +1197,9 @@ export interface components {
             message: components["schemas"]["Message"];
             session: components["schemas"]["Session"];
         };
+        RenameBody: {
+            to: string;
+        };
         /** @enum {string} */
         Reply: "once" | "always" | "deny" | "stop";
         ReplyBody: {
@@ -1225,34 +1245,52 @@ export interface components {
             kind: string;
             pattern: string;
         };
-        ServerConfig: {
+        /** @description A config as a client sends it. A `null` value keeps the one saved under that name, so a secret can be kept without being read. */
+        ServerConfigInput: {
             args?: string[];
             command: string;
             env?: {
-                [key: string]: string;
+                [key: string]: string | null;
             };
             /** @enum {string} */
             type: "stdio";
         } | {
             headers?: {
-                [key: string]: string;
+                [key: string]: string | null;
             };
             /** @enum {string} */
             type: "http";
             url: string;
         };
-        ServerRow: {
-            approvedHash?: string | null;
-            config: components["schemas"]["ServerConfig"];
-            enabled: boolean;
-            name: string;
-            /** Format: int64 */
-            updatedAt: number;
+        ServerConfigView: {
+            args: string[];
+            command: string;
+            /** @description Names only. */
+            env: string[];
+            /** @enum {string} */
+            type: "stdio";
+        } | {
+            /** @description Names only. */
+            headers: string[];
+            /** @enum {string} */
+            type: "http";
+            url: string;
         };
-        ServerStatus: components["schemas"]["ServerRow"] & {
+        ServerStatus: components["schemas"]["ServerView"] & {
             error?: string | null;
             state: components["schemas"]["State"];
             tools: components["schemas"]["ToolInfo"][];
+        };
+        /** @description A server as clients see it: every field but the values of its env vars and headers. */
+        ServerView: {
+            approved: boolean;
+            config: components["schemas"]["ServerConfigView"];
+            enabled: boolean;
+            /** @description The saved config's identity: an approval that names it is refused once the config changes. */
+            hash: string;
+            name: string;
+            /** Format: int64 */
+            updatedAt: number;
         };
         Session: {
             agent: string;
@@ -1434,7 +1472,10 @@ export interface operations {
     };
     saveMcpServer: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Adding a server: refused with 409 if one has the name, rather than replacing it. */
+                create?: boolean;
+            };
             header?: never;
             path: {
                 name: string;
@@ -1443,7 +1484,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ServerConfig"];
+                "application/json": components["schemas"]["ServerConfigInput"];
             };
         };
         responses: {
@@ -1454,6 +1495,18 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ServerStatus"];
                 };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -1484,7 +1537,10 @@ export interface operations {
     };
     approveMcpServer: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The `hash` the user reviewed; 409 if the saved config has changed since. */
+                hash?: string | null;
+            };
             header?: never;
             path: {
                 name: string;
@@ -1502,6 +1558,12 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1587,6 +1649,43 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    renameMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameBody"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

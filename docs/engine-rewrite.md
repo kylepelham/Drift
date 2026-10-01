@@ -1132,6 +1132,19 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   family prompts read-only under a notice saying they are not applied, offers no save, and keeps
   Reset only to clear an override stored before. The shell still records `family:*` for the
   frozen opencode plugins; nothing native reads it.
+- MCP env and header values are secrets: they go into the engine and never come out. `/mcp`
+  and `mcp.updated` carry a `ServerView` with the names only, plus the saved config's `hash`. A
+  save sends a `ServerConfigInput` in which a `null` value keeps the one saved under that name
+  (400 `secret` when nothing is saved under it), so the editor shows saved values as empty
+  masked fields and never holds one. Adding uses `?create=true` and is 409 `taken` rather than
+  replacing a server of that name. Renaming is `POST /mcp/{name}/rename {to}`: one store step
+  under the lifecycle lock that keeps approval and secrets, closes the old name's slot as a
+  remove would (its tools are named after it), and is 409 `taken` if the new name exists. An
+  approval may name the `hash` the user reviewed (`?hash=`) and is 409 `changed` if the config
+  moved since. The approval toast keys on name and hash, never the config.
+- A captured MCP tool runs on a reconnected server only if that server still defines the tool
+  exactly as the turn was given it; a server that came back with the tool redefined (say, no
+  longer read-only) is refused for that call, and the next turn sees the new definition.
 - MCP management has one authority, the engine. The manager, the registry installer and the
   approval toast read `state.mcpServers` (loaded on hydrate, kept current by `mcp.updated` and
   `mcp.removed`) and change servers only through `/mcp`: save (a rename saves the new name, then

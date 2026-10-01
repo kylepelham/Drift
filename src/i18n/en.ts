@@ -271,6 +271,7 @@ export const dict = {
   "drift.mcp.form.url": "URL",
   "drift.mcp.form.headers": "Headers",
   "drift.mcp.form.key": "Name",
+  "drift.mcp.form.savedValue": "Saved; type to replace",
   "drift.mcp.form.value": "Value",
   "drift.mcp.form.addPair": "Add entry",
   "drift.mcp.form.removePair": "Remove entry",

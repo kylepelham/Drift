@@ -10,8 +10,8 @@ import type {
   ToolPart,
 } from "@opencode-ai/sdk/client"
 import { createStore, produce, type SetStoreFunction } from "solid-js/store"
-import type { McpServerConfig, McpServerStatus, TaskRecord } from "./native/client"
-export type { McpServerConfig, McpServerStatus, TaskRecord }
+import type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord } from "./native/client"
+export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord }
 export type Connection = "idle" | "connecting" | "online" | "offline"
 
 export type ModelInfo = Model & { family?: string; release_date?: string; variants?: Record<string, unknown> }

@@ -54,6 +54,25 @@ impl Store {
         let changed = self.lock().prepare_cached("DELETE FROM mcp_config WHERE name = ?1")?.execute([name])?;
         Ok(changed > 0)
     }
+
+    /// Renames `from` to `to`, approval and all, unless `to` is taken; `None` when `from` does not exist.
+    pub fn rename_mcp_server(&self, from: &str, to: &str) -> rusqlite::Result<Option<Renamed>> {
+        let conn = self.lock();
+        if conn.prepare_cached("SELECT 1 FROM mcp_config WHERE name = ?1")?.exists([to])? {
+            return Ok(Some(Renamed::Taken));
+        }
+        if conn.prepare_cached("UPDATE mcp_config SET name = ?2, updated_at = ?3 WHERE name = ?1")?.execute(params![from, to, id::now_ms()])? == 0 {
+            return Ok(None);
+        }
+        let row = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([to], map_row)?;
+        Ok(Some(Renamed::To(row)))
+    }
+}
+
+pub enum Renamed {
+    To(ServerRow),
+    /// A server already has the new name; nothing changed.
+    Taken,
 }
 
 fn map_row(row: &Row) -> rusqlite::Result<ServerRow> {

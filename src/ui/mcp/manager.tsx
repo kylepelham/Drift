@@ -94,7 +94,9 @@ export function McpManagement(props: { embedded?: boolean }) {
     setFailure("")
     setBusy(name)
     try {
-      await engine.actions.mcpSave(name, config, previous)
+      // Renamed first, so the save that follows keeps its saved secrets; a retry after a failed save saves under the new name.
+      if (previous && previous !== name) setEditor({ server: await engine.actions.mcpRename(previous, name) })
+      await engine.actions.mcpSave(name, config, { create: !previous })
       setMessage(t("drift.mcp.saved", { name }))
       setEditor(null)
     } finally {
@@ -185,7 +187,7 @@ export function McpManagement(props: { embedded?: boolean }) {
                     onNavigate={(key) => moveRow(key, name)}
                     onEdit={() => setEditor({ server: server() })}
                     onRemove={() => void remove(name)}
-                    onApprove={() => void run(name, () => engine.actions.mcpApprove(name), t("drift.mcp.approved", { name }))}
+                    onApprove={() => void run(name, () => engine.actions.mcpApprove(name, server().hash), t("drift.mcp.approved", { name }))}
                     onEnabled={(enabled) => void run(name, () => engine.actions.mcpSetEnabled(name, enabled))}
                     onRuntime={(action) => runtime(server(), action)}
                   />
@@ -207,7 +209,7 @@ export function McpManagement(props: { embedded?: boolean }) {
             const config = registryConfig(server)
             if (!config) return setMessage(t("drift.mcp.registryUnavailable"))
             const name = registryServerName(server.name)
-            void run(name, () => engine.actions.mcpSave(name, config), t("drift.mcp.installed", { name: server.title ?? server.name }))
+            void run(name, () => engine.actions.mcpSave(name, config, { create: true }), t("drift.mcp.installed", { name: server.title ?? server.name }))
           }}
         />
       </Show>

@@ -140,7 +140,7 @@ export function NoticeHost(props: { children?: JSX.Element }) {
   const decide = (action: "approve" | "reject", target: McpServerStatus) => {
     const key = mcpPromptKey(target)
     setHiddenMcp((current) => reduceMcpPromptState(current, { type: "start", key }))
-    const decided = action === "approve" ? engine.actions.mcpApprove(target.name) : engine.actions.mcpSetEnabled(target.name, false)
+    const decided = action === "approve" ? engine.actions.mcpApprove(target.name, target.hash) : engine.actions.mcpSetEnabled(target.name, false)
     void decided.catch((error: unknown) => {
       setHiddenMcp((current) => reduceMcpPromptState(current, { type: "failed", key }))
       engine.actions.notice({
@@ -264,9 +264,9 @@ export function mcpPromptTargets(servers: Readonly<Record<string, McpServerStatu
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** A changed definition is a new request, so the key carries what would be approved. */
+/** A changed definition is a new request: the key is the name and the config's hash, never the config itself. */
 export function mcpPromptKey(target: McpServerStatus) {
-  return `${target.name}:${JSON.stringify(target.config)}`
+  return `${target.name}:${target.hash}`
 }
 
 /** What approving runs, shown in full: the command and its arguments, or the URL. */

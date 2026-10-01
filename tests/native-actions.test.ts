@@ -244,7 +244,7 @@ test("archiving and restoring go to the engine and keep the session's record in 
 type McpServer = components["schemas"]["ServerStatus"]
 
 function mcpServer(name: string, state: McpServer["state"] = "needs_approval"): McpServer {
-  return { name, config: { type: "stdio", command: "node", args: ["server.js"] }, enabled: true, updatedAt: 1, state, tools: [] }
+  return { name, config: { type: "stdio", command: "node", args: ["server.js"], env: [] }, enabled: true, hash: "h1", approved: state !== "needs_approval", updatedAt: 1, state, tools: [] }
 }
 
 test("MCP changes go to the engine and the store holds what it reports", async () => {
@@ -267,26 +267,27 @@ test("MCP changes go to the engine and the store holds what it reports", async (
   expect(Object.keys(h.state.mcpServers)).toEqual(["files"])
 })
 
-test("renaming an MCP server saves the new name before removing the old, and a failed save keeps the old", async () => {
-  const order: string[] = []
-  let failSave = false
+test("renaming an MCP server is the engine's one step, and a taken name changes nothing", async () => {
+  const sent: unknown[] = []
   const h = harness({
-    mcpServers: async () => [mcpServer("old", "connected")],
-    saveMcpServer: async (name: string) => {
-      order.push(`save ${name}`)
-      if (failSave) throw new EngineError(400, "/mcp/new", "invalid", "bad config")
+    mcpServers: async () => [mcpServer("old", "connected"), mcpServer("taken", "connected")],
+    renameMcpServer: async (name: string, to: string) => {
+      sent.push([name, to])
+      if (to === "taken") throw new EngineError(409, `/mcp/${name}/rename`, "taken", "a server named taken already exists")
+      return mcpServer(to, "connected")
+    },
+    saveMcpServer: async (name: string, _config: unknown, create: boolean) => {
+      sent.push(["save", name, create])
       return mcpServer(name)
     },
-    removeMcpServer: async (name: string) => void order.push(`remove ${name}`),
   } as Partial<Client>)
   await h.actions.refreshMcp()
-  failSave = true
-  await expect(h.actions.mcpSave("new", { type: "stdio", command: "x" }, "old")).rejects.toThrow("bad config")
-  expect(Object.keys(h.state.mcpServers)).toEqual(["old"])
-  failSave = false
-  await h.actions.mcpSave("new", { type: "stdio", command: "x" }, "old")
-  expect(order).toEqual(["save new", "save new", "remove old"])
-  expect(Object.keys(h.state.mcpServers)).toEqual(["new"])
+  await expect(h.actions.mcpRename("old", "taken")).rejects.toThrow("already exists")
+  expect(Object.keys(h.state.mcpServers).sort()).toEqual(["old", "taken"])
+  await h.actions.mcpRename("old", "new")
+  expect(Object.keys(h.state.mcpServers).sort()).toEqual(["new", "taken"])
+  await h.actions.mcpSave("added", { type: "stdio", command: "x" }, { create: true })
+  expect(sent).toEqual([["old", "taken"], ["old", "new"], ["save", "added", true]])
 })
 
 test("action agents are listed for Settings but hidden from the composer, with their pins and prompts", async () => {

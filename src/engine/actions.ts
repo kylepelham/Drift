@@ -529,11 +529,17 @@ export function createActions(
     return server
   }
 
-  /** A rename saves under the new name first, so a failed save leaves the old server untouched. */
-  async function mcpSave(name: string, config: McpServerConfig, previousName?: string) {
-    const saved = await mcpChange(() => requireClient().saveMcpServer(name, config))
-    if (previousName && previousName !== name) await mcpRemove(previousName)
-    return saved
+  /** `create`: adding a server, which the engine refuses rather than replace one of the same name. */
+  function mcpSave(name: string, config: McpServerConfig, options: { create?: boolean } = {}) {
+    return mcpChange(() => requireClient().saveMcpServer(name, config, !!options.create))
+  }
+
+  /** The engine renames in one step and refuses a name already taken, so no other server is ever replaced. */
+  async function mcpRename(from: string, to: string) {
+    const renamed = await requireClient().renameMcpServer(from, to)
+    set("mcpServers", produce((servers) => void delete servers[from]))
+    set("mcpServers", renamed.name, reconcile(renamed))
+    return renamed
   }
 
   async function mcpRemove(name: string) {
@@ -594,8 +600,10 @@ export function createActions(
     unrevert,
     refreshMcp,
     mcpSave,
+    mcpRename,
     mcpRemove,
-    mcpApprove: (name: string) => mcpChange(() => requireClient().approveMcpServer(name)),
+    /** `hash` is the config the user reviewed; the engine refuses if it has changed since. */
+    mcpApprove: (name: string, hash?: string) => mcpChange(() => requireClient().approveMcpServer(name, hash)),
     mcpSetEnabled: (name: string, enabled: boolean) => mcpChange(() => requireClient().setMcpServerEnabled(name, enabled)),
     mcpConnect: (name: string) => mcpChange(() => requireClient().connectMcpServer(name)),
     mcpDisconnect: (name: string) => mcpChange(() => requireClient().disconnectMcpServer(name)),

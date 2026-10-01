@@ -1,6 +1,7 @@
 //! MCP servers: configured in the store, approved by the user, connected with rmcp, tools offered to the model.
 
 mod tool;
+mod view;
 
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
@@ -22,6 +23,7 @@ use crate::platform::process::Tree;
 use crate::store::Store;
 
 pub use tool::McpTool;
+pub use view::{ServerConfigInput, ServerConfigView, ServerView};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -79,7 +81,7 @@ pub enum State {
 #[serde(rename_all = "camelCase")]
 pub struct ServerStatus {
     #[serde(flatten)]
-    pub row: ServerRow,
+    pub server: ServerView,
     pub state: State,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -290,7 +292,7 @@ impl Servers {
             slots.transient.get(&row.name).cloned().unwrap_or((State::Disconnected, None))
         };
         let tools = live.map(|live| live.tools.iter().map(tool_info).collect()).unwrap_or_default();
-        ServerStatus { row, state, error, tools }
+        ServerStatus { server: ServerView::of(&row), state, error, tools }
     }
 
     /// Connects `name` as its row stands now.
@@ -354,8 +356,8 @@ impl Servers {
         result
     }
 
-    /// Writes the server's row and, in the same step, ends its connection and any connect in flight.
-    fn detach<R>(&self, name: &str, store: &Store, ending: Ending, write: impl FnOnce(&Store) -> rusqlite::Result<R>) -> rusqlite::Result<(Option<Arc<Live>>, R)> {
+    /// Writes the server's row and, in the same step, ends its connection and any connect in flight. A write that refuses changes nothing.
+    fn detach<R, E>(&self, name: &str, store: &Store, ending: Ending, write: impl FnOnce(&Store) -> Result<R, E>) -> Result<(Option<Arc<Live>>, R), E> {
         let mut slots = self.lock();
         let written = write(store)?;
         *slots.generation.entry(name.into()).or_default() += 1;
@@ -372,21 +374,21 @@ impl Servers {
     }
 
     /// A save: the write and the end of the old connection are one step; running turns keep their client.
-    pub async fn change<R>(&self, name: &str, store: &Store, hub: &Hub, write: impl FnOnce(&Store) -> rusqlite::Result<R>) -> rusqlite::Result<R> {
+    pub async fn change<R, E>(&self, name: &str, store: &Store, hub: &Hub, write: impl FnOnce(&Store) -> Result<R, E>) -> Result<R, E> {
         let (live, written) = self.detach(name, store, Ending::Keep, write)?;
         self.retire(name, store, hub, live).await;
         Ok(written)
     }
 
-    /// A disable or remove: as [`Self::change`], and every client the server served is closed, running turns' too.
-    pub async fn close<R>(&self, name: &str, store: &Store, hub: &Hub, write: impl FnOnce(&Store) -> rusqlite::Result<R>) -> rusqlite::Result<R> {
+    /// A disable, remove or rename: as [`Self::change`], and every client the server served is closed, running turns' too.
+    pub async fn close<R, E>(&self, name: &str, store: &Store, hub: &Hub, write: impl FnOnce(&Store) -> Result<R, E>) -> Result<R, E> {
         let (live, written) = self.detach(name, store, Ending::Close, write)?;
         self.retire(name, store, hub, live).await;
         Ok(written)
     }
 
     pub async fn disconnect(&self, name: &str, store: &Store, hub: &Hub) -> bool {
-        let Ok((live, ())) = self.detach(name, store, Ending::Keep, |_| Ok(())) else { return false };
+        let Ok((live, ())) = self.detach(name, store, Ending::Keep, |_| Ok::<_, rusqlite::Error>(())) else { return false };
         let was_live = live.is_some();
         self.retire(name, store, hub, live).await;
         was_live
