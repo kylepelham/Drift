@@ -242,7 +242,7 @@ impl Config {
                 config.add_skills(&root.join(dir));
             }
         }
-        config.add_instructions(workspace);
+        config.add_instructions(workspace, home);
         config
     }
 
@@ -339,15 +339,56 @@ impl Config {
         }
     }
 
-    /// The first of AGENTS.md and CLAUDE.md at the workspace root.
-    fn add_instructions(&mut self, workspace: &Path) {
-        for name in INSTRUCTION_FILES {
-            if let Ok(text) = std::fs::read_to_string(workspace.join(name)) {
-                self.instructions.push(Instruction { name: name.into(), text: clip(&text) });
-                return;
+    /// The user's own file, then each directory's from the repository root down to the workspace,
+    /// before what drift.json lists: general rules first, the most specific last.
+    fn add_instructions(&mut self, workspace: &Path, home: Option<&Path>) {
+        let mut found = Vec::new();
+        if let Some(home) = home {
+            let global = [(home.join(".config/drift/AGENTS.md"), "~/.config/drift/AGENTS.md"), (home.join(".claude/CLAUDE.md"), "~/.claude/CLAUDE.md")];
+            if let Some((text, name)) = global.iter().find_map(|(path, name)| std::fs::read_to_string(path).ok().map(|text| (text, *name))) {
+                found.push(Instruction { name: name.into(), text: clip(&text) });
             }
         }
+        let chain = ancestors_to_repo_root(workspace);
+        for (depth, dir) in chain.iter().enumerate().rev() {
+            if let Some((name, text)) = instruction_file(dir) {
+                let shown = format!("{}{name}", "../".repeat(depth));
+                found.push(Instruction { name: shown, text: clip(&text) });
+            }
+        }
+        found.append(&mut self.instructions);
+        self.instructions = found;
     }
+}
+
+/// The workspace and its parents up to the repository root (the nearest holding `.git`), nearest
+/// first; just the workspace when it is in no repository.
+fn ancestors_to_repo_root(workspace: &Path) -> Vec<PathBuf> {
+    let chain: Vec<PathBuf> = workspace.ancestors().map(Path::to_path_buf).collect();
+    match chain.iter().position(|dir| dir.join(".git").exists()) {
+        Some(root) => chain[..=root].to_vec(),
+        None => vec![workspace.to_path_buf()],
+    }
+}
+
+/// The first of AGENTS.md and CLAUDE.md in `dir`.
+fn instruction_file(dir: &Path) -> Option<(&'static str, String)> {
+    INSTRUCTION_FILES.iter().find_map(|name| std::fs::read_to_string(dir.join(name)).ok().map(|text| (*name, text)))
+}
+
+/// Instruction files in the directories between the workspace (not included) and `file`, outermost
+/// first: rules for a part of the tree that the system prompt does not carry.
+pub fn nested_instructions(workspace: &Path, file: &Path) -> Vec<(PathBuf, String)> {
+    let Ok(relative) = file.parent().unwrap_or(file).strip_prefix(workspace) else { return Vec::new() };
+    let mut dir = workspace.to_path_buf();
+    let mut found = Vec::new();
+    for part in relative.components() {
+        dir.push(part);
+        if let Some((name, text)) = instruction_file(&dir) {
+            found.push((dir.join(name), clip(&text)));
+        }
+    }
+    found
 }
 
 /// A Markdown file's text after its front matter.
@@ -462,7 +503,7 @@ mod tests {
         let skills: Vec<(&str, &str)> = config.skills.iter().map(|s| (s.name.as_str(), s.description.as_str())).collect();
         assert_eq!(skills, [("review", "Project review"), ("deploy", "Deploys")], "project skills shadow home skills of the same name");
 
-        assert_eq!(config.instructions.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["docs/rules.md", "AGENTS.md"]);
+        assert_eq!(config.instructions.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["AGENTS.md", "docs/rules.md"]);
         std::fs::remove_dir_all(root).ok();
     }
 
@@ -516,6 +557,28 @@ mod tests {
         assert_eq!(command("Only $1").expand(""), "Only ");
         assert_eq!(command("Review the diff.\n").expand("focus on errors"), "Review the diff.\n\nfocus on errors", "not dropped");
         assert_eq!(command("Review the diff.").expand(""), "Review the diff.");
+    }
+
+    #[test]
+    fn instructions_come_from_home_and_every_directory_up_to_the_repo_root() {
+        let root = std::env::temp_dir().join(format!("drift-config-chain-{}", crate::random_hex(4)));
+        let (home, repo) = (root.join("home"), root.join("repo"));
+        let ws = repo.join("apps/web");
+        write(&home, ".config/drift/AGENTS.md", "mine everywhere");
+        write(&home, ".claude/CLAUDE.md", "not read when Drift's own exists");
+        write(&repo, ".git/HEAD", "ref: refs/heads/main");
+        write(&repo, "AGENTS.md", "repo rules");
+        write(&repo, "apps/CLAUDE.md", "apps rules");
+        write(&ws, "AGENTS.md", "web rules");
+        write(&root, "AGENTS.md", "outside the repo, never read");
+        let config = Config::load_with_home(&ws, Some(&home));
+        let names: Vec<&str> = config.instructions.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, ["~/.config/drift/AGENTS.md", "../../AGENTS.md", "../CLAUDE.md", "AGENTS.md"]);
+        assert_eq!(config.instructions[0].text, "mine everywhere");
+        std::fs::remove_file(home.join(".config/drift/AGENTS.md")).unwrap();
+        let fallback = Config::load_with_home(&ws, Some(&home));
+        assert_eq!(fallback.instructions[0].name, "~/.claude/CLAUDE.md");
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

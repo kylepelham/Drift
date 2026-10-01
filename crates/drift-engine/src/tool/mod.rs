@@ -32,13 +32,20 @@ use utoipa::ToSchema;
 use crate::llm::catalog::ToolProfile;
 use crate::llm::ToolSpec;
 
-/// Shared across one session: which files the model has read, so edits are never blind.
+/// Shared across one session: which files the model has read, so edits are never blind, and which
+/// subdirectory instruction files it has already been shown.
 #[derive(Default)]
 pub struct SessionFiles {
     read: Mutex<HashSet<PathBuf>>,
+    shown: Mutex<HashSet<PathBuf>>,
 }
 
 impl SessionFiles {
+    /// True the first time an instruction file is shown in this session; later reads near it say nothing.
+    pub fn first_showing(&self, path: &Path) -> bool {
+        self.shown.lock().unwrap().insert(path.to_path_buf())
+    }
+
     pub fn mark_read(&self, path: &Path) {
         self.read.lock().unwrap().insert(path.to_path_buf());
     }

@@ -34,7 +34,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Snapshot and revert | Kept. Shell out to `git` with a shadow git dir per worktree. Snapshot before every writing tool. Revert restores a snapshot; diffs are computed between snapshots. |
 | MCP | Native `rmcp` (stdio, streamable HTTP, OAuth). Reconnect and reload designed in rather than patched on; no approval step. |
 | Storage | One `drift.db`, one writer, WAL, strict tables. Engine tables live beside the existing shell tables. |
-| Config | `drift.json` at the project root, `.drift/{agents,commands,skills}/`, `~/.config/drift/`. Instructions from `AGENTS.md` and `CLAUDE.md`. Skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at project and home. No runtime `opencode.json` fallback. |
+| Config | `drift.json` at the project root, `.drift/{agents,commands,skills}/`, `~/.config/drift/`. Instructions from `AGENTS.md` and `CLAUDE.md`: global (`~/.config/drift/AGENTS.md`), every directory up to the repository root, and subdirectories as their files are read. Skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at project and home. No runtime `opencode.json` fallback. |
 | Identity | `DRIFT_*` env vars, `~/.local/share/drift` data dir. A one-time migrator runs on first launch. MIT attribution for opencode stays in `licenses/`. |
 | Permissions | Upstream semantics (allow, deny, ask; path globs; session-scoped always; agent overrides) reimplemented once, with a single protocol. |
 | Session tree | Shared session storage, distinct ownership: `task` creates a hidden worker in foreground or background; the user spawns an independent sibling conversation with `/spawn <instruction>`. A conversation's parent link is provenance, not worker cancellation ownership. See "Subagents and branches" and "Background-worker implementation". |
@@ -1044,7 +1044,12 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
 - **Config.** `Config::load` reads `~/.config/drift/drift.json` then `<workspace>/drift.json`
   (project rules first, so they win), plus `.drift/agents/*.md`, `.drift/commands/*.md` and
   skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at both roots (project
-  shadows home). `AGENTS.md` beats `CLAUDE.md`. `GET /workspaces/{id}/config` serves the
+  shadows home). Instructions, general first: `~/.config/drift/AGENTS.md` (else
+  `~/.claude/CLAUDE.md`), then each directory's file from the repository root (nearest `.git`)
+  down to the workspace, then what drift.json lists; in each directory `AGENTS.md` beats
+  `CLAUDE.md`. A subdirectory's file below the workspace is not in the system prompt: the first
+  `read` of a file under it appends it as a `<system-reminder>`, once per session (outermost
+  first). `GET /workspaces/{id}/config` serves the
   merged result. Front matter is `key: value` lines; `tools` may also be `[a, b]`, `- item` lines,
   or a `name: true|false` map (opencode's shape, where `false` takes that tool away from all the
   rest). Tool names match in any case, so Claude-style `tools: Read, Grep` works. `drift.json` may hold `//` and `/* */`

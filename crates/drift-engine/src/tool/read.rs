@@ -59,6 +59,11 @@ impl Tool for Read {
                 output.push_str(&format!("\n\n({} more lines; read with offset {})", total - (offset - 1 + shown), offset + shown));
             }
             ctx.files.mark_read(&path);
+            for (file, text) in crate::config::nested_instructions(&ctx.workspace, &path) {
+                if file != path && ctx.files.first_showing(&file) {
+                    output.push_str(&format!("\n\n<system-reminder>\nInstructions from {}, for files under it:\n{text}\n</system-reminder>", display(&file, &ctx.workspace)));
+                }
+            }
             Ok(Output {
                 title: display(&path, &ctx.workspace),
                 output,
@@ -160,6 +165,24 @@ mod tests {
         sandbox.file("one.txt", &huge_line);
         let one = Read.run(&sandbox.ctx, json!({ "path": "one.txt" })).await.unwrap();
         assert!(one.output.starts_with("1: hhh") && one.output.len() < 3_000, "a single line is cut, not skipped");
+    }
+
+    #[tokio::test]
+    async fn a_subdirectorys_instructions_come_with_the_first_read_under_it() {
+        let sandbox = Sandbox::new("read-nested");
+        sandbox.file("AGENTS.md", "root rules, already in the system prompt");
+        sandbox.file("pkg/AGENTS.md", "pkg rules");
+        sandbox.file("pkg/web/CLAUDE.md", "web rules");
+        sandbox.file("pkg/web/a.ts", "a");
+        sandbox.file("pkg/web/b.ts", "b");
+        let first = Read.run(&sandbox.ctx, json!({ "path": "pkg/web/a.ts" })).await.unwrap();
+        let pkg = first.output.find("pkg rules").expect("pkg/AGENTS.md is shown");
+        assert!(pkg < first.output.find("web rules").expect("pkg/web/CLAUDE.md too"), "outermost first");
+        assert!(!first.output.contains("root rules"), "the workspace's own file is not repeated");
+        let second = Read.run(&sandbox.ctx, json!({ "path": "pkg/web/b.ts" })).await.unwrap();
+        assert_eq!(second.output, "1: b", "shown once per session");
+        let itself = Read.run(&sandbox.ctx, json!({ "path": "pkg/AGENTS.md" })).await.unwrap();
+        assert_eq!(itself.output, "1: pkg rules");
     }
 
     #[tokio::test]
