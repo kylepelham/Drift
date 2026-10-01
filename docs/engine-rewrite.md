@@ -812,7 +812,14 @@ Settled after the first external review of M1; each has a regression test.
   the newest models accept and they list no budget. Elsewhere the effort wins. A toggle-only model,
   or one with no options, has no variants and no picker.
 - A prompt names its variant; the engine looks the name up on the model each request, so a model
-  without it asks for nothing rather than failing. Each wire sends it its own way:
+  without it asks for nothing rather than failing. The session keeps the last variant a prompt
+  chose (`session.variant`, written in the admission transaction alongside the model): a prompt
+  that names none, as every prompt the engine sends itself does (worker results, question
+  answers), runs at the session's; a prompt that sends `variant: null` clears it. A subagent's
+  first prompt and a branch's seed carry the parent's or source's variant, and switching a
+  waiting retry to another model may name one (`POST /sessions/{id}/retry {model, variant}`),
+  which the session then keeps.
+- Each wire sends a variant its own way:
   - Anthropic, Bedrock and Vertex Claude: a budget is `thinking: {type: "enabled", budget_tokens}`;
     an effort is `thinking: {type: "adaptive", display: "summarized"}` plus `output_config.effort`
     (summarized, since those models otherwise return their thinking blank).

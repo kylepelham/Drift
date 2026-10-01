@@ -24,7 +24,7 @@ use crate::llm::{self, Credential, Provider, Request, StopReason};
 use crate::permission::{self, Outcome};
 use crate::session::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage, Visibility};
 use super::tasks::Claimant;
-use crate::store::{Admit, Admitted, Handover};
+use crate::store::{Admit, Admitted, Handover, Pick};
 use crate::tool::{Context, SessionFiles};
 use crate::Engine;
 
@@ -68,7 +68,7 @@ pub struct Prompt {
 }
 
 /// A field that is present, even as null, is `Some`; only an absent one stays `None`.
-fn present<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Option<Option<String>>, D::Error> {
+pub(crate) fn present<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Option<Option<String>>, D::Error> {
     Option::<String>::deserialize(value).map(Some)
 }
 
@@ -142,7 +142,7 @@ pub struct Turns {
     /// How each subagent's last turn ended, until the task waiting on it takes the answer.
     ended: Mutex<HashMap<String, TurnEnd>>,
     /// Turns waiting out a retry backoff, each ready to take a model the user switches to.
-    retry_waits: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Resolved>>>,
+    retry_waits: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Switch>>>,
     /// Sessions whose running job is a turn still taking prompts sent while it runs. Admitting one and
     /// a turn deciding it is done both hold this lock, so no prompt lands after the turn stops looking.
     /// Each with the model its turn is running on, which is what a steered prompt is judged against.
@@ -354,7 +354,8 @@ impl Engine {
         let files = self.turns.files_for(session_id);
         let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), model: &plan.model, files: &files };
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
-        let admitted = attach.prepare(prompt.parts).and_then(|parts| self.admit_fenced(session_id, &plan.model_ref, parts, submission, Some(&abort), delivery));
+        let pick = Pick { model: &plan.model_ref, variant: prompt.variant.as_ref().map(Option::as_deref) };
+        let admitted = attach.prepare(prompt.parts).and_then(|parts| self.admit_fenced(session_id, pick, parts, submission, Some(&abort), delivery));
         let admitted = match admitted {
             Ok(admitted) => admitted,
             Err(error) => {
@@ -370,7 +371,7 @@ impl Engine {
     }
 
     /// The last check before a prompt is written, under the lock every Stop holds, so it lands wholly before a Stop or not at all.
-    pub(super) fn admit_fenced(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>, abort: Option<&CancellationToken>, delivery: Option<&str>) -> Result<Admitted, TurnError> {
+    pub(super) fn admit_fenced(&self, session_id: &str, pick: Pick, parts: Vec<Part>, submission: Option<(&str, &str)>, abort: Option<&CancellationToken>, delivery: Option<&str>) -> Result<Admitted, TurnError> {
         let _fence = self.workers.fence();
         if abort.is_some_and(CancellationToken::is_cancelled) {
             return Err(TurnError::Stopped);
@@ -378,7 +379,7 @@ impl Engine {
         // Results a Stop held back ride along with any admitted prompt, each claimed so no other path takes it meanwhile.
         let held: Vec<_> = self.store.held_tasks(session_id)?.into_iter().filter(|task| self.workers.claim(&task.id, Claimant::Automatic)).collect();
         let carried = held.iter().map(|task| (task.id.clone(), super::tasks::result_part(task))).collect();
-        let admitted = self.store.admit_delivering(session_id, model, parts, submission, Handover { delivery, held: carried });
+        let admitted = self.store.admit_delivering(session_id, pick, parts, submission, Handover { delivery, held: carried });
         for task in &held {
             self.workers.release_where_task(&task.id, &Claimant::Automatic);
             self.publish_task(&task.id);
@@ -455,7 +456,8 @@ impl Engine {
             Some(_) => {}
         }
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
-        let admitted = self.admit_fenced(session_id, &running, parts, submission, how.parent, how.delivery)?;
+        let pick = Pick { model: &running, variant: prompt.variant.as_ref().map(Option::as_deref) };
+        let admitted = self.admit_fenced(session_id, pick, parts, submission, how.parent, how.delivery)?;
         drop(steering);
         Ok(Some(self.announce(session_id, admitted)))
     }
@@ -511,6 +513,7 @@ impl Engine {
         let model_ref = prompt.model.clone().or_else(|| session.model.clone()).or(agent_model).or_else(|| config.model.clone()).ok_or(TurnError::NoModel)?;
         let resolved = self.resolve(&model_ref).await?;
         let provider = resolved.provider.with_timeouts(config.route_timeouts(&resolved.model_ref.provider));
+        let variant = prompt.variant.clone().unwrap_or_else(|| session.variant.clone());
         let mut plan = Plan {
             session,
             workspace: workspace_path,
@@ -519,7 +522,7 @@ impl Engine {
             model: resolved.model,
             provider,
             credential: resolved.credential,
-            variant: prompt.variant.clone().flatten(),
+            variant,
             offer: Offer::default(),
         };
         // A server connecting right now would otherwise be missing from this turn's tools.
@@ -629,8 +632,8 @@ impl Engine {
                     attempts += 1;
                     match self.wait_to_retry(&plan.session.id, attempts, &retry, abort).await {
                         Wait::Elapsed => {}
-                        Wait::Switched(resolved) => {
-                            self.adopt(plan, *resolved);
+                        Wait::Switched(switch) => {
+                            self.adopt(plan, *switch);
                             attempts = 0;
                         }
                         Wait::Stopped => break,
@@ -677,7 +680,7 @@ impl Engine {
         self.hub.publish(Event::SessionRetry { session_id: session_id.into(), attempt, message: retry.message.clone(), next_at });
         let wait = tokio::select! {
             () = tokio::time::sleep(delay) => Wait::Elapsed,
-            Ok(resolved) = receiver => Wait::Switched(Box::new(resolved)),
+            Ok(switch) = receiver => Wait::Switched(Box::new(switch)),
             () = abort.cancelled() => Wait::Stopped,
         };
         self.turns.retry_waits.lock().unwrap().remove(session_id);
@@ -685,8 +688,13 @@ impl Engine {
         wait
     }
 
-    /// Moves the turn onto a model the user switched to, and makes it the session's model from now on.
-    fn adopt(&self, plan: &mut Plan, resolved: Resolved) {
+    /// Moves the turn onto a model the user switched to, and makes it, and any variant chosen with it, the session's from now on.
+    fn adopt(&self, plan: &mut Plan, switch: Switch) {
+        let Switch { resolved, variant } = switch;
+        if let Some(variant) = variant {
+            plan.variant = variant;
+            let _ = self.store.set_session_variant(&plan.session.id, plan.variant.as_deref());
+        }
         plan.model_ref = resolved.model_ref;
         if let Some(running) = self.turns.steering.lock().unwrap().get_mut(&plan.session.id) {
             *running = plan.model_ref.clone();
@@ -703,13 +711,13 @@ impl Engine {
 
     /// Switches a turn that is waiting to retry onto `model`. The model and its credential are checked
     /// here, so a bad choice fails for the caller instead of inside the turn.
-    pub async fn switch_retry_model(&self, session_id: &str, model: &ModelRef) -> Result<(), TurnError> {
+    pub async fn switch_retry_model(&self, session_id: &str, model: &ModelRef, variant: Option<Option<String>>) -> Result<(), TurnError> {
         if !self.turns.retry_waits.lock().unwrap().contains_key(session_id) {
             return Err(TurnError::NotRetrying);
         }
         let resolved = self.resolve(model).await?;
         let waiting = self.turns.retry_waits.lock().unwrap().remove(session_id).ok_or(TurnError::NotRetrying)?;
-        waiting.send(resolved).map_err(|_| TurnError::NotRetrying)
+        waiting.send(Switch { resolved, variant }).map_err(|_| TurnError::NotRetrying)
     }
 
     /// For a subagent, how its turn ended: a stop wins however late it came; otherwise the last
@@ -1148,8 +1156,14 @@ impl Retry {
 enum Wait {
     Elapsed,
     /// The user moved the turn to another model; retry now on it.
-    Switched(Box<Resolved>),
+    Switched(Box<Switch>),
     Stopped,
+}
+
+/// A model the user moved a waiting retry to, and the variant, when they chose one, to run it at.
+struct Switch {
+    resolved: Resolved,
+    variant: Option<Option<String>>,
 }
 
 /// What a turn offers the model: each tool's spec and the tool itself, held until the turn ends.

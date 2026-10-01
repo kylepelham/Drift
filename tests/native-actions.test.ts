@@ -251,16 +251,18 @@ test("undo and redo apply the engine's session and report refusals", async () =>
   expect(h.state.notices.some((n) => n.title === "Couldn't undo")).toBeTrue()
 })
 
-test("switching a retrying turn's model sends the native model ref and reports refusals", async () => {
+test("switching a retrying turn's model sends the native model ref and variant and reports refusals", async () => {
   const sent: unknown[] = []
   const h = harness({
-    switchRetryModel: (id: string, model: unknown) => {
-      sent.push([id, model])
+    switchRetryModel: (id: string, model: unknown, variant: string | null) => {
+      sent.push([id, model, variant])
       return id === "ses_idle" ? Promise.reject(new EngineError(409, "/sessions/ses_idle/retry", "not_retrying", "the session is not waiting to retry")) : Promise.resolve(undefined)
     },
   } as Partial<Client>)
+  expect(await h.actions.switchRetryModel("ses_1", "msg_1", { providerID: "openai", modelID: "gpt-5" }, "high")).toEqual({ ok: true })
+  expect(sent[0]).toEqual(["ses_1", { provider: "openai", model: "gpt-5" }, "high"])
   expect(await h.actions.switchRetryModel("ses_1", "msg_1", { providerID: "openai", modelID: "gpt-5" })).toEqual({ ok: true })
-  expect(sent[0]).toEqual(["ses_1", { provider: "openai", model: "gpt-5" }])
+  expect(sent[1]).toEqual(["ses_1", { provider: "openai", model: "gpt-5" }, null])
   expect(await h.actions.switchRetryModel("ses_idle", "msg_1", { providerID: "openai", modelID: "gpt-5" })).toEqual({ ok: false, error: "the session is not waiting to retry" })
 })
 

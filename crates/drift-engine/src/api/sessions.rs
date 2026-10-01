@@ -148,13 +148,17 @@ pub async fn abort(State(engine): State<Arc<Engine>>, Path(id): Path<String>) ->
 #[derive(Deserialize, ToSchema)]
 pub struct RetryModelBody {
     pub model: ModelRef,
+    /// The variant to retry at, by name: absent keeps the turn's, null asks for the model's default.
+    #[serde(default, deserialize_with = "crate::session::turn::present")]
+    #[schema(value_type = Option<String>, nullable = true)]
+    pub variant: Option<Option<String>>,
 }
 
 /// Moves a turn that is waiting to retry onto another model; it retries at once and the session keeps
 /// the model. 409 when nothing is waiting to retry; 400 or 401 when the model cannot be used.
 #[utoipa::path(post, path = "/sessions/{id}/retry", operation_id = "switchRetryModel", request_body = RetryModelBody, responses((status = 204), (status = 400), (status = 401), (status = 409)))]
 pub async fn switch_retry_model(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<RetryModelBody>) -> Result<StatusCode, ApiError> {
-    engine.switch_retry_model(&id, &body.model).await?;
+    engine.switch_retry_model(&id, &body.model, body.variant).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

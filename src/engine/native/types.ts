@@ -1186,6 +1186,8 @@ export interface components {
         };
         RetryModelBody: {
             model: components["schemas"]["ModelRef"];
+            /** @description The variant to retry at, by name: absent keeps the turn's, null asks for the model's default. */
+            variant?: string | null;
         };
         /** @description An undo in progress: the user message it went back to, hidden with everything after it. */
         Revert: {
@@ -1265,6 +1267,8 @@ export interface components {
             title: string;
             /** Format: int64 */
             updatedAt: number;
+            /** @description The reasoning variant the user last chose; turns the engine starts itself run with it too. */
+            variant?: string | null;
             visibility: components["schemas"]["Visibility"];
             workspaceId: string;
         };

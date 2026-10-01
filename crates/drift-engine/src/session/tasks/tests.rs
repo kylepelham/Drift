@@ -63,6 +63,23 @@ fn delivered_results(transcript: &[MessageWithParts]) -> Vec<(String, String)> {
 }
 
 #[tokio::test]
+async fn a_worker_thinks_at_its_parents_reasoning_level() {
+    let h = harness().await;
+    h.engine.store.set_session_variant(&h.session.id, Some("max")).unwrap();
+    h.provider
+        .push_for("PARENT", launches(&[json!({ "description": "Look", "prompt": "CHILD look around" })]))
+        .push_for("CHILD", text("found it"))
+        .push_for("PARENT", text("done"));
+    h.engine.submit(&h.session.id, prompt("PARENT go")).await.unwrap();
+    until_idle(&h).await;
+    let child = h.engine.store.session(&tasks(&h)[0].session_id).unwrap().unwrap();
+    assert_eq!(child.variant.as_deref(), Some("max"));
+    let requests = h.provider.requests.lock().unwrap();
+    let asked_child = requests.iter().find(|r| format!("{:?}", r.messages).contains("CHILD look around")).unwrap();
+    assert!(matches!(asked_child.reasoning, Some(crate::llm::catalog::Reasoning::Budget { .. })), "{:?}", asked_child.reasoning);
+}
+
+#[tokio::test]
 async fn a_background_worker_returns_a_receipt_and_its_result_arrives_later() {
     let h = harness().await;
     h.provider
@@ -405,7 +422,7 @@ async fn a_delivery_that_already_landed_carries_no_held_result_with_it() {
     h.engine.end_task(&landed.id, TaskState::Replied, "landed");
     h.engine.store.mark_task_delivered(&landed.id).unwrap();
     let handover = crate::store::Handover { delivery: Some(&landed.id), held: vec![(held.id.clone(), result_part(&held))] };
-    let admitted = h.engine.store.admit_delivering(&h.session.id, &crate::session::turn::tests::model(), vec![], None, handover).unwrap();
+    let admitted = h.engine.store.admit_delivering(&h.session.id, crate::store::Pick::model(&crate::session::turn::tests::model()), vec![], None, handover).unwrap();
     assert!(matches!(admitted, crate::store::Admit::Delivered), "nothing written");
     let still = h.engine.store.task(&held.id).unwrap().unwrap();
     assert!(still.held && !still.delivered, "its acknowledgment went with the rest of the write");

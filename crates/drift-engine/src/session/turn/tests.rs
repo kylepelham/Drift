@@ -291,7 +291,7 @@ async fn a_retry_wait_is_announced_and_ends_with_running_again() {
     assert!(message.contains("busy"), "{message}");
     let wait = next_at - id::now_ms();
     assert!((29_000..=30_000).contains(&wait), "the provider's own wait is used: {wait}ms");
-    assert!(h.engine.switch_retry_model(&h.session.id, &ModelRef { provider: "anthropic".into(), model: "claude-sonnet-4-5".into() }).await.is_ok());
+    assert!(h.engine.switch_retry_model(&h.session.id, &ModelRef { provider: "anthropic".into(), model: "claude-sonnet-4-5".into() }, None).await.is_ok());
     let running_again = loop {
         let envelope = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.unwrap().unwrap();
         if let Event::SessionStatusChanged { status, .. } = envelope.event {
@@ -307,20 +307,22 @@ async fn a_turn_waiting_to_retry_can_be_moved_to_another_model_and_keeps_it() {
     let h = harness().await;
     let pinned = h.engine.catalog.read().unwrap().providers["anthropic"].models.keys().find(|id| id.as_str() != "claude-sonnet-4-5").unwrap().clone();
     let other = ModelRef { provider: "anthropic".into(), model: pinned.clone() };
-    assert_eq!(h.engine.switch_retry_model(&h.session.id, &other).await, Err(TurnError::NotRetrying), "nothing is waiting yet");
+    assert_eq!(h.engine.switch_retry_model(&h.session.id, &other, None).await, Err(TurnError::NotRetrying), "nothing is waiting yet");
 
     h.provider.push_error(overloaded()).push(text("answered by the other model"));
     h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
     until_waiting_to_retry(&h).await;
     let unusable = ModelRef { provider: "openai".into(), model: "gpt-5".into() };
-    assert_eq!(h.engine.switch_retry_model(&h.session.id, &unusable).await, Err(TurnError::NoCredentials), "a model without a credential is refused up front");
+    assert_eq!(h.engine.switch_retry_model(&h.session.id, &unusable, None).await, Err(TurnError::NoCredentials), "a model without a credential is refused up front");
     let started = std::time::Instant::now();
-    h.engine.switch_retry_model(&h.session.id, &other).await.unwrap();
+    h.engine.switch_retry_model(&h.session.id, &other, Some(Some("high".into()))).await.unwrap();
     until_idle(&h).await;
     assert!(started.elapsed() < Duration::from_millis(900), "the switch retries at once instead of waiting out the backoff");
     let requests = h.provider.requests.lock().unwrap().clone();
     assert_eq!((requests[0].model.as_str(), requests[1].model.as_str()), ("claude-sonnet-4-5", pinned.as_str()));
-    assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().model, Some(other), "the session keeps the model it was switched to");
+    let session = h.engine.store.session(&h.session.id).unwrap().unwrap();
+    assert_eq!(session.model, Some(other), "the session keeps the model it was switched to");
+    assert_eq!(session.variant.as_deref(), Some("high"), "and the variant chosen with it");
 }
 
 #[tokio::test]
@@ -1007,6 +1009,21 @@ async fn a_prompts_variant_sets_the_requests_reasoning_and_an_unknown_one_asks_n
     let requests = h.provider.requests.lock().unwrap();
     assert!(matches!(requests[0].reasoning, Some(Reasoning::Budget { tokens }) if tokens > 16_000), "{:?}", requests[0].reasoning);
     assert_eq!(requests[1].reasoning, None, "a name the model does not offer");
+}
+
+#[tokio::test]
+async fn the_session_keeps_its_variant_for_prompts_that_name_none_until_one_clears_it() {
+    use crate::llm::catalog::Reasoning;
+    let h = harness().await;
+    h.provider.push(text("one")).push(text("two")).push(text("three")).push(text("four"));
+    let with = |text: &str, variant: Option<Option<&str>>| Prompt { variant: variant.map(|v| v.map(String::from)), ..prompt(text) };
+    for prompt in [with("set", Some(Some("max"))), with("inherit", None), with("clear", Some(None)), with("after", None)] {
+        h.engine.submit(&h.session.id, prompt).await.await_ok();
+        until_idle(&h).await;
+    }
+    let thought: Vec<bool> = h.provider.requests.lock().unwrap().iter().map(|r| matches!(r.reasoning, Some(Reasoning::Budget { .. }))).collect();
+    assert_eq!(thought, [true, true, false, false], "a prompt that names none, as the engine's own do, runs at the session's");
+    assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().variant, None);
 }
 
 #[test]

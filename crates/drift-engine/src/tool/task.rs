@@ -70,7 +70,8 @@ impl Tool for Task {
             ctx.engine.hub.publish(Event::SessionCreated { session: child.clone() });
             ctx.engine.publish_task(&task.id);
             ctx.engine.permissions.inherit(&child.id, &parent.id);
-            let prompt = Prompt { parts: vec![Part::Text { text: text.into() }], model, variant: None, submission_id: None };
+            // The parent's reasoning level carries over; a model that does not offer it runs at its default.
+            let prompt = Prompt { parts: vec![Part::Text { text: text.into() }], model, variant: Some(parent.variant.clone()), submission_id: None };
             // Its own stop: a background worker's descends from its owner's scope, a foreground one's from this call.
             let token = if mode == Mode::Background { scope.child_token() } else { ctx.abort.child_token() };
             match ctx.engine.admit_worker(&task, prompt, token).await {

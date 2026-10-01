@@ -71,10 +71,12 @@ async fn a_branch_records_its_source_and_cutoff_and_starts_with_the_handoff() {
     let h = harness().await;
     conversation(&h).await;
     let cutoff = h.engine.store.transcript(&h.session.id).unwrap()[1].info.id.clone();
+    h.engine.store.set_session_variant(&h.session.id, Some("high")).unwrap();
     h.provider.push(text("Lint fixed"));
     let branch = h.engine.branch(&h.session.id, draft("fix the lint errors", Some(cutoff.clone()))).await.unwrap();
     until_session_idle(&h, &branch.id).await;
     let stored = h.engine.store.session(&branch.id).unwrap().unwrap();
+    assert_eq!(stored.variant.as_deref(), Some("high"), "the branch thinks at its source's level");
     assert_eq!(stored.parent_id.as_deref(), Some(h.session.id.as_str()));
     assert_eq!(stored.visibility, Visibility::Sibling);
     assert_eq!(stored.branch_cutoff.as_deref(), Some(cutoff.as_str()));

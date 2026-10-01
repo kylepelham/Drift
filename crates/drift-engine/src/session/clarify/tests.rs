@@ -61,6 +61,18 @@ async fn an_async_question_returns_at_once_and_its_answer_starts_a_turn_once() {
 }
 
 #[tokio::test]
+async fn the_turn_an_answer_starts_runs_at_the_sessions_reasoning_level() {
+    let h = harness().await;
+    let request = asked(&h).await;
+    h.engine.store.set_session_variant(&h.session.id, Some("max")).unwrap();
+    h.provider.push(text("thought it through"));
+    h.engine.answer_question(&request.id, Some(vec![vec!["yes".into()]])).await.unwrap();
+    until_idle(&h).await;
+    let last = h.provider.requests.lock().unwrap().last().unwrap().reasoning.clone();
+    assert!(matches!(last, Some(crate::llm::catalog::Reasoning::Budget { .. })), "{last:?}");
+}
+
+#[tokio::test]
 async fn an_answer_while_the_turn_runs_joins_it_without_starting_another() {
     let h = harness().await;
     h.provider.push(ask("Name")).push_slow(Duration::from_millis(600), text("still working")).push(text("got the name"));

@@ -7,7 +7,7 @@ use crate::session::types::{
     Visibility,
 };
 
-pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json";
+pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant";
 const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary";
 
 pub struct NewSession<'a> {
@@ -201,6 +201,7 @@ pub(super) fn map_session(row: &Row) -> rusqlite::Result<Session> {
         title: row.get(4)?,
         agent: row.get(5)?,
         model: provider.zip(model).map(|(provider, model)| ModelRef { provider, model }),
+        variant: row.get(13)?,
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
         archived_at: row.get(10)?,
@@ -395,14 +396,14 @@ impl Store {
     /// Records a user prompt as one unit: message, parts and the session's model, or nothing at all.
     /// A prompt sent while undone commits the undo: the hidden messages go, in the same write.
     pub fn admit_prompt(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<Admitted> {
-        match self.admit_delivering(session_id, model, parts, submission, Handover::default())? {
+        match self.admit_delivering(session_id, Pick::model(model), parts, submission, Handover::default())? {
             Admit::New(admitted) => Ok(*admitted),
             _ => Err(rusqlite::Error::QueryReturnedNoRows),
         }
     }
 
     /// [`Self::admit_prompt`] that also hands worker results over and settles a reused submission id, all in one write.
-    pub fn admit_delivering(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>, handover: Handover) -> rusqlite::Result<Admit> {
+    pub fn admit_delivering(&self, session_id: &str, pick: Pick, parts: Vec<Part>, submission: Option<(&str, &str)>, handover: Handover) -> rusqlite::Result<Admit> {
         let conn = self.lock();
         let Handover { delivery, held } = handover;
         transaction(&conn, |conn| {
@@ -418,7 +419,7 @@ impl Store {
                 }
             }
             let carried = held_parts(conn, session_id, held)?;
-            admit_in(conn, session_id, model, carried.into_iter().chain(parts).collect(), submission).map(|admitted| Admit::New(Box::new(admitted)))
+            admit_in(conn, session_id, pick, carried.into_iter().chain(parts).collect(), submission).map(|admitted| Admit::New(Box::new(admitted)))
         })
     }
 }
@@ -453,7 +454,8 @@ fn held_parts(conn: &Connection, session_id: &str, held: Vec<(String, Part)>) ->
     Ok(carried)
 }
 
-fn admit_in(conn: &Connection, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<Admitted> {
+fn admit_in(conn: &Connection, session_id: &str, pick: Pick, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<Admitted> {
+    let Pick { model, variant } = pick;
     let discarded = discard_reverted(conn, session_id)?;
     let message = insert_message(conn, session_id, Role::User, Some(model), false)?;
     if let Some((id, hash)) = submission {
@@ -461,10 +463,33 @@ fn admit_in(conn: &Connection, session_id: &str, model: &ModelRef, parts: Vec<Pa
             .execute(params![id, session_id, message.id, hash, id::now_ms()])?;
     }
     let rows = parts.into_iter().map(|part| insert_part(conn, &message.id, session_id, part)).collect::<rusqlite::Result<Vec<_>>>()?;
-    conn.prepare_cached("UPDATE session SET model_provider = ?2, model_id = ?3, updated_at = ?4 WHERE id = ?1")?
-        .execute(params![session_id, model.provider, model.model, id::now_ms()])?;
+    conn.prepare_cached("UPDATE session SET model_provider = ?2, model_id = ?3, updated_at = ?4, variant = CASE WHEN ?5 THEN ?6 ELSE variant END WHERE id = ?1")?
+        .execute(params![session_id, model.provider, model.model, id::now_ms(), variant.is_some(), variant.flatten()])?;
     let session = session_in(conn, session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
     Ok(Admitted { message, parts: rows, session, discarded })
+}
+
+/// What a prompt runs on, written to its session as it lands: the model, and the variant when the prompt chose one.
+#[derive(Clone, Copy)]
+pub struct Pick<'a> {
+    pub model: &'a ModelRef,
+    /// `None` keeps the session's; `Some(None)` clears it.
+    pub variant: Option<Option<&'a str>>,
+}
+
+impl<'a> Pick<'a> {
+    pub fn model(model: &'a ModelRef) -> Self {
+        Self { model, variant: None }
+    }
+}
+
+impl Store {
+    /// Records a variant chosen outside a prompt, as when a retry is switched to another model.
+    pub fn set_session_variant(&self, id: &str, variant: Option<&str>) -> rusqlite::Result<Option<Session>> {
+        let conn = self.lock();
+        conn.prepare_cached("UPDATE session SET variant = ?2, updated_at = ?3 WHERE id = ?1")?.execute(params![id, variant, id::now_ms()])?;
+        session_in(&conn, id)
+    }
 }
 
 impl Store {
@@ -514,6 +539,7 @@ pub(super) fn session_from(new: NewSession, cutoff: Option<&str>) -> Session {
         title: new.title.into(),
         agent: new.agent.into(),
         model: new.model.cloned(),
+        variant: None,
         created_at: now,
         updated_at: now,
         archived_at: None,
@@ -646,7 +672,7 @@ mod admission_tests {
         let new = |title| NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title, agent: "build", model: None };
         let (first, other) = (store.create_session(new("a")).unwrap(), store.create_session(new("b")).unwrap());
         let model = ModelRef { provider: "p".into(), model: "m".into() };
-        let admit = |session: &str, hash| store.admit_delivering(session, &model, vec![Part::Text { text: "hi".into() }], Some(("sub_1", hash)), Handover::default()).unwrap();
+        let admit = |session: &str, hash| store.admit_delivering(session, Pick::model(&model), vec![Part::Text { text: "hi".into() }], Some(("sub_1", hash)), Handover::default()).unwrap();
         let Admit::New(landed) = admit(&first.id, "h1") else { panic!("first admission") };
         assert!(matches!(admit(&first.id, "h1"), Admit::Replayed { message_id } if message_id == landed.message.id));
         assert!(matches!(admit(&first.id, "h2"), Admit::Conflict), "a different prompt");

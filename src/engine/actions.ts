@@ -385,10 +385,10 @@ export function createActions(
     }
   }
 
-  /** Moves a turn that is waiting to retry onto `model`; it retries at once. Variants have no engine meaning yet. */
-  async function switchRetryModel(id: string, _messageID: string, model: ModelRef, _variant?: string): Promise<PromptSendResult> {
+  /** Moves a turn that is waiting to retry onto `model` at `variant` (the model's default when unset); it retries at once. */
+  async function switchRetryModel(id: string, _messageID: string, model: ModelRef, variant?: string): Promise<PromptSendResult> {
     try {
-      await requireClient().switchRetryModel(id, { provider: model.providerID, model: model.modelID })
+      await requireClient().switchRetryModel(id, { provider: model.providerID, model: model.modelID }, variant ?? null)
       return { ok: true }
     } catch (cause) {
       return { ok: false, error: errorMessage(cause) }
