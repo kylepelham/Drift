@@ -543,8 +543,13 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   pending or running, or failed to save), the result is written into that call and marked handed
   over in the same write; otherwise it is settled.
 - `task.updated { task }` is published on launch, start, ending and delivery.
-- `task_output { task_id, wait_seconds? }` answers for the calling conversation's own tasks only,
-  waiting at most 120 s; `task_stop { task_id }` likewise. Neither is offered to subagents.
+- `task_output { task_id, wait_seconds? }` answers for the calling conversation's own background
+  tasks only, waiting at most 120 s. A foreground task is refused: its result belongs to the call
+  that launched it, which holds the claim from the moment it returns until its result is saved, and
+  if that save fails the result is recovered into that call, never taken by another. A worker that
+  could not start, or was stopped, is still the launching call's own (failed) result, handed over
+  in the write that saves it. `task_stop { task_id }` stops one of the conversation's tasks. Neither
+  is offered to subagents.
 - UI: the engine store keeps `tasks[parentSessionId]`, loaded with the transcript
   (`GET /sessions/{id}/tasks`) and folded from `task.updated`. A task only moves forward, so a
   snapshot that raced an event never replaces the newer record. The transcript's `task` row takes

@@ -267,8 +267,6 @@ impl Engine {
                 let (state, text) = if error == TurnError::Stopped { (TaskState::Stopped, STOPPED.to_string()) } else { (TaskState::Failed, format!("The subagent could not start: {error}")) };
                 self.end_task(&task.id, state, &text);
                 self.workers.forget(&task.id);
-                // The launching call reports it as its own result.
-                self.settle_delivery(&task.id);
                 return Err(text);
             }
         };

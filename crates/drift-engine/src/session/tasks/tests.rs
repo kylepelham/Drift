@@ -291,6 +291,39 @@ async fn a_result_whose_call_was_not_saved_is_still_owed_and_arrives_as_a_messag
 }
 
 #[tokio::test]
+async fn a_foreground_result_stays_its_launching_calls_even_when_saving_it_fails() {
+    let h = harness().await;
+    with_model(&h);
+    h.provider.push_for("CHILD front", text("front answer"));
+    let out = crate::tool::task::Task.run(&context(&h, &h.session.id, "fg_call"), json!({ "description": "Front", "prompt": "CHILD front" })).await.unwrap();
+    let task_id = out.metadata["taskId"].as_str().unwrap().to_string();
+    assert_eq!(out.metadata["delivers"], task_id.as_str());
+
+    // Another call cannot take it, before or after the launching call's save fails.
+    let reader = context(&h, &h.session.id, "reader");
+    let refused = crate::tool::task::TaskOutput.run(&reader, json!({ "task_id": task_id })).await.unwrap_err();
+    assert!(refused.0.contains("foreground"), "{}", refused.0);
+    assert!(h.engine.workers.holds(&task_id, &Claimant::call(&h.session.id, "fg_call")) && !h.engine.workers.holds(&task_id, &Claimant::call(&h.session.id, "reader")));
+
+    let mut row = call_row(&h, "fg_call");
+    h.engine.store.lock().execute_batch("CREATE TEMP TRIGGER no_room BEFORE UPDATE ON part WHEN NEW.json LIKE '%front answer%' BEGIN SELECT RAISE(ABORT, 'disk is full'); END;").unwrap();
+    h.engine.settle_delivering(&mut row, ToolStatus::Done, None, out.output.clone(), Some(out.metadata.clone()), Some(&task_id));
+    h.engine.store.lock().execute_batch("DROP TRIGGER no_room;").unwrap();
+    h.engine.release_claims(&Claimant::call(&h.session.id, "fg_call"));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!h.engine.store.task(&task_id).unwrap().unwrap().delivered, "nothing saved, nothing handed over");
+    assert!(delivered_results(&h.engine.store.transcript(&h.session.id).unwrap()).is_empty(), "a foreground result never becomes a message");
+    assert!(crate::tool::task::TaskOutput.run(&reader, json!({ "task_id": task_id })).await.is_err());
+
+    // Recovery puts it into the launching call, where it belongs.
+    h.engine.recover_tasks().await;
+    let saved = h.engine.store.transcript(&h.session.id).unwrap().into_iter().flat_map(|m| m.parts).find(|p| p.id == row.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &saved.part else { panic!() };
+    assert_eq!((*status, output.as_deref()), (ToolStatus::Done, Some("front answer")));
+    assert!(h.engine.store.task(&task_id).unwrap().unwrap().delivered);
+}
+
+#[tokio::test]
 async fn a_stop_while_a_result_waits_to_be_admitted_keeps_it_from_starting_a_turn() {
     let h = harness().await;
     with_model(&h);

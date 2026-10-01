@@ -73,10 +73,11 @@ impl Tool for Task {
             let prompt = Prompt { parts: vec![Part::Text { text: text.into() }], model, thinking_budget: None, submission_id: None };
             // Its own stop: a background worker's descends from its owner's scope, a foreground one's from this call.
             let token = if mode == Mode::Background { scope.child_token() } else { ctx.abort.child_token() };
-            let outcome = ctx.engine.admit_worker(&task, prompt, token).await.map_err(ToolError)?;
-            match outcome {
-                None => Ok(receipt(&task)),
-                Some(outcome) => foreground_result(ctx, &task.id, outcome),
+            match ctx.engine.admit_worker(&task, prompt, token).await {
+                Ok(None) => Ok(receipt(&task)),
+                Ok(Some(outcome)) => own_result(ctx, &task.id, outcome),
+                // It could not start: this call's failed result is how the parent hears of it.
+                Err(_) => own_result(ctx, &task.id, "failed"),
             }
         })
     }
@@ -111,21 +112,16 @@ async fn replay(ctx: &Context, task: TaskRecord) -> Result<Output, ToolError> {
         TaskState::Interrupted => "interrupted",
         _ => "failed",
     };
-    foreground_result(ctx, &task.id, outcome)
+    own_result(ctx, &task.id, outcome)
 }
 
-/// A finished foreground worker's result as this call's own, claimed for the write that saves it.
-fn foreground_result(ctx: &Context, task_id: &str, outcome: &str) -> Result<Output, ToolError> {
+/// A finished worker's result as this launching call's own, claimed for the write that saves it, stopped or not.
+fn own_result(ctx: &Context, task_id: &str, outcome: &str) -> Result<Output, ToolError> {
     let engine = &ctx.engine;
     let task = engine.store.task(task_id)?.ok_or_else(|| ToolError("the task is gone".into()))?;
-    if ctx.abort.is_cancelled() {
-        engine.store.mark_task_delivered(&task.id)?;
-        engine.publish_task(&task.id);
-        return Err(ToolError("aborted".into()));
-    }
     let claimed = !task.delivered && engine.workers.claim(&task.id, Claimant::call(&ctx.session_id, &ctx.call_id));
     let output = if task.delivered { "This subagent's result was already handed over.".to_string() } else { task.result.clone().unwrap_or_default() };
-    let mut metadata = json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": outcome, "mode": "foreground" });
+    let mut metadata = json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": outcome, "mode": task.mode.as_str() });
     if claimed {
         metadata["delivers"] = json!(task.id);
     }
@@ -148,6 +144,15 @@ fn owned(ctx: &Context, input: &Value) -> Result<TaskRecord, ToolError> {
     let task = ctx.engine.store.task(id)?.ok_or_else(|| ToolError(format!("no task {id}")))?;
     if task.parent_session_id != ctx.session_id {
         return Err(ToolError(format!("{id} was not launched from this conversation")));
+    }
+    Ok(task)
+}
+
+/// A background task of this conversation; a foreground result belongs to the call that launched it.
+fn owned_background(ctx: &Context, input: &Value) -> Result<TaskRecord, ToolError> {
+    let task = owned(ctx, input)?;
+    if task.mode == Mode::Foreground {
+        return Err(ToolError(format!("{} ran in the foreground; its result is the result of the task call that launched it", task.id)));
     }
     Ok(task)
 }
@@ -187,7 +192,7 @@ impl Tool for TaskOutput {
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
-            let mut task = owned(ctx, &input)?;
+            let mut task = owned_background(ctx, &input)?;
             // Claimed while it waits, so a result finishing meanwhile comes here and not also as a message.
             let claimed = !task.delivered && ctx.engine.workers.claim(&task.id, Claimant::call(&ctx.session_id, &ctx.call_id));
             let wait = std::time::Duration::from_secs(input["wait_seconds"].as_u64().unwrap_or(0)).min(MAX_WAIT);
