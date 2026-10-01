@@ -1253,6 +1253,8 @@ export interface components {
             createdAt: number;
             /** @description The result reached the parent (as the call's own result, or delivered later). */
             delivered: boolean;
+            /** @description Why this owed result has not been handed over yet; it is retried when that may have changed. */
+            deliveryError?: string | null;
             description: string;
             /** Format: int64 */
             finishedAt?: number | null;

@@ -1285,6 +1285,7 @@ export const drift = {
   "drift.task.stopHint": "只停止此工作；對話會繼續。",
   "drift.task.stopFailed": "無法停止工作",
   "drift.task.held": "停止後已暫留；隨你的下一則訊息送達",
+  "drift.task.owed": "尚未交付：{{reason}}",
   "drift.move.sessionBusy": "工作階段仍在執行；移動前請先停止它。",
   "drift.message.revertHere": "還原到此處",
   "drift.message.tokenCounts": "輸入 {{input}} / 輸出 {{output}}",

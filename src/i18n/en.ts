@@ -619,6 +619,7 @@ export const drift = {
   "drift.task.stopHint": "Stops this task only; the conversation keeps going.",
   "drift.task.stopFailed": "Could not stop the task",
   "drift.task.held": "held after Stop; arrives with your next message",
+  "drift.task.owed": "not handed over yet: {{reason}}",
   "drift.move.sessionBusy": "The session is still busy; stop it before moving.",
   "drift.message.revertHere": "Revert to here",
   "drift.message.tokenCounts": "{{input}} in / {{output}} out",

@@ -1302,6 +1302,7 @@ export const drift = {
   "drift.task.stopHint": "หยุดเฉพาะงานนี้ บทสนทนายังดำเนินต่อ",
   "drift.task.stopFailed": "หยุดงานไม่สำเร็จ",
   "drift.task.held": "ถูกพักไว้หลังหยุด จะมาพร้อมข้อความถัดไปของคุณ",
+  "drift.task.owed": "ยังไม่ได้ส่งมอบ: {{reason}}",
   "drift.move.sessionBusy": "เซสชันยังทำงานอยู่ หยุดเซสชันก่อนย้าย",
   "drift.message.revertHere": "ย้อนกลับมาที่นี่",
   "drift.message.tokenCounts": "เข้า {{input}} / ออก {{output}}",

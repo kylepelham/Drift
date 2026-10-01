@@ -530,6 +530,16 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   the same lock, so a prompt lands wholly before a Stop or not at all. A delivery carries the
   owner's scope from the launch's generation as its parent token through every wait (a job holding
   the session, planning, credential refresh) and into that final check.
+- Retry while running: a delivery that cannot be admitted stays owed and records why
+  (`deliveryError`, migration 13, shown in the tasks dock; cleared when it is handed over or held).
+  `Engine::retry_deliveries` tries owed results again, once each, when the parent's job ends
+  (`spawn_job` cleanup, after the session is idle) and on repairs: an API key or sign-in saved, the
+  session's model or agent changed (`PATCH /sessions/{id}`), Settings agent overrides pushed. A
+  wait for a busy parent (`QUEUE_WAIT`) ending in `Busy` is retried by the first; a missing model,
+  credential or workspace by the second. Nothing retries on a timer, so a permanent failure stays
+  owed without a loop. Readiness and claims are coordinated: a trigger that finds the result
+  claimed marks the claim, and the attempt holding it tries once more when it lets go, so an idle
+  transition racing a failing attempt is never lost. Two automatic attempts never run at once.
 - Held results: a result Stop keeps from waking its parent (launched before the owner's latest
   Stop, or a stopped or interrupted worker with no turn running to take it) is not marked
   delivered. It is marked `held` (migration 12) and stays owed: automatic delivery and restart

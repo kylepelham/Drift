@@ -1321,6 +1321,7 @@ export const drift = {
   "drift.task.stopHint": "Останавливает только эту задачу; беседа продолжается.",
   "drift.task.stopFailed": "Не удалось остановить задачу",
   "drift.task.held": "отложено после остановки; придёт с вашим следующим сообщением",
+  "drift.task.owed": "ещё не передано: {{reason}}",
   "drift.move.sessionBusy": "Сессия всё ещё занята; остановите её перед перемещением.",
   "drift.message.revertHere": "Вернуться сюда",
   "drift.message.tokenCounts": "{{input}} вх. / {{output}} вых.",

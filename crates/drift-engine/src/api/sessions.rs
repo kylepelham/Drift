@@ -115,6 +115,8 @@ pub async fn update(State(engine): State<Arc<Engine>>, Path(id): Path<String>, J
         session = engine.store.set_session_archived(&id, archived)?.ok_or_else(|| ApiError::not_found("session"))?;
     }
     engine.hub.publish(Event::SessionUpdated { session: session.clone() });
+    // A model or agent chosen now may be what an owed result was waiting for.
+    engine.retry_deliveries(Some(&id));
     Ok(Json(session))
 }
 

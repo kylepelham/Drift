@@ -1230,6 +1230,7 @@ export const drift = {
   "drift.task.stopHint": "이 작업만 중지합니다. 대화는 계속됩니다.",
   "drift.task.stopFailed": "작업을 중지하지 못했습니다",
   "drift.task.held": "중지 후 보류됨. 다음 메시지와 함께 전달됩니다",
+  "drift.task.owed": "아직 전달되지 않음: {{reason}}",
   "drift.move.sessionBusy": "세션이 아직 작업 중입니다. 이동하기 전에 중단하세요.",
   "drift.message.revertHere": "여기로 되돌리기",
   "drift.message.tokenCounts": "입력 {{input}} / 출력 {{output}}",

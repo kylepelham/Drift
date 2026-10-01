@@ -111,6 +111,9 @@ pub struct TaskRecord {
     pub delivered: bool,
     /// Kept from waking a stopped parent; it goes along with the parent's next prompt instead.
     pub held: bool,
+    /// Why this owed result has not been handed over yet; it is retried when that may have changed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivery_error: Option<String>,
     pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<i64>,
@@ -139,7 +142,7 @@ pub struct Workers {
     /// Also the fence: a Stop and the last check before a prompt is admitted both hold it.
     owners: Mutex<HashMap<String, Owner>>,
     tokens: Mutex<HashMap<String, CancellationToken>>,
-    claims: Mutex<HashMap<String, Claimant>>,
+    claims: Mutex<HashMap<String, Claim>>,
 }
 
 /// What an owner's background workers run under: a token its Stop cancels, and its durable Stop count.
@@ -198,38 +201,51 @@ impl Workers {
         self.tokens.lock().unwrap().remove(task_id);
     }
 
-    /// Takes the right to hand `task_id`'s result over; `false` if someone else has it.
+    /// Takes the right to hand `task_id`'s result over; `false` if someone else has it, who is then asked to try again.
     pub(crate) fn claim(&self, task_id: &str, claimant: Claimant) -> bool {
         let mut claims = self.claims.lock().unwrap();
-        match claims.get(task_id) {
-            Some(holder) => *holder == claimant,
+        match claims.get_mut(task_id) {
+            // A call may claim what it already holds; two automatic attempts never run at once.
+            Some(claim) if claim.holder == claimant && claimant != Claimant::Automatic => true,
+            Some(claim) => {
+                claim.again = true;
+                false
+            }
             None => {
-                claims.insert(task_id.into(), claimant);
+                claims.insert(task_id.into(), Claim { holder: claimant, again: false });
                 true
             }
         }
     }
 
     pub(crate) fn holds(&self, task_id: &str, claimant: &Claimant) -> bool {
-        self.claims.lock().unwrap().get(task_id) == Some(claimant)
+        self.claims.lock().unwrap().get(task_id).is_some_and(|claim| claim.holder == *claimant)
     }
 
-    pub(crate) fn release_where_task(&self, task_id: &str, claimant: &Claimant) {
+    /// Gives up `claimant`'s claim; `true` if someone found it taken meanwhile and wants another try.
+    pub(crate) fn release_where_task(&self, task_id: &str, claimant: &Claimant) -> bool {
         let mut claims = self.claims.lock().unwrap();
-        if claims.get(task_id) == Some(claimant) {
-            claims.remove(task_id);
+        match claims.get(task_id) {
+            Some(claim) if claim.holder == *claimant => claims.remove(task_id).is_some_and(|claim| claim.again),
+            _ => false,
         }
     }
 
     /// Gives up every claim `matches` selects; returns the tasks given up.
     fn release_where(&self, matches: impl Fn(&Claimant) -> bool) -> Vec<String> {
         let mut claims = self.claims.lock().unwrap();
-        let released: Vec<String> = claims.iter().filter(|(_, holder)| matches(holder)).map(|(task, _)| task.clone()).collect();
+        let released: Vec<String> = claims.iter().filter(|(_, claim)| matches(&claim.holder)).map(|(task, _)| task.clone()).collect();
         for task in &released {
             claims.remove(task);
         }
         released
     }
+}
+
+/// Who holds a result, and whether anyone asked for it while it was held.
+struct Claim {
+    holder: Claimant,
+    again: bool,
 }
 
 /// The owner's entry, its Stop count read from the store the first time it is needed.
@@ -349,16 +365,27 @@ impl Engine {
 
     /// Hands a finished background result to its parent as a prompt, once, unless a call of the parent's is taking it.
     pub async fn deliver(self: &Arc<Self>, task_id: &str) {
-        if !self.workers.claim(task_id, Claimant::Automatic) {
-            return;
-        }
-        // Read after claiming: a call may have taken it just before.
-        if let Ok(Some(task)) = self.store.task(task_id) {
-            if !task.delivered && !task.held && task.state.is_terminal() && task.mode == Mode::Background {
-                self.deliver_claimed(&task).await;
+        while self.workers.claim(task_id, Claimant::Automatic) {
+            // Read after claiming: a call may have taken it just before.
+            if let Ok(Some(task)) = self.store.task(task_id) {
+                if !task.delivered && !task.held && task.state.is_terminal() && task.mode == Mode::Background {
+                    self.deliver_claimed(&task).await;
+                }
+            }
+            // A trigger that found it claimed while this attempt failed is not lost: it is tried once more here.
+            if !self.workers.release_where_task(task_id, &Claimant::Automatic) {
+                return;
             }
         }
-        self.workers.release_where_task(task_id, &Claimant::Automatic);
+    }
+
+    /// Tries owed background results of `parent`, or of every session, again; each is one attempt, never a loop.
+    pub fn retry_deliveries(self: &Arc<Self>, parent: Option<&str>) {
+        let Some(runtime) = tokio::runtime::Handle::try_current().ok().or_else(|| self.runtime.get().cloned()) else { return };
+        for task in self.store.owed_background(parent).unwrap_or_default() {
+            let engine = self.clone();
+            runtime.spawn(async move { engine.deliver(&task.id).await });
+        }
     }
 
     async fn deliver_claimed(self: &Arc<Self>, task: &TaskRecord) {
@@ -371,8 +398,13 @@ impl Engine {
         match self.admit(owner, prompt, how).await {
             Ok(_) | Err(TurnError::SubmissionReused) => self.publish_task(&task.id),
             Err(TurnError::Stopped) => self.hold(&task.id),
-            // Left owed: the next start delivers it.
-            Err(error) => eprintln!("drift: task {} result not delivered: {error}", task.id),
+            // Left owed with its reason; the parent's job ending or a repair tries it again.
+            Err(error) => {
+                let reason = if error == TurnError::Busy { "the conversation is busy with another job; it goes in when that ends".to_string() } else { error.to_string() };
+                if self.store.set_delivery_error(&task.id, &reason).is_ok() {
+                    self.publish_task(&task.id);
+                }
+            }
         }
     }
 

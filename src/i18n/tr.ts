@@ -1317,6 +1317,7 @@ export const drift = {
   "drift.task.stopHint": "Yalnızca bu görevi durdurur; sohbet devam eder.",
   "drift.task.stopFailed": "Görev durdurulamadı",
   "drift.task.held": "Durdur sonrası bekletiliyor; sonraki mesajınızla gelir",
+  "drift.task.owed": "henüz teslim edilmedi: {{reason}}",
   "drift.move.sessionBusy": "Oturum hâlâ meşgul; taşımadan önce durdurun.",
   "drift.message.revertHere": "Buraya geri dön",
   "drift.message.tokenCounts": "{{input}} giriş / {{output}} çıkış",

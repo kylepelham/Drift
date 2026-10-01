@@ -65,6 +65,7 @@ pub async fn set_key(State(engine): State<Arc<Engine>>, Path(id): Path<String>, 
         .credentials
         .set(&id, &Credential::ApiKey { key: key.into() })
         .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e))?;
+    engine.retry_deliveries(None);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -143,5 +144,6 @@ pub async fn oauth_finish(State(engine): State<Arc<Engine>>, Path(id): Path<Stri
     };
     let credential = credential.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e))?;
     engine.credentials.set(&id, &credential).map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e))?;
+    engine.retry_deliveries(None);
     Ok(StatusCode::NO_CONTENT)
 }

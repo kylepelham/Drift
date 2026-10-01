@@ -1307,6 +1307,7 @@ export const drift = {
   "drift.task.stopHint": "Stopper kun denne opgave; samtalen fortsætter.",
   "drift.task.stopFailed": "Opgaven kunne ikke stoppes",
   "drift.task.held": "holdt tilbage efter Stop; kommer med din næste besked",
+  "drift.task.owed": "ikke afleveret endnu: {{reason}}",
   "drift.move.sessionBusy": "Sessionen er stadig optaget; stop den, før du flytter den.",
   "drift.message.revertHere": "Rul tilbage hertil",
   "drift.message.tokenCounts": "{{input}} ind / {{output}} ud",

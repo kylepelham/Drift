@@ -58,13 +58,16 @@ function TaskRow(props: { task: TaskRecord }) {
   const engine = useEngine()
   const activity = () => (props.task.state === "running" ? engine.state.activity[props.task.sessionId]?.current : undefined)
   return (
-    <li class="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-ink-muted">
+    <li class="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-ink-muted" title={props.task.delivered ? undefined : (props.task.deliveryError ?? undefined)}>
       <span class={`size-2 shrink-0 rounded-full ${stateTone[props.task.state]}`} />
       <span class="min-w-0 flex-1 truncate">
         <span class="text-ink">{props.task.description}</span>
         <span class="text-ink-faint"> · @{props.task.agent} · {t(`drift.task.state.${props.task.state}`)}</span>
         <Show when={props.task.held && !props.task.delivered}>
           <span class="text-ink-faint"> · {t("drift.task.held")}</span>
+        </Show>
+        <Show when={!props.task.delivered && props.task.deliveryError}>
+          {(reason) => <span class="text-warn"> · {t("drift.task.owed", { reason: reason() })}</span>}
         </Show>
         <Show when={activity()}>{(text) => <span class="font-mono text-accent/80"> · {text()}</span>}</Show>
       </span>

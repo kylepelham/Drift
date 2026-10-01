@@ -95,6 +95,8 @@ pub struct Engine {
     agent_overrides: RwLock<std::collections::HashMap<String, config::AgentOverride>>,
     /// The user's shell time limit from Settings, `Some(None)` for none; `None` until the shell says.
     shell_timeout: RwLock<Option<Option<std::time::Duration>>>,
+    /// The runtime the engine serves on, for work started from outside it (a Settings change from the shell).
+    runtime: std::sync::OnceLock<tokio::runtime::Handle>,
 }
 
 impl Engine {
@@ -125,11 +127,14 @@ impl Engine {
             oauth: Default::default(),
             agent_overrides: Default::default(),
             shell_timeout: Default::default(),
+            runtime: Default::default(),
         }))
     }
 
-    pub fn set_agent_overrides(&self, overrides: std::collections::HashMap<String, config::AgentOverride>) {
+    /// A changed agent model or prompt may be what an owed result was waiting for.
+    pub fn set_agent_overrides(self: &Arc<Self>, overrides: std::collections::HashMap<String, config::AgentOverride>) {
         *self.agent_overrides.write().unwrap() = overrides;
+        self.retry_deliveries(None);
     }
 
     /// `None` lets shell commands run as long as they need. Applies to calls that start afterwards.
@@ -229,6 +234,7 @@ impl Server {
 }
 
 pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Error> {
+    let _ = engine.runtime.set(tokio::runtime::Handle::current());
     let starting = engine.clone();
     tokio::spawn(async move {
         starting.refresh_catalog().await;

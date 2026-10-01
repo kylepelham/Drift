@@ -1223,6 +1223,7 @@ export const drift = {
   "drift.task.stopHint": "يوقف هذه المهمة فقط؛ وتستمر المحادثة.",
   "drift.task.stopFailed": "تعذّر إيقاف المهمة",
   "drift.task.held": "محتجزة بعد الإيقاف؛ تصل مع رسالتك التالية",
+  "drift.task.owed": "لم تُسلَّم بعد: {{reason}}",
   "drift.move.sessionBusy": "الجلسة لا تزال مشغولة؛ أوقفها قبل النقل.",
   "drift.message.revertHere": "التراجع إلى هنا",
   "drift.message.tokenCounts": "{{input}} إدخال / {{output}} إخراج",

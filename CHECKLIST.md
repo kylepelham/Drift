@@ -72,6 +72,12 @@ change the plan there when a decision changes.
   - [x] Worker plan (prompt, tools, limits, workspace, model) fixed at admission; only credentials refreshed at start
   - [x] Task and child session created or reused in one transaction; replays return the mode's own result
   - [x] `apply_patch` writes through staged copies, restores the failing step too, names files it could not restore; only NotFound is absence
+- Worker follow-ups:
+  - [x] Owed deliveries retried on the parent's job end and on repairs (credentials, session model/agent, agent overrides), with the reason exposed; a trigger racing a held claim is kept by the attempt; no timer loop
+  - [x] Results Stop suppresses are held, not delivered, and ride along with the next user prompt, once
+  - [x] `task_output` is background-only; launching calls own foreground (and failed-launch) results through their save
+  - [x] Staged writes: Windows `ReplaceFileW` keeps the ACL or fails; delete-sharing refusal leaves the file; hard links documented; only recorded engine-named staging files cleaned
+  - [x] New comments one line each
 - [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
 - [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
 - [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, handoff, subagent pins

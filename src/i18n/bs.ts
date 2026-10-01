@@ -1315,6 +1315,7 @@ export const drift = {
   "drift.task.stopHint": "Zaustavlja samo ovaj zadatak; razgovor se nastavlja.",
   "drift.task.stopFailed": "Zadatak nije moguće zaustaviti",
   "drift.task.held": "zadržano nakon zaustavljanja; stiže s vašom sljedećom porukom",
+  "drift.task.owed": "još nije predano: {{reason}}",
   "drift.move.sessionBusy": "Sesija je još uvijek zauzeta; zaustavite je prije premještanja.",
   "drift.message.revertHere": "Vrati do ovdje",
   "drift.message.tokenCounts": "{{input}} ulaz / {{output}} izlaz",

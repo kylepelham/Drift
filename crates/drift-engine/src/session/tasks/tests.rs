@@ -372,6 +372,76 @@ async fn a_result_launched_before_a_stop_never_wakes_the_parent_even_after_a_res
 }
 
 #[tokio::test]
+async fn a_result_that_found_the_parent_busy_goes_in_when_that_job_ends() {
+    let h = harness().await;
+    with_model(&h);
+    h.provider.push(text("noted"));
+    let task = recorded(&h, "launch", Mode::Background);
+    h.engine.end_task(&task.id, TaskState::Replied, "busy answer");
+    let gate = Arc::new(tokio::sync::Notify::new());
+    assert!(h.engine.turns.claim(&h.session.id, &CancellationToken::new()));
+    let waiting = gate.clone();
+    h.engine.spawn_job(&h.session.id, async move { waiting.notified().await });
+    h.engine.deliver(&task.id).await;
+    let owed = h.engine.store.task(&task.id).unwrap().unwrap();
+    assert!(!owed.delivered && owed.delivery_error.as_deref().is_some_and(|e| e.contains("busy")), "{owed:?}");
+    assert!(h.provider.requests.lock().unwrap().is_empty());
+
+    gate.notify_one();
+    until("delivered once the job ends", || h.engine.store.task(&task.id).unwrap().unwrap().delivered).await;
+    until_idle(&h).await;
+    assert_eq!(h.engine.store.task(&task.id).unwrap().unwrap().delivery_error, None);
+    assert_eq!(delivered_results(&h.engine.store.transcript(&h.session.id).unwrap()), [("launch".to_string(), "busy answer".to_string())]);
+}
+
+#[tokio::test]
+async fn a_retry_asked_for_while_an_attempt_holds_the_result_is_made_by_that_attempt() {
+    let h = harness().await;
+    with_model(&h);
+    h.provider.push(text("noted"));
+    let task = recorded(&h, "launch", Mode::Background);
+    h.engine.end_task(&task.id, TaskState::Replied, "late answer");
+    // Busy with something whose end sends no notification of its own.
+    let busy = CancellationToken::new();
+    assert!(h.engine.turns.claim(&h.session.id, &busy));
+    let attempt = tokio::spawn({
+        let (engine, id) = (h.engine.clone(), task.id.clone());
+        async move { engine.deliver(&id).await }
+    });
+    until("the attempt holds it", || h.engine.workers.holds(&task.id, &Claimant::Automatic)).await;
+    // A readiness notification arrives while the attempt holds the result, and finds it taken.
+    h.engine.retry_deliveries(Some(&h.session.id));
+    until("the first attempt fails", || h.engine.store.task(&task.id).unwrap().unwrap().delivery_error.is_some()).await;
+    h.engine.turns.release(&h.session.id);
+    tokio::time::timeout(Duration::from_secs(5), attempt).await.expect("the attempt ends").unwrap();
+    assert!(h.engine.store.task(&task.id).unwrap().unwrap().delivered, "the notification was honoured, not dropped");
+    until_idle(&h).await;
+    assert_eq!(delivered_results(&h.engine.store.transcript(&h.session.id).unwrap()).len(), 1);
+}
+
+#[tokio::test]
+async fn a_result_blocked_by_a_missing_model_stays_owed_with_its_reason_until_one_is_chosen() {
+    let h = harness().await;
+    let task = recorded(&h, "launch", Mode::Background);
+    h.engine.end_task(&task.id, TaskState::Replied, "answer");
+    h.engine.deliver(&task.id).await;
+    let owed = h.engine.store.task(&task.id).unwrap().unwrap();
+    assert_eq!((owed.delivered, owed.delivery_error.as_deref()), (false, Some("no model selected")));
+    assert!(serde_json::to_value(&owed).unwrap()["deliveryError"] == "no model selected", "exposed to the UI");
+    // Nothing tries again by itself: no loop.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!h.engine.workers.holds(&task.id, &Claimant::Automatic) && h.provider.requests.lock().unwrap().is_empty());
+
+    // Choosing a model (what PATCH /sessions/{id} does) is a repair, and the result goes in.
+    h.provider.push(text("noted"));
+    with_model(&h);
+    h.engine.retry_deliveries(Some(&h.session.id));
+    until("delivered after the repair", || h.engine.store.task(&task.id).unwrap().unwrap().delivered).await;
+    until_idle(&h).await;
+    assert_eq!(h.engine.store.task(&task.id).unwrap().unwrap().delivery_error, None);
+}
+
+#[tokio::test]
 async fn a_result_held_by_stop_rides_along_with_the_next_prompt_once() {
     let h = harness().await;
     with_model(&h);

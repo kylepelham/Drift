@@ -41,7 +41,10 @@ const MAX_REQUESTED_WAIT: Duration = Duration::from_secs(10 * 60);
 /// Output cap when the model allows more; keeps a runaway response from burning the budget.
 const MAX_OUTPUT_TOKENS: u32 = 32_000;
 /// How long a prompt waits for a job that is not a turn (a compaction, an undo) before it is refused.
+#[cfg(not(test))]
 const QUEUE_WAIT: Duration = Duration::from_secs(30);
+#[cfg(test)]
+const QUEUE_WAIT: Duration = Duration::from_secs(2);
 /// A finished reply's `error` when it stopped at the output limit rather than ending on its own.
 pub const OUTPUT_LIMIT_ENDING: &str = "The reply stopped at the output limit";
 /// What a thinking budget always leaves for the answer itself.
@@ -439,8 +442,10 @@ impl Engine {
             engine.turns.active.lock().unwrap().remove(&id);
             // A call that panicked never released what it was handing over.
             engine.release_claims_of(&id);
-            engine.hub.publish(Event::SessionStatusChanged { session_id: id, status: SessionStatus::Idle });
+            engine.hub.publish(Event::SessionStatusChanged { session_id: id.clone(), status: SessionStatus::Idle });
             engine.turns.finished.notify_waiters();
+            // Results that found the session busy go in now; one racing its own failed attempt is retried by that attempt.
+            engine.retry_deliveries(Some(&id));
         });
     }
 
