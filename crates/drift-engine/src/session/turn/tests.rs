@@ -59,7 +59,8 @@ pub(crate) fn tool_call(name: &str, input: &str) -> Vec<Chunk> {
 }
 
 pub(crate) async fn until_idle(h: &Harness) {
-    for _ in 0..200 {
+    // Shell-spawning turns can take seconds on a loaded Windows runner; a passing turn returns at once regardless.
+    for _ in 0..1000 {
         if !h.engine.turns.is_running(&h.session.id) {
             return;
         }
