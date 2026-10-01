@@ -61,24 +61,25 @@ impl Tool for Edit {
             })?;
             let ending = LineEnding::detect(&raw);
             let content = ending.normalise(&raw);
-            let updated = replace(&content, &ending.normalise(old), &ending.normalise(new), replace_all)?;
+            let (updated, replacements) = replace(&content, &ending.normalise(old), &ending.normalise(new), replace_all)?;
             let written = ending.apply(&updated);
             super::fits_history(&name, written.len())?;
             super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
             Ok(Output {
                 title: name.clone(),
                 output: diff(&name, &content, &updated),
-                metadata: json!({ "replacements": if replace_all { content.matches(old).count() } else { 1 }, "files": [path.to_string_lossy()] }),
+                metadata: json!({ "replacements": replacements, "files": [path.to_string_lossy()] }),
             })
         })
     }
 }
 
-fn replace(content: &str, old: &str, new: &str, replace_all: bool) -> Result<String, ToolError> {
+/// The new content and how many places changed; both sides already share the file's line endings.
+fn replace(content: &str, old: &str, new: &str, replace_all: bool) -> Result<(String, usize), ToolError> {
     let count = content.matches(old).count();
     match (count, replace_all) {
         (0, _) => Err(ToolError(miss(content, old))),
-        (1, _) | (_, true) => Ok(content.replace(old, new)),
+        (1, _) | (_, true) => Ok((content.replace(old, new), count)),
         (n, false) => Err(ToolError(format!(
             "old_string matches {n} places; include more surrounding lines to make it unique, or set replace_all"
         ))),
@@ -190,6 +191,16 @@ mod tests {
         assert!(err.0.contains("matches 2 places"));
         let out = edit(&sandbox, json!({ "path": "m.txt", "old_string": "x", "new_string": "z", "replace_all": true })).await.unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "z\ny\nz\n");
+        assert_eq!(out.metadata["replacements"], 2);
+    }
+
+    #[tokio::test]
+    async fn a_crlf_search_string_counts_the_places_it_changed() {
+        let sandbox = Sandbox::new("edit-crlf-count");
+        let path = sandbox.file("c.txt", "x\r\ny\r\nx\r\ny\r\n");
+        sandbox.ctx.files.mark_read(&path);
+        let out = edit(&sandbox, json!({ "path": "c.txt", "old_string": "x\r\ny", "new_string": "z", "replace_all": true })).await.unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"z\r\nz\r\n");
         assert_eq!(out.metadata["replacements"], 2);
     }
 
