@@ -268,23 +268,20 @@ test("archiving and restoring go to the engine and keep the session's record in 
 
 type McpServer = components["schemas"]["ServerStatus"]
 
-function mcpServer(name: string, state: McpServer["state"] = "needs_approval"): McpServer {
-  return { name, config: { type: "stdio", command: "node", args: ["server.js"], env: [] }, enabled: true, hash: "h1", approved: state !== "needs_approval", updatedAt: 1, state, tools: [] }
+function mcpServer(name: string, state: McpServer["state"] = "connected"): McpServer {
+  return { name, config: { type: "stdio", command: "node", args: ["server.js"], env: [] }, enabled: state !== "disabled", updatedAt: 1, state, tools: [] }
 }
 
 test("MCP changes go to the engine and the store holds what it reports", async () => {
   const h = harness({
     mcpServers: async () => [mcpServer("docs", "connected")],
     saveMcpServer: async (name: string) => mcpServer(name),
-    approveMcpServer: async (name: string) => mcpServer(name, "connected"),
     setMcpServerEnabled: async (name: string, enabled: boolean) => ({ ...mcpServer(name, enabled ? "connected" : "disabled"), enabled }),
     removeMcpServer: async () => undefined,
   } as Partial<Client>)
   await h.actions.refreshMcp()
   expect(Object.keys(h.state.mcpServers)).toEqual(["docs"])
   await h.actions.mcpSave("files", { type: "stdio", command: "npx", args: [] })
-  expect(h.state.mcpServers.files.state).toBe("needs_approval")
-  await h.actions.mcpApprove("files")
   expect(h.state.mcpServers.files.state).toBe("connected")
   await h.actions.mcpSetEnabled("files", false)
   expect(h.state.mcpServers.files.enabled).toBeFalse()

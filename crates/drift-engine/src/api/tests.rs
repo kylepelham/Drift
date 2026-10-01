@@ -393,17 +393,16 @@ async fn deleting_a_session_removes_it_and_its_messages() {
 }
 
 #[tokio::test]
-async fn mcp_servers_are_saved_approved_connected_and_their_tools_reach_the_model() {
+async fn mcp_servers_connect_as_soon_as_they_are_saved_and_their_tools_reach_the_model() {
     use crate::llm::catalog::ToolProfile;
     let h = harness().await;
     let mut socket = h.ws("").await;
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
     let saved: Value = h.put("/mcp/echo").json(&json!({ "type": "stdio", "command": "node", "args": [script] })).send().await.unwrap().json().await.unwrap();
-    assert_eq!(saved["state"], "needs_approval");
+    assert_eq!(saved["state"], "connected", "nothing to approve");
+    assert_eq!(saved["tools"][0]["name"], "echo");
+    assert!(saved.get("hash").is_none() && saved.get("approved").is_none());
     assert_eq!(until(&mut socket, "mcp.updated").await["server"]["name"], "echo");
-    let approved: Value = h.post("/mcp/echo/approve").send().await.unwrap().json().await.unwrap();
-    assert_eq!(approved["state"], "connected");
-    assert_eq!(approved["tools"][0]["name"], "echo");
     let names: Vec<String> = h.engine.tool_specs(ToolProfile::Edit).into_iter().map(|s| s.name).collect();
     assert!(names.contains(&"echo_shout".to_string()));
 
@@ -420,22 +419,23 @@ async fn mcp_servers_are_saved_approved_connected_and_their_tools_reach_the_mode
 async fn mcp_secrets_go_in_but_never_out_and_no_save_or_rename_replaces_another_server() {
     let h = harness().await;
     let save = |name: &str, query: &str, body: Value| h.put(&format!("/mcp/{name}{query}")).json(&body).send();
-    let secret = json!({ "type": "http", "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer secret-token" } });
+    // Saving connects, so every server here points at a closed local port or a missing program, and fails at once.
+    let secret = json!({ "type": "http", "url": "http://127.0.0.1:9/mcp", "headers": { "Authorization": "Bearer secret-token" } });
     let saved = save("docs", "?create=true", secret.clone()).await.unwrap().text().await.unwrap();
     assert!(saved.contains("Authorization") && !saved.contains("secret-token"), "{saved}");
     let listed = h.get("/mcp").send().await.unwrap().text().await.unwrap();
     assert!(!listed.contains("secret-token"));
     assert_eq!(save("docs", "?create=true", secret.clone()).await.unwrap().status(), 409, "adding never replaces");
 
-    let kept = json!({ "type": "http", "url": "https://example.com/v2", "headers": { "Authorization": null } });
+    let kept = json!({ "type": "http", "url": "http://127.0.0.1:9/v2", "headers": { "Authorization": null } });
     assert_eq!(save("docs", "", kept).await.unwrap().status(), 200);
     let ServerConfig::Http { headers, .. } = h.engine.store.mcp_server("docs").unwrap().unwrap().config else { panic!() };
     assert_eq!(headers["Authorization"], "Bearer secret-token", "a null value keeps the saved secret");
-    let unknown = json!({ "type": "http", "url": "https://example.com", "headers": { "X-Key": null } });
+    let unknown = json!({ "type": "http", "url": "http://127.0.0.1:9", "headers": { "X-Key": null } });
     let refused: Value = save("docs", "", unknown).await.unwrap().json().await.unwrap();
     assert_eq!(refused["code"], "secret");
 
-    save("other", "", json!({ "type": "stdio", "command": "node" })).await.unwrap();
+    save("other", "", json!({ "type": "stdio", "command": "definitely-not-a-program" })).await.unwrap();
     let rename = |from: &str, to: &str| h.post(&format!("/mcp/{from}/rename")).json(&json!({ "to": to })).send();
     let onto_taken: Value = rename("docs", "other").await.unwrap().json().await.unwrap();
     assert_eq!(onto_taken["code"], "taken");
@@ -444,13 +444,6 @@ async fn mcp_secrets_go_in_but_never_out_and_no_save_or_rename_replaces_another_
     assert!(h.engine.store.mcp_server("docs").unwrap().is_none());
     let ServerConfig::Http { headers, .. } = h.engine.store.mcp_server("docs2").unwrap().unwrap().config else { panic!() };
     assert_eq!(headers["Authorization"], "Bearer secret-token", "the secret moves with it");
-
-    let status: Value = h.get("/mcp").send().await.unwrap().json().await.unwrap();
-    let reviewed = status.as_array().unwrap().iter().find(|s| s["name"] == "other").unwrap()["hash"].as_str().unwrap().to_string();
-    save("other", "", json!({ "type": "stdio", "command": "node", "args": ["changed.js"] })).await.unwrap();
-    let stale: Value = h.post(&format!("/mcp/other/approve?hash={reviewed}")).send().await.unwrap().json().await.unwrap();
-    assert_eq!(stale["code"], "changed", "an approval names what was reviewed");
-    assert!(!h.engine.store.mcp_server("other").unwrap().unwrap().is_approved());
 }
 
 #[tokio::test]

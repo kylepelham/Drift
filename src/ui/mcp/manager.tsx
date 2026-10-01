@@ -5,14 +5,14 @@ import { registryConfig, registryServerName, type RegistryServer } from "../../m
 import { createRegistrySearch } from "../../state/mcp-registry-search"
 import { t } from "../../state/i18n"
 import { Toggle } from "../controls"
-import { IconCheck, IconPlug, IconPlugOff, IconPlus, IconShieldCheck, IconSquarePen, IconTrash } from "../icons"
+import { IconCheck, IconPlug, IconPlugOff, IconPlus, IconSquarePen, IconTrash } from "../icons"
 import { McpEditor } from "./editor"
 
 type RuntimeAction = "connect" | "disconnect"
 type RowKey = "ArrowUp" | "ArrowDown" | "Home" | "End"
 type EditorEntry = { server?: McpServerStatus }
 
-/** Connect and disconnect apply only to a server that is enabled and approved. */
+/** Connect and disconnect apply only to an enabled server. */
 export function mcpRuntimeAction(server: McpServerStatus): RuntimeAction | undefined {
   if (server.state === "connected") return "disconnect"
   if (server.state === "disconnected" || server.state === "failed") return "connect"
@@ -97,7 +97,6 @@ export function McpManagement(props: { embedded?: boolean }) {
       // Renamed first, so the save that follows keeps its saved secrets; a retry after a failed save saves under the new name.
       if (previous && previous !== name) setEditor({ server: await engine.actions.mcpRename(previous, name) })
       await engine.actions.mcpSave(name, config, { create: !previous })
-      setMessage(t("drift.mcp.saved", { name }))
       setEditor(null)
     } finally {
       setBusy(null)
@@ -187,7 +186,6 @@ export function McpManagement(props: { embedded?: boolean }) {
                     onNavigate={(key) => moveRow(key, name)}
                     onEdit={() => setEditor({ server: server() })}
                     onRemove={() => void remove(name)}
-                    onApprove={() => void run(name, () => engine.actions.mcpApprove(name, server().hash), t("drift.mcp.approved", { name }))}
                     onEnabled={(enabled) => void run(name, () => engine.actions.mcpSetEnabled(name, enabled))}
                     onRuntime={(action) => runtime(server(), action)}
                   />
@@ -239,7 +237,6 @@ function ServerRow(props: {
   onNavigate: (key: RowKey) => void
   onEdit: () => void
   onRemove: () => void
-  onApprove: () => void
   onEnabled: (enabled: boolean) => void
   onRuntime: (action: RuntimeAction) => void
 }) {
@@ -281,24 +278,7 @@ function ServerRow(props: {
             <span class={status().tone}>{status().text}</span>
           </div>
         </div>
-        {/* Approval leads and stays textual: it is the security-relevant choice. */}
         <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-          <Show when={props.server.state === "needs_approval"}>
-            <Action disabled={props.disabled} tone="warn" onClick={props.onApprove}>
-              <IconShieldCheck class="size-3.5" />
-              {t("drift.mcp.approve")}
-            </Action>
-          </Show>
-          <Show when={runtime()}>
-            {(action) => (
-              <Action disabled={props.disabled} title={t(`common.${action()}`)} onClick={() => props.onRuntime(action())}>
-                {action() === "disconnect" ? <IconPlugOff class="size-3.5" /> : <IconPlug class="size-3.5" />}
-              </Action>
-            )}
-          </Show>
-          <Action disabled={props.disabled} title={t("common.edit")} onClick={props.onEdit}>
-            <IconSquarePen class="size-3.5" />
-          </Action>
           <Action
             disabled={props.disabled}
             tone="danger"
@@ -308,6 +288,16 @@ function ServerRow(props: {
             {/* The confirm step keeps its text: an icon cannot ask "are you sure". */}
             {props.confirming ? t("drift.mcp.confirmRemove") : <IconTrash class="size-3.5" />}
           </Action>
+          <Action disabled={props.disabled} title={t("common.edit")} onClick={props.onEdit}>
+            <IconSquarePen class="size-3.5" />
+          </Action>
+          <Show when={runtime()}>
+            {(action) => (
+              <Action disabled={props.disabled} title={t(`common.${action()}`)} onClick={() => props.onRuntime(action())}>
+                {action() === "disconnect" ? <IconPlugOff class="size-3.5" /> : <IconPlug class="size-3.5" />}
+              </Action>
+            )}
+          </Show>
           <Toggle
             label={t("drift.mcp.enable", { name: props.server.name })}
             checked={props.server.enabled}
@@ -331,8 +321,6 @@ function statusLabel(server: McpServerStatus, busy: boolean) {
       return { text: t("drift.mcp.status.disconnected"), tone: "text-ink-faint" }
     case "failed":
       return { text: server.error || t("mcp.status.failed"), tone: "text-danger" }
-    case "needs_approval":
-      return { text: t("drift.mcp.pendingApproval"), tone: "text-warn" }
     case "disabled":
       return { text: t("mcp.status.disabled"), tone: "text-ink-faint" }
   }
@@ -461,7 +449,7 @@ function TextInput(props: { value: string; onInput: (value: string) => void; lab
 
 function Action(props: {
   disabled?: boolean
-  tone?: "warn" | "danger"
+  tone?: "danger"
   title?: string
   onClick: () => void
   children: JSX.Element
@@ -475,7 +463,6 @@ function Action(props: {
       class="flex items-center gap-1 rounded-md border px-2 py-1 text-xs disabled:opacity-40"
       classList={{
         "border-edge text-ink-muted hover:text-ink": !props.tone,
-        "border-warn/40 text-warn hover:bg-warn/10": props.tone === "warn",
         "border-danger/40 text-danger hover:bg-danger/10": props.tone === "danger",
       }}
       onClick={(event) => {

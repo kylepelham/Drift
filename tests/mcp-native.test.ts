@@ -11,8 +11,8 @@ if (!("localStorage" in globalThis))
 
 type McpServer = components["schemas"]["ServerStatus"]
 
-function server(name: string, state: McpServer["state"], config: McpServer["config"] = { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] }, hash = "h1"): McpServer {
-  return { name, config, enabled: true, hash, approved: state !== "needs_approval", updatedAt: 1, state, tools: [] }
+function server(name: string, state: McpServer["state"]): McpServer {
+  return { name, config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] }, enabled: state !== "disabled", updatedAt: 1, state, tools: [] }
 }
 
 test("the editor never holds a saved secret: untouched ones are kept by name, typed ones replace them", () => {
@@ -89,32 +89,18 @@ test("nothing is sent as an unexpanded placeholder: a remote needing an unknown 
   ).toBeNull()
 })
 
-test("approval prompts list servers awaiting approval and change key when the definition changes", async () => {
-  const { mcpCommandLine, mcpPromptKey, mcpPromptTargets } = await import("../src/ui/notifications")
-  const pending = server("files", "needs_approval")
-  const targets = mcpPromptTargets({ docs: server("docs", "connected"), files: pending })
-  expect(targets.map((target) => target.name)).toEqual(["files"])
-  expect(mcpCommandLine(pending)).toBe("npx -y pkg@1.0.0")
-  const changed = server("files", "needs_approval", { type: "stdio", command: "node", args: [], env: [] }, "h2")
-  expect(mcpPromptKey(changed)).not.toBe(mcpPromptKey(pending))
-  expect(mcpPromptKey(pending)).toBe("files:h1")
-})
-
 test("rows offer connect or disconnect only where the engine can do it", async () => {
   const { mcpRuntimeAction, mcpRuntimeKeyAction, nextMcpRowName } = await import("../src/ui/mcp/manager")
   expect(mcpRuntimeAction(server("a", "connected"))).toBe("disconnect")
   expect(mcpRuntimeAction(server("a", "failed"))).toBe("connect")
-  expect(mcpRuntimeAction(server("a", "needs_approval"))).toBeUndefined()
+  expect(mcpRuntimeAction(server("a", "connecting"))).toBeUndefined()
   expect(mcpRuntimeAction(server("a", "disabled"))).toBeUndefined()
   expect(mcpRuntimeKeyAction(server("a", "connected"), "ArrowLeft")).toBe("disconnect")
   expect(mcpRuntimeKeyAction(server("a", "disconnected"), "ArrowRight")).toBe("connect")
   expect(nextMcpRowName(["a", "b", "c"], "c", "ArrowDown")).toBe("a")
 })
 
-test("notice ids stay distinct per occurrence and dismissed ones are pruned", async () => {
-  const { nextNoticeOccurrenceId, pruneDismissedNoticeIds } = await import("../src/ui/notifications")
-  const first = nextNoticeOccurrenceId("failure")
-  const second = nextNoticeOccurrenceId("failure")
-  expect(second).not.toBe(first)
-  expect(pruneDismissedNoticeIds(new Set([first, "expired"]), new Set([first, second]))).toEqual(new Set([first]))
+test("dismissed notices are forgotten once they expire", async () => {
+  const { pruneDismissedNoticeIds } = await import("../src/ui/notifications")
+  expect(pruneDismissedNoticeIds(new Set(["kept", "expired"]), new Set(["kept", "new"]))).toEqual(new Set(["kept"]))
 })

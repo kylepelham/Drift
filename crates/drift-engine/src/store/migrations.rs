@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-const MIGRATIONS: [&str; 19] = [
+const MIGRATIONS: [&str; 20] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -123,6 +123,8 @@ const MIGRATIONS: [&str; 19] = [
     ) STRICT;
     CREATE INDEX idx_queued_session ON queued_prompt(session_id);",
     "DROP TABLE queued_prompt;",
+    "ALTER TABLE mcp_config DROP COLUMN approved_hash;
+    DELETE FROM setting WHERE key = 'mcpApprovalKey';",
 ];
 
 #[cfg(test)]

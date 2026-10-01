@@ -247,14 +247,9 @@ export const dict = {
   "drift.mcp.edit": "Edit server",
   "drift.mcp.remove": "Remove",
   "drift.mcp.confirmRemove": "Remove?",
-  "drift.mcp.approve": "Approve",
-  "drift.mcp.reject": "Disable",
-  "drift.mcp.pendingApproval": "Pending approval",
-  "drift.mcp.engineDescription": "Servers the engine offers in every workspace. A new or changed server runs only after you approve it.",
+  "drift.mcp.engineDescription": "Servers the engine offers in every workspace. A server connects as soon as it is saved and enabled.",
   "drift.mcp.status.disconnected": "disconnected",
-  "drift.mcp.saved": "{{name}} saved. Approve it before it can run.",
   "drift.mcp.removed": "{{name}} removed.",
-  "drift.mcp.approved": "{{name}} approved.",
   "drift.mcp.name": "Server name",
   "drift.mcp.nameRequired": "Enter a server name.",
   "drift.mcp.form.nameInvalid": "Use 1-128 letters, numbers, underscores or hyphens: the name starts each of its tools' names.",
@@ -284,11 +279,7 @@ export const dict = {
   "drift.mcp.registryUnavailable": "This registry entry has no pinned npm/PyPI stdio package or HTTPS remote.",
   "drift.mcp.install": "Install",
   "drift.mcp.installedLabel": "Installed",
-  "drift.mcp.installed": "{{name}} installed. Review and approve it before it can run.",
-  "drift.mcp.toast.pending.title": "MCP approval required",
-  "drift.mcp.toast.pending.message": "{{name}} runs only once you approve this exact definition:",
-  "drift.mcp.toast.openSettings": "Review",
-  "drift.mcp.toast.failed": "MCP decision failed",
+  "drift.mcp.installed": "{{name}} installed.",
 }
 
 export const drift = {

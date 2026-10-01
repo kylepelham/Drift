@@ -29,18 +29,12 @@ pub struct RenameBody {
     pub to: String,
 }
 
-#[derive(Deserialize, IntoParams)]
-pub struct ApproveQuery {
-    /// The `hash` the user reviewed; 409 if the saved config has changed since.
-    pub hash: Option<String>,
-}
-
 #[utoipa::path(get, path = "/mcp", operation_id = "listMcpServers", responses((status = 200, body = Vec<ServerStatus>)))]
 pub async fn list(State(engine): State<Arc<Engine>>) -> Result<Json<Vec<ServerStatus>>, ApiError> {
     Ok(Json(engine.mcp.statuses(&engine.store)?))
 }
 
-/// Saving a changed config disconnects the server and withdraws approval; env and header values sent as null keep the saved ones.
+/// Saving a changed config reconnects the server on it; env and header values sent as null keep the saved ones.
 #[utoipa::path(put, path = "/mcp/{name}", operation_id = "saveMcpServer", params(SaveQuery), request_body = ServerConfigInput, responses((status = 200, body = ServerStatus), (status = 400), (status = 409)))]
 pub async fn save(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Query(query): Query<SaveQuery>, Json(input): Json<ServerConfigInput>) -> Result<Json<ServerStatus>, ApiError> {
     valid_name(&name)?;
@@ -58,7 +52,7 @@ pub async fn save(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Q
     reconnected(&engine, row).await
 }
 
-/// Renames a server, approval and saved secrets included. 409 if the new name is taken: nothing is replaced.
+/// Renames a server, saved secrets included. 409 if the new name is taken: nothing is replaced.
 #[utoipa::path(post, path = "/mcp/{name}/rename", operation_id = "renameMcpServer", request_body = RenameBody, responses((status = 200, body = ServerStatus), (status = 404), (status = 409)))]
 pub async fn rename(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Json(body): Json<RenameBody>) -> Result<Json<ServerStatus>, ApiError> {
     valid_name(&body.to)?;
@@ -75,9 +69,9 @@ pub async fn rename(State(engine): State<Arc<Engine>>, Path(name): Path<String>,
     reconnected(&engine, row).await
 }
 
-/// An enabled, approved server connects under the row just written; any other is reported as it stands.
+/// An enabled server connects under the row just written; a disabled one is reported as it stands.
 async fn reconnected(engine: &Arc<Engine>, row: ServerRow) -> Result<Json<ServerStatus>, ApiError> {
-    if row.enabled && row.is_approved() {
+    if row.enabled {
         return connect(engine, &row.name).await;
     }
     let status = engine.mcp.status_of(row);
@@ -103,18 +97,6 @@ pub async fn remove(State(engine): State<Arc<Engine>>, Path(name): Path<String>)
     }
     engine.hub.publish(Event::McpRemoved { name });
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// Approves the config exactly as stored now, then connects. With `hash`, only if that is still what is stored.
-#[utoipa::path(post, path = "/mcp/{name}/approve", operation_id = "approveMcpServer", params(ApproveQuery), responses((status = 200, body = ServerStatus), (status = 404), (status = 409)))]
-pub async fn approve(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Query(query): Query<ApproveQuery>) -> Result<Json<ServerStatus>, ApiError> {
-    let row = engine.store.mcp_server(&name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
-    let hash = row.hash;
-    if query.hash.is_some_and(|reviewed| reviewed != hash) {
-        return Err(ApiError::new(StatusCode::CONFLICT, "changed", "the server's config changed since it was reviewed; review it again"));
-    }
-    engine.store.approve_mcp_server(&name, &hash)?;
-    connect(&engine, &name).await
 }
 
 #[utoipa::path(post, path = "/mcp/{name}/connect", operation_id = "connectMcpServer", responses((status = 200, body = ServerStatus), (status = 404)))]

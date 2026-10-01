@@ -1,4 +1,4 @@
-//! MCP servers: configured in the store, approved by the user, connected with rmcp, tools offered to the model.
+//! MCP servers: configured in the store, connected with rmcp, tools offered to the model.
 
 mod tool;
 mod view;
@@ -48,25 +48,16 @@ pub struct ServerRow {
     pub name: String,
     pub config: ServerConfig,
     pub enabled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub approved_hash: Option<String>,
-    /// The config's identity as approved, keyed by the engine; the store fills it as it reads the row.
+    /// The config's identity, secrets included, so a connection knows which definition it serves; never sent to clients.
     #[serde(skip)]
     pub hash: String,
     pub updated_at: i64,
-}
-
-impl ServerRow {
-    pub fn is_approved(&self) -> bool {
-        self.approved_hash.as_deref() == Some(self.hash.as_str())
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum State {
     Disabled,
-    NeedsApproval,
     Disconnected,
     Connecting,
     Connected,
@@ -280,8 +271,6 @@ impl Servers {
         let live = slots.live(&row.name);
         let (state, error) = if !row.enabled {
             (State::Disabled, None)
-        } else if !row.is_approved() {
-            (State::NeedsApproval, None)
         } else if live.is_some() {
             (State::Connected, None)
         } else {
@@ -316,9 +305,6 @@ impl Servers {
         }
         if !row.enabled {
             return Err("server is disabled".into());
-        }
-        if !row.is_approved() {
-            return Err("server needs approval".into());
         }
         let attempt = Attempt { id: self.next_attempt.fetch_add(1, Ordering::Relaxed), generation, cancel: CancellationToken::new() };
         if let Some(earlier) = slots.attempts.insert(name.into(), attempt.clone()) {
@@ -542,10 +528,10 @@ impl crate::Engine {
         Ok(())
     }
 
-    /// Connects every enabled, approved server that is neither live nor already connecting.
+    /// Connects every enabled server that is neither live nor already connecting.
     pub async fn connect_all_mcp(self: &Arc<Self>) {
         let Ok(rows) = self.store.mcp_servers() else { return };
-        for row in rows.into_iter().filter(|r| r.enabled && r.is_approved()) {
+        for row in rows.into_iter().filter(|r| r.enabled) {
             let _ = self.connect_mcp_at(&row.name, Start::Startup, FIRST_RETRY).await;
         }
     }

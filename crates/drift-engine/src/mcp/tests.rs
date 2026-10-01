@@ -18,17 +18,13 @@ fn engine() -> Arc<crate::Engine> {
 }
 
 #[tokio::test]
-async fn approval_gates_connection_and_tools_appear_prefixed() {
+async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
     let engine = engine();
     let hub = Hub::new(32);
-    let row = engine.store.save_mcp_server("echo", &echo_config()).unwrap();
-    assert_eq!(engine.mcp.status_of(row.clone()).state, State::NeedsApproval);
-    assert!(engine.mcp.connect("echo", &engine.store, &hub, Start::User).await.is_err());
-
-    engine.store.approve_mcp_server("echo", &row.hash).unwrap();
-    let approved = engine.store.mcp_server("echo").unwrap().unwrap();
+    let saved = engine.store.save_mcp_server("echo", &echo_config()).unwrap();
+    assert_eq!(engine.mcp.status_of(saved.clone()).state, State::Disconnected, "nothing to approve: it is ready to connect");
     engine.mcp.connect("echo", &engine.store, &hub, Start::User).await.unwrap();
-    let status = engine.mcp.status_of(approved.clone());
+    let status = engine.mcp.status_of(saved.clone());
     assert_eq!(status.state, State::Connected);
     assert_eq!(status.tools.iter().map(|t| (t.name.as_str(), t.read_only)).collect::<Vec<_>>(), [("echo", true), ("shout", false)]);
 
@@ -56,7 +52,7 @@ async fn approval_gates_connection_and_tools_appear_prefixed() {
     assert_eq!(shout.run(&ctx, json!({ "text": "fail" })).await.unwrap_err().0, "asked to fail");
 
     assert!(engine.mcp.disconnect("echo", &engine.store, &hub).await);
-    assert_eq!(engine.mcp.status_of(approved).state, State::Disconnected);
+    assert_eq!(engine.mcp.status_of(saved).state, State::Disconnected);
     assert!(engine.mcp.tools().is_empty());
 }
 
@@ -73,10 +69,8 @@ fn context(engine: &Arc<crate::Engine>) -> Context {
     }
 }
 
-async fn approved(engine: &Arc<crate::Engine>, name: &str, config: &ServerConfig) -> ServerRow {
-    let row = engine.store.save_mcp_server(name, config).unwrap();
-    engine.store.approve_mcp_server(name, &row.hash).unwrap();
-    engine.store.mcp_server(name).unwrap().unwrap()
+async fn saved(engine: &Arc<crate::Engine>, name: &str, config: &ServerConfig) -> ServerRow {
+    engine.store.save_mcp_server(name, config).unwrap()
 }
 
 async fn until<F: Fn() -> bool>(what: &str, done: F) {
@@ -100,7 +94,7 @@ fn tool(engine: &crate::Engine, name: &str) -> Arc<dyn crate::tool::Tool> {
 #[tokio::test]
 async fn a_server_that_exits_by_itself_is_reconnected_and_its_tools_come_back() {
     let engine = engine();
-    let row = approved(&engine, "echo", &echo_config()).await;
+    let row = saved(&engine, "echo", &echo_config()).await;
     engine.connect_mcp(&row.name).await.unwrap();
     let ctx = context(&engine);
     assert!(tool(&engine, "echo_shout").run(&ctx, json!({ "text": "crash" })).await.is_err());
@@ -112,7 +106,7 @@ async fn a_server_that_exits_by_itself_is_reconnected_and_its_tools_come_back() 
 #[tokio::test]
 async fn an_ordinary_tool_failure_is_not_a_lost_connection() {
     let engine = engine();
-    let row = approved(&engine, "echo", &echo_config()).await;
+    let row = saved(&engine, "echo", &echo_config()).await;
     engine.connect_mcp(&row.name).await.unwrap();
     let mut events = engine.hub.attach(None).rx;
     let ctx = context(&engine);
@@ -127,7 +121,7 @@ async fn an_ordinary_tool_failure_is_not_a_lost_connection() {
 #[tokio::test]
 async fn a_deliberate_disconnect_ends_reconnecting() {
     let engine = engine();
-    let row = approved(&engine, "echo", &echo_config()).await;
+    let row = saved(&engine, "echo", &echo_config()).await;
     engine.connect_mcp(&row.name).await.unwrap();
     let _ = tool(&engine, "echo_shout").run(&context(&engine), json!({ "text": "crash" })).await;
     until("it noticed", || engine.mcp.status_of(row.clone()).state != State::Connected).await;
@@ -142,7 +136,7 @@ async fn a_turn_waits_briefly_for_a_server_still_connecting() {
     let engine = engine();
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/slow-server.cjs");
     let slow = |ms: &str| ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), ms.to_string())].into() };
-    approved(&engine, "quick", &slow("600")).await;
+    saved(&engine, "quick", &slow("600")).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("quick").await }
@@ -152,7 +146,7 @@ async fn a_turn_waits_briefly_for_a_server_still_connecting() {
     assert!(find(&engine, "quick_old_tool").is_some(), "the turn being planned sees it");
     connecting.await.unwrap().unwrap();
 
-    approved(&engine, "stuck", &slow("5000")).await;
+    saved(&engine, "stuck", &slow("5000")).await;
     let _connecting = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("stuck").await }
@@ -171,8 +165,6 @@ async fn a_bad_command_reports_failed() {
     let hub = Hub::new(8);
     let config = ServerConfig::Stdio { command: "definitely-not-a-program".into(), args: vec![], env: Default::default() };
     let row = engine.store.save_mcp_server("broken", &config).unwrap();
-    engine.store.approve_mcp_server("broken", &row.hash).unwrap();
-    let row = engine.store.mcp_server("broken").unwrap().unwrap();
     assert!(engine.mcp.connect("broken", &engine.store, &hub, Start::User).await.is_err());
     let status = engine.mcp.status_of(row);
     assert_eq!(status.state, State::Failed);
@@ -185,8 +177,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
     let hub = Hub::new(32);
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/slow-server.cjs");
     let slow = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), "1500".to_string())].into() };
-    let row = engine.store.save_mcp_server("probe", &slow).unwrap();
-    engine.store.approve_mcp_server("probe", &row.hash).unwrap();
+    engine.store.save_mcp_server("probe", &slow).unwrap();
     let started = std::time::Instant::now();
     let connecting = tokio::spawn({
         let engine = engine.clone();
@@ -199,7 +190,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
     assert!(connecting.await.unwrap().is_err(), "the stale connect must not succeed");
     assert!(started.elapsed() < std::time::Duration::from_millis(1200), "cancelled, not left to finish");
     let status = engine.mcp.status_of(row);
-    assert_eq!(status.state, State::NeedsApproval);
+    assert_ne!(status.state, State::Connected);
     assert!(status.tools.is_empty(), "no tools from the discarded connection");
     assert!(engine.mcp.tools().is_empty());
 }
@@ -242,7 +233,7 @@ async fn all_dead(pids: &[u32]) {
 async fn a_server_that_never_finishes_starting_times_out_and_its_process_tree_dies() {
     let engine = engine();
     let (config, file) = traced(&[("SLOW_MS", "600000")]);
-    let row = approved(&engine, "mute", &config).await;
+    let row = saved(&engine, "mute", &config).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("mute").await }
@@ -260,7 +251,7 @@ async fn a_server_that_never_finishes_starting_times_out_and_its_process_tree_di
 async fn a_server_that_never_lists_its_tools_times_out() {
     let engine = engine();
     let (config, file) = traced(&[("SLOW_MS", "0"), ("LIST_SLOW_MS", "600000")]);
-    approved(&engine, "quiet", &config).await;
+    saved(&engine, "quiet", &config).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("quiet").await }
@@ -275,7 +266,7 @@ async fn a_server_that_never_lists_its_tools_times_out() {
 async fn disconnecting_cancels_a_connect_in_flight_and_kills_what_it_started() {
     let engine = engine();
     let (config, file) = traced(&[("SLOW_MS", "600000")]);
-    let row = approved(&engine, "slow", &config).await;
+    let row = saved(&engine, "slow", &config).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("slow").await }
@@ -292,7 +283,7 @@ async fn disconnecting_cancels_a_connect_in_flight_and_kills_what_it_started() {
 async fn a_connect_dropped_midway_settles_and_kills_what_it_started() {
     let engine = engine();
     let (config, file) = traced(&[("SLOW_MS", "600000")]);
-    let row = approved(&engine, "dropped", &config).await;
+    let row = saved(&engine, "dropped", &config).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("dropped").await }
@@ -313,7 +304,7 @@ async fn the_startup_sweep_never_cancels_a_connect_already_under_way() {
     let engine = engine();
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/slow-server.cjs");
     let slow = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), "500".to_string())].into() };
-    let row = approved(&engine, "slow", &slow).await;
+    let row = saved(&engine, "slow", &slow).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("slow").await }
@@ -328,7 +319,7 @@ async fn the_startup_sweep_never_cancels_a_connect_already_under_way() {
 async fn a_newer_connect_supersedes_one_in_flight() {
     let engine = engine();
     let (config, file) = traced(&[("SLOW_MS", "600000")]);
-    approved(&engine, "twice", &config).await;
+    saved(&engine, "twice", &config).await;
     let first = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("twice").await }
@@ -361,7 +352,7 @@ fn calls(log: &std::path::Path) -> Vec<String> {
 async fn a_running_turns_tool_follows_a_reconnect_but_never_replays_a_call_that_may_have_landed() {
     let engine = engine();
     let (config, log) = logged_echo();
-    let row = approved(&engine, "echo", &config).await;
+    let row = saved(&engine, "echo", &config).await;
     engine.connect_mcp("echo").await.unwrap();
     let (ctx, shout) = (context(&engine), tool(&engine, "echo_shout"));
     let lost = shout.run(&ctx, json!({ "text": "crash" })).await.unwrap_err().0;
@@ -376,7 +367,7 @@ async fn a_running_turns_tool_follows_a_reconnect_but_never_replays_a_call_that_
 async fn a_read_only_call_cut_off_by_a_lost_connection_is_asked_again_once() {
     let engine = engine();
     let (config, log) = logged_echo();
-    approved(&engine, "echo", &config).await;
+    saved(&engine, "echo", &config).await;
     engine.connect_mcp("echo").await.unwrap();
     let out = tool(&engine, "echo_echo").run(&context(&engine), json!({ "text": "crash-once" })).await.unwrap();
     assert_eq!(out.output, "crash-once", "answered by the reconnected server");
@@ -388,7 +379,7 @@ async fn a_captured_tool_is_not_run_on_a_reconnected_server_that_redefined_it() 
     let engine = engine();
     let (ServerConfig::Stdio { command, args, mut env }, log) = logged_echo() else { unreachable!() };
     env.insert("REDEFINE_AFTER_CRASH".into(), "1".into());
-    approved(&engine, "echo", &ServerConfig::Stdio { command, args, env }).await;
+    saved(&engine, "echo", &ServerConfig::Stdio { command, args, env }).await;
     engine.connect_mcp("echo").await.unwrap();
     let echo = tool(&engine, "echo_echo");
     let refused = echo.run(&context(&engine), json!({ "text": "crash-once" })).await.unwrap_err().0;
@@ -400,7 +391,7 @@ async fn a_captured_tool_is_not_run_on_a_reconnected_server_that_redefined_it() 
 async fn disabling_ends_calls_under_way_and_refuses_captured_tools_until_reenabled() {
     let engine = engine();
     let (config, log) = logged_echo();
-    approved(&engine, "echo", &config).await;
+    saved(&engine, "echo", &config).await;
     engine.connect_mcp("echo").await.unwrap();
     let (echo, shout) = (tool(&engine, "echo_echo"), tool(&engine, "echo_shout"));
     let hanging = tokio::spawn({
@@ -424,13 +415,13 @@ async fn disabling_ends_calls_under_way_and_refuses_captured_tools_until_reenabl
 async fn a_save_leaves_running_turns_on_the_client_they_were_given() {
     let engine = engine();
     let (config, _log) = logged_echo();
-    approved(&engine, "echo", &config).await;
+    saved(&engine, "echo", &config).await;
     engine.connect_mcp("echo").await.unwrap();
     let echo = tool(&engine, "echo_echo");
     let ServerConfig::Stdio { command, args, mut env } = config else { unreachable!() };
     env.insert("CHANGED".into(), "1".into());
     engine.mcp.change("echo", &engine.store, &engine.hub, |store| store.save_mcp_server("echo", &ServerConfig::Stdio { command, args, env })).await.unwrap();
-    assert!(find(&engine, "echo_echo").is_none(), "later turns wait for approval of the new command");
+    assert!(find(&engine, "echo_echo").is_none(), "later turns see the server once it connects on the new command");
     assert_eq!(echo.run(&context(&engine), json!({ "text": "still" })).await.unwrap().output, "still", "the running turn keeps its client");
 }
 

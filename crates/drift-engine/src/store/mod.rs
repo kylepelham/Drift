@@ -28,11 +28,7 @@ const MMAP_SIZE_BYTES: i64 = 134_217_728;
 const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const WORKSPACE_COLUMNS: &str = "id, path, name, icon, last_used";
 
-pub struct Store {
-    conn: Mutex<Connection>,
-    /// Keys MCP approval hashes, so a hash a client sees says nothing about the secrets in the config.
-    mcp_key: String,
-}
+pub struct Store(Mutex<Connection>);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -57,19 +53,13 @@ pub fn open_file(file: &Path) -> rusqlite::Result<Store> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "mmap_size", MMAP_SIZE_BYTES)?;
     migrations::apply(&conn)?;
-    ready(conn)
-}
-
-fn ready(conn: Connection) -> rusqlite::Result<Store> {
-    let mcp_key = mcp::approval_key(&conn)?;
-    mcp::rekey_approvals(&conn, &mcp_key)?;
-    Ok(Store { conn: Mutex::new(conn), mcp_key })
+    Ok(Store(Mutex::new(conn)))
 }
 
 impl Store {
     /// The one connection. Hold the guard for the whole unit of work and no longer.
     pub fn lock(&self) -> MutexGuard<'_, Connection> {
-        self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub fn workspace(&self, id: &str) -> rusqlite::Result<Option<Workspace>> {
@@ -147,7 +137,7 @@ pub(crate) mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.pragma_update(None, "foreign_keys", true).unwrap();
         migrations::apply(&conn).unwrap();
-        ready(conn).unwrap()
+        Store(Mutex::new(conn))
     }
 
     #[test]

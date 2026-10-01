@@ -604,8 +604,6 @@ export function createActions(
     mcpSave,
     mcpRename,
     mcpRemove,
-    /** `hash` is the config the user reviewed; the engine refuses if it has changed since. */
-    mcpApprove: (name: string, hash?: string) => mcpChange(() => requireClient().approveMcpServer(name, hash)),
     mcpSetEnabled: (name: string, enabled: boolean) => mcpChange(() => requireClient().setMcpServerEnabled(name, enabled)),
     mcpConnect: (name: string) => mcpChange(() => requireClient().connectMcpServer(name)),
     mcpDisconnect: (name: string) => mcpChange(() => requireClient().disconnectMcpServer(name)),

@@ -141,7 +141,7 @@ export type EngineState = {
   /** Workers each session launched, keyed by the launching session, oldest first. */
   tasks: Record<string, TaskRecord[]>
   providers: ProviderInfo[]
-  /** The engine's MCP servers by name: the only place their definition, approval and state live. */
+  /** The engine's MCP servers by name: the only place their definition and state live. */
   mcpServers: Record<string, McpServerStatus>
   connected: string[]
   defaultModels: Record<string, string>

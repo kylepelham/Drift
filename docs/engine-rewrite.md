@@ -32,7 +32,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Edit | Exact match only, with line ending normalisation on both sides. On a miss, return the closest region so the model can re-read cheaply. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. It follows the same rules: every existing file it adds over, updates, deletes or moves onto must have been read this session (so a secret needs its own read approval before it can reach a diff); every source and move destination is a separate edit ask (`Tool::asks`), any refusal refusing the call; and the whole patch is read, checked and worked out before any file changes. Only a missing file counts as absent; any other read error (denied, locked, a directory) stops preparation. Every whole-file write the engine makes (`edit`, `write`, `apply_patch`, and undo and redo putting a file back) goes to a sibling file swapped into place (`tool::stage::replace`), so a failed write never truncates its target. Each replacement is one row in `staged_replacement` (migration 14): the destination, the staged sibling (`.<name>.drift-<8 hex>.tmp`) and the backup the swap may leave (same name, `.bak`), written in one statement before either file exists. After the swap, and at startup before any tool can run (`recover_leftovers`), the pair is settled: if the destination is missing and the backup exists, the backup is moved back first; only then are the siblings removed. The moment a swap succeeds the row is marked `swapped` (migration 15), before the backup is removed: from then on the backup is old content, so a backup that could not be removed yet (a scanner holding it) is only ever deleted later, never restored, even if the file has been deleted on purpose meanwhile. Until then it sits beside the file, so it can show in `git status`. If that move or a removal fails, both files and the row stay, and the next start tries again; rows are forgotten together in one short transaction only after their files are settled, and the store lock is never held across file I/O. A row whose paths are not exactly what the engine would name for its destination is dropped without touching any file. `write` treats only a missing file as new: a file it cannot read or decode still exists, so it must have been read first, and any other read error stops the write. On Windows an existing file is swapped with `ReplaceFileW` and no ignore flags, so its ACL and attributes carry over or the write fails; if the swap moved the original aside and could not put the new file in, it is moved back, and if even that fails the error names where the original is. A file another program holds open without delete sharing cannot be swapped: the write fails with that reason and the file is left as it was. On Unix the mode carries over; owner, group, extended attributes and POSIX ACLs are the new file's. On both, a file with other hard links is not written through them: the patched path gets a new file and the other links keep the old content. On a failure every step through the failing one is put back (a step already in its before state is left alone) and the error names any file that could not be. |
 | Post-edit | Formatter hooks only: built-in table, `drift.json` can add or disable, failures logged and never surfaced to the model. No language servers. |
 | Snapshot and revert | Kept. Shell out to `git` with a shadow git dir per worktree. Snapshot before every writing tool. Revert restores a snapshot; diffs are computed between snapshots. |
-| MCP | Native `rmcp` (stdio, streamable HTTP, OAuth). Approval, reconnect and reload designed in rather than patched on. |
+| MCP | Native `rmcp` (stdio, streamable HTTP, OAuth). Reconnect and reload designed in rather than patched on; no approval step. |
 | Storage | One `drift.db`, one writer, WAL, strict tables. Engine tables live beside the existing shell tables. |
 | Config | `drift.json` at the project root, `.drift/{agents,commands,skills}/`, `~/.config/drift/`. Instructions from `AGENTS.md` and `CLAUDE.md`. Skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at project and home. No runtime `opencode.json` fallback. |
 | Identity | `DRIFT_*` env vars, `~/.local/share/drift` data dir. A one-time migrator runs on first launch. MIT attribution for opencode stays in `licenses/`. |
@@ -51,7 +51,7 @@ crates/drift-engine/       library
     llm/                   Provider trait, adapters, catalog, auth
     tool/                  Tool trait, registry, profiles, one module per tool
     edit/                  exact matcher, apply_patch parser, formatter runner
-    mcp/                   rmcp client, approval, reconnect
+    mcp/                   rmcp client, reconnect
     config/                drift.json, agents, commands, skills, instructions
     permission/ question/ hook/ store/ platform/
 crates/drift-engined/      headless binary: parse args, run the engine
@@ -89,7 +89,7 @@ POST   /sessions/{id}/move                  {workspaceId}
 POST   /sessions/{id}/revert                {messageId}
 POST   /sessions/{id}/unrevert
 GET    /sessions/{id}/todos
-GET    /mcp                 POST /mcp/{id}/connect | disconnect | approve | auth
+GET    /mcp                 POST /mcp/{id}/connect | disconnect | auth
 GET    /find/files?q=
 WS     /events?cursor=
 ```
@@ -149,7 +149,7 @@ under it is true, not before.
 
 - OpenAI: Responses API, Codex OAuth, `apply_patch` profile. Gemini. OpenAI-compatible
   generic with presets.
-- MCP through rmcp: stdio and HTTP, approval; reconnect/reload are M3 lifecycle work.
+- MCP through rmcp: stdio and HTTP; reconnect/reload are M3 lifecycle work.
 - `todowrite`, `skill`, blocking `question`, `webfetch`. Async questions are M3 work.
 - Formatter hooks.
 - Config loading: `drift.json`, agents, commands, skills, instruction files.
@@ -741,7 +741,7 @@ these async criteria are new pending M3 work.
 ### M5: hook seam
 
 - `Hook` trait finalised with serde types.
-- Prompt overrides and MCP approval implemented as internal hooks to prove the seam.
+- Prompt overrides implemented as an internal hook to prove the seam.
 
 ## Working on it
 
@@ -965,9 +965,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
 ## M2 behaviour
 
 - **MCP.** Servers live in the engine's `mcp_config` table (`PUT /mcp/{name}` with a stdio or
-  http config). A saved config is approved by hash (`POST /mcp/{name}/approve`); changing
-  the config withdraws approval, so a rewritten command is looked at again before it runs.
-  Approved, enabled servers connect at startup and on demand through rmcp. Their tools join
+  http config). There is no approval step: a saved, enabled server connects at once, at startup
+  and on demand through rmcp (an earlier approval gate was removed; migration 20 drops its column
+  and key). Their tools join
   the registry as `<server>_<tool>`; tools the server marks read-only run without asking,
   the rest ask under kind `mcp` with pattern `<server>/<tool>`, and "always" therefore
   covers the whole server. Every save, disable, disconnect and remove bumps the server's
@@ -982,13 +982,13 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   30 s, reading its row afresh each attempt; it stops when it connects or when its generation
   changes (save, disable, disconnect, remove), so a deliberate disconnect is never undone and a
   reconnect started under an old definition is discarded. A tool's own failure (`isError`) is not a
-  lost connection. Saving a server whose config is still approved reconnects it at once (reload).
+  lost connection. Saving an enabled server reconnects it at once (reload).
 - **MCP tools in running turns.** A server has one slot from enable to disable or remove, and every
   tool object made from it holds that slot and the client it was planned with. A call uses the
   slot's current client when it serves the same definition (same config hash), so a running turn
   follows a reconnect or reload instead of calling a dead process; otherwise it uses its own client,
-  so saving a different command never moves a running turn onto a command nobody approved. That
-  client stays alive while the turn holds it.
+  so saving a different command never moves a running turn onto a command it was not planned with.
+  That client stays alive while the turn holds it.
 - A call cut off by a lost connection is never replayed if the tool may change something: the
   model is told the call may or may not have taken effect and was not retried. A read-only tool is
   asked again, once, of the reconnected server if one comes within 10 s.
@@ -1172,31 +1172,27 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   Reset only to clear an override stored before. The shell still records `family:*` for the
   frozen opencode plugins; nothing native reads it.
 - MCP env and header values are secrets: they go into the engine and never come out. `/mcp`
-  and `mcp.updated` carry a `ServerView` with the names only, plus the saved config's `hash`. A
+  and `mcp.updated` carry a `ServerView` with the names only. A
   save sends a `ServerConfigInput` in which a `null` value keeps the one saved under that name
   (400 `secret` when nothing is saved under it), so the editor shows saved values as empty
   masked fields and never holds one. Adding uses `?create=true` and is 409 `taken` rather than
   replacing a server of that name. Renaming is `POST /mcp/{name}/rename {to}`: one store step
-  under the lifecycle lock that keeps approval and secrets, closes the old name's slot as a
-  remove would (its tools are named after it), and is 409 `taken` if the new name exists. An
-  approval may name the `hash` the user reviewed (`?hash=`) and is 409 `changed` if the config
-  moved since. The approval toast keys on name and hash, never the config. The hash is an
-  HMAC-SHA256 of the whole config (secrets included, so changing one needs approving again) under
-  a random key the engine makes on first start and keeps in `setting` (`mcpApprovalKey`); a client
-  holding the hash cannot test guesses at a secret against it. An approval stored under the
-  unkeyed hash earlier builds used is re-keyed at open while its config is unchanged.
+  under the lifecycle lock that keeps secrets, closes the old name's slot as a remove would (its
+  tools are named after it), and is 409 `taken` if the new name exists. The config's hash (which
+  includes secrets) stays inside the engine, where it tells a connection which definition it serves.
 - A captured MCP tool runs on a reconnected server only if that server still defines the tool
   as the turn was given it: same name, input schema, and read-only and destructive hints (a
   missing hint counts as MCP's default). A reworded description or a new title does not matter.
   A server that came back with the tool redefined (say, no longer read-only) is refused for that
   call, and the next turn sees the new definition.
-- MCP management has one authority, the engine. The manager, the registry installer and the
-  approval toast read `state.mcpServers` (loaded on hydrate, kept current by `mcp.updated` and
-  `mcp.removed`) and change servers only through `/mcp`: save (a rename saves the new name, then
-  removes the old), approve, enable or disable, connect or disconnect, remove. The editor offers
+- MCP management has one authority, the engine. The manager and the registry installer read
+  `state.mcpServers` (loaded on hydrate, kept current by `mcp.updated` and `mcp.removed`) and
+  change servers only through `/mcp`: save (a rename saves the new name, then removes the old),
+  enable or disable, connect or disconnect, remove. Each row offers, in order, delete, edit,
+  disconnect (or connect) and the enabled toggle. The editor offers
   exactly what the engine's config holds (a command, its arguments and environment, or a URL and
   headers); working directory, timeouts and OAuth are not offered because the engine cannot honour
-  them. Declining an approval disables the server. Registry installs carry no `{env:...}`
+  them. Registry installs carry no `{env:...}`
   placeholders, which the engine would not expand: a stdio server inherits Drift's environment,
   and a remote that needs a header Drift cannot fill is not offered. Workspace `opencode.json`
   servers and the shell's `mcp_server` and `mcp_decision` tables are no longer read by the UI.

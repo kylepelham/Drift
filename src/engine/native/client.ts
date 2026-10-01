@@ -114,8 +114,6 @@ export function createClient(target: Target) {
       request<Json<"saveMcpServer", 200>>("PUT", `/mcp/${name}${create ? "?create=true" : ""}`, config),
     renameMcpServer: (name: string, to: string) => request<Json<"renameMcpServer", 200>>("POST", `/mcp/${name}/rename`, { to }),
     removeMcpServer: (name: string) => request<void>("DELETE", `/mcp/${name}`),
-    approveMcpServer: (name: string, hash?: string) =>
-      request<Json<"approveMcpServer", 200>>("POST", `/mcp/${name}/approve${hash ? query({ hash }) : ""}`),
     connectMcpServer: (name: string) => request<Json<"connectMcpServer", 200>>("POST", `/mcp/${name}/connect`),
     disconnectMcpServer: (name: string) => request<Json<"disconnectMcpServer", 200>>("POST", `/mcp/${name}/disconnect`),
     setMcpServerEnabled: (name: string, enabled: boolean) => request<Json<"setMcpServerEnabled", 200>>("PUT", `/mcp/${name}/enabled`, { enabled }),

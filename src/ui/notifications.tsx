@@ -9,9 +9,7 @@ import {
 import { permissionRequiresAttention } from "../state/permission-attention"
 import { selectSession } from "../state/selection"
 import { t } from "../state/i18n"
-import type { McpServerStatus } from "../engine/store"
 import { shellInvoke } from "../shell"
-import { openMcpServers } from "./mcp"
 import { playAlertSound } from "./sounds"
 
 // WebView2 stubs the Web Notification API, so the shell path uses the Tauri plugin.
@@ -117,7 +115,6 @@ export function NoticeHost(props: { children?: JSX.Element }) {
   const engine = useEngine()
   const [now, setNow] = createSignal(Date.now())
   const [dismissed, setDismissed] = createSignal(new Set<string>())
-  const [hiddenMcp, setHiddenMcp] = createSignal<ReadonlySet<string>>(new Set())
   const timer = setInterval(() => setNow(Date.now()), 250)
   onCleanup(() => clearInterval(timer))
   const visible = createMemo(() =>
@@ -130,27 +127,6 @@ export function NoticeHost(props: { children?: JSX.Element }) {
     setDismissed((current) => pruneDismissedNoticeIds(current, active))
   })
   const dismiss = (id: string) => setDismissed((current) => new Set([...current, id]))
-  const pendingMcp = createMemo(() => mcpPromptTargets(engine.state.mcpServers))
-  const mcpBusy = () => engine.state.connection !== "online"
-  createEffect(() => {
-    const present = new Set(pendingMcp().map(mcpPromptKey))
-    setHiddenMcp((current) => new Set([...current].filter((key) => present.has(key))))
-  })
-  /** The engine has no reject: declining a server disables it, which also stops it asking. */
-  const decide = (action: "approve" | "reject", target: McpServerStatus) => {
-    const key = mcpPromptKey(target)
-    setHiddenMcp((current) => reduceMcpPromptState(current, { type: "start", key }))
-    const decided = action === "approve" ? engine.actions.mcpApprove(target.name, target.hash) : engine.actions.mcpSetEnabled(target.name, false)
-    void decided.catch((error: unknown) => {
-      setHiddenMcp((current) => reduceMcpPromptState(current, { type: "failed", key }))
-      engine.actions.notice({
-        id: nextNoticeOccurrenceId(`mcp-${action}-failed:${key}`),
-        title: t("drift.mcp.toast.failed"),
-        message: error instanceof Error ? error.message : String(error),
-        variant: "error",
-      })
-    })
-  }
   return (
     <div
       class="pointer-events-none fixed top-11 right-5 bottom-5 z-[80] flex w-[min(24rem,calc(100vw-2.5rem))]"
@@ -173,39 +149,6 @@ export function NoticeHost(props: { children?: JSX.Element }) {
           </div>
         </Show>
         {props.children}
-        <For each={pendingMcp().filter((target) => !hiddenMcp().has(mcpPromptKey(target)))}>
-          {(target) => (
-            <div class="rounded-lg border border-warn/40 bg-surface/95 px-3 py-2 shadow-xl backdrop-blur" role="status">
-              <div class="text-sm font-semibold text-ink">{t("drift.mcp.toast.pending.title")}</div>
-              <div class="mt-0.5 text-sm text-ink">
-                {t("drift.mcp.toast.pending.message", { name: target.name })}
-              </div>
-              <div class="mt-1 truncate font-mono text-[0.68rem] text-ink-faint">{mcpCommandLine(target)}</div>
-              <div class="mt-2 flex flex-wrap gap-1.5">
-                <button
-                  class="rounded-md border border-warn/40 px-2 py-1 text-xs text-warn hover:bg-warn/10 disabled:opacity-40"
-                  disabled={mcpBusy()}
-                  onClick={() => decide("approve", target)}
-                >
-                  {t("drift.mcp.approve")}
-                </button>
-                <button
-                  class="rounded-md border border-edge px-2 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-40"
-                  disabled={mcpBusy()}
-                  onClick={() => decide("reject", target)}
-                >
-                  {t("drift.mcp.reject")}
-                </button>
-                <button
-                  class="rounded-md border border-accent/40 px-2 py-1 text-xs text-accent hover:bg-accent/10"
-                  onClick={openMcpServers}
-                >
-                  {t("drift.mcp.toast.openSettings")}
-                </button>
-              </div>
-            </div>
-          )}
-        </For>
         <For each={visible()}>
           {(notice) => (
             <div
@@ -237,42 +180,10 @@ export function NoticeHost(props: { children?: JSX.Element }) {
   )
 }
 
-export type McpPromptEvent = { type: "start" | "failed"; key: string }
-
-let noticeOccurrence = 0
-
-export function nextNoticeOccurrenceId(base: string) {
-  return `${base}:${Date.now()}:${noticeOccurrence++}`
-}
-
 export function pruneDismissedNoticeIds(dismissed: Set<string>, active: ReadonlySet<string>): Set<string> {
   const next = new Set([...dismissed].filter((id) => active.has(id)))
   if (next.size === dismissed.size && [...next].every((id) => dismissed.has(id))) return dismissed
   return next
-}
-
-export function reduceMcpPromptState(state: ReadonlySet<string>, event: McpPromptEvent) {
-  const next = new Set(state)
-  if (event.type === "start") next.add(event.key)
-  else next.delete(event.key)
-  return next
-}
-
-export function mcpPromptTargets(servers: Readonly<Record<string, McpServerStatus>>) {
-  return Object.values(servers)
-    .filter((server) => server.state === "needs_approval")
-    .sort((a, b) => a.name.localeCompare(b.name))
-}
-
-/** A changed definition is a new request: the key is the name and the config's hash, never the config itself. */
-export function mcpPromptKey(target: McpServerStatus) {
-  return `${target.name}:${target.hash}`
-}
-
-/** What approving runs, shown in full: the command and its arguments, or the URL. */
-export function mcpCommandLine(target: McpServerStatus) {
-  const config = target.config
-  return config.type === "http" ? config.url : [config.command, ...(config.args ?? [])].join(" ")
 }
 
 export function requestNotificationPermission() {

@@ -56,27 +56,10 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Saving a changed config disconnects the server and withdraws approval; env and header values sent as null keep the saved ones. */
+        /** Saving a changed config reconnects the server on it; env and header values sent as null keep the saved ones. */
         put: operations["saveMcpServer"];
         post?: never;
         delete: operations["removeMcpServer"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/mcp/{name}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Approves the config exactly as stored now, then connects. With `hash`, only if that is still what is stored. */
-        post: operations["approveMcpServer"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -139,7 +122,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Renames a server, approval and saved secrets included. 409 if the new name is taken: nothing is replaced. */
+        /** Renames a server, saved secrets included. 409 if the new name is taken: nothing is replaced. */
         post: operations["renameMcpServer"];
         delete?: never;
         options?: never;
@@ -1286,11 +1269,8 @@ export interface components {
         };
         /** @description A server as clients see it: every field but the values of its env vars and headers. */
         ServerView: {
-            approved: boolean;
             config: components["schemas"]["ServerConfigView"];
             enabled: boolean;
-            /** @description The saved config's identity: an approval that names it is refused once the config changes. */
-            hash: string;
             name: string;
             /** Format: int64 */
             updatedAt: number;
@@ -1326,7 +1306,7 @@ export interface components {
             path: string;
         };
         /** @enum {string} */
-        State: "disabled" | "needs_approval" | "disconnected" | "connecting" | "connected" | "failed";
+        State: "disabled" | "disconnected" | "connecting" | "connected" | "failed";
         /** @description One worker: who launched it, how it runs and why, how it ended, and whether its parent has it. */
         TaskRecord: {
             agent: string;
@@ -1531,42 +1511,6 @@ export interface operations {
                 content?: never;
             };
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    approveMcpServer: {
-        parameters: {
-            query?: {
-                /** @description The `hash` the user reviewed; 409 if the saved config has changed since. */
-                hash?: string | null;
-            };
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ServerStatus"];
-                };
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -67,7 +67,6 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::abort_task))
         .routes(routes!(mcp::list))
         .routes(routes!(mcp::save, mcp::remove))
-        .routes(routes!(mcp::approve))
         .routes(routes!(mcp::rename))
         .routes(routes!(mcp::connect_route))
         .routes(routes!(mcp::disconnect))
