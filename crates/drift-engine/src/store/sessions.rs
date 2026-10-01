@@ -395,36 +395,36 @@ impl Store {
     /// Records a user prompt as one unit: message, parts and the session's model, or nothing at all.
     /// A prompt sent while undone commits the undo: the hidden messages go, in the same write.
     pub fn admit_prompt(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<Admitted> {
-        self.admit_delivering(session_id, model, parts, submission, Handover::Nothing)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+        self.admit_delivering(session_id, model, parts, submission, Handover::default())?.ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 
-    /// [`Self::admit_prompt`] that also hands worker results over in the same write; `None` if a delivery already landed.
+    /// [`Self::admit_prompt`] that also hands worker results over in the same write; `None` if its delivery already landed.
     pub fn admit_delivering(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>, handover: Handover) -> rusqlite::Result<Option<Admitted>> {
         let conn = self.lock();
-        let delivery = matches!(handover, Handover::Delivery(_));
+        let Handover { delivery, held } = handover;
         let admitted = transaction(&conn, |conn| {
-            let carried = match handover {
-                Handover::Nothing => Vec::new(),
-                Handover::Delivery(task_id) if super::tasks::acknowledge(conn, task_id, session_id)? => Vec::new(),
-                Handover::Delivery(_) => return Err(rusqlite::Error::StatementChangedRows(0)),
-                Handover::Held(held) => held_parts(conn, session_id, held)?,
-            };
+            if let Some(task_id) = delivery {
+                if !super::tasks::acknowledge(conn, task_id, session_id)? {
+                    return Err(rusqlite::Error::StatementChangedRows(0));
+                }
+            }
+            let carried = held_parts(conn, session_id, held)?;
             admit_in(conn, session_id, model, carried.into_iter().chain(parts).collect(), submission)
         });
         match admitted {
-            Err(rusqlite::Error::StatementChangedRows(0)) if delivery => Ok(None),
+            Err(rusqlite::Error::StatementChangedRows(0)) if delivery.is_some() => Ok(None),
             other => other.map(Some),
         }
     }
 }
 
 /// Worker results a prompt carries into its session.
-pub enum Handover<'a> {
-    Nothing,
-    /// The prompt is this result's delivery; it lands only if the result is still owed.
-    Delivery(&'a str),
-    /// Held results that ride along with a prompt; each goes in only if still owed.
-    Held(Vec<(String, Part)>),
+#[derive(Default)]
+pub struct Handover<'a> {
+    /// The prompt is this result's delivery; nothing lands unless the result is still owed.
+    pub delivery: Option<&'a str>,
+    /// Held results riding along, ahead of the prompt's own parts; each goes in only if still owed.
+    pub held: Vec<(String, Part)>,
 }
 
 fn held_parts(conn: &Connection, session_id: &str, held: Vec<(String, Part)>) -> rusqlite::Result<Vec<Part>> {

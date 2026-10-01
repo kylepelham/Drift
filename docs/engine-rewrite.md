@@ -543,8 +543,10 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
 - Held results: a result Stop keeps from waking its parent (launched before the owner's latest
   Stop, or a stopped or interrupted worker with no turn running to take it) is not marked
   delivered. It is marked `held` (migration 12) and stays owed: automatic delivery and restart
-  recovery skip it, and the next prompt admitted into the parent (typed, steered or a command, never
-  an engine delivery) carries it, ahead of the user's own parts, acknowledging it in the same write.
+  recovery skip it, so it never wakes the parent itself. The next prompt admitted into the parent
+  carries it ahead of its own parts, whether the user sent that prompt or it is another result's
+  permitted delivery; every acknowledgment, the delivery's and each rider's, is in the same write,
+  and a delivery that already landed writes nothing, its riders included.
   Each held result is claimed for that admission, so `task_output` and the prompt cannot both carry
   it. `delivered` therefore always means a saved prompt or call result holds it, except rows a
   restart interrupts, which are settled at startup as before.

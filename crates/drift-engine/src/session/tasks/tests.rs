@@ -355,20 +355,60 @@ async fn a_result_launched_before_a_stop_never_wakes_the_parent_even_after_a_res
     let before = recorded(&h, "before", Mode::Background);
     h.engine.end_task(&before.id, TaskState::Replied, "from before the stop");
     h.engine.abort(&h.session.id);
-    let after = recorded(&h, "after", Mode::Background);
-    h.engine.end_task(&after.id, TaskState::Replied, "from after the stop");
-    h.provider.push(text("noted"));
 
     // A new engine on the same data: nothing in memory remembers the Stop.
     let restarted = crate::Engine::open_with(&h._dir.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
     *restarted.turns.provider_override.lock().unwrap() = h.engine.turns.provider_override.lock().unwrap().clone();
     restarted.recover_tasks().await;
-    until("the later one delivered", || restarted.store.task(&after.id).unwrap().unwrap().delivered).await;
-    until("the parent's turn ends", || !restarted.turns.is_running(&h.session.id)).await;
-    let transcript = restarted.store.transcript(&h.session.id).unwrap();
-    assert_eq!(delivered_results(&transcript), [("after".to_string(), "from after the stop".to_string())], "only the result launched after the stop arrives");
+    tokio::time::sleep(Duration::from_millis(100)).await;
     let kept = restarted.store.task(&before.id).unwrap().unwrap();
     assert!(kept.held && !kept.delivered, "held across the restart, not marked handed over");
+    assert!(h.provider.requests.lock().unwrap().is_empty() && !restarted.turns.is_running(&h.session.id), "it woke nothing");
+}
+
+#[tokio::test]
+async fn a_held_result_rides_along_with_a_later_permitted_delivery_once() {
+    let h = harness().await;
+    with_model(&h);
+    let held = recorded(&h, "before", Mode::Background);
+    h.engine.end_task(&held.id, TaskState::Replied, "from before the stop");
+    h.engine.abort(&h.session.id);
+    h.engine.deliver(&held.id).await;
+    assert!(h.engine.store.task(&held.id).unwrap().unwrap().held && h.provider.requests.lock().unwrap().is_empty(), "alone it wakes nothing");
+
+    h.provider.push(text("noted both"));
+    let later = recorded(&h, "after", Mode::Background);
+    h.engine.end_task(&later.id, TaskState::Replied, "from after the stop");
+    h.engine.deliver(&later.id).await;
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let carried: Vec<_> = transcript.iter().filter(|m| !delivered_results(std::slice::from_ref(m)).is_empty()).collect();
+    assert_eq!(carried.len(), 1, "one prompt, one turn");
+    assert_eq!(delivered_results(&transcript), [("before".to_string(), "from before the stop".to_string()), ("after".to_string(), "from after the stop".to_string())]);
+    assert!([&held, &later].iter().all(|t| h.engine.store.task(&t.id).unwrap().unwrap().delivered));
+    assert_eq!(h.provider.requests.lock().unwrap().len(), 1);
+
+    h.provider.push(text("ok"));
+    h.engine.submit(&h.session.id, prompt("next")).await.unwrap();
+    until_idle(&h).await;
+    assert_eq!(delivered_results(&h.engine.store.transcript(&h.session.id).unwrap()).len(), 2, "never carried again");
+}
+
+#[tokio::test]
+async fn a_delivery_that_already_landed_carries_no_held_result_with_it() {
+    let h = harness().await;
+    let held = recorded(&h, "held", Mode::Background);
+    h.engine.end_task(&held.id, TaskState::Replied, "held");
+    h.engine.store.hold_task(&held.id).unwrap();
+    let landed = recorded(&h, "landed", Mode::Background);
+    h.engine.end_task(&landed.id, TaskState::Replied, "landed");
+    h.engine.store.mark_task_delivered(&landed.id).unwrap();
+    let handover = crate::store::Handover { delivery: Some(&landed.id), held: vec![(held.id.clone(), result_part(&held))] };
+    let admitted = h.engine.store.admit_delivering(&h.session.id, &crate::session::turn::tests::model(), vec![], None, handover).unwrap();
+    assert!(admitted.is_none(), "nothing written");
+    let still = h.engine.store.task(&held.id).unwrap().unwrap();
+    assert!(still.held && !still.delivered, "its acknowledgment went with the rest of the write");
+    assert!(h.engine.store.transcript(&h.session.id).unwrap().is_empty());
 }
 
 #[tokio::test]

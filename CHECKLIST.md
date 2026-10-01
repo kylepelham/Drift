@@ -78,6 +78,9 @@ change the plan there when a decision changes.
   - [x] `task_output` is background-only; launching calls own foreground (and failed-launch) results through their save
   - [x] Staged writes: Windows `ReplaceFileW` keeps the ACL or fails; delete-sharing refusal leaves the file; hard links documented; only recorded engine-named staging files cleaned
   - [x] New comments one line each
+  - [x] Startup recovery settles recorded replacement pairs: a stranded backup is moved back, a failed restore keeps both files and the record; pairs recorded in one statement, forgotten in one short transaction after file I/O
+  - [x] `edit`, `write` and undo/redo go through the staged writer; `write` treats only NotFound as a new file
+  - [x] Held results ride along with a later permitted delivery, in the same write
 - [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
 - [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
 - [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, handoff, subagent pins
