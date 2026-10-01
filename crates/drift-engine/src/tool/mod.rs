@@ -278,9 +278,13 @@ pub trait Tool: Send + Sync {
     fn asks(&self, ctx: &Context, input: &Value) -> Vec<Ask> {
         self.ask(ctx, input).into_iter().collect()
     }
-    /// Whether this call writes outside memory, so what it changes is recorded for undo.
+    /// Whether this tool can write outside memory, so what its calls change is recorded for undo.
     fn mutates(&self) -> bool {
         false
+    }
+    /// Whether this particular call may write; a tool that can tell a call that only reads says so here.
+    fn call_mutates(&self, _input: &Value) -> bool {
+        self.mutates()
     }
     /// The files a writing call will change, when it can say up front. `None` means anything might
     /// change, so the workspace is compared before and after instead.

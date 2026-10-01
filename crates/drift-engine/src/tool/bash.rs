@@ -33,6 +33,13 @@ impl Bash {
     pub fn with(shell: Shell) -> Self {
         Self { shell }
     }
+
+    fn dialect(&self) -> command::Dialect {
+        match self.shell {
+            Shell::Bash(_) => command::Dialect::Bash,
+            Shell::PowerShell(_) => command::Dialect::PowerShell,
+        }
+    }
 }
 
 /// Git's bash is checked before PATH because Windows ships a WSL stub named bash.exe in System32.
@@ -94,17 +101,19 @@ impl Tool for Bash {
 
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
         let command = input["command"].as_str()?;
-        let dialect = match self.shell {
-            Shell::Bash(_) => command::Dialect::Bash,
-            Shell::PowerShell(_) => command::Dialect::PowerShell,
-        };
-        let mut ask = Ask::shell(dialect, command, input["description"].as_str().unwrap_or(command));
+        let mut ask = Ask::shell(self.dialect(), command, input["description"].as_str().unwrap_or(command));
         drop_moves_within(ctx, &mut ask);
         Some(ask)
     }
 
     fn mutates(&self) -> bool {
         true
+    }
+
+    /// A line made only of commands known to read (`git status`, `ls`, `rg`, ...) with no redirection
+    /// that writes is not captured before and after; anything else, or anything unclear, is.
+    fn call_mutates(&self, input: &Value) -> bool {
+        input["command"].as_str().is_none_or(|line| !command::reads_only(self.dialect(), line))
     }
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {

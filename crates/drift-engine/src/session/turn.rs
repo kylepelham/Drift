@@ -997,7 +997,8 @@ impl Engine {
                 return refused;
             }
         }
-        let capture = if tool.mutates() {
+        let writes = tool.call_mutates(&input);
+        let capture = if writes {
             self.snapshots.bind(&scope.plan.session.workspace_id, &scope.plan.workspace);
             match self.capture_before(&scope.plan.workspace, tool.touches(&ctx, &input)).await {
                 Ok(capture) => Some(capture),
@@ -1029,7 +1030,7 @@ impl Engine {
         let (status, title, text, mut meta) = match result {
             Ok(output) => {
                 let status = if tool.failed(&output) { ToolStatus::Error } else { ToolStatus::Done };
-                let formatted = if tool.mutates() { self.format_written(scope.plan, &output.metadata).await } else { Vec::new() };
+                let formatted = if writes { self.format_written(scope.plan, &output.metadata).await } else { Vec::new() };
                 let text = if formatted.is_empty() { output.output } else { format!("{}\n\n{}", output.output, reformatted_note(&formatted)) };
                 (status, Some(output.title), text, with_formatted(output.metadata, formatted))
             }
@@ -1337,7 +1338,7 @@ enum StreamError {
 
 fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
     match &row.part {
-        Part::ToolCall { name, .. } => plan.offer.tool(name).is_some_and(|tool| tool.mutates()),
+        Part::ToolCall { name, input, .. } => plan.offer.tool(name).is_some_and(|tool| tool.call_mutates(input)),
         _ => false,
     }
 }

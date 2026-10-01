@@ -1276,6 +1276,29 @@ async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_
 }
 
 #[tokio::test]
+async fn a_command_that_only_reads_is_not_captured_and_one_that_writes_is() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    h.provider
+        .push(tool_call("bash", &json!({ "command": "echo looking" }).to_string()))
+        .push(tool_call("bash", &json!({ "command": "touch made.txt" }).to_string()))
+        .push(text("done"));
+    h.engine.submit(&h.session.id, prompt("look then write")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let recorded: Vec<bool> = transcript
+        .iter()
+        .flat_map(|m| &m.parts)
+        .filter_map(|row| match &row.part {
+            Part::ToolCall { metadata, .. } => Some(metadata.as_ref().is_some_and(|m| m.get("changes").is_some())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(recorded, [false, true], "only the writing command carries a change record");
+    assert!(h._dir.join("ws/made.txt").exists());
+}
+
+#[tokio::test]
 async fn a_running_command_shows_its_output_before_it_ends() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });

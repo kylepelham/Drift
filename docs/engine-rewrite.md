@@ -475,7 +475,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   in a shadow git dir under the data dir (`session::changes`). File tools name their paths
   (`Tool::touches`), so exactly those files are recorded before and after the call, after
   formatters run. A shell command can change anything, so the tree (the workspace's `.gitignore`
-  applies) is compared just before and after it. That comparison shows what changed, not who changed
+  applies) is compared just before and after it, unless the line only reads (`command::reads_only`:
+  every command a known reader such as `git status`, `ls`, `rg` or `Get-Content`, nothing hidden,
+  no redirection that writes), which is neither captured nor waited for like a write
+  (`Tool::call_mutates`). That comparison shows what changed, not who changed
   it: the user, an editor or another session may have written during the command. Those changes are
   recorded with `observed: true`, and undo and redo never apply them; they are listed as
   `unattributed` and shown in their own notice. A path whose recorded history includes any observed

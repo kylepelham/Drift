@@ -81,6 +81,35 @@ pub fn split(dialect: Dialect, line: &str) -> Option<Line> {
     Some(Line { commands, canonical, writes })
 }
 
+/// Programs that only read, whatever their arguments; `cd` and friends only move.
+const READERS: [&str; 34] = [
+    "ls", "dir", "cat", "type", "head", "tail", "wc", "pwd", "echo", "printf", "grep", "rg", "which", "where", "whoami", "date", "file",
+    "stat", "du", "df", "tree", "uname", "hostname", "cd", "pushd", "popd", "get-childitem", "get-content", "get-location", "select-string",
+    "test-path", "get-item", "write-output", "set-location",
+];
+/// Git subcommands that only read.
+const GIT_READERS: [&str; 9] = ["status", "diff", "log", "show", "rev-parse", "ls-files", "blame", "describe", "grep"];
+/// `find` actions that change or write files.
+const FIND_WRITERS: [&str; 6] = ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint"];
+
+/// True only for a line that can be read, writes nothing by redirection, and runs nothing but
+/// known readers; unclear lines count as writing.
+pub fn reads_only(dialect: Dialect, line: &str) -> bool {
+    let Some(read) = split(dialect, line) else { return false };
+    read.writes.is_empty() && read.canonical.iter().all(|command| reader(command))
+}
+
+fn reader(command: &str) -> bool {
+    let words: Vec<String> = command.split_whitespace().map(str::to_ascii_lowercase).collect();
+    let Some(first) = words.first() else { return true };
+    let program = first.rsplit(['/', '\\']).next().unwrap_or(first).trim_end_matches(".exe");
+    match program {
+        "git" => words.get(1).is_some_and(|sub| GIT_READERS.contains(&sub.as_str())) && !words.iter().any(|w| w.starts_with("--output")),
+        "find" => !words.iter().any(|w| FIND_WRITERS.contains(&w.as_str())),
+        _ => READERS.contains(&program),
+    }
+}
+
 /// The words as a deny rule should see them: what actually runs, not how it was spelt.
 fn canonical_words(dialect: Dialect, words: &[String]) -> Vec<String> {
     let assignment = |word: &str| word.split_once('=').is_some_and(|(name, _)| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !name.starts_with(|c: char| c.is_ascii_digit()));
@@ -393,6 +422,19 @@ mod tests {
         assert_eq!(ps.canonical, ["Remove-Item build -Recurse", "Get-ChildItem", "Invoke-WebRequest https://x", "Out-Null"]);
         assert_eq!(split(Dialect::PowerShell, "saps cmd"), None, "an alias for a launcher is a launcher");
         assert_eq!(split(Dialect::Bash, "rm x").unwrap().canonical, ["rm x"], "aliases are PowerShell's only");
+    }
+
+    #[test]
+    fn only_lines_of_known_readers_count_as_reading() {
+        for line in ["git status", "git diff --stat && git log --oneline -5", "ls -la src | wc -l", "rg TODO src 2>/dev/null", "cd crates && cat Cargo.toml", "find . -name '*.rs'", "echo done"] {
+            assert!(reads_only(Dialect::Bash, line), "{line}");
+        }
+        for line in ["git commit -m x", "git status > out.txt", "cargo test", "find . -name x -delete", "rm a", "ls && touch b", "echo $(rm x)", "git diff --output=patch", "sed -i s/a/b/ f"] {
+            assert!(!reads_only(Dialect::Bash, line), "{line}");
+        }
+        assert!(reads_only(Dialect::PowerShell, "Get-ChildItem src; Select-String -Path a.txt -Pattern x"));
+        assert!(reads_only(Dialect::PowerShell, "ls; cat a.txt"), "aliases read as their cmdlets");
+        assert!(!reads_only(Dialect::PowerShell, "Set-Content a.txt x"));
     }
 
     #[test]
