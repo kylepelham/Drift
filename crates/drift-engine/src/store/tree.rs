@@ -14,8 +14,9 @@ impl Store {
     /// A new session holding copies of the source's finished messages up to and including `through`.
     pub fn fork_session(&self, source_id: &str, new: NewSession, through: &str) -> rusqlite::Result<Session> {
         let session = session_from(new, None);
-        transaction(&self.lock(), |conn| {
+        let session = transaction(&self.lock(), |conn| {
             insert_session(conn, &session)?;
+            conn.prepare_cached("UPDATE session SET variant = (SELECT variant FROM session WHERE id = ?2) WHERE id = ?1")?.execute(params![session.id, source_id])?;
             let messages: Vec<String> = conn
                 .prepare_cached("SELECT id FROM message WHERE session_id = ?1 AND id <= ?2 AND status != 'streaming' ORDER BY id")?
                 .query_map(params![source_id, through], |row| row.get(0))?
@@ -24,7 +25,7 @@ impl Store {
             for message in &messages {
                 copy_message(conn, message, &session.id, &mut copies)?;
             }
-            Ok(())
+            super::sessions::session_in(conn, &session.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
         })?;
         Ok(session)
     }
@@ -82,8 +83,8 @@ impl Store {
 fn copy_message(conn: &Connection, source: &str, session_id: &str, copies: &mut HashMap<String, String>) -> rusqlite::Result<()> {
     let message_id = id::new("msg");
     conn.prepare_cached(
-        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary)
-         SELECT ?1, ?2, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary FROM message WHERE id = ?3",
+        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent)
+         SELECT ?1, ?2, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent FROM message WHERE id = ?3",
     )?
     .execute(params![message_id, session_id, source])?;
     copies.insert(source.to_string(), message_id.clone());

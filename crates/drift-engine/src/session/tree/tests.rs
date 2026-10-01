@@ -64,8 +64,13 @@ fn long_bash(h: &Harness) {
 async fn a_fork_copies_the_history_into_an_independent_conversation() {
     let h = harness().await;
     two_turns(&h).await;
+    h.engine.store.update_session(&h.session.id, None, None, Some("plan")).unwrap();
+    h.engine.store.set_session_variant(&h.session.id, Some("high")).unwrap();
     let fork = h.engine.fork(&h.session.id, None).unwrap();
     assert_eq!(texts(&h, &fork.id), ["first", "one", "second", "two"]);
+    assert_eq!((fork.agent.as_str(), fork.variant.as_deref()), ("plan", Some("high")), "the fork runs as the source does");
+    let agents: Vec<Option<String>> = h.engine.store.transcript(&fork.id).unwrap().into_iter().map(|m| m.info.agent).collect();
+    assert!(agents.iter().all(|agent| agent.as_deref() == Some("build")), "each copy keeps the agent it ran as: {agents:?}");
     assert_eq!((fork.parent_id.as_deref(), fork.visibility), (None, Visibility::Sibling));
     let source = h.engine.store.transcript(&h.session.id).unwrap();
     let copy = h.engine.store.transcript(&fork.id).unwrap();
