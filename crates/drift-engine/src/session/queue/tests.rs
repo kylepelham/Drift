@@ -173,6 +173,23 @@ async fn a_turn_the_engine_starts_while_a_prompt_waits_still_answers_before_hand
 }
 
 #[tokio::test]
+async fn an_old_start_failing_after_its_replacement_leaves_the_replacement_to_run() {
+    let h = harness().await;
+    let old = Prompt { submission_id: Some("sub_old".into()), ..as_agent("plan", "old goal") };
+    let new = Prompt { submission_id: Some("sub_new".into()), ..as_agent("build", "new goal") };
+    h.engine.store.queue(&h.session.id, &waiting_row(&old), false).unwrap();
+    let old_hash = crate::session::turn::payload_hash(&old);
+    // The old start was planning (a credential refresh, say) when the user replaced it.
+    h.engine.store.queue(&h.session.id, &waiting_row(&new), true).unwrap();
+    h.provider.push(text("built"));
+    h.engine.fail_queue(&h.session.id, &[("sub_old", old_hash.as_str())], "provider has no credentials");
+    until_settled(&h.engine, &h.session.id).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert!(format!("{transcript:?}").contains("new goal"), "the replacement ran instead of taking the old failure");
+    assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().queued, None);
+}
+
+#[tokio::test]
 async fn what_waited_starts_after_a_restart() {
     let h = harness().await;
     let waiting = Prompt { submission_id: Some("sub_left".into()), ..as_agent("plan", "left waiting") };

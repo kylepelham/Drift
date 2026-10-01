@@ -100,21 +100,24 @@ impl Engine {
         if rows.is_empty() || rows.iter().any(|row| row.error.is_some()) {
             return;
         }
-        let Some(prompt) = merged(&rows) else { return self.fail_queue(session_id, "a waiting prompt could not be read") };
         let submissions: Vec<(&str, &str)> = rows.iter().map(|row| (row.submission_id.as_str(), row.payload_hash.as_str())).collect();
+        let Some(prompt) = merged(&rows) else { return self.fail_queue(session_id, &submissions, "a waiting prompt could not be read") };
         match self.admit(session_id, prompt, Admission { queued: &submissions, ..Admission::default() }).await {
             Ok(_) | Err(TurnError::Busy | TurnError::Stopped) => {}
-            // Taken back while the turn was planned, so nothing was written; whatever replaced it starts now.
-            Err(TurnError::SubmissionReused) if self.store.queued(session_id).unwrap_or_default() != rows => self.start_queued_soon(session_id),
-            Err(error) => self.fail_queue(session_id, &error.to_string()),
+            Err(error) => self.fail_queue(session_id, &submissions, &error.to_string()),
         }
     }
 
-    fn fail_queue(&self, session_id: &str, error: &str) {
-        if self.store.fail_queued(session_id, error).is_ok() {
-            if let Ok(Some(session)) = self.store.session(session_id) {
-                self.hub.publish(Event::SessionUpdated { session });
+    /// Marks the attempted prompts as unable to start, only if they are exactly what still waits; otherwise what replaced them starts.
+    fn fail_queue(self: &Arc<Self>, session_id: &str, attempted: &[(&str, &str)], error: &str) {
+        match self.store.fail_queued(session_id, attempted, error) {
+            Ok(true) => {
+                if let Ok(Some(session)) = self.store.session(session_id) {
+                    self.hub.publish(Event::SessionUpdated { session });
+                }
             }
+            Ok(false) => self.start_queued_soon(session_id),
+            Err(_) => {}
         }
     }
 

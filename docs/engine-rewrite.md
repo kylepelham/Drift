@@ -355,7 +355,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   that names nothing else joins it, and one asking for another model, agent or level replaces it, with
   the replaced parts in the receipt's `returned` for the client to put back. Results and answers
   (engine-origin parts) never queue. A waiting prompt that cannot start (its model is gone, no
-  credentials) stays with `error` and holds no turn; the next prompt added to it tries again.
+  credentials) stays with `error` and holds no turn; the next prompt added to it tries again. The
+  error is written in one transaction only if exactly the attempted prompts still wait; if they
+  were replaced meanwhile, the replacement is left alone and started.
   `DELETE /sessions/{id}/queued` discards what waits and returns its parts; the running turn
   carries on. Stop (`POST /sessions/{id}/abort`, and every engine-side stop: archive, delete)
   discards what waits first, so nothing starts after it, and returns the parts in `returned`.

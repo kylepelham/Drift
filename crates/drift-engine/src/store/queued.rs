@@ -60,10 +60,16 @@ impl Store {
         transaction(&self.lock(), |conn| take_in(conn, session_id))
     }
 
-    /// Marks what waits as unable to start, so nothing tries it again until the user adds to it.
-    pub fn fail_queued(&self, session_id: &str, error: &str) -> rusqlite::Result<()> {
-        self.lock().prepare_cached("UPDATE queued_prompt SET error = ?2 WHERE session_id = ?1")?.execute(params![session_id, error])?;
-        Ok(())
+    /// Marks `attempted` as unable to start, in one write and only if it is exactly what still waits; `false` if it changed since.
+    pub fn fail_queued(&self, session_id: &str, attempted: &[(&str, &str)], error: &str) -> rusqlite::Result<bool> {
+        transaction(&self.lock(), |conn| {
+            let waiting = rows_in(conn, session_id)?;
+            let same = waiting.len() == attempted.len() && waiting.iter().zip(attempted).all(|(row, (id, hash))| row.submission_id == *id && row.payload_hash == *hash);
+            if same {
+                conn.prepare_cached("UPDATE queued_prompt SET error = ?2 WHERE session_id = ?1")?.execute(params![session_id, error])?;
+            }
+            Ok(same)
+        })
     }
 
     /// Whether something waits that can still start; a running turn hands over at its next step while it does.
@@ -155,7 +161,9 @@ mod tests {
         let queued = store.session(&session.id).unwrap().unwrap().queued.unwrap();
         assert_eq!((queued.agent.as_str(), queued.variant.as_deref(), queued.text.as_str()), ("plan", None, "plan it\n\nand this"));
         assert_eq!(store.queued_submission("b").unwrap(), Some((session.id.clone(), "h-b".into())));
-        store.fail_queued(&session.id, "no credentials").unwrap();
+        assert!(!store.fail_queued(&session.id, &[("a", "h-a")], "no credentials").unwrap(), "not what waits now");
+        assert!(store.is_waiting(&session.id).unwrap(), "left untouched");
+        assert!(store.fail_queued(&session.id, &[("a", "h-a"), ("b", "h-b")], "no credentials").unwrap());
         assert!(!store.is_waiting(&session.id).unwrap() && store.waiting_sessions().unwrap().is_empty(), "a failed queue does not hold a turn");
         let replaced = store.queue(&session.id, &row("c", r#"{"parts":[{"type":"text","text":"instead"}],"agent":"build"}"#), true).unwrap();
         assert_eq!(replaced.iter().map(|r| r.submission_id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
