@@ -52,6 +52,7 @@ impl From<TurnError> for ApiError {
             TurnError::Reverted => (StatusCode::CONFLICT, "reverted"),
             TurnError::Stopped => (StatusCode::CONFLICT, "stopped"),
             TurnError::Moved => (StatusCode::CONFLICT, "moved"),
+            TurnError::UnknownAgent => (StatusCode::BAD_REQUEST, "agent"),
             TurnError::Replayed(_) => (StatusCode::CONFLICT, "submission"),
             TurnError::SubmissionReused => (StatusCode::CONFLICT, "submission"),
             TurnError::NoModel | TurnError::UnknownModel => (StatusCode::BAD_REQUEST, "model"),

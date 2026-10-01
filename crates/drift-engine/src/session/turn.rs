@@ -62,6 +62,9 @@ pub struct Prompt {
     #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, nullable = true)]
     pub variant: Option<Option<String>>,
+    /// The agent the session runs as from this prompt on; absent keeps the session's. Only a primary agent of the workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
     /// Client-chosen id; resubmitting with the same id returns the original receipt instead of a second turn.
     #[serde(default)]
     pub submission_id: Option<String>,
@@ -99,6 +102,8 @@ pub enum TurnError {
     Stopped,
     /// The session moved to another workspace after its turn was planned.
     Moved,
+    /// The prompt chose an agent the workspace has no primary agent by.
+    UnknownAgent,
     /// This submission already landed as this message; resolved to its receipt before any caller sees it.
     Replayed(String),
 }
@@ -119,6 +124,7 @@ impl std::fmt::Display for TurnError {
             Self::Store(message) => write!(f, "store: {message}"),
             Self::Stopped => write!(f, "stopped before it started"),
             Self::Moved => write!(f, "the session moved to another workspace while it waited"),
+            Self::UnknownAgent => write!(f, "no agent by that name can run a conversation in this workspace"),
             Self::Replayed(message) => write!(f, "already admitted as {message}"),
         }
     }
@@ -354,7 +360,7 @@ impl Engine {
         let files = self.turns.files_for(session_id);
         let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), model: &plan.model, files: &files };
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
-        let pick = Pick { model: &plan.model_ref, variant: prompt.variant.as_ref().map(Option::as_deref) };
+        let pick = Pick { model: &plan.model_ref, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
         let admitted = attach.prepare(prompt.parts).and_then(|parts| self.admit_fenced(session_id, pick, parts, submission, Some(&abort), delivery));
         let admitted = match admitted {
             Ok(admitted) => admitted,
@@ -442,7 +448,11 @@ impl Engine {
         let model = self.catalog.read().unwrap().providers.get(&running.provider).and_then(|p| p.models.get(&running.model)).cloned().ok_or(TurnError::UnknownModel)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         let workspace = crate::tool::canonical(Path::new(&workspace.path));
-        let policy = self.workspace_config(&workspace).policy();
+        let config = self.workspace_config(&workspace);
+        if let Some(agent) = &prompt.agent {
+            pickable(&config, agent)?;
+        }
+        let policy = config.policy();
         let files = self.turns.files_for(session_id);
         let parts = Attach { engine: self, session_id, workspace: &workspace, policy: &policy, model: &model, files: &files }.prepare(prompt.parts.clone())?;
         let steering = self.turns.steering.lock().unwrap();
@@ -456,7 +466,7 @@ impl Engine {
             Some(_) => {}
         }
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
-        let pick = Pick { model: &running, variant: prompt.variant.as_ref().map(Option::as_deref) };
+        let pick = Pick { model: &running, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
         let admitted = self.admit_fenced(session_id, pick, parts, submission, how.parent, how.delivery)?;
         drop(steering);
         Ok(Some(self.announce(session_id, admitted)))
@@ -505,10 +515,14 @@ impl Engine {
     }
 
     pub(super) async fn plan(&self, session_id: &str, prompt: &Prompt) -> Result<Plan, TurnError> {
-        let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
+        let mut session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         let workspace_path = crate::tool::canonical(Path::new(&workspace.path));
         let config = self.workspace_config(&workspace_path);
+        if let Some(agent) = &prompt.agent {
+            pickable(&config, agent)?;
+            session.agent = agent.clone();
+        }
         let agent_model = config.agent(&session.agent).and_then(|a| a.model.clone());
         let model_ref = prompt.model.clone().or_else(|| session.model.clone()).or(agent_model).or_else(|| config.model.clone()).ok_or(TurnError::NoModel)?;
         let resolved = self.resolve(&model_ref).await?;
@@ -615,7 +629,7 @@ impl Engine {
                 temperature: None,
                 cache_key: Some(plan.session.id.clone()),
             };
-            let Ok(message) = self.store.create_message(&plan.session.id, Role::Assistant, Some(&plan.model_ref)) else { break };
+            let Ok(message) = self.store.create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });
             match self.step(plan, message, &request, abort).await {
                 Step::Done => break,
@@ -1005,7 +1019,7 @@ impl Engine {
 
     /// Ends the turn by itself, visibly: a reply-less message whose `error` is the reason.
     fn pause(&self, plan: &Plan, reason: String) {
-        let Ok(mut message) = self.store.create_message(&plan.session.id, Role::Assistant, Some(&plan.model_ref)) else { return };
+        let Ok(mut message) = self.store.create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent) else { return };
         self.hub.publish(Event::MessageCreated { message: message.clone() });
         message.status = MessageStatus::Paused;
         message.error = Some(reason);
@@ -1208,10 +1222,18 @@ fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
     }
 }
 
+/// Whether a prompt may switch its session to `agent`: only a primary agent of the workspace runs a conversation.
+fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
+    match config.agent(agent) {
+        Some(found) if found.kind == crate::config::AgentKind::Primary => Ok(()),
+        _ => Err(TurnError::UnknownAgent),
+    }
+}
+
 /// Identity of a prompt for replay checks: the same id must carry the same parts and model.
 pub(super) fn payload_hash(prompt: &Prompt) -> String {
     use sha2::Digest;
-    let body = serde_json::json!({ "parts": prompt.parts, "model": prompt.model, "variant": prompt.variant });
+    let body = serde_json::json!({ "parts": prompt.parts, "model": prompt.model, "variant": prompt.variant, "agent": prompt.agent });
     sha2::Sha256::digest(body.to_string().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 

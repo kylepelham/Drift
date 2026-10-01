@@ -8,7 +8,7 @@ use crate::session::types::{
 };
 
 pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant";
-const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary";
+const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent";
 
 pub struct NewSession<'a> {
     pub workspace_id: &'a str,
@@ -102,12 +102,17 @@ impl Store {
     }
 
     pub fn create_message(&self, session_id: &str, role: Role, model: Option<&ModelRef>) -> rusqlite::Result<Message> {
-        insert_message(&self.lock(), session_id, role, model, false)
+        insert_message(&self.lock(), session_id, role, model, None, false)
+    }
+
+    /// A turn's reply, marked with the agent that turn runs as, whatever the session has since switched to.
+    pub fn create_reply(&self, session_id: &str, model: &ModelRef, agent: &str) -> rusqlite::Result<Message> {
+        insert_message(&self.lock(), session_id, Role::Assistant, Some(model), Some(agent), false)
     }
 
     /// The streaming assistant message a compaction writes its summary into.
     pub fn create_summary_message(&self, session_id: &str, model: &ModelRef) -> rusqlite::Result<Message> {
-        insert_message(&self.lock(), session_id, Role::Assistant, Some(model), true)
+        insert_message(&self.lock(), session_id, Role::Assistant, Some(model), None, true)
     }
 
     pub fn save_message(&self, message: &Message) -> rusqlite::Result<()> {
@@ -221,6 +226,7 @@ fn map_message(row: &Row) -> rusqlite::Result<Message> {
         role: if row.get::<_, String>(2)? == "user" { Role::User } else { Role::Assistant },
         status: parse_status(&row.get::<_, String>(3)?),
         model: provider.zip(model).map(|(provider, model)| ModelRef { provider, model }),
+        agent: row.get(12)?,
         usage: serde_json::from_str(&usage).unwrap_or_default(),
         cost: row.get(7)?,
         error: row.get(8)?,
@@ -455,31 +461,35 @@ fn held_parts(conn: &Connection, session_id: &str, held: Vec<(String, Part)>) ->
 }
 
 fn admit_in(conn: &Connection, session_id: &str, pick: Pick, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<Admitted> {
-    let Pick { model, variant } = pick;
+    let Pick { model, variant, agent } = pick;
     let discarded = discard_reverted(conn, session_id)?;
-    let message = insert_message(conn, session_id, Role::User, Some(model), false)?;
+    conn.prepare_cached(
+        "UPDATE session SET model_provider = ?2, model_id = ?3, updated_at = ?4,
+            variant = CASE WHEN ?5 THEN ?6 ELSE variant END, agent = COALESCE(?7, agent) WHERE id = ?1",
+    )?
+    .execute(params![session_id, model.provider, model.model, id::now_ms(), variant.is_some(), variant.flatten(), agent])?;
+    let message = insert_message(conn, session_id, Role::User, Some(model), None, false)?;
     if let Some((id, hash)) = submission {
         conn.prepare_cached("INSERT INTO submission(id, session_id, message_id, payload_hash, created_at) VALUES(?1, ?2, ?3, ?4, ?5)")?
             .execute(params![id, session_id, message.id, hash, id::now_ms()])?;
     }
     let rows = parts.into_iter().map(|part| insert_part(conn, &message.id, session_id, part)).collect::<rusqlite::Result<Vec<_>>>()?;
-    conn.prepare_cached("UPDATE session SET model_provider = ?2, model_id = ?3, updated_at = ?4, variant = CASE WHEN ?5 THEN ?6 ELSE variant END WHERE id = ?1")?
-        .execute(params![session_id, model.provider, model.model, id::now_ms(), variant.is_some(), variant.flatten()])?;
     let session = session_in(conn, session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
     Ok(Admitted { message, parts: rows, session, discarded })
 }
 
-/// What a prompt runs on, written to its session as it lands: the model, and the variant when the prompt chose one.
+/// What a prompt runs on, written to its session as it lands: the model, and the variant and agent when the prompt chose them.
 #[derive(Clone, Copy)]
 pub struct Pick<'a> {
     pub model: &'a ModelRef,
     /// `None` keeps the session's; `Some(None)` clears it.
     pub variant: Option<Option<&'a str>>,
+    pub agent: Option<&'a str>,
 }
 
 impl<'a> Pick<'a> {
     pub fn model(model: &'a ModelRef) -> Self {
-        Self { model, variant: None }
+        Self { model, variant: None, agent: None }
     }
 }
 
@@ -598,13 +608,19 @@ pub(super) fn transaction<T>(conn: &Connection, f: impl FnOnce(&Connection) -> r
     }
 }
 
-fn insert_message(conn: &Connection, session_id: &str, role: Role, model: Option<&ModelRef>, summary: bool) -> rusqlite::Result<Message> {
+/// `agent` defaults to the one the session runs as now.
+fn insert_message(conn: &Connection, session_id: &str, role: Role, model: Option<&ModelRef>, agent: Option<&str>, summary: bool) -> rusqlite::Result<Message> {
+    let agent = match agent {
+        Some(agent) => Some(agent.to_string()),
+        None => conn.prepare_cached("SELECT agent FROM session WHERE id = ?1")?.query_row([session_id], |row| row.get(0)).optional()?,
+    };
     let message = Message {
         id: id::new("msg"),
         session_id: session_id.into(),
         role,
         status: if role == Role::User { MessageStatus::Done } else { MessageStatus::Streaming },
         model: model.cloned(),
+        agent,
         usage: Usage::default(),
         cost: 0.0,
         error: None,
@@ -613,8 +629,8 @@ fn insert_message(conn: &Connection, session_id: &str, role: Role, model: Option
         summary,
     };
     conn.prepare_cached(
-        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, created_at, summary)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9)",
+        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, created_at, summary, agent)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10)",
     )?
     .execute(params![
         message.id,
@@ -625,7 +641,8 @@ fn insert_message(conn: &Connection, session_id: &str, role: Role, model: Option
         model.map(|m| &m.model),
         serde_json::to_string(&message.usage).unwrap(),
         message.created_at,
-        summary
+        summary,
+        message.agent
     ])?;
     Ok(message)
 }

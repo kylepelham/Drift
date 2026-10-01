@@ -61,11 +61,11 @@ test("file mentions search the current workspace through the engine", async () =
   expect(searched).toEqual([["w1", "comp"]])
 })
 
-test("send maps model, files and reasoning effort onto the native prompt", async () => {
+test("send maps model, agent, files and reasoning effort onto the native prompt", async () => {
   const h = harness()
   const result = await h.actions.send("ses_1", "hello", {
     model: { providerID: "anthropic", modelID: "claude" },
-    agent: "build",
+    agent: "plan",
     variant: "high",
     files: [{ mime: "image/png", url: "data:image/png;base64,AAAA", filename: "shot.png" }],
   })
@@ -84,6 +84,7 @@ test("send maps model, files and reasoning effort onto the native prompt", async
         ],
         model: { provider: "anthropic", model: "claude" },
         variant: "high",
+        agent: "plan",
       },
     ],
   })

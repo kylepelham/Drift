@@ -205,6 +205,7 @@ export function createActions(
         parts,
         model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined,
         variant: options.variant ?? null,
+        ...(options.agent ? { agent: options.agent } : {}),
       })
       return { ok: true }
     } catch (cause) {

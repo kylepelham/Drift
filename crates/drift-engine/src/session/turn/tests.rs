@@ -69,7 +69,7 @@ pub(crate) async fn until_idle(h: &Harness) {
 }
 
 pub(crate) fn prompt(text: &str) -> Prompt {
-    Prompt { parts: vec![Part::Text { text: text.into() }], model: Some(model()), variant: None, submission_id: None }
+    Prompt { parts: vec![Part::Text { text: text.into() }], model: Some(model()), variant: None, agent: None, submission_id: None }
 }
 
 #[tokio::test]
@@ -444,7 +444,7 @@ fn backoff_doubles_with_jitter_under_a_cap_and_a_named_wait_is_used_as_is() {
 #[tokio::test]
 async fn submit_rejects_bad_plans() {
     let h = harness().await;
-    let no_model = Prompt { parts: vec![], model: None, variant: None, submission_id: None };
+    let no_model = Prompt { parts: vec![], model: None, variant: None, agent: None, submission_id: None };
     assert_eq!(h.engine.submit(&h.session.id, no_model).await.err(), Some(TurnError::NoModel));
     let unknown = Prompt { model: Some(ModelRef { provider: "anthropic".into(), model: "nope".into() }), ..prompt("x") };
     assert_eq!(h.engine.submit(&h.session.id, unknown).await.err(), Some(TurnError::UnknownModel));
@@ -991,6 +991,25 @@ fn model_with(output: u64, reasoning: bool) -> crate::llm::catalog::Model {
     model.limit.output = output;
     model.reasoning = reasoning;
     model
+}
+
+#[tokio::test]
+async fn a_prompt_that_picks_plan_runs_as_plan_and_every_message_says_so() {
+    let h = harness().await;
+    h.provider.push(text("planned")).push(text("still planning"));
+    h.engine.submit(&h.session.id, Prompt { agent: Some("plan".into()), ..prompt("plan it") }).await.await_ok();
+    until_idle(&h).await;
+    h.engine.submit(&h.session.id, prompt("and then")).await.await_ok();
+    until_idle(&h).await;
+    let offered: Vec<Vec<String>> = h.provider.requests.lock().unwrap().iter().map(|r| r.tools.iter().map(|t| t.name.clone()).collect()).collect();
+    assert!(offered.iter().all(|tools| !tools.is_empty() && !tools.iter().any(|t| t == "write" || t == "edit")), "plan's restrictions hold on both turns: {offered:?}");
+    assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().agent, "plan", "a prompt that names none keeps it");
+    let agents: Vec<Option<String>> = h.engine.store.transcript(&h.session.id).unwrap().into_iter().map(|m| m.info.agent).collect();
+    assert_eq!(agents, vec![Some("plan".to_string()); 4]);
+    for refused in ["explore", "nobody"] {
+        let result = h.engine.submit(&h.session.id, Prompt { agent: Some(refused.into()), ..prompt("x") }).await;
+        assert_eq!(result.err(), Some(TurnError::UnknownAgent), "{refused} cannot run a conversation");
+    }
 }
 
 #[tokio::test]

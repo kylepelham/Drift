@@ -119,6 +119,7 @@ pub(super) mod tests_support {
                 role,
                 status,
                 model: Some(target()),
+                agent: None,
                 usage: Usage::default(),
                 cost: 0.0,
                 error: None,

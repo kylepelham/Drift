@@ -35,18 +35,23 @@ export function adaptSession(session: NativeSession, workspaces: WorkspaceIndex)
     },
     ...(session.model ? { model: { providerID: session.model.provider, id: session.model.model } } : {}),
     ...(session.revert ? { revert: { messageID: session.revert.messageId } } : {}),
+    agent: session.agent,
   } as Session
 }
 
+/** The engine marks every message with its agent; this only fills the field its schema leaves optional. */
+const defaultAgent = "build"
+
 export function adaptMessage(message: NativeMessage, directory: string): Message {
   const model = message.model ?? { provider: "", model: "" }
+  const agent = message.agent ?? defaultAgent
   if (message.role === "user") {
     return {
       id: message.id,
       sessionID: message.sessionId,
       role: "user",
       time: { created: message.createdAt },
-      agent: "build",
+      agent,
       model: { providerID: model.provider, modelID: model.model },
     }
   }
@@ -58,7 +63,7 @@ export function adaptMessage(message: NativeMessage, directory: string): Message
     parentID: "",
     modelID: model.model,
     providerID: model.provider,
-    mode: "build",
+    mode: agent,
     path: { cwd: directory, root: directory },
     cost: message.cost,
     tokens: {

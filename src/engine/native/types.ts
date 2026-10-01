@@ -967,6 +967,8 @@ export interface components {
             steps: number;
         };
         Message: {
+            /** @description The agent the session ran as when this was written. */
+            agent?: string | null;
             /** Format: double */
             cost: number;
             /** Format: int64 */
@@ -1123,6 +1125,8 @@ export interface components {
             tool: string;
         };
         Prompt: {
+            /** @description The agent the session runs as from this prompt on; absent keeps the session's. Only a primary agent of the workspace. */
+            agent?: string | null;
             model?: components["schemas"]["ModelRef"] | null;
             parts: components["schemas"]["Part"][];
             /** @description Client-chosen id; resubmitting with the same id returns the original receipt instead of a second turn. */

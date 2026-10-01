@@ -105,6 +105,9 @@ pub struct Message {
     pub status: MessageStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelRef>,
+    /// The agent the session ran as when this was written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
     pub usage: Usage,
     pub cost: f64,
     #[serde(skip_serializing_if = "Option::is_none")]

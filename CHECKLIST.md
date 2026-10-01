@@ -123,6 +123,10 @@ change the plan there when a decision changes.
 - [x] Reasoning level (missed at M1): picker variants from models.dev `reasoning_options` (as opencode), mapped per wire after checking current provider docs (Claude adaptive effort or budget, Gemini level or budget, OpenAI effort, OpenRouter object, `reasoning_effort` elsewhere); variant saved per session so engine-started turns keep it (worker deliveries, question answers, subagents, branch seeds, retry with a model switch)
 - [x] Bedrock (SigV4 or Bedrock API key, env and profile credentials, event-stream replies, Claude only) and Vertex (service account or ADC token, Claude and Gemini publishers); xAI and Z.ai as compatible presets. Verified against local stand-ins, not live accounts
 
+### UI completion audit (`docs/research/ui-completion-audit-bc2a8cd.md`)
+
+- [x] Composer agent selection runs the session as that agent (prompt `agent`, validated, saved at admission); sessions and messages keep the agent they ran as
+
 ## M4: cutover
 
 - [ ] Every legacy capability in `docs/research/opencode-exit-inventory.md` checked off or explicitly dropped

@@ -392,7 +392,7 @@ impl Engine {
         let owner = &task.parent_session_id;
         // Every wait before admission, and admission itself, ends when a Stop cancels this.
         let Some(scope) = self.scope_at(owner, task.generation) else { return self.hold(&task.id) };
-        let prompt = Prompt { parts: vec![result_part(task)], model: None, variant: None, submission_id: Some(format!("task:{}", task.id)) };
+        let prompt = Prompt { parts: vec![result_part(task)], model: None, variant: None, agent: None, submission_id: Some(format!("task:{}", task.id)) };
         let wakes = matches!(task.state, TaskState::Replied | TaskState::Failed);
         let how = super::turn::Admission { parent: Some(&scope), delivery: Some(&task.id), steer_only: !wakes };
         match self.admit(owner, prompt, how).await {

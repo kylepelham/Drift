@@ -36,7 +36,7 @@ impl Engine {
             self.questions.settle_async(&self.hub, &request);
             return Ok(());
         };
-        let prompt = Prompt { parts: vec![answer_part(&request, &answers)], model: None, variant: None, submission_id: Some(format!("answer:{}", request.id)) };
+        let prompt = Prompt { parts: vec![answer_part(&request, &answers)], model: None, variant: None, agent: None, submission_id: Some(format!("answer:{}", request.id)) };
         self.deliver_answer(&request, prompt).await?;
         self.questions.settle_async(&self.hub, &request);
         Ok(())

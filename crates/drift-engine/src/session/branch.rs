@@ -101,7 +101,7 @@ impl Engine {
             draft.cutoff.as_deref(),
         )?;
         self.hub.publish(Event::SessionCreated { session: session.clone() });
-        let prompt = Prompt { parts: vec![Part::Text { text: seed(goal, &draft) }], model: source.model.clone(), variant: Some(source.variant.clone()), submission_id: None };
+        let prompt = Prompt { parts: vec![Part::Text { text: seed(goal, &draft) }], model: source.model.clone(), variant: Some(source.variant.clone()), agent: None, submission_id: None };
         self.submit(&session.id, prompt).await.map_err(BranchError::Turn)?;
         Ok(session)
     }

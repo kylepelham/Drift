@@ -72,6 +72,15 @@ test("assistant messages carry tokens, cost and errors in the legacy shape", () 
   expect(info.time).toEqual({ created: 1, completed: 2 })
 })
 
+test("sessions and messages keep the agent they actually ran as", () => {
+  expect((adaptSession({ ...session, agent: "plan" }, workspaces) as { agent?: string }).agent).toBe("plan")
+  const base = { sessionId: "ses_1", model: { provider: "anthropic", model: "claude" }, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0, createdAt: 1, agent: "plan" }
+  const asked = adaptMessage({ ...base, id: "msg_u", role: "user", status: "done" }, "C:/repo")
+  const replied = adaptMessage({ ...base, id: "msg_a", role: "assistant", status: "done" }, "C:/repo")
+  expect(asked.role === "user" && asked.agent).toBe("plan")
+  expect(replied.role === "assistant" && replied.mode).toBe("plan")
+})
+
 test("a reply that stopped at its output limit shows why", () => {
   const base = { id: "msg_3", sessionId: "ses_1", role: "assistant" as const, model: { provider: "anthropic", model: "claude" }, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0, createdAt: 1 }
   const cut = adaptMessage({ ...base, status: "done", error: "The reply stopped at the output limit (32000 tokens)." }, "C:/repo") as { finish?: string; error?: { name: string; data: { message: string } } }
