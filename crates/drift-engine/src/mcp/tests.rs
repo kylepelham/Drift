@@ -23,11 +23,11 @@ async fn approval_gates_connection_and_tools_appear_prefixed() {
     let hub = Hub::new(32);
     let row = engine.store.save_mcp_server("echo", &echo_config()).unwrap();
     assert_eq!(engine.mcp.status_of(row.clone()).state, State::NeedsApproval);
-    assert!(engine.mcp.connect("echo", &engine.store, &hub, None).await.is_err());
+    assert!(engine.mcp.connect("echo", &engine.store, &hub, Start::User).await.is_err());
 
     engine.store.approve_mcp_server("echo", &row.hash()).unwrap();
     let approved = engine.store.mcp_server("echo").unwrap().unwrap();
-    engine.mcp.connect("echo", &engine.store, &hub, None).await.unwrap();
+    engine.mcp.connect("echo", &engine.store, &hub, Start::User).await.unwrap();
     let status = engine.mcp.status_of(approved.clone());
     assert_eq!(status.state, State::Connected);
     assert_eq!(status.tools.iter().map(|t| (t.name.as_str(), t.read_only)).collect::<Vec<_>>(), [("echo", true), ("shout", false)]);
@@ -173,7 +173,7 @@ async fn a_bad_command_reports_failed() {
     let row = engine.store.save_mcp_server("broken", &config).unwrap();
     engine.store.approve_mcp_server("broken", &row.hash()).unwrap();
     let row = engine.store.mcp_server("broken").unwrap().unwrap();
-    assert!(engine.mcp.connect("broken", &engine.store, &hub, None).await.is_err());
+    assert!(engine.mcp.connect("broken", &engine.store, &hub, Start::User).await.is_err());
     let status = engine.mcp.status_of(row);
     assert_eq!(status.state, State::Failed);
     assert!(status.error.unwrap().contains("could not start"));
@@ -191,7 +191,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
     let connecting = tokio::spawn({
         let engine = engine.clone();
         let hub = Hub::new(8);
-        async move { engine.mcp.connect("probe", &engine.store, &hub, None).await.map(|_| ()) }
+        async move { engine.mcp.connect("probe", &engine.store, &hub, Start::User).await.map(|_| ()) }
     });
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let replaced = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("TOOL_NAME".to_string(), "new_tool".to_string())].into() };
@@ -306,6 +306,22 @@ async fn a_connect_dropped_midway_settles_and_kills_what_it_started() {
     engine.mcp.wait_ready(READY_WAIT).await;
     assert!(started.elapsed() < std::time::Duration::from_millis(100), "a planning turn does not wait on it");
     all_dead(&pids).await;
+}
+
+#[tokio::test]
+async fn the_startup_sweep_never_cancels_a_connect_already_under_way() {
+    let engine = engine();
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/slow-server.cjs");
+    let slow = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), "500".to_string())].into() };
+    let row = approved(&engine, "slow", &slow).await;
+    let connecting = tokio::spawn({
+        let engine = engine.clone();
+        async move { engine.connect_mcp("slow").await }
+    });
+    until("connecting", || engine.mcp.connecting()).await;
+    engine.connect_all_mcp().await;
+    assert_eq!(connecting.await.unwrap(), Ok(()), "the user's connect lands");
+    assert_eq!(engine.mcp.status_of(row).state, State::Connected);
 }
 
 #[tokio::test]

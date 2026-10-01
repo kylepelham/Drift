@@ -237,6 +237,15 @@ impl Slots {
     }
 }
 
+/// Who asked for a connect. Only the user's replaces one in flight; the engine's own never cancel anything.
+#[derive(Clone, Copy, PartialEq)]
+enum Start {
+    User,
+    Startup,
+    /// After a lost connection, and only while the server is still at this generation.
+    Reconnect(u64),
+}
+
 /// What a change does to the server's slot: a save or disconnect keeps it, a disable or remove ends it.
 #[derive(Clone, Copy, PartialEq)]
 enum Ending {
@@ -284,9 +293,9 @@ impl Servers {
         ServerStatus { row, state, error, tools }
     }
 
-    /// Connects `name` as its row stands now; with `expected`, only while the server is still at that generation.
-    async fn connect(&self, name: &str, store: &Store, hub: &Hub, expected: Option<u64>) -> Result<Arc<Live>, String> {
-        let (row, attempt) = self.begin(name, store, expected)?;
+    /// Connects `name` as its row stands now.
+    async fn connect(&self, name: &str, store: &Store, hub: &Hub, start: Start) -> Result<Arc<Live>, String> {
+        let (row, attempt) = self.begin(name, store, start)?;
         let _settle = Settle { servers: self, hub, row: &row, id: attempt.id };
         hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
         let opened = tokio::select! {
@@ -297,12 +306,15 @@ impl Servers {
     }
 
     /// Reads the row and its generation together, so a save cannot slip between them.
-    fn begin(&self, name: &str, store: &Store, expected: Option<u64>) -> Result<(ServerRow, Attempt), String> {
+    fn begin(&self, name: &str, store: &Store, start: Start) -> Result<(ServerRow, Attempt), String> {
         let mut slots = self.lock();
         let row = store.mcp_server(name).map_err(|e| e.to_string())?.ok_or("no such server")?;
         let generation = slots.generation_of(name);
-        if expected.is_some_and(|expected| expected != generation) {
+        if matches!(start, Start::Reconnect(expected) if expected != generation) {
             return Err("server definition changed".into());
+        }
+        if start != Start::User && (slots.attempts.contains_key(name) || slots.live(name).is_some()) {
+            return Err("already connected or connecting".into());
         }
         if !row.enabled {
             return Err("server is disabled".into());
@@ -522,23 +534,21 @@ fn after_loss(lived: Duration, carried: Duration) -> Duration {
 impl crate::Engine {
     /// Connects a server, offers its tools to later turns, and watches it for as long as its definition stands.
     pub async fn connect_mcp(self: &Arc<Self>, name: &str) -> Result<(), String> {
-        self.connect_mcp_at(name, None, FIRST_RETRY).await
+        self.connect_mcp_at(name, Start::User, FIRST_RETRY).await
     }
 
     /// `backoff` is the wait before reconnecting if this connection drops before it proves stable.
-    async fn connect_mcp_at(self: &Arc<Self>, name: &str, expected: Option<u64>, backoff: Duration) -> Result<(), String> {
-        let live = self.mcp.connect(name, &self.store, &self.hub, expected).await?;
+    async fn connect_mcp_at(self: &Arc<Self>, name: &str, start: Start, backoff: Duration) -> Result<(), String> {
+        let live = self.mcp.connect(name, &self.store, &self.hub, start).await?;
         self.watch_mcp(name.into(), Arc::downgrade(&live), backoff);
         Ok(())
     }
 
-    /// Connects every enabled, approved server that is not already live.
+    /// Connects every enabled, approved server that is neither live nor already connecting.
     pub async fn connect_all_mcp(self: &Arc<Self>) {
         let Ok(rows) = self.store.mcp_servers() else { return };
         for row in rows.into_iter().filter(|r| r.enabled && r.is_approved()) {
-            if !self.mcp.is_live(&row.name) {
-                let _ = self.connect_mcp(&row.name).await;
-            }
+            let _ = self.connect_mcp_at(&row.name, Start::Startup, FIRST_RETRY).await;
         }
     }
 
@@ -578,7 +588,7 @@ impl crate::Engine {
                 return;
             }
             wait = (wait * 2).min(MAX_RETRY);
-            if engine.connect_mcp_at(&name, Some(generation), wait).await.is_ok() {
+            if engine.connect_mcp_at(&name, Start::Reconnect(generation), wait).await.is_ok() {
                 return;
             }
         }

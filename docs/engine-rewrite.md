@@ -962,8 +962,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   same step (`Servers::change`); a connect reads the row and the generation together when it starts;
   and a finished connect publishes its client only if it is still the newest attempt at that
   generation. A connect therefore never pairs a new generation with an old row, or the reverse.
-- Each connect is an attempt with its own cancel token. A newer connect for the same server, or any
-  change to it, cancels the one in flight at once rather than letting it run to its timeout.
+- Each connect is an attempt with its own cancel token. A user's connect for the same server, or any
+  change to it, cancels the one in flight at once rather than letting it run to its timeout. The
+  engine's own connects (the startup sweep, reconnects) never cancel anything: they skip a server
+  that is live or already connecting, checked under the same lock as the start.
   `initialize` and `tools/list` each get 30 s; a server that misses either fails with a message
   saying which. A stdio server is adopted into a process tree (job object on Windows, process
   group on unix) as soon as it spawns, so a cancelled, timed-out or replaced attempt, or a dropped
