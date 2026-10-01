@@ -1179,8 +1179,10 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   holding the hash cannot test guesses at a secret against it. An approval stored under the
   unkeyed hash earlier builds used is re-keyed at open while its config is unchanged.
 - A captured MCP tool runs on a reconnected server only if that server still defines the tool
-  exactly as the turn was given it; a server that came back with the tool redefined (say, no
-  longer read-only) is refused for that call, and the next turn sees the new definition.
+  as the turn was given it: same name, input schema, and read-only and destructive hints (a
+  missing hint counts as MCP's default). A reworded description or a new title does not matter.
+  A server that came back with the tool redefined (say, no longer read-only) is refused for that
+  call, and the next turn sees the new definition.
 - MCP management has one authority, the engine. The manager, the registry installer and the
   approval toast read `state.mcpServers` (loaded on hydrate, kept current by `mcp.updated` and
   `mcp.removed`) and change servers only through `/mcp`: save (a rename saves the new name, then

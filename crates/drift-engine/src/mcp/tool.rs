@@ -29,7 +29,7 @@ impl McpTool {
 
     /// A reconnected server may redefine the tool (no longer read-only, another schema); the turn was given this one.
     fn unchanged_on(&self, client: &Arc<Live>) -> Result<(), ToolError> {
-        if Arc::ptr_eq(client, &self.pinned) || client.tools.contains(&self.tool) {
+        if Arc::ptr_eq(client, &self.pinned) || client.tools.iter().any(|tool| behaves_alike(tool, &self.tool)) {
             return Ok(());
         }
         Err(ToolError(format!("{} changed its {} tool since this turn began, so it was not run; the next turn sees the new one", self.server, self.tool.name)))
@@ -58,6 +58,12 @@ impl McpTool {
             Err(CallError::Failed(error)) => Err(ToolError(error)),
         }
     }
+}
+
+/// Same name, input and safety hints, judged by the defaults MCP gives missing ones; a new description or title changes nothing a call relies on.
+fn behaves_alike(a: &rmcp::model::Tool, b: &rmcp::model::Tool) -> bool {
+    let hints = |tool: &rmcp::model::Tool| tool.annotations.as_ref().map_or((false, true), |hint| (hint.read_only_hint.unwrap_or(false), hint.is_destructive()));
+    a.name == b.name && a.input_schema == b.input_schema && hints(a) == hints(b)
 }
 
 impl Tool for McpTool {
@@ -98,5 +104,30 @@ impl Tool for McpTool {
             }
             Ok(Output { title: format!("{}: {}", self.server, self.tool.name), output: text, metadata: json!({ "server": self.server }) })
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rmcp::model::{Tool, ToolAnnotations};
+    use serde_json::json;
+
+    use super::behaves_alike;
+
+    fn tool(description: &'static str, schema: serde_json::Value) -> Tool {
+        Tool::new("search", description, std::sync::Arc::new(schema.as_object().unwrap().clone()))
+    }
+
+    #[test]
+    fn a_reworded_tool_is_the_same_tool_but_new_input_or_hints_are_not() {
+        let schema = json!({ "type": "object", "properties": { "q": { "type": "string" } } });
+        let read_only = tool("Searches", schema.clone()).annotate(ToolAnnotations::new().read_only(true));
+        let reworded = tool("Searches the docs", schema.clone()).annotate(ToolAnnotations::with_title("Search").read_only(true));
+        assert!(behaves_alike(&read_only, &reworded));
+        assert!(!behaves_alike(&read_only, &tool("Searches", schema.clone())), "no longer read-only");
+        assert!(!behaves_alike(&read_only, &tool("Searches", json!({ "type": "object" })).annotate(ToolAnnotations::new().read_only(true))), "another input");
+        let plain = tool("Searches", schema.clone());
+        assert!(behaves_alike(&plain, &plain.clone().annotate(ToolAnnotations::new().destructive(true))), "a hint stated as its default");
+        assert!(!behaves_alike(&plain, &plain.clone().annotate(ToolAnnotations::new().destructive(false))));
     }
 }
