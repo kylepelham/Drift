@@ -27,6 +27,14 @@ impl McpTool {
         ToolError(format!("the {} MCP server was disabled or removed", self.server))
     }
 
+    /// A reconnected server may redefine the tool (no longer read-only, another schema); the turn was given this one.
+    fn unchanged_on(&self, client: &Arc<Live>) -> Result<(), ToolError> {
+        if Arc::ptr_eq(client, &self.pinned) || client.tools.contains(&self.tool) {
+            return Ok(());
+        }
+        Err(ToolError(format!("{} changed its {} tool since this turn began, so it was not run; the next turn sees the new one", self.server, self.tool.name)))
+    }
+
     async fn call(&self, ctx: &Context, client: &Live, input: Value) -> Result<(String, bool), CallError> {
         tokio::select! {
             result = client.call(&self.tool.name, input) => result,
@@ -43,6 +51,7 @@ impl McpTool {
         }
         let lost_again = || ToolError(format!("the connection to {} closed during the call and it did not come back", self.server));
         let Some(next) = self.slot.replacement(lost, REPLACEMENT_WAIT).await else { return Err(lost_again()) };
+        self.unchanged_on(&next)?;
         match self.call(ctx, &next, input).await {
             Ok(answer) => Ok(answer),
             Err(CallError::Lost) => Err(lost_again()),
@@ -78,6 +87,7 @@ impl Tool for McpTool {
                 return Err(self.closed());
             }
             let client = self.slot.client_for(&self.pinned);
+            self.unchanged_on(&client)?;
             let (text, is_error) = match self.call(ctx, &client, input.clone()).await {
                 Ok(answer) => answer,
                 Err(CallError::Lost) => self.after_loss(ctx, &client, input).await?,

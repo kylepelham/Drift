@@ -384,6 +384,19 @@ async fn a_read_only_call_cut_off_by_a_lost_connection_is_asked_again_once() {
 }
 
 #[tokio::test]
+async fn a_captured_tool_is_not_run_on_a_reconnected_server_that_redefined_it() {
+    let engine = engine();
+    let (ServerConfig::Stdio { command, args, mut env }, log) = logged_echo() else { unreachable!() };
+    env.insert("REDEFINE_AFTER_CRASH".into(), "1".into());
+    approved(&engine, "echo", &ServerConfig::Stdio { command, args, env }).await;
+    engine.connect_mcp("echo").await.unwrap();
+    let echo = tool(&engine, "echo_echo");
+    let refused = echo.run(&context(&engine), json!({ "text": "crash-once" })).await.unwrap_err().0;
+    assert!(refused.contains("changed its echo tool"), "{refused}");
+    assert_eq!(calls(&log), ["echo crash-once"], "not asked again of a server that now calls it mutating");
+}
+
+#[tokio::test]
 async fn disabling_ends_calls_under_way_and_refuses_captured_tools_until_reenabled() {
     let engine = engine();
     let (config, log) = logged_echo();
