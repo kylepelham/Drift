@@ -76,24 +76,31 @@ fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> 
 }
 
 /// Every replayed call needs a result or the provider rejects the transcript; unfinished ones say so.
-/// Calls whose arguments never parsed were not replayed, so they get no result either.
+/// Calls whose arguments never parsed were not replayed, so they get no result either. Images a
+/// call returned follow all the results, since providers want results first in the turn.
 fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
-    message
-        .parts
-        .iter()
-        .filter_map(|row| match &row.part {
-            Part::ToolCall { call_id, status, output, input, .. } if input.is_object() => {
-                let (content, is_error) = match (status, output) {
-                    (ToolStatus::Done, Some(output)) => (output.clone(), false),
-                    (ToolStatus::Error | ToolStatus::Denied, Some(output)) => (output.clone(), true),
-                    (ToolStatus::Denied, None) => ("The user denied permission for this call.".into(), true),
-                    _ => ("This call was interrupted before it produced a result.".into(), true),
-                };
-                Some(Block::ToolResult { call_id: call_id.clone(), content, is_error })
-            }
-            _ => None,
-        })
-        .collect()
+    let mut results = Vec::new();
+    let mut images = Vec::new();
+    for row in &message.parts {
+        let Part::ToolCall { call_id, name, status, output, input, metadata, .. } = &row.part else { continue };
+        if !input.is_object() {
+            continue;
+        }
+        let (content, is_error) = match (status, output) {
+            (ToolStatus::Done, Some(output)) => (output.clone(), false),
+            (ToolStatus::Error | ToolStatus::Denied, Some(output)) => (output.clone(), true),
+            (ToolStatus::Denied, None) => ("The user denied permission for this call.".into(), true),
+            _ => ("This call was interrupted before it produced a result.".into(), true),
+        };
+        results.push(Block::ToolResult { call_id: call_id.clone(), content, is_error });
+        let returned = crate::tool::image::from_metadata(metadata.as_ref());
+        if !returned.is_empty() {
+            images.push(Block::Text(format!("The {name} call ({call_id}) returned this:")));
+            images.extend(returned.into_iter().map(|image| Block::Image { mime: image.mime, base64: image.base64 }));
+        }
+    }
+    results.extend(images);
+    results
 }
 
 #[cfg(test)]
@@ -173,6 +180,21 @@ mod tests {
         assert!(matches!(&out[1].blocks[1], Block::ToolUse { id, .. } if id == "c1"));
         assert_eq!(out[2].blocks, vec![Block::ToolResult { call_id: "c1".into(), content: "1: x".into(), is_error: false }]);
         assert_eq!(out[3].blocks, vec![Block::Text("done".into())]);
+    }
+
+    #[test]
+    fn returned_images_follow_every_result_of_the_turn() {
+        let mut with_image = call(ToolStatus::Done, Some("an image"));
+        if let Part::ToolCall { metadata, .. } = &mut with_image {
+            *metadata = Some(json!({ "images": [{ "mime": "image/png", "data": "AAAA" }] }));
+        }
+        let mut second = call(ToolStatus::Done, Some("text"));
+        if let Part::ToolCall { call_id, .. } = &mut second {
+            *call_id = "c2".into();
+        }
+        let out = messages(&[message(Role::Assistant, vec![with_image, second])], &target());
+        let kinds: Vec<&str> = out[1].blocks.iter().map(|b| match b { Block::ToolResult { .. } => "result", Block::Text(_) => "text", Block::Image { .. } => "image", _ => "other" }).collect();
+        assert_eq!(kinds, ["result", "result", "text", "image"]);
     }
 
     #[test]

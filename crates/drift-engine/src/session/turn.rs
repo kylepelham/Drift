@@ -667,7 +667,7 @@ impl Engine {
             let request = Request {
                 model: plan.model_ref.model.clone(),
                 system: plan.offer.system.clone(),
-                messages: compaction::request_messages(&transcript, &plan.model_ref),
+                messages: llm::readable_by(compaction::request_messages(&transcript, &plan.model_ref), plan.model.attachment),
                 tools: plan.offer.specs(),
                 max_tokens,
                 reasoning,

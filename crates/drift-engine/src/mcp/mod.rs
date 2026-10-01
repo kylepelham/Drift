@@ -21,6 +21,7 @@ use utoipa::ToSchema;
 use crate::event::{Event, Hub};
 use crate::platform::process::Tree;
 use crate::store::Store;
+use crate::tool::image::Image;
 
 pub use tool::McpTool;
 pub use view::{ServerConfigInput, ServerConfigView, ServerView};
@@ -601,7 +602,7 @@ impl Live {
         }
     }
 
-    async fn call(&self, name: &str, arguments: serde_json::Value) -> Result<(String, bool), CallError> {
+    async fn call(&self, name: &str, arguments: serde_json::Value) -> Result<Answer, CallError> {
         let arguments = arguments.as_object().cloned();
         let mut params = CallToolRequestParams::new(name.to_string());
         params.arguments = arguments;
@@ -609,17 +610,39 @@ impl Live {
             ServiceError::TransportClosed | ServiceError::TransportSend(_) | ServiceError::Cancelled { .. } => CallError::Lost,
             other => CallError::Failed(other.to_string()),
         })?;
-        let text: Vec<String> = result
-            .content
-            .iter()
-            .map(|block| match block {
-                ContentBlock::Text(text) => text.text.clone(),
-                ContentBlock::Image(image) => format!("[image {}]", image.mime_type),
-                ContentBlock::Resource(resource) => format!("[resource {:?}]", resource.resource),
-                other => format!("[{other:?}]"),
-            })
-            .collect();
-        Ok((text.join("\n"), result.is_error.unwrap_or(false)))
+        let mut answer = Answer { text: String::new(), is_error: result.is_error.unwrap_or(false), images: Vec::new() };
+        let mut lines = Vec::new();
+        for block in &result.content {
+            match block {
+                ContentBlock::Text(text) => lines.push(text.text.clone()),
+                ContentBlock::Image(image) if image.data.len() <= crate::tool::image::MAX_IMAGE_BYTES * 4 / 3 + 4 => {
+                    answer.images.push(Image { mime: image.mime_type.clone(), base64: image.data.clone() });
+                }
+                ContentBlock::Image(image) => lines.push(format!("[an image ({}) too large to show]", image.mime_type)),
+                ContentBlock::Resource(resource) => lines.push(resource_text(&resource.resource)),
+                other => lines.push(serde_json::to_string(other).unwrap_or_default()),
+            }
+        }
+        answer.text = lines.join("\n");
+        Ok(answer)
+    }
+}
+
+/// What a call returned: its text, whether the server called it an error, and any images for the model.
+pub(super) struct Answer {
+    pub text: String,
+    pub is_error: bool,
+    pub images: Vec<Image>,
+}
+
+/// An embedded resource as the model reads it: its text, or a line naming a binary one.
+fn resource_text(resource: &rmcp::model::ResourceContents) -> String {
+    match resource {
+        rmcp::model::ResourceContents::TextResourceContents { uri, text, .. } => format!("<resource uri=\"{uri}\">\n{text}\n</resource>"),
+        rmcp::model::ResourceContents::BlobResourceContents { uri, mime_type, blob, .. } => {
+            format!("[binary resource {uri} ({}, {} bytes), not shown]", mime_type.as_deref().unwrap_or("unknown type"), blob.len() * 3 / 4)
+        }
+        other => serde_json::to_string(other).unwrap_or_default(),
     }
 }
 

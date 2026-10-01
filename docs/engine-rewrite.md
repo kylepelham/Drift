@@ -928,6 +928,13 @@ Settled after the first external review of M1; each has a regression test.
   `outputBytes` and `outputFile`. A timeout or Stop keeps what was printed; the shell tool handles
   Stop itself (`Tool::stops_itself`), so the turn awaits its result rather than dropping it, and the
   call ends `error` with `stopped` or `timedOut` in its metadata.
+- Images reach the model (`tool::image`). `read` returns a PNG, JPEG, GIF or WebP (up to 5 MB,
+  known by its bytes) as an image rather than refusing it as binary, and an MCP result's image
+  content is kept instead of becoming `[image png]`; text resources are inlined, binary ones named.
+  Either way the call's metadata holds `images: [{mime, data}]`, and the request replays them after
+  all of that turn's call results ("The <tool> call (<id>) returned this:" then the image), since
+  providers want results first. A model whose catalog entry does not take images gets a line
+  saying an image was there instead (`llm::readable_by`), on turns and engine requests alike.
 - While a command runs, every 500 ms that it has printed more, its part is republished with
   `metadata.output` = the output so far, bounded like the result (`Spool::so_far`), through the
   call's `tool::Progress`. That is shown, never stored: the saved part is the result, and the UI

@@ -55,6 +55,18 @@ impl Credential {
     }
 }
 
+/// For a model that cannot read images: each image becomes a line saying one was there.
+pub fn readable_by(messages: Vec<ChatMessage>, reads_images: bool) -> Vec<ChatMessage> {
+    if reads_images {
+        return messages;
+    }
+    let text = |block: Block| match block {
+        Block::Image { .. } => Block::Text("[An image was here, but this model cannot read images.]".into()),
+        other => other,
+    };
+    messages.into_iter().map(|message| ChatMessage { blocks: message.blocks.into_iter().map(text).collect(), ..message }).collect()
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ToolSpec {
     pub name: String,

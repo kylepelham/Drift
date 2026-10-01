@@ -71,7 +71,7 @@ impl Engine {
         let request = Request {
             model: resolved.model_ref.model.clone(),
             system: shot.system,
-            messages: shot.messages,
+            messages: crate::llm::readable_by(shot.messages, resolved.model.attachment),
             tools: shot.tools,
             max_tokens: shot.max_tokens,
             reasoning: None,

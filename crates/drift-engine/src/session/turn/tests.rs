@@ -1252,6 +1252,30 @@ async fn workspace_config_shapes_the_turn() {
 }
 
 #[tokio::test]
+async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_that_does_not() {
+    use crate::llm::Block;
+    let h = harness().await;
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
+    let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default() };
+    h.engine.store.save_mcp_server("echo", &config).unwrap();
+    h.engine.connect_mcp("echo").await.unwrap();
+    std::fs::write(h._dir.join("ws/shot.png"), b"\x89PNG\r\n\x1a\nrest").unwrap();
+    h.provider
+        .push(tool_call("echo_echo", r#"{"text": "picture"}"#))
+        .push(tool_call("read", r#"{"path": "shot.png"}"#))
+        .push(text("seen"));
+    h.engine.submit(&h.session.id, prompt("look")).await.await_ok();
+    until_idle(&h).await;
+    let requests = h.provider.requests.lock().unwrap().clone();
+    let last = requests.last().unwrap();
+    let images: Vec<&str> = last.messages.iter().flat_map(|m| &m.blocks).filter_map(|b| match b { Block::Image { mime, .. } => Some(mime.as_str()), _ => None }).collect();
+    assert_eq!(images, ["image/png", "image/png"], "the MCP screenshot and the read image both reach the model");
+    let reads_images = crate::llm::readable_by(last.messages.clone(), false);
+    assert!(reads_images.iter().flat_map(|m| &m.blocks).all(|b| !matches!(b, Block::Image { .. })));
+    assert!(format!("{reads_images:?}").contains("this model cannot read images"));
+}
+
+#[tokio::test]
 async fn a_running_command_shows_its_output_before_it_ends() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });

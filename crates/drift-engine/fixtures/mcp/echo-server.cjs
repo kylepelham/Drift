@@ -9,11 +9,13 @@ const tools = [
   { name: "echo", description: "Echoes text back", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] }, annotations: { readOnlyHint: !redefined } },
   { name: "shout", description: "Echoes text back, loudly", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } },
 ]
-// Texts: "fail" is a tool error, "crash" exits, "crash-once" exits only while CRASH_MARKER is absent, "hang" never answers.
+// Texts: "fail" is a tool error, "crash" exits, "crash-once" exits only while CRASH_MARKER is absent, "hang" never answers,
+// "picture" answers with text and a PNG.
 const call = (message) => {
   const text = String(message.params.arguments?.text ?? "")
   if (process.env.CALL_LOG) fs.appendFileSync(process.env.CALL_LOG, `${message.params.name} ${text}\n`)
   if (text === "fail") return reply(message.id, { content: [{ type: "text", text: "asked to fail" }], isError: true })
+  if (text === "picture") return reply(message.id, { content: [{ type: "text", text: "a screenshot" }, { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" }] })
   if (text === "crash") process.exit(1)
   if (text === "crash-once" && !fs.existsSync(process.env.CRASH_MARKER)) {
     fs.writeFileSync(process.env.CRASH_MARKER, "")

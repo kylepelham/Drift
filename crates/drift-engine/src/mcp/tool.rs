@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use super::{CallError, Live, Slot, REPLACEMENT_WAIT};
+use super::{Answer, CallError, Live, Slot, REPLACEMENT_WAIT};
 use crate::llm::ToolSpec;
 use crate::tool::{Ask, Context, Output, RunFuture, Tool, ToolError};
 
@@ -35,7 +35,7 @@ impl McpTool {
         Err(ToolError(format!("{} changed its {} tool since this turn began, so it was not run; the next turn sees the new one", self.server, self.tool.name)))
     }
 
-    async fn call(&self, ctx: &Context, client: &Live, input: Value) -> Result<(String, bool), CallError> {
+    async fn call(&self, ctx: &Context, client: &Live, input: Value) -> Result<Answer, CallError> {
         tokio::select! {
             result = client.call(&self.tool.name, input) => result,
             () = ctx.abort.cancelled() => Err(CallError::Failed("aborted".into())),
@@ -44,7 +44,7 @@ impl McpTool {
     }
 
     /// A call cut off by a lost connection: a read-only one is asked again once of the reconnected server, never one that may have changed something.
-    async fn after_loss(&self, ctx: &Context, lost: &Arc<Live>, input: Value) -> Result<(String, bool), ToolError> {
+    async fn after_loss(&self, ctx: &Context, lost: &Arc<Live>, input: Value) -> Result<Answer, ToolError> {
         let uncertain = || ToolError(format!("the connection to {} closed during the call; it may or may not have taken effect and was not retried", self.server));
         if !self.read_only() {
             return Err(uncertain());
@@ -94,15 +94,19 @@ impl Tool for McpTool {
             }
             let client = self.slot.client_for(&self.pinned);
             self.unchanged_on(&client)?;
-            let (text, is_error) = match self.call(ctx, &client, input.clone()).await {
+            let answer = match self.call(ctx, &client, input.clone()).await {
                 Ok(answer) => answer,
                 Err(CallError::Lost) => self.after_loss(ctx, &client, input).await?,
                 Err(CallError::Failed(error)) => return Err(ToolError(error)),
             };
-            if is_error {
-                return Err(ToolError(text));
+            if answer.is_error {
+                return Err(ToolError(answer.text));
             }
-            Ok(Output { title: format!("{}: {}", self.server, self.tool.name), output: text, metadata: json!({ "server": self.server }) })
+            let mut metadata = json!({ "server": self.server });
+            if !answer.images.is_empty() {
+                metadata["images"] = crate::tool::image::metadata(&answer.images);
+            }
+            Ok(Output { title: format!("{}: {}", self.server, self.tool.name), output: answer.text, metadata })
         })
     }
 }

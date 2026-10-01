@@ -47,6 +47,10 @@ impl Tool for Read {
                 return Err(ToolError(format!("{} is {} bytes; too large to read", display(&path, &ctx.workspace), meta.len())));
             }
             let bytes = tokio::fs::read(&path).await?;
+            if let Some(mime) = super::image::sniff(&bytes) {
+                ctx.files.mark_read(&path);
+                return image(ctx, &path, mime, &bytes);
+            }
             if bytes.iter().take(8000).any(|b| *b == 0) {
                 return Err(ToolError(format!("{} is binary", display(&path, &ctx.workspace))));
             }
@@ -71,6 +75,20 @@ impl Tool for Read {
             })
         })
     }
+}
+
+/// An image file comes back for the model to look at, not as text.
+fn image(ctx: &Context, path: &std::path::Path, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
+    let name = display(path, &ctx.workspace);
+    if bytes.len() > super::image::MAX_IMAGE_BYTES {
+        return Err(ToolError(format!("{name} is an image of {} bytes; too large to look at (the limit is 5 MB)", bytes.len())));
+    }
+    let image = super::image::Image::from_bytes(mime, bytes);
+    Ok(Output {
+        title: name.clone(),
+        output: format!("{name} is an image ({mime}, {} KB); it follows this result.", bytes.len().div_ceil(1024)),
+        metadata: json!({ "images": super::image::metadata(&[image]) }),
+    })
 }
 
 /// Numbered lines from `offset`, at most `limit` of them and within the page budget; always at least
