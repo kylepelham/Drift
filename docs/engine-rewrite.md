@@ -367,7 +367,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   keeps serving that turn's calls, and its client closes when the last turn holding it ends
   (`RunningService` cancels on drop). Calls resolve tools only from the offer.
 - Tools that read config at call time (`skill`, `task`'s agent lookup) read the turn's snapshot
-  through `Context::config`, never the files as they are now.
+  through `Context::config`, never the files as they are now. The snapshot holds each skill's
+  SKILL.md body as read with the config, so `skill` returns the instructions the turn was offered
+  even if the file is rewritten while it runs; files a skill points to are read when used.
 - Changes made meanwhile (a `drift.json` edit, Settings agent overrides, an MCP server connected or
   dropped) reach the next turn; an idle session picks them up when its next turn is admitted. Steered
   prompts join the running turn and its snapshot. A queued background worker keeps the snapshot it

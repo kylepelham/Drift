@@ -140,6 +140,9 @@ pub struct Skill {
     pub description: String,
     /// Directory holding SKILL.md and whatever it references.
     pub path: String,
+    /// SKILL.md's body as it was when the config was read, so a turn loads the skill it was offered.
+    #[serde(skip)]
+    pub instructions: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -290,7 +293,8 @@ impl Config {
             if self.skills.iter().any(|s| s.name == name) {
                 continue;
             }
-            self.skills.push(Skill { name, description: doc.field("description").unwrap_or_default(), path: path.to_string_lossy().into_owned() });
+            let instructions = body(&text);
+            self.skills.push(Skill { name, description: doc.field("description").unwrap_or_default(), path: path.to_string_lossy().into_owned(), instructions });
         }
     }
 
