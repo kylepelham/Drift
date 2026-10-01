@@ -352,6 +352,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Stops the turn and its workers; a prompt waiting for the turn is discarded and returned, never started. */
         post: operations["abortTurn"];
         delete?: never;
         options?: never;
@@ -477,6 +478,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/queued": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Discards what waits for the running turn, which then carries on; 404 when nothing waits. */
+        delete: operations["discardQueued"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/retry": {
         parameters: {
             query?: never;
@@ -559,6 +577,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Admits the prompt, steered into a running turn or starting one. A prompt for another agent or level
+         *     than the running turn's waits instead (no `message`; `session.queued` shows it) and starts when that
+         *     turn finishes its step; one sent while others wait joins them or, asking for something else, replaces them.
+         */
         post: operations["submitTurn"];
         delete?: never;
         options?: never;
@@ -690,6 +713,8 @@ export interface components {
     schemas: {
         Aborted: {
             aborted: boolean;
+            /** @description What waited for the turn, discarded by the Stop, for the client to put back. */
+            returned?: components["schemas"]["Part"][];
         };
         Agent: {
             /** @description Front matter `background: true|false`: how a `task` for this agent runs when the call does not say. */
@@ -814,6 +839,10 @@ export interface components {
         };
         /** @enum {string} */
         Decision: "allow" | "deny" | "ask";
+        Discarded: {
+            /** @description The waiting prompts' parts, oldest first; none of them ran. */
+            returned: components["schemas"]["Part"][];
+        };
         EnabledBody: {
             enabled: boolean;
         };
@@ -1182,6 +1211,18 @@ export interface components {
             questions: components["schemas"]["Question"][];
             sessionId: string;
         };
+        /** @description What waits to run once the running turn finishes its step: one turn, as one agent and level. */
+        Queued: {
+            agent: string;
+            /** @description Why it could not start; it stays until discarded or joined by another prompt, which tries again. */
+            error?: string | null;
+            files: number;
+            /** Format: int64 */
+            since: number;
+            /** @description The waiting prompts' text, oldest first, a blank line apart. */
+            text: string;
+            variant?: string | null;
+        };
         /** @description What one reasoning level asks of the provider: an effort its API names, or a thinking token budget. */
         Reasoning: {
             /** @enum {string} */
@@ -1194,7 +1235,9 @@ export interface components {
             tokens: number;
         };
         Receipt: {
-            message: components["schemas"]["Message"];
+            message?: components["schemas"]["Message"] | null;
+            /** @description Waiting prompts this one replaced, for the client to put back; none of them ran. */
+            returned?: components["schemas"]["Part"][];
             session: components["schemas"]["Session"];
         };
         RenameBody: {
@@ -1303,6 +1346,7 @@ export interface components {
             id: string;
             model?: components["schemas"]["ModelRef"] | null;
             parentId?: string | null;
+            queued?: components["schemas"]["Queued"] | null;
             revert?: components["schemas"]["Revert"] | null;
             /** @description Whether a turn is in flight right now; set by the API, never stored. */
             running?: boolean;
@@ -2362,6 +2406,33 @@ export interface operations {
                 content?: never;
             };
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    discardQueued: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Discarded"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

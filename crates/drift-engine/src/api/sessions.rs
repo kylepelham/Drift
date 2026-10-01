@@ -12,7 +12,7 @@ use crate::session::branch::BranchDraft;
 use crate::session::revert::Undone;
 use crate::session::tasks::TaskRecord;
 use crate::session::turn::{Prompt, Receipt};
-use crate::session::types::{MessageWithParts, ModelRef, Session, Visibility};
+use crate::session::types::{MessageWithParts, ModelRef, Part, Session, Visibility};
 use crate::store::{NewSession, Purge, SessionFilter};
 use crate::Engine;
 
@@ -63,6 +63,15 @@ pub struct MessagesQuery {
 #[derive(Serialize, ToSchema)]
 pub struct Aborted {
     pub aborted: bool,
+    /// What waited for the turn, discarded by the Stop, for the client to put back.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub returned: Vec<Part>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct Discarded {
+    /// The waiting prompts' parts, oldest first; none of them ran.
+    pub returned: Vec<Part>,
 }
 
 #[utoipa::path(get, path = "/sessions", operation_id = "listSessions", params(ListQuery), responses((status = 200, body = Vec<Session>)))]
@@ -131,6 +140,9 @@ pub async fn messages(
     Ok(Json(engine.store.messages(&id, query.before.as_deref(), limit)?))
 }
 
+/// Admits the prompt, steered into a running turn or starting one. A prompt for another agent or level
+/// than the running turn's waits instead (no `message`; `session.queued` shows it) and starts when that
+/// turn finishes its step; one sent while others wait joins them or, asking for something else, replaces them.
 #[utoipa::path(post, path = "/sessions/{id}/turns", operation_id = "submitTurn", request_body = Prompt, responses((status = 202, body = Receipt), (status = 409), (status = 404)))]
 pub async fn submit(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(prompt): Json<Prompt>) -> Result<(StatusCode, Json<Receipt>), ApiError> {
     // Worker results, answers and tool calls are the engine's to write, never a client's to claim.
@@ -140,9 +152,23 @@ pub async fn submit(State(engine): State<Arc<Engine>>, Path(id): Path<String>, J
     Ok((StatusCode::ACCEPTED, Json(engine.submit(&id, prompt).await?)))
 }
 
+/// Stops the turn and its workers; a prompt waiting for the turn is discarded and returned, never started.
 #[utoipa::path(post, path = "/sessions/{id}/abort", operation_id = "abortTurn", responses((status = 200, body = Aborted)))]
 pub async fn abort(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Json<Aborted> {
-    Json(Aborted { aborted: engine.abort(&id) })
+    let returned = engine.discard_queued(&id);
+    let aborted = engine.abort(&id) || !returned.is_empty();
+    Json(Aborted { aborted, returned })
+}
+
+/// Discards what waits for the running turn, which then carries on; 404 when nothing waits.
+#[utoipa::path(delete, path = "/sessions/{id}/queued", operation_id = "discardQueued", responses((status = 200, body = Discarded), (status = 404)))]
+pub async fn discard_queued(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Discarded>, ApiError> {
+    engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;
+    let returned = engine.discard_queued(&id);
+    if returned.is_empty() {
+        return Err(ApiError::not_found("queued"));
+    }
+    Ok(Json(Discarded { returned }))
 }
 
 #[derive(Deserialize, ToSchema)]

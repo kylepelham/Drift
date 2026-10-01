@@ -63,6 +63,10 @@ impl Harness {
         self.http.put(self.url(path)).bearer_auth(&self.engine.token)
     }
 
+    fn delete(&self, path: &str) -> reqwest::RequestBuilder {
+        self.http.delete(self.url(path)).bearer_auth(&self.engine.token)
+    }
+
     async fn ws(&self, query: &str) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
         let url = format!(
             "ws://{}/events?token={}{query}",
@@ -283,6 +287,14 @@ async fn a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket() {
     assert_eq!(asked["request"]["tool"], "write");
     let pending: Value = h.get("/permissions").send().await.unwrap().json().await.unwrap();
     assert_eq!(pending[0]["id"], request_id);
+    // Another agent waits for the turn's step instead of joining it; the caller hears so at once, and can take it back.
+    let waiting: Value = h.post(&format!("/sessions/{session_id}/turns")).json(&json!({ "parts": [{ "type": "text", "text": "plan it" }], "agent": "plan" })).send().await.unwrap().json().await.unwrap();
+    assert!(waiting.get("message").is_none());
+    assert_eq!((&waiting["session"]["queued"]["agent"], &waiting["session"]["queued"]["text"]), (&json!("plan"), &json!("plan it")));
+    let discarded = h.delete(&format!("/sessions/{session_id}/queued")).send().await.unwrap();
+    assert_eq!(discarded.status(), 200);
+    assert_eq!(discarded.json::<Value>().await.unwrap()["returned"][0]["text"], "plan it");
+    assert_eq!(h.delete(&format!("/sessions/{session_id}/queued")).send().await.unwrap().status(), 404);
     let reply = json!({ "type": "permission.reply", "requestId": request_id, "reply": "once" }).to_string();
     socket.send(Message::Text(reply.into())).await.unwrap();
 

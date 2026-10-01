@@ -41,6 +41,7 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::messages))
         .routes(routes!(sessions::submit))
         .routes(routes!(sessions::abort))
+        .routes(routes!(sessions::discard_queued))
         .routes(routes!(sessions::command))
         .routes(routes!(sessions::draft_branch))
         .routes(routes!(sessions::branch))

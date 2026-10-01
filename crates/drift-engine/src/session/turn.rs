@@ -79,7 +79,12 @@ pub(crate) fn present<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Opti
 #[serde(rename_all = "camelCase")]
 pub struct Receipt {
     pub session: Session,
-    pub message: Message,
+    /// The prompt as admitted; absent while it waits, as `session.queued` shows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<Message>,
+    /// Waiting prompts this one replaced, for the client to put back; none of them ran.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub returned: Vec<Part>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -153,8 +158,8 @@ pub struct Turns {
     /// a turn deciding it is done both hold this lock, so no prompt lands after the turn stops looking.
     /// Each with what its turn is running as, which is what a steered prompt is judged against.
     steering: Mutex<HashMap<String, Steering>>,
-    /// Sessions whose running turn is asked to end at its next step, so a prompt for another agent or level can start its own.
-    yielding: Mutex<HashMap<String, usize>>,
+    /// Held while deciding whether a prompt joins, replaces or starts what waits, and while discarding it.
+    pub(super) queueing: Mutex<()>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
 }
@@ -163,18 +168,30 @@ pub struct Turns {
 #[derive(Clone, Debug, PartialEq)]
 struct Steering {
     model: ModelRef,
+    choice: Choice,
+}
+
+impl Steering {
+    fn of(plan: &Plan) -> Self {
+        Self { model: plan.model_ref.clone(), choice: Choice::new(plan.session.agent.clone(), plan.variant.as_deref(), plan.model.variants.clone()) }
+    }
+}
+
+/// The agent a turn runs as and the reasoning its level comes to on its model.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Choice {
     agent: String,
     reasoning: Option<Reasoning>,
     variants: Vec<Variant>,
 }
 
-impl Steering {
-    fn of(plan: &Plan) -> Self {
-        Self { model: plan.model_ref.clone(), agent: plan.session.agent.clone(), reasoning: plan.reasoning(), variants: plan.model.variants.clone() }
+impl Choice {
+    pub(super) fn new(agent: String, variant: Option<&str>, variants: Vec<Variant>) -> Self {
+        Self { agent, reasoning: reasoning_in(&variants, variant), variants }
     }
 
-    /// Whether `prompt` asks for another agent, or a level the running model would reason at differently.
-    fn differs(&self, prompt: &Prompt) -> bool {
+    /// Whether `prompt` asks for another agent, or a level this model would reason at differently.
+    pub(super) fn differs(&self, prompt: &Prompt) -> bool {
         let agent = prompt.agent.as_ref().is_some_and(|agent| *agent != self.agent);
         let level = prompt.variant.as_ref().is_some_and(|variant| reasoning_in(&self.variants, variant.as_deref()) != self.reasoning);
         agent || level
@@ -193,23 +210,6 @@ pub enum TurnEnd {
     Replied,
     Failed,
     Stopped,
-}
-
-struct Yield<'a> {
-    turns: &'a Turns,
-    session_id: &'a str,
-}
-
-impl Drop for Yield<'_> {
-    fn drop(&mut self) {
-        let mut yielding = self.turns.yielding.lock().unwrap();
-        if let Some(asks) = yielding.get_mut(self.session_id) {
-            *asks -= 1;
-            if *asks == 0 {
-                yielding.remove(self.session_id);
-            }
-        }
-    }
 }
 
 impl Turns {
@@ -268,17 +268,7 @@ impl Turns {
     }
 
     fn differs(&self, session_id: &str, prompt: &Prompt) -> bool {
-        self.steering.lock().unwrap().get(session_id).is_some_and(|running| running.differs(prompt))
-    }
-
-    /// Asks the session's turn to end at its next step; the returned guard withdraws the ask.
-    fn ask_to_yield<'a>(&'a self, session_id: &'a str) -> impl Drop + 'a {
-        *self.yielding.lock().unwrap().entry(session_id.into()).or_default() += 1;
-        Yield { turns: self, session_id }
-    }
-
-    fn yielding(&self, session_id: &str) -> bool {
-        self.yielding.lock().unwrap().get(session_id).is_some_and(|asks| *asks > 0)
+        self.steering.lock().unwrap().get(session_id).is_some_and(|running| running.choice.differs(prompt))
     }
 
     /// Resolves once the session has no turn in flight, or the caller is aborted.
@@ -326,6 +316,8 @@ pub(super) struct Admission<'a> {
     pub(super) delivery: Option<&'a str>,
     /// Only into a turn already running; it never starts one.
     pub(super) steer_only: bool,
+    /// The waiting submissions this prompt is, oldest first; it only ever starts a turn of its own.
+    pub(super) queued: &'a [(&'a str, &'a str)],
 }
 
 impl Engine {
@@ -349,8 +341,9 @@ impl Engine {
 
     async fn admit_once(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>) -> Result<Receipt, TurnError> {
         let payload_hash = payload_hash(&prompt);
-        if let Some(id) = prompt.submission_id.as_deref() {
-            if let Some(receipt) = self.replayed_receipt(id, session_id, &payload_hash)? {
+        // What waits already settled its own replays when it was queued, and its admission settles them again in one write.
+        if how.queued.is_empty() {
+            if let Some(receipt) = self.settled_before_claim(session_id, &prompt, &payload_hash)? {
                 return Ok(receipt);
             }
         }
@@ -360,6 +353,9 @@ impl Engine {
             return Err(TurnError::Stopped);
         }
         if !self.turns.claim(session_id, &abort) {
+            if !how.queued.is_empty() {
+                return Err(TurnError::Busy);
+            }
             return self.steer_or_queue(session_id, prompt, how, &payload_hash).await;
         }
         if how.steer_only {
@@ -371,12 +367,26 @@ impl Engine {
             () = abort.cancelled() => Err(TurnError::Stopped),
         };
         match planned {
-            Ok(plan) => self.start(session_id, prompt, plan, abort, &payload_hash, how.delivery),
+            Ok(plan) => self.start(session_id, prompt, plan, abort, &payload_hash, how),
             Err(error) => {
                 self.turns.release(session_id);
                 Err(error)
             }
         }
+    }
+
+    /// A replayed submission, or a user's prompt that joins or replaces what waits: either way no turn is claimed.
+    fn settled_before_claim(self: &Arc<Self>, session_id: &str, prompt: &Prompt, payload_hash: &str) -> Result<Option<Receipt>, TurnError> {
+        if let Some(id) = prompt.submission_id.as_deref() {
+            if let Some(receipt) = self.replayed_receipt(id, session_id, payload_hash)? {
+                return Ok(Some(receipt));
+            }
+        }
+        // Results and answers are the engine's; they never wait behind a user's prompt.
+        if prompt.parts.iter().any(Part::is_engine_origin) {
+            return Ok(None);
+        }
+        self.join_queue(session_id, prompt, payload_hash)
     }
 
     /// Starts a turn on a queued worker's plan as admitted; only the credential is looked up afresh.
@@ -400,7 +410,7 @@ impl Engine {
             return Err(error);
         }
         let hash = payload_hash(&prompt);
-        self.start(session_id, prompt, plan, abort, &hash, None)
+        self.start(session_id, prompt, plan, abort, &hash, Admission::default())
     }
 
     async fn refresh_plan(&self, plan: &mut Plan) -> Result<(), TurnError> {
@@ -416,12 +426,13 @@ impl Engine {
     }
 
     /// Admits the prompt into a session this call has claimed and starts its turn; releases the claim if it cannot.
-    fn start(self: &Arc<Self>, session_id: &str, prompt: Prompt, plan: Plan, abort: CancellationToken, payload_hash: &str, delivery: Option<&str>) -> Result<Receipt, TurnError> {
+    fn start(self: &Arc<Self>, session_id: &str, prompt: Prompt, plan: Plan, abort: CancellationToken, payload_hash: &str, how: Admission) -> Result<Receipt, TurnError> {
         let files = self.turns.files_for(session_id);
         let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), model: &plan.model, files: &files };
-        let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
+        let own = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
+        let submissions = if how.queued.is_empty() { own.as_slice() } else { how.queued };
         let pick = Pick { model: &plan.model_ref, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
-        let admitted = attach.prepare(prompt.parts).and_then(|parts| self.admit_fenced(session_id, pick, parts, submission, Some(&abort), delivery));
+        let admitted = attach.prepare(prompt.parts).and_then(|parts| self.admit_fenced(session_id, pick, parts, submissions, Some(&abort), how.delivery));
         let admitted = match admitted {
             Ok(admitted) => admitted,
             Err(error) => {
@@ -437,7 +448,7 @@ impl Engine {
     }
 
     /// The last check before a prompt is written, under the lock every Stop holds, so it lands wholly before a Stop or not at all.
-    pub(super) fn admit_fenced(&self, session_id: &str, pick: Pick, parts: Vec<Part>, submission: Option<(&str, &str)>, abort: Option<&CancellationToken>, delivery: Option<&str>) -> Result<Admitted, TurnError> {
+    pub(super) fn admit_fenced(&self, session_id: &str, pick: Pick, parts: Vec<Part>, submissions: &[(&str, &str)], abort: Option<&CancellationToken>, delivery: Option<&str>) -> Result<Admitted, TurnError> {
         let _fence = self.workers.fence();
         if abort.is_some_and(CancellationToken::is_cancelled) {
             return Err(TurnError::Stopped);
@@ -445,7 +456,7 @@ impl Engine {
         // Results a Stop held back ride along with any admitted prompt, each claimed so no other path takes it meanwhile.
         let held: Vec<_> = self.store.held_tasks(session_id)?.into_iter().filter(|task| self.workers.claim(&task.id, Claimant::Automatic)).collect();
         let carried = held.iter().map(|task| (task.id.clone(), super::tasks::result_part(task))).collect();
-        let admitted = self.store.admit_delivering(session_id, pick, parts, submission, Handover { delivery, held: carried });
+        let admitted = self.store.admit_delivering(session_id, pick, parts, submissions, Handover { delivery, held: carried });
         for task in &held {
             self.workers.release_where_task(&task.id, &Claimant::Automatic);
             self.publish_task(&task.id);
@@ -462,7 +473,7 @@ impl Engine {
     pub(super) fn receipt_for(&self, session_id: &str, message_id: &str) -> Result<Receipt, TurnError> {
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let message = self.store.message(message_id)?.ok_or(TurnError::NoSession)?;
-        Ok(Receipt { session, message })
+        Ok(Receipt { session, message: Some(message), returned: Vec::new() })
     }
 
     pub(super) fn announce(&self, session_id: &str, admitted: Admitted) -> Receipt {
@@ -475,7 +486,7 @@ impl Engine {
             self.hub.publish(Event::PartCreated { part: row });
         }
         self.hub.publish(Event::SessionUpdated { session: session.clone() });
-        Receipt { session, message }
+        Receipt { session, message: Some(message), returned: Vec::new() }
     }
 
     /// A prompt for a busy session. A running turn takes it at its next model request (after the
@@ -484,7 +495,7 @@ impl Engine {
     async fn steer_or_queue(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>, payload_hash: &str) -> Result<Receipt, TurnError> {
         // Another agent or level would be answered as the old one if it joined, so it waits for a turn of its own.
         if self.turns.differs(session_id, &prompt) {
-            return self.after_yield(session_id, prompt, how).await;
+            return self.queue_behind(session_id, &prompt, payload_hash);
         }
         if let Some(receipt) = self.steer(session_id, &prompt, payload_hash, how)? {
             return Ok(receipt);
@@ -496,23 +507,6 @@ impl Engine {
         let stop = how.parent.unwrap_or(&never);
         if tokio::time::timeout(QUEUE_WAIT, self.turns.wait_idle(session_id, stop)).await.is_err() {
             return Err(TurnError::Busy);
-        }
-        if stop.is_cancelled() {
-            return Err(TurnError::Stopped);
-        }
-        Box::pin(self.admit(session_id, prompt, how)).await
-    }
-
-    /// Waits for the running turn to finish the step it is on, then admits `prompt` as a turn of its own.
-    async fn after_yield(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>) -> Result<Receipt, TurnError> {
-        if how.steer_only {
-            return Err(TurnError::Stopped);
-        }
-        let never = CancellationToken::new();
-        let stop = how.parent.unwrap_or(&never);
-        {
-            let _asked = self.turns.ask_to_yield(session_id);
-            self.turns.wait_idle(session_id, stop).await;
         }
         if stop.is_cancelled() {
             return Err(TurnError::Stopped);
@@ -548,7 +542,7 @@ impl Engine {
         }
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
         let pick = Pick { model: &running.model, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
-        let admitted = self.admit_fenced(session_id, pick, parts, submission, how.parent, how.delivery)?;
+        let admitted = self.admit_fenced(session_id, pick, parts, submission.as_slice(), how.parent, how.delivery)?;
         drop(steering);
         Ok(Some(self.announce(session_id, admitted)))
     }
@@ -570,6 +564,8 @@ impl Engine {
             engine.release_claims_of(&id);
             engine.hub.publish(Event::SessionStatusChanged { session_id: id.clone(), status: SessionStatus::Idle });
             engine.turns.finished.notify_waiters();
+            // What waited for this job starts now, after the session is released, so a prompt queued meanwhile is seen here or starts itself.
+            engine.start_queued_soon(&id);
             // Results that found the session busy go in now; one racing its own failed attempt is retried by that attempt.
             engine.retry_deliveries(Some(&id));
         });
@@ -583,16 +579,18 @@ impl Engine {
         }
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let message = self.store.message(&found.message_id)?.ok_or(TurnError::NoSession)?;
-        Ok(Some(Receipt { session, message }))
+        Ok(Some(Receipt { session, message: Some(message), returned: Vec::new() }))
     }
 
     /// Stops the session's turn, its background workers and, for a worker's transcript, that worker, all under the admission fence.
+    /// What waited for the turn is discarded first, so nothing starts once it stops.
     pub fn abort(&self, session_id: &str) -> bool {
+        let discarded = !self.discard_queued(session_id).is_empty();
         let mut owners = self.workers.fence();
         let workers = self.stop_workers(&mut owners, session_id);
         let turn = self.turns.cancel(session_id);
         let worker = self.store.task_for_session(session_id).ok().flatten().is_some_and(|task| !task.state.is_terminal() && self.workers.cancel(&task.id));
-        turn || workers || worker
+        turn || workers || worker || discarded
     }
 
     pub(super) async fn plan(&self, session_id: &str, prompt: &Prompt) -> Result<Plan, TurnError> {
@@ -694,7 +692,7 @@ impl Engine {
         let mut answered = None;
         loop {
             // A prompt for another agent or level is waiting for this turn to hand over.
-            if self.turns.yielding(&plan.session.id) {
+            if self.store.is_waiting(&plan.session.id).unwrap_or(false) {
                 break;
             }
             if steps >= limits.steps {
@@ -1308,7 +1306,7 @@ fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
 }
 
 /// Whether a prompt may switch its session to `agent`: only a primary agent of the workspace runs a conversation.
-fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
+pub(super) fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
     match config.agent(agent) {
         Some(found) if found.kind == crate::config::AgentKind::Primary => Ok(()),
         _ => Err(TurnError::UnknownAgent),

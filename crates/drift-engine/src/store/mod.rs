@@ -2,6 +2,7 @@
 
 mod migrations;
 mod mcp;
+mod queued;
 mod sessions;
 mod settings;
 mod staged;
@@ -10,6 +11,7 @@ mod todos;
 mod tree;
 
 pub use mcp::Renamed;
+pub use queued::QueuedRow;
 pub use sessions::{Admit, Admitted, Handover, NewSession, Pick, Purge, SessionFilter};
 pub use staged::StagedReplacement;
 pub use tasks::{Launch, NewTask};

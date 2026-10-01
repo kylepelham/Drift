@@ -78,8 +78,9 @@ GET    /sessions?workspace=&cursor=&archived=
 POST   /sessions                            {workspace, parent?, visibility?, title?}
 GET    /sessions/{id}       PATCH           DELETE archives
 GET    /sessions/{id}/messages?before=&limit=
-POST   /sessions/{id}/turns                 {parts, model, agent, variant} -> 202 {turn_id}
-POST   /sessions/{id}/abort
+POST   /sessions/{id}/turns                 {parts, model, agent, variant} -> 202 {session, message?, returned?}
+POST   /sessions/{id}/abort                 -> {aborted, returned?}
+DELETE /sessions/{id}/queued                discard what waits for the turn -> {returned}
 GET    /sessions/{id}/tasks                 workers the session launched, finished ones included
 GET    /tasks/{id}                          one worker's state and result
 POST   /tasks/{id}/abort                    stop one worker and nothing else
@@ -330,14 +331,29 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   by a job that is not a turn (a compaction, an undo) makes the prompt wait up to 30 s and then
   start a turn of its own; past that it is 409 `busy`.
 - A prompt that names another agent or reasoning level than the running turn's never joins it,
-  since that turn's system prompt, tools and level would answer it as the old agent. It asks the
-  turn to end before its next step (the step under way finishes; nothing is cut mid-call), waits
-  for it with no time limit (a Stop still ends the wait), and then starts a turn of its own as
-  the agent and level it named. Nothing of it is written until then. Prompts that change neither
-  keep steering into the running turn. "Another" is judged by effect, not spelling: an agent by
-  name, a level by the reasoning it resolves to on the model the turn is running on (after a retry
-  switch, the new one). A level that model does not offer asks for nothing, so it matches a turn
-  with no level, and a prompt naming the turn's own agent and level is an ordinary follow-up.
+  since that turn's system prompt, tools and level would answer it as the old agent. It is
+  queued instead (`session::queue`, table `queued_prompt`, migration 18: one row per submission,
+  the prompt as sent) and the call returns 202 at once with no `message`; `session.queued` shows
+  what waits (`agent`, `variant`, `text`, `files`, `since`, `error`) on every read of the session
+  and every `session.updated`. While anything waits, the running turn ends before its next step
+  (the step under way finishes; nothing is cut mid-call). When the session's job ends, everything
+  waiting is admitted as one prompt (the oldest's agent and level, all parts in order) and starts a
+  turn of its own; the rows go in the same write that admits it, under all their submission ids,
+  so a crash leaves either the rows or the message, never both, and a resent id replays either
+  way. A queue left at shutdown starts when the engine does (`resume_queued`). Prompts that change
+  neither keep steering into the running turn. "Another" is judged by effect, not spelling: an
+  agent by name, a level by the reasoning it resolves to on the model the turn is running on
+  (after a retry switch, the new one). A level that model does not offer asks for nothing, so it
+  matches a turn with no level, and a prompt naming the turn's own agent and level is an ordinary
+  follow-up.
+- While something waits, a user's prompt is judged against what waits, not the running turn: one
+  that names nothing else joins it, and one asking for another agent or level replaces it, with
+  the replaced parts in the receipt's `returned` for the client to put back. Results and answers
+  (engine-origin parts) never queue. A waiting prompt that cannot start (its model is gone, no
+  credentials) stays with `error` and holds no turn; the next prompt added to it tries again.
+  `DELETE /sessions/{id}/queued` discards what waits and returns its parts; the running turn
+  carries on. Stop (`POST /sessions/{id}/abort`, and every engine-side stop: archive, delete)
+  discards what waits first, so nothing starts after it, and returns the parts in `returned`.
 - Turn limits (`config::Limits`, drift.json `limits: { steps, repeats, polls }`, later files
   override field by field; an agent's front matter `steps:` replaces `steps` for its turns):
   - `steps` (default 200): model steps that ran tools in one turn. Reaching it pauses the turn.

@@ -81,7 +81,7 @@ impl Engine {
         }
         let session = self.store.session(session_id).map_err(TurnError::from)?.ok_or(TurnError::NoSession)?;
         let model = session.model.ok_or(TurnError::NoModel)?;
-        match self.admit_fenced(session_id, crate::store::Pick::model(&model), prompt.parts, submission, None, None) {
+        match self.admit_fenced(session_id, crate::store::Pick::model(&model), prompt.parts, submission.as_slice(), None, None) {
             Ok(admitted) => {
                 self.announce(session_id, admitted);
                 Ok(())

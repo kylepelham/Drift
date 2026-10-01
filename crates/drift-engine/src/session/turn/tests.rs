@@ -78,7 +78,7 @@ async fn a_plain_reply_is_stored_and_costed() {
     let h = harness().await;
     h.provider.push(text("Hello there"));
     let receipt = h.engine.submit(&h.session.id, prompt("say hello please")).await.await_ok();
-    assert_eq!(receipt.message.role, Role::User);
+    assert_eq!(receipt.message.unwrap().role, Role::User);
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     assert_eq!(transcript.len(), 2);
@@ -525,7 +525,7 @@ async fn failed_admission_releases_the_session_and_submission_ids_replay() {
     first.submission_id = Some("sub_1".into());
     let receipt = h.engine.submit(&h.session.id, first.clone()).await.await_ok();
     let replay = h.engine.submit(&h.session.id, first).await.await_ok();
-    assert_eq!(replay.message.id, receipt.message.id, "same submission id returns the same receipt");
+    assert_eq!(replay.message.unwrap().id, receipt.message.unwrap().id, "same submission id returns the same receipt");
     until_idle(&h).await;
     assert_eq!(h.engine.store.transcript(&h.session.id).unwrap().len(), 2);
 
@@ -593,7 +593,7 @@ async fn submission_ids_survive_a_restart_and_reject_a_different_payload() {
     let reopened = Engine::open_with(&h._dir.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
     *reopened.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(h.provider.clone()));
     let replay = reopened.submit(&h.session.id, first).await.await_ok();
-    assert_eq!(replay.message.id, receipt.message.id);
+    assert_eq!(replay.message.unwrap().id, receipt.message.unwrap().id);
     assert_eq!(reopened.store.transcript(&h.session.id).unwrap().len(), 2, "no second prompt after restart");
 
     let mut changed = prompt("different text");
@@ -713,7 +713,7 @@ async fn a_prompt_sent_during_a_call_reaches_the_next_request_after_its_result()
     steer.submission_id = Some("steer-1".into());
     let first = h.engine.submit(&h.session.id, steer.clone()).await.expect("a busy turn takes the prompt");
     let again = h.engine.submit(&h.session.id, steer).await.unwrap();
-    assert_eq!(first.message.id, again.message.id, "the same submission is one prompt");
+    assert_eq!(first.message.unwrap().id, again.message.unwrap().id, "the same submission is one prompt");
     until_idle(&h).await;
     let requests = h.provider.requests.lock().unwrap().clone();
     assert_eq!(requests.len(), 2, "taken at the next request, not as a turn of its own");
@@ -992,26 +992,6 @@ fn model_with(output: u64, reasoning: bool) -> crate::llm::catalog::Model {
     model.limit.output = output;
     model.reasoning = reasoning;
     model
-}
-
-#[tokio::test]
-async fn a_prompt_for_another_agent_sent_mid_turn_gets_a_turn_of_its_own_as_that_agent() {
-    let h = harness().await;
-    h.provider.push_slow(Duration::from_millis(400), tool_call("read", r#"{"path": "missing.txt"}"#)).push(text("planned"));
-    h.engine.submit(&h.session.id, prompt("build it")).await.await_ok();
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    let switched = h.engine.submit(&h.session.id, Prompt { agent: Some("plan".into()), ..prompt("plan instead") }).await;
-    switched.expect("admitted once the build turn handed over");
-    until_idle(&h).await;
-    let requests = h.provider.requests.lock().unwrap();
-    assert_eq!(requests.len(), 2, "the build turn ends after its step instead of answering the plan prompt");
-    let asked = |index: usize| format!("{:?}", requests[index].messages);
-    assert!(!asked(0).contains("plan instead"));
-    assert!(asked(1).contains("plan instead"));
-    assert!(!requests[1].tools.iter().any(|t| t.name == "write" || t.name == "edit"), "answered with plan's tools");
-    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
-    let reply = transcript.last().unwrap();
-    assert_eq!((reply.info.role, reply.info.agent.as_deref()), (Role::Assistant, Some("plan")));
 }
 
 #[tokio::test]

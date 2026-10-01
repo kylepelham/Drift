@@ -47,6 +47,25 @@ pub struct Session {
     /// Whether a turn is in flight right now; set by the API, never stored.
     #[serde(default)]
     pub running: bool,
+    /// Prompts waiting for the running turn to hand over, read with the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued: Option<Queued>,
+}
+
+/// What waits to run once the running turn finishes its step: one turn, as one agent and level.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Queued {
+    pub agent: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
+    /// The waiting prompts' text, oldest first, a blank line apart.
+    pub text: String,
+    pub files: usize,
+    /// Why it could not start; it stays until discarded or joined by another prompt, which tries again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub since: i64,
 }
 
 /// An undo in progress: the user message it went back to, hidden with everything after it.

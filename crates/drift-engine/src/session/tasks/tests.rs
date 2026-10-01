@@ -422,7 +422,7 @@ async fn a_delivery_that_already_landed_carries_no_held_result_with_it() {
     h.engine.end_task(&landed.id, TaskState::Replied, "landed");
     h.engine.store.mark_task_delivered(&landed.id).unwrap();
     let handover = crate::store::Handover { delivery: Some(&landed.id), held: vec![(held.id.clone(), result_part(&held))] };
-    let admitted = h.engine.store.admit_delivering(&h.session.id, crate::store::Pick::model(&crate::session::turn::tests::model()), vec![], None, handover).unwrap();
+    let admitted = h.engine.store.admit_delivering(&h.session.id, crate::store::Pick::model(&crate::session::turn::tests::model()), vec![], &[], handover).unwrap();
     assert!(matches!(admitted, crate::store::Admit::Delivered), "nothing written");
     let still = h.engine.store.task(&held.id).unwrap().unwrap();
     assert!(still.held && !still.delivered, "its acknowledgment went with the rest of the write");

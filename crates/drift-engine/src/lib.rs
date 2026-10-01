@@ -240,6 +240,7 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
         starting.refresh_catalog().await;
         starting.connect_all_mcp().await;
         starting.recover_tasks().await;
+        starting.resume_queued();
         starting.maintain().await;
     });
     let listener = tokio::net::TcpListener::bind(addr).await?;
