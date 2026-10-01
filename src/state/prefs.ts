@@ -141,12 +141,15 @@ export function autoAcceptAllowed(
 type SessionPrefs = { model?: ModelRef | null; agent?: string; variant?: string | null }
 const [sessionPrefs, setSessionPrefs] = persisted<Record<string, SessionPrefs>>("drift.session.prefs", {})
 
-export function prefsFor(sessionId: string | null | undefined) {
+/** What the engine saved on the session, used when this browser has no choice of its own for it (made elsewhere, or a branch). */
+export type SessionChoice = { agent?: string; variant?: string | null }
+
+export function prefsFor(sessionId: string | null | undefined, saved: SessionChoice = {}) {
   const own = (sessionId && sessionPrefs()[sessionId]) || {}
   return {
     model: own.model !== undefined ? own.model : modelPref(),
-    agent: own.agent ?? agentPref(),
-    variant: own.variant !== undefined ? own.variant : variantPref(),
+    agent: own.agent ?? saved.agent ?? agentPref(),
+    variant: own.variant !== undefined ? own.variant : saved.variant !== undefined ? saved.variant : variantPref(),
   }
 }
 

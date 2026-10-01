@@ -1677,7 +1677,9 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
       { ...baseline, prompt: agentPromptBaseline() },
       existing,
     )
-    const original = storedOverride?.original ?? agentConfig(currentAgent(), snapshot())
+    // A baseline stored before the engine narrowed agent overrides still names retired fields, which the shell now refuses.
+    const recorded = storedOverride?.original
+    const original = recorded && typeof recorded === "object" ? applicableOverride(recorded as Record<string, unknown>) : agentConfig(currentAgent(), snapshot())
     const action = Object.keys(value).length
       ? () => savePromptOverride(key, value, original)
       : () => resetPromptOverride(key)

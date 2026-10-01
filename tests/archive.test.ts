@@ -14,6 +14,15 @@ if (!("localStorage" in globalThis)) {
 localStorage.getItem = (key: string) => storage.get(key) ?? null
 localStorage.setItem = (key: string, value: string) => void storage.set(key, value)
 
+test("a session this browser has no choice for shows the agent and level the engine saved on it", async () => {
+  const { prefsFor, updatePrefs } = await import("../src/state/prefs")
+  const saved = { agent: "plan", variant: "high" }
+  expect(prefsFor("ses_elsewhere", saved)).toMatchObject(saved)
+  expect(prefsFor("ses_elsewhere", { agent: "plan", variant: null }).variant).toBeNull()
+  updatePrefs("ses_mine", { agent: "build", variant: "low" })
+  expect(prefsFor("ses_mine", saved)).toMatchObject({ agent: "build", variant: "low" })
+})
+
 const long = Date.now() - 30 * 24 * 60 * 60 * 1000
 
 function archivedLongAgo(...sessionIds: string[]) {

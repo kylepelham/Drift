@@ -1003,6 +1003,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   never empty, because on an agent an empty list means every tool: that would quietly lift
   `plan`'s read-only set. Reset restores the definition's own tools. Stored overrides from
   before keep only these fields when next saved.
+- The composer shows, and sends, this browser's own choice of agent and reasoning level for a
+  session; for a session it has none for (made on another client, a branch) it shows the agent
+  and level the engine saved on the session, so what is shown is what the engine runs.
 - A prompt may name its `agent`; the composer always sends the one it shows. It must be a
   primary agent of the workspace (a subagent, an action or an unknown name is 400 `agent`),
   it is written to the session in the admission transaction, and that turn and every later

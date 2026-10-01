@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from "solid-js"
 import { EngineProvider, useEngine } from "./engine"
-import { messageText } from "./engine/store"
+import { messageText, savedChoice } from "./engine/store"
 import { PluginHost } from "./plugins"
 import { bindCodePreferences } from "./state/code"
 import { runScheduledCleanup } from "./state/storage"
@@ -205,7 +205,7 @@ function OrchestratorBinding() {
     driving.add(id)
     try {
       rounds.set(id, { anchor: goal.info.id, count: count + 1 })
-      const prefs = prefsFor(id)
+      const prefs = prefsFor(id, savedChoice(engine.state, id))
       const result = await engine.actions.steer(
         id,
         status?.state === "working" ? PROCEED_PROMPT : STATUS_REMINDER_PROMPT,

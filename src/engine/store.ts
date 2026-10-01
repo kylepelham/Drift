@@ -424,6 +424,13 @@ export function taskForCall(state: EngineState, sessionId: string, callId: strin
   return tasks.find((task) => (typeof taskId === "string" && task.id === taskId) || (callId !== undefined && task.callId === callId))
 }
 
+/** The agent and reasoning level the engine saved on a session, for the composer to show when it has no choice of its own. */
+export function savedChoice(state: EngineState, id: string | null | undefined) {
+  const session = id ? (state.sessions[id] as (Session & { agent?: string; variant?: string | null }) | undefined) : undefined
+  if (!session) return {}
+  return { agent: session.agent, variant: session.variant ?? null }
+}
+
 export function sessionBusy(state: EngineState, id: string) {
   const status = state.status[id]?.type
   return status === "busy" || status === "retry"

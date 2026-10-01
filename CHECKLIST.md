@@ -133,6 +133,8 @@ change the plan there when a decision changes.
 - [x] Archive and restore (sidebar, `/archive`, Archive dialog) archive in the engine first, with its Stop, then update the shell record
 - [x] Bounded fork reachable (Fork from here on a finished reply); a resent prompt keeps its submission id until the engine answers for sure
 - [x] Jev tool routing removed from Settings (toggle, state module and status polling)
+- [x] Review fixes: MCP secrets never leave the engine (names only, write-only values), rename and add refuse a taken name, the archive purge deletes only what the engine still has archived, a prompt for another agent or level gets its own turn
+- [x] Review follow-ups: captured MCP tools refused on a redefined reconnect, approval tied to the reviewed hash, unnamed and cleared variants hash apart, the composer shows the session's saved agent and level, legacy agent overrides save again
 
 #### Retained features still on the OpenCode database (pending native UI work)
 
@@ -144,8 +146,8 @@ change the plan there when a decision changes.
 
 - [ ] Every legacy capability in `docs/research/opencode-exit-inventory.md` checked off or explicitly dropped
 - [ ] `drift-migrate`: sessions, messages, parts, todos, credentials, config, MCP servers from the shell's `mcp_server` table (unapproved)
-- [ ] Delete the shell MCP runtime (`mcp.rs`, `mcp_external.rs`, their commands and watcher hook); only the remote gateway still reaches it
-- [ ] i18n sweep: drop keys the native UI no longer uses from every locale (`drift.mcp.description`, `drift.mcp.authenticate`)
+- [ ] Delete the shell MCP runtime and Jev routing (`mcp.rs`, `mcp_external.rs`, `tool_routing.rs`, their commands, remote gateway entries and watcher hook); the UI no longer calls any of them
+- [ ] i18n sweep: drop keys the native UI no longer uses from every locale (`drift.mcp.description`, `drift.mcp.authenticate`, `drift.settings.prompts.astraDescription`)
 - [ ] `DRIFT_*` env vars and `drift` data paths
 - [ ] Delete `engine/*`, `@opencode-ai/sdk`, overlays, `build-engine.ts`, `build-extensions.ts`
 - [ ] Remote gateway collapses into the engine router

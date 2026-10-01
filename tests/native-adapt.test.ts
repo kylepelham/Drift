@@ -74,6 +74,7 @@ test("assistant messages carry tokens, cost and errors in the legacy shape", () 
 
 test("sessions and messages keep the agent they actually ran as", () => {
   expect((adaptSession({ ...session, agent: "plan" }, workspaces) as { agent?: string }).agent).toBe("plan")
+  expect((adaptSession({ ...session, variant: "max" }, workspaces) as { variant?: string | null }).variant).toBe("max")
   const base = { sessionId: "ses_1", model: { provider: "anthropic", model: "claude" }, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0, createdAt: 1, agent: "plan" }
   const asked = adaptMessage({ ...base, id: "msg_u", role: "user", status: "done" }, "C:/repo")
   const replied = adaptMessage({ ...base, id: "msg_a", role: "assistant", status: "done" }, "C:/repo")

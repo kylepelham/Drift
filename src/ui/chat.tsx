@@ -6,6 +6,7 @@ import {
   messageRevisionKey,
   messageText,
   modelInfo,
+  savedChoice,
   type EngineState,
   type MessageEntry,
   type ModelRef,
@@ -876,7 +877,7 @@ function SessionRetry(props: {
     if (submitting()) return
     const [providerID, ...rest] = id.split("/")
     const model = { providerID, modelID: rest.join("/") }
-    const preferredVariant = prefsFor(props.sessionID).variant
+    const preferredVariant = prefsFor(props.sessionID, savedChoice(engine.state, props.sessionID)).variant
     const variants = Object.keys(modelInfo(engine.state, model)?.variants ?? {})
     const variant = preferredVariant && variants.includes(preferredVariant) ? preferredVariant : undefined
     setSubmitting(true)

@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
-import { modelInfo, resolveModel, sessionBusy, type QuestionRequest } from "../engine/store"
+import { modelInfo, resolveModel, savedChoice, sessionBusy, type QuestionRequest } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
 import {
   autoAcceptGlobal,
@@ -367,7 +367,7 @@ export function Composer() {
       .map((agent) => ({ id: agent.name, label: agentLabel(agent.name), hint: agent.description })),
   )
 
-  const prefs = () => prefsFor(selectedSession())
+  const prefs = () => prefsFor(selectedSession(), savedChoice(engine.state, selectedSession()))
   const model = () => resolveModel(engine.state, prefs().model)
   const modelId = () => {
     const ref = model()
@@ -392,7 +392,7 @@ export function Composer() {
       online,
       draft: composerDraft,
       prepare(existing) {
-        const selectedPrefs = prefsFor(existing)
+        const selectedPrefs = prefsFor(existing, savedChoice(engine.state, existing))
         const selectedModel = resolveModel(engine.state, selectedPrefs.model)
         const selectedVariants = Object.keys(modelInfo(engine.state, selectedModel)?.variants ?? {})
         const selectedVariant =

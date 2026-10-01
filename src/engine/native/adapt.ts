@@ -36,6 +36,7 @@ export function adaptSession(session: NativeSession, workspaces: WorkspaceIndex)
     ...(session.model ? { model: { providerID: session.model.provider, id: session.model.model } } : {}),
     ...(session.revert ? { revert: { messageID: session.revert.messageId } } : {}),
     agent: session.agent,
+    variant: session.variant ?? null,
   } as Session
 }
 
