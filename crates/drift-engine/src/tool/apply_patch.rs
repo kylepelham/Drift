@@ -136,51 +136,94 @@ impl Plan {
         Ok(())
     }
 
-    /// Makes every change; if one fails, the ones already made are put back and the error says what happened.
+    /// Makes every change; if one fails, every step up to and including it is put back (the failing
+    /// one may have changed its file before failing) and the error names any file left changed.
     async fn apply(&self) -> Result<(), ToolError> {
         for (index, step) in self.steps.iter().enumerate() {
             if let Err(error) = set(&step.path, step.after.as_deref()).await {
-                let restored = self.undo(index).await;
-                let state = if restored { "nothing was changed" } else { "some files could not be put back" };
+                let unrestored = self.undo(index + 1).await;
+                let state = if unrestored.is_empty() { "nothing was changed".to_string() } else { format!("these could not be put back: {}", unrestored.join("; ")) };
                 return Err(ToolError(format!("could not write {}: {error}; {state}", step.path.display())));
             }
         }
         Ok(())
     }
 
-    /// Puts back the first `count` steps, newest first; `false` if any could not be.
-    async fn undo(&self, count: usize) -> bool {
-        let mut all = true;
+    /// Puts back the first `count` steps, newest first; returns each file it could not, with why.
+    async fn undo(&self, count: usize) -> Vec<String> {
+        let mut unrestored = Vec::new();
         for step in self.steps[..count].iter().rev() {
-            all &= set(&step.path, step.before.as_deref()).await.is_ok();
+            if let Err(error) = restore(&step.path, step.before.as_deref()).await {
+                unrestored.push(format!("{} ({error})", step.path.display()));
+            }
         }
-        all
+        unrestored
     }
 }
 
 /// A file's bytes if it exists, which it may only if this session has read it: a patch must not
 /// overwrite, rewrite or remove what the model has not seen (and a secret needs its own read approval).
+/// Only a missing file is absent; a file that cannot be read (locked, denied, a directory) stops the patch.
 async fn existing(ctx: &Context, path: &Path) -> Result<Option<Vec<u8>>, ToolError> {
-    let Ok(bytes) = tokio::fs::read(path).await else { return Ok(None) };
+    let bytes = match tokio::fs::read(path).await {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(ToolError(format!("could not read it: {error}"))),
+    };
     if !ctx.files.was_read(path) {
         return Err(ToolError("exists and has not been read this session; read it before patching it".into()));
     }
     Ok(Some(bytes))
 }
 
-async fn set(path: &Path, content: Option<&[u8]>) -> std::io::Result<()> {
-    match content {
-        Some(bytes) => {
-            if let Some(parent) = path.parent() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
-            tokio::fs::write(path, bytes).await
-        }
-        None => match tokio::fs::remove_file(path).await {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
-            _ => Ok(()),
+/// Puts a file back as it was: nothing to do if it already is, and a directory where there was no
+/// file is not this patch's, so it is left alone.
+async fn restore(path: &Path, before: Option<&[u8]>) -> std::io::Result<()> {
+    match before {
+        Some(bytes) if tokio::fs::read(path).await.is_ok_and(|now| now == bytes) => Ok(()),
+        Some(bytes) => set(path, Some(bytes)).await,
+        None => match tokio::fs::symlink_metadata(path).await {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Ok(meta) if meta.is_dir() => Ok(()),
+            _ => set(path, None).await,
         },
     }
+}
+
+/// Writes through a sibling file renamed into place, so a failed write never leaves the file cut short.
+async fn set(path: &Path, content: Option<&[u8]>) -> std::io::Result<()> {
+    let Some(bytes) = content else {
+        return match tokio::fs::remove_file(path).await {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        };
+    };
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let staged = path.with_file_name(format!(".{name}.drift-{}.tmp", crate::random_hex(4)));
+    let written = stage(&staged, path, bytes).await;
+    if written.is_err() {
+        let _ = tokio::fs::remove_file(&staged).await;
+    }
+    written?;
+    #[cfg(test)]
+    tests::injected_failure(path)?;
+    Ok(())
+}
+
+/// Writes the staged copy with the original's permissions, then renames it over the original.
+async fn stage(staged: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let original = tokio::fs::metadata(path).await.ok();
+    if original.as_ref().is_some_and(|meta| meta.permissions().readonly()) {
+        return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "the file is read-only"));
+    }
+    tokio::fs::write(staged, bytes).await?;
+    if let Some(meta) = original {
+        tokio::fs::set_permissions(staged, meta.permissions()).await?;
+    }
+    tokio::fs::rename(staged, path).await
 }
 
 #[cfg(test)]
@@ -259,17 +302,60 @@ mod tests {
         assert!(!sandbox.ctx.workspace.join("first.txt").exists(), "the earlier add did not happen");
     }
 
+    /// Paths whose next write fails after it has already changed the file.
+    static FAIL_AFTER_WRITE: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+    pub(super) fn injected_failure(path: &Path) -> std::io::Result<()> {
+        let mut failing = FAIL_AFTER_WRITE.lock().unwrap();
+        match failing.iter().position(|p| p == path) {
+            Some(index) => {
+                failing.remove(index);
+                Err(std::io::Error::other("injected failure after the write"))
+            }
+            None => Ok(()),
+        }
+    }
+
     #[tokio::test]
-    async fn a_write_that_fails_part_way_puts_back_what_went_before() {
+    async fn a_write_that_fails_after_changing_its_file_puts_that_file_back_too() {
         let sandbox = Sandbox::new("apply-patch-rollback");
         sandbox.file("a.txt", "one\n");
-        sandbox.file("taken/inside.txt", "");
-        read_all(&sandbox, &["a.txt"]);
-        let patch = "*** Begin Patch\n*** Add File: first.txt\n+new\n*** Update File: a.txt\n*** Move to: taken\n-one\n+two\n*** End Patch\n";
+        sandbox.file("b.txt", "keep me\n");
+        read_all(&sandbox, &["a.txt", "b.txt"]);
+        FAIL_AFTER_WRITE.lock().unwrap().push(sandbox.ctx.resolve("b.txt"));
+        let patch = "*** Begin Patch\n*** Add File: first.txt\n+new\n*** Update File: a.txt\n-one\n+two\n*** Update File: b.txt\n-keep me\n+changed\n*** End Patch\n";
         let err = ApplyPatch.run(&sandbox.ctx, json!({ "patch": patch })).await.unwrap_err();
-        assert!(err.0.contains("nothing was changed"), "{}", err.0);
+        assert!(err.0.contains("injected") && err.0.contains("nothing was changed"), "{}", err.0);
         assert!(!sandbox.ctx.workspace.join("first.txt").exists());
         assert_eq!(std::fs::read_to_string(sandbox.ctx.workspace.join("a.txt")).unwrap(), "one\n");
+        assert_eq!(std::fs::read_to_string(sandbox.ctx.workspace.join("b.txt")).unwrap(), "keep me\n", "the failing step's own file is restored");
+        let leftovers: Vec<_> = std::fs::read_dir(&sandbox.ctx.workspace).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().ends_with(".tmp")).collect();
+        assert!(leftovers.is_empty(), "no staged copies left behind");
+    }
+
+    #[tokio::test]
+    async fn a_file_that_cannot_be_put_back_is_named() {
+        let sandbox = Sandbox::new("apply-patch-unrestorable");
+        sandbox.file("a.txt", "one\n");
+        read_all(&sandbox, &["a.txt"]);
+        let a = sandbox.ctx.resolve("a.txt");
+        // The write lands, then fails; the put-back write fails too.
+        FAIL_AFTER_WRITE.lock().unwrap().extend([a.clone(), a.clone()]);
+        let patch = "*** Begin Patch\n*** Update File: a.txt\n-one\n+two\n*** End Patch\n";
+        let err = ApplyPatch.run(&sandbox.ctx, json!({ "patch": patch })).await.unwrap_err();
+        assert!(err.0.contains("could not be put back") && err.0.contains("a.txt"), "{}", err.0);
+        assert!(!err.0.contains("nothing was changed"));
+    }
+
+    #[tokio::test]
+    async fn only_a_missing_file_counts_as_absent() {
+        let sandbox = Sandbox::new("apply-patch-unreadable");
+        sandbox.file("taken/inside.txt", "");
+        read_all(&sandbox, &["taken"]);
+        let patch = "*** Begin Patch\n*** Add File: taken\n+over a directory\n*** End Patch\n";
+        let err = ApplyPatch.run(&sandbox.ctx, json!({ "patch": patch })).await.unwrap_err();
+        assert!(err.0.starts_with("taken: could not read it"), "a read error stops preparation instead of reading as no file: {}", err.0);
+        assert!(sandbox.ctx.workspace.join("taken/inside.txt").exists());
     }
 
     #[tokio::test]
