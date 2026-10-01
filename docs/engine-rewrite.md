@@ -1098,6 +1098,11 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   the components were written against. That keeps the whole UI working on the new engine
   without touching a component. At M4 the store adopts the generated types, the adapter
   goes, and `@opencode-ai/sdk` leaves `package.json`.
+- Model-family system prompts are not a native feature: the engine sends one Drift base prompt
+  (`session/prompts/system.txt`) to every model, plus the agent's prompt. Settings shows the
+  family prompts read-only under a notice saying they are not applied, offers no save, and keeps
+  Reset only to clear an override stored before. The shell still records `family:*` for the
+  frozen opencode plugins; nothing native reads it.
 - MCP management has one authority, the engine. The manager, the registry installer and the
   approval toast read `state.mcpServers` (loaded on hydrate, kept current by `mcp.updated` and
   `mcp.removed`) and change servers only through `/mcp`: save (a rename saves the new name, then

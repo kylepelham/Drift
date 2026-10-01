@@ -72,13 +72,18 @@ test("prompt and agent editors are separate Server settings with inherited-value
   expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents"]')
   expect(source).toContain('<PromptEditorSection view="prompts" />')
   expect(source).toContain('<PromptEditorSection view="agents" />')
-  expect(source).toContain('"text-ink-faint": !familyModified()')
   expect(source).toContain('"text-ink-faint": !agentPromptModified()')
   expect(source).toContain('"text-ink-faint": !agentBehaviorModified()')
   expect(source).toContain("disabled={props.disabled || !props.dirty}")
-  expect(source).toContain('t("drift.settings.prompts.astraDescription")')
   expect(source).toContain('GPT-6 (Astra): {t("drift.settings.prompts.upstreamOriginal")}')
   expect(source).toContain("{variant.original}")
+})
+
+test("model-family prompts say they are not applied and cannot be saved", async () => {
+  const source = await Bun.file("src/ui/settings.tsx").text()
+  expect(source).toContain('t("drift.settings.prompts.familyUnavailable")')
+  expect(source).not.toContain("savePromptOverride(`family:")
+  expect(source).toMatch(/<textarea\s+readOnly\s+aria-label=\{t\("drift\.settings\.prompts\.systemPrompt"\)\}/)
 })
 
 test("settings search covers every category and finds feature descriptions", async () => {
@@ -175,7 +180,7 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 const pendingTranslation = new Set([
   ...pendingKeys("drift.thread", "openSubagent"),
   ...pendingKeys("drift.settings.autoCompact", "title description"),
-  ...pendingKeys("drift.settings.prompts", "behaviorFields behaviorRefused"),
+  ...pendingKeys("drift.settings.prompts", "behaviorFields behaviorRefused familyUnavailable"),
   ...pendingKeys("drift.branch", "title description drafting goal name summary excerpts create"),
   ...pendingKeys("drift.about", "row.native.title row.native.description native.connected native.offline"),
   ...pendingKeys(

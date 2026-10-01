@@ -282,7 +282,6 @@ const settingsSearchDefinitions = {
   Prompts: [
     { title: "drift.settings.prompts.modelFamilies", description: "drift.settings.prompts.familyDescription" },
     { title: "drift.settings.prompts.systemPrompt" },
-    { title: "drift.settings.prompts.astraDescription" },
     { title: "drift.settings.prompts.upstreamOriginal" },
   ],
   Agents: [
@@ -1558,10 +1557,8 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   const [agentName, setAgentName] = createSignal("build")
   const [agentPrompt, setAgentPrompt] = createSignal("")
   const [agentBehavior, setAgentBehavior] = createSignal("{}")
-  const [familyBaseline, setFamilyBaseline] = createSignal("")
   const [agentPromptBaseline, setAgentPromptBaseline] = createSignal("")
   const [agentBehaviorBaseline, setAgentBehaviorBaseline] = createSignal("{}")
-  const [familyDirty, setFamilyDirty] = createSignal(false)
   const [showSavedNotice, setShowSavedNotice] = createSignal(false)
   const [error, setError] = createSignal("")
   const [saving, setSaving] = createSignal(false)
@@ -1574,7 +1571,6 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
     if (!storedValue || typeof storedValue !== "object" || Array.isArray(storedValue)) return {}
     return storedValue as Record<string, unknown>
   }
-  const familyModified = () => familyDirty() || familyOverridden()
   const agentPromptModified = () => agentPrompt() !== agentPromptBaseline() || "prompt" in agentOverrideFields()
   const agentBehaviorModified = () =>
     agentBehavior() !== agentBehaviorBaseline() || Object.keys(agentOverrideFields()).some((key) => key !== "prompt")
@@ -1611,12 +1607,9 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   onMount(() => void load())
 
   createEffect(() => {
-    if (familyDirty()) return
     const family = snapshot()?.catalog.families.find((item) => item.id === familyID())
     const value = override(`family:${familyID()}`)?.value
-    const prompt = typeof value === "string" ? value : (family?.default ?? "")
-    setFamilyPrompt(prompt)
-    setFamilyBaseline(prompt)
+    setFamilyPrompt(typeof value === "string" ? value : (family?.default ?? ""))
   })
 
   // Splits a resolved agent config into the two editors: the prompt gets its own textarea, every
@@ -1697,14 +1690,9 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
     })
   }
 
+  /** Clears a family override saved before the engine stopped reading them. */
   function resetFamily() {
-    const key = `family:${familyID()}`
-    if (override(key)) return void mutate(() => resetPromptOverride(key), () => setFamilyDirty(false))
-    const family = snapshot()?.catalog.families.find((item) => item.id === familyID())
-    const prompt = family?.default ?? ""
-    setFamilyPrompt(prompt)
-    setFamilyBaseline(prompt)
-    setFamilyDirty(false)
+    void mutate(() => resetPromptOverride(`family:${familyID()}`), () => undefined)
   }
 
   function resetAgent() {
@@ -1740,30 +1728,19 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
                     items={data().catalog.families.map((family) => ({ id: family.id, label: familyLabel(family.id) }))}
                     selected={familyID()}
                     floating bordered chevronAtEnd placement="below" width="11rem"
-                    onPick={(value) => {
-                      if (familyDirty()) {
-                        setError(t("drift.settings.prompts.saveBeforeSwitch"))
-                        return
-                      }
-                      setFamilyDirty(false)
-                      setFamilyID(value)
-                    }}
+                    onPick={setFamilyID}
                   />
                 </div>
-                <Show when={data().catalog.families.find((item) => item.id === familyID())?.variants?.length}>
-                  <p class="text-xs text-ink-faint">{t("drift.settings.prompts.astraDescription")}</p>
-                </Show>
+                {/* The engine sends one base prompt to every model; until it reads family prompts, editing one would change nothing. */}
+                <p role="note" class="rounded-md border border-warn/35 bg-warn/10 px-3 py-2 text-xs text-warn">
+                  {t("drift.settings.prompts.familyUnavailable")}
+                </p>
                 <textarea
+                  readOnly
                   aria-label={t("drift.settings.prompts.systemPrompt")}
-                  class="h-64 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
-                  classList={{ "text-ink": familyModified(), "text-ink-faint": !familyModified() }}
+                  class="h-64 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed text-ink-faint outline-none"
                   spellcheck={false}
                   value={familyPrompt()}
-                  onInput={(event) => {
-                    const value = event.currentTarget.value
-                    setFamilyPrompt(value)
-                    setFamilyDirty(value !== familyBaseline())
-                  }}
                 />
                 <details class="text-xs text-ink-faint">
                   <summary class="cursor-pointer select-none">{t("drift.settings.prompts.upstreamOriginal")}</summary>
@@ -1781,17 +1758,17 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
                     </details>
                   )}
                 </For>
-                <PromptActions
-                  disabled={saving()}
-                  dirty={familyDirty()}
-                  overridden={familyOverridden()}
-                  onSave={() =>
-                    void mutate(() => savePromptOverride(`family:${familyID()}`, familyPrompt()), () =>
-                      setFamilyDirty(false),
-                    )
-                  }
-                  onReset={resetFamily}
-                />
+                <Show when={familyOverridden()}>
+                  <div class="flex justify-end">
+                    <button
+                      class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
+                      disabled={saving()}
+                      onClick={resetFamily}
+                    >
+                      {t("common.reset")}
+                    </button>
+                  </div>
+                </Show>
               </div>
               </SettingsGroup>
             </Show>
