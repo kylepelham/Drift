@@ -922,6 +922,22 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   lost connection. Saving a server whose config is still approved reconnects it at once (reload):
   the new client serves turns admitted afterwards, while running turns keep the client in their
   snapshot until they end.
+- **MCP lifecycle coordination.** One lock (`Servers::slots`) orders everything that decides which
+  connection a server has: a save, disable or remove writes its row and bumps the generation in the
+  same step (`Servers::change`); a connect reads the row and the generation together when it starts;
+  and a finished connect publishes its client only if it is still the newest attempt at that
+  generation. A connect therefore never pairs a new generation with an old row, or the reverse.
+- Each connect is an attempt with its own cancel token. A newer connect for the same server, or any
+  change to it, cancels the one in flight at once rather than letting it run to its timeout.
+  `initialize` and `tools/list` each get 30 s; a server that misses either fails with a message
+  saying which. A stdio server is adopted into a process tree (job object on Windows, process
+  group on unix) as soon as it spawns, so a cancelled, timed-out or replaced attempt, or a dropped
+  connection, takes the server's children with it. However an attempt ends, even when its caller is
+  dropped mid-flight, a guard clears its record and wakes turns waiting in `wait_ready`, so nothing
+  is left showing connecting.
+- Reconnect backoff carries across connections that drop again quickly: a server that crashes
+  straight after each reconnect is retried at 500 ms, 1 s, 2 s and so on up to 30 s. Only a
+  connection that held for a minute starts its next reconnects from 500 ms again.
 - **Config.** `Config::load` reads `~/.config/drift/drift.json` then `<workspace>/drift.json`
   (project rules first, so they win), plus `.drift/agents/*.md`, `.drift/commands/*.md` and
   skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at both roots (project

@@ -3,8 +3,10 @@
 mod tool;
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::time::{Duration, Instant};
 
 use rmcp::model::{CallToolRequestParams, ContentBlock};
 use rmcp::service::RunningService;
@@ -12,9 +14,11 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
 use rmcp::{RoleClient, ServiceExt};
 use serde::{Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
 use crate::event::{Event, Hub};
+use crate::platform::process::Tree;
 use crate::store::Store;
 
 pub use tool::McpTool;
@@ -92,6 +96,9 @@ pub struct ToolInfo {
 struct Live {
     service: RunningService<RoleClient, ()>,
     tools: Vec<rmcp::model::Tool>,
+    since: Instant,
+    /// A stdio server's process tree; it dies with the last handle to this connection.
+    _tree: Option<Tree>,
 }
 
 /// How often a connected server's transport is checked for having closed by itself.
@@ -105,121 +112,192 @@ const FIRST_RETRY: Duration = Duration::from_millis(500);
 #[cfg(test)]
 const FIRST_RETRY: Duration = Duration::from_millis(20);
 const MAX_RETRY: Duration = Duration::from_secs(30);
+/// How long a server gets to answer `initialize`, and then again to answer `tools/list`.
+#[cfg(not(test))]
+const STEP_LIMIT: Duration = Duration::from_secs(30);
+#[cfg(test)]
+const STEP_LIMIT: Duration = Duration::from_millis(1500);
+/// A connection that held this long starts its reconnects from the first wait again.
+#[cfg(not(test))]
+const STABLE: Duration = Duration::from_secs(60);
+#[cfg(test)]
+const STABLE: Duration = Duration::from_millis(500);
 /// How long a turn being planned waits for connects already under way, so its tools are not briefly missing.
 pub const READY_WAIT: Duration = Duration::from_secs(2);
 
+/// A connect in flight. A newer connect, or any change to the server, cancels it.
+#[derive(Clone)]
+struct Attempt {
+    id: u64,
+    generation: u64,
+    cancel: CancellationToken,
+}
+
+#[derive(Default)]
+struct Slots {
+    live: HashMap<String, Arc<Live>>,
+    transient: HashMap<String, (State, Option<String>)>,
+    /// Bumped by every save, disable, disconnect and remove; a connect from an older one publishes nothing.
+    generation: HashMap<String, u64>,
+    attempts: HashMap<String, Attempt>,
+}
+
+impl Slots {
+    fn generation_of(&self, name: &str) -> u64 {
+        self.generation.get(name).copied().unwrap_or(0)
+    }
+
+    fn is_current(&self, name: &str, attempt: &Attempt) -> bool {
+        self.attempts.get(name).is_some_and(|a| a.id == attempt.id) && self.generation_of(name) == attempt.generation
+    }
+}
+
 #[derive(Default)]
 pub struct Servers {
-    live: Mutex<HashMap<String, Arc<Live>>>,
-    transient: Mutex<HashMap<String, (State, Option<String>)>>,
-    /// Bumped by every save, disable, disconnect and remove; a connect that started under an older number is discarded.
-    generation: Mutex<HashMap<String, u64>>,
+    /// The lifecycle lock: row writes, generation bumps, connect starts and connect results all go through it.
+    slots: Mutex<Slots>,
+    next_attempt: AtomicU64,
     /// Signalled whenever a connect attempt ends, for turns waiting on the catalog.
     settled: tokio::sync::Notify,
 }
 
+enum Watch {
+    Holding,
+    Gone,
+    Lost { generation: u64, lived: Duration },
+}
+
 impl Servers {
+    fn lock(&self) -> MutexGuard<'_, Slots> {
+        self.slots.lock().unwrap()
+    }
+
     pub fn statuses(&self, store: &Store) -> rusqlite::Result<Vec<ServerStatus>> {
         Ok(store.mcp_servers()?.into_iter().map(|row| self.status_of(row)).collect())
     }
 
     pub fn status_of(&self, row: ServerRow) -> ServerStatus {
+        let slots = self.lock();
+        let live = slots.live.get(&row.name);
         let (state, error) = if !row.enabled {
             (State::Disabled, None)
         } else if !row.is_approved() {
             (State::NeedsApproval, None)
-        } else if let Some(live) = self.live.lock().unwrap().get(&row.name) {
-            let _ = live;
+        } else if live.is_some() {
             (State::Connected, None)
         } else {
-            self.transient.lock().unwrap().get(&row.name).cloned().unwrap_or((State::Disconnected, None))
+            slots.transient.get(&row.name).cloned().unwrap_or((State::Disconnected, None))
         };
-        let tools = self
-            .live
-            .lock()
-            .unwrap()
-            .get(&row.name)
-            .map(|live| live.tools.iter().map(tool_info).collect())
-            .unwrap_or_default();
+        let tools = live.map(|live| live.tools.iter().map(tool_info).collect()).unwrap_or_default();
         ServerStatus { row, state, error, tools }
     }
 
-    pub async fn connect(&self, row: ServerRow, hub: &Hub) -> Result<(), String> {
+    /// Connects `name` as its row stands now; with `expected`, only while the server is still at that generation.
+    async fn connect(&self, name: &str, store: &Store, hub: &Hub, expected: Option<u64>) -> Result<Arc<Live>, String> {
+        let (row, attempt) = self.begin(name, store, expected)?;
+        let _settle = Settle { servers: self, hub, row: &row, id: attempt.id };
+        hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
+        let opened = tokio::select! {
+            opened = open(&row.config) => opened,
+            () = attempt.cancel.cancelled() => Err("server definition changed during connect".into()),
+        };
+        self.finish(&row, hub, &attempt, opened)
+    }
+
+    /// Reads the row and its generation together, so a save cannot slip between them.
+    fn begin(&self, name: &str, store: &Store, expected: Option<u64>) -> Result<(ServerRow, Attempt), String> {
+        let mut slots = self.lock();
+        let row = store.mcp_server(name).map_err(|e| e.to_string())?.ok_or("no such server")?;
+        let generation = slots.generation_of(name);
+        if expected.is_some_and(|expected| expected != generation) {
+            return Err("server definition changed".into());
+        }
         if !row.enabled {
             return Err("server is disabled".into());
         }
         if !row.is_approved() {
             return Err("server needs approval".into());
         }
-        let generation = self.current_generation(&row.name);
-        self.set_transient(&row.name, State::Connecting, None);
-        hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
-        let result = self.open(&row.config).await;
-        let settled = self.settle_connect(row, hub, generation, result).await;
-        self.settled.notify_waiters();
-        settled
+        let attempt = Attempt { id: self.next_attempt.fetch_add(1, Ordering::Relaxed), generation, cancel: CancellationToken::new() };
+        if let Some(earlier) = slots.attempts.insert(name.into(), attempt.clone()) {
+            earlier.cancel.cancel();
+        }
+        slots.transient.insert(name.into(), (State::Connecting, None));
+        Ok((row, attempt))
     }
 
-    async fn settle_connect(&self, row: ServerRow, hub: &Hub, generation: u64, result: Result<Live, String>) -> Result<(), String> {
-        if self.current_generation(&row.name) != generation {
-            // The definition changed while we were connecting; whatever we opened belongs to a dead configuration.
-            if let Ok(live) = result {
-                let _ = live.service.cancel().await;
-            }
+    /// Publishes what the attempt opened, unless it was overtaken; then what it opened is dropped, killing it.
+    fn finish(&self, row: &ServerRow, hub: &Hub, attempt: &Attempt, opened: Result<Live, String>) -> Result<Arc<Live>, String> {
+        let mut slots = self.lock();
+        if !slots.is_current(&row.name, attempt) {
             return Err("server definition changed during connect".into());
         }
-        match result {
+        slots.attempts.remove(&row.name);
+        let result = match opened {
             Ok(live) => {
-                self.live.lock().unwrap().insert(row.name.clone(), Arc::new(live));
-                self.transient.lock().unwrap().remove(&row.name);
-                hub.publish(Event::McpUpdated { server: self.status_of(row) });
-                Ok(())
+                let live = Arc::new(live);
+                slots.live.insert(row.name.clone(), live.clone());
+                slots.transient.remove(&row.name);
+                Ok(live)
             }
             Err(error) => {
-                self.set_transient(&row.name, State::Failed, Some(error.clone()));
-                hub.publish(Event::McpUpdated { server: self.status_of(row) });
+                slots.transient.insert(row.name.clone(), (State::Failed, Some(error.clone())));
                 Err(error)
             }
+        };
+        drop(slots);
+        hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
+        result
+    }
+
+    /// Writes the server's row and, in the same step, ends its connection and any connect in flight.
+    fn detach<R>(&self, name: &str, store: &Store, write: impl FnOnce(&Store) -> rusqlite::Result<R>) -> rusqlite::Result<(Option<Arc<Live>>, R)> {
+        let mut slots = self.lock();
+        let written = write(store)?;
+        *slots.generation.entry(name.into()).or_default() += 1;
+        if let Some(attempt) = slots.attempts.remove(name) {
+            attempt.cancel.cancel();
+        }
+        slots.transient.remove(name);
+        Ok((slots.live.remove(name), written))
+    }
+
+    /// A save, disable or remove: the write and the end of the old connection are one step.
+    pub async fn change<R>(&self, name: &str, store: &Store, hub: &Hub, write: impl FnOnce(&Store) -> rusqlite::Result<R>) -> rusqlite::Result<R> {
+        let (live, written) = self.detach(name, store, write)?;
+        self.retire(name, store, hub, live).await;
+        Ok(written)
+    }
+
+    pub async fn disconnect(&self, name: &str, store: &Store, hub: &Hub) -> bool {
+        let Ok((live, ())) = self.detach(name, store, |_| Ok(())) else { return false };
+        let was_live = live.is_some();
+        self.retire(name, store, hub, live).await;
+        was_live
+    }
+
+    /// Closes a connection nothing else holds; one a running turn still holds closes when that turn lets go.
+    async fn retire(&self, name: &str, store: &Store, hub: &Hub, live: Option<Arc<Live>>) {
+        if let Some(Ok(live)) = live.map(Arc::try_unwrap) {
+            let _ = live.service.cancel().await;
+        }
+        self.settled.notify_waiters();
+        if let Ok(Some(row)) = store.mcp_server(name) {
+            hub.publish(Event::McpUpdated { server: self.status_of(row) });
         }
     }
 
-    async fn open(&self, config: &ServerConfig) -> Result<Live, String> {
-        let service = match config {
-            ServerConfig::Stdio { command, args, env } => {
-                let mut cmd = tokio::process::Command::new(command);
-                cmd.args(args).envs(env);
-                #[cfg(windows)]
-                cmd.creation_flags(0x0800_0000);
-                let transport = TokioChildProcess::new(cmd).map_err(|e| format!("could not start {command}: {e}"))?;
-                ().serve(transport).await.map_err(|e| e.to_string())?
-            }
-            ServerConfig::Http { url, headers } => {
-                let mut config = StreamableHttpClientTransportConfig::with_uri(url.as_str());
-                let mut custom = HashMap::new();
-                for (name, value) in headers {
-                    if name.eq_ignore_ascii_case("authorization") {
-                        config = config.auth_header(value.trim_start_matches("Bearer ").to_string());
-                        continue;
-                    }
-                    let (Ok(name), Ok(value)) = (name.parse::<http::HeaderName>(), value.parse::<http::HeaderValue>()) else { continue };
-                    custom.insert(name, value);
-                }
-                config = config.custom_headers(custom);
-                let transport = StreamableHttpClientTransport::with_client(crate::llm::http::client(), config);
-                ().serve(transport).await.map_err(|e| e.to_string())?
-            }
-        };
-        let tools = service.list_all_tools().await.map_err(|e| format!("tools/list failed: {e}"))?;
-        Ok(Live { service, tools })
+    fn generation_of(&self, name: &str) -> u64 {
+        self.lock().generation_of(name)
     }
 
-    /// Also invalidates any connect still in flight for this server.
-    pub fn invalidate(&self, name: &str) {
-        *self.generation.lock().unwrap().entry(name.into()).or_default() += 1;
+    fn is_live(&self, name: &str) -> bool {
+        self.lock().live.contains_key(name)
     }
 
-    fn current_generation(&self, name: &str) -> u64 {
-        self.generation.lock().unwrap().get(name).copied().unwrap_or(0)
+    /// Whether any connect is in flight.
+    pub fn connecting(&self) -> bool {
+        !self.lock().attempts.is_empty()
     }
 
     /// Waits, at most `limit`, until no connect is in flight.
@@ -227,7 +305,7 @@ impl Servers {
         let deadline = tokio::time::Instant::now() + limit;
         loop {
             let settled = self.settled.notified();
-            if !self.transient.lock().unwrap().values().any(|(state, _)| *state == State::Connecting) {
+            if !self.connecting() {
                 return;
             }
             tokio::select! {
@@ -237,41 +315,25 @@ impl Servers {
         }
     }
 
-    /// The server's connection ended without anyone asking: it is dropped and marked reconnecting, unless it changed meanwhile.
-    fn drop_if_closed(&self, name: &str, generation: u64) -> bool {
-        let mut live = self.live.lock().unwrap();
-        let closed = live.get(name).is_some_and(|l| l.service.is_transport_closed() || l.service.is_closed());
-        if !closed || self.current_generation(name) != generation {
-            return false;
+    /// Whether `live` is still the server's connection; one whose transport closed by itself is dropped here.
+    fn check(&self, name: &str, live: &Weak<Live>) -> Watch {
+        let mut slots = self.lock();
+        let Some(current) = slots.live.get(name).filter(|current| Arc::downgrade(current).ptr_eq(live)) else { return Watch::Gone };
+        if !current.service.is_transport_closed() && !current.service.is_closed() {
+            return Watch::Holding;
         }
-        live.remove(name);
-        drop(live);
-        self.set_transient(name, State::Connecting, Some("the connection closed; reconnecting".into()));
-        true
-    }
-
-    pub async fn disconnect(&self, name: &str, store: &Store, hub: &Hub) -> bool {
-        self.invalidate(name);
-        let removed = self.live.lock().unwrap().remove(name);
-        self.transient.lock().unwrap().remove(name);
-        let Some(live) = removed else { return false };
-        if let Ok(live) = Arc::try_unwrap(live) {
-            let _ = live.service.cancel().await;
-        }
-        if let Ok(Some(row)) = store.mcp_server(name) {
-            hub.publish(Event::McpUpdated { server: self.status_of(row) });
-        }
-        true
-    }
-
-    fn set_transient(&self, name: &str, state: State, error: Option<String>) {
-        self.transient.lock().unwrap().insert(name.into(), (state, error));
+        let lived = current.since.elapsed();
+        slots.live.remove(name);
+        slots.transient.insert(name.into(), (State::Connecting, Some("the connection closed; reconnecting".into())));
+        Watch::Lost { generation: slots.generation_of(name), lived }
     }
 
     /// Every tool of every connected server, named `server_tool` so the model can tell them apart.
     pub fn tools(&self) -> Vec<Arc<dyn crate::tool::Tool>> {
-        let live = self.live.lock().unwrap();
-        live.iter()
+        let slots = self.lock();
+        slots
+            .live
+            .iter()
             .flat_map(|(server, live)| {
                 live.tools.iter().map(move |tool| Arc::new(McpTool::new(server, tool.clone(), live.clone())) as Arc<dyn crate::tool::Tool>)
             })
@@ -279,41 +341,118 @@ impl Servers {
     }
 }
 
+/// However a connect ends, even dropped mid-flight, its record goes and waiters hear.
+struct Settle<'a> {
+    servers: &'a Servers,
+    hub: &'a Hub,
+    row: &'a ServerRow,
+    id: u64,
+}
+
+impl Drop for Settle<'_> {
+    fn drop(&mut self) {
+        let mut slots = self.servers.lock();
+        let abandoned = slots.attempts.get(&self.row.name).is_some_and(|a| a.id == self.id);
+        if abandoned {
+            slots.attempts.remove(&self.row.name);
+            slots.transient.remove(&self.row.name);
+        }
+        drop(slots);
+        if abandoned {
+            self.hub.publish(Event::McpUpdated { server: self.servers.status_of(self.row.clone()) });
+        }
+        self.servers.settled.notify_waiters();
+    }
+}
+
+async fn open(config: &ServerConfig) -> Result<Live, String> {
+    let (service, tree) = within("start", start(config)).await?;
+    let tools = within("list its tools", async { service.list_all_tools().await.map_err(|e| format!("tools/list failed: {e}")) }).await?;
+    Ok(Live { service, tools, since: Instant::now(), _tree: tree })
+}
+
+async fn within<T>(what: &str, step: impl Future<Output = Result<T, String>>) -> Result<T, String> {
+    tokio::time::timeout(STEP_LIMIT, step).await.unwrap_or_else(|_| Err(format!("the server did not {what} within {STEP_LIMIT:?}")))
+}
+
+async fn start(config: &ServerConfig) -> Result<(RunningService<RoleClient, ()>, Option<Tree>), String> {
+    match config {
+        ServerConfig::Stdio { command, args, env } => {
+            let mut cmd = tokio::process::Command::new(command);
+            cmd.args(args).envs(env);
+            crate::platform::process::prepare(&mut cmd);
+            #[cfg(windows)]
+            cmd.creation_flags(0x0800_0000);
+            let transport = TokioChildProcess::new(cmd).map_err(|e| format!("could not start {command}: {e}"))?;
+            // Adopted before it answers, so a start cut short takes the server's children with it.
+            let tree = transport.id().and_then(|pid| Tree::adopt(pid).ok());
+            let service = ().serve(transport).await.map_err(|e| e.to_string())?;
+            Ok((service, tree))
+        }
+        ServerConfig::Http { url, headers } => Ok((().serve(http_transport(url, headers)).await.map_err(|e| e.to_string())?, None)),
+    }
+}
+
+fn http_transport(url: &str, headers: &BTreeMap<String, String>) -> StreamableHttpClientTransport<reqwest::Client> {
+    let mut config = StreamableHttpClientTransportConfig::with_uri(url);
+    let mut custom = HashMap::new();
+    for (name, value) in headers {
+        if name.eq_ignore_ascii_case("authorization") {
+            config = config.auth_header(value.trim_start_matches("Bearer ").to_string());
+            continue;
+        }
+        let (Ok(name), Ok(value)) = (name.parse::<http::HeaderName>(), value.parse::<http::HeaderValue>()) else { continue };
+        custom.insert(name, value);
+    }
+    StreamableHttpClientTransport::with_client(crate::llm::http::client(), config.custom_headers(custom))
+}
+
+/// The wait before reconnecting: the first again after a connection that held, else the one carried over.
+fn after_loss(lived: Duration, carried: Duration) -> Duration {
+    if lived >= STABLE {
+        FIRST_RETRY
+    } else {
+        carried
+    }
+}
+
 impl crate::Engine {
     /// Connects a server, offers its tools to later turns, and watches it for as long as its definition stands.
-    pub async fn connect_mcp(self: &Arc<Self>, row: ServerRow) -> Result<(), String> {
-        let name = row.name.clone();
-        let connected = self.mcp.connect(row, &self.hub).await;
-        if connected.is_ok() {
-            self.watch_mcp(name);
-        }
-        connected
+    pub async fn connect_mcp(self: &Arc<Self>, name: &str) -> Result<(), String> {
+        self.connect_mcp_at(name, None, FIRST_RETRY).await
+    }
+
+    /// `backoff` is the wait before reconnecting if this connection drops before it proves stable.
+    async fn connect_mcp_at(self: &Arc<Self>, name: &str, expected: Option<u64>, backoff: Duration) -> Result<(), String> {
+        let live = self.mcp.connect(name, &self.store, &self.hub, expected).await?;
+        self.watch_mcp(name.into(), Arc::downgrade(&live), backoff);
+        Ok(())
     }
 
     /// Connects every enabled, approved server that is not already live.
     pub async fn connect_all_mcp(self: &Arc<Self>) {
         let Ok(rows) = self.store.mcp_servers() else { return };
         for row in rows.into_iter().filter(|r| r.enabled && r.is_approved()) {
-            if !self.mcp.live.lock().unwrap().contains_key(&row.name) {
-                let _ = self.connect_mcp(row).await;
+            if !self.mcp.is_live(&row.name) {
+                let _ = self.connect_mcp(&row.name).await;
             }
         }
     }
 
-    /// Reconnects a connection that ends by itself; any change to the server's generation ends the watch.
-    fn watch_mcp(self: &Arc<Self>, name: String) {
-        let generation = self.mcp.current_generation(&name);
+    /// Reconnects a connection that ends by itself; once it is no longer the server's connection, the watch ends.
+    fn watch_mcp(self: &Arc<Self>, name: String, live: Weak<Live>, backoff: Duration) {
         let engine = Arc::downgrade(self);
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(WATCH_INTERVAL).await;
                 let Some(engine) = engine.upgrade() else { return };
-                if engine.mcp.current_generation(&name) != generation {
-                    return;
-                }
-                if engine.mcp.drop_if_closed(&name, generation) {
-                    engine.lost_mcp(&name);
-                    return engine.reconnect_mcp(name, generation).await;
+                match engine.mcp.check(&name, &live) {
+                    Watch::Holding => {}
+                    Watch::Gone => return,
+                    Watch::Lost { generation, lived } => {
+                        engine.lost_mcp(&name);
+                        return engine.reconnect_mcp(name, generation, after_loss(lived, backoff)).await;
+                    }
                 }
             }
         });
@@ -325,20 +464,20 @@ impl crate::Engine {
         }
     }
 
-    /// Tries again with growing waits until it connects or the server's definition changes.
-    async fn reconnect_mcp(self: Arc<Self>, name: String, generation: u64) {
+    /// Tries again with growing waits until it connects, someone else connects it, or its generation changes.
+    async fn reconnect_mcp(self: Arc<Self>, name: String, generation: u64, mut wait: Duration) {
         let engine = Arc::downgrade(&self);
         drop(self);
-        let mut wait = FIRST_RETRY;
         loop {
             tokio::time::sleep(wait).await;
             let Some(engine) = engine.upgrade() else { return };
-            let current = engine.store.mcp_server(&name).ok().flatten().filter(|row| row.enabled && row.is_approved());
-            let Some(row) = current.filter(|_| engine.mcp.current_generation(&name) == generation) else { return };
-            if engine.connect_mcp(row).await.is_ok() {
+            if engine.mcp.generation_of(&name) != generation || engine.mcp.is_live(&name) {
                 return;
             }
             wait = (wait * 2).min(MAX_RETRY);
+            if engine.connect_mcp_at(&name, Some(generation), wait).await.is_ok() {
+                return;
+            }
         }
     }
 }

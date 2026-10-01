@@ -27,22 +27,17 @@ pub async fn save(State(engine): State<Arc<Engine>>, Path(name): Path<String>, J
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid", "server names are letters, digits, - and _"));
     }
-    engine.mcp.invalidate(&name);
-    engine.mcp.disconnect(&name, &engine.store, &engine.hub).await;
-    let row = engine.store.save_mcp_server(&name, &config)?;
-    let status = engine.mcp.status_of(row.clone());
-    engine.hub.publish(Event::McpUpdated { server: status.clone() });
+    let row = engine.mcp.change(&name, &engine.store, &engine.hub, |store| store.save_mcp_server(&name, &config)).await?;
     // Saved as already approved (unchanged): the new client serves later turns; running ones keep theirs.
     if row.enabled && row.is_approved() {
         return connect(&engine, &name).await;
     }
-    Ok(Json(status))
+    Ok(Json(engine.mcp.status_of(row)))
 }
 
 #[utoipa::path(delete, path = "/mcp/{name}", operation_id = "removeMcpServer", responses((status = 204), (status = 404)))]
 pub async fn remove(State(engine): State<Arc<Engine>>, Path(name): Path<String>) -> Result<StatusCode, ApiError> {
-    engine.mcp.disconnect(&name, &engine.store, &engine.hub).await;
-    if !engine.store.remove_mcp_server(&name)? {
+    if !engine.mcp.change(&name, &engine.store, &engine.hub, |store| store.remove_mcp_server(&name)).await? {
         return Err(ApiError::not_found("mcp server"));
     }
     engine.hub.publish(Event::McpRemoved { name });
@@ -63,8 +58,8 @@ pub async fn connect_route(State(engine): State<Arc<Engine>>, Path(name): Path<S
 }
 
 async fn connect(engine: &Arc<Engine>, name: &str) -> Result<Json<ServerStatus>, ApiError> {
-    let row = engine.store.mcp_server(name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
-    let _ = engine.connect_mcp(row).await;
+    engine.store.mcp_server(name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
+    let _ = engine.connect_mcp(name).await;
     let row = engine.store.mcp_server(name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
     Ok(Json(engine.mcp.status_of(row)))
 }
@@ -78,11 +73,15 @@ pub async fn disconnect(State(engine): State<Arc<Engine>>, Path(name): Path<Stri
 
 #[utoipa::path(put, path = "/mcp/{name}/enabled", operation_id = "setMcpServerEnabled", request_body = EnabledBody, responses((status = 200, body = ServerStatus), (status = 404)))]
 pub async fn set_enabled(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Json(body): Json<EnabledBody>) -> Result<Json<ServerStatus>, ApiError> {
-    if !engine.store.set_mcp_enabled(&name, body.enabled)? {
+    if !body.enabled {
+        if !engine.mcp.change(&name, &engine.store, &engine.hub, |store| store.set_mcp_enabled(&name, false)).await? {
+            return Err(ApiError::not_found("mcp server"));
+        }
+        let row = engine.store.mcp_server(&name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
+        return Ok(Json(engine.mcp.status_of(row)));
+    }
+    if !engine.store.set_mcp_enabled(&name, true)? {
         return Err(ApiError::not_found("mcp server"));
     }
-    if body.enabled {
-        return connect(&engine, &name).await;
-    }
-    disconnect(State(engine), Path(name)).await
+    connect(&engine, &name).await
 }

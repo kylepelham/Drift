@@ -1261,7 +1261,7 @@ async fn a_turn_keeps_the_tools_it_started_with_and_a_change_reaches_the_next_on
     let config = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default() };
     let row = h.engine.store.save_mcp_server("echo", &config).unwrap();
     h.engine.store.approve_mcp_server("echo", &row.hash()).unwrap();
-    h.engine.mcp.connect(h.engine.store.mcp_server("echo").unwrap().unwrap(), &h.engine.hub).await.unwrap();
+    h.engine.connect_mcp("echo").await.unwrap();
     h.provider.push_slow(Duration::from_millis(500), tool_call("echo_echo", r#"{"text": "still here"}"#)).push(text("done"));
     h.engine.submit(&h.session.id, prompt("echo")).await.await_ok();
     // The server goes away while the turn is still streaming its first reply.
