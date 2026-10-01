@@ -198,19 +198,21 @@ pub(super) fn api_error(status: u16, text: &str) -> Error {
 pub(super) fn chunks(event: &str, data: &str) -> Result<Vec<Chunk>, Error> {
     let value: Value = serde_json::from_str(data).map_err(|e| Error::Malformed(e.to_string()))?;
     let chunk = match event {
-        "message_start" => Chunk::Usage(usage(&value["message"]["usage"])),
-        "content_block_start" => block_start(&value["content_block"])?,
-        "content_block_delta" => block_delta(&value["delta"])?,
-        "content_block_stop" => Chunk::BlockStop,
+        "message_start" => Some(Chunk::Usage(usage(&value["message"]["usage"]))),
+        "content_block_start" => block_start(&value["content_block"]),
+        "content_block_delta" => block_delta(&value["delta"]),
+        "content_block_stop" => Some(Chunk::BlockStop),
         "message_delta" => return Ok(message_delta(&value)),
         "error" => return Err(api_error(super::STREAMED, data)),
-        _ => return Ok(Vec::new()),
+        _ => None,
     };
-    Ok(vec![chunk])
+    Ok(chunk.into_iter().collect())
 }
 
-fn block_start(block: &Value) -> Result<Chunk, Error> {
-    Ok(match block["type"].as_str().unwrap_or_default() {
+/// A block of a kind this adapter does not know (server tools, citations, ones yet to come) is
+/// skipped: no block opens, so its deltas and its stop fall on nothing, and the turn goes on.
+fn block_start(block: &Value) -> Option<Chunk> {
+    Some(match block["type"].as_str().unwrap_or_default() {
         "text" => Chunk::TextStart,
         "thinking" => Chunk::ReasoningStart,
         "redacted_thinking" => Chunk::ReasoningRedacted(block["data"].as_str().unwrap_or_default().into()),
@@ -218,18 +220,18 @@ fn block_start(block: &Value) -> Result<Chunk, Error> {
             id: block["id"].as_str().unwrap_or_default().into(),
             name: block["name"].as_str().unwrap_or_default().into(),
         },
-        other => return Err(Error::Malformed(format!("unknown content block {other}"))),
+        _ => return None,
     })
 }
 
-fn block_delta(delta: &Value) -> Result<Chunk, Error> {
+fn block_delta(delta: &Value) -> Option<Chunk> {
     let text = |key: &str| delta[key].as_str().unwrap_or_default().to_string();
-    Ok(match delta["type"].as_str().unwrap_or_default() {
+    Some(match delta["type"].as_str().unwrap_or_default() {
         "text_delta" => Chunk::TextDelta(text("text")),
         "thinking_delta" => Chunk::ReasoningDelta(text("thinking")),
         "signature_delta" => Chunk::ReasoningSignature(text("signature")),
         "input_json_delta" => Chunk::ToolInputDelta(text("partial_json")),
-        other => return Err(Error::Malformed(format!("unknown delta {other}"))),
+        _ => return None,
     })
 }
 
@@ -370,6 +372,8 @@ mod tests {
             ("message_delta", r#"{"delta":{},"usage":{"output_tokens":7}}"#, Some(Chunk::Usage(Usage { output: 7, ..Usage::default() }))),
             ("ping", r#"{}"#, None),
             ("message_stop", r#"{}"#, None),
+            ("content_block_start", r#"{"content_block":{"type":"server_tool_use","id":"s1","name":"web_search"}}"#, None),
+            ("content_block_delta", r#"{"delta":{"type":"citations_delta","citation":{}}}"#, None),
         ];
         for (event, data, expected) in cases {
             assert_eq!(chunks(event, data).unwrap().into_iter().next(), expected, "{event}");
