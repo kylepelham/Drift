@@ -890,7 +890,11 @@ Settled after the first external review of M1; each has a regression test.
   with the shell's exit code, the descendants are stopped, and the result says so. A command with
   no time limit therefore cannot wait forever on a background process's inherited output.
 - Prompt admission is one transaction (`Store::admit_prompt`). If it fails, the session's
-  busy reservation is released and nothing half-written remains. `Prompt.submissionId`  is
+  busy reservation is released and nothing half-written remains. The UI keeps a prompt's
+  submission id until the engine answers for sure: a resend of the same draft after a lost
+  answer (a network failure or a 5xx) reuses it and gets the original receipt if the first
+  attempt landed; success or a 4xx refusal ends it, and a changed draft gets a new id.
+  `Prompt.submissionId`  is
   optional and durable: the `submission` table records id, session, message and a hash of
   the payload. Resubmitting with the same id and payload returns the original receipt, even
   after a restart; the same id with a different payload or session is a 409. The id is checked
@@ -1102,6 +1106,9 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   native: the removed-workspace purge (its session removal is a stub that reports nothing
   deleted, so the purge retries forever), transcript search, and Settings > Storage, both of which
   still read OpenCode's database and schema and never see `drift.db`.
+- A finished reply's footer offers Fork from here: `POST /sessions/{id}/fork {atMessage}` copies
+  the history through that reply into a new conversation. `/fork` and the sidebar's fork copy
+  everything finished.
 - Archive and restore go through the engine first: the sidebar button, `/archive` and the
   Archive dialog call `PATCH /sessions/{id} {archived}` (archiving stops the session's turn and
   workers and forgets its permissions), and only once that succeeds is the shell's archive record

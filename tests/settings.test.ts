@@ -181,6 +181,7 @@ const pendingTranslation = new Set([
   ...pendingKeys("drift.thread", "openSubagent"),
   ...pendingKeys("drift.settings.autoCompact", "title description"),
   ...pendingKeys("drift.settings.prompts", "behaviorFields behaviorRefused familyUnavailable"),
+  "drift.message.forkHere",
   ...pendingKeys("drift.branch", "title description drafting goal name summary excerpts create"),
   ...pendingKeys("drift.about", "row.native.title row.native.description native.connected native.offline"),
   ...pendingKeys(

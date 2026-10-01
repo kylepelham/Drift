@@ -8,7 +8,8 @@ import { emitMessageRendered } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
 import { agentLabel, t } from "../state/i18n"
 import { collapseCompaction, compactionCollapsed } from "../state/prefs"
-import { IconCheck, IconCopy, IconUndo } from "./icons"
+import { selectedSession, selectSession } from "../state/selection"
+import { IconBranch, IconCheck, IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
 import { Chevron } from "./controls"
 import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
@@ -314,6 +315,12 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
   const [groups, setGroups] = createSignal<PartGroupSlot[]>([])
   createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)))
   const visible = () => groups().length > 0 || !!info().error || (!!props.footer && !!info().time.completed)
+  /** A new conversation with this conversation's history through this reply, opened only if the user is still here. */
+  const forkHere = async () => {
+    const source = info().sessionID
+    const forked = await engine.actions.fork(source, info().id)
+    if (forked && selectedSession() === source) selectSession(forked.id)
+  }
   const liveTextPartID = () => {
     if (info().time.completed || !sessionBusy(engine.state, info().sessionID)) return undefined
     return [...props.entry.parts]
@@ -377,6 +384,13 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
               onClick={() => void navigator.clipboard.writeText(messageText(props.entry))}
             >
               <IconCopy class="size-3.5" />
+            </button>
+            <button
+              title={t("drift.message.forkHere")}
+              class="rounded p-0.5 hover:bg-raised hover:text-ink"
+              onClick={() => void forkHere()}
+            >
+              <IconBranch class="size-3.5" />
             </button>
           </div>
         </Show>

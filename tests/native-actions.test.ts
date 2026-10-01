@@ -187,6 +187,32 @@ test("every send carries a fresh submission id", async () => {
   expect(ids[0]).not.toBe(ids[1])
 })
 
+test("resending a prompt whose answer was lost reuses its submission id; a refusal or a changed prompt does not", async () => {
+  const ids: string[] = []
+  let failure: Error | undefined
+  const h = harness({
+    submit: async (_id: string, body: { submissionId: string }) => {
+      ids.push(body.submissionId)
+      if (failure) throw failure
+      return { session: session("ses_1"), message: {} }
+    },
+  } as Partial<Client>)
+  const send = (text: string) => h.actions.send("ses_1", text, { model: null, agent: "build" })
+  failure = new TypeError("Failed to fetch")
+  await send("hello")
+  failure = new EngineError(503, "/sessions/ses_1/turns", "store", "busy")
+  await send("hello")
+  failure = undefined
+  await send("hello")
+  expect(new Set(ids).size, "lost answers and server errors keep one identity").toBe(1)
+  failure = new EngineError(400, "/sessions/ses_1/turns", "attachment", "too big")
+  await send("again")
+  failure = undefined
+  await send("again")
+  await send("hello")
+  expect(new Set(ids).size, "a refusal and a success each end the identity").toBe(4)
+})
+
 test("hydration rejects when any of its loads fail, instead of pretending the snapshot landed", async () => {
   const { hydrateFrom } = await import("../src/engine/index")
   const good = { refreshProviders: async () => true, loadSessions: async () => undefined, refreshPermissions: async () => undefined, refreshAgents: async () => undefined, refreshMcp: async () => undefined }

@@ -111,7 +111,7 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
       engine.actions.notice({ message: t("drift.slash.fork.invalid"), variant: "warning" })
       return
     }
-    const session = await engine.actions.fork(current, mode === "all" ? "full" : "active")
+    const session = await engine.actions.fork(current)
     if (session && selectedSession() === current) selectSession(session.id)
     return
   }

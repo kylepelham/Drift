@@ -247,7 +247,7 @@ function ThreadItem(props: {
             selectWorkspace(props.workspace.id)
             const selection = selectedSession()
             void engine.actions
-              .fork(props.sessionId, "active")
+              .fork(props.sessionId)
               .then(
                 (session) =>
                   session &&

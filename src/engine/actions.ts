@@ -61,6 +61,8 @@ export function createActions(
   workspaces: () => WorkspaceIndex,
 ) {
   const transcriptRequests = new Map<string, Promise<boolean>>()
+  /** Submission ids of prompts whose fate is unknown, by session and exact prompt, until the engine answers for sure. */
+  const unsettled = new Map<string, string>()
   let noticeSequence = 0
 
   function notice(input: Omit<Notice, "id" | "created" | "duration"> & { id?: string; created?: number; duration?: number }) {
@@ -202,16 +204,22 @@ export function createActions(
       ...(options.files ?? []).map((file) => ({ type: "file" as const, mime: file.mime, name: file.filename ?? "file", url: file.url })),
     ]
     if (parts.length === 0) return fail(id, "Prompt failed: the prompt is empty")
+    const prompt = {
+      parts,
+      model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined,
+      variant: options.variant ?? null,
+      ...(options.agent ? { agent: options.agent } : {}),
+    }
+    // Resending the same prompt reuses its id, so a send whose answer was lost is not admitted twice.
+    const key = `${id}\n${JSON.stringify(prompt)}`
+    const submission = unsettled.get(key) ?? submissionId()
+    unsettled.set(key, submission)
     try {
-      await requireClient().submit(id, {
-        submissionId: submissionId(),
-        parts,
-        model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined,
-        variant: options.variant ?? null,
-        ...(options.agent ? { agent: options.agent } : {}),
-      })
+      await requireClient().submit(id, { submissionId: submission, ...prompt })
+      unsettled.delete(key)
       return { ok: true }
     } catch (cause) {
+      if (definite(cause)) unsettled.delete(key)
       return fail(id, `Prompt failed: ${errorMessage(cause)}`)
     }
   }
@@ -344,10 +352,10 @@ export function createActions(
     return { ok: true, connected: state.connected.includes(id) }
   }
 
-  /** Copies finished history into a new conversation. The copy keeps compaction markers, so it sees the same context; "active" and "full" are one operation. */
-  async function fork(id: string, _mode: "active" | "full" = "active") {
+  /** Copies finished history into a new conversation, through `atMessage` or else everything finished. The copy keeps compaction markers, so it sees the same context. */
+  async function fork(id: string, atMessage?: string) {
     try {
-      const session = adaptSession(await requireClient().forkSession(id), workspaces())
+      const session = adaptSession(await requireClient().forkSession(id, atMessage), workspaces())
       putSession(set, session)
       return session
     } catch (cause) {
@@ -579,6 +587,11 @@ export function createActions(
 }
 
 export type EngineActions = ReturnType<typeof createActions>
+
+/** The engine answered and refused: the prompt was not admitted, so a resend may be a new submission. */
+function definite(cause: unknown) {
+  return cause instanceof EngineError && cause.status >= 400 && cause.status < 500
+}
 
 /** A retried send with the same id gets the original receipt instead of a second turn. */
 function submissionId() {

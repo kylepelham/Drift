@@ -131,6 +131,7 @@ change the plan there when a decision changes.
 - [x] Model-family prompt editor states it is not applied and is read-only (no native family prompts)
 - [ ] Native base-prompt override (global or per model family) so the Prompts editor can save again
 - [x] Archive and restore (sidebar, `/archive`, Archive dialog) archive in the engine first, with its Stop, then update the shell record
+- [x] Bounded fork reachable (Fork from here on a finished reply); a resent prompt keeps its submission id until the engine answers for sure
 
 #### Retained features still on the OpenCode database (pending native UI work)
 
