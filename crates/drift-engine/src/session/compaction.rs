@@ -283,6 +283,7 @@ fn estimate(messages: &[&MessageWithParts]) -> usize {
             Part::Text { text } | Part::Reasoning { text, .. } | Part::TaskResult { text, .. } => text.len(),
             Part::ToolCall { input, output, .. } => input.to_string().len() + output.as_ref().map_or(0, String::len),
             Part::File { url, .. } => url.len(),
+            Part::Clarification { request_id, items } => super::convert::clarification_text(request_id, items).len(),
             Part::Compaction { .. } => 0,
         })
         .sum();

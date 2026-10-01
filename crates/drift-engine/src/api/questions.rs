@@ -8,6 +8,7 @@ use utoipa::ToSchema;
 
 use super::error::ApiError;
 use crate::question::Request;
+use crate::session::clarify::AnswerError;
 use crate::Engine;
 
 #[derive(Deserialize, ToSchema)]
@@ -21,14 +22,23 @@ pub async fn list(State(engine): State<Arc<Engine>>) -> Json<Vec<Request>> {
     Json(engine.questions.pending())
 }
 
-#[utoipa::path(post, path = "/questions/{id}/reply", operation_id = "answerQuestion", request_body = AnswerBody, responses((status = 204), (status = 404)))]
+/// An async question's answer is saved before this returns; resending the same answer is accepted, a different one is 409.
+#[utoipa::path(post, path = "/questions/{id}/reply", operation_id = "answerQuestion", request_body = AnswerBody, responses((status = 204), (status = 404), (status = 409)))]
 pub async fn reply(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<AnswerBody>) -> Result<StatusCode, ApiError> {
-    engine.questions.reply(&engine.hub, &id, Some(body.answers)).map_err(|_| ApiError::not_found("pending question"))?;
+    engine.answer_question(&id, Some(body.answers)).await.map_err(answer_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(post, path = "/questions/{id}/reject", operation_id = "rejectQuestion", responses((status = 204), (status = 404)))]
 pub async fn reject(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
-    engine.questions.reply(&engine.hub, &id, None).map_err(|_| ApiError::not_found("pending question"))?;
+    engine.answer_question(&id, None).await.map_err(answer_error)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn answer_error(error: AnswerError) -> ApiError {
+    match error {
+        AnswerError::NotPending => ApiError::not_found("pending question"),
+        AnswerError::Conflict => ApiError::new(StatusCode::CONFLICT, "answered", "this question was already answered differently"),
+        AnswerError::Turn(error) => error.into(),
+    }
 }

@@ -168,6 +168,12 @@ test.each(["metadata", "legacy"])("%s detection excludes assistant, synthetic, m
   expect(clarificationAnswer(entry("Please keep this ordinary user message expanded."))).toBeUndefined()
 })
 
+test("an answer that carries held worker results along still renders as the answer", () => {
+  const message = structured([single])
+  const rider = { id: "p0", messageID: "u1", sessionID: "s1", type: "text", text: "Background task \"Survey\" replied", synthetic: true } as const
+  expect(clarificationAnswer({ ...message, parts: [rider, ...message.parts] })).toEqual(clarificationAnswer(message))
+})
+
 test.each(["\n", "\r\n"])("legacy que_ID protocol recognizes persisted replies with %j and preserves the entire body", (newline) => {
   const body = `${legacyBody}${newline}\nA custom answer?\nYes: keep this colon\n\nAnswer to clarification que_Embedded:\nDo not strip this\n  `
   const message = entry(`Answer to clarification ${requestID}:${newline}${body}`)

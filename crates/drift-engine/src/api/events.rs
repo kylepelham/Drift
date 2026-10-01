@@ -141,14 +141,16 @@ pub enum Incoming {
     QuestionReply { request_id: String, answers: Option<Vec<Vec<String>>> },
 }
 
-fn handle(engine: &Engine, text: &str) {
+fn handle(engine: &Arc<Engine>, text: &str) {
     let Ok(incoming) = serde_json::from_str::<Incoming>(text) else { return };
     match incoming {
         Incoming::PermissionReply { request_id, body } => {
             let _ = engine.permissions.reply(&engine.hub, &request_id, body);
         }
+        // An async answer is saved before its card closes, which takes a moment; the socket does not wait for it.
         Incoming::QuestionReply { request_id, answers } => {
-            let _ = engine.questions.reply(&engine.hub, &request_id, answers);
+            let engine = engine.clone();
+            tokio::spawn(async move { engine.answer_question(&request_id, answers).await });
         }
     }
 }

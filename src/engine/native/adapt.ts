@@ -98,6 +98,12 @@ export function adaptPart(row: NativePartRow): Part {
     // Delivered by the engine, not typed by the user: kept out of the user's bubble and the composer history.
     case "task_result":
       return { ...base, type: "text", text: `Background task "${row.description}" ${row.outcome}:\n\n${row.text}`, synthetic: true }
+    // Rendered as an Answered row; the text is what the model read.
+    case "clarification": {
+      const items = row.items.map((item) => ({ header: item.header, question: item.question, answers: item.answers }))
+      const text = items.map((item) => `${item.question}\nAnswer: ${item.answers.join(", ")}`).join("\n\n")
+      return { ...base, type: "text", text, metadata: { driftClarification: { version: 1, requestID: row.requestId, items } } }
+    }
   }
 }
 
@@ -224,6 +230,7 @@ export function adaptQuestion(request: NativeQuestion): QuestionRequest {
     id: request.id,
     sessionID: request.sessionId,
     questions: request.questions.map((q) => ({ question: q.question, header: q.header ?? "", options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description ?? "" })), multiple: q.multiple ?? false, custom: q.custom ?? true })),
+    async: request.async ?? false,
     tool: { messageID: request.messageId, callID: request.callId },
   }
 }

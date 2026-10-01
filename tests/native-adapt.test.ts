@@ -72,6 +72,21 @@ test("a delivered background result is engine text, not the user's words", () =>
   expect(part).toMatchObject({ type: "text", synthetic: true, sessionID: "ses_1", text: 'Background task "Survey" replied:\n\nthree things' })
 })
 
+test("an async answer becomes the Answered row the transcript already draws", async () => {
+  const { clarificationAnswer } = await import("../src/ui/clarification-answer")
+  const part = adaptPart({ id: "prt_a", messageId: "msg_a", sessionId: "ses_1", type: "clarification", requestId: "q_1", items: [{ header: "Deploy", question: "Deploy?", answers: ["yes"] }] })
+  expect(part).toMatchObject({ type: "text", text: "Deploy?\nAnswer: yes", metadata: { driftClarification: { version: 1, requestID: "q_1" } } })
+  const entry = { info: { id: "msg_a", sessionID: "ses_1", role: "user", time: { created: 1 }, agent: "build", model: { providerID: "", modelID: "" } }, parts: [part] } as never
+  expect(clarificationAnswer(entry)).toEqual({ items: [{ header: "Deploy", question: "Deploy?", answers: ["yes"] }], text: "Deploy?\nyes", preview: "yes" })
+})
+
+test("an async question keeps its flag for the Answer later card", async () => {
+  const { adaptQuestion } = await import("../src/engine/native/adapt")
+  const request = { id: "q_1", sessionId: "ses_1", messageId: "msg_1", callId: "call_1", createdAt: 1, async: true, questions: [{ question: "Deploy?", header: "Deploy", options: [] }] }
+  expect(adaptQuestion(request).async).toBe(true)
+  expect(adaptQuestion({ ...request, async: false }).async).toBe(false)
+})
+
 test("a compaction becomes the boundary part and summary message the transcript already draws", () => {
   const summary = adaptMessage(
     { id: "msg_2", sessionId: "ses_1", role: "assistant", status: "done", model: { provider: "anthropic", model: "claude" }, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0, createdAt: 1, summary: true },

@@ -266,7 +266,7 @@ impl Engine {
     }
 
     /// The owner's scope if it has not been stopped since `generation`, which a restart does not reset.
-    fn scope_at(&self, owner: &str, generation: i64) -> Option<CancellationToken> {
+    pub(super) fn scope_at(&self, owner: &str, generation: i64) -> Option<CancellationToken> {
         let mut owners = self.workers.fence();
         let entry = owner_entry(&mut owners, &self.store, owner);
         (entry.generation == generation).then(|| entry.token.clone())

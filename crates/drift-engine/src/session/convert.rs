@@ -46,9 +46,16 @@ fn user_blocks(message: &MessageWithParts) -> Vec<Block> {
             Part::TaskResult { task_id, description, outcome, text, .. } => {
                 Some(Block::Text(format!("<task-result id=\"{task_id}\" description=\"{description}\" outcome=\"{outcome}\">\n{text}\n</task-result>")))
             }
+            Part::Clarification { request_id, items } => Some(Block::Text(clarification_text(request_id, items))),
             _ => None,
         })
         .collect()
+}
+
+/// How the model reads an answer that arrives after it moved on.
+pub(crate) fn clarification_text(request_id: &str, items: &[super::types::Clarified]) -> String {
+    let answers: Vec<String> = items.iter().map(|item| format!("{}\nAnswer: {}", item.question, item.answers.join(", "))).collect();
+    format!("<question-answer id=\"{request_id}\">\nThe user answered the question you asked earlier.\n\n{}\n</question-answer>", answers.join("\n\n"))
 }
 
 fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> {

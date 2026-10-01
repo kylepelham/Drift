@@ -284,6 +284,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** An async question's answer is saved before this returns; resending the same answer is accepted, a different one is 409. */
         post: operations["answerQuestion"];
         delete?: never;
         options?: never;
@@ -731,6 +732,12 @@ export interface components {
         BranchGoal: {
             goal: string;
         };
+        /** @description One answered question: what was asked and what the user chose or typed. */
+        Clarified: {
+            answers: string[];
+            header: string;
+            question: string;
+        };
         Command: {
             description: string;
             name: string;
@@ -1075,6 +1082,11 @@ export interface components {
             /** @description The worker's own transcript; not `session_id`, which the part row already carries. */
             workerSessionId: string;
         } | {
+            items: components["schemas"]["Clarified"][];
+            requestId: string;
+            /** @enum {string} */
+            type: "clarification";
+        } | {
             auto: boolean;
             /** @description First message the model still sees verbatim after the summary; `None` keeps nothing. */
             tailFrom?: string | null;
@@ -1130,6 +1142,8 @@ export interface components {
             question: string;
         };
         QuestionRequest: {
+            /** @description The turn went on without waiting; the answer arrives as its own prompt. */
+            async?: boolean;
             callId: string;
             /** Format: int64 */
             createdAt: number;
@@ -1796,6 +1810,12 @@ export interface operations {
                 content?: never;
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

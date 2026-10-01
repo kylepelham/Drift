@@ -343,7 +343,7 @@ impl Engine {
     }
 
     /// The last check before a prompt is written, under the lock every Stop holds, so it lands wholly before a Stop or not at all.
-    fn admit_fenced(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>, abort: Option<&CancellationToken>, delivery: Option<&str>) -> Result<Admitted, TurnError> {
+    pub(super) fn admit_fenced(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>, abort: Option<&CancellationToken>, delivery: Option<&str>) -> Result<Admitted, TurnError> {
         let _fence = self.workers.fence();
         if abort.is_some_and(CancellationToken::is_cancelled) {
             return Err(TurnError::Stopped);
@@ -360,7 +360,7 @@ impl Engine {
         admitted?.ok_or(TurnError::SubmissionReused)
     }
 
-    fn announce(&self, session_id: &str, admitted: Admitted) -> Receipt {
+    pub(super) fn announce(&self, session_id: &str, admitted: Admitted) -> Receipt {
         let Admitted { message, parts, session, discarded } = admitted;
         for message_id in discarded {
             self.hub.publish(Event::MessageRemoved { session_id: session_id.into(), message_id });
@@ -445,7 +445,7 @@ impl Engine {
     }
 
     /// A known submission id replays its receipt from storage, so a retry after a restart is still one prompt.
-    fn replayed_receipt(&self, id: &str, session_id: &str, payload_hash: &str) -> Result<Option<Receipt>, TurnError> {
+    pub(super) fn replayed_receipt(&self, id: &str, session_id: &str, payload_hash: &str) -> Result<Option<Receipt>, TurnError> {
         let Some(found) = self.store.submission(id)? else { return Ok(None) };
         if found.session_id != session_id || found.payload_hash != payload_hash {
             return Err(TurnError::SubmissionReused);
@@ -1158,7 +1158,7 @@ fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
 }
 
 /// Identity of a prompt for replay checks: the same id must carry the same parts and model.
-fn payload_hash(prompt: &Prompt) -> String {
+pub(super) fn payload_hash(prompt: &Prompt) -> String {
     use sha2::Digest;
     let body = serde_json::json!({ "parts": prompt.parts, "model": prompt.model, "thinking": prompt.thinking_budget });
     sha2::Sha256::digest(body.to_string().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()

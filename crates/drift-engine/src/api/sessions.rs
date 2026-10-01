@@ -133,6 +133,10 @@ pub async fn messages(
 
 #[utoipa::path(post, path = "/sessions/{id}/turns", operation_id = "submitTurn", request_body = Prompt, responses((status = 202, body = Receipt), (status = 409), (status = 404)))]
 pub async fn submit(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(prompt): Json<Prompt>) -> Result<(StatusCode, Json<Receipt>), ApiError> {
+    // Worker results, answers and tool calls are the engine's to write, never a client's to claim.
+    if prompt.parts.iter().any(crate::session::types::Part::is_engine_origin) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid", "a prompt carries text and files only"));
+    }
     Ok((StatusCode::ACCEPTED, Json(engine.submit(&id, prompt).await?)))
 }
 
@@ -211,6 +215,7 @@ pub async fn abort_task(State(engine): State<Arc<Engine>>, Path(id): Path<String
 pub async fn delete(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
     engine.abort(&id);
     engine.permissions.forget_session(&id);
+    engine.questions.forget_session(&id);
     if !engine.store.delete_session(&id)? {
         return Err(ApiError::not_found("session"));
     }

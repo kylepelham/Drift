@@ -34,7 +34,8 @@ impl Tool for Question {
                             },
                             "required": ["question", "header", "options"]
                         }
-                    }
+                    },
+                    "async": { "type": "boolean", "description": "Default true: ask and carry on; the answer arrives later as its own message. False waits here for the answer, for a decision nothing else can go ahead without." }
                 },
                 "required": ["questions"]
             }),
@@ -51,7 +52,17 @@ impl Tool for Question {
             if items.is_empty() {
                 return Err(ToolError("at least one question is required".into()));
             }
-            let request = question::new_request(&ctx.session_id, &ctx.message_id, &ctx.call_id, items.clone());
+            let mut request = question::new_request(&ctx.session_id, &ctx.message_id, &ctx.call_id, items.clone());
+            // A subagent's turn ends before a late answer could reach its parent, so it always waits.
+            let subagent = ctx.engine.store.session(&ctx.session_id)?.is_some_and(|s| s.visibility == crate::session::types::Visibility::Hidden);
+            if input["async"].as_bool().unwrap_or(true) && !subagent {
+                request.is_async = true;
+                request.generation = ctx.engine.worker_scope(&ctx.session_id).1;
+                let id = request.id.clone();
+                ctx.engine.questions.ask_async(&ctx.engine.hub, request);
+                let output = format!("Asked the user ({id}). Their answer will arrive in this conversation as its own message. Carry on with work that does not depend on it; if nothing else can be done, finish your turn and wait.");
+                return Ok(Output { title: items[0].header.clone(), output, metadata: json!({ "requestId": id, "async": true }) });
+            }
             let answers = ctx.engine.questions.ask(&ctx.engine.hub, request, &ctx.abort).await;
             let Some(answers) = answers else {
                 return Err(ToolError("The user declined to answer.".into()));
@@ -77,7 +88,7 @@ mod tests {
         let sandbox = Sandbox::new("question");
         let ctx = sandbox.ctx_clone();
         let mut rx = ctx.engine.hub.attach(None).rx;
-        let input = json!({ "questions": [{ "question": "Which db?", "header": "Database", "options": [{ "label": "sqlite" }, { "label": "postgres" }] }] });
+        let input = json!({ "async": false, "questions": [{ "question": "Which db?", "header": "Database", "options": [{ "label": "sqlite" }, { "label": "postgres" }] }] });
         let (out, ()) = tokio::join!(Question.run(&ctx, input), async {
             let asked = rx.recv().await.unwrap();
             let Event::QuestionAsked { request } = asked.event else { panic!() };
@@ -93,7 +104,7 @@ mod tests {
         let sandbox = Sandbox::new("question-decline");
         let ctx = sandbox.ctx_clone();
         let mut rx = ctx.engine.hub.attach(None).rx;
-        let input = json!({ "questions": [{ "question": "Go?", "header": "Go", "options": [] }] });
+        let input = json!({ "async": false, "questions": [{ "question": "Go?", "header": "Go", "options": [] }] });
         let (out, ()) = tokio::join!(Question.run(&ctx, input), async {
             let Event::QuestionAsked { request } = rx.recv().await.unwrap().event else { panic!() };
             ctx.engine.questions.reply(&ctx.engine.hub, &request.id, None).unwrap();

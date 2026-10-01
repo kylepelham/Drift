@@ -172,6 +172,12 @@ pub enum Part {
         outcome: String,
         text: String,
     },
+    /// The user's answer to a question the model asked without waiting, delivered as its own prompt.
+    #[serde(rename_all = "camelCase")]
+    Clarification {
+        request_id: String,
+        items: Vec<Clarified>,
+    },
     /// The boundary of a compaction; its summary is the assistant message that follows.
     #[serde(rename_all = "camelCase")]
     Compaction {
@@ -180,6 +186,21 @@ pub enum Part {
         #[serde(skip_serializing_if = "Option::is_none")]
         tail_from: Option<String>,
     },
+}
+
+/// One answered question: what was asked and what the user chose or typed.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct Clarified {
+    pub header: String,
+    pub question: String,
+    pub answers: Vec<String>,
+}
+
+impl Part {
+    /// Parts only the engine writes: a prompt sent through the API may carry text and files, nothing else.
+    pub fn is_engine_origin(&self) -> bool {
+        !matches!(self, Self::Text { .. } | Self::File { .. })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

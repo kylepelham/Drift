@@ -376,6 +376,28 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - Engine actions outside turns (titles, compaction summaries, handoffs) make their own snapshot when
   they start.
 
+#### Async questions
+
+- `question` defaults to `async: true`: the call registers the request and returns its id at once,
+  and the turn carries on with what does not depend on the answer. `async: false` waits in the call
+  as before. A subagent's question always waits, since its turn would end before a late answer
+  could reach anyone.
+- An answer (`POST /questions/{id}/reply`, or `question.reply` on the socket) is written as its own
+  user message holding a `clarification` part (header, question and answers per item; the model reads
+  it as a `<question-answer>` block, the UI as its Answered row), with submission id `answer:<id>`.
+  It goes through the same admission as any prompt: it joins a running turn at its next request, or
+  starts one if the session is idle. If the session has been stopped since the question was asked
+  (its durable Stop count moved), or another job holds it past the queue wait, the answer is only
+  saved, starting nothing; the next turn reads it. Held worker results ride along like with any
+  prompt.
+- The card closes only after the answer is saved; a failed save (no model, no credentials) leaves it
+  pending and answerable, and the route returns the error. Resending the same answer is accepted
+  without writing anything; a different one is 409. Declining closes the card and says nothing.
+- Pending questions live in the engine process: a restart drops unanswered cards, never a saved
+  answer. Deleting a session drops its async questions.
+- A prompt sent through the API carries text and files only: `task_result`, `clarification`, tool and
+  other engine parts are refused with 400, so a client cannot forge a worker result or an answer.
+
 #### Undo and redo
 
 - Every writing call records what it changed as `metadata.changes: [{path, before, after}]`, blobs

@@ -4,6 +4,7 @@ mod assemble;
 mod attach;
 pub mod branch;
 mod changes;
+pub mod clarify;
 pub mod compaction;
 mod convert;
 mod oneshot;
