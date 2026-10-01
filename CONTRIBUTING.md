@@ -63,10 +63,11 @@ Run the checks relevant to your change before opening a pull request. The standa
 is:
 
 ```bash
-bun run typecheck
-bun run test
-cargo test --manifest-path src-tauri/Cargo.toml
+bun run gates
 ```
+
+It runs typecheck, the bun tests, the generated-client check, clippy and every Rust test,
+and prints only what failed.
 
 Also run:
 

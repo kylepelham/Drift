@@ -129,11 +129,10 @@ in a second terminal.
 ### Quality checks
 
 ```bash
-bun run typecheck
-bun run test
-cargo test --manifest-path src-tauri/Cargo.toml
+bun run gates
 ```
 
+That runs typecheck, the bun tests, the generated-client check, clippy and every Rust test.
 Use `bun run test:engine` after changing engine overlays or extensions.
 
 ### Build targets

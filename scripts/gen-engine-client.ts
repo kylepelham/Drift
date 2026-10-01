@@ -1,4 +1,4 @@
-// Regenerates src/engine/native/types.ts from the engine's OpenAPI. Run after changing any route.
+// Regenerates src/engine/native/types.ts from the engine's OpenAPI. Run after changing any route; `--check` only reports a stale file.
 import openapiTS, { astToString } from "openapi-typescript"
 import { $ } from "bun"
 import { resolve } from "node:path"
@@ -13,6 +13,14 @@ export async function generate() {
 }
 
 if (import.meta.main) {
-  await Bun.write(output, await generate())
-  console.log(`wrote ${output}`)
+  const generated = await generate()
+  if (process.argv.includes("--check")) {
+    if ((await Bun.file(output).text()) !== generated) {
+      console.error(`${output} is stale: run bun scripts/gen-engine-client.ts`)
+      process.exit(1)
+    }
+  } else {
+    await Bun.write(output, generated)
+    console.log(`wrote ${output}`)
+  }
 }

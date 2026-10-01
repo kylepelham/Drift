@@ -755,10 +755,14 @@ these async criteria are new pending M3 work.
 
 ## Working on it
 
-- `cargo test -p drift-engine` for the engine, `cargo test --workspace` for everything,
-  `cargo clippy --workspace --all-targets -- -D warnings` before any commit.
+- `bun run gates` runs every gate: it builds `drift-engined`, then checks the generated client,
+  clippy and `cargo test --workspace` beside typecheck and `bun run test` (files in parallel),
+  stops at the first failure and prints only that. A link that fails because Windows antivirus
+  held the fresh binary is retried once. About 40 s after an engine edit on a warm build.
+- While iterating, `cargo test -p drift-engine --lib -- <filter>` (about 5 s to rebuild); dev
+  builds keep line tables only, which cuts that rebuild by about a third.
 - `bun run gen:engine` regenerates `src/engine/native/types.ts` from the engine's OpenAPI
-  (`drift-engined --openapi`). `tests/engine-client.test.ts` fails when it is stale.
+  (`drift-engined --openapi`); `bun scripts/gen-engine-client.ts --check` fails when it is stale.
 - `bun run dev` starts the legacy sidecar (port 4196), `drift-engined`, and Vite; the
   browser reaches the native engine through `VITE_NATIVE_ENGINE_URL` and
   `VITE_NATIVE_ENGINE_TOKEN`.
@@ -1122,7 +1126,8 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
 
 ## Testing
 
-- `tests/conformance/`: bun tests that build and spawn the real `drift-engined`, point
+- `tests/conformance/`: bun tests that spawn the real `drift-engined` (build it first; the gates
+  and CI do), point
   `DRIFT_ANTHROPIC_BASE_URL` at a fake that replays recorded SSE fixtures in small chunks,
   and drive the engine over HTTP and WS: tool turn with permission, truncated stream,
   denial, retry plus submission replay, abort, cursor replay and restart. `bun run
