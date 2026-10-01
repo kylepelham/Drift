@@ -17,6 +17,11 @@ pub(crate) async fn replace(store: &Store, path: &Path, bytes: &[u8]) -> io::Res
     let pair = beside(path);
     store.record_replacement(&pair).map_err(io::Error::other)?;
     let swapped = swap(&pair, bytes, original).await;
+    let mut pair = pair;
+    if swapped.is_ok() {
+        // From here a leftover backup is old content: recovery removes it and never brings it back.
+        pair.swapped = store.mark_swapped(&pair.staged).is_ok();
+    }
     let settled = {
         let pair = pair.clone();
         tokio::task::spawn_blocking(move || settle(&pair)).await.map_err(io::Error::other)?
@@ -48,12 +53,14 @@ pub(crate) fn recover_leftovers(store: &Store) -> usize {
 /// Moves a backup back over a missing destination, keeping both siblings if that fails, then removes them.
 fn settle(pair: &StagedReplacement) -> io::Result<()> {
     let (destination, staged, backup) = (Path::new(&pair.destination), Path::new(&pair.staged), Path::new(&pair.backup));
-    if !present(destination)? && present(backup)? {
+    if !pair.swapped && !present(destination)? && present(backup)? {
         #[cfg(test)]
         tests::fault(tests::Fault::Restore, destination)?;
         std::fs::rename(backup, destination)?;
     }
     remove_if_present(staged)?;
+    #[cfg(test)]
+    tests::fault(tests::Fault::RemoveBackup, destination)?;
     remove_if_present(backup)
 }
 
@@ -76,7 +83,7 @@ fn beside(path: &Path) -> StagedReplacement {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let tag = crate::random_hex(4);
     let sibling = |extension: &str| path.with_file_name(format!(".{name}.drift-{tag}.{extension}")).to_string_lossy().into_owned();
-    StagedReplacement { destination: path.to_string_lossy().into_owned(), staged: sibling("tmp"), backup: sibling("bak") }
+    StagedReplacement { destination: path.to_string_lossy().into_owned(), staged: sibling("tmp"), backup: sibling("bak"), swapped: false }
 }
 
 /// Exactly what [`beside`] would make for this destination, with one tag.
@@ -128,6 +135,8 @@ pub(crate) mod tests {
         AfterStaging,
         /// Moving a backup back over its destination fails.
         Restore,
+        /// Removing a backup fails, as when a scanner holds it open.
+        RemoveBackup,
     }
 
     static FAULTS: std::sync::Mutex<Vec<(Fault, PathBuf)>> = std::sync::Mutex::new(Vec::new());
@@ -208,6 +217,42 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    #[test]
+    fn a_backup_left_after_a_finished_swap_never_brings_back_a_file_deleted_since() {
+        let dir = sandbox("swapped");
+        let file = dir.join("a.txt");
+        let store = reopen(&dir);
+        let pair = stranded(&store, &file, "old content");
+        store.mark_swapped(&pair.staged).unwrap();
+        // The file was deleted on purpose after the swap; only the stale backup remains.
+        drop(store);
+        let store = reopen(&dir);
+        assert_eq!(recover_leftovers(&store), 1);
+        assert!(!file.exists(), "the deletion stands");
+        assert!(!Path::new(&pair.backup).exists() && !Path::new(&pair.staged).exists());
+        assert!(store.replacements().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_backup_that_cannot_be_removed_yet_is_recorded_as_old_content() {
+        let dir = sandbox("stuck-backup");
+        let file = dir.join("a.txt");
+        std::fs::write(&file, "old").unwrap();
+        let store = reopen(&dir);
+        inject(Fault::RemoveBackup, &file);
+        replace(&store, &file, b"new").await.unwrap();
+        let [left] = store.replacements().unwrap().try_into().unwrap();
+        assert!(left.swapped && Path::new(&left.backup).exists(), "kept on record, marked as past the swap");
+        std::fs::remove_file(&file).unwrap();
+        drop(store);
+        let store = reopen(&dir);
+        assert_eq!(recover_leftovers(&store), 1);
+        assert!(!file.exists() && leftovers(&dir).is_empty(), "removed, not restored");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[tokio::test]
     async fn opening_the_engine_recovers_before_anything_can_run() {
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -254,7 +299,7 @@ pub(crate) mod tests {
         std::fs::write(&file, "new").unwrap();
         let unrecorded = dir.join(".b.txt.drift-89abcdef.tmp");
         std::fs::write(&unrecorded, "x").unwrap();
-        let foreign = StagedReplacement { destination: file.to_string_lossy().into(), staged: dir.join("notes.tmp").to_string_lossy().into(), backup: dir.join("notes.bak").to_string_lossy().into() };
+        let foreign = StagedReplacement { destination: file.to_string_lossy().into(), staged: dir.join("notes.tmp").to_string_lossy().into(), backup: dir.join("notes.bak").to_string_lossy().into(), swapped: false };
         std::fs::write(&foreign.staged, "keep").unwrap();
         store.record_replacement(&foreign).unwrap();
         drop(store);

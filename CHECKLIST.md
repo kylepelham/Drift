@@ -81,6 +81,8 @@ change the plan there when a decision changes.
   - [x] Startup recovery settles recorded replacement pairs: a stranded backup is moved back, a failed restore keeps both files and the record; pairs recorded in one statement, forgotten in one short transaction after file I/O
   - [x] `edit`, `write` and undo/redo go through the staged writer; `write` treats only NotFound as a new file
   - [x] Held results ride along with a later permitted delivery, in the same write
+  - [x] Undo and redo are all or nothing: a failed write puts back the files already changed, so a retry reports nothing as kept
+  - [x] A replacement is marked `swapped` once its swap succeeds, so a stale backup is removed, never restored over a deliberate deletion
 - [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
 - [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
 - [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, handoff, subagent pins
