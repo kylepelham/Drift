@@ -1,4 +1,4 @@
-//! Gemini generateContent over SSE. Also serves Vertex once its token exchange lands.
+//! Gemini generateContent over SSE, for the Gemini API and, through `stream_from`, Vertex.
 
 use std::collections::HashMap;
 
@@ -34,26 +34,32 @@ impl Gemini {
         let http = match credential {
             Credential::ApiKey { key } => self.client.post(url).header("x-goog-api-key", key),
             Credential::OAuth { access, .. } => self.client.post(url).bearer_auth(access),
+            Credential::Ambient { .. } => return Err(Error::Unauthenticated),
         };
-        let response = super::http::send(http.header("accept", "text/event-stream").json(&body(request)), &self.timeouts).await?;
-        let status = response.status();
-        if !status.is_success() {
-            let headers = response.headers().clone();
-            return Err(api_error(status.as_u16(), &super::http::bounded_body(response, &self.timeouts).await).with_headers(&headers));
-        }
-        let mut state = StreamState::default();
-        let events = sse::events(response.bytes_stream(), self.timeouts.idle);
-        Ok(Box::pin(events.flat_map(move |event| {
-            let items: Vec<Result<Chunk, Error>> = match event {
-                Err(error) => vec![Err(Error::Transport(error))],
-                Ok(event) => match state.chunks(&event.data) {
-                    Ok(chunks) => chunks.into_iter().map(Ok).collect(),
-                    Err(error) => vec![Err(error)],
-                },
-            };
-            futures_util::stream::iter(items)
-        })))
+        stream_from(http, request, &self.timeouts).await
     }
+}
+
+/// Sends a generateContent request already addressed and authorised (the Gemini API or Vertex) and reads its events.
+pub(super) async fn stream_from(http: reqwest::RequestBuilder, request: &Request, timeouts: &super::http::Timeouts) -> Result<ChunkStream, Error> {
+    let response = super::http::send(http.header("accept", "text/event-stream").json(&body(request)), timeouts).await?;
+    let status = response.status();
+    if !status.is_success() {
+        let headers = response.headers().clone();
+        return Err(api_error(status.as_u16(), &super::http::bounded_body(response, timeouts).await).with_headers(&headers));
+    }
+    let mut state = StreamState::default();
+    let events = sse::events(response.bytes_stream(), timeouts.idle);
+    Ok(Box::pin(events.flat_map(move |event| {
+        let items: Vec<Result<Chunk, Error>> = match event {
+            Err(error) => vec![Err(Error::Transport(error))],
+            Ok(event) => match state.chunks(&event.data) {
+                Ok(chunks) => chunks.into_iter().map(Ok).collect(),
+                Err(error) => vec![Err(error)],
+            },
+        };
+        futures_util::stream::iter(items)
+    })))
 }
 
 fn body(request: &Request) -> Value {

@@ -91,7 +91,22 @@ pub fn events<S>(bytes: S, idle: Duration) -> impl Stream<Item = Result<SseEvent
 where
     S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 {
-    let watched = futures_util::stream::unfold(Some(Box::pin(bytes)), move |state| async move {
+    let mut parser = Parser::default();
+    watched(bytes, idle).flat_map(move |chunk| {
+        let items: Vec<Result<SseEvent, String>> = match chunk {
+            Ok(bytes) => parser.feed(&bytes).into_iter().map(Ok).collect(),
+            Err(error) => vec![Err(error)],
+        };
+        futures_util::stream::iter(items)
+    })
+}
+
+/// A response body that ends with an error once nothing arrives for `idle`.
+pub fn watched<S>(bytes: S, idle: Duration) -> impl Stream<Item = Result<Bytes, String>>
+where
+    S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+{
+    futures_util::stream::unfold(Some(Box::pin(bytes)), move |state| async move {
         let mut bytes = state?;
         match tokio::time::timeout(idle, bytes.next()).await {
             Ok(Some(Ok(chunk))) => Some((Ok(chunk), Some(bytes))),
@@ -99,14 +114,6 @@ where
             Ok(None) => None,
             Err(_) => Some((Err(format!("the stream stalled: nothing for {} s", idle.as_secs())), None)),
         }
-    });
-    let mut parser = Parser::default();
-    watched.flat_map(move |chunk| {
-        let items: Vec<Result<SseEvent, String>> = match chunk {
-            Ok(bytes) => parser.feed(&bytes).into_iter().map(Ok).collect(),
-            Err(error) => vec![Err(error)],
-        };
-        futures_util::stream::iter(items)
     })
 }
 

@@ -1,13 +1,18 @@
 //! Talking to models. One neutral request shape, one adapter per wire protocol, streamed chunks out.
 
 pub mod anthropic;
+pub mod aws;
+pub mod bedrock;
 pub mod catalog;
 pub mod compat;
 pub mod credentials;
+mod eventstream;
 pub mod gemini;
+pub mod google;
 pub mod http;
 pub mod openai;
 mod sse;
+pub mod vertex;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -31,6 +36,17 @@ pub enum Credential {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         account: Option<String>,
     },
+    /// A cloud route's own credentials (AWS keys or profile, Google service account or ADC), read per request; never stored.
+    Ambient { source: String },
+}
+
+/// What the environment offers a cloud route, named for the provider list; `None` for other routes.
+pub fn ambient(provider: &str) -> Option<Option<String>> {
+    match provider {
+        "amazon-bedrock" => Some(aws::detect()),
+        "google-vertex" | "google-vertex-anthropic" => Some(google::detect()),
+        _ => None,
+    }
 }
 
 impl Credential {
@@ -320,18 +336,16 @@ pub enum Provider {
     OpenAi(openai::OpenAi),
     Compat(compat::Compat),
     Gemini(gemini::Gemini),
+    Bedrock(bedrock::Bedrock),
+    Vertex(vertex::Vertex),
     Scripted(scripted::Scripted),
 }
 
 impl Provider {
     /// The same route with other time limits.
     pub fn with_timeouts(mut self, timeouts: http::Timeouts) -> Self {
-        match &mut self {
-            Self::Anthropic(provider) => provider.timeouts = timeouts,
-            Self::OpenAi(provider) => provider.timeouts = timeouts,
-            Self::Compat(provider) => provider.timeouts = timeouts,
-            Self::Gemini(provider) => provider.timeouts = timeouts,
-            Self::Scripted(_) => {}
+        if let Some(slot) = self.timeouts_mut() {
+            *slot = timeouts;
         }
         self
     }
@@ -342,6 +356,20 @@ impl Provider {
             Self::OpenAi(provider) => Some(provider.timeouts),
             Self::Compat(provider) => Some(provider.timeouts),
             Self::Gemini(provider) => Some(provider.timeouts),
+            Self::Bedrock(provider) => Some(provider.timeouts),
+            Self::Vertex(provider) => Some(provider.timeouts),
+            Self::Scripted(_) => None,
+        }
+    }
+
+    fn timeouts_mut(&mut self) -> Option<&mut http::Timeouts> {
+        match self {
+            Self::Anthropic(provider) => Some(&mut provider.timeouts),
+            Self::OpenAi(provider) => Some(&mut provider.timeouts),
+            Self::Compat(provider) => Some(&mut provider.timeouts),
+            Self::Gemini(provider) => Some(&mut provider.timeouts),
+            Self::Bedrock(provider) => Some(&mut provider.timeouts),
+            Self::Vertex(provider) => Some(&mut provider.timeouts),
             Self::Scripted(_) => None,
         }
     }
@@ -352,6 +380,8 @@ impl Provider {
             Self::OpenAi(provider) => provider.stream(request, credential).await,
             Self::Compat(provider) => provider.stream(request, credential).await,
             Self::Gemini(provider) => provider.stream(request, credential).await,
+            Self::Bedrock(provider) => provider.stream(request, credential).await,
+            Self::Vertex(provider) => provider.stream(request, credential).await,
             Self::Scripted(provider) => provider.stream(request),
         }
     }
@@ -371,6 +401,8 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
         "openrouter" => Provider::Compat(compat::Compat::new(&base("https://openrouter.ai/api/v1"))),
         "lmstudio" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:1234/v1"))),
         "ollama" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:11434/v1"))),
+        "amazon-bedrock" => Provider::Bedrock(bedrock::Bedrock::new(override_url)),
+        "google-vertex" | "google-vertex-anthropic" => Provider::Vertex(vertex::Vertex::new(override_url)),
         _ => return None,
     };
     Some(provider.with_timeouts(http::Timeouts::for_route(id)))

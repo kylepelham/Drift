@@ -20,6 +20,10 @@ httpdate = "1"
 ignore = "0.4"
 keyring = "4"
 percent-encoding = "2"
+# Bedrock's SigV4 (HMAC, SHA-256) and Vertex service-account JWTs (RS256); already in the tree through rustls.
+ring = "0.17"
+# Bedrock's event-stream frames carry CRC32 checksums; already in the tree through flate2.
+crc32fast = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "stream", "http2"] }
 rmcp = { version = "3", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider"] }
 rusqlite = { workspace = true }

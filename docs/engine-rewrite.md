@@ -376,6 +376,36 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - Engine actions outside turns (titles, compaction summaries, handoffs) make their own snapshot when
   they start.
 
+#### Cloud routes
+
+- Bedrock (`amazon-bedrock`) and Vertex (`google-vertex`, `google-vertex-anthropic`) find their
+  own credentials, as the AWS CLI and Google client libraries do, each time a request is sent; the
+  engine records only that some exist (`Credential::Ambient`, never stored), so the provider shows
+  as connected from the environment. A cloud route's variables are never taken for an API key.
+- Bedrock: a key saved in Settings, or `AWS_BEARER_TOKEN_BEDROCK`, is a Bedrock API key sent as a
+  bearer token. Otherwise `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (and `AWS_SESSION_TOKEN`), else
+  the `AWS_PROFILE` (or `default`) section of the shared credentials file, sign the request with
+  SigV4 (`llm::aws`, ring's HMAC-SHA256; the path is encoded once on the wire and again for the
+  signature, which model ids with `:` need). Region: `AWS_REGION`, `AWS_DEFAULT_REGION`, the
+  profile's `region`, else us-east-1. Requests go to `invoke-with-response-stream` with the Anthropic
+  Messages body (no `model`, `anthropic_version: bedrock-2023-05-31`, cache breakpoints kept); the
+  reply is AWS event-stream framing (`llm::eventstream`, CRC32-checked), each `chunk` an Anthropic
+  stream event in base64. Throttling and unavailable exceptions map to the retryable kinds; access
+  denied is unauthenticated. Only Claude models (`anthropic.` ids and inference profiles) are
+  offered. SSO, `credential_process` and instance metadata are not read.
+- Vertex: `GOOGLE_APPLICATION_CREDENTIALS`, else gcloud's application-default file. A service
+  account key signs an RS256 assertion (ring) for a cloud-platform token; user credentials refresh
+  theirs. The token is cached until five minutes before it expires. Project:
+  `GOOGLE_VERTEX_PROJECT`, `GOOGLE_CLOUD_PROJECT`, then the file's `project_id` or
+  `quota_project_id`; location: `GOOGLE_VERTEX_LOCATION`, `GOOGLE_CLOUD_LOCATION`, else `global`
+  (whose host has no region). Claude models go to Anthropic's publisher (`streamRawPredict`, body
+  with `anthropic_version: vertex-2023-10-16`), Gemini models to Google's
+  (`streamGenerateContent?alt=sse`); both reuse their adapter's stream reading. Workload identity
+  and the metadata server are not used.
+- Both are verified against local stand-ins (signed path and headers, event-stream and SSE replies,
+  token exchange and caching), not live accounts. xAI and Z.ai are OpenAI-compatible presets over
+  the generic adapter, covered by its tests.
+
 #### Async questions
 
 - `question` defaults to `async: true`: the call registers the request and returns its id at once,

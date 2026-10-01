@@ -25,6 +25,7 @@ impl Compat {
         let key = match credential {
             Credential::ApiKey { key } => key.clone(),
             Credential::OAuth { access, .. } => access.clone(),
+            Credential::Ambient { .. } => return Err(Error::Unauthenticated),
         };
         let sending = self.client.post(format!("{}/chat/completions", self.base_url)).bearer_auth(key).header("accept", "text/event-stream").json(&body(request));
         let response = super::http::send(sending, &self.timeouts).await?;

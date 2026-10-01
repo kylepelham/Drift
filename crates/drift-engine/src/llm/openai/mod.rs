@@ -48,6 +48,7 @@ impl OpenAi {
                     None => http,
                 }
             }
+            Credential::Ambient { .. } => return Err(Error::Unauthenticated),
         };
         let response = super::http::send(http.json(&body(request, subscription)), &self.timeouts).await?;
         let status = response.status();

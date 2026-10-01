@@ -156,6 +156,15 @@ impl Catalog {
     }
 }
 
+/// Cloud routes host many vendors; only the wires the adapters speak are offered: Claude on Bedrock, Claude and Gemini on Vertex.
+fn speaks(provider: &str, model: &str) -> bool {
+    match provider {
+        "amazon-bedrock" => model.contains("anthropic."),
+        "google-vertex" | "google-vertex-anthropic" => model.starts_with("claude") || model.starts_with("gemini"),
+        _ => true,
+    }
+}
+
 fn cache_path(data_dir: &Path) -> PathBuf {
     data_dir.join(CACHE_FILE)
 }
@@ -204,6 +213,7 @@ impl RawProvider {
             .models
             .into_iter()
             .filter(|(_, model)| model.tool_call.unwrap_or(true) && !matches!(model.status.as_deref(), Some("deprecated" | "retired")))
+            .filter(|(_, model)| speaks(provider_id, &model.id))
             .map(|(key, model)| {
                 let family = model.family.unwrap_or_default();
                 let profile = model.profile.unwrap_or_else(|| profile_for(provider_id, &family));

@@ -49,8 +49,15 @@ impl Credentials {
         self.read(provider).and_then(|json| serde_json::from_str(&json).ok())
     }
 
-    /// A stored credential, else the provider's environment variable as an API key.
+    /// A stored credential, else what a cloud route finds for itself, else the provider's environment variable as an API key.
     pub fn resolve(&self, provider: &str, env: &[String]) -> Option<Credential> {
+        if let Some(stored) = self.get(provider) {
+            return Some(stored);
+        }
+        // A cloud route's variables are keys to sign with or files to read, never an API key.
+        if let Some(found) = super::ambient(provider) {
+            return found.map(|source| Credential::Ambient { source });
+        }
         self.get(provider).or_else(|| {
             env.iter()
                 .find_map(|name| std::env::var(name).ok())
@@ -215,6 +222,19 @@ mod tests {
             // Whichever ran first, a logout is never undone by a refresh that read the old value earlier.
             assert_eq!(store.get("p"), None, "replaced={replaced}");
         }
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_cloud_routes_variables_are_never_taken_for_an_api_key() {
+        let path = std::env::temp_dir().join(format!("drift-cred-{}.json", crate::random_hex(4)));
+        let store = Credentials::in_file(path.clone());
+        let env = ["AWS_ACCESS_KEY_ID".to_string(), "GOOGLE_APPLICATION_CREDENTIALS".to_string()];
+        for provider in ["amazon-bedrock", "google-vertex", "google-vertex-anthropic"] {
+            assert!(!matches!(store.resolve(provider, &env), Some(Credential::ApiKey { .. })), "{provider}");
+        }
+        store.set("amazon-bedrock", &Credential::ApiKey { key: "bedrock-key".into() }).unwrap();
+        assert_eq!(store.resolve("amazon-bedrock", &env), Some(Credential::ApiKey { key: "bedrock-key".into() }), "a key saved in Settings wins");
         std::fs::remove_file(path).ok();
     }
 

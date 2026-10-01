@@ -1,4 +1,4 @@
-//! Anthropic Messages API over SSE. Also serves Bedrock and Vertex once their signing lands.
+//! Anthropic Messages API over SSE; its body and event mapping also serve Bedrock and Vertex.
 
 pub mod claude_code;
 pub mod oauth;
@@ -47,25 +47,44 @@ impl Anthropic {
                 claude_code::transform(&mut body);
                 http.bearer_auth(access).header("anthropic-beta", claude_code::BETAS).header("user-agent", claude_code::user_agent())
             }
+            Credential::Ambient { .. } => return Err(Error::Unauthenticated),
         };
-        let response = super::http::send(http.json(&body), &self.timeouts).await?;
-        let status = response.status();
-        if !status.is_success() {
-            let headers = response.headers().clone();
-            return Err(api_error(status.as_u16(), &super::http::bounded_body(response, &self.timeouts).await).with_headers(&headers));
-        }
-        let events = sse::events(response.bytes_stream(), self.timeouts.idle);
-        Ok(Box::pin(events.flat_map(move |event| {
-            let items: Vec<Result<Chunk, Error>> = match event {
-                Err(error) => vec![Err(Error::Transport(error))],
-                Ok(event) => match chunks(&event.event, &event.data) {
-                    Ok(chunks) => chunks.into_iter().map(|c| Ok(unprefix(c, subscription))).collect(),
-                    Err(error) => vec![Err(error)],
-                },
-            };
-            futures_util::stream::iter(items)
-        })))
+        stream_from(http.json(&body), &self.timeouts, subscription).await
     }
+}
+
+/// Sends a Messages request already addressed, authorised and given its body (the API or Vertex) and reads its events.
+pub(super) async fn stream_from(http: reqwest::RequestBuilder, timeouts: &super::http::Timeouts, subscription: bool) -> Result<ChunkStream, Error> {
+    let response = super::http::send(http, timeouts).await?;
+    let status = response.status();
+    if !status.is_success() {
+        let headers = response.headers().clone();
+        return Err(api_error(status.as_u16(), &super::http::bounded_body(response, timeouts).await).with_headers(&headers));
+    }
+    let events = sse::events(response.bytes_stream(), timeouts.idle);
+    Ok(Box::pin(events.flat_map(move |event| {
+        let items: Vec<Result<Chunk, Error>> = match event {
+            Err(error) => vec![Err(Error::Transport(error))],
+            Ok(event) => match chunks(&event.event, &event.data) {
+                Ok(chunks) => chunks.into_iter().map(|c| Ok(unprefix(c, subscription))).collect(),
+                Err(error) => vec![Err(error)],
+            },
+        };
+        futures_util::stream::iter(items)
+    })))
+}
+
+/// The Messages body for a cloud route: the model goes in the URL and the API version in the body.
+pub(super) fn cloud_body(request: &Request, version: &str, stream: bool) -> Value {
+    let mut body = body(request);
+    if let Some(fields) = body.as_object_mut() {
+        fields.remove("model");
+        if !stream {
+            fields.remove("stream");
+        }
+        fields.insert("anthropic_version".into(), json!(version));
+    }
+    body
 }
 
 fn unprefix(chunk: Chunk, subscription: bool) -> Chunk {
@@ -156,7 +175,7 @@ fn block(block: &Block) -> Value {
     }
 }
 
-fn api_error(status: u16, text: &str) -> Error {
+pub(super) fn api_error(status: u16, text: &str) -> Error {
     let parsed: Value = serde_json::from_str(text).unwrap_or_default();
     let kind = parsed["error"]["type"].as_str().unwrap_or("api_error").to_string();
     let message = parsed["error"]["message"].as_str().unwrap_or(text).to_string();
@@ -167,7 +186,7 @@ fn api_error(status: u16, text: &str) -> Error {
 }
 
 /// Maps one SSE event to its chunks; most frames give one, message_delta carries usage and the stop.
-fn chunks(event: &str, data: &str) -> Result<Vec<Chunk>, Error> {
+pub(super) fn chunks(event: &str, data: &str) -> Result<Vec<Chunk>, Error> {
     let value: Value = serde_json::from_str(data).map_err(|e| Error::Malformed(e.to_string()))?;
     let chunk = match event {
         "message_start" => Chunk::Usage(usage(&value["message"]["usage"])),

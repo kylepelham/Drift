@@ -51,7 +51,7 @@ async fn fake(status: u16, reply: &str) -> (Arc<Fake>, String) {
     (fake, url)
 }
 
-fn request() -> Request {
+pub(crate) fn request() -> Request {
     Request {
         model: "claude-sonnet-4-5".into(),
         system: "sys".into(),
