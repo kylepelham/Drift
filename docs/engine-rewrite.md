@@ -1063,8 +1063,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     the call and the turn goes on; the model's result reads "The user denied permission for this
     call. They said: ..." when there is a message. `stop` refuses it and ends the turn that asked,
     as Stop does for that turn only: for a subagent's request that is the subagent (its parent sees
-    it stopped and goes on), never the parent or other workers. The button's tooltip says so. A call a rule refuses says so ("A permission rule forbids this call."), never that the
-    user did. The permission card has a feedback field and a "Deny and stop" button.
+    it stopped and goes on), never the parent or other workers. A call a rule refuses says so
+    ("A permission rule forbids this call."), never that the user did. The permission card offers
+    only Allow, Always and Deny; the engine keeps `stop` and `message` for other clients.
   - A shell line is split into the simple commands it runs (`tool::command`, bash and PowerShell
     quoting, escapes and operators) and each is judged on its own: any denied command denies the
     line, and it runs without asking only if every command is allowed. So `git *` does not cover

@@ -111,9 +111,7 @@ function ThreadAttribution(props: { thread?: ThreadLink }) {
 
 export function PermissionCard(props: { permission: Permission; thread?: ThreadLink }) {
   const engine = useEngine()
-  const [feedback, setFeedback] = createSignal("")
-  const reply = (response: PermissionResponse) =>
-    void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response, feedback())
+  const reply = (response: PermissionResponse) => void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response)
   return (
     <div class="composer-layer-card fade-up rounded-lg border border-warn/40 bg-surface px-3 py-2.5">
       <div class="mb-2 flex items-start justify-between gap-3">
@@ -128,18 +126,10 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
         </div>
         <ThreadAttribution thread={props.thread} />
       </div>
-      <input
-        class="mb-2 w-full rounded border border-edge bg-raised px-2 py-1 text-xs text-ink placeholder:text-ink-faint focus:outline-none"
-        placeholder={t("drift.permission.feedback")}
-        value={feedback()}
-        onInput={(event) => setFeedback(event.currentTarget.value)}
-        onKeyDown={(event) => event.key === "Enter" && feedback().trim() && reply("reject")}
-      />
       <div class="flex gap-2">
         <ActionButton label={t("settings.permissions.action.allow")} onClick={() => reply("once")} />
         <ActionButton label={t("command.permissions.autoaccept.enable")} onClick={() => reply("always")} />
         <ActionButton label={t("settings.permissions.action.deny")} danger onClick={() => reply("reject")} />
-        <ActionButton label={t("drift.permission.denyStop")} title={t("drift.permission.denyStopHint")} danger onClick={() => reply("stop")} />
       </div>
     </div>
   )
