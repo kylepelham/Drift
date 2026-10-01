@@ -1072,8 +1072,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   it is written to the session in the admission transaction, and that turn and every later
   one run as it until a prompt names another. Each message records the agent it was written
   under (a turn's replies the agent that turn runs as), so history keeps it after a switch.
-- **Commands.** `POST /sessions/{id}/command` expands `$ARGUMENTS` in the template and
-  submits the result as a turn.
+- **Commands.** `POST /sessions/{id}/command` expands the template (`Command::expand`) and submits
+  the result as a turn: `$ARGUMENTS` is everything typed, `$1`..`$9` one word each with the highest
+  taking the rest, and a template with neither gets the arguments appended rather than dropped.
 - **Skills** are listed in the system prompt by name and description; the `skill` tool
   returns SKILL.md's body and its directory.
 - **Formatters.** After a mutating tool succeeds, the first formatter whose extensions

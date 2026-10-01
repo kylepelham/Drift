@@ -142,8 +142,27 @@ impl AgentKind {
 pub struct Command {
     pub name: String,
     pub description: String,
-    /// The prompt; `$ARGUMENTS` is replaced with what follows the command.
+    /// The prompt; see [`Command::expand`] for how what follows the command fills it.
     pub template: String,
+}
+
+impl Command {
+    /// The prompt for `arguments`: `$ARGUMENTS` is all of them, `$1`..`$n` one word each with the highest
+    /// taking the rest, and a template that names none gets them appended so nothing typed is lost.
+    pub fn expand(&self, arguments: &str) -> String {
+        let arguments = arguments.trim();
+        let words: Vec<&str> = arguments.split_whitespace().collect();
+        let highest = (1..=9).rev().find(|n| self.template.contains(&format!("${n}"))).unwrap_or(0);
+        let mut text = self.template.replace("$ARGUMENTS", arguments);
+        for n in (1..=highest).rev() {
+            let word = if n == highest { words.get(n - 1..).map(|rest| rest.join(" ")).unwrap_or_default() } else { words.get(n - 1).copied().unwrap_or_default().to_string() };
+            text = text.replace(&format!("${n}"), &word);
+        }
+        if highest == 0 && !self.template.contains("$ARGUMENTS") && !arguments.is_empty() {
+            text = format!("{}\n\n{arguments}", text.trim_end());
+        }
+        text
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -487,6 +506,16 @@ mod tests {
         assert!(!opencode.allows_tool("write") && !opencode.allows_tool("edit"));
         assert!(config.agent("build").unwrap().allows_tool("anything"), "no list means every tool");
         std::fs::remove_dir_all(ws).ok();
+    }
+
+    #[test]
+    fn command_arguments_fill_placeholders_or_follow_the_template() {
+        let command = |template: &str| Command { name: "c".into(), description: String::new(), template: template.into() };
+        assert_eq!(command("Run tests for $ARGUMENTS.").expand(" src/a.rs  "), "Run tests for src/a.rs.");
+        assert_eq!(command("Move $1 to $2").expand("a.rs lib/b c.rs"), "Move a.rs to lib/b c.rs", "the highest takes the rest");
+        assert_eq!(command("Only $1").expand(""), "Only ");
+        assert_eq!(command("Review the diff.\n").expand("focus on errors"), "Review the diff.\n\nfocus on errors", "not dropped");
+        assert_eq!(command("Review the diff.").expand(""), "Review the diff.");
     }
 
     #[test]

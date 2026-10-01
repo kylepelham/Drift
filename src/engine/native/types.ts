@@ -673,7 +673,7 @@ export interface components {
              * @description Front matter `steps:`: this agent's own step limit, in place of the workspace's.
              */
             steps?: number | null;
-            /** @description Tool names this agent may use; empty means every tool. */
+            /** @description Tool names this agent may use, any case; `!name` takes one away. Empty, or only `!` entries, means every other tool. */
             tools?: string[];
         };
         /** @enum {string} */
@@ -714,7 +714,7 @@ export interface components {
         Command: {
             description: string;
             name: string;
-            /** @description The prompt; `$ARGUMENTS` is replaced with what follows the command. */
+            /** @description The prompt; see [`Command::expand`] for how what follows the command fills it. */
             template: string;
         };
         CommandBody: {
