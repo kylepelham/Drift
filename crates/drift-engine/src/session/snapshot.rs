@@ -124,21 +124,7 @@ impl Snapshots {
 
     async fn run(&self, workspace: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, Error> {
         use tokio::io::AsyncWriteExt;
-        let git_dir = self.git_dir(workspace);
-        let mut command = Command::new("git");
-        command
-            .arg("--git-dir")
-            .arg(&git_dir)
-            .arg("--work-tree")
-            .arg(workspace)
-            .args(args)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        #[cfg(windows)]
-        command.creation_flags(0x0800_0000);
-        let mut child = command.spawn().map_err(|_| Error::NoGit)?;
+        let mut child = self.command(workspace, args, input.is_some()).spawn().map_err(|_| Error::NoGit)?;
         if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
             stdin.write_all(input).await.map_err(|e| Error::Failed(e.to_string()))?;
         }
@@ -147,6 +133,27 @@ impl Snapshots {
             return Err(Error::Failed(String::from_utf8_lossy(&output.stderr).trim().to_string()));
         }
         Ok(output.stdout)
+    }
+
+    fn command(&self, workspace: &Path, args: &[&str], piped: bool) -> Command {
+        let mut command = Command::new("git");
+        // From the workspace root: pathspecs such as `.` resolve against git's working directory, not `--work-tree`.
+        if workspace.is_dir() {
+            command.current_dir(workspace);
+        }
+        command
+            .arg("--git-dir")
+            .arg(self.git_dir(workspace))
+            .arg("--work-tree")
+            .arg(workspace)
+            .args(args)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stdin(if piped { Stdio::piped() } else { Stdio::null() })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        command.creation_flags(0x0800_0000);
+        command
     }
 
     /// Creates the shadow repository once; concurrent first captures wait for the one that creates it.
@@ -369,6 +376,15 @@ mod tests {
         assert!(!workspace.join("new.txt").exists());
         assert_eq!(snapshots.current(&workspace, "a.txt").await.unwrap(), Some(one));
         assert!(!workspace.join(".git").exists(), "shadow repo must not touch the workspace");
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn git_runs_from_the_workspace_root_whatever_the_engines_own_directory() {
+        let (base, workspace) = dirs();
+        let snapshots = Snapshots::new(&base.join("data"));
+        let command = snapshots.command(&workspace, &["add", "-A", "--", "."], false);
+        assert_eq!(command.as_std().get_current_dir(), Some(workspace.as_path()), "`.` must mean the workspace, not where the app was started");
         std::fs::remove_dir_all(base).ok();
     }
 
