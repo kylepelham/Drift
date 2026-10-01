@@ -158,27 +158,33 @@ fn api_error(status: u16, text: &str) -> Error {
     }
 }
 
-/// Deltas arrive interleaved by `index`; a block stays open until a different kind of delta arrives.
+/// Text and reasoning stream as they come; tool calls interleave by `index`, so each is gathered
+/// whole and handed on at the end, in index order.
 #[derive(Default)]
 struct StreamState {
     open: Option<Open>,
-    calls: BTreeMap<u64, String>,
-    called_tools: bool,
+    calls: BTreeMap<u64, Call>,
     usage: Option<Usage>,
     finish: Option<StopReason>,
+}
+
+#[derive(Default)]
+struct Call {
+    id: String,
+    name: String,
+    arguments: String,
 }
 
 #[derive(PartialEq)]
 enum Open {
     Text,
     Reasoning,
-    Call(u64),
 }
 
 impl StreamState {
     fn chunks(&mut self, data: &str) -> Result<Vec<Chunk>, Error> {
         if data.trim() == "[DONE]" {
-            return Ok(self.done());
+            return self.done();
         }
         let value: Value = serde_json::from_str(data).map_err(|e| Error::Malformed(e.to_string()))?;
         if value["error"].is_object() {
@@ -199,7 +205,7 @@ impl StreamState {
             out.push(Chunk::TextDelta(text.into()));
         }
         for call in delta["tool_calls"].as_array().into_iter().flatten() {
-            out.extend(self.tool_delta(call));
+            self.tool_delta(call);
         }
         if let Some(reason) = choice["finish_reason"].as_str() {
             self.finish = Some(match reason {
@@ -229,41 +235,49 @@ impl StreamState {
         out
     }
 
-    fn tool_delta(&mut self, call: &Value) -> Vec<Chunk> {
-        let index = call["index"].as_u64().unwrap_or(0);
-        let mut out = Vec::new();
-        if self.open != Some(Open::Call(index)) {
-            if self.open.take().is_some() {
-                out.push(Chunk::BlockStop);
-            }
-            self.open = Some(Open::Call(index));
-            let id = call["id"].as_str().map(str::to_string).unwrap_or_else(|| format!("call_{index}"));
-            let id = self.calls.entry(index).or_insert(id).clone();
-            let name = call["function"]["name"].as_str().unwrap_or_default().into();
-            self.called_tools = true;
-            out.push(Chunk::ToolUseStart { id, name });
+    /// Adds to the call at this index: its id and name from whichever delta carries them, its arguments in order.
+    fn tool_delta(&mut self, delta: &Value) {
+        let index = delta["index"].as_u64().unwrap_or(0);
+        let call = self.calls.entry(index).or_default();
+        if let Some(id) = delta["id"].as_str().filter(|id| !id.is_empty()) {
+            call.id = id.to_string();
         }
-        if let Some(arguments) = call["function"]["arguments"].as_str().filter(|a| !a.is_empty()) {
-            out.push(Chunk::ToolInputDelta(arguments.into()));
+        if let Some(name) = delta["function"]["name"].as_str() {
+            call.name.push_str(name);
         }
-        out
+        if let Some(arguments) = delta["function"]["arguments"].as_str() {
+            call.arguments.push_str(arguments);
+        }
     }
 
-    fn done(&mut self) -> Vec<Chunk> {
+    /// `[DONE]` closes the reply; one that never said why it finished is broken, and its calls are not trusted.
+    fn done(&mut self) -> Result<Vec<Chunk>, Error> {
+        let Some(finish) = self.finish.take() else {
+            return Err(Error::Transport("the stream ended without a finish reason".into()));
+        };
         let mut out = Vec::new();
         if self.open.take().is_some() {
+            out.push(Chunk::BlockStop);
+        }
+        let calls = std::mem::take(&mut self.calls);
+        let called = !calls.is_empty();
+        for (index, call) in calls {
+            let id = if call.id.is_empty() { format!("call_{index}") } else { call.id };
+            out.push(Chunk::ToolUseStart { id, name: call.name });
+            if !call.arguments.is_empty() {
+                out.push(Chunk::ToolInputDelta(call.arguments));
+            }
             out.push(Chunk::BlockStop);
         }
         if let Some(usage) = self.usage.take() {
             out.push(Chunk::Usage(usage));
         }
-        let stop = match self.finish.take() {
-            Some(StopReason::EndTurn) | None if self.called_tools => StopReason::ToolUse,
-            Some(reason) => reason,
-            None => StopReason::EndTurn,
+        let stop = match finish {
+            StopReason::EndTurn if called => StopReason::ToolUse,
+            reason => reason,
         };
         out.push(Chunk::Stop(stop));
-        out
+        Ok(out)
     }
 }
 
@@ -329,14 +343,47 @@ mod tests {
         assert_eq!(feed(&mut state, r#"{"choices":[{"delta":{"reasoning_content":"th"}}]}"#), vec![Chunk::ReasoningStart, Chunk::ReasoningDelta("th".into())]);
         assert_eq!(feed(&mut state, r#"{"choices":[{"delta":{"content":"Hi"}}]}"#), vec![Chunk::BlockStop, Chunk::TextStart, Chunk::TextDelta("Hi".into())]);
         assert_eq!(feed(&mut state, r#"{"choices":[{"delta":{"content":"!"}}]}"#), vec![Chunk::TextDelta("!".into())]);
-        assert_eq!(
-            feed(&mut state, r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"read","arguments":""}}]}}]}"#),
-            vec![Chunk::BlockStop, Chunk::ToolUseStart { id: "call_a".into(), name: "read".into() }]
-        );
-        assert_eq!(feed(&mut state, r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"p"}}]}}]}"#), vec![Chunk::ToolInputDelta("{\"p".into())]);
+        assert_eq!(feed(&mut state, r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"read","arguments":""}}]}}]}"#), vec![]);
+        assert_eq!(feed(&mut state, r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"p\":1}"}}]}}]}"#), vec![]);
         assert_eq!(feed(&mut state, r#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#), vec![]);
         assert_eq!(feed(&mut state, r#"{"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":20}}}"#), vec![]);
-        assert_eq!(feed(&mut state, "[DONE]"), vec![Chunk::BlockStop, Chunk::Usage(Usage { input: 30, output: 7, cache_read: 20, cache_write: 0 }), Chunk::Stop(StopReason::ToolUse)]);
+        assert_eq!(
+            feed(&mut state, "[DONE]"),
+            vec![
+                Chunk::BlockStop,
+                Chunk::ToolUseStart { id: "call_a".into(), name: "read".into() },
+                Chunk::ToolInputDelta("{\"p\":1}".into()),
+                Chunk::BlockStop,
+                Chunk::Usage(Usage { input: 30, output: 7, cache_read: 20, cache_write: 0 }),
+                Chunk::Stop(StopReason::ToolUse)
+            ]
+        );
+    }
+
+    #[test]
+    fn interleaved_calls_are_put_together_by_index() {
+        let mut state = StreamState::default();
+        for delta in [
+            r#"{"index":0,"id":"call_a","function":{"name":"read","arguments":"{\"path\":"}}"#,
+            r#"{"index":1,"id":"call_b","function":{"name":"grep","arguments":"{\"pattern\":"}}"#,
+            r#"{"index":0,"function":{"arguments":"\"a.txt\"}"}}"#,
+            r#"{"index":1,"function":{"arguments":"\"x\"}"}}"#,
+        ] {
+            assert!(state.chunks(&format!(r#"{{"choices":[{{"delta":{{"tool_calls":[{delta}]}}}}]}}"#)).unwrap().is_empty());
+        }
+        state.chunks(r#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#).unwrap();
+        let out = state.chunks("[DONE]").unwrap();
+        let starts: Vec<&Chunk> = out.iter().filter(|c| matches!(c, Chunk::ToolUseStart { .. })).collect();
+        assert_eq!(starts.len(), 2, "one start per call: {out:?}");
+        assert!(out.contains(&Chunk::ToolInputDelta("{\"path\":\"a.txt\"}".into())) && out.contains(&Chunk::ToolInputDelta("{\"pattern\":\"x\"}".into())));
+    }
+
+    #[test]
+    fn a_stream_that_never_says_why_it_finished_is_refused_with_its_calls() {
+        let mut state = StreamState::default();
+        state.chunks(r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"bash","arguments":"{\"command\":\"rm -rf"}}]}}]}"#).unwrap();
+        let error = state.chunks("[DONE]").unwrap_err();
+        assert!(error.to_string().contains("without a finish reason"), "{error}");
     }
 
     fn conversation(model: &str) -> Request {
@@ -401,7 +448,7 @@ mod tests {
         assert!(matches!(StreamState::default().chunks(r#"{"error":{"message":"key","code":401}}"#), Err(Error::Unauthenticated)));
         let mut state = StreamState::default();
         state.chunks(r#"{"choices":[{"delta":{"content":"x"},"finish_reason":"length"}]}"#).unwrap();
-        assert!(state.done().contains(&Chunk::Stop(StopReason::MaxTokens)));
+        assert!(state.done().unwrap().contains(&Chunk::Stop(StopReason::MaxTokens)));
         assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
     }
 }

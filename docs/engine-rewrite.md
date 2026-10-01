@@ -729,6 +729,11 @@ these async criteria are new pending M3 work.
 - OpenAI caching is automatic, keyed by routing: every request of a conversation carries
   `prompt_cache_key` = the session id (API key and Codex routes alike, as Codex itself does), so
   its steps and turns stay on one cache. Title, compaction and handoff requests carry none.
+- Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio, Ollama) stream text and reasoning as
+  they come, but gather tool calls whole by `index`, since gateways interleave calls' deltas, and
+  hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)
+  without ever giving a `finish_reason` is a failed reply: its calls are not run, as with any stream
+  that ends without saying why.
 - OpenRouter is a catalog provider (`openrouter`, from models.dev at the first refresh; the
   bundled offline snapshot does not list it). Its Chat Completions route caches Claude only with
   explicit `cache_control`: a top-level field for automatic caching, which OpenRouter supports only
