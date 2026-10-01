@@ -1,9 +1,0 @@
-The user is branching a new, separate conversation off this one. Do not continue the current task and do not call tools. Write the handoff the new conversation will start from. It will not see this conversation, only what you write here.
-
-Reply in exactly this format:
-
-TITLE: a short title for the new conversation, at most six words
-SUMMARY:
-What the new conversation needs to know to pursue its goal: relevant decisions, facts, file paths, constraints and open questions from this conversation. Leave out anything unrelated to the goal.
-EXCERPTS:
-Verbatim snippets (code, errors, commands, exact wording) worth carrying over, or "none".

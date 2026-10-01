@@ -31,7 +31,7 @@ impl Store {
         self.create_branch(new, None)
     }
 
-    /// A session that records which source message its handoff was cut from.
+    /// A session that records which source message it was cut from.
     pub fn create_branch(&self, new: NewSession, cutoff: Option<&str>) -> rusqlite::Result<Session> {
         let session = session_from(new, cutoff);
         insert_session(&self.lock(), &session)?;

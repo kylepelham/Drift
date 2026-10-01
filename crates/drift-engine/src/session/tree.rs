@@ -29,28 +29,32 @@ impl Engine {
     /// through its last stable message. A turn still running is left out.
     pub fn fork(&self, source_id: &str, at: Option<&str>) -> Result<Session, TreeError> {
         let source = self.store.session(source_id)?.ok_or(TreeError::NoSession)?;
-        let transcript = self.store.transcript(source_id)?;
-        // The in-flight turn starts at the last user message; nothing from there on is stable.
-        let stable = if self.turns.is_running(source_id) {
-            transcript.iter().rposition(|m| m.info.role == Role::User).unwrap_or(0)
-        } else {
-            transcript.len()
-        };
-        // What an undo hid is not part of the conversation being copied.
-        let visible = source.revert.as_ref().and_then(|r| transcript.iter().position(|m| m.info.id >= r.message_id)).unwrap_or(transcript.len());
-        let finished = &transcript[..stable.min(visible)];
         let through = match at {
-            Some(id) => finished.iter().find(|m| m.info.id == id && m.info.status != MessageStatus::Streaming).ok_or(TreeError::BadMessage)?,
-            None => finished.iter().rev().find(|m| m.info.status != MessageStatus::Streaming).ok_or(TreeError::Empty)?,
+            Some(id) => self.finished(&source)?.into_iter().find(|finished| finished == id).ok_or(TreeError::BadMessage)?,
+            None => self.finished(&source)?.pop().ok_or(TreeError::Empty)?,
         };
         let title = if source.title.is_empty() { "Fork".to_string() } else { format!("{} (fork)", source.title) };
         let session = self.store.fork_session(
             source_id,
             NewSession { workspace_id: &source.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: &title, agent: &source.agent, model: source.model.as_ref() },
-            &through.info.id,
+            &through,
+            None,
         )?;
         self.hub.publish(Event::SessionCreated { session: session.clone() });
         Ok(session)
+    }
+
+    /// The ids of the source's finished messages, oldest first: not a turn still in flight, nor what an undo hid.
+    pub(super) fn finished(&self, source: &Session) -> rusqlite::Result<Vec<String>> {
+        let transcript = self.store.transcript(&source.id)?;
+        // The in-flight turn starts at the last user message; nothing from there on is stable.
+        let stable = if self.turns.is_running(&source.id) {
+            transcript.iter().rposition(|m| m.info.role == Role::User).unwrap_or(0)
+        } else {
+            transcript.len()
+        };
+        let visible = source.revert.as_ref().and_then(|r| transcript.iter().position(|m| m.info.id >= r.message_id)).unwrap_or(transcript.len());
+        Ok(transcript[..stable.min(visible)].iter().filter(|m| m.info.status != MessageStatus::Streaming).map(|m| m.info.id.clone()).collect())
     }
 
     /// Moves a session and its subagents to another workspace. Refused while any of them is running or

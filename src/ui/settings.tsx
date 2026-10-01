@@ -1575,7 +1575,7 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   const inheritedModelLabel = () =>
     currentAgent()?.name === "title"
       ? t("drift.settings.agents.automaticSmallModel")
-      : currentAgent()?.name === "compaction" || currentAgent()?.name === "handoff"
+      : currentAgent()?.name === "compaction"
         ? t("drift.settings.agents.currentSessionModel")
         : t("drift.settings.agents.currentModel")
   const agentModels = createMemo(() => [

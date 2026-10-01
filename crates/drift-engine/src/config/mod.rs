@@ -112,7 +112,7 @@ pub enum AgentKind {
     Primary,
     /// Only runs `task` subagents; never offered in the composer.
     Subagent,
-    /// Does one engine job (titles, compaction, branch handoffs); never runs a conversation.
+    /// Does one engine job (titles, compaction); never runs a conversation.
     Action,
 }
 
@@ -333,7 +333,6 @@ fn builtin_agents() -> Vec<Agent> {
         agent("explore", "Fast read-only subagent for finding files and code and answering questions about a codebase.", include_str!("prompts/explore.txt"), &["read", "glob", "grep", "bash", "webfetch"], AgentKind::Subagent),
         agent("title", "Names new conversations. Default model: a small one from the conversation's provider.", include_str!("prompts/title.txt"), &[], AgentKind::Action),
         agent("compaction", "Summarises long conversations to free context. Default model: the conversation's.", include_str!("prompts/compaction.txt"), &[], AgentKind::Action),
-        agent("handoff", "Drafts the carried context for a /spawn branch. Default model: the source conversation's.", include_str!("prompts/handoff.txt"), &[], AgentKind::Action),
     ]
 }
 
@@ -403,7 +402,7 @@ mod tests {
         assert_eq!(config.policy().decide(&crate::tool::Ask::new("bash", "git push origin", "")), Decision::Deny);
 
         let names: Vec<&str> = config.agents.iter().map(|a| a.name.as_str()).collect();
-        assert_eq!(names, ["build", "general", "compaction", "handoff", "explore", "plan", "reviewer", "title"]);
+        assert_eq!(names, ["build", "general", "compaction", "explore", "plan", "reviewer", "title"]);
         assert_eq!(config.agent("reviewer").unwrap().kind, AgentKind::Subagent, "mode: subagent keeps it out of the composer");
         assert_eq!(config.agent("explore").unwrap().kind, AgentKind::Subagent, "replacing a subagent without a mode keeps its kind");
         assert_eq!(config.agent("plan").unwrap().kind, AgentKind::Primary);
@@ -441,7 +440,6 @@ mod tests {
                 ("explore", AgentKind::Subagent),
                 ("title", AgentKind::Action),
                 ("compaction", AgentKind::Action),
-                ("handoff", AgentKind::Action),
             ]
         );
         assert!(!config.agent("explore").unwrap().tools.contains(&"edit".to_string()), "explore is read-only");

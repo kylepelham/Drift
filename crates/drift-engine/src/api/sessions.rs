@@ -8,7 +8,6 @@ use utoipa::{IntoParams, ToSchema};
 
 use super::error::ApiError;
 use crate::event::Event;
-use crate::session::branch::BranchDraft;
 use crate::session::revert::Undone;
 use crate::session::tasks::TaskRecord;
 use crate::session::turn::{Prompt, Receipt};
@@ -264,20 +263,15 @@ pub async fn command(State(engine): State<Arc<Engine>>, Path(id): Path<String>, 
 }
 
 #[derive(Deserialize, ToSchema)]
-pub struct BranchGoal {
-    pub goal: String,
+pub struct SpawnBody {
+    /// What the new thread should do; it starts with a copy of this conversation and works out what it needs.
+    pub instruction: String,
 }
 
-/// Drafts the handoff for a branch. Makes one model request; stores nothing.
-#[utoipa::path(post, path = "/sessions/{id}/branch/draft", operation_id = "draftBranch", request_body = BranchGoal, responses((status = 200, body = BranchDraft), (status = 400), (status = 404), (status = 502)))]
-pub async fn draft_branch(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<BranchGoal>) -> Result<Json<BranchDraft>, ApiError> {
-    Ok(Json(engine.draft_branch(&id, &body.goal).await?))
-}
-
-/// Creates a reviewed branch and starts it. The new conversation is independent of its source.
-#[utoipa::path(post, path = "/sessions/{id}/branch", operation_id = "createBranch", request_body = BranchDraft, responses((status = 201, body = Session), (status = 400), (status = 404)))]
-pub async fn branch(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(draft): Json<BranchDraft>) -> Result<(StatusCode, Json<Session>), ApiError> {
-    Ok((StatusCode::CREATED, Json(engine.branch(&id, draft).await?)))
+/// Spawns a thread from this conversation and starts it at once. It runs on its own from then on.
+#[utoipa::path(post, path = "/sessions/{id}/spawn", operation_id = "spawnThread", request_body = SpawnBody, responses((status = 201, body = Session), (status = 400), (status = 404)))]
+pub async fn spawn(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<SpawnBody>) -> Result<(StatusCode, Json<Session>), ApiError> {
+    Ok((StatusCode::CREATED, Json(engine.spawn(&id, &body.instruction).await?)))
 }
 
 #[derive(Deserialize, ToSchema)]

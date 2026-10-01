@@ -380,25 +380,26 @@ test("switching a retrying turn's model sends the native model ref and variant a
   expect(await h.actions.switchRetryModel("ses_idle", "msg_1", { providerID: "openai", modelID: "gpt-5" })).toEqual({ ok: false, error: "the session is not waiting to retry" })
 })
 
-test("a reviewed branch becomes a top-level session linked to its source", async () => {
-  const draft = { goal: "fix lint", title: "Fix lint", summary: "Parser tidied.", excerpts: "", cutoff: "msg_9" }
+test("a spawned thread is one call, top level and linked to its source, and loads its copied history", async () => {
+  const sent: string[][] = []
   const h = harness({
-    draftBranch: (id: string, goal: string) => Promise.resolve({ ...draft, goal: `${goal} (${id})` }),
-    createBranch: (_id: string, body: typeof draft) =>
-      Promise.resolve({ ...session("ses_branch"), parentId: "ses_1", branchCutoff: body.cutoff, title: body.title }),
+    spawnThread: (id: string, instruction: string) => {
+      sent.push([id, instruction])
+      return Promise.resolve({ ...session("ses_spawn"), parentId: "ses_1", branchCutoff: "msg_9", title: "Fix lint" })
+    },
   } as Partial<Client>)
-  expect((await h.actions.draftBranch("ses_1", "fix lint"))?.goal).toBe("fix lint (ses_1)")
-  const created = await h.actions.branch("ses_1", draft)
-  expect(created?.id).toBe("ses_branch")
-  expect(h.state.sessions.ses_branch!.parentID).toBeUndefined()
-  expect(h.state.links.ses_branch).toBe("ses_1")
-  expect(h.state.loaded.ses_branch).toBeTrue()
+  const created = await h.actions.spawn("ses_1", "fix lint")
+  expect(sent).toEqual([["ses_1", "fix lint"]])
+  expect(created?.id).toBe("ses_spawn")
+  expect(h.state.sessions.ses_spawn!.parentID).toBeUndefined()
+  expect(h.state.links.ses_spawn).toBe("ses_1")
+  expect(h.state.loaded.ses_spawn).toBeFalsy()
 })
 
-test("a failed draft reports a notice instead of throwing", async () => {
-  const h = harness({ draftBranch: () => Promise.reject(new EngineError(502, "/sessions/ses_1/branch/draft", "draft", "the model returned no handoff")) } as Partial<Client>)
-  expect(await h.actions.draftBranch("ses_1", "fix lint")).toBeUndefined()
-  expect(h.state.notices.some((n) => n.title === "Couldn't draft the branch")).toBeTrue()
+test("a refused spawn reports a notice instead of throwing", async () => {
+  const h = harness({ spawnThread: () => Promise.reject(new EngineError(400, "/sessions/ses_1/spawn", "instruction", "say what the new thread should do")) } as Partial<Client>)
+  expect(await h.actions.spawn("ses_1", " ")).toBeUndefined()
+  expect(h.state.notices.some((n) => n.title === "Couldn't spawn the thread")).toBeTrue()
 })
 
 test("fork opens the copy as a new top-level session", async () => {

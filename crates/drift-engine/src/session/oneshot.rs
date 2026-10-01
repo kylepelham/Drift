@@ -1,4 +1,4 @@
-//! Requests the engine makes for itself, outside any turn: titles, branch handoffs, compaction summaries.
+//! Requests the engine makes for itself, outside any turn: titles and compaction summaries.
 
 use std::sync::Arc;
 use std::time::Duration;

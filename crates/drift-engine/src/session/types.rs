@@ -38,7 +38,7 @@ pub struct Session {
     pub updated_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<i64>,
-    /// For a branched conversation, the last source message its handoff summarised.
+    /// For a spawned thread, the last source message copied into it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch_cutoff: Option<String>,
     /// Set while the user has undone the conversation back to a message.

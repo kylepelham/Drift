@@ -37,7 +37,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Config | `drift.json` at the project root, `.drift/{agents,commands,skills}/`, `~/.config/drift/`. Instructions from `AGENTS.md` and `CLAUDE.md`. Skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at project and home. No runtime `opencode.json` fallback. |
 | Identity | `DRIFT_*` env vars, `~/.local/share/drift` data dir. A one-time migrator runs on first launch. MIT attribution for opencode stays in `licenses/`. |
 | Permissions | Upstream semantics (allow, deny, ask; path globs; session-scoped always; agent overrides) reimplemented once, with a single protocol. |
-| Session tree | Shared session storage, distinct ownership: `task` creates a hidden worker in foreground or background; the user branches an independent sibling conversation through a reviewed handoff. A conversation's parent link is provenance, not worker cancellation ownership. See "Subagents and branches" and "Background-worker implementation". |
+| Session tree | Shared session storage, distinct ownership: `task` creates a hidden worker in foreground or background; the user spawns an independent sibling conversation with `/spawn <instruction>`. A conversation's parent link is provenance, not worker cancellation ownership. See "Subagents and branches" and "Background-worker implementation". |
 | Platforms | Windows first. CI builds Windows, macOS and Linux. OS specifics live in one `platform` module. |
 
 ## Layout
@@ -158,7 +158,7 @@ under it is true, not before.
 
 - `task` foreground and background subagents; durable launch/completion delivery,
   bounded supervision, attributed approvals and restart interruption handling.
-- User branches with a reviewed handoff; `read_thread`. Background workers remain
+- User spawned threads (`/spawn <instruction>`); `read_thread`. Background workers remain
   tasks on the parent, not independent sidebar conversations.
 - Async questions and MCP reconnect/reload deferred from M2.
 - Fork (bounded and active), move with busy guard.
@@ -175,7 +175,7 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
 | --- | --- | --- |
 | Purpose | Help finish the parent's goal | Pursue a separate goal |
 | Created by | The model, through `task` | The user, through `/spawn` only |
-| Context | A self-contained delegation prompt | A reviewed summary and excerpts, with the source cutoff recorded |
+| Context | A self-contained delegation prompt | A copy of the source's finished messages plus the user's instruction, with the source cutoff recorded |
 | Output | Foreground returns a result; background returns launch receipt then a later completion input | Its own transcript |
 | Stop | Explicit parent Stop cancels owned work; a parent turn naturally ending does not cancel background jobs | Independent; stopping the source does not stop it |
 | Permissions | Inherits the parent's auto-accept | Its own |
@@ -197,12 +197,14 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   refuse to run from one, and a subagent cannot be branched from.
 - The model cannot create branches; there is no `spawn_thread` tool. It may suggest one in prose.
   `read_thread` lets a conversation check on a branch taken from it when the user asks.
-- Branching is two calls. `POST /sessions/{id}/branch/draft {goal}` sends the source transcript up
-  to its last finished message, plus a handoff instruction, to the source's model: one request, no
-  tools run, nothing stored. It returns `{goal, title, summary, excerpts, cutoff}`. The user edits
-  that in the review dialog, then `POST /sessions/{id}/branch` creates the session with
-  `branch_cutoff`, seeds its first message with the handoff and starts it on its own abort token.
-- A branch is not a fork; see below.
+- Spawning is one call, no drafting request and no review. `POST /sessions/{id}/spawn {instruction}`
+  copies the source's finished messages (the fork copy, so compaction markers and boundaries carry
+  over) into a sibling linked by `parent_id`, records `branch_cutoff`, titles it with the
+  instruction's first six words, and submits the instruction, framed as "work only on this", on the
+  source's model and level. The model reads the copied conversation itself and decides what matters.
+  It starts on its own abort token and returns 201 with the session. An empty instruction (400
+  `instruction`) or a subagent source (400 `subagent`) creates nothing.
+- A spawned thread differs from a fork only in its link to the source and its first prompt; see below.
 
 #### Fork and move
 
@@ -232,7 +234,6 @@ Every job the engine does can run on its own model, chosen under Settings > Agen
 | `general` (default `task` type), `explore` (read-only search), workspace agents with `mode: subagent` | subagent | `task` subagents only; listed for the model under "# Subagents" in the system prompt when `task` is offered | the parent's |
 | `title` | action | naming a new conversation | the cheapest priced model from the conversation's provider (the conversation's own model when it is free, as with local providers) |
 | `compaction` | action | summarising a long conversation | the conversation's |
-| `handoff` | action | drafting the context a `/spawn` branch carries | the source conversation's |
 
 - Settings overrides are stored by the shell (`prompt_override`, key `agent:<name>`, value
   `{ model: "provider/model", prompt }`). The shell hands them to the engine with
@@ -387,7 +388,7 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   prompts join the running turn and its snapshot. A queued background worker keeps the snapshot it
   was admitted with, MCP clients included, until it runs. A user switching a waiting retry to another
   model rebuilds only the offer for that model's profile.
-- Engine actions outside turns (titles, compaction summaries, handoffs) make their own snapshot when
+- Engine actions outside turns (titles, compaction summaries) make their own snapshot when
   they start.
 
 #### Cloud routes
@@ -705,8 +706,8 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
 
 Initial async mode is selected at launch. Foreground-to-background promotion,
 agent teams, arbitrary cross-agent messaging and automatic post-crash execution
-resume are not required for the first implementation. `/spawn` retains its existing
-tool-free draft/review path and independent session lifetime.
+resume are not required for the first implementation. `/spawn` stays a user-only,
+one-call spawn with an independent session lifetime.
 
 #### Async worker acceptance gates
 
@@ -781,7 +782,7 @@ these async criteria are new pending M3 work.
   blocks add none) and Anthropic-dialect gateway base URLs all cache alike.
 - OpenAI caching is automatic, keyed by routing: every request of a conversation carries
   `prompt_cache_key` = the session id (API key and Codex routes alike, as Codex itself does), so
-  its steps and turns stay on one cache. Title, compaction and handoff requests carry none.
+  its steps and turns stay on one cache. Title and compaction requests carry none.
 - Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio, Ollama) stream text and reasoning as
   they come, but gather tool calls whole by `index`, since gateways interleave calls' deltas, and
   hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)

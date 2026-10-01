@@ -45,7 +45,7 @@ change the plan there when a decision changes.
 ## M3: tree and lifecycle
 
 - [x] Foreground `task` subagents (abort cascades, no nested delegation, sidebar only while active)
-- [x] Branches: `/spawn` drafts a handoff, user reviews, engine creates an independent conversation with its cutoff; the model cannot branch; `read_thread` for branches
+- [x] Spawned threads: `/spawn <instruction>` copies the finished conversation into a linked, independent thread and starts it on the instruction (no draft, no review); the model cannot spawn; `read_thread` for spawned threads
 - [x] Typed worker execution-mode resolver: explicit override, agent default, foreground fallback; no chat-keyword switches
 - [x] Background `task` launch receipts and bounded engine-owned jobs, independent progress from the main session
 - [x] Durable terminal results and idempotent parent completion delivery at safe provider boundaries
@@ -85,7 +85,7 @@ change the plan there when a decision changes.
   - [x] A replacement is marked `swapped` once its swap succeeds, so a stale backup is removed, never restored over a deliberate deletion
 - [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
 - [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
-- [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, handoff, subagent pins
+- [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, subagent pins
 - [x] Compaction with recovery: automatic (meter threshold, Settings off switch, stops after 3 failures), overflow compact-and-retry, `/compact`; summary plus 2-turn/15k tail, nothing deleted
 - [x] Retry with model switch: `session.retry` drives the retry notice, `POST /sessions/{id}/retry` switches a waiting turn's model at once
 - [x] Revert (undo/redo with files, across subagents; the next prompt commits it). Diff: per-call diffs in tool metadata; no session diff endpoint until something consumes one

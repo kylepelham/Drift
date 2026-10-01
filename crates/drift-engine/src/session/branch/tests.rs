@@ -3,12 +3,9 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::*;
-use crate::llm::Block;
 use crate::permission::{Decision, Policy, Rule};
 use crate::session::turn::tests::{harness, prompt, text, tool_call, until_idle, Harness};
 use crate::session::types::Role;
-
-const HANDOFF: &str = "TITLE: Fix the lint\nSUMMARY:\nWe tidied the parser in src/parse.rs.\nEXCERPTS:\nerror: unused import";
 
 async fn conversation(h: &Harness) {
     h.provider.push(text("Parser tidied"));
@@ -26,86 +23,59 @@ async fn until_session_idle(h: &Harness, id: &str) {
     panic!("{id} never finished");
 }
 
-fn draft(goal: &str, cutoff: Option<String>) -> BranchDraft {
-    BranchDraft { goal: goal.into(), title: "Fix the lint".into(), summary: "We tidied the parser.".into(), excerpts: String::new(), cutoff }
-}
-
 #[tokio::test]
-async fn a_draft_summarises_the_source_without_changing_it() {
-    let h = harness().await;
-    conversation(&h).await;
-    let before = h.engine.store.transcript(&h.session.id).unwrap();
-    h.provider.push(text(HANDOFF));
-    let draft = h.engine.draft_branch(&h.session.id, "fix the lint errors").await.unwrap();
-    assert_eq!(draft.title, "Fix the lint");
-    assert_eq!(draft.summary, "We tidied the parser in src/parse.rs.");
-    assert_eq!(draft.excerpts, "error: unused import");
-    assert_eq!(draft.cutoff.as_deref(), Some(before[1].info.id.as_str()));
-    assert_eq!(h.engine.store.transcript(&h.session.id).unwrap().len(), before.len(), "drafting stores nothing");
-
-    let requests = h.provider.requests.lock().unwrap().clone();
-    let request = requests.last().unwrap();
-    assert_eq!(request.messages.len(), 3, "source history plus the handoff instruction");
-    let Some(Block::Text(instruction)) = request.messages[2].blocks.last() else { panic!() };
-    assert!(instruction.contains("fix the lint errors") && instruction.contains("do not call tools"));
-    assert_eq!(request.model, "claude-sonnet-4-5", "unpinned, the handoff uses the conversation's model");
-}
-
-#[tokio::test]
-async fn a_handoff_model_pinned_in_settings_drafts_the_branch() {
-    let h = harness().await;
-    conversation(&h).await;
-    let pinned = h.engine.catalog.read().unwrap().providers["anthropic"].models.keys().find(|id| id.as_str() != "claude-sonnet-4-5").unwrap().clone();
-    let pin = crate::config::AgentOverride::from_json(&json!({ "model": format!("anthropic/{pinned}"), "prompt": "Hand off tersely." }));
-    h.engine.set_agent_overrides(std::collections::HashMap::from([("handoff".to_string(), pin)]));
-    h.provider.push(text(HANDOFF));
-    h.engine.draft_branch(&h.session.id, "fix the lint errors").await.unwrap();
-    let request = h.provider.requests.lock().unwrap().last().unwrap().clone();
-    assert_eq!(request.model, pinned);
-    let Some(Block::Text(instruction)) = request.messages.last().unwrap().blocks.last() else { panic!() };
-    assert!(instruction.starts_with("Hand off tersely."), "the Settings prompt replaces the default");
-}
-
-#[tokio::test]
-async fn a_branch_records_its_source_and_cutoff_and_starts_with_the_handoff() {
+async fn a_spawn_starts_at_once_with_the_conversation_and_the_instruction() {
     let h = harness().await;
     conversation(&h).await;
     let cutoff = h.engine.store.transcript(&h.session.id).unwrap()[1].info.id.clone();
     h.engine.store.set_session_variant(&h.session.id, Some("high")).unwrap();
-    h.provider.push(text("Lint fixed"));
-    let branch = h.engine.branch(&h.session.id, draft("fix the lint errors", Some(cutoff.clone()))).await.unwrap();
-    until_session_idle(&h, &branch.id).await;
-    let stored = h.engine.store.session(&branch.id).unwrap().unwrap();
-    assert_eq!(stored.variant.as_deref(), Some("high"), "the branch thinks at its source's level");
-    assert_eq!(stored.parent_id.as_deref(), Some(h.session.id.as_str()));
-    assert_eq!(stored.visibility, Visibility::Sibling);
+    h.provider.push(text("Investigating"));
+    let spawned = h.engine.spawn(&h.session.id, "Investigate why I am getting major fps loss").await.unwrap();
+    until_session_idle(&h, &spawned.id).await;
+    let stored = h.engine.store.session(&spawned.id).unwrap().unwrap();
+    assert_eq!((stored.parent_id.as_deref(), stored.visibility), (Some(h.session.id.as_str()), Visibility::Sibling), "linked to its source");
     assert_eq!(stored.branch_cutoff.as_deref(), Some(cutoff.as_str()));
-    assert_eq!(stored.title, "Fix the lint");
-    let transcript = h.engine.store.transcript(&branch.id).unwrap();
-    assert_eq!(transcript[0].info.role, Role::User);
-    let Part::Text { text } = &transcript[0].parts[0].part else { panic!() };
-    assert!(text.contains("We tidied the parser.") && text.ends_with("# Goal\n\nfix the lint errors"), "{text}");
+    assert_eq!(stored.variant.as_deref(), Some("high"), "it thinks at its source's level");
+    assert_eq!(stored.title, "Investigate why I am getting major");
+    let requests = h.provider.requests.lock().unwrap().clone();
+    let sent = format!("{:?}", requests.last().unwrap().messages);
+    assert!(sent.contains("tidy the parser") && sent.contains("Parser tidied"), "the model sees the source conversation: {sent}");
+    assert!(sent.contains("fps loss"));
+    assert_eq!(requests.len(), 2, "no drafting request: one for the source, one for the spawn");
+    let transcript = h.engine.store.transcript(&spawned.id).unwrap();
+    assert_eq!(transcript.iter().filter(|m| m.info.role == Role::User).count(), 2, "the copied prompt and the instruction");
 }
 
 #[tokio::test]
-async fn stopping_the_source_does_not_stop_its_branch() {
+async fn a_conversation_with_nothing_finished_spawns_with_just_the_instruction() {
+    let h = harness().await;
+    h.engine.store.update_session(&h.session.id, None, Some(&crate::session::turn::tests::model()), None).unwrap();
+    h.provider.push(text("On it"));
+    let spawned = h.engine.spawn(&h.session.id, "start fresh").await.unwrap();
+    until_session_idle(&h, &spawned.id).await;
+    assert_eq!(h.engine.store.session(&spawned.id).unwrap().unwrap().branch_cutoff, None);
+    assert_eq!(h.engine.store.transcript(&spawned.id).unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn stopping_the_source_does_not_stop_what_it_spawned() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
     let sleep = if cfg!(windows) { "ping -n 10 127.0.0.1" } else { "sleep 10" };
     h.provider.push(tool_call("bash", &json!({ "command": sleep }).to_string()));
     h.engine.submit(&h.session.id, prompt("wait")).await.unwrap();
     h.provider.push(tool_call("bash", &json!({ "command": sleep }).to_string()));
-    let branch = h.engine.branch(&h.session.id, draft("wait elsewhere", None)).await.unwrap();
+    let spawned = h.engine.spawn(&h.session.id, "wait elsewhere").await.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;
-    assert!(h.engine.turns.is_running(&branch.id), "a branch is not a worker of its source");
-    assert!(h.engine.abort(&branch.id));
-    until_session_idle(&h, &branch.id).await;
+    assert!(h.engine.turns.is_running(&spawned.id), "a spawned thread is not a worker of its source");
+    assert!(h.engine.abort(&spawned.id));
+    until_session_idle(&h, &spawned.id).await;
 }
 
 #[tokio::test]
-async fn subagents_empty_goals_and_foreign_cutoffs_are_refused() {
+async fn subagents_and_empty_instructions_are_refused() {
     let h = harness().await;
     conversation(&h).await;
     let subagent = h
@@ -113,25 +83,8 @@ async fn subagents_empty_goals_and_foreign_cutoffs_are_refused() {
         .store
         .create_session(NewSession { workspace_id: &h.session.workspace_id, parent_id: Some(&h.session.id), visibility: Visibility::Hidden, title: "", agent: "build", model: None })
         .unwrap();
-    assert!(matches!(h.engine.draft_branch(&subagent.id, "anything").await, Err(BranchError::FromSubagent)));
-    assert!(matches!(h.engine.branch(&subagent.id, draft("anything", None)).await, Err(BranchError::FromSubagent)));
-    assert!(matches!(h.engine.draft_branch(&h.session.id, "  ").await, Err(BranchError::EmptyGoal)));
-    let other = h
-        .engine
-        .store
-        .create_session(NewSession { workspace_id: &h.session.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None })
-        .unwrap();
-    let foreign = h.engine.store.create_message(&other.id, Role::User, None).unwrap();
-    assert!(matches!(h.engine.branch(&h.session.id, draft("x", Some(foreign.id))).await, Err(BranchError::BadCutoff)));
-    let count: i64 = h.engine.store.lock().query_row("SELECT COUNT(*) FROM session WHERE branch_cutoff IS NOT NULL OR title = 'Fix the lint'", [], |r| r.get(0)).unwrap();
-    assert_eq!(count, 0, "refused branches leave nothing behind");
-}
-
-#[test]
-fn unlabelled_handoffs_become_the_summary() {
-    let parsed = parse_draft("fix the flaky test in the scheduler suite please", "Just some prose.", None);
-    assert_eq!(parsed.summary, "Just some prose.");
-    assert_eq!(parsed.title, "fix the flaky test in the");
-    let none = parse_draft("goal", "TITLE: T\nSUMMARY:\nS\nEXCERPTS:\nnone", None);
-    assert_eq!((none.title.as_str(), none.summary.as_str(), none.excerpts.as_str()), ("T", "S", ""));
+    assert!(matches!(h.engine.spawn(&subagent.id, "anything").await, Err(BranchError::FromSubagent)));
+    assert!(matches!(h.engine.spawn(&h.session.id, "  ").await, Err(BranchError::EmptyInstruction)));
+    let count: i64 = h.engine.store.lock().query_row("SELECT COUNT(*) FROM session WHERE visibility = 'sibling'", [], |r| r.get(0)).unwrap();
+    assert_eq!(count, 1, "refused spawns leave nothing behind");
 }

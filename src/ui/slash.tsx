@@ -7,7 +7,6 @@ import { selectedSession, selectSession } from "../state/selection"
 import { setTheme, theme, themes } from "../state/theme"
 import { activeWorkspace, archiveSession } from "../state/workspaces"
 import { t } from "../state/i18n"
-import { openBranch } from "./branch"
 import { openMcpServers } from "./mcp"
 import { restoreReverted } from "./revert"
 import { archiveFailed } from "./workspaces"
@@ -40,12 +39,7 @@ const builtins: SlashItem[] = [
     description: "drift.slash.spawn",
     needsSession: true,
     requiredArgs: true,
-    usage: "<task>",
-    presets: [
-      { value: "Investigate ", label: "drift.slash.spawn.investigate", description: "drift.slash.spawn.investigate.description" },
-      { value: "Implement ", label: "drift.slash.spawn.implement", description: "drift.slash.spawn.implement.description" },
-      { value: "Review ", label: "drift.slash.spawn.review", description: "drift.slash.spawn.review.description" },
-    ],
+    usage: "<instruction>",
   },
   { name: "archive", description: "command.session.archive", needsSession: true },
   { name: "undo", description: "command.session.undo.description", needsSession: true },
@@ -120,7 +114,8 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
       engine.actions.notice({ message: t("drift.slash.spawn.required"), variant: "warning" })
       return
     }
-    openBranch(current, args.trim())
+    const session = await engine.actions.spawn(current, args.trim())
+    if (session && selectedSession() === current) selectSession(session.id)
     return
   }
   if (item.name === "archive" && current) {

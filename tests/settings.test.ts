@@ -58,7 +58,7 @@ test("selected language dictionaries translate settings without loading every lo
   expect(t("common.reset")).toBe("Restablecer")
   expect(t("drift.remote.title")).toBe("Remote Access")
   expect(t("drift.settings.prompts")).toBe("Prompts")
-  expect(t("drift.slash.spawn.review")).toBe("Review")
+  expect(t("drift.slash.spawn.required")).toBe("Say what the new thread should do after /spawn.")
   expect(t("drift.attachment.kind.pdf")).toBe("PDF")
   expect(reasoningLevelLabel("xhigh")).toBe("Muy alto")
   expect(reasoningLevelLabel("custom")).toBe("Custom")
@@ -171,7 +171,6 @@ const pendingTranslation = new Set([
   ...pendingKeys("drift.settings.autoCompact", "title description"),
   ...pendingKeys("drift.settings.prompts", "behaviorFields behaviorRefused familyUnavailable"),
   "drift.message.forkHere",
-  ...pendingKeys("drift.branch", "title description drafting goal name summary excerpts create"),
   ...pendingKeys("drift.about", "row.native.title row.native.description native.connected native.offline"),
   "drift.markdown.linkFailed",
   ...pendingKeys("drift.provider", "pasteCode enterCode copyCode openAgain copyLink linkCopied"),
@@ -256,8 +255,7 @@ const pendingTranslation = new Set([
     "drift.slash",
     `
       fork fork.active fork.active.description fork.all fork.all.description fork.invalid
-      spawn spawn.implement spawn.implement.description spawn.investigate spawn.investigate.description
-      spawn.required spawn.review spawn.review.description
+      spawn spawn.required
     `,
   ),
   ...pendingKeys(

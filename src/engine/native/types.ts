@@ -342,40 +342,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/sessions/{id}/branch": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Creates a reviewed branch and starts it. The new conversation is independent of its source. */
-        post: operations["createBranch"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{id}/branch/draft": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Drafts the handoff for a branch. Makes one model request; stores nothing. */
-        post: operations["draftBranch"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/sessions/{id}/command": {
         parameters: {
             query?: never;
@@ -494,6 +460,23 @@ export interface paths {
          *     changed by someone else since are kept and listed. Again while undone moves the point.
          */
         post: operations["revertSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}/spawn": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Spawns a thread from this conversation and starts it at once. It runs on its own from then on. */
+        post: operations["spawnThread"];
         delete?: never;
         options?: never;
         head?: never;
@@ -721,18 +704,6 @@ export interface components {
              *     line allows it: approving `git status` never approves `git status > victim.txt`.
              */
             writes?: string[];
-        };
-        /** @description What the user reviews before a branch exists. Nothing is stored until they confirm. */
-        BranchDraft: {
-            /** @description The last source message the summary covers; absent for a conversation with no finished replies. */
-            cutoff?: string | null;
-            excerpts: string;
-            goal: string;
-            summary: string;
-            title: string;
-        };
-        BranchGoal: {
-            goal: string;
         };
         /** @description One answered question: what was asked and what the user chose or typed. */
         Clarified: {
@@ -1279,7 +1250,7 @@ export interface components {
             agent: string;
             /** Format: int64 */
             archivedAt?: number | null;
-            /** @description For a branched conversation, the last source message its handoff summarised. */
+            /** @description For a spawned thread, the last source message copied into it. */
             branchCutoff?: string | null;
             /** Format: int64 */
             createdAt: number;
@@ -1304,6 +1275,10 @@ export interface components {
             name: string;
             /** @description Directory holding SKILL.md and whatever it references. */
             path: string;
+        };
+        SpawnBody: {
+            /** @description What the new thread should do; it starts with a copy of this conversation and works out what it needs. */
+            instruction: string;
         };
         /** @enum {string} */
         State: "disabled" | "disconnected" | "connecting" | "connected" | "failed";
@@ -2069,86 +2044,6 @@ export interface operations {
             };
         };
     };
-    createBranch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BranchDraft"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Session"];
-                };
-            };
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    draftBranch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BranchGoal"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BranchDraft"];
-                };
-            };
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     runCommand: {
         parameters: {
             query?: never;
@@ -2393,6 +2288,43 @@ export interface operations {
                 content?: never;
             };
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    spawnThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpawnBody"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -5,7 +5,7 @@ import { orderedModelProviderIds } from "./prefs"
 export function agentModelCapability(
   agent: { name: string; mode: string } | undefined,
 ): "tools" | "text" | undefined {
-  if (agent?.name === "title" || agent?.name === "compaction" || agent?.name === "handoff") return "text"
+  if (agent?.name === "title" || agent?.name === "compaction") return "text"
   if (agent?.mode === "subagent" || agent?.mode === "all") return "tools"
 }
 

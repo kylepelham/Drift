@@ -130,11 +130,12 @@ apart (see "Subagents and branches" in `docs/engine-rewrite.md`).
 - Subagents come from the `task` tool. Their result returns to the parent's task card, which
   opens the stored transcript. They show under the parent in the sidebar while running, waiting on
   the user, or open, stop when the parent stops, and cannot delegate further.
-- Branches come only from the user. `/spawn <goal>` asks the current conversation's model for a
-  handoff (title, carried context, verbatim excerpts) without changing the conversation, shows it
-  in a review dialog, and on confirm creates a new top-level conversation that starts from that
-  handoff. It records the source and the last message the handoff covered, runs independently,
-  and has its own permissions. The model is not offered a tool to branch.
+- Spawned threads come only from the user. `/spawn <instruction>` creates a new top-level
+  conversation at once with a copy of this one's finished messages and starts it on the
+  instruction, on the source's model and level. There is no drafting request and no review: the
+  new thread reads the copied conversation and works out what it needs. It records the source and
+  the last message copied, runs independently, and has its own permissions. The model is not
+  offered a tool to spawn.
 - `read_thread` gives a conversation a one-shot snapshot of a branch taken from it: status,
   pending asks, todos and the latest reply. It refuses sessions that were not branched from the
   caller.
@@ -192,12 +193,11 @@ Built-in subagents are `general` (the default `task` type, full tools) and `expl
 search); a workspace `.drift/agents/<name>.md` with `mode: subagent` adds another. All appear in
 Settings > Agents with their prompts and model pickers, never in the composer. The engine runs a
 `task` subagent on its agent's pinned model, falling back to the parent's.
-Branches from `/spawn` start on the source conversation's model.
+Threads from `/spawn` start on the source conversation's model.
 
-The action agents `title`, `compaction` and `handoff` (the context a `/spawn` branch carries) have
-the same model picker and prompt editor. Title defaults to the cheapest priced model from the
-conversation's provider, or the conversation's own model when that is free; compaction and
-handoff default to the conversation's model. Their picker lists text models. The composer never
+The action agents `title` and `compaction` have the same model picker and prompt editor. Title
+defaults to the cheapest priced model from the conversation's provider, or the conversation's own
+model when that is free; compaction defaults to the conversation's model. Their picker lists text models. The composer never
 offers them as agents. Details: "Per-action models" in `docs/engine-rewrite.md`.
 
 ## Workflows (design open)

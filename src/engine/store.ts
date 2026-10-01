@@ -22,7 +22,7 @@ export type AgentInfo = {
   name: string
   description: string
   mode: "primary" | "subagent"
-  /** Engine actions (titles, compaction, handoffs): configurable in Settings, never picked in the composer. */
+  /** Engine actions (titles, compaction): configurable in Settings, never picked in the composer. */
   hidden: boolean
   builtIn: boolean
   prompt?: string

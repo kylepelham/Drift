@@ -465,7 +465,7 @@ async fn workspace_config_and_commands_are_served() {
     let agents: Vec<(&str, &str)> = config["agents"].as_array().unwrap().iter().map(|a| (a["name"].as_str().unwrap(), a["kind"].as_str().unwrap())).collect();
     assert_eq!(
         agents,
-        [("build", "primary"), ("plan", "primary"), ("general", "subagent"), ("explore", "subagent"), ("title", "action"), ("compaction", "action"), ("handoff", "action")]
+        [("build", "primary"), ("plan", "primary"), ("general", "subagent"), ("explore", "subagent"), ("title", "action"), ("compaction", "action")]
     );
 
     let ran = h.post(&format!("/sessions/{session_id}/command")).json(&json!({ "name": "test", "arguments": "the parser" })).send().await.unwrap();

@@ -31,7 +31,6 @@ import { ChatHeader } from "./ui/header"
 import { Lightbox } from "./ui/lightbox"
 import { FilePreviewHost } from "./ui/file-preview"
 import { McpServersModal } from "./ui/mcp"
-import { BranchHost } from "./ui/branch"
 import { AttentionNotifier, NoticeHost } from "./ui/notifications"
 import { PaletteHost } from "./ui/palette"
 import { RemoteLinkNotice } from "./ui/remote-link-notice"
@@ -89,7 +88,6 @@ export function App() {
         <Lightbox />
         <FilePreviewHost />
         <McpServersModal />
-        <BranchHost />
         <SettingsHost />
         <PaletteHost />
         <ToolContextMenuHost />

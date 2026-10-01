@@ -11,9 +11,9 @@ use crate::id;
 use crate::session::types::{Part, Session};
 
 impl Store {
-    /// A new session holding copies of the source's finished messages up to and including `through`.
-    pub fn fork_session(&self, source_id: &str, new: NewSession, through: &str) -> rusqlite::Result<Session> {
-        let session = session_from(new, None);
+    /// A new session holding copies of the source's finished messages up to and including `through`; a spawn records it as its `cutoff`.
+    pub fn fork_session(&self, source_id: &str, new: NewSession, through: &str, cutoff: Option<&str>) -> rusqlite::Result<Session> {
+        let session = session_from(new, cutoff);
         let session = transaction(&self.lock(), |conn| {
             insert_session(conn, &session)?;
             conn.prepare_cached("UPDATE session SET variant = (SELECT variant FROM session WHERE id = ?2) WHERE id = ?1")?.execute(params![session.id, source_id])?;

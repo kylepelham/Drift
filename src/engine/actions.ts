@@ -25,7 +25,6 @@ import {
   type Notice,
 } from "./store"
 
-export type BranchDraft = components["schemas"]["BranchDraft"]
 type NativeSession = components["schemas"]["Session"]
 
 export type PromptFile = {
@@ -456,30 +455,14 @@ export function createActions(
     }
   }
 
-  /** Asks the source's model for a handoff the user reviews; nothing is created yet. */
-  async function draftBranch(id: string, goal: string): Promise<BranchDraft | undefined> {
+  /** `/spawn <instruction>`: a new linked thread that starts at once with this conversation and the instruction. */
+  async function spawn(id: string, instruction: string) {
     try {
-      return await requireClient().draftBranch(id, goal)
-    } catch (cause) {
-      notice({ id: `branch-${id}`, title: "Couldn't draft the branch", message: errorMessage(cause), variant: "error", duration: 10_000 })
-    }
-  }
-
-  /** Creates the reviewed branch; the engine starts it and it runs independently of its source. */
-  async function branch(id: string, draft: BranchDraft) {
-    try {
-      const session = adaptSession(await requireClient().createBranch(id, draft), workspaces())
-      set(
-        produce((draft) => {
-          draft.transcripts[session.id] ??= []
-          draft.loaded[session.id] = true
-          draft.cursors[session.id] ??= null
-        }),
-      )
+      const session = adaptSession(await requireClient().spawnThread(id, instruction), workspaces())
       putSession(set, session)
       return session
     } catch (cause) {
-      notice({ id: `branch-${id}`, title: "Couldn't create the branch", message: errorMessage(cause), variant: "error", duration: 10_000 })
+      notice({ id: `spawn-${id}`, title: "Couldn't spawn the thread", message: errorMessage(cause), variant: "error", duration: 10_000 })
     }
   }
 
@@ -582,8 +565,7 @@ export function createActions(
     findFiles,
     steer: async (id: string, text: string, options: PromptOptions) => send(id, text, options),
     fork,
-    draftBranch,
-    branch,
+    spawn,
     moveSession,
     moveWorkspaceSessions,
     // Pending native work (CHECKLIST): reports nothing deleted, so a removed workspace's purge never completes.
