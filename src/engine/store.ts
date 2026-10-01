@@ -424,19 +424,20 @@ export function taskForCall(state: EngineState, sessionId: string, callId: strin
   return tasks.find((task) => (typeof taskId === "string" && task.id === taskId) || (callId !== undefined && task.callId === callId))
 }
 
-type SavedSession = Session & { agent?: string; variant?: string | null; queued?: Queued | null }
+type SavedSession = Session & { agent?: string; variant?: string | null; queued?: Queued | null; model?: { providerID: string; id: string } }
 
 /** What waits to run in a session once its turn finishes the step it is on. */
 export function queuedPrompt(state: EngineState, id: string | null | undefined) {
   return (id ? (state.sessions[id] as SavedSession | undefined)?.queued : undefined) ?? undefined
 }
 
-/** The agent and reasoning level a session runs as next: what waits, else what the engine saved. */
-export function savedChoice(state: EngineState, id: string | null | undefined) {
+/** The agent and reasoning level a session runs as next (what waits, else what the engine saved), and its model. */
+export function savedChoice(state: EngineState, id: string | null | undefined): { agent?: string; variant?: string | null; model?: ModelRef } {
   const session = id ? (state.sessions[id] as SavedSession | undefined) : undefined
   if (!session) return {}
   const next = session.queued ?? session
-  return { agent: next.agent, variant: next.variant ?? null }
+  const model = session.model ? { model: { providerID: session.model.providerID, modelID: session.model.id } } : {}
+  return { agent: next.agent, variant: next.variant ?? null, ...model }
 }
 
 export function sessionBusy(state: EngineState, id: string) {

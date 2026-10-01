@@ -109,6 +109,27 @@ test("a waiting prompt shows on the session, runs as its own choice next, and co
   expect(h.state.notices).toEqual([])
 })
 
+test("a follow-up names its agent and level only when they change what the session runs as next", async () => {
+  const sent: Record<string, unknown>[] = []
+  const saved = { ...session("ses_1"), agent: "plan", variant: "high" }
+  const h = harness({
+    sessions: () => Promise.resolve([saved]),
+    submit: (_id: string, body: Record<string, unknown>) => (sent.push(body), Promise.resolve({ session: saved })),
+  } as Partial<Client>)
+  await h.actions.loadSessions("C:/repo")
+  const named = (index: number) => ({ agent: sent[index]!.agent, variant: sent[index]!.variant, hasVariant: "variant" in sent[index]! })
+  await h.actions.send("ses_1", "same", { model: null, agent: "plan", variant: "high" })
+  await h.actions.send("ses_1", "not offered", { model: null, agent: "plan", variant: undefined })
+  await h.actions.send("ses_1", "default", { model: null, agent: "plan", variant: null })
+  await h.actions.send("ses_1", "build now", { model: null, agent: "build", variant: "high" })
+  expect([0, 1, 2, 3].map(named)).toEqual([
+    { agent: undefined, variant: undefined, hasVariant: false },
+    { agent: undefined, variant: undefined, hasVariant: false },
+    { agent: undefined, variant: null, hasVariant: true },
+    { agent: "build", variant: undefined, hasVariant: false },
+  ])
+})
+
 test("send failures land in the session's error slot", async () => {
   const h = harness({ submit: () => Promise.reject(new EngineError(409, "/turns", "busy", "session is already running a turn")) })
   const result = await h.actions.send("ses_1", "again", { model: null, agent: "build" })

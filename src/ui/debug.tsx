@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
-import { resolveModel, type MessageEntry } from "../engine/store"
+import { resolveModel, savedChoice, type MessageEntry } from "../engine/store"
 import { prefsFor } from "../state/prefs"
 import { debugPanelOpen, setDebugPanelOpen } from "../state/panels"
 import { t } from "../state/i18n"
@@ -15,7 +15,7 @@ export function DebugPanel() {
   const entries = () => engine.state.transcripts[selectedSession() ?? ""] ?? []
   const provider = () => {
     const id = selectedSession()
-    return id ? resolveModel(engine.state, prefsFor(id).model)?.providerID : undefined
+    return id ? resolveModel(engine.state, prefsFor(id, savedChoice(engine.state, id)).model)?.providerID : undefined
   }
   createEffect(() => {
     const id = provider()

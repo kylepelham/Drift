@@ -15,6 +15,7 @@ import {
   mergeTranscriptSnapshot,
   putSession,
   putTasks,
+  savedChoice,
   type AgentInfo,
   type EngineState,
   type McpServerConfig,
@@ -33,7 +34,8 @@ export type PromptFile = {
   url: string
   source?: { type: "file"; path: string; text: { value: string; start: number; end: number } }
 }
-export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string; files?: PromptFile[]; directory?: string }
+/** `variant` null asks for the model's default level; left out, the session keeps its own (as for a level the model does not offer). */
+export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string | null; files?: PromptFile[]; directory?: string }
 /** A prompt the engine gave back unrun: discarded, stopped, or replaced by a newer one while it waited. */
 export type ReturnedPrompt = { text: string; files: { mime: string; name: string; url: string }[] }
 export type PromptSendResult = { ok: true; returned?: ReturnedPrompt } | { ok: false; error: string }
@@ -208,11 +210,13 @@ export function createActions(
       ...(options.files ?? []).map((file) => ({ type: "file" as const, mime: file.mime, name: file.filename ?? "file", url: file.url })),
     ]
     if (parts.length === 0) return fail(id, "Prompt failed: the prompt is empty")
+    // Named only when they change what the session runs as next; an unchanged follow-up steers into the running turn.
+    const saved = savedChoice(state, id)
     const prompt = {
       parts,
       model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined,
-      variant: options.variant ?? null,
-      ...(options.agent ? { agent: options.agent } : {}),
+      ...(options.variant !== undefined && options.variant !== (saved.variant ?? null) ? { variant: options.variant } : {}),
+      ...(options.agent && options.agent !== saved.agent ? { agent: options.agent } : {}),
     }
     // Resending the same prompt reuses its id, so a send whose answer was lost is not admitted twice.
     const key = `${id}\n${JSON.stringify(prompt)}`

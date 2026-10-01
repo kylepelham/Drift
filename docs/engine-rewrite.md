@@ -1028,10 +1028,14 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   never empty, because on an agent an empty list means every tool: that would quietly lift
   `plan`'s read-only set. Reset restores the definition's own tools. Stored overrides from
   before keep only these fields when next saved.
-- The composer shows, and sends, this browser's own choice of agent and reasoning level for a
-  session; for a session it has none for (made on another client, a branch) it shows the agent
-  and level the engine saved on the session, so what is shown is what the engine runs.
-- A prompt may name its `agent`; the composer always sends the one it shows. It must be a
+- The composer shows, for agent, model and reasoning level, an unsent edit (a pick made in this
+  browser and not yet sent), else what the session runs as next (what waits, else what the engine
+  saved, and the session's model), else the global default. An accepted send clears the edits,
+  so what is shown is what the engine runs. A prompt names its agent and level only when they
+  differ from what the session runs as next, so an ordinary follow-up never names them and
+  steers into the running turn. A level the chosen model does not offer is left out (the session
+  keeps its own), never sent as null; null is sent only when the user picks Default.
+- A prompt may name its `agent`; the composer sends it when it changes the session's. It must be a
   primary agent of the workspace (a subagent, an action or an unknown name is 400 `agent`),
   it is written to the session in the admission transaction, and that turn and every later
   one run as it until a prompt names another. Each message records the agent it was written

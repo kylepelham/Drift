@@ -138,19 +138,35 @@ export function autoAcceptAllowed(
   return !!(workerOf && sessions.includes(workerOf))
 }
 
+/** Choices made in the composer for a session and not yet sent; an accepted send clears them. */
 type SessionPrefs = { model?: ModelRef | null; agent?: string; variant?: string | null }
 const [sessionPrefs, setSessionPrefs] = persisted<Record<string, SessionPrefs>>("drift.session.prefs", {})
 
-/** What the engine saved on the session, used when this browser has no choice of its own for it (made elsewhere, or a branch). */
-export type SessionChoice = { agent?: string; variant?: string | null }
+/** What the session runs as next by the engine's account; `{}` for a session it has not reported. */
+export type SessionChoice = { agent?: string; variant?: string | null; model?: ModelRef }
 
-export function prefsFor(sessionId: string | null | undefined, saved: SessionChoice = {}) {
+/** An unsent edit, else what the session runs as, else the global default. */
+export function prefsFor(sessionId: string | null | undefined, saved: SessionChoice) {
   const own = (sessionId && sessionPrefs()[sessionId]) || {}
   return {
-    model: own.model !== undefined ? own.model : modelPref(),
+    model: own.model !== undefined ? own.model : saved.model ?? modelPref(),
     agent: own.agent ?? saved.agent ?? agentPref(),
     variant: own.variant !== undefined ? own.variant : saved.variant !== undefined ? saved.variant : variantPref(),
   }
+}
+
+/** The level to send: null for the model's default, `undefined` (left out, so the session keeps its own) for one this model does not offer. */
+export function sendableVariant(pref: string | null | undefined, offered: readonly string[]) {
+  if (pref === null) return null
+  return pref && offered.includes(pref) ? pref : undefined
+}
+
+/** The session now runs as what was sent, so the composer goes back to showing the session's own choice. */
+export function clearEdits(sessionId: string) {
+  if (!sessionPrefs()[sessionId]) return
+  const next = { ...sessionPrefs() }
+  delete next[sessionId]
+  setSessionPrefs(next)
 }
 
 export function updatePrefs(sessionId: string | null | undefined, patch: SessionPrefs) {

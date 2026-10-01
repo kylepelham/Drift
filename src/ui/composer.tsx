@@ -5,10 +5,12 @@ import { emitThreadCreated, transformComposerSubmit } from "../plugins"
 import {
   autoAcceptGlobal,
   autoAcceptSessions,
+  clearEdits,
   modelVisible,
   orderedModelProviderIds,
   prefsFor,
   seedPrefs,
+  sendableVariant,
   toggleAutoAccept,
   updatePrefs,
 } from "../state/prefs"
@@ -405,9 +407,7 @@ export function Composer() {
         const selectedPrefs = prefsFor(existing, savedChoice(engine.state, existing))
         const selectedModel = resolveModel(engine.state, selectedPrefs.model)
         const selectedVariants = Object.keys(modelInfo(engine.state, selectedModel)?.variants ?? {})
-        const selectedVariant =
-          selectedPrefs.variant && selectedVariants.includes(selectedPrefs.variant) ? selectedPrefs.variant : undefined
-        return { selectedPrefs, selectedModel, selectedVariant }
+        return { selectedPrefs, selectedModel, selectedVariant: sendableVariant(selectedPrefs.variant, selectedVariants) }
       },
       transform: transformComposerSubmit,
       newSession: engine.actions.newSession,
@@ -435,12 +435,14 @@ export function Composer() {
           ...attachments.files,
         ]
         const prompt = [text, attachments.text].filter(Boolean).join("\n\n")
-        return engine.actions.send(id, prompt, {
+        const result = await engine.actions.send(id, prompt, {
           model: prepared.selectedModel,
           agent: prepared.selectedPrefs.agent,
           variant: prepared.selectedVariant,
           files,
         })
+        if (result.ok) clearEdits(id)
+        return result
       },
       admitted(key, snapshot, historyDraft, returned) {
         stopDictation()

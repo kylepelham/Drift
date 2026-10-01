@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
 import { useEngine } from "../engine"
 import { estimateContextBreakdown, type BreakdownKey, type BreakdownSegment } from "../engine/context-breakdown"
-import { contextStats, resolveModel } from "../engine/store"
+import { contextStats, resolveModel, savedChoice } from "../engine/store"
 import { t } from "../state/i18n"
 import { toggleDebugPanel } from "../state/panels"
 import { ProviderIcon } from "./provider-icon"
@@ -37,7 +37,7 @@ const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumF
 
 export function ContextMeter(props: { sessionId: string }) {
   const engine = useEngine()
-  const model = () => resolveModel(engine.state, prefsFor(props.sessionId).model)
+  const model = () => resolveModel(engine.state, prefsFor(props.sessionId, savedChoice(engine.state, props.sessionId)).model)
   const stats = () => contextStats(engine.state, props.sessionId, model())
   const percent = () => stats()?.percent ?? 0
   const refresh = () => {
@@ -88,7 +88,7 @@ function MeterRing(props: { percent: number }) {
 
 export function ContextSection(props: { sessionId: string }) {
   const engine = useEngine()
-  const stats = () => contextStats(engine.state, props.sessionId, resolveModel(engine.state, prefsFor(props.sessionId).model))
+  const stats = () => contextStats(engine.state, props.sessionId, resolveModel(engine.state, prefsFor(props.sessionId, savedChoice(engine.state, props.sessionId)).model))
   const segments = createMemo(() => {
     const usage = stats()
     return usage ? estimateContextBreakdown(engine.state.transcripts[props.sessionId] ?? [], usage.count) : []

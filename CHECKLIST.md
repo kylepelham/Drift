@@ -138,6 +138,7 @@ change the plan there when a decision changes.
 - [x] Second review: a follow-up is judged against the running turn by effect (agent by name, level by the reasoning it resolves to on the running model)
 - [x] Second review: a prompt for another agent or level is queued durably and answered at once (202, `session.queued`), starts when the turn's step ends or the engine restarts; later prompts join or replace it; Discard and Stop return it, and nothing starts after a Stop
 - [x] Second review: the composer shows a waiting prompt (who it runs as, or why it could not start) with Discard, and puts any prompt the engine gives back into the draft
+- [x] Second review: composer picks are unsent edits cleared by an accepted send; a prompt names agent and level only when they change the session's, never null for a level the model lacks; the model falls back to the session's before the global default
 
 #### Retained features still on the OpenCode database (pending native UI work)
 

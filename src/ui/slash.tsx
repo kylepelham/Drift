@@ -1,5 +1,5 @@
 import type { Engine } from "../engine"
-import { previousUserMessage, resolveModel } from "../engine/store"
+import { previousUserMessage, resolveModel, savedChoice } from "../engine/store"
 import { emitThreadArchived } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
 import { prefsFor } from "../state/prefs"
@@ -132,7 +132,7 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
       .catch((cause: unknown) => archiveFailed(engine, cause))
   }
   if (item.name === "compact" && current) {
-    return engine.actions.summarize(current, resolveModel(engine.state, prefsFor(current).model))
+    return engine.actions.summarize(current, resolveModel(engine.state, prefsFor(current, savedChoice(engine.state, current)).model))
   }
   if (item.name === "share" && current) {
     const url = await engine.actions.share(current)

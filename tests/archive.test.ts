@@ -23,6 +23,25 @@ test("a session this browser has no choice for shows the agent and level the eng
   expect(prefsFor("ses_mine", saved)).toMatchObject({ agent: "build", variant: "low" })
 })
 
+test("an unsent edit wins, then the session's own choice and model, then the global default; sending clears the edit", async () => {
+  const { clearEdits, prefsFor, sendableVariant, updatePrefs } = await import("../src/state/prefs")
+  const sessionModel = { providerID: "anthropic", modelID: "claude-sonnet-4-5" }
+  const saved = { agent: "plan", variant: "high", model: sessionModel }
+  const edited = { providerID: "openai", modelID: "gpt-5" }
+  updatePrefs("ses_edit", { model: edited, variant: "low" })
+  expect(prefsFor("ses_edit", saved)).toEqual({ model: edited, agent: "plan", variant: "low" })
+  expect(prefsFor("ses_other", saved).model).toEqual(sessionModel)
+  expect(prefsFor("ses_other", {}).model).toEqual(edited)
+  clearEdits("ses_edit")
+  expect(prefsFor("ses_edit", saved)).toEqual({ model: sessionModel, agent: "plan", variant: "high" })
+  expect([sendableVariant("high", ["low", "high"]), sendableVariant(null, ["high"]), sendableVariant("max", ["high"]), sendableVariant(undefined, [])]).toEqual([
+    "high",
+    null,
+    undefined,
+    undefined,
+  ])
+})
+
 const long = Date.now() - 30 * 24 * 60 * 60 * 1000
 
 function archivedLongAgo(...sessionIds: string[]) {
