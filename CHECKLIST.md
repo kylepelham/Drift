@@ -135,6 +135,7 @@ change the plan there when a decision changes.
 - [x] Jev tool routing removed from Settings (toggle, state module and status polling)
 - [x] Review fixes: MCP secrets never leave the engine (names only, write-only values), rename and add refuse a taken name, the archive purge deletes only what the engine still has archived, a prompt for another agent or level gets its own turn
 - [x] Review follow-ups: captured MCP tools refused on a redefined reconnect, approval tied to the reviewed hash, unnamed and cleared variants hash apart, the composer shows the session's saved agent and level, legacy agent overrides save again
+- [x] Second review: a follow-up is judged against the running turn by effect (agent by name, level by the reasoning it resolves to on the running model)
 
 #### Retained features still on the OpenCode database (pending native UI work)
 

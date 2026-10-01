@@ -334,7 +334,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   turn to end before its next step (the step under way finishes; nothing is cut mid-call), waits
   for it with no time limit (a Stop still ends the wait), and then starts a turn of its own as
   the agent and level it named. Nothing of it is written until then. Prompts that change neither
-  keep steering into the running turn.
+  keep steering into the running turn. "Another" is judged by effect, not spelling: an agent by
+  name, a level by the reasoning it resolves to on the model the turn is running on (after a retry
+  switch, the new one). A level that model does not offer asks for nothing, so it matches a turn
+  with no level, and a prompt naming the turn's own agent and level is an ordinary follow-up.
 - Turn limits (`config::Limits`, drift.json `limits: { steps, repeats, polls }`, later files
   override field by field; an agent's front matter `steps:` replaces `steps` for its turns):
   - `steps` (default 200): model steps that ran tools in one turn. Reaching it pauses the turn.

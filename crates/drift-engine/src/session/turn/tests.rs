@@ -1013,6 +1013,27 @@ async fn a_prompt_for_another_agent_sent_mid_turn_gets_a_turn_of_its_own_as_that
     assert_eq!((reply.info.role, reply.info.agent.as_deref()), (Role::Assistant, Some("plan")));
 }
 
+#[tokio::test]
+async fn a_follow_up_naming_what_the_turn_already_runs_as_joins_it() {
+    let h = harness().await;
+    let with = |text: &str, agent: Option<&str>, variant: Option<Option<&str>>| Prompt { agent: agent.map(String::from), variant: variant.map(|v| v.map(String::from)), ..prompt(text) };
+    let rounds = [
+        (with("start", None, None), "its own agent, no level", Some("build"), Some(None)),
+        (with("start", None, Some(Some("max"))), "its own level", Some("build"), Some(Some("max"))),
+        (with("start", None, Some(None)), "a level this model lacks", None, Some(Some("ultra"))),
+    ];
+    for (round, (first, follow_up, agent, variant)) in rounds.into_iter().enumerate() {
+        h.provider.push_slow(Duration::from_millis(300), tool_call("read", r#"{"path": "missing.txt"}"#)).push(text("done"));
+        h.engine.submit(&h.session.id, first).await.await_ok();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        h.engine.submit(&h.session.id, with(follow_up, agent, variant)).await.await_ok();
+        until_idle(&h).await;
+        let requests = h.provider.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2 * (round + 1), "{follow_up}: joined the running turn instead of ending it");
+        assert!(format!("{:?}", requests.last().unwrap().messages).contains(follow_up), "{follow_up}: answered in the same turn");
+    }
+}
+
 #[test]
 fn a_variant_left_unnamed_and_one_cleared_hash_apart() {
     let unnamed = prompt("x");

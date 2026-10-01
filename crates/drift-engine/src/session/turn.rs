@@ -19,7 +19,7 @@ use super::prompt;
 use crate::config::Config;
 use crate::event::{Event, SessionStatus};
 use crate::id;
-use crate::llm::catalog::{Model, Reasoning};
+use crate::llm::catalog::{Model, Reasoning, Variant};
 use crate::llm::{self, Credential, Provider, Request, StopReason};
 use crate::permission::{self, Outcome};
 use crate::session::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage, Visibility};
@@ -164,18 +164,27 @@ pub struct Turns {
 struct Steering {
     model: ModelRef,
     agent: String,
-    variant: Option<String>,
+    reasoning: Option<Reasoning>,
+    variants: Vec<Variant>,
 }
 
 impl Steering {
     fn of(plan: &Plan) -> Self {
-        Self { model: plan.model_ref.clone(), agent: plan.session.agent.clone(), variant: plan.variant.clone() }
+        Self { model: plan.model_ref.clone(), agent: plan.session.agent.clone(), reasoning: plan.reasoning(), variants: plan.model.variants.clone() }
     }
 
-    /// Whether `prompt` asks for another agent or reasoning level than this turn runs as.
+    /// Whether `prompt` asks for another agent, or a level the running model would reason at differently.
     fn differs(&self, prompt: &Prompt) -> bool {
-        prompt.agent.as_ref().is_some_and(|agent| *agent != self.agent) || prompt.variant.as_ref().is_some_and(|variant| *variant != self.variant)
+        let agent = prompt.agent.as_ref().is_some_and(|agent| *agent != self.agent);
+        let level = prompt.variant.as_ref().is_some_and(|variant| reasoning_in(&self.variants, variant.as_deref()) != self.reasoning);
+        agent || level
     }
+}
+
+/// What a variant name asks of a model offering `variants`; a name it does not offer asks nothing.
+fn reasoning_in(variants: &[Variant], name: Option<&str>) -> Option<Reasoning> {
+    let name = name?;
+    variants.iter().find(|variant| variant.name == name).map(|variant| variant.reasoning.clone())
 }
 
 /// How a turn ended, from the loop's own view rather than whatever message happens to be last.
@@ -304,8 +313,7 @@ pub(crate) struct Plan {
 impl Plan {
     /// What the variant asks of the model now planned; a name this model does not offer asks nothing.
     fn reasoning(&self) -> Option<Reasoning> {
-        let name = self.variant.as_deref()?;
-        self.model.variants.iter().find(|variant| variant.name == name).map(|variant| variant.reasoning.clone())
+        reasoning_in(&self.model.variants, self.variant.as_deref())
     }
 }
 
@@ -787,10 +795,10 @@ impl Engine {
             let _ = self.store.set_session_variant(&plan.session.id, plan.variant.as_deref());
         }
         plan.model_ref = resolved.model_ref;
+        plan.model = resolved.model;
         if let Some(running) = self.turns.steering.lock().unwrap().get_mut(&plan.session.id) {
             *running = Steering::of(plan);
         }
-        plan.model = resolved.model;
         plan.provider = resolved.provider.with_timeouts(plan.config.route_timeouts(&plan.model_ref.provider));
         plan.credential = resolved.credential;
         // The user chose another model, whose tool profile may differ.
