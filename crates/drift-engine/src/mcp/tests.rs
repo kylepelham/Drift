@@ -25,7 +25,7 @@ async fn approval_gates_connection_and_tools_appear_prefixed() {
     assert_eq!(engine.mcp.status_of(row.clone()).state, State::NeedsApproval);
     assert!(engine.mcp.connect("echo", &engine.store, &hub, Start::User).await.is_err());
 
-    engine.store.approve_mcp_server("echo", &row.hash()).unwrap();
+    engine.store.approve_mcp_server("echo", &row.hash).unwrap();
     let approved = engine.store.mcp_server("echo").unwrap().unwrap();
     engine.mcp.connect("echo", &engine.store, &hub, Start::User).await.unwrap();
     let status = engine.mcp.status_of(approved.clone());
@@ -75,7 +75,7 @@ fn context(engine: &Arc<crate::Engine>) -> Context {
 
 async fn approved(engine: &Arc<crate::Engine>, name: &str, config: &ServerConfig) -> ServerRow {
     let row = engine.store.save_mcp_server(name, config).unwrap();
-    engine.store.approve_mcp_server(name, &row.hash()).unwrap();
+    engine.store.approve_mcp_server(name, &row.hash).unwrap();
     engine.store.mcp_server(name).unwrap().unwrap()
 }
 
@@ -171,7 +171,7 @@ async fn a_bad_command_reports_failed() {
     let hub = Hub::new(8);
     let config = ServerConfig::Stdio { command: "definitely-not-a-program".into(), args: vec![], env: Default::default() };
     let row = engine.store.save_mcp_server("broken", &config).unwrap();
-    engine.store.approve_mcp_server("broken", &row.hash()).unwrap();
+    engine.store.approve_mcp_server("broken", &row.hash).unwrap();
     let row = engine.store.mcp_server("broken").unwrap().unwrap();
     assert!(engine.mcp.connect("broken", &engine.store, &hub, Start::User).await.is_err());
     let status = engine.mcp.status_of(row);
@@ -186,7 +186,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/slow-server.cjs");
     let slow = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), "1500".to_string())].into() };
     let row = engine.store.save_mcp_server("probe", &slow).unwrap();
-    engine.store.approve_mcp_server("probe", &row.hash()).unwrap();
+    engine.store.approve_mcp_server("probe", &row.hash).unwrap();
     let started = std::time::Instant::now();
     let connecting = tokio::spawn({
         let engine = engine.clone();

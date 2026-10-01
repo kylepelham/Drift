@@ -1173,7 +1173,11 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   under the lifecycle lock that keeps approval and secrets, closes the old name's slot as a
   remove would (its tools are named after it), and is 409 `taken` if the new name exists. An
   approval may name the `hash` the user reviewed (`?hash=`) and is 409 `changed` if the config
-  moved since. The approval toast keys on name and hash, never the config.
+  moved since. The approval toast keys on name and hash, never the config. The hash is an
+  HMAC-SHA256 of the whole config (secrets included, so changing one needs approving again) under
+  a random key the engine makes on first start and keeps in `setting` (`mcpApprovalKey`); a client
+  holding the hash cannot test guesses at a secret against it. An approval stored under the
+  unkeyed hash earlier builds used is re-keyed at open while its config is unchanged.
 - A captured MCP tool runs on a reconnected server only if that server still defines the tool
   exactly as the turn was given it; a server that came back with the tool redefined (say, no
   longer read-only) is refused for that call, and the next turn sees the new definition.

@@ -61,7 +61,7 @@ impl ServerView {
             ServerConfig::Stdio { command, args, env } => ServerConfigView::Stdio { command: command.clone(), args: args.clone(), env: env.keys().cloned().collect() },
             ServerConfig::Http { url, headers } => ServerConfigView::Http { url: url.clone(), headers: headers.keys().cloned().collect() },
         };
-        Self { name: row.name.clone(), config, enabled: row.enabled, hash: row.hash(), approved: row.is_approved(), updated_at: row.updated_at }
+        Self { name: row.name.clone(), config, enabled: row.enabled, hash: row.hash.clone(), approved: row.is_approved(), updated_at: row.updated_at }
     }
 }
 
@@ -94,7 +94,7 @@ mod tests {
     use super::*;
 
     fn row(config: ServerConfig) -> ServerRow {
-        ServerRow { name: "docs".into(), config, enabled: true, approved_hash: None, updated_at: 1 }
+        ServerRow { name: "docs".into(), config, enabled: true, approved_hash: None, hash: "0011223344556677".into(), updated_at: 1 }
     }
 
     #[test]

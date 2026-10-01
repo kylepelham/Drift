@@ -50,19 +50,15 @@ pub struct ServerRow {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approved_hash: Option<String>,
+    /// The config's identity as approved, keyed by the engine; the store fills it as it reads the row.
+    #[serde(skip)]
+    pub hash: String,
     pub updated_at: i64,
 }
 
 impl ServerRow {
-    /// Identity of the config as approved; a different command or URL is a different thing to approve.
-    pub fn hash(&self) -> String {
-        use sha2::Digest;
-        let json = serde_json::to_string(&self.config).unwrap();
-        sha2::Sha256::digest(json.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect()
-    }
-
     pub fn is_approved(&self) -> bool {
-        self.approved_hash.as_deref() == Some(self.hash().as_str())
+        self.approved_hash.as_deref() == Some(self.hash.as_str())
     }
 }
 
@@ -301,7 +297,7 @@ impl Servers {
         let _settle = Settle { servers: self, hub, row: &row, id: attempt.id };
         hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
         let opened = tokio::select! {
-            opened = open(&row.config, row.hash()) => opened,
+            opened = open(&row.config, row.hash.clone()) => opened,
             () = attempt.cancel.cancelled() => Err("server definition changed during connect".into()),
         };
         self.finish(&row, hub, &attempt, opened)

@@ -109,7 +109,7 @@ pub async fn remove(State(engine): State<Arc<Engine>>, Path(name): Path<String>)
 #[utoipa::path(post, path = "/mcp/{name}/approve", operation_id = "approveMcpServer", params(ApproveQuery), responses((status = 200, body = ServerStatus), (status = 404), (status = 409)))]
 pub async fn approve(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Query(query): Query<ApproveQuery>) -> Result<Json<ServerStatus>, ApiError> {
     let row = engine.store.mcp_server(&name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
-    let hash = row.hash();
+    let hash = row.hash;
     if query.hash.is_some_and(|reviewed| reviewed != hash) {
         return Err(ApiError::new(StatusCode::CONFLICT, "changed", "the server's config changed since it was reviewed; review it again"));
     }
