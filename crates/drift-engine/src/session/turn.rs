@@ -654,7 +654,8 @@ impl Engine {
                 self.pause(plan, format!("Paused after {steps} steps, this turn's limit. Send a message to carry on."));
                 break;
             }
-            let Some(transcript) = self.transcript_for_step(plan, abort).await else { break };
+            let Some(mut transcript) = self.transcript_for_step(plan, abort).await else { break };
+            super::branch::frame_spawned(&plan.session, &mut transcript);
             answered = transcript.iter().rev().find(|m| m.info.role == Role::User).map(|m| m.info.id.clone());
             let (max_tokens, reasoning) = budgets(&plan.model, plan.reasoning());
             let request = Request {

@@ -481,6 +481,15 @@ test("compaction boundary merges into its adjacent summary", async () => {
   expect(mergeCompactionEntries([boundary] as never).map((entry) => entry.info.id)).toEqual(["u1"])
 })
 
+test("a spawned thread's copied messages are the ones older than the thread", async () => {
+  const { copiedCount } = await import("../src/ui/chat")
+  const entry = (id: string, created: number) => ({ info: { id, time: { created } }, parts: [] })
+  const transcript = [entry("copied-prompt", 10), entry("copied-reply", 20), entry("instruction", 100), entry("reply", 120)]
+  expect(copiedCount(transcript as never, 100)).toBe(2)
+  expect(copiedCount(transcript as never, 5)).toBe(0)
+  expect(copiedCount(transcript.slice(0, 2) as never, 100)).toBe(2)
+})
+
 test("successful compaction clears a transient session error", () => {
   const [state, set] = createEngineState()
   set("errors", "s1", "Your input exceeds the context window")

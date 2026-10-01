@@ -62,7 +62,8 @@ const maxRetryMessageChars = 80
 
 export function Chat() {
   const engine = useEngine()
-  const entries = createMemo(() => {
+  const [shownCopies, setShownCopies] = createSignal<ReadonlySet<string>>(new Set())
+  const allEntries = createMemo(() => {
     const id = selectedSession()
     if (!id) return []
     const revertedAt = engine.state.sessions[id]?.revert?.messageID
@@ -81,6 +82,26 @@ export function Chat() {
       .sort(compareMessages)
     return mergeCompactionEntries(sorted)
   })
+  const spawnedCopy = createMemo(() => {
+    const id = selectedSession()
+    const session = id ? engine.state.sessions[id] : undefined
+    const source = id ? engine.state.links[id] : undefined
+    if (!id || !session || !source) return undefined
+    const copied = copiedCount(allEntries(), session.time.created)
+    if (!copied) return undefined
+    const own = allEntries()[copied]
+    return { id, copied, ownID: own?.info.id, source: engine.state.sessions[source]?.title ?? "", shown: shownCopies().has(id) }
+  })
+  const entries = createMemo(() => {
+    const copy = spawnedCopy()
+    return copy?.ownID && !copy.shown ? allEntries().slice(copy.copied) : allEntries()
+  })
+  const toggleCopy = (id: string) =>
+    setShownCopies((shown) => {
+      const next = new Set(shown)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
   const sessionError = createMemo(() => {
     const id = selectedSession()
     if (!id) return null
@@ -479,6 +500,8 @@ export function Chat() {
                   terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
                   found={findHighlight() === entry.info.id}
                   measure={measureRow}
+                  copy={spawnedCopy()?.ownID === entry.info.id ? spawnedCopy() : undefined}
+                  toggleCopy={toggleCopy}
                 />
               )}
             </For>
@@ -671,6 +694,12 @@ export function transcriptRevision(entry?: { parts: RevisionPart[] }) {
   return revision
 }
 
+/** A spawned thread starts with a copy of its source; copied messages keep their times, so they are older than the thread. */
+export function copiedCount(entries: MessageEntry[], threadCreated: number) {
+  const own = entries.findIndex((entry) => entry.info.time.created >= threadCreated)
+  return own < 0 ? entries.length : own
+}
+
 export function mergeCompactionEntries(entries: MessageEntry[]) {
   return entries.filter((entry, index) => {
     const next = entries[index + 1]
@@ -800,6 +829,8 @@ function Row(props: {
   terminalError: boolean
   found: boolean
   measure: (element: HTMLDivElement) => void
+  copy?: { id: string; source: string; shown: boolean }
+  toggleCopy: (id: string) => void
 }) {
   const fresh = Date.now() - props.entry.info.time.created < freshMessageMs
   // Assistant rows remount during virtualization and session switches; replaying an entrance
@@ -821,6 +852,18 @@ function Row(props: {
         "search-hit": props.found,
       }}
     >
+      <Show when={props.copy}>
+        {(copy) => (
+          <div class="mb-4 flex items-center gap-3 text-xs text-ink-faint select-none">
+            <div class="h-px flex-1 bg-edge" />
+            <span class="min-w-0 truncate">{t("drift.chat.spawned.copy", { title: copy().source })}</span>
+            <button type="button" class="shrink-0 text-ink-muted hover:text-ink" aria-expanded={copy().shown} onClick={() => props.toggleCopy(copy().id)}>
+              {copy().shown ? t("drift.chat.spawned.hide") : t("drift.chat.spawned.show")}
+            </button>
+            <div class="h-px flex-1 bg-edge" />
+          </div>
+        )}
+      </Show>
       <MessageView
         entry={props.entry}
         footer={props.next?.info.role !== "assistant"}

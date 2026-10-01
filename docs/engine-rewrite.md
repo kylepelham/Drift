@@ -200,8 +200,12 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
 - Spawning is one call, no drafting request and no review. `POST /sessions/{id}/spawn {instruction}`
   copies the source's finished messages (the fork copy, so compaction markers and boundaries carry
   over) into a sibling linked by `parent_id`, records `branch_cutoff`, titles it with the
-  instruction's first six words, and submits the instruction, framed as "work only on this", on the
-  source's model and level. The model reads the copied conversation itself and decides what matters.
+  instruction's first six words, and submits the instruction as typed, on the source's model and
+  level. Each request puts a "this is a new thread spawned from the conversation above; work only
+  on what follows" line before the thread's first own prompt; it is never stored. Copied messages
+  keep their times, so they are the ones older than the thread (`branch::is_copied`); the UI folds
+  them behind one "Started with the conversation from <source>" row that expands them. The model
+  reads the copied conversation itself and decides what matters.
   It starts on its own abort token and returns 201 with the session. An empty instruction (400
   `instruction`) or a subagent source (400 `subagent`) creates nothing.
 - A spawned thread differs from a fork only in its link to the source and its first prompt; see below.

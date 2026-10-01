@@ -40,10 +40,27 @@ async fn a_spawn_starts_at_once_with_the_conversation_and_the_instruction() {
     let requests = h.provider.requests.lock().unwrap().clone();
     let sent = format!("{:?}", requests.last().unwrap().messages);
     assert!(sent.contains("tidy the parser") && sent.contains("Parser tidied"), "the model sees the source conversation: {sent}");
-    assert!(sent.contains("fps loss"));
+    assert!(sent.contains("fps loss") && sent.contains("new thread spawned from the conversation above"), "the model is told it is a new thread: {sent}");
     assert_eq!(requests.len(), 2, "no drafting request: one for the source, one for the spawn");
     let transcript = h.engine.store.transcript(&spawned.id).unwrap();
     assert_eq!(transcript.iter().filter(|m| m.info.role == Role::User).count(), 2, "the copied prompt and the instruction");
+    let copied: Vec<bool> = transcript.iter().map(|m| is_copied(&stored, &m.info)).collect();
+    assert_eq!(copied, [true, true, false, false], "the copy is older than the thread; its own prompt and reply are not");
+    let own = transcript.iter().find(|m| m.info.role == Role::User && !is_copied(&stored, &m.info)).unwrap();
+    assert_eq!(format!("{:?}", own.parts).matches("Text").count(), 1, "only the instruction is stored, as typed");
+    assert!(!format!("{:?}", own.parts).contains("spawned"));
+}
+
+#[tokio::test]
+async fn a_fork_is_not_framed_as_a_spawned_thread() {
+    let h = harness().await;
+    conversation(&h).await;
+    let fork = h.engine.fork(&h.session.id, None).unwrap();
+    let mut transcript = h.engine.store.transcript(&fork.id).unwrap();
+    assert!(transcript.iter().all(|m| !is_copied(&fork, &m.info)));
+    let before = transcript.clone();
+    frame_spawned(&fork, &mut transcript);
+    assert_eq!(transcript, before);
 }
 
 #[tokio::test]
