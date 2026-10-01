@@ -40,7 +40,7 @@ impl Engine {
     /// The model an action runs on: the user's pin for that action in Settings, else its fallback.
     /// Returns the workspace config too, for the action's prompt.
     pub(crate) async fn action_model(&self, session_id: &str, action: &str, fallback: Fallback) -> Result<(Resolved, Config), TurnError> {
-        let plan = self.plan(session_id, &Prompt { parts: Vec::new(), model: None, thinking_budget: None, submission_id: None }).await?;
+        let plan = self.plan(session_id, &Prompt { parts: Vec::new(), model: None, variant: None, submission_id: None }).await?;
         let chosen = match (plan.config.agent_model(action), fallback) {
             (Some(pinned), _) => pinned,
             (None, Fallback::Conversation) => plan.model_ref.clone(),
@@ -74,7 +74,7 @@ impl Engine {
             messages: shot.messages,
             tools: shot.tools,
             max_tokens: shot.max_tokens,
-            thinking_budget: None,
+            reasoning: None,
             temperature: None,
             cache_key: None,
         };

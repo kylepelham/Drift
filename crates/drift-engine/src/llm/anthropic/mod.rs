@@ -6,6 +6,7 @@ pub mod oauth;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 
+use super::catalog::Reasoning;
 use super::sse;
 use super::{Block, ChatMessage, Chunk, ChunkStream, Credential, Error, Request, Role, StopReason};
 use crate::session::types::Usage;
@@ -121,10 +122,18 @@ fn body(request: &Request) -> Value {
         }
         body["tools"] = Value::Array(tools);
     }
-    if let Some(budget) = request.thinking_budget {
-        body["thinking"] = json!({ "type": "enabled", "budget_tokens": budget });
-    } else if let Some(temperature) = request.temperature {
-        body["temperature"] = json!(temperature);
+    match &request.reasoning {
+        Some(Reasoning::Budget { tokens }) => body["thinking"] = json!({ "type": "enabled", "budget_tokens": tokens }),
+        // Summarized, since the models that think adaptively otherwise send their thinking blank.
+        Some(Reasoning::Effort { level }) => {
+            body["thinking"] = json!({ "type": "adaptive", "display": "summarized" });
+            body["output_config"] = json!({ "effort": level });
+        }
+        None => {
+            if let Some(temperature) = request.temperature {
+                body["temperature"] = json!(temperature);
+            }
+        }
     }
     body
 }
@@ -272,7 +281,7 @@ mod tests {
             ],
             tools: vec![ToolSpec { name: "read".into(), description: "Reads".into(), input_schema: json!({ "type": "object" }) }],
             max_tokens: 1000,
-            thinking_budget: Some(2048),
+            reasoning: Some(Reasoning::Budget { tokens: 2048 }),
             temperature: Some(0.5),
             cache_key: None,
         }
@@ -335,8 +344,18 @@ mod tests {
     #[test]
     fn temperature_applies_without_thinking() {
         let mut request = request();
-        request.thinking_budget = None;
+        request.reasoning = None;
         assert_eq!(body(&request)["temperature"], 0.5);
+    }
+
+    #[test]
+    fn an_effort_asks_for_adaptive_thinking_with_its_summary() {
+        let mut request = request();
+        request.reasoning = Some(Reasoning::Effort { level: "xhigh".into() });
+        let body = body(&request);
+        assert_eq!(body["thinking"], json!({ "type": "adaptive", "display": "summarized" }));
+        assert_eq!(body["output_config"]["effort"], "xhigh");
+        assert!(body["thinking"].get("budget_tokens").is_none() && body.get("temperature").is_none());
     }
 
     #[test]

@@ -73,11 +73,32 @@ pub struct Model {
     pub cost: Cost,
     #[serde(default = "default_profile")]
     pub profile: ToolProfile,
+    /// The reasoning levels the model offers, weakest first; empty when it has none to choose.
+    #[serde(default)]
+    pub variants: Vec<Variant>,
 }
 
 fn default_profile() -> ToolProfile {
     ToolProfile::Edit
 }
+
+/// What one reasoning level asks of the provider: an effort its API names, or a thinking token budget.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Reasoning {
+    Effort { level: String },
+    Budget { tokens: u32 },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct Variant {
+    pub name: String,
+    #[serde(flatten)]
+    pub reasoning: Reasoning,
+}
+
+/// A thinking budget never asks for more than this, whatever the model allows.
+const MAX_THINKING_BUDGET: u64 = 31_999;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ProviderInfo {
@@ -206,6 +227,12 @@ struct RawModel {
     cost: Option<Cost>,
     #[serde(default)]
     profile: Option<ToolProfile>,
+    /// models.dev's description of how the model's reasoning is set.
+    #[serde(default)]
+    reasoning_options: Option<Vec<serde_json::Value>>,
+    /// Already derived, as a cached catalog stores it.
+    #[serde(default)]
+    variants: Option<Vec<Variant>>,
 }
 
 impl RawProvider {
@@ -218,25 +245,72 @@ impl RawProvider {
             .map(|(key, model)| {
                 let family = model.family.unwrap_or_default();
                 let profile = model.profile.unwrap_or_else(|| profile_for(provider_id, &family));
+                let limit = model.limit.unwrap_or_default();
+                let reasoning = model.reasoning.unwrap_or(false);
+                let variants = match model.variants {
+                    Some(variants) => variants,
+                    None if reasoning => variants_for(provider_id, &model.id, limit.output, model.reasoning_options.as_deref().unwrap_or_default()),
+                    None => Vec::new(),
+                };
                 (
                     key,
                     Model {
                         id: model.id,
                         name: model.name,
                         family,
-                        reasoning: model.reasoning.unwrap_or(false),
+                        reasoning,
                         attachment: model.attachment.unwrap_or(false),
                         temperature: model.temperature.unwrap_or(false),
                         release_date: model.release_date.unwrap_or_default(),
-                        limit: model.limit.unwrap_or_default(),
+                        limit,
                         cost: model.cost.unwrap_or_default(),
                         profile,
+                        variants,
                     },
                 )
             })
             .collect();
         ProviderInfo { id: self.id, name: self.name, env: self.env.unwrap_or_default(), api: self.api, models }
     }
+}
+
+/// The reasoning levels a model offers, from models.dev's `reasoning_options`: decided here and nowhere else.
+fn variants_for(provider: &str, model: &str, output: u64, options: &[serde_json::Value]) -> Vec<Variant> {
+    let effort = options.iter().find(|o| o["type"] == "effort").and_then(|o| o["values"].as_array());
+    let budget = options.iter().find(|o| o["type"] == "budget_tokens");
+    // On Claude an effort means adaptive thinking, which only the newest accept; a budget works on every one that lists it.
+    let claude = speaks_claude(provider, model);
+    match (effort, budget) {
+        (_, Some(budget)) if claude => budget_variants(budget, output),
+        (Some(levels), _) => levels.iter().map(effort_variant).collect(),
+        (None, Some(budget)) if takes_budget(provider) => budget_variants(budget, output),
+        _ => Vec::new(),
+    }
+}
+
+fn effort_variant(level: &serde_json::Value) -> Variant {
+    let level = level.as_str().unwrap_or("none").to_string();
+    Variant { name: level.clone(), reasoning: Reasoning::Effort { level } }
+}
+
+/// `high` at half the most the model takes, `max` at the most, as opencode offers them.
+fn budget_variants(budget: &serde_json::Value, output: u64) -> Vec<Variant> {
+    let most = budget["max"].as_u64().unwrap_or(MAX_THINKING_BUDGET).min(output.saturating_sub(1)).min(MAX_THINKING_BUDGET);
+    if most == 0 {
+        return Vec::new();
+    }
+    let high = budget["min"].as_u64().unwrap_or(0).max(most.div_ceil(2)).min(most);
+    [("high", high), ("max", most)].into_iter().map(|(name, tokens)| Variant { name: name.into(), reasoning: Reasoning::Budget { tokens: tokens as u32 } }).collect()
+}
+
+/// The routes that reach Claude through the Anthropic Messages API.
+fn speaks_claude(provider: &str, model: &str) -> bool {
+    matches!(provider, "anthropic" | "google-vertex-anthropic" | "amazon-bedrock") || (provider == "google-vertex" && model.starts_with("claude"))
+}
+
+/// The routes whose wire can carry a thinking token budget.
+fn takes_budget(provider: &str) -> bool {
+    matches!(provider, "anthropic" | "google-vertex-anthropic" | "amazon-bedrock" | "google" | "google-vertex" | "openrouter")
 }
 
 /// OpenAI trains its GPT-5 generation on the apply_patch format; everything else gets search/replace.
@@ -287,6 +361,34 @@ mod tests {
         assert_eq!(profile_for("openai", "gpt-4o"), ToolProfile::Edit);
         assert_eq!(profile_for("openai", "o"), ToolProfile::Edit);
         assert_eq!(profile_for("anthropic", "claude-sonnet"), ToolProfile::Edit);
+    }
+
+    #[test]
+    fn reasoning_variants_come_from_models_dev_and_suit_each_wire() {
+        let options = |json: &str| serde_json::from_str::<Vec<serde_json::Value>>(json).unwrap();
+        let names = |variants: Vec<Variant>| variants.into_iter().map(|v| v.name).collect::<Vec<_>>();
+        let budget = |name: &str, tokens| Variant { name: name.into(), reasoning: Reasoning::Budget { tokens } };
+        let effort = options(r#"[{"type":"effort","values":["low","medium","high","xhigh","max"]}]"#);
+        assert_eq!(names(variants_for("anthropic", "claude-opus-5-5", 128_000, &effort)), ["low", "medium", "high", "xhigh", "max"]);
+        assert_eq!(variants_for("amazon-bedrock", "anthropic.claude-opus-5-5", 128_000, &effort)[4].reasoning, Reasoning::Effort { level: "max".into() });
+        let both = options(r#"[{"type":"effort","values":["low","medium","high"]},{"type":"budget_tokens","min":1024}]"#);
+        assert_eq!(variants_for("anthropic", "claude-opus-4-5", 64_000, &both), [budget("high", 16_000), budget("max", 31_999)], "Claude takes the budget it lists");
+        assert_eq!(variants_for("anthropic", "claude-haiku", 8_000, &both), [budget("high", 4_000), budget("max", 7_999)], "within the output limit");
+        assert_eq!(names(variants_for("openrouter", "z-ai/glm", 64_000, &both)), ["low", "medium", "high"], "elsewhere the effort wins");
+        assert_eq!(names(variants_for("openai", "gpt-6-sol", 128_000, &options(r#"[{"type":"effort","values":[null,"low","high"]}]"#))), ["none", "low", "high"]);
+        let range = options(r#"[{"type":"budget_tokens","min":128,"max":32768}]"#);
+        assert_eq!(variants_for("google", "gemini-2.5-pro", 65_536, &range), [budget("high", 16_000), budget("max", 31_999)]);
+        assert!(variants_for("xai", "grok", 64_000, &range).is_empty(), "a chat completions route has no budget to send");
+        assert!(variants_for("lmstudio", "qwen", 64_000, &options(r#"[{"type":"toggle"}]"#)).is_empty());
+    }
+
+    #[test]
+    fn the_bundled_snapshot_carries_each_models_reasoning_levels() {
+        let catalog = Catalog::bundled();
+        let names = |provider: &str, model: &str| catalog.model(provider, model).unwrap().variants.iter().map(|v| v.name.clone()).collect::<Vec<_>>();
+        assert_eq!(names("anthropic", "claude-opus-5-5"), ["low", "medium", "high", "xhigh", "max"]);
+        assert_eq!(names("anthropic", "claude-sonnet-4-5"), ["high", "max"]);
+        assert!(names("google", "gemini-3.8-flash").contains(&"high".to_string()));
     }
 
     #[test]

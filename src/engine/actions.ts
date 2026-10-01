@@ -38,8 +38,6 @@ export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
 
 const pageSize = 100
 const sessionPageSize = 200
-/** Reasoning effort names the composer offers, as thinking budgets in tokens. */
-const thinkingBudgets: Record<string, number> = { low: 4_000, medium: 10_000, high: 20_000, max: 32_000 }
 /** Sign-in methods per provider, in the order the settings page lists them. */
 const authMethods: Record<string, { type: "oauth" | "api"; label: string; mode?: "max" | "console" | "chatgpt" }[]> = {
   anthropic: [
@@ -206,7 +204,7 @@ export function createActions(
         submissionId: submissionId(),
         parts,
         model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined,
-        thinkingBudget: options.variant ? thinkingBudgets[options.variant] : undefined,
+        variant: options.variant ?? null,
       })
       return { ok: true }
     } catch (cause) {

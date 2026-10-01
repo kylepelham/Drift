@@ -83,7 +83,7 @@ test("send maps model, files and reasoning effort onto the native prompt", async
           { type: "file", mime: "image/png", name: "shot.png", url: "data:image/png;base64,AAAA" },
         ],
         model: { provider: "anthropic", model: "claude" },
-        thinkingBudget: 20_000,
+        variant: "high",
       },
     ],
   })

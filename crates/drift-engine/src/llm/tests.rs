@@ -58,7 +58,7 @@ pub(crate) fn request() -> Request {
         messages: vec![ChatMessage { role: Role::User, blocks: vec![Block::Text("read main".into())] }],
         tools: vec![],
         max_tokens: 100,
-        thinking_budget: None,
+        reasoning: None,
         temperature: None,
         cache_key: None,
     }

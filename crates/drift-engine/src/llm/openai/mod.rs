@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 
+use super::catalog::Reasoning;
 use super::sse;
 use super::{Block, ChatMessage, Chunk, ChunkStream, Credential, Error, Request, Role, StopReason};
 use crate::session::types::Usage;
@@ -88,8 +89,8 @@ fn body(request: &Request, subscription: bool) -> Value {
             .collect();
         body["tool_choice"] = json!("auto");
     }
-    if let Some(effort) = request.thinking_budget.map(effort) {
-        body["reasoning"] = json!({ "effort": effort, "summary": "auto" });
+    if let Some(Reasoning::Effort { level }) = &request.reasoning {
+        body["reasoning"] = json!({ "effort": level, "summary": "auto" });
     }
     // One key per conversation, as Codex itself sends, so its requests share a cache.
     if let Some(key) = &request.cache_key {
@@ -102,15 +103,6 @@ fn body(request: &Request, subscription: bool) -> Value {
         }
     }
     body
-}
-
-/// Thinking budgets are Anthropic's unit; OpenAI takes an effort level, so bucket them.
-fn effort(budget: u32) -> &'static str {
-    match budget {
-        0..=4_000 => "low",
-        4_001..=12_000 => "medium",
-        _ => "high",
-    }
 }
 
 fn items(message: &ChatMessage) -> Vec<Value> {
@@ -283,7 +275,7 @@ mod tests {
             ],
             tools: vec![ToolSpec { name: "read".into(), description: "Reads".into(), input_schema: json!({ "type": "object" }) }],
             max_tokens: 1000,
-            thinking_budget: Some(10_000),
+            reasoning: Some(Reasoning::Effort { level: "medium".into() }),
             temperature: None,
             cache_key: Some("ses_1".into()),
         }
@@ -371,7 +363,12 @@ mod tests {
         assert!(matches!(refused, Err(Error::Api { retryable: false, .. })));
         assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
         assert!(matches!(api_error(401, "{}"), Error::Unauthenticated));
-        assert_eq!(effort(2_000), "low");
-        assert_eq!(effort(20_000), "high");
+    }
+
+    #[test]
+    fn a_budget_is_not_an_openai_setting() {
+        let mut request = request();
+        request.reasoning = Some(Reasoning::Budget { tokens: 8000 });
+        assert!(body(&request, false).get("reasoning").is_none());
     }
 }

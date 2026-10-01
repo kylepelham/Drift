@@ -92,7 +92,7 @@ pub struct Request {
     pub messages: Vec<ChatMessage>,
     pub tools: Vec<ToolSpec>,
     pub max_tokens: u32,
-    pub thinking_budget: Option<u32>,
+    pub reasoning: Option<catalog::Reasoning>,
     pub temperature: Option<f64>,
     /// The same for every request of one conversation, so providers that route by it (OpenAI's
     /// `prompt_cache_key`) keep the conversation on one cache.
@@ -398,7 +398,7 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
         "google" => Provider::Gemini(override_url.as_deref().map_or_else(gemini::Gemini::default, gemini::Gemini::new)),
         "xai" => Provider::Compat(compat::Compat::new(&base("https://api.x.ai/v1"))),
         "zai" => Provider::Compat(compat::Compat::new(&base("https://api.z.ai/api/paas/v4"))),
-        "openrouter" => Provider::Compat(compat::Compat::caching_claude(&base("https://openrouter.ai/api/v1"))),
+        "openrouter" => Provider::Compat(compat::Compat::openrouter(&base("https://openrouter.ai/api/v1"))),
         "lmstudio" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:1234/v1"))),
         "ollama" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:11434/v1"))),
         "amazon-bedrock" => Provider::Bedrock(bedrock::Bedrock::new(override_url)),

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { adaptEvent, adaptMessage, adaptPart, adaptPermission, adaptSession } from "../src/engine/native/adapt"
+import { adaptEvent, adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptSession } from "../src/engine/native/adapt"
 import type { components } from "../src/engine/native/types"
 import { toolElapsedMs } from "../src/ui/tool-duration"
 
@@ -22,6 +22,23 @@ test("sessions map workspace ids to directories and keep archive time", () => {
   expect(legacy.projectID).toBe("w1")
   expect(legacy.time).toEqual({ created: 10, updated: 20, archived: 30 })
   expect((legacy as { model?: { providerID: string; id: string } }).model).toEqual({ providerID: "anthropic", id: "claude" })
+})
+
+test("a model's reasoning levels from the catalog become the picker's variants, in order", () => {
+  const model = {
+    id: "claude-opus-5-5",
+    name: "Claude Opus 5.5",
+    reasoning: true,
+    variants: [
+      { name: "low", kind: "effort", level: "low" },
+      { name: "max", kind: "effort", level: "max" },
+    ],
+  }
+  const plain = { id: "claude-haiku", name: "Claude Haiku" }
+  const provider = { id: "anthropic", name: "Anthropic", models: { [model.id]: model, [plain.id]: plain } } as unknown as Parameters<typeof adaptProvider>[0]
+  const models = adaptProvider(provider).models as Record<string, { variants?: Record<string, unknown> }>
+  expect(Object.keys(models["claude-opus-5-5"].variants ?? {})).toEqual(["low", "max"])
+  expect(models["claude-haiku"].variants).toEqual({})
 })
 
 test("subagents nest under their parent while spawned threads stay top level with a link", () => {

@@ -168,6 +168,7 @@ function adaptModel(providerID: string, model: NativeModel): ModelInfo {
     status: "active",
     options: {},
     headers: {},
+    variants: Object.fromEntries((model.variants ?? []).map((variant) => [variant.name, variant])),
   } as ModelInfo
 }
 

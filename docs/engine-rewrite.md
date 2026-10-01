@@ -804,6 +804,22 @@ Settled after the first external review of M1; each has a regression test.
   leaves 1,024 tokens for the answer; a larger budget is reduced to fit, and one that cannot reach
   the 1,024 minimum is dropped. A 32,000 budget on a 32,000-output model sends 32,000 with a
   30,976 budget, never 33,024.
+- **Reasoning levels.** Each catalog model carries `variants`, derived once in `catalog.rs` from
+  models.dev's `reasoning_options` (what opencode reads too) and nowhere else: an `effort` option
+  becomes one variant per value (`null` is `none`), a `budget_tokens` option becomes `high` (half
+  the most) and `max` (the most, capped by the model's output and 31,999). On Claude routes a
+  listed budget wins over an effort, because Claude's effort means adaptive thinking, which only
+  the newest models accept and they list no budget. Elsewhere the effort wins. A toggle-only model,
+  or one with no options, has no variants and no picker.
+- A prompt names its variant; the engine looks the name up on the model each request, so a model
+  without it asks for nothing rather than failing. Each wire sends it its own way:
+  - Anthropic, Bedrock and Vertex Claude: a budget is `thinking: {type: "enabled", budget_tokens}`;
+    an effort is `thinking: {type: "adaptive", display: "summarized"}` plus `output_config.effort`
+    (summarized, since those models otherwise return their thinking blank).
+  - Gemini: `thinkingConfig.thinkingBudget` or `thinkingConfig.thinkingLevel`, with thoughts included.
+  - OpenAI: `reasoning.effort` with an automatic summary.
+  - OpenRouter: `reasoning: {effort}` or `reasoning: {max_tokens}`. xAI, Z.ai, LM Studio and
+    Ollama: `reasoning_effort`; a budget has no field there, and those routes are never given one.
 - Only valid completed blocks are replayed. An aborted message keeps its finished text; its
   unsigned reasoning and any call with unparsed arguments are dropped, along with the
   results those calls would have needed.
@@ -1061,8 +1077,9 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   the components were written against. That keeps the whole UI working on the new engine
   without touching a component. At M4 the store adopts the generated types, the adapter
   goes, and `@opencode-ai/sdk` leaves `package.json`.
-- Reasoning effort names from the composer (`low`, `medium`, `high`, `max`) become thinking
-  budgets of 4k, 10k, 20k and 32k tokens.
+- The composer's reasoning picker lists the model's catalog variants (`adaptModel` fills
+  `variants` from them) and sends the chosen name as the prompt's `variant`, or null for the
+  model's default. A model without variants shows no picker.
 - Workspace ids are shared: the shell's `workspace` table is the engine's, so the UI's
   workspace list resolves session workspace ids to directories without a second lookup.
 - `src-tauri/`: `engine.rs`, `engine_db.rs`, `tool_routing.rs` and `usage_limits.rs` go.

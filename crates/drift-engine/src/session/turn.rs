@@ -19,7 +19,7 @@ use super::prompt;
 use crate::config::Config;
 use crate::event::{Event, SessionStatus};
 use crate::id;
-use crate::llm::catalog::Model;
+use crate::llm::catalog::{Model, Reasoning};
 use crate::llm::{self, Credential, Provider, Request, StopReason};
 use crate::permission::{self, Outcome};
 use crate::session::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage, Visibility};
@@ -58,11 +58,18 @@ pub struct Prompt {
     pub parts: Vec<Part>,
     #[serde(default)]
     pub model: Option<ModelRef>,
-    #[serde(default)]
-    pub thinking_budget: Option<u32>,
+    /// The model's reasoning level by variant name: absent keeps the session's, null asks for the model's default.
+    #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, nullable = true)]
+    pub variant: Option<Option<String>>,
     /// Client-chosen id; resubmitting with the same id returns the original receipt instead of a second turn.
     #[serde(default)]
     pub submission_id: Option<String>,
+}
+
+/// A field that is present, even as null, is `Some`; only an absent one stays `None`.
+fn present<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(value).map(Some)
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -231,8 +238,17 @@ pub(crate) struct Plan {
     pub(super) model: Model,
     pub(super) provider: Provider,
     pub(super) credential: Credential,
-    thinking_budget: Option<u32>,
+    /// The reasoning variant by name, looked up on each request so a switched model reads it as its own.
+    variant: Option<String>,
     offer: Offer,
+}
+
+impl Plan {
+    /// What the variant asks of the model now planned; a name this model does not offer asks nothing.
+    fn reasoning(&self) -> Option<Reasoning> {
+        let name = self.variant.as_deref()?;
+        self.model.variants.iter().find(|variant| variant.name == name).map(|variant| variant.reasoning.clone())
+    }
 }
 
 /// How a prompt is admitted beyond the session itself.
@@ -503,7 +519,7 @@ impl Engine {
             model: resolved.model,
             provider,
             credential: resolved.credential,
-            thinking_budget: prompt.thinking_budget,
+            variant: prompt.variant.clone().flatten(),
             offer: Offer::default(),
         };
         // A server connecting right now would otherwise be missing from this turn's tools.
@@ -585,14 +601,14 @@ impl Engine {
             }
             let Some(transcript) = self.transcript_for_step(plan, abort).await else { break };
             answered = transcript.iter().rev().find(|m| m.info.role == Role::User).map(|m| m.info.id.clone());
-            let (max_tokens, thinking_budget) = budgets(&plan.model, plan.thinking_budget);
+            let (max_tokens, reasoning) = budgets(&plan.model, plan.reasoning());
             let request = Request {
                 model: plan.model_ref.model.clone(),
                 system: plan.offer.system.clone(),
                 messages: compaction::request_messages(&transcript, &plan.model_ref),
                 tools: plan.offer.specs(),
                 max_tokens,
-                thinking_budget,
+                reasoning,
                 temperature: None,
                 cache_key: Some(plan.session.id.clone()),
             };
@@ -1181,7 +1197,7 @@ fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
 /// Identity of a prompt for replay checks: the same id must carry the same parts and model.
 pub(super) fn payload_hash(prompt: &Prompt) -> String {
     use sha2::Digest;
-    let body = serde_json::json!({ "parts": prompt.parts, "model": prompt.model, "thinking": prompt.thinking_budget });
+    let body = serde_json::json!({ "parts": prompt.parts, "model": prompt.model, "variant": prompt.variant });
     sha2::Sha256::digest(body.to_string().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -1189,14 +1205,15 @@ pub(super) fn payload_hash(prompt: &Prompt) -> String {
 /// model's own limit, a thinking budget may raise it past our usual cap but always leaves
 /// [`MIN_ANSWER_TOKENS`] for the answer, and a budget that cannot fit is reduced, or dropped when even
 /// the provider's minimum would not fit.
-fn budgets(model: &Model, requested: Option<u32>) -> (u32, Option<u32>) {
+fn budgets(model: &Model, requested: Option<Reasoning>) -> (u32, Option<Reasoning>) {
     let model_limit = u32::try_from(model.limit.output).ok().filter(|limit| *limit > 0).unwrap_or(MAX_OUTPUT_TOKENS);
-    let Some(wanted) = requested.filter(|_| model.reasoning) else {
-        return (model_limit.min(MAX_OUTPUT_TOKENS), None);
+    let wanted = match requested.filter(|_| model.reasoning) {
+        Some(Reasoning::Budget { tokens }) => tokens,
+        effort => return (model_limit.min(MAX_OUTPUT_TOKENS), effort),
     };
     let max_tokens = model_limit.min(MAX_OUTPUT_TOKENS.max(wanted.saturating_add(MIN_ANSWER_TOKENS)));
     let room = max_tokens.saturating_sub(MIN_ANSWER_TOKENS);
-    let thinking = (room >= MIN_THINKING_TOKENS).then(|| wanted.clamp(MIN_THINKING_TOKENS, room));
+    let thinking = (room >= MIN_THINKING_TOKENS).then(|| Reasoning::Budget { tokens: wanted.clamp(MIN_THINKING_TOKENS, room) });
     (max_tokens, thinking)
 }
 

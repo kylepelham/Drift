@@ -1001,6 +1001,8 @@ export interface components {
             reasoning?: boolean;
             release_date?: string;
             temperature?: boolean;
+            /** @description The reasoning levels the model offers, weakest first; empty when it has none to choose. */
+            variants?: components["schemas"]["Variant"][];
         };
         ModelRef: {
             model: string;
@@ -1125,8 +1127,8 @@ export interface components {
             parts: components["schemas"]["Part"][];
             /** @description Client-chosen id; resubmitting with the same id returns the original receipt instead of a second turn. */
             submissionId?: string | null;
-            /** Format: int32 */
-            thinkingBudget?: number | null;
+            /** @description The model's reasoning level by variant name: absent keeps the session's, null asks for the model's default. */
+            variant?: string | null;
         };
         /** @description A catalog provider plus whether the engine can currently talk to it. */
         ProviderStatus: {
@@ -1158,6 +1160,17 @@ export interface components {
             messageId: string;
             questions: components["schemas"]["Question"][];
             sessionId: string;
+        };
+        /** @description What one reasoning level asks of the provider: an effort its API names, or a thinking token budget. */
+        Reasoning: {
+            /** @enum {string} */
+            kind: "effort";
+            level: string;
+        } | {
+            /** @enum {string} */
+            kind: "budget";
+            /** Format: int32 */
+            tokens: number;
         };
         Receipt: {
             message: components["schemas"]["Message"];
@@ -1329,6 +1342,9 @@ export interface components {
             input: number;
             /** Format: int64 */
             output: number;
+        };
+        Variant: components["schemas"]["Reasoning"] & {
+            name: string;
         };
         /** @enum {string} */
         Visibility: "hidden" | "sibling";

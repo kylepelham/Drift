@@ -240,7 +240,7 @@ pub async fn command(State(engine): State<Arc<Engine>>, Path(id): Path<String>, 
     let config = engine.workspace_config(&crate::tool::canonical(std::path::Path::new(&workspace.path)));
     let command = config.commands.iter().find(|c| c.name == body.name).ok_or_else(|| ApiError::not_found("command"))?;
     let text = command.template.replace("$ARGUMENTS", body.arguments.trim());
-    let prompt = Prompt { parts: vec![crate::session::types::Part::Text { text }], model: body.model, thinking_budget: None, submission_id: None };
+    let prompt = Prompt { parts: vec![crate::session::types::Part::Text { text }], model: body.model, variant: None, submission_id: None };
     Ok((StatusCode::ACCEPTED, Json(engine.submit(&id, prompt).await?)))
 }
 

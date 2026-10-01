@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 
+use super::catalog::Reasoning;
 use super::sse;
 use super::{Block, ChatMessage, Chunk, ChunkStream, Credential, Error, Request, Role, StopReason};
 use crate::session::types::Usage;
@@ -16,16 +17,24 @@ pub struct Compat {
     pub timeouts: super::http::Timeouts,
     /// The gateway passes Anthropic's per-block `cache_control` through to Claude (OpenRouter does).
     claude_breakpoints: bool,
+    /// Reasoning goes as OpenRouter's `reasoning` object, which takes a budget too, rather than `reasoning_effort`.
+    reasoning_object: bool,
 }
 
 impl Compat {
     pub fn new(base_url: &str) -> Self {
-        Self { base_url: base_url.trim_end_matches('/').to_string(), client: super::http::client(), timeouts: super::http::Timeouts::default(), claude_breakpoints: false }
+        Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            client: super::http::client(),
+            timeouts: super::http::Timeouts::default(),
+            claude_breakpoints: false,
+            reasoning_object: false,
+        }
     }
 
-    /// A gateway that forwards `cache_control` on content blocks to Claude models.
-    pub fn caching_claude(base_url: &str) -> Self {
-        Self { claude_breakpoints: true, ..Self::new(base_url) }
+    /// OpenRouter: forwards `cache_control` on content blocks to Claude, and takes reasoning as an object.
+    pub fn openrouter(base_url: &str) -> Self {
+        Self { claude_breakpoints: true, reasoning_object: true, ..Self::new(base_url) }
     }
 
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
@@ -35,6 +44,7 @@ impl Compat {
             Credential::Ambient { .. } => return Err(Error::Unauthenticated),
         };
         let mut body = body(request);
+        reason(&mut body, request.reasoning.as_ref(), self.reasoning_object);
         if self.claude_breakpoints && is_claude(&request.model) {
             mark_breakpoints(&mut body);
         }
@@ -84,6 +94,15 @@ fn body(request: &Request) -> Value {
         body["temperature"] = json!(temperature);
     }
     body
+}
+
+fn reason(body: &mut Value, reasoning: Option<&Reasoning>, object: bool) {
+    match (reasoning, object) {
+        (Some(Reasoning::Effort { level }), true) => body["reasoning"] = json!({ "effort": level }),
+        (Some(Reasoning::Budget { tokens }), true) => body["reasoning"] = json!({ "max_tokens": tokens }),
+        (Some(Reasoning::Effort { level }), false) => body["reasoning_effort"] = json!(level),
+        _ => {}
+    }
 }
 
 /// OpenRouter names Claude `anthropic/...`, or `~anthropic/...` for its moving aliases.
@@ -312,10 +331,24 @@ mod tests {
             ],
             tools: vec![ToolSpec { name: "read".into(), description: "r".into(), input_schema: json!({ "type": "object" }) }],
             max_tokens: 500,
-            thinking_budget: None,
+            reasoning: None,
             temperature: Some(0.2),
             cache_key: None,
         }
+    }
+
+    #[test]
+    fn reasoning_goes_as_each_preset_takes_it() {
+        let reasoned = |reasoning, object| {
+            let mut body = json!({});
+            reason(&mut body, Some(&reasoning), object);
+            body
+        };
+        let effort = || Reasoning::Effort { level: "high".into() };
+        assert_eq!(reasoned(effort(), false), json!({ "reasoning_effort": "high" }));
+        assert_eq!(reasoned(effort(), true), json!({ "reasoning": { "effort": "high" } }), "OpenRouter");
+        assert_eq!(reasoned(Reasoning::Budget { tokens: 8000 }, true), json!({ "reasoning": { "max_tokens": 8000 } }));
+        assert_eq!(reasoned(Reasoning::Budget { tokens: 8000 }, false), json!({}), "no budget field to carry it");
     }
 
     #[test]
@@ -428,7 +461,7 @@ mod tests {
         let url = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-        let gateway = Compat::caching_claude(&url);
+        let gateway = Compat::openrouter(&url);
         let key = Credential::ApiKey { key: "or-key".into() };
         let chunks: Vec<Chunk> = gateway.stream(&conversation("anthropic/claude-sonnet-4.5"), &key).await.unwrap().map(Result::unwrap).collect().await;
         assert!(chunks.contains(&Chunk::Usage(Usage { input: 100, output: 2, cache_read: 800, cache_write: 0 })));

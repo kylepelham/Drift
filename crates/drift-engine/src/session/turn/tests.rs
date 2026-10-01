@@ -69,7 +69,7 @@ pub(crate) async fn until_idle(h: &Harness) {
 }
 
 pub(crate) fn prompt(text: &str) -> Prompt {
-    Prompt { parts: vec![Part::Text { text: text.into() }], model: Some(model()), thinking_budget: None, submission_id: None }
+    Prompt { parts: vec![Part::Text { text: text.into() }], model: Some(model()), variant: None, submission_id: None }
 }
 
 #[tokio::test]
@@ -442,7 +442,7 @@ fn backoff_doubles_with_jitter_under_a_cap_and_a_named_wait_is_used_as_is() {
 #[tokio::test]
 async fn submit_rejects_bad_plans() {
     let h = harness().await;
-    let no_model = Prompt { parts: vec![], model: None, thinking_budget: None, submission_id: None };
+    let no_model = Prompt { parts: vec![], model: None, variant: None, submission_id: None };
     assert_eq!(h.engine.submit(&h.session.id, no_model).await.err(), Some(TurnError::NoModel));
     let unknown = Prompt { model: Some(ModelRef { provider: "anthropic".into(), model: "nope".into() }), ..prompt("x") };
     assert_eq!(h.engine.submit(&h.session.id, unknown).await.err(), Some(TurnError::UnknownModel));
@@ -991,19 +991,42 @@ fn model_with(output: u64, reasoning: bool) -> crate::llm::catalog::Model {
     model
 }
 
+#[tokio::test]
+async fn a_prompts_variant_sets_the_requests_reasoning_and_an_unknown_one_asks_nothing() {
+    use crate::llm::catalog::Reasoning;
+    let h = harness().await;
+    h.provider.push(text("thought hard")).push(text("plain"));
+    let mut hard = prompt("think");
+    hard.variant = Some(Some("max".into()));
+    h.engine.submit(&h.session.id, hard).await.await_ok();
+    until_idle(&h).await;
+    let mut odd = prompt("again");
+    odd.variant = Some(Some("ultra".into()));
+    h.engine.submit(&h.session.id, odd).await.await_ok();
+    until_idle(&h).await;
+    let requests = h.provider.requests.lock().unwrap();
+    assert!(matches!(requests[0].reasoning, Some(Reasoning::Budget { tokens }) if tokens > 16_000), "{:?}", requests[0].reasoning);
+    assert_eq!(requests[1].reasoning, None, "a name the model does not offer");
+}
+
 #[test]
 fn output_and_thinking_budgets_are_valid_together() {
-    assert_eq!(budgets(&model_with(32_000, true), Some(32_000)), (32_000, Some(32_000 - MIN_ANSWER_TOKENS)), "never past the model's own limit");
-    assert_eq!(budgets(&model_with(64_000, true), Some(32_000)), (33_024, Some(32_000)), "a budget may raise the output past our cap");
-    assert_eq!(budgets(&model_with(64_000, true), Some(100_000)), (64_000, Some(64_000 - MIN_ANSWER_TOKENS)));
-    assert_eq!(budgets(&model_with(64_000, true), Some(10)), (32_000, Some(MIN_THINKING_TOKENS)), "raised to the provider's minimum");
-    assert_eq!(budgets(&model_with(1_500, true), Some(8_000)), (1_500, None), "no room for thinking and an answer");
-    assert_eq!(budgets(&model_with(64_000, false), Some(8_000)), (32_000, None), "a model that does not reason gets no budget");
+    use crate::llm::catalog::Reasoning;
+    let budget = |tokens| Some(Reasoning::Budget { tokens });
+    assert_eq!(budgets(&model_with(32_000, true), budget(32_000)), (32_000, budget(32_000 - MIN_ANSWER_TOKENS)), "never past the model's own limit");
+    assert_eq!(budgets(&model_with(64_000, true), budget(32_000)), (33_024, budget(32_000)), "a budget may raise the output past our cap");
+    assert_eq!(budgets(&model_with(64_000, true), budget(100_000)), (64_000, budget(64_000 - MIN_ANSWER_TOKENS)));
+    assert_eq!(budgets(&model_with(64_000, true), budget(10)), (32_000, budget(MIN_THINKING_TOKENS)), "raised to the provider's minimum");
+    assert_eq!(budgets(&model_with(1_500, true), budget(8_000)), (1_500, None), "no room for thinking and an answer");
+    assert_eq!(budgets(&model_with(64_000, false), budget(8_000)), (32_000, None), "a model that does not reason gets no budget");
     assert_eq!(budgets(&model_with(0, false), None), (MAX_OUTPUT_TOKENS, None), "an unknown limit uses our cap");
+    let effort = Some(Reasoning::Effort { level: "high".into() });
+    assert_eq!(budgets(&model_with(64_000, true), effort.clone()), (32_000, effort), "an effort passes through at the usual cap");
     for (limit, wanted) in [(4_096, 4_096), (8_192, 8_000), (128_000, 127_000), (2_048, 1_024)] {
-        let (max, thinking) = budgets(&model_with(limit, true), Some(wanted));
+        let (max, thinking) = budgets(&model_with(limit, true), budget(wanted));
         assert!(max as u64 <= limit, "{limit}/{wanted}");
-        assert!(thinking.is_none_or(|t| t + MIN_ANSWER_TOKENS <= max && t >= MIN_THINKING_TOKENS), "{limit}/{wanted}: {max} {thinking:?}");
+        let fits = |t: u32| t + MIN_ANSWER_TOKENS <= max && t >= MIN_THINKING_TOKENS;
+        assert!(thinking.as_ref().is_none_or(|r| matches!(r, Reasoning::Budget { tokens } if fits(*tokens))), "{limit}/{wanted}: {max} {thinking:?}");
     }
 }
 

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 
+use super::catalog::Reasoning;
 use super::sse;
 use super::{Block, ChatMessage, Chunk, ChunkStream, Credential, Error, Request, Role, StopReason};
 use crate::session::types::Usage;
@@ -79,10 +80,14 @@ fn body(request: &Request) -> Value {
             .collect();
         body["tools"] = json!([{ "functionDeclarations": declarations }]);
     }
-    if let Some(budget) = request.thinking_budget {
-        body["generationConfig"]["thinkingConfig"] = json!({ "thinkingBudget": budget, "includeThoughts": true });
-    } else if let Some(temperature) = request.temperature {
-        body["generationConfig"]["temperature"] = json!(temperature);
+    match &request.reasoning {
+        Some(Reasoning::Budget { tokens }) => body["generationConfig"]["thinkingConfig"] = json!({ "thinkingBudget": tokens, "includeThoughts": true }),
+        Some(Reasoning::Effort { level }) => body["generationConfig"]["thinkingConfig"] = json!({ "thinkingLevel": level, "includeThoughts": true }),
+        None => {
+            if let Some(temperature) = request.temperature {
+                body["generationConfig"]["temperature"] = json!(temperature);
+            }
+        }
     }
     body
 }
@@ -254,10 +259,17 @@ mod tests {
             ],
             tools: vec![ToolSpec { name: "read".into(), description: "r".into(), input_schema: json!({ "type": "object", "additionalProperties": false, "properties": {} }) }],
             max_tokens: 500,
-            thinking_budget: Some(2048),
+            reasoning: Some(Reasoning::Budget { tokens: 2048 }),
             temperature: None,
             cache_key: None,
         }
+    }
+
+    #[test]
+    fn a_level_is_sent_as_gemini_3_names_it() {
+        let mut request = request();
+        request.reasoning = Some(Reasoning::Effort { level: "minimal".into() });
+        assert_eq!(body(&request)["generationConfig"]["thinkingConfig"], json!({ "thinkingLevel": "minimal", "includeThoughts": true }));
     }
 
     #[test]
