@@ -408,13 +408,16 @@ impl Store {
     /// [`Self::admit_prompt`] that also hands results over and settles reused submission ids (several land together, so the first decides), in one write.
     pub fn admit_delivering(&self, session_id: &str, pick: Pick, parts: Vec<Part>, submissions: &[(&str, &str)], handover: Handover) -> rusqlite::Result<Admit> {
         let conn = self.lock();
-        let Handover { delivery, held } = handover;
+        let Handover { delivery, held, queued } = handover;
         transaction(&conn, |conn| {
             if let Some((id, hash)) = submissions.first() {
                 if let Some(earlier) = submission_in(conn, id)? {
                     let same = earlier.session_id == session_id && earlier.payload_hash == *hash;
                     return Ok(if same { Admit::Replayed { message_id: earlier.message_id } } else { Admit::Conflict });
                 }
+            }
+            if queued && !super::queued::all_waiting(conn, session_id, submissions)? {
+                return Ok(Admit::Delivered);
             }
             if let Some(task_id) = delivery {
                 if !super::tasks::acknowledge(conn, task_id, session_id)? {
@@ -434,17 +437,19 @@ pub enum Admit {
     Replayed { message_id: String },
     /// The submission id was used for a different prompt or session.
     Conflict,
-    /// The worker result this prompt carries was already handed over.
+    /// The worker result or the waiting prompts this prompt carries were already handed over, discarded or replaced.
     Delivered,
 }
 
-/// Worker results a prompt carries into its session.
+/// Worker results or waiting prompts a prompt carries into its session.
 #[derive(Default)]
 pub struct Handover<'a> {
     /// The prompt is this result's delivery; nothing lands unless the result is still owed.
     pub delivery: Option<&'a str>,
     /// Held results riding along, ahead of the prompt's own parts; each goes in only if still owed.
     pub held: Vec<(String, Part)>,
+    /// The submissions are waiting prompts; nothing lands unless every one still waits.
+    pub queued: bool,
 }
 
 fn held_parts(conn: &Connection, session_id: &str, held: Vec<(String, Part)>) -> rusqlite::Result<Vec<Part>> {

@@ -92,6 +92,17 @@ fn take_in(conn: &Connection, session_id: &str) -> rusqlite::Result<Vec<QueuedRo
     Ok(rows)
 }
 
+/// Whether every one of `submissions` still waits in the session; a Discard, Stop or replacement since took the rest back.
+pub(super) fn all_waiting(conn: &Connection, session_id: &str, submissions: &[(&str, &str)]) -> rusqlite::Result<bool> {
+    let mut stmt = conn.prepare_cached("SELECT 1 FROM queued_prompt WHERE submission_id = ?1 AND session_id = ?2 AND payload_hash = ?3")?;
+    for (id, hash) in submissions {
+        if !stmt.exists(params![id, session_id, hash])? {
+            return Ok(false);
+        }
+    }
+    Ok(!submissions.is_empty())
+}
+
 /// A submission admitted as a message no longer waits; called inside its admission's write.
 pub(super) fn admitted(conn: &Connection, submission_id: &str) -> rusqlite::Result<()> {
     conn.prepare_cached("DELETE FROM queued_prompt WHERE submission_id = ?1")?.execute([submission_id])?;
@@ -147,8 +158,28 @@ mod tests {
         assert_eq!(replaced.iter().map(|r| r.submission_id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
         assert!(store.is_waiting(&session.id).unwrap(), "adding tries again");
         let model = ModelRef { provider: "p".into(), model: "m".into() };
-        let Admit::New(admitted) = store.admit_delivering(&session.id, Pick::model(&model), vec![], &[("c", "h-c")], Handover::default()).unwrap() else { panic!() };
+        let queued = Handover { queued: true, ..Handover::default() };
+        let Admit::New(admitted) = store.admit_delivering(&session.id, Pick::model(&model), vec![], &[("c", "h-c")], queued).unwrap() else { panic!() };
         assert_eq!(admitted.session.queued, None, "admitted in the same write that ends its wait");
         assert!(store.queued(&session.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn waiting_prompts_taken_back_meanwhile_land_nowhere() {
+        let store = store();
+        let session = store.create_session(NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None }).unwrap();
+        let model = ModelRef { provider: "p".into(), model: "m".into() };
+        let text = r#"{"parts":[{"type":"text","text":"x"}]}"#;
+        store.queue(&session.id, &row("a", text), false).unwrap();
+        store.queue(&session.id, &row("b", text), false).unwrap();
+        let start = |submissions: &[(&str, &str)]| store.admit_delivering(&session.id, Pick::model(&model), vec![], submissions, Handover { queued: true, ..Handover::default() }).unwrap();
+        store.take_queued(&session.id).unwrap();
+        assert!(matches!(start(&[("a", "h-a"), ("b", "h-b")]), Admit::Delivered), "discarded");
+        store.queue(&session.id, &row("b", text), false).unwrap();
+        assert!(matches!(start(&[("a", "h-a"), ("b", "h-b")]), Admit::Delivered), "only part of it still waits");
+        assert!(matches!(start(&[("b", "h-other")]), Admit::Delivered), "a row under another payload is not this one");
+        let messages: i64 = store.lock().query_row("SELECT COUNT(*) FROM message", [], |r| r.get(0)).unwrap();
+        assert_eq!(messages, 0);
+        assert_eq!(store.queued(&session.id).unwrap().len(), 1, "what still waits is untouched");
     }
 }

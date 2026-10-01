@@ -104,6 +104,8 @@ impl Engine {
         let submissions: Vec<(&str, &str)> = rows.iter().map(|row| (row.submission_id.as_str(), row.payload_hash.as_str())).collect();
         match self.admit(session_id, prompt, Admission { queued: &submissions, ..Admission::default() }).await {
             Ok(_) | Err(TurnError::Busy | TurnError::Stopped) => {}
+            // Taken back while the turn was planned, so nothing was written; whatever replaced it starts now.
+            Err(TurnError::SubmissionReused) if self.store.queued(session_id).unwrap_or_default() != rows => self.start_queued_soon(session_id),
             Err(error) => self.fail_queue(session_id, &error.to_string()),
         }
     }

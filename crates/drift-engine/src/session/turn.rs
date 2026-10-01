@@ -432,7 +432,8 @@ impl Engine {
         let own = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
         let submissions = if how.queued.is_empty() { own.as_slice() } else { how.queued };
         let pick = Pick { model: &plan.model_ref, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
-        let admitted = attach.prepare(prompt.parts).and_then(|parts| self.admit_fenced(session_id, pick, parts, submissions, Some(&abort), how.delivery));
+        let handover = Handover { delivery: how.delivery, queued: !how.queued.is_empty(), ..Handover::default() };
+        let admitted = attach.prepare(prompt.parts).and_then(|parts| self.admit_fenced(session_id, pick, parts, submissions, Some(&abort), handover));
         let admitted = match admitted {
             Ok(admitted) => admitted,
             Err(error) => {
@@ -448,7 +449,7 @@ impl Engine {
     }
 
     /// The last check before a prompt is written, under the lock every Stop holds, so it lands wholly before a Stop or not at all.
-    pub(super) fn admit_fenced(&self, session_id: &str, pick: Pick, parts: Vec<Part>, submissions: &[(&str, &str)], abort: Option<&CancellationToken>, delivery: Option<&str>) -> Result<Admitted, TurnError> {
+    pub(super) fn admit_fenced(&self, session_id: &str, pick: Pick, parts: Vec<Part>, submissions: &[(&str, &str)], abort: Option<&CancellationToken>, handover: Handover) -> Result<Admitted, TurnError> {
         let _fence = self.workers.fence();
         if abort.is_some_and(CancellationToken::is_cancelled) {
             return Err(TurnError::Stopped);
@@ -456,7 +457,7 @@ impl Engine {
         // Results a Stop held back ride along with any admitted prompt, each claimed so no other path takes it meanwhile.
         let held: Vec<_> = self.store.held_tasks(session_id)?.into_iter().filter(|task| self.workers.claim(&task.id, Claimant::Automatic)).collect();
         let carried = held.iter().map(|task| (task.id.clone(), super::tasks::result_part(task))).collect();
-        let admitted = self.store.admit_delivering(session_id, pick, parts, submissions, Handover { delivery, held: carried });
+        let admitted = self.store.admit_delivering(session_id, pick, parts, submissions, Handover { held: carried, ..handover });
         for task in &held {
             self.workers.release_where_task(&task.id, &Claimant::Automatic);
             self.publish_task(&task.id);
@@ -464,7 +465,7 @@ impl Engine {
         match admitted? {
             Admit::New(admitted) => Ok(*admitted),
             Admit::Replayed { message_id } => Err(TurnError::Replayed(message_id)),
-            // A different prompt under the same id, or a result already handed over: nothing is written.
+            // A different prompt under the same id, or a result or waiting prompt already taken: nothing is written.
             Admit::Conflict | Admit::Delivered => Err(TurnError::SubmissionReused),
         }
     }
@@ -542,7 +543,7 @@ impl Engine {
         }
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
         let pick = Pick { model: &running.model, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
-        let admitted = self.admit_fenced(session_id, pick, parts, submission.as_slice(), how.parent, how.delivery)?;
+        let admitted = self.admit_fenced(session_id, pick, parts, submission.as_slice(), how.parent, Handover { delivery: how.delivery, ..Handover::default() })?;
         drop(steering);
         Ok(Some(self.announce(session_id, admitted)))
     }

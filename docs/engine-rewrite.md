@@ -340,7 +340,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   waiting is admitted as one prompt (the oldest's agent and level, all parts in order) and starts a
   turn of its own; the rows go in the same write that admits it, under all their submission ids,
   so a crash leaves either the rows or the message, never both, and a resent id replays either
-  way. A queue left at shutdown starts when the engine does (`resume_queued`). Prompts that change
+  way. That write first requires every row it read to still wait (same id and payload); one
+  taken back while the turn was planned (Discard, Stop, a replacement) means nothing is written
+  and the claim is let go, so a prompt handed back to the user never runs. If a replacement waits
+  by then, it starts next. A queue left at shutdown starts when the engine does (`resume_queued`). Prompts that change
   neither keep steering into the running turn. "Another" is judged by effect, not spelling: an
   agent by name, a level by the reasoning it resolves to on the model the turn is running on
   (after a retry switch, the new one). A level that model does not offer asks for nothing, so it

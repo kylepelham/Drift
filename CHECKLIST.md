@@ -141,6 +141,7 @@ change the plan there when a decision changes.
 - [x] Second review: composer picks are unsent edits cleared by an accepted send; a prompt names agent and level only when they change the session's, never null for a level the model lacks; the model falls back to the session's before the global default
 - [x] Second review: the MCP approval hash is keyed (HMAC-SHA256, key kept by the engine); approvals under the old unkeyed hash carry over
 - [x] Second review: a reconnected MCP tool is judged by name, input schema and safety hints, not its wording
+- [x] Third review: a queued start lands only if every row it read still waits, so a prompt handed back never runs
 
 #### Retained features still on the OpenCode database (pending native UI work)
 

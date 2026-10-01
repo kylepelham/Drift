@@ -111,6 +111,31 @@ async fn discarding_lets_the_turn_carry_on_and_stop_never_starts_what_waited() {
     assert!(!format!("{transcript:?}").contains("plan after"));
 }
 
+fn waiting_row(prompt: &Prompt) -> crate::store::QueuedRow {
+    let id = prompt.submission_id.clone().unwrap();
+    crate::store::QueuedRow { submission_id: id, payload_hash: crate::session::turn::payload_hash(prompt), prompt_json: serde_json::to_string(prompt).unwrap(), error: None, created_at: 0 }
+}
+
+#[tokio::test]
+async fn a_start_planned_before_the_prompt_was_taken_back_writes_nothing_and_its_replacement_runs() {
+    let h = harness().await;
+    let given_back = Prompt { submission_id: Some("sub_back".into()), ..as_agent("plan", "given back") };
+    let replacement = Prompt { submission_id: Some("sub_new".into()), ..as_agent("build", "instead") };
+    // The start read these rows; then a replacement took them back before it wrote anything.
+    let hash = crate::session::turn::payload_hash(&given_back);
+    let stale = [("sub_back", hash.as_str())];
+    h.engine.store.queue(&h.session.id, &waiting_row(&replacement), false).unwrap();
+    let started = h.engine.admit(&h.session.id, given_back, crate::session::turn::Admission { queued: &stale, ..Default::default() }).await;
+    assert_eq!(started.err(), Some(TurnError::SubmissionReused));
+    assert!(h.engine.store.transcript(&h.session.id).unwrap().is_empty(), "the prompt handed back never ran");
+    assert!(!h.engine.turns.is_running(&h.session.id), "its claim was let go");
+    h.provider.push(text("built"));
+    h.engine.start_queued(&h.session.id).await;
+    until_settled(&h.engine, &h.session.id).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert!(format!("{transcript:?}").contains("instead") && !format!("{transcript:?}").contains("given back"));
+}
+
 #[tokio::test]
 async fn what_waited_starts_after_a_restart() {
     let h = harness().await;
