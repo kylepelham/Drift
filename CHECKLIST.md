@@ -137,6 +137,7 @@ change the plan there when a decision changes.
 - [x] Review follow-ups: captured MCP tools refused on a redefined reconnect, approval tied to the reviewed hash, unnamed and cleared variants hash apart, the composer shows the session's saved agent and level, legacy agent overrides save again
 - [x] Second review: a follow-up is judged against the running turn by effect (agent by name, level by the reasoning it resolves to on the running model)
 - [x] Second review: a prompt for another agent or level is queued durably and answered at once (202, `session.queued`), starts when the turn's step ends or the engine restarts; later prompts join or replace it; Discard and Stop return it, and nothing starts after a Stop
+- [x] Second review: the composer shows a waiting prompt (who it runs as, or why it could not start) with Discard, and puts any prompt the engine gives back into the draft
 
 #### Retained features still on the OpenCode database (pending native UI work)
 

@@ -10,7 +10,7 @@ import type {
   ToolPart,
 } from "@opencode-ai/sdk/client"
 import { createStore, produce, type SetStoreFunction } from "solid-js/store"
-import type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord } from "./native/client"
+import type { McpServerConfig, McpServerConfigView, McpServerStatus, Queued, TaskRecord } from "./native/client"
 export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord }
 export type Connection = "idle" | "connecting" | "online" | "offline"
 
@@ -424,11 +424,19 @@ export function taskForCall(state: EngineState, sessionId: string, callId: strin
   return tasks.find((task) => (typeof taskId === "string" && task.id === taskId) || (callId !== undefined && task.callId === callId))
 }
 
-/** The agent and reasoning level the engine saved on a session, for the composer to show when it has no choice of its own. */
+type SavedSession = Session & { agent?: string; variant?: string | null; queued?: Queued | null }
+
+/** What waits to run in a session once its turn finishes the step it is on. */
+export function queuedPrompt(state: EngineState, id: string | null | undefined) {
+  return (id ? (state.sessions[id] as SavedSession | undefined)?.queued : undefined) ?? undefined
+}
+
+/** The agent and reasoning level a session runs as next: what waits, else what the engine saved. */
 export function savedChoice(state: EngineState, id: string | null | undefined) {
-  const session = id ? (state.sessions[id] as (Session & { agent?: string; variant?: string | null }) | undefined) : undefined
+  const session = id ? (state.sessions[id] as SavedSession | undefined) : undefined
   if (!session) return {}
-  return { agent: session.agent, variant: session.variant ?? null }
+  const next = session.queued ?? session
+  return { agent: next.agent, variant: next.variant ?? null }
 }
 
 export function sessionBusy(state: EngineState, id: string) {

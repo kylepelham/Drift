@@ -354,6 +354,12 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   `DELETE /sessions/{id}/queued` discards what waits and returns its parts; the running turn
   carries on. Stop (`POST /sessions/{id}/abort`, and every engine-side stop: archive, delete)
   discards what waits first, so nothing starts after it, and returns the parts in `returned`.
+- The composer draws what waits as a row above the input ("Waiting for the current step to
+  finish. Runs as Plan, High", or why it could not start) with Discard. Whatever the engine gives
+  back (Discard, Stop, or a newer prompt replacing it) goes into that session's draft ahead of
+  anything typed since; pasted files come back as attachments, mentions as text only. While
+  something waits, the composer shows its agent and level, since that is what the session runs as
+  next.
 - Turn limits (`config::Limits`, drift.json `limits: { steps, repeats, polls }`, later files
   override field by field; an agent's front matter `steps:` replaces `steps` for its turns):
   - `steps` (default 200): model steps that ran tools in one turn. Reaching it pauses the turn.

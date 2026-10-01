@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
-import { modelInfo, resolveModel, savedChoice, sessionBusy, type QuestionRequest } from "../engine/store"
+import { modelInfo, queuedPrompt, resolveModel, savedChoice, sessionBusy, type QuestionRequest } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
 import {
   autoAcceptGlobal,
@@ -25,6 +25,7 @@ import {
   navigateComposerHistory,
   patchComposerDraft,
   recordComposerHistory,
+  restoreComposerDraft,
   setComposerDraft,
   type ComposerDraft,
   type StagedFile,
@@ -60,6 +61,7 @@ import { Picker, type PickerItem } from "./picker"
 import { defaultVisibleModelIds, ModelManager } from "./model-manager"
 import { ProviderIcon } from "./provider-icon"
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit"
+import { queuedNotice } from "./composer-queued"
 import {
   formatAttachmentBytes,
   prepareAttachment,
@@ -368,6 +370,14 @@ export function Composer() {
   )
 
   const prefs = () => prefsFor(selectedSession(), savedChoice(engine.state, selectedSession()))
+  const queued = () => queuedPrompt(engine.state, selectedSession())
+
+  async function discardQueued() {
+    const id = selectedSession()
+    if (!id) return
+    const returned = await engine.actions.discardQueued(id)
+    if (returned) restoreComposerDraft(composerScope(id), returned)
+  }
   const model = () => resolveModel(engine.state, prefs().model)
   const modelId = () => {
     const ref = model()
@@ -432,11 +442,12 @@ export function Composer() {
           files,
         })
       },
-      admitted(key, snapshot, historyDraft) {
+      admitted(key, snapshot, historyDraft, returned) {
         stopDictation()
         recordComposerHistory(historyDraft)
         setHistoryNavigation(null)
         clearComposerDraft(key, snapshot)
+        if (returned) restoreComposerDraft(key, returned)
         setFileError("")
         resize()
         queueMicrotask(() => area.focus())
@@ -730,6 +741,22 @@ export function Composer() {
             </Show>
           </div>
         </Show>
+        <Show when={queued()}>
+          {(waiting) => {
+            const notice = () => queuedNotice(waiting())
+            return (
+              <div class="flex items-center gap-2 px-4 pt-2.5 text-xs">
+                <span class="size-1.5 shrink-0 rounded-full" classList={{ "animate-pulse bg-accent": !notice().failed, "bg-danger": notice().failed }} />
+                <span class="min-w-0 truncate" classList={{ "text-ink-faint": !notice().failed, "text-danger": notice().failed }} title={waiting().text}>
+                  {notice().text}
+                </span>
+                <button class="ml-auto shrink-0 text-ink-faint transition-colors hover:text-ink hover:underline" onClick={discardQueued}>
+                  {t("drift.queued.discard")}
+                </button>
+              </div>
+            )
+          }}
+        </Show>
         <div ref={areaFrame} class="w-full">
           <textarea
             ref={area}
@@ -842,7 +869,8 @@ export function Composer() {
                 title={t("prompt.action.stop")}
                 onClick={() => {
                   interruptResponseAnimations()
-                  void engine.actions.abort(selectedSession()!)
+                  const id = selectedSession()!
+                  void engine.actions.abort(id).then((returned) => returned && restoreComposerDraft(composerScope(id), returned))
                 }}
               >
                 {t("prompt.action.stop")}

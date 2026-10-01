@@ -19,6 +19,33 @@ test("composer drafts are isolated by session and new-workspace scope", async ()
   clearComposerDraft(fresh)
 })
 
+test("a prompt the engine gives back goes ahead of anything typed since, pasted files included", async () => {
+  const { composerDraft, composerScope, patchComposerDraft, restoreComposerDraft, clearComposerDraft } = await import("../src/state/composer")
+  const scope = composerScope("s-returned", "w1")
+  patchComposerDraft(scope, { text: "typed since" })
+  restoreComposerDraft(scope, {
+    text: "plan it\n\nand the tests",
+    files: [
+      { mime: "image/png", name: "shot.png", url: "data:image/png;base64,AAAA" },
+      { mime: "text/plain", name: "src/a.ts", url: "file:///repo/src/a.ts" },
+    ],
+  })
+  const draft = composerDraft(scope)
+  expect(draft.text).toBe("plan it\n\nand the tests\n\ntyped since")
+  expect(draft.staged.map((file) => file.filename)).toEqual(["shot.png"])
+  clearComposerDraft(scope)
+})
+
+test("the waiting row says who the prompt runs as, or why it could not start", async () => {
+  const { queuedNotice } = await import("../src/ui/composer-queued")
+  const waiting = { agent: "plan", variant: "high", text: "plan it", files: 0, since: 1 }
+  expect(queuedNotice(waiting)).toEqual({ failed: false, text: "Waiting for the current step to finish. Runs as Plan, High" })
+  expect(queuedNotice({ ...waiting, variant: undefined, error: "provider has no credentials" })).toEqual({
+    failed: true,
+    text: "Couldn't start as Plan: provider has no credentials",
+  })
+})
+
 test("composer clipboard publishing uses the exact selected text", async () => {
   const { composerSelection } = await import("../src/ui/composer")
   expect(composerSelection("first\nsecond\nthird", 6, 12)).toBe("second")

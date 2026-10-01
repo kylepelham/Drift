@@ -1,6 +1,7 @@
+import type { ReturnedPrompt } from "../engine/actions"
 import type { ComposerDraft } from "../state/composer"
 
-export type PromptAdmission = { ok: true } | { ok: false; error: string }
+export type PromptAdmission = { ok: true; returned?: ReturnedPrompt } | { ok: false; error: string }
 export type ComposerSubmitResult = "submitted" | "ignored" | "failed"
 
 type SubmissionLease = {
@@ -67,7 +68,8 @@ type ComposerSubmitEnvironment<Prepared> = {
     workspace: ComposerWorkspace,
     prepared: Prepared,
   ) => Promise<PromptAdmission>
-  admitted: (scope: string, snapshot: ComposerDraft, historyDraft: ComposerDraft) => void
+  /** `returned` is a waiting prompt the sent one replaced, to put back once the sent text is cleared. */
+  admitted: (scope: string, snapshot: ComposerDraft, historyDraft: ComposerDraft, returned?: ReturnedPrompt) => void
   failed?: (error: unknown) => void
 }
 
@@ -115,7 +117,7 @@ export function createComposerSubmit<Prepared>(
 
       const admission = await environment.send(sessionId, text, snapshot, workspace, prepared)
       if (!admission.ok) return "failed"
-      environment.admitted(draftScope, snapshot, { ...snapshot, text: initial })
+      environment.admitted(draftScope, snapshot, { ...snapshot, text: initial }, admission.returned)
       return "submitted"
     } catch (error) {
       environment.failed?.(error)

@@ -12,6 +12,8 @@ export type Session = components["schemas"]["Session"]
 export type MessageWithParts = components["schemas"]["MessageWithParts"]
 export type Prompt = components["schemas"]["Prompt"]
 export type Receipt = components["schemas"]["Receipt"]
+export type Queued = components["schemas"]["Queued"]
+export type NativePart = components["schemas"]["Part"]
 export type PermissionRequest = components["schemas"]["PermissionRequest"]
 export type QuestionRequest = components["schemas"]["QuestionRequest"]
 export type Todo = components["schemas"]["Todo"]
@@ -99,6 +101,7 @@ export function createClient(target: Target) {
     findFiles: (workspaceId: string, text: string, signal?: AbortSignal) =>
       request<Json<"findFiles", 200>>("GET", `/workspaces/${workspaceId}/files${query({ query: text })}`, undefined, signal),
     abort: (id: string) => request<Json<"abortTurn", 200>>("POST", `/sessions/${id}/abort`),
+    discardQueued: (id: string) => request<Json<"discardQueued", 200>>("DELETE", `/sessions/${id}/queued`),
     providers: () => request<Json<"listProviders", 200>>("GET", "/providers"),
     setProviderKey: (id: string, key: string) => request<void>("PUT", `/providers/${id}/key`, { key }),
     removeProviderCredentials: (id: string) => request<void>("DELETE", `/providers/${id}/credentials`),

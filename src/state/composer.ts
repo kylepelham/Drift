@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js"
+import type { ReturnedPrompt } from "../engine/actions"
 import type { MessageEntry } from "../engine/store"
 import { resolveAttachmentKind, type StagedAttachment } from "../attachments"
 import { persisted } from "./persist"
@@ -144,6 +145,21 @@ export function draftFromMessage(entry: MessageEntry): ComposerDraft {
     })
   }
   return { text, staged, mentions: [...new Set(mentions)] }
+}
+
+/** Puts a prompt the engine gave back unrun into the draft, ahead of anything typed since; only pasted files come back as files. */
+export function restoreComposerDraft(scope: string, returned: ReturnedPrompt) {
+  const current = composerDraft(scope)
+  const staged: StagedFile[] = returned.files.flatMap((file, index) => {
+    const resolved = resolveAttachmentKind({ filename: file.name, mime: file.mime })
+    if (!file.url.startsWith("data:") || resolved.kind === "unsupported") return []
+    return [{ id: `returned-${Date.now()}-${index}`, filename: file.name, mime: resolved.mime, dataUrl: file.url, size: 0, status: "ready" as const, meta: {} }]
+  })
+  setComposerDraft(scope, {
+    text: [returned.text, current.text].filter((text) => text.trim()).join("\n\n"),
+    staged: [...staged, ...current.staged],
+    mentions: current.mentions,
+  })
 }
 
 function historyDraft(entry: ComposerHistoryEntry): ComposerDraft {

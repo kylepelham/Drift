@@ -190,6 +190,7 @@ const pendingTranslation = new Set([
   "drift.settings.code",
   ...pendingKeys("drift.settings.search", "empty placeholder"),
   ...pendingKeys("drift.chat.retry", "switchModel switchingModel"),
+  ...pendingKeys("drift.queued", "waiting failed discard"),
   ...pendingKeys(
     "drift.code",
     `
