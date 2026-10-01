@@ -56,6 +56,13 @@ struct Shifted {
     unattributed: Vec<String>,
 }
 
+/// A path a shift changed, and the content it had before, to restore if a later path fails.
+struct Applied {
+    workspace: PathBuf,
+    path: String,
+    previous: Option<String>,
+}
+
 enum Direction {
     /// Put each file back to how it was before the first change in the range.
     Back,
@@ -113,30 +120,52 @@ impl Engine {
     /// change is applied where its owning workspace is now, whichever workspace the session is in.
     async fn shift(&self, session: &Session, from: &str, to: Option<&str>, direction: Direction) -> Result<Shifted, RevertError> {
         let mut shifted = Shifted::default();
-        for Net { owner, change, broken } in self.net_changes(session, from, to)? {
-            if change.observed {
-                shifted.unattributed.push(change.path);
-                continue;
+        let mut applied = Vec::new();
+        for net in self.net_changes(session, from, to)? {
+            match self.shift_one(net, &direction, &mut shifted).await {
+                Ok(Some(done)) => applied.push(done),
+                Ok(None) => {}
+                // All or nothing: what this shift already put back is returned to how it was.
+                Err(error) => return Err(self.put_back(applied, error).await),
             }
-            // Someone else changed the file between two of the session's writes (undoing to the first
-            // before, or redoing to the last after, would erase their edit), or the workspace is gone.
-            let Some(workspace) = self.root_of(&owner).filter(|_| !broken) else {
-                shifted.kept.push(change.path);
-                continue;
-            };
-            let workspace = workspace.as_path();
-            let (expected, target) = match direction {
-                Direction::Back => (change.after, change.before),
-                Direction::Forward => (change.before, change.after),
-            };
-            let current = self.snapshots.current(workspace, &change.path).await.map_err(|e| RevertError::Files(e.to_string()))?;
-            if current != expected {
-                shifted.kept.push(change.path);
-                continue;
-            }
-            self.snapshots.put(&self.store, workspace, &change.path, target.as_deref()).await.map_err(|e| RevertError::Files(e.to_string()))?;
         }
         Ok(shifted)
+    }
+
+    /// Applies one path's change, or records why it is left alone; `Some` names what to put back if a later path fails.
+    async fn shift_one(&self, Net { owner, change, broken }: Net, direction: &Direction, shifted: &mut Shifted) -> Result<Option<Applied>, String> {
+        if change.observed {
+            shifted.unattributed.push(change.path);
+            return Ok(None);
+        }
+        // Someone else changed the file between two of the session's writes, or the workspace is gone.
+        let Some(workspace) = self.root_of(&owner).filter(|_| !broken) else {
+            shifted.kept.push(change.path);
+            return Ok(None);
+        };
+        let (expected, target) = match direction {
+            Direction::Back => (change.after, change.before),
+            Direction::Forward => (change.before, change.after),
+        };
+        let current = self.snapshots.current(&workspace, &change.path).await.map_err(|e| e.to_string())?;
+        if current != expected {
+            shifted.kept.push(change.path);
+            return Ok(None);
+        }
+        self.snapshots.put(&self.store, &workspace, &change.path, target.as_deref()).await.map_err(|e| format!("{}: {e}", change.path))?;
+        Ok(Some(Applied { workspace, path: change.path, previous: expected }))
+    }
+
+    /// Returns the paths a failed shift already changed to their content before it, newest first.
+    async fn put_back(&self, applied: Vec<Applied>, error: String) -> RevertError {
+        let mut stuck = Vec::new();
+        for Applied { workspace, path, previous } in applied.into_iter().rev() {
+            if let Err(failure) = self.snapshots.put(&self.store, &workspace, &path, previous.as_deref()).await {
+                stuck.push(format!("{path} ({failure})"));
+            }
+        }
+        let state = if stuck.is_empty() { "no file was changed".to_string() } else { format!("these could not be put back: {}", stuck.join("; ")) };
+        RevertError::Files(format!("{error}; {state}"))
     }
 
     /// Per path, the state before its first change and after its last one in `[from, to)`, across the

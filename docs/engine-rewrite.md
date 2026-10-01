@@ -388,6 +388,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   wrote: anything changed since is kept, never overwritten, and listed (`kept`, shown as a notice).
   No other file is read or rewritten. Calling revert again moves the point: back undoes the range
   in between, forward redoes it, with the same check.
+- An undo or redo is all or nothing. Each file goes through the staged writer; if one cannot be
+  written (on Windows, a program holding it open without delete sharing is enough), the files this
+  call already changed are put back, newest first, to what they held before it, the conversation is
+  not marked, and the error says so or names any file that could not be put back. A retry then
+  finds every file as the session left it, so none is wrongly reported as kept.
 - `POST /sessions/{id}/unrevert` redoes the hidden range the same way and clears the marker.
 - Changes to one path merge only while they chain: each change's `before` must equal the previous
   one's `after`. A gap means someone else edited the file between two of the session's writes;

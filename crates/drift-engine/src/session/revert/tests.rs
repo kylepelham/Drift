@@ -74,6 +74,29 @@ async fn an_undo_whose_write_fails_once_begun_leaves_the_file_whole_and_can_be_t
 }
 
 #[tokio::test]
+async fn an_undo_that_fails_partway_puts_back_what_it_already_changed() {
+    use crate::tool::stage::tests::{inject, Fault};
+    let h = harness().await;
+    allow_writes(&h);
+    h.provider.push(write("a.txt", "one")).push(write("b.txt", "uno")).push(text("first"));
+    turn(&h, "first").await;
+    h.provider.push(write("a.txt", "two")).push(write("b.txt", "dos")).push(text("second"));
+    turn(&h, "second").await;
+    let second = h.engine.store.transcript(&h.session.id).unwrap().iter().filter(|m| m.info.role == Role::User).nth(1).unwrap().info.id.clone();
+    let workspace = crate::tool::canonical(&h._dir.join("ws"));
+    // a.txt goes back first; b.txt's write then fails, as a file held open without delete sharing would.
+    inject(Fault::AfterStaging, &workspace.join("b.txt"));
+    let Err(RevertError::Files(message)) = h.engine.revert(&h.session.id, &second).await else { panic!("the undo should fail") };
+    assert!(message.contains("b.txt") && message.contains("no file was changed"), "{message}");
+    assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt").as_deref()), (Some("two"), Some("dos")), "not half undone");
+    assert!(h.engine.store.session(&h.session.id).unwrap().unwrap().revert.is_none());
+
+    let undone = h.engine.revert(&h.session.id, &second).await.unwrap();
+    assert!(undone.kept.is_empty(), "nothing the user did not touch is reported as kept: {:?}", undone.kept);
+    assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt").as_deref()), (Some("one"), Some("uno")));
+}
+
+#[tokio::test]
 async fn every_blob_undo_needs_is_kept_through_a_prune() {
     let h = harness().await;
     let (_, second) = two_writing_turns(&h).await;
