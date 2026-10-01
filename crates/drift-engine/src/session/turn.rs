@@ -1114,8 +1114,7 @@ enum Wait {
     Stopped,
 }
 
-/// What a turn offers the model: each tool's spec and the tool itself, held until the turn ends, so an
-/// MCP server dropped or replaced meanwhile still serves this turn's calls.
+/// What a turn offers the model: each tool's spec and the tool itself, held until the turn ends.
 #[derive(Default)]
 struct Offer {
     tools: Vec<(llm::ToolSpec, Arc<dyn crate::tool::Tool>)>,

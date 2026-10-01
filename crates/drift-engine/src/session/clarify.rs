@@ -1,5 +1,4 @@
-//! Answers to questions the model asked without waiting: saved as their own prompt, once, and a turn
-//! started for them only while the session has not been stopped since the question was asked.
+//! Answers to questions the model asked without waiting, saved as their own prompt (see docs/engine-rewrite.md).
 
 use std::sync::Arc;
 
@@ -23,8 +22,7 @@ impl From<TurnError> for AnswerError {
 }
 
 impl Engine {
-    /// Answers or declines a question. A blocking one hands the answer to its waiting call; an async
-    /// one is saved as a prompt before its card closes, so a failed save leaves it answerable.
+    /// Answers or declines a question; an async answer is saved before its card closes, so a failed save leaves it answerable.
     pub async fn answer_question(self: &Arc<Self>, request_id: &str, answers: Answers) -> Result<(), AnswerError> {
         let Some(request) = self.questions.lookup(request_id) else {
             return match (self.questions.answered(request_id), answers) {
