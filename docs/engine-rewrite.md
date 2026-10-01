@@ -818,6 +818,11 @@ these async criteria are new pending M3 work.
 - The engine owns the one connection to `drift.db` and the migration ledger. The shell's
   `Store` borrows it (`drift_engine::store::Store::lock`) for its own tables until they fold
   into the engine at M4. `workspace` is already the engine's table.
+- Loading messages is two queries whatever their number: the page of messages, then every part in
+  that id range in one join (`with_parts_in`), so the shared lock is held briefly even on long
+  sessions. A step loads its transcript once (twice when it compacts first); the loop check, the
+  subagent outcome and closing unrun calls load only the message they need (`Store::last_reply`,
+  `Store::with_parts`). This is what opencode's `zz-prompt-row-scan` overlay fixed there.
 
 ## Failure-path contracts
 

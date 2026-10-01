@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use super::Store;
@@ -144,21 +146,31 @@ impl Store {
         let infos: Vec<Message> = stmt
             .query_map(params![session_id, before, limit as i64], map_message)?
             .collect::<Result<_, _>>()?;
-        let mut parts = conn.prepare_cached("SELECT id, session_id, json FROM part WHERE message_id = ?1 ORDER BY id")?;
-        infos
-            .into_iter()
-            .map(|info| {
-                let parts = parts
-                    .query_map([&info.id], |row| map_part(row, &info.id))?
-                    .collect::<Result<_, _>>()?;
-                Ok(MessageWithParts { info, parts })
-            })
-            .collect()
+        with_parts_in(&conn, session_id, infos)
     }
 
     /// All messages of a session in order: what a turn sends back to the model.
     pub fn transcript(&self, session_id: &str) -> rusqlite::Result<Vec<MessageWithParts>> {
         self.messages(session_id, None, usize::MAX / 2)
+    }
+
+    /// The session's newest assistant message, without loading the rest of the conversation.
+    pub fn last_reply(&self, session_id: &str) -> rusqlite::Result<Option<MessageWithParts>> {
+        let conn = self.lock();
+        let info = conn
+            .prepare_cached(&format!("SELECT {MESSAGE_COLUMNS} FROM message WHERE session_id = ?1 AND role = 'assistant' ORDER BY id DESC LIMIT 1"))?
+            .query_row([session_id], map_message)
+            .optional()?;
+        Ok(with_parts_in(&conn, session_id, info.into_iter().collect())?.pop())
+    }
+
+    /// One message and its parts.
+    pub fn with_parts(&self, message_id: &str) -> rusqlite::Result<Option<MessageWithParts>> {
+        let conn = self.lock();
+        let info = conn.prepare_cached(&format!("SELECT {MESSAGE_COLUMNS} FROM message WHERE id = ?1"))?.query_row([message_id], map_message).optional()?;
+        let Some(info) = info else { return Ok(None) };
+        let session_id = info.session_id.clone();
+        Ok(with_parts_in(&conn, &session_id, vec![info])?.pop())
     }
 
     pub fn add_part(&self, message_id: &str, session_id: &str, part: Part) -> rusqlite::Result<PartRow> {
@@ -229,6 +241,25 @@ fn map_message(row: &Row) -> rusqlite::Result<Message> {
         finished_at: row.get(10)?,
         summary: row.get(11)?,
     })
+}
+
+/// Attaches parts to messages (in id order) with one query over their id range, not one per message.
+fn with_parts_in(conn: &Connection, session_id: &str, infos: Vec<Message>) -> rusqlite::Result<Vec<MessageWithParts>> {
+    let (Some(first), Some(last)) = (infos.first(), infos.last()) else { return Ok(Vec::new()) };
+    let mut by_message: HashMap<String, Vec<PartRow>> = HashMap::new();
+    let mut stmt = conn.prepare_cached(
+        "SELECT p.id, p.session_id, p.json, p.message_id FROM message m JOIN part p ON p.message_id = m.id
+         WHERE m.session_id = ?1 AND m.id >= ?2 AND m.id <= ?3 ORDER BY p.message_id, p.id",
+    )?;
+    let rows = stmt.query_map(params![session_id, first.id, last.id], |row| {
+        let message_id: String = row.get(3)?;
+        Ok((message_id.clone(), map_part(row, &message_id)?))
+    })?;
+    for row in rows {
+        let (message_id, part) = row?;
+        by_message.entry(message_id).or_default().push(part);
+    }
+    Ok(infos.into_iter().map(|info| MessageWithParts { parts: by_message.remove(&info.id).unwrap_or_default(), info }).collect())
 }
 
 fn map_part(row: &Row, message_id: &str) -> rusqlite::Result<PartRow> {
@@ -354,6 +385,29 @@ mod tests {
         assert_eq!(older.iter().map(|m| &m.info.id).collect::<Vec<_>>(), [&ids[1], &ids[2]]);
         assert_eq!(older[0].parts[0].part, Part::Text { text: "m1".into() });
         assert_eq!(store.transcript(&session.id).unwrap().len(), 5);
+    }
+
+    #[test]
+    fn parts_land_on_their_own_messages_and_the_last_reply_loads_alone() {
+        let store = store();
+        let session = store.create_session(new("w")).unwrap();
+        let other = store.create_session(new("w")).unwrap();
+        let prompt = store.create_message(&session.id, Role::User, None).unwrap();
+        store.add_part(&prompt.id, &session.id, Part::Text { text: "ask".into() }).unwrap();
+        let elsewhere = store.create_message(&other.id, Role::User, None).unwrap();
+        store.add_part(&elsewhere.id, &other.id, Part::Text { text: "not this session".into() }).unwrap();
+        let empty = store.create_message(&session.id, Role::Assistant, None).unwrap();
+        let reply = store.create_message(&session.id, Role::Assistant, None).unwrap();
+        store.add_part(&reply.id, &session.id, Part::Text { text: "a".into() }).unwrap();
+        store.add_part(&reply.id, &session.id, Part::Text { text: "b".into() }).unwrap();
+        let transcript = store.transcript(&session.id).unwrap();
+        let counts: Vec<usize> = transcript.iter().map(|m| m.parts.len()).collect();
+        assert_eq!(counts, [1, 0, 2], "each message has its own parts, in order, and nothing from another session");
+        assert_eq!(transcript[2].parts[1].part, Part::Text { text: "b".into() });
+        let last = store.last_reply(&session.id).unwrap().unwrap();
+        assert_eq!((last.info.id.as_str(), last.parts.len()), (reply.id.as_str(), 2));
+        assert_eq!(store.with_parts(&empty.id).unwrap().unwrap().parts.len(), 0);
+        assert!(store.last_reply(&store.create_session(new("w")).unwrap().id).unwrap().is_none());
     }
 
     #[test]

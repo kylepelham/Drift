@@ -811,8 +811,7 @@ impl Engine {
         let end = if abort.is_cancelled() {
             TurnEnd::Stopped
         } else {
-            let transcript = self.store.transcript(&session.id).unwrap_or_default();
-            match transcript.iter().rev().find(|m| m.info.role == Role::Assistant) {
+            match self.store.last_reply(&session.id).ok().flatten() {
                 // A finished reply that carries an error stopped at the output limit: not an answer.
                 Some(last) if last.info.status == MessageStatus::Done && !last.info.summary && last.info.error.is_none() => TurnEnd::Replied,
                 Some(last) if last.info.status == MessageStatus::Aborted => TurnEnd::Stopped,
@@ -1125,8 +1124,7 @@ impl Engine {
 
     /// The calls the session's latest reply made, with their inputs and results.
     fn last_calls(&self, session_id: &str) -> Vec<CallTrace> {
-        let transcript = self.store.transcript(session_id).unwrap_or_default();
-        let Some(last) = transcript.iter().rev().find(|m| m.info.role == Role::Assistant) else { return Vec::new() };
+        let Ok(Some(last)) = self.store.last_reply(session_id) else { return Vec::new() };
         last.parts
             .iter()
             .filter_map(|row| match &row.part {
@@ -1138,8 +1136,7 @@ impl Engine {
 
     /// Closes the calls a message made that will never run, with the reason, so none stays pending.
     fn settle_unrun(&self, message: &Message, reason: &str) {
-        let Ok(transcript) = self.store.transcript(&message.session_id) else { return };
-        let Some(found) = transcript.into_iter().find(|m| m.info.id == message.id) else { return };
+        let Ok(Some(found)) = self.store.with_parts(&message.id) else { return };
         for mut row in found.parts {
             if matches!(row.part, Part::ToolCall { status: ToolStatus::Pending, .. }) {
                 self.settle(&mut row, ToolStatus::Error, None, format!("Not run: {reason}"), None);
