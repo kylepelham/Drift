@@ -15,12 +15,18 @@ use super::types::{MessageWithParts, Part, Revert, Role, Session};
 use crate::event::Event;
 use crate::Engine;
 
+/// How long an undo waits for the turn it stopped to finish its stop, a tool's cleanup included.
+#[cfg(not(test))]
+const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+#[cfg(test)]
+const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
+
 #[derive(Debug)]
 pub enum RevertError {
     NoSession,
     /// Only a prompt the user sent can be the point to go back to.
     NotAPrompt,
-    /// A turn or job holds the session; its files and history are in motion.
+    /// A job that would not stop holds the session; its files and history are in motion.
     Busy,
     Files(String),
     Store(rusqlite::Error),
@@ -84,10 +90,16 @@ impl Engine {
         self.exclusively(session_id, self.unrevert_claimed(session_id)).await
     }
 
-    /// Runs `work` holding the session, so no turn starts while its files and history change underneath.
+    /// Runs `work` holding the session, so no turn starts while its files and history change
+    /// underneath. A running turn is stopped first: asking to undo is asking for it to end.
     async fn exclusively<T>(&self, session_id: &str, work: impl Future<Output = Result<T, RevertError>>) -> Result<T, RevertError> {
-        if !self.turns.claim(session_id, &CancellationToken::new()) {
-            return Err(RevertError::Busy);
+        let deadline = tokio::time::Instant::now() + STOP_WAIT;
+        while !self.turns.claim(session_id, &CancellationToken::new()) {
+            self.abort(session_id);
+            let until = CancellationToken::new();
+            if tokio::time::timeout_at(deadline, self.turns.wait_idle(session_id, &until)).await.is_err() {
+                return Err(RevertError::Busy);
+            }
         }
         let result = work.await;
         self.turns.release(session_id);

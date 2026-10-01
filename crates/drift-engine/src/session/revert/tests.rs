@@ -398,9 +398,9 @@ async fn a_prompt_sent_while_undone_commits_the_undo() {
 }
 
 #[tokio::test]
-async fn undo_refuses_non_prompts_and_running_sessions() {
+async fn undo_refuses_non_prompts_and_stops_a_running_turn_before_undoing() {
     let h = harness().await;
-    let (first, _) = two_writing_turns(&h).await;
+    let (_, second) = two_writing_turns(&h).await;
     let reply = h.engine.store.transcript(&h.session.id).unwrap()[1].info.id.clone();
     assert!(matches!(h.engine.revert(&h.session.id, &reply).await, Err(RevertError::NotAPrompt)));
 
@@ -409,9 +409,12 @@ async fn undo_refuses_non_prompts_and_running_sessions() {
     h.provider.push(tool_call("bash", &json!({ "command": sleep }).to_string()));
     h.engine.submit(&h.session.id, prompt("wait")).await.unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(matches!(h.engine.revert(&h.session.id, &first).await, Err(RevertError::Busy)));
-    h.engine.abort(&h.session.id);
-    until_idle(&h).await;
+    let started = std::time::Instant::now();
+    let undone = h.engine.revert(&h.session.id, &second).await.expect("the turn is stopped, then the undo runs");
+    assert!(started.elapsed() < Duration::from_secs(5), "it did not wait out the command");
+    assert_eq!(undone.session.revert.unwrap().message_id, second);
+    assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt")), (Some("one"), None));
+    assert!(!h.engine.turns.is_running(&h.session.id));
 }
 
 #[tokio::test]

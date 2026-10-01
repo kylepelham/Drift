@@ -491,6 +491,8 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   and `core.untrackedCache` measured no better. The previous call's tree is never reused as the next
   call's before state: nothing short of a filesystem monitor establishes that no one edited in
   between, and a stale before state would put the wrong content into undo.
+- Undo and redo stop a running turn first (as Stop does, workers included) and wait up to 15 s for
+  it to end, then go ahead; only a job that does not stop in time makes them 409 `busy`.
 - `POST /sessions/{id}/revert { messageId }` takes a prompt the user sent. It hides that prompt and
   everything after it (`session.revert.messageId`, the UI filters) and puts each file the hidden
   turns changed, subagents included, back to
