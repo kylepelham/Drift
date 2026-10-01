@@ -1263,8 +1263,16 @@ async fn a_configured_formatter_runs_after_a_write() {
     until_idle(&h).await;
     assert!(std::fs::read_to_string(h._dir.join("ws/note.txt")).unwrap().starts_with("tidy"));
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
-    let Part::ToolCall { metadata, .. } = &transcript[1].parts[0].part else { panic!() };
+    let Part::ToolCall { metadata, output, .. } = &transcript[1].parts[0].part else { panic!() };
     assert_eq!(metadata.as_ref().unwrap()["formatted"][0], "tidy: note.txt");
+    assert!(output.as_deref().unwrap().contains("A formatter then changed the result (tidy: note.txt)"), "the model is told: {output:?}");
+
+    h.provider.push(tool_call("write", r#"{"path": "note.txt", "content": "tidy\n"}"#)).push(text("again"));
+    h.engine.submit(&h.session.id, prompt("write the same")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { metadata, output, .. } = &transcript[transcript.len() - 2].parts[0].part else { panic!() };
+    assert!(metadata.as_ref().unwrap().get("formatted").is_none() && !output.as_deref().unwrap().contains("formatter"), "a formatter that changed nothing is not mentioned");
 }
 
 #[tokio::test]

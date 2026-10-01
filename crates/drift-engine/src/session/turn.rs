@@ -1019,7 +1019,8 @@ impl Engine {
             Ok(output) => {
                 let status = if tool.failed(&output) { ToolStatus::Error } else { ToolStatus::Done };
                 let formatted = if tool.mutates() { self.format_written(scope.plan, &output.metadata).await } else { Vec::new() };
-                (status, Some(output.title), output.output, with_formatted(output.metadata, formatted))
+                let text = if formatted.is_empty() { output.output } else { format!("{}\n\n{}", output.output, reformatted_note(&formatted)) };
+                (status, Some(output.title), text, with_formatted(output.metadata, formatted))
             }
             Err(error) => (ToolStatus::Error, None, error.0, serde_json::Value::Null),
         };
@@ -1088,12 +1089,14 @@ impl Engine {
         }
     }
 
-    /// Runs the workspace's formatters over whatever a mutating tool reported writing.
+    /// Runs the workspace's formatters over whatever a mutating tool reported writing; names the files they changed.
     async fn format_written(&self, plan: &Plan, metadata: &serde_json::Value) -> Vec<String> {
         let formatters = crate::edit::format::resolve(&plan.config.formatters);
         let mut formatted = Vec::new();
         for file in metadata["files"].as_array().into_iter().flatten().filter_map(|f| f.as_str()) {
-            if let Some(name) = crate::edit::format::format(Path::new(file), &plan.workspace, &formatters).await {
+            let before = tokio::fs::read(file).await.ok();
+            let Some(name) = crate::edit::format::format(Path::new(file), &plan.workspace, &formatters).await else { continue };
+            if tokio::fs::read(file).await.ok() != before {
                 formatted.push(format!("{name}: {}", crate::tool::display(Path::new(file), &plan.workspace)));
             }
         }
@@ -1363,6 +1366,11 @@ fn denial(feedback: Option<&str>, stop: bool) -> String {
         Some(said) => format!("{refused} They said: {said}"),
         None => refused.to_string(),
     }
+}
+
+/// What the model needs to hear after a formatter rewrote its change: the file is not what it wrote.
+fn reformatted_note(formatted: &[String]) -> String {
+    format!("A formatter then changed the result ({}). The file no longer matches what you wrote; read it again before editing those lines.", formatted.join(", "))
 }
 
 fn with_formatted(mut metadata: serde_json::Value, formatted: Vec<String>) -> serde_json::Value {
