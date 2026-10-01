@@ -146,7 +146,7 @@ change the plan there when a decision changes.
 - [x] Third review: a turn hands over to what waits only after its first request, so a result or answer arriving meanwhile gets its reply
 - [x] App test pass: a model, agent or level sent mid-turn is followed by the running turn from its next request, as in opencode; the durable queue, waiting row and Discard are removed
 - [x] App test pass: MCP approval removed (engine gate, route, hash, toast, buttons); rows are delete, edit, disconnect, enabled
-- [x] Independent audit (`docs/research/independent-audit-ac1ab72.md`): undo point save failures put files back; queue failures fenced to the attempted prompts; oversize writes refused and failed change records put back or reported; undo ordered by when writes finished; returned drafts keep their mentions
+- [x] Independent audit at ac1ab72: undo point save failures put files back; oversize writes refused and failed change records put back or reported; undo ordered by when writes finished (its queue findings went with the queue)
 
 #### Retained features still on the OpenCode database (pending native UI work)
 
