@@ -304,6 +304,17 @@ test("compaction-only user messages retain their delimiter part", async () => {
   expect(compactionParts(entry).map((part) => part.id)).toEqual(["p1"])
 })
 
+test("a compaction draws one marker: the summary row, or the prompt's divider only while there is none", async () => {
+  const { boundaryCompactions } = await import("../src/ui/message")
+  const entry = {
+    info: { id: "m1", role: "user", sessionID: "s1" },
+    parts: [{ id: "p1", messageID: "m1", sessionID: "s1", type: "compaction", auto: false }],
+  } as never
+  expect(boundaryCompactions(entry, true, false)).toEqual([])
+  expect(boundaryCompactions(entry, true, true).length).toBe(1)
+  expect(boundaryCompactions(entry, false, false).length).toBe(1)
+})
+
 test("loaded stale tool states become interrupted without mutating live or completed parts", async () => {
   const { interruptStaleTools } = await import("../src/engine/store")
   const tool = (id: string, status: "pending" | "running" | "completed", messageID = "a1") =>

@@ -81,6 +81,11 @@ export function compactionParts(entry: MessageEntry) {
   return entry.parts.filter((part) => part.type === "compaction")
 }
 
+/** The collapsible summary row is a compaction's one marker; the prompt's divider stands in only before that row exists, or when summaries are not collapsible. */
+export function boundaryCompactions(entry: MessageEntry, collapsible: boolean, starting: boolean) {
+  return collapsible && !starting ? [] : compactionParts(entry)
+}
+
 function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
   const engine = useEngine()
   const info = () => props.entry.info as UserMessage
@@ -89,7 +94,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
   // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
   const generated = () => props.entry.parts.some((part) => part.type === "text" && part.metadata?.generated === true)
   const files = () => props.entry.parts.filter((part) => part.type === "file")
-  const compactions = () => compactionParts(props.entry)
+  const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking)
   const model = () => modelInfo(engine.state, info().model)?.name ?? info().model.modelID
   const time = () => new Date(info().time.created).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
   const revert = async () => {
