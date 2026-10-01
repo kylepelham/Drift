@@ -54,6 +54,8 @@ struct Net {
 struct Shifted {
     kept: Vec<String>,
     unattributed: Vec<String>,
+    /// What the shift changed, oldest first, kept until the marker is saved so a failed save can put it back.
+    applied: Vec<Applied>,
 }
 
 /// A path a shift changed, and the content it had before, to restore if a later path fails.
@@ -103,15 +105,23 @@ impl Engine {
             Some(current) if message_id > current => self.shift(&session, current, Some(message_id), Direction::Forward).await?,
             Some(_) => Shifted::default(),
         };
-        let session = self.mark(session_id, Some(&Revert { message_id: message_id.into(), kept: shifted.kept.clone() }))?;
-        Ok(Undone { session, kept: shifted.kept, unattributed: shifted.unattributed })
+        let revert = Revert { message_id: message_id.into(), kept: shifted.kept.clone() };
+        self.mark_or_put_back(session_id, Some(&revert), shifted).await
     }
 
     async fn unrevert_claimed(&self, session_id: &str) -> Result<Undone, RevertError> {
         let session = self.store.session(session_id)?.ok_or(RevertError::NoSession)?;
         let Some(revert) = &session.revert else { return Ok(Undone { session, kept: Vec::new(), unattributed: Vec::new() }) };
         let shifted = self.shift(&session, &revert.message_id, None, Direction::Forward).await?;
-        Ok(Undone { session: self.mark(session_id, None)?, kept: shifted.kept, unattributed: shifted.unattributed })
+        self.mark_or_put_back(session_id, None, shifted).await
+    }
+
+    /// Saves the marker that matches the files just shifted; if it cannot be saved, the files go back too, so both sides still agree.
+    async fn mark_or_put_back(&self, session_id: &str, revert: Option<&Revert>, shifted: Shifted) -> Result<Undone, RevertError> {
+        match self.mark(session_id, revert) {
+            Ok(session) => Ok(Undone { session, kept: shifted.kept, unattributed: shifted.unattributed }),
+            Err(error) => Err(self.put_back(shifted.applied, format!("could not save the conversation's undo point ({error})")).await),
+        }
     }
 
     /// Applies the net change of the turns in `[from, to)` in one direction. A file whose content is
@@ -120,13 +130,12 @@ impl Engine {
     /// change is applied where its owning workspace is now, whichever workspace the session is in.
     async fn shift(&self, session: &Session, from: &str, to: Option<&str>, direction: Direction) -> Result<Shifted, RevertError> {
         let mut shifted = Shifted::default();
-        let mut applied = Vec::new();
         for net in self.net_changes(session, from, to)? {
             match self.shift_one(net, &direction, &mut shifted).await {
-                Ok(Some(done)) => applied.push(done),
+                Ok(Some(done)) => shifted.applied.push(done),
                 Ok(None) => {}
                 // All or nothing: what this shift already put back is returned to how it was.
-                Err(error) => return Err(self.put_back(applied, error).await),
+                Err(error) => return Err(self.put_back(shifted.applied, error).await),
             }
         }
         Ok(shifted)
@@ -200,8 +209,8 @@ impl Engine {
         Ok(net)
     }
 
-    fn mark(&self, session_id: &str, revert: Option<&Revert>) -> Result<Session, RevertError> {
-        let session = self.store.set_revert(session_id, revert)?.ok_or(RevertError::NoSession)?;
+    fn mark(&self, session_id: &str, revert: Option<&Revert>) -> Result<Session, String> {
+        let session = self.store.set_revert(session_id, revert).map_err(|e| e.to_string())?.ok_or("the session is gone")?;
         self.hub.publish(Event::SessionUpdated { session: session.clone() });
         Ok(session)
     }

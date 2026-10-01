@@ -96,6 +96,38 @@ async fn an_undo_that_fails_partway_puts_back_what_it_already_changed() {
     assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt").as_deref()), (Some("one"), Some("uno")));
 }
 
+/// Makes every save of the session's undo point fail, as a database error would, until `allow` is called.
+fn refuse_marker(h: &Harness) {
+    h.engine.store.lock().execute_batch("CREATE TRIGGER refuse_marker BEFORE UPDATE OF revert_json ON session BEGIN SELECT RAISE(FAIL, 'injected'); END;").unwrap();
+}
+
+fn allow_marker(h: &Harness) {
+    h.engine.store.lock().execute_batch("DROP TRIGGER refuse_marker;").unwrap();
+}
+
+#[tokio::test]
+async fn an_undo_or_redo_whose_marker_cannot_be_saved_puts_the_files_back_and_can_be_tried_again() {
+    let h = harness().await;
+    let (_, second) = two_writing_turns(&h).await;
+    refuse_marker(&h);
+    let Err(RevertError::Files(message)) = h.engine.revert(&h.session.id, &second).await else { panic!("the undo should fail") };
+    assert!(message.contains("undo point") && message.contains("no file was changed"), "{message}");
+    assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt").as_deref()), (Some("two"), Some("bee")), "files and history still agree");
+    allow_marker(&h);
+    let undone = h.engine.revert(&h.session.id, &second).await.unwrap();
+    assert!(undone.kept.is_empty(), "nothing is wrongly reported as edited elsewhere: {:?}", undone.kept);
+    assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt")), (Some("one"), None));
+
+    refuse_marker(&h);
+    assert!(matches!(h.engine.unrevert(&h.session.id).await, Err(RevertError::Files(_))));
+    assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt")), (Some("one"), None), "a failed redo leaves the undone files");
+    assert!(h.engine.store.session(&h.session.id).unwrap().unwrap().revert.is_some());
+    allow_marker(&h);
+    let redone = h.engine.unrevert(&h.session.id).await.unwrap();
+    assert!(redone.kept.is_empty() && redone.session.revert.is_none());
+    assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt").as_deref()), (Some("two"), Some("bee")));
+}
+
 #[tokio::test]
 async fn every_blob_undo_needs_is_kept_through_a_prune() {
     let h = harness().await;

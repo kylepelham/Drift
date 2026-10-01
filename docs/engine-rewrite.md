@@ -528,8 +528,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - An undo or redo is all or nothing. Each file goes through the staged writer; if one cannot be
   written (on Windows, a program holding it open without delete sharing is enough), the files this
   call already changed are put back, newest first, to what they held before it, the conversation is
-  not marked, and the error says so or names any file that could not be put back. A retry then
-  finds every file as the session left it, so none is wrongly reported as kept.
+  not marked, and the error says so or names any file that could not be put back. The journal of
+  applied files is kept until the undo point is saved: if that save fails, the files go back the
+  same way, so files and history never disagree. A retry then finds every file as the session left
+  it, so none is wrongly reported as kept.
 - `POST /sessions/{id}/unrevert` redoes the hidden range the same way and clears the marker.
 - Changes to one path merge only while they chain: each change's `before` must equal the previous
   one's `after`. A gap means someone else edited the file between two of the session's writes;
