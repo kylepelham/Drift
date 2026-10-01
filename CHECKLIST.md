@@ -115,7 +115,7 @@ change the plan there when a decision changes.
   - [x] File discovery and @ expansion, every read through `tool::read_ask`
   - [x] Attachments validated against model capabilities; no silent drops
   - [x] Explicit denial and stop feedback; parent-to-worker permission inheritance
-- [ ] Per-session runtime config snapshots
+- [x] Per-session runtime config snapshots: a turn's `Plan` holds its config and the tool objects it offered (MCP clients included) until it ends; call-time config reads use the snapshot
 - [ ] Async questions and MCP reconnect/reload deferred from M2
 - [ ] Bedrock, Vertex, xAI, Z.ai
 

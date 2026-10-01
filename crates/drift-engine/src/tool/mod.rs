@@ -57,6 +57,8 @@ pub struct Context {
     pub abort: CancellationToken,
     /// Session-level tools (todos, questions) read and write through the engine.
     pub engine: Arc<crate::Engine>,
+    /// The configuration the turn was admitted with; a call never reads a newer one.
+    pub config: Arc<crate::config::Config>,
 }
 
 impl Context {
@@ -292,11 +294,16 @@ impl Registry {
 
     /// The model's profile decides how it edits: search/replace tools or the patch format it was trained on.
     pub fn specs(&self, profile: ToolProfile) -> Vec<ToolSpec> {
+        self.offered(profile).iter().map(|tool| tool.spec()).collect()
+    }
+
+    /// The tools themselves, held by a turn for as long as it runs, so a server dropped meanwhile stays usable to it.
+    pub fn offered(&self, profile: ToolProfile) -> Vec<Arc<dyn Tool>> {
         let hidden: &[&str] = match profile {
             ToolProfile::Edit => &["apply_patch"],
             ToolProfile::ApplyPatch => &["edit", "write"],
         };
-        self.all().iter().map(|tool| tool.spec()).filter(|spec| !hidden.contains(&spec.name.as_str())).collect()
+        self.all().into_iter().filter(|tool| !hidden.contains(&tool.spec().name.as_str())).collect()
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
@@ -344,6 +351,7 @@ pub(crate) mod tests {
             let engine = crate::Engine::open_with(&root.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
             Self {
                 ctx: Context {
+                    config: Arc::new(engine.workspace_config(&workspace)),
                     workspace,
                     session_id: "ses_test".into(),
                     message_id: "msg_test".into(),
@@ -364,6 +372,7 @@ pub(crate) mod tests {
                 files: self.ctx.files.clone(),
                 abort: self.ctx.abort.clone(),
                 engine: self.ctx.engine.clone(),
+                config: self.ctx.config.clone(),
             }
         }
 
@@ -372,6 +381,11 @@ pub(crate) mod tests {
             std::fs::create_dir_all(full.parent().unwrap()).unwrap();
             std::fs::write(&full, content).unwrap();
             full
+        }
+
+        /// The configuration as a turn admitted now would see it.
+        pub(crate) fn reload_config(&mut self) {
+            self.ctx.config = Arc::new(self.ctx.engine.workspace_config(&self.ctx.workspace));
         }
     }
 

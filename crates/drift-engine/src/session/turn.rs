@@ -223,7 +223,7 @@ impl Turns {
 pub(crate) struct Plan {
     pub(super) session: Session,
     workspace: PathBuf,
-    pub(super) config: Config,
+    pub(super) config: Arc<Config>,
     pub(super) model_ref: ModelRef,
     pub(super) model: Model,
     pub(super) provider: Provider,
@@ -476,7 +476,7 @@ impl Engine {
         let mut plan = Plan {
             session,
             workspace: workspace_path,
-            config,
+            config: Arc::new(config),
             model_ref: resolved.model_ref,
             model: resolved.model,
             provider,
@@ -566,7 +566,7 @@ impl Engine {
                 model: plan.model_ref.model.clone(),
                 system: plan.offer.system.clone(),
                 messages: compaction::request_messages(&transcript, &plan.model_ref),
-                tools: plan.offer.tools.clone(),
+                tools: plan.offer.specs(),
                 max_tokens,
                 thinking_budget,
                 temperature: None,
@@ -574,7 +574,7 @@ impl Engine {
             };
             let Ok(message) = self.store.create_message(&plan.session.id, Role::Assistant, Some(&plan.model_ref)) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });
-            match self.step(plan, message, &request, &plan.offer.offered, abort).await {
+            match self.step(plan, message, &request, abort).await {
                 Step::Done => break,
                 Step::Continue => {
                     attempts = 0;
@@ -618,14 +618,14 @@ impl Engine {
         let subagent = plan.session.visibility == Visibility::Hidden;
         let tools: Vec<_> = self
             .tools
-            .specs(plan.model.profile)
+            .offered(plan.model.profile)
             .into_iter()
-            .filter(|spec| allowed.is_empty() || allowed.contains(&spec.name))
-            .filter(|spec| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))
+            .map(|tool| (tool.spec(), tool))
+            .filter(|(spec, _)| allowed.is_empty() || allowed.contains(&spec.name))
+            .filter(|(spec, _)| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))
             .collect();
-        let offered: std::collections::HashSet<String> = tools.iter().map(|t| t.name.clone()).collect();
-        let system = prompt::system(&plan.workspace, &plan.config, agent.as_ref(), offered.contains("task"));
-        Offer { tools, offered, system }
+        let system = prompt::system(&plan.workspace, &plan.config, agent.as_ref(), tools.iter().any(|(spec, _)| spec.name == "task"));
+        Offer { tools, system }
     }
 
     /// Waits out a retry backoff, which the UI shows, unless the user switches the turn to another
@@ -708,7 +708,7 @@ impl Engine {
     }
 
     /// One assistant message and the tool calls it makes.
-    async fn step(self: &Arc<Self>, plan: &Plan, mut message: Message, request: &Request, offered: &std::collections::HashSet<String>, abort: &CancellationToken) -> Step {
+    async fn step(self: &Arc<Self>, plan: &Plan, mut message: Message, request: &Request, abort: &CancellationToken) -> Step {
         let streamed = match self.stream(&message, plan, request, abort).await {
             Ok(streamed) => streamed,
             Err(StreamError::Aborted) => {
@@ -743,7 +743,7 @@ impl Engine {
             self.settle_unrun(&message, "the reply hit its output limit, so this call's input may be cut short.");
             return Step::Done;
         }
-        match self.run_calls(plan, &message, streamed.calls, offered, abort).await {
+        match self.run_calls(plan, &message, streamed.calls, abort).await {
             Outcome::Aborted => Step::Done,
             _ => Step::Continue,
         }
@@ -795,12 +795,12 @@ impl Engine {
     }
 
     /// Calls run in the model's order. Consecutive reads run together; a write waits for what came before it.
-    async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, offered: &std::collections::HashSet<String>, abort: &CancellationToken) -> Outcome {
+    async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, abort: &CancellationToken) -> Outcome {
         let files = self.turns.files_for(&plan.session.id);
-        let scope = CallScope { plan, message, files: &files, offered, abort };
+        let scope = CallScope { plan, message, files: &files, abort };
         let mut reads: Vec<PartRow> = Vec::new();
         for row in calls {
-            if !self.call_mutates(&row) {
+            if !call_mutates(plan, &row) {
                 reads.push(row);
                 continue;
             }
@@ -818,12 +818,6 @@ impl Engine {
         let outcomes = futures_util::future::join_all(reads.into_iter().map(|row| self.run_call(scope, row))).await;
         if outcomes.contains(&Outcome::Aborted) { Outcome::Aborted } else { Outcome::Allowed }
     }
-    fn call_mutates(&self, row: &PartRow) -> bool {
-        match &row.part {
-            Part::ToolCall { name, .. } => self.tools.get(name).is_some_and(|tool| tool.mutates()),
-            _ => false,
-        }
-    }
 
     async fn run_call(self: &Arc<Self>, scope: &CallScope<'_>, mut row: PartRow) -> Outcome {
         let Part::ToolCall { call_id, name, input, .. } = row.part.clone() else { return Outcome::Allowed };
@@ -835,13 +829,11 @@ impl Engine {
             files: scope.files.clone(),
             abort: scope.abort.clone(),
             engine: self.clone(),
+            config: scope.plan.config.clone(),
         };
-        if !scope.offered.contains(&name) {
+        // Only what this turn was offered runs, as it was when offered.
+        let Some(tool) = scope.plan.offer.tool(&name) else {
             self.settle(&mut row, ToolStatus::Error, None, format!("`{name}` is not available in this session; use only the tools you were given"), None);
-            return Outcome::Allowed;
-        }
-        let Some(tool) = self.tools.get(&name) else {
-            self.settle(&mut row, ToolStatus::Error, None, format!("unknown tool `{name}`"), None);
             return Outcome::Allowed;
         };
         if !input.is_object() {
@@ -1121,18 +1113,28 @@ enum Wait {
     Stopped,
 }
 
+/// What a turn offers the model: each tool's spec and the tool itself, held until the turn ends, so an
+/// MCP server dropped or replaced meanwhile still serves this turn's calls.
 #[derive(Default)]
 struct Offer {
-    tools: Vec<llm::ToolSpec>,
-    offered: std::collections::HashSet<String>,
+    tools: Vec<(llm::ToolSpec, Arc<dyn crate::tool::Tool>)>,
     system: String,
+}
+
+impl Offer {
+    fn specs(&self) -> Vec<llm::ToolSpec> {
+        self.tools.iter().map(|(spec, _)| spec.clone()).collect()
+    }
+
+    fn tool(&self, name: &str) -> Option<Arc<dyn crate::tool::Tool>> {
+        self.tools.iter().find(|(spec, _)| spec.name == name).map(|(_, tool)| tool.clone())
+    }
 }
 
 struct CallScope<'a> {
     plan: &'a Plan,
     message: &'a Message,
     files: &'a Arc<SessionFiles>,
-    offered: &'a std::collections::HashSet<String>,
     abort: &'a CancellationToken,
 }
 
@@ -1145,6 +1147,13 @@ struct Streamed {
 enum StreamError {
     Aborted,
     Provider(llm::Error),
+}
+
+fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
+    match &row.part {
+        Part::ToolCall { name, .. } => plan.offer.tool(name).is_some_and(|tool| tool.mutates()),
+        _ => false,
+    }
 }
 
 /// Identity of a prompt for replay checks: the same id must carry the same parts and model.

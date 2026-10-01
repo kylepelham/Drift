@@ -25,8 +25,7 @@ impl Tool for Skill {
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let name = required_str(&input, "name")?;
-            let config = ctx.engine.workspace_config(&ctx.workspace);
-            let skill = config.skill(name).ok_or_else(|| ToolError(format!("no skill named `{name}`; the available skills are listed in the system prompt")))?;
+            let skill = ctx.config.skill(name).ok_or_else(|| ToolError(format!("no skill named `{name}`; the available skills are listed in the system prompt")))?;
             let text = tokio::fs::read_to_string(std::path::Path::new(&skill.path).join("SKILL.md")).await?;
             let body = crate::config::body(&text);
             Ok(Output {
@@ -45,8 +44,10 @@ mod tests {
 
     #[tokio::test]
     async fn loads_a_project_skill_by_name() {
-        let sandbox = Sandbox::new("skill");
+        let mut sandbox = Sandbox::new("skill");
         sandbox.file(".drift/skills/deploy/SKILL.md", "---\nname: deploy\ndescription: Ships\n---\nRun the deploy script.");
+        assert!(Skill.run(&sandbox.ctx, json!({ "name": "deploy" })).await.is_err(), "added after the turn began: not its skill");
+        sandbox.reload_config();
         let out = Skill.run(&sandbox.ctx, json!({ "name": "deploy" })).await.unwrap();
         assert!(out.output.starts_with("Skill directory: "));
         assert!(out.output.ends_with("Run the deploy script."));

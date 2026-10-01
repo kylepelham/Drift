@@ -50,7 +50,7 @@ impl Tool for Task {
             if parent.visibility == Visibility::Hidden {
                 return Err(ToolError("subagents cannot delegate".into()));
             }
-            let config = ctx.engine.workspace_config(&ctx.workspace);
+            let config = &ctx.config;
             let background_default = match config.agent(agent) {
                 Some(found) if found.kind != AgentKind::Action => found.background,
                 Some(_) => return Err(ToolError(format!("{agent} is an engine action, not an agent that can take a task"))),

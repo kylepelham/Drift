@@ -1254,6 +1254,35 @@ async fn aborting_the_parent_aborts_a_running_child() {
 
 
 #[tokio::test]
+async fn a_turn_keeps_the_tools_it_started_with_and_a_change_reaches_the_next_one() {
+    use crate::mcp::ServerConfig;
+    let h = harness().await;
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
+    let config = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default() };
+    let row = h.engine.store.save_mcp_server("echo", &config).unwrap();
+    h.engine.store.approve_mcp_server("echo", &row.hash()).unwrap();
+    h.engine.mcp.connect(h.engine.store.mcp_server("echo").unwrap().unwrap(), &h.engine.hub).await.unwrap();
+    h.engine.tools.set_dynamic(h.engine.mcp.tools());
+    h.provider.push_slow(Duration::from_millis(500), tool_call("echo_echo", r#"{"text": "still here"}"#)).push(text("done"));
+    h.engine.submit(&h.session.id, prompt("echo")).await.await_ok();
+    // The server goes away while the turn is still streaming its first reply.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    h.engine.mcp.disconnect("echo", &h.engine.store, &h.engine.hub).await;
+    h.engine.tools.set_dynamic(h.engine.mcp.tools());
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!((*status, output.as_deref()), (ToolStatus::Done, Some("still here")), "served by the client the turn began with");
+
+    h.provider.push(text("ok"));
+    h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
+    until_idle(&h).await;
+    let requests = h.provider.requests.lock().unwrap();
+    assert!(requests[0].tools.iter().any(|t| t.name == "echo_echo"));
+    assert!(!requests.last().unwrap().tools.iter().any(|t| t.name == "echo_echo"), "the next turn sees the change");
+}
+
+#[tokio::test]
 async fn subagents_are_not_offered_delegation_and_cannot_call_it() {
     let h = harness().await;
     h.provider

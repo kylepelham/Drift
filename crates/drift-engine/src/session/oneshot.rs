@@ -1,5 +1,6 @@
 //! Requests the engine makes for itself, outside any turn: titles, branch handoffs, compaction summaries.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -50,7 +51,7 @@ impl Engine {
         } else {
             self.resolve(&chosen).await?
         };
-        Ok((resolved, plan.config))
+        Ok((resolved, Arc::unwrap_or_clone(plan.config)))
     }
     /// Everything needed to call `model_ref`, with an expired subscription token refreshed.
     pub(crate) async fn resolve(&self, model_ref: &ModelRef) -> Result<Resolved, TurnError> {

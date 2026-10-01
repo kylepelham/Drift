@@ -358,6 +358,24 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   partial output with `timedOut: true` and fails the call (`Tool::failed`); its process tree is
   killed either way.
 
+#### Runtime snapshots
+
+- A turn runs on what it was admitted with, its `Plan`: the workspace config (agents, skills,
+  commands, permission policy, limits, formatters, route timeouts) read once, the model and
+  provider, and its offer. The offer holds the tool objects themselves, not names: each MCP tool
+  holds its server's client, so a server disconnected, replaced or reloaded while the turn runs
+  keeps serving that turn's calls, and its client closes when the last turn holding it ends
+  (`RunningService` cancels on drop). Calls resolve tools only from the offer.
+- Tools that read config at call time (`skill`, `task`'s agent lookup) read the turn's snapshot
+  through `Context::config`, never the files as they are now.
+- Changes made meanwhile (a `drift.json` edit, Settings agent overrides, an MCP server connected or
+  dropped) reach the next turn; an idle session picks them up when its next turn is admitted. Steered
+  prompts join the running turn and its snapshot. A queued background worker keeps the snapshot it
+  was admitted with, MCP clients included, until it runs. A user switching a waiting retry to another
+  model rebuilds only the offer for that model's profile.
+- Engine actions outside turns (titles, compaction summaries, handoffs) make their own snapshot when
+  they start.
+
 #### Undo and redo
 
 - Every writing call records what it changed as `metadata.changes: [{path, before, after}]`, blobs

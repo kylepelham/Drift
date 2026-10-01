@@ -43,6 +43,7 @@ async fn approval_gates_connection_and_tools_appear_prefixed() {
         files: Arc::new(SessionFiles::default()),
         abort: Default::default(),
         engine: engine.clone(),
+        config: Default::default(),
     };
     let echo = tools.iter().find(|t| t.spec().name == "echo_echo").unwrap();
     assert!(echo.ask(&ctx, &json!({})).is_none(), "read-only tools need no ask");
