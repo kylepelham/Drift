@@ -24,7 +24,7 @@ impl Tool for Write {
 
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
         let path = ctx.resolve(input["path"].as_str()?);
-        Some(Ask::new("edit", path.to_string_lossy(), format!("Write {}", display(&path, &ctx.workspace))))
+        Some(Ask::path("edit", &path, &ctx.workspace, format!("Write {}", display(&path, &ctx.workspace))))
     }
 
     fn mutates(&self) -> bool {

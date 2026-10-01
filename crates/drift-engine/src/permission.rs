@@ -30,7 +30,7 @@ pub struct Rule {
 
 impl Rule {
     fn matches(&self, ask: &Ask) -> bool {
-        self.matches_target(&ask.kind, &ask.pattern)
+        ask.targets().iter().any(|target| self.matches_target(&ask.kind, target))
     }
 
     fn matches_target(&self, kind: &str, target: &str) -> bool {
@@ -170,20 +170,20 @@ impl Permissions {
     /// that may hold secrets is held to the same bar, so `read *` never quietly covers `.env`.
     fn decide(&self, session_id: &str, workspace: &Policy, ask: &Ask) -> Decision {
         if ask.kind == "read" && crate::tool::sensitive::is_sensitive(std::path::Path::new(&ask.pattern)) {
-            return self.decide_target(session_id, workspace, "read", &ask.pattern, false);
+            return self.decide_target(session_id, workspace, "read", &ask.targets(), false);
         }
         if ask.kind != "bash" {
-            return self.decide_target(session_id, workspace, &ask.kind, &ask.pattern, true);
+            return self.decide_target(session_id, workspace, &ask.kind, &ask.targets(), true);
         }
         let Some(commands) = &ask.commands else {
-            return self.decide_target(session_id, workspace, "bash", &ask.pattern, false);
+            return self.decide_target(session_id, workspace, "bash", &[&ask.pattern], false);
         };
         let decisions: Vec<Decision> = commands.iter().enumerate().map(|(index, command)| self.decide_command(session_id, workspace, command, ask.canonical.get(index))).collect();
         if decisions.contains(&Decision::Deny) {
             Decision::Deny
         } else if !ask.writes.is_empty() {
             // A redirection that writes a file needs the line itself approved, never a grant for its program.
-            self.decide_target(session_id, workspace, "bash", &ask.pattern, false)
+            self.decide_target(session_id, workspace, "bash", &[&ask.pattern], false)
         } else if decisions.iter().all(|d| *d == Decision::Allow) {
             Decision::Allow
         } else {
@@ -194,7 +194,7 @@ impl Permissions {
     /// One command as written; and, for deny rules only, as it actually runs (`FOO=1 git push` is a
     /// `git push`, PowerShell's `rm` is `Remove-Item`). Approvals and allow rules see only what was written.
     fn decide_command(&self, session_id: &str, workspace: &Policy, command: &str, canonical: Option<&String>) -> Decision {
-        let written = self.decide_target(session_id, workspace, "bash", command, true);
+        let written = self.decide_target(session_id, workspace, "bash", &[command], true);
         let Some(canonical) = canonical.filter(|c| !c.is_empty() && c.as_str() != command) else { return written };
         let global = self.policy.lock().unwrap().rules.clone();
         let denied = workspace.rules.iter().chain(global.iter()).find(|rule| rule.matches_target("bash", canonical)).is_some_and(|rule| rule.decision == Decision::Deny);
@@ -203,16 +203,20 @@ impl Permissions {
 
     /// Session approvals first (a subagent's parents' included), then the workspace's drift.json,
     /// then the global policy.
-    fn decide_target(&self, session_id: &str, workspace: &Policy, kind: &str, target: &str, wildcards: bool) -> Decision {
+    fn decide_target(&self, session_id: &str, workspace: &Policy, kind: &str, targets: &[&str], wildcards: bool) -> Decision {
         let lineage = self.lineage(session_id);
         let rules = self.session_rules.lock().unwrap();
-        let granted = lineage.iter().filter_map(|id| rules.get(id)).flatten().any(|grant| (wildcards || matches!(grant, Grant::Exact { .. })) && grant.allows(kind, target));
+        let granted = lineage
+            .iter()
+            .filter_map(|id| rules.get(id))
+            .flatten()
+            .any(|grant| (wildcards || matches!(grant, Grant::Exact { .. })) && targets.iter().any(|target| grant.allows(kind, target)));
         drop(rules);
         if granted {
             return Decision::Allow;
         }
         let global = self.policy.lock().unwrap().rules.clone();
-        match workspace.rules.iter().chain(global.iter()).find(|rule| rule.matches_target(kind, target)) {
+        match workspace.rules.iter().chain(global.iter()).find(|rule| targets.iter().any(|target| rule.matches_target(kind, target))) {
             Some(rule) if rule.decision == Decision::Allow && !wildcards && rule.has_wildcards() => Decision::Ask,
             Some(rule) => rule.decision,
             None => Decision::Ask,
@@ -488,6 +492,26 @@ mod tests {
         assert_eq!(policy.decide(&ask("bash", "rm -rf /")), Decision::Ask);
         assert_eq!(policy.decide(&ask("edit", "C:/repo/src/a.rs")), Decision::Allow);
         assert_eq!(policy.decide(&ask("edit", "C:/other/a.rs")), Decision::Ask);
+    }
+
+    #[test]
+    fn a_committed_relative_rule_matches_paths_inside_the_workspace() {
+        let workspace = std::path::Path::new("C:/repo");
+        let path = |p: &str| Ask::path("edit", &workspace.join(p), workspace, p);
+        let rules = Policy {
+            rules: vec![
+                Rule { kind: "edit".into(), pattern: "src/generated/**".into(), decision: Decision::Deny },
+                Rule { kind: "edit".into(), pattern: "src/**".into(), decision: Decision::Allow },
+            ],
+        };
+        assert_eq!(path("src/generated/a.rs").relative.as_deref(), Some("src/generated/a.rs"));
+        assert_eq!(rules.decide(&path("src/generated/a.rs")), Decision::Deny);
+        assert_eq!(rules.decide(&path("src/a.rs")), Decision::Allow);
+        assert_eq!(rules.decide(&path("docs/a.md")), Decision::Ask);
+        let permissions = Permissions::new(Policy::default());
+        assert_eq!(permissions.decide("ses_1", &rules, &path("src/generated/b.rs")), Decision::Deny, "the session check sees it too");
+        let outside = Ask::path("edit", std::path::Path::new("C:/other/src/a.rs"), workspace, "outside");
+        assert_eq!((outside.relative.as_deref(), rules.decide(&outside)), (None, Decision::Ask), "nothing outside is relative");
     }
 
     #[tokio::test]

@@ -100,7 +100,7 @@ impl Context {
 /// The read rule without a call around it, for reads the engine makes itself (@ mentions).
 pub fn read_ask(workspace: &Path, path: &Path, verb: &str) -> Option<Ask> {
     if sensitive::is_sensitive(path) {
-        return Some(Ask::new("read", path.to_string_lossy(), format!("{verb} {} (it may hold secrets)", display(path, workspace))));
+        return Some(Ask::path("read", path, workspace, format!("{verb} {} (it may hold secrets)", display(path, workspace))));
     }
     if path.starts_with(workspace) {
         return None;
@@ -199,11 +199,25 @@ pub struct Ask {
     /// `commands` as deny rules also see them (assignments dropped, aliases spelt out), one for one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub canonical: Vec<String>,
+    /// A path inside the workspace, relative with `/`, so a committed rule such as `src/**` matches it too.
+    #[serde(skip)]
+    pub relative: Option<String>,
 }
 
 impl Ask {
     pub fn new(kind: &str, pattern: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None, writes: Vec::new(), canonical: Vec::new() }
+        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None, writes: Vec::new(), canonical: Vec::new(), relative: None }
+    }
+
+    /// An ask about a file: the absolute path, and the workspace-relative one when it is inside.
+    pub fn path(kind: &str, path: &Path, workspace: &Path, title: impl Into<String>) -> Self {
+        let relative = path.strip_prefix(workspace).ok().filter(|r| !r.as_os_str().is_empty()).map(|r| r.to_string_lossy().replace('\\', "/"));
+        Self { relative, ..Self::new(kind, path.to_string_lossy(), title) }
+    }
+
+    /// What rules and approvals are matched against: the pattern, then the relative path if there is one.
+    pub fn targets(&self) -> Vec<&str> {
+        std::iter::once(self.pattern.as_str()).chain(self.relative.as_deref()).collect()
     }
 
     /// A shell ask as the dialect reads `line`.

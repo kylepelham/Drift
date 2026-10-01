@@ -1077,6 +1077,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   failures are ignored.
 - **Permissions** resolve in order: session "always" answers, the workspace's `drift.json`
   rules, then the global policy.
+  - File asks (read, edit, write, apply_patch) carry the absolute path and, inside the workspace,
+    the relative one (`Ask::path`); rules and approvals match either, so a committed `src/**`
+    or `src/generated/**` rule works on every machine.
   - A subagent inherits its parent's session approvals (`Permissions::inherit`, registered when
     `task` creates it). One way only: an approval given inside the worker stays with the worker,
     and branches inherit nothing.

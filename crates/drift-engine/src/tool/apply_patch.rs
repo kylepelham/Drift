@@ -39,7 +39,7 @@ impl Tool for ApplyPatch {
                 unique.push(path);
             }
         }
-        unique.into_iter().map(|path| Ask::new("edit", path.to_string_lossy(), format!("Patch {}", display(&path, &ctx.workspace)))).collect()
+        unique.into_iter().map(|path| Ask::path("edit", &path, &ctx.workspace, format!("Patch {}", display(&path, &ctx.workspace)))).collect()
     }
 
     fn mutates(&self) -> bool {
