@@ -3,23 +3,6 @@ import type { ShellInvoke } from "../shell"
 
 export type Workspace = { id: string; path: string; name: string; icon: string; lastUsed: number; removedAt?: number }
 export type ArchivedSession = { sessionId: string; workspaceId: string; archivedAt: number }
-export type McpConfig = Record<string, unknown> & { type: "local" | "remote" }
-export type StoredMcpServer = { name: string; config: McpConfig; updatedAt: number }
-export type McpDecision = "pending" | "approved" | "rejected" | "invalid"
-export type ObservedMcpServer = {
-  name: string
-  type: "local" | "remote"
-  fingerprint: string
-  decision: McpDecision
-}
-export type McpSnapshot = {
-  generation: number
-  directory: string
-  servers: StoredMcpServer[]
-  observed: ObservedMcpServer[]
-}
-/** A config-file-defined MCP server resolved for editing: its defining files and definition. */
-export type ExternalMcpConfig = { paths: string[]; config: McpConfig }
 /** One session whose transcript contains the query, with the message that matched. */
 export type SessionContentMatch = {
   sessionId: string
@@ -42,21 +25,6 @@ export interface DriftStore {
   archiveSession(sessionId: string, workspaceId: string): Promise<void>
   unarchiveSession(sessionId: string): Promise<void>
   expiredArchived(before: number): Promise<string[]>
-  mcpSnapshot(directory: string): Promise<McpSnapshot>
-  saveMcp(name: string, config: McpConfig, generation: number, previousName?: string): Promise<void>
-  removeMcp(name: string, generation: number): Promise<void>
-  externalMcp(name: string, fingerprint: string, generation: number): Promise<ExternalMcpConfig>
-  saveExternalMcp(
-    name: string,
-    previousName: string,
-    fingerprint: string,
-    config: McpConfig,
-    generation: number,
-  ): Promise<void>
-  removeExternalMcp(name: string, fingerprint: string, generation: number): Promise<void>
-  approveMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
-  rejectMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
-  revokeMcp(directory: string, name: string, fingerprint: string, generation: number): Promise<void>
   /** Sessions whose transcript contains `query`. An empty `directory` searches every workspace. */
   searchSessions(query: string, directory: string): Promise<SessionContentMatch[]>
 }
@@ -77,22 +45,6 @@ function shellStore(invoke: Invoke): DriftStore {
     archiveSession: (sessionId, workspaceId) => invoke("store_archive_session", { sessionId, workspaceId }),
     unarchiveSession: (sessionId) => invoke("store_unarchive_session", { sessionId }),
     expiredArchived: (before) => invoke("store_expired_archived", { before }),
-    mcpSnapshot: (directory) => invoke("mcp_snapshot", { directory }),
-    saveMcp: (name, config, generation, previousName) =>
-      invoke("mcp_save", { name, config, generation, previousName }),
-    removeMcp: (name, generation) => invoke("mcp_remove", { name, generation }),
-    externalMcp: (name, fingerprint, generation) =>
-      invoke("mcp_external_config", { name, fingerprint, generation }),
-    saveExternalMcp: (name, previousName, fingerprint, config, generation) =>
-      invoke("mcp_external_save", { name, previousName, fingerprint, config, generation }),
-    removeExternalMcp: (name, fingerprint, generation) =>
-      invoke("mcp_external_remove", { name, fingerprint, generation }),
-    approveMcp: (directory, name, fingerprint, generation) =>
-      invoke("mcp_approve", { directory, name, fingerprint, generation }),
-    rejectMcp: (directory, name, fingerprint, generation) =>
-      invoke("mcp_reject", { directory, name, fingerprint, generation }),
-    revokeMcp: (directory, name, fingerprint, generation) =>
-      invoke("mcp_revoke", { directory, name, fingerprint, generation }),
     searchSessions: (query, directory) => invoke("session_search", { query, directory }),
   }
 }
@@ -114,9 +66,6 @@ function browserStore(): DriftStore {
   if (typeof localStorage !== "undefined" && typeof localStorage.removeItem === "function")
     localStorage.removeItem("drift.store.interruptions")
   const all = () => read<StoredWorkspace[]>(wsKey, [])
-  const desktopMcpOnly = async (): Promise<never> => {
-    throw new Error("MCP policy requires the Drift desktop backend")
-  }
   return {
     workspaces: async () => all().filter((w) => !w.removedAt).sort((a, b) => b.lastUsed - a.lastUsed),
     removedWorkspaces: async () => all().filter((w) => w.removedAt).sort((a, b) => (b.removedAt ?? 0) - (a.removedAt ?? 0)),
@@ -167,15 +116,6 @@ function browserStore(): DriftStore {
       read<ArchivedSession[]>(arKey, [])
         .filter((a) => a.archivedAt < before)
         .map((a) => a.sessionId),
-    mcpSnapshot: desktopMcpOnly,
-    saveMcp: desktopMcpOnly,
-    removeMcp: desktopMcpOnly,
-    externalMcp: desktopMcpOnly,
-    saveExternalMcp: desktopMcpOnly,
-    removeExternalMcp: desktopMcpOnly,
-    approveMcp: desktopMcpOnly,
-    rejectMcp: desktopMcpOnly,
-    revokeMcp: desktopMcpOnly,
     // Content search reads the engine database directly, which only the desktop backend can do.
     // The remote mirror still searches titles, so this returns nothing rather than failing.
     searchSessions: async () => [],

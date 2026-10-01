@@ -272,11 +272,9 @@ const settingsSearchDefinitions = {
     { title: "drift.mcp.add" },
     { title: "drift.mcp.name" },
     { title: "drift.mcp.form.command" },
-    { title: "drift.mcp.form.cwd" },
     { title: "drift.mcp.form.environment" },
     { title: "drift.mcp.form.url" },
     { title: "drift.mcp.form.headers" },
-    { title: "drift.mcp.form.oauth" },
   ],
   Prompts: [
     { title: "drift.settings.prompts.modelFamilies", description: "drift.settings.prompts.familyDescription" },

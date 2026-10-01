@@ -9,13 +9,7 @@ import {
 import { permissionRequiresAttention } from "../state/permission-attention"
 import { selectSession } from "../state/selection"
 import { t } from "../state/i18n"
-import {
-  exactMcpTarget,
-  mcpCoordinator,
-  mcpSnapshotActionable,
-  type McpCoordinatorState,
-  type McpExactTarget,
-} from "../state/mcp"
+import type { McpServerStatus } from "../engine/store"
 import { shellInvoke } from "../shell"
 import { openMcpServers } from "./mcp"
 import { playAlertSound } from "./sounds"
@@ -136,16 +130,18 @@ export function NoticeHost(props: { children?: JSX.Element }) {
     setDismissed((current) => pruneDismissedNoticeIds(current, active))
   })
   const dismiss = (id: string) => setDismissed((current) => new Set([...current, id]))
-  const pendingMcp = createMemo(() => mcpPromptTargets(mcpCoordinator.state))
-  const mcpBusy = () => !!mcpCoordinator.state.mutation || !mcpSnapshotActionable(mcpCoordinator.state)
+  const pendingMcp = createMemo(() => mcpPromptTargets(engine.state.mcpServers))
+  const mcpBusy = () => engine.state.connection !== "online"
   createEffect(() => {
     const present = new Set(pendingMcp().map(mcpPromptKey))
     setHiddenMcp((current) => new Set([...current].filter((key) => present.has(key))))
   })
-  const decide = (action: "approve" | "reject", target: McpExactTarget) => {
+  /** The engine has no reject: declining a server disables it, which also stops it asking. */
+  const decide = (action: "approve" | "reject", target: McpServerStatus) => {
     const key = mcpPromptKey(target)
     setHiddenMcp((current) => reduceMcpPromptState(current, { type: "start", key }))
-    void mcpCoordinator.decide(action, target).catch((error: unknown) => {
+    const decided = action === "approve" ? engine.actions.mcpApprove(target.name) : engine.actions.mcpSetEnabled(target.name, false)
+    void decided.catch((error: unknown) => {
       setHiddenMcp((current) => reduceMcpPromptState(current, { type: "failed", key }))
       engine.actions.notice({
         id: nextNoticeOccurrenceId(`mcp-${action}-failed:${key}`),
@@ -184,9 +180,7 @@ export function NoticeHost(props: { children?: JSX.Element }) {
               <div class="mt-0.5 text-sm text-ink">
                 {t("drift.mcp.toast.pending.message", { name: target.name })}
               </div>
-              <div class="mt-1 font-mono text-[0.68rem] text-ink-faint">
-                {t("drift.mcp.toast.exact", { id: target.fingerprint.replace(/^sha256:/, "").slice(0, 12) })}
-              </div>
+              <div class="mt-1 truncate font-mono text-[0.68rem] text-ink-faint">{mcpCommandLine(target)}</div>
               <div class="mt-2 flex flex-wrap gap-1.5">
                 <button
                   class="rounded-md border border-warn/40 px-2 py-1 text-xs text-warn hover:bg-warn/10 disabled:opacity-40"
@@ -264,15 +258,21 @@ export function reduceMcpPromptState(state: ReadonlySet<string>, event: McpPromp
   return next
 }
 
-export function mcpPromptTargets(state: Pick<McpCoordinatorState, "directory" | "snapshot">) {
-  if (state.snapshot.directory !== state.directory) return []
-  return state.snapshot.observed
-    .filter((item) => item.decision === "pending")
-    .map((item) => exactMcpTarget(state.snapshot, item))
+export function mcpPromptTargets(servers: Readonly<Record<string, McpServerStatus>>) {
+  return Object.values(servers)
+    .filter((server) => server.state === "needs_approval")
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-export function mcpPromptKey(target: McpExactTarget) {
-  return `${target.generation}:${target.directory}:${target.name}:${target.fingerprint}`
+/** A changed definition is a new request, so the key carries what would be approved. */
+export function mcpPromptKey(target: McpServerStatus) {
+  return `${target.name}:${JSON.stringify(target.config)}`
+}
+
+/** What approving runs, shown in full: the command and its arguments, or the URL. */
+export function mcpCommandLine(target: McpServerStatus) {
+  const config = target.config
+  return config.type === "http" ? config.url : [config.command, ...(config.args ?? [])].join(" ")
 }
 
 export function requestNotificationPermission() {

@@ -1,4 +1,4 @@
-import type { McpConfig } from "./state/store"
+import type { McpServerConfig } from "./engine/store"
 
 export type RegistryInput = {
   value?: string
@@ -39,14 +39,20 @@ export type RegistryServer = {
   remotes?: RegistryRemote[]
 }
 
-export function registryConfig(server: RegistryServer): McpConfig | null {
+/** The engine's name for a registry server: its last path segment, kept to what a tool name may hold. */
+export function registryServerName(name: string) {
+  return (name.split("/").at(-1) ?? name).replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 128)
+}
+
+/** The engine expands no placeholders: an unresolved variable is left to the inherited environment, and a remote missing a required header is skipped. */
+export function registryConfig(server: RegistryServer): McpServerConfig | null {
   if (!validServerName(server.name)) return null
   for (const remote of server.remotes ?? []) {
     const url = resolveTemplate(remote.url, remote.variables)
     if (!url || !validHttpsUrl(url)) continue
-    const headers = registryKeyValues(remote.headers, validHeaderName)
+    const headers = registryKeyValues(remote.headers, validHeaderName, false)
     if (!headers) continue
-    return { type: "remote", url, ...(Object.keys(headers).length ? { headers } : {}) }
+    return { type: "http", url, headers }
   }
 
   for (const item of server.packages ?? []) {
@@ -58,15 +64,11 @@ export function registryConfig(server: RegistryServer): McpConfig | null {
     if (item.runtimeArguments?.length && item.runtimeHint !== executable) continue
     const runtimeArguments = registryArguments(item.runtimeArguments)
     const packageArguments = registryArguments(item.packageArguments)
-    const environment = registryKeyValues(item.environmentVariables, validEnvironmentName)
-    if (!runtimeArguments || !packageArguments || !environment) continue
+    const env = registryKeyValues(item.environmentVariables, validEnvironmentName, true)
+    if (!runtimeArguments || !packageArguments || !env) continue
     const reference =
       item.registryType === "npm" ? `${item.identifier}@${item.version}` : `${item.identifier}==${item.version}`
-    return {
-      type: "local",
-      command: [executable, ...runtimeArguments, reference, ...packageArguments],
-      ...(Object.keys(environment).length ? { environment } : {}),
-    }
+    return { type: "stdio", command: executable, args: [...runtimeArguments, reference, ...packageArguments], env }
   }
   return null
 }
@@ -92,17 +94,20 @@ function registryArguments(items: RegistryArgument[] | undefined) {
   return result
 }
 
+/** `inherited`: an unresolved value, even a required one, comes from the environment the server starts in. */
 function registryKeyValues<T extends RegistryInput & { name: string }>(
   items: T[] | undefined,
   validName: (name: string) => boolean,
+  inherited: boolean,
 ) {
   const result: Record<string, string> = {}
+  const seen = new Set<string>()
   for (const item of items ?? []) {
-    if (!validName(item.name) || item.name in result) return null
-    const resolved = resolveInput(item)
-    const value = resolved ?? (validEnvironmentName(item.name) ? `{env:${item.name}}` : undefined)
+    if (!validName(item.name) || seen.has(item.name)) return null
+    seen.add(item.name)
+    const value = resolveInput(item)
     if (value === undefined) {
-      if (item.isRequired) return null
+      if (item.isRequired && !inherited) return null
       continue
     }
     if (!safeValue(value)) return null

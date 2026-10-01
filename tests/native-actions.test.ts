@@ -192,11 +192,60 @@ test("every send carries a fresh submission id", async () => {
 
 test("hydration rejects when any of its loads fail, instead of pretending the snapshot landed", async () => {
   const { hydrateFrom } = await import("../src/engine/index")
-  const good = { refreshProviders: async () => true, loadSessions: async () => undefined, refreshPermissions: async () => undefined, refreshAgents: async () => undefined }
+  const good = { refreshProviders: async () => true, loadSessions: async () => undefined, refreshPermissions: async () => undefined, refreshAgents: async () => undefined, refreshMcp: async () => undefined }
   await hydrateFrom(good, "C:/repo")
   await expect(hydrateFrom({ ...good, loadSessions: () => Promise.reject(new Error("db")) }, "C:/repo")).rejects.toThrow("db")
+  await expect(hydrateFrom({ ...good, refreshMcp: () => Promise.reject(new Error("mcp")) }, null)).rejects.toThrow("mcp")
   await expect(hydrateFrom({ ...good, refreshProviders: async () => false }, null)).rejects.toThrow("provider catalog")
   await expect(hydrateFrom({ ...good, refreshPermissions: () => Promise.reject(new Error("perm")) }, null)).rejects.toThrow("perm")
+})
+
+type McpServer = components["schemas"]["ServerStatus"]
+
+function mcpServer(name: string, state: McpServer["state"] = "needs_approval"): McpServer {
+  return { name, config: { type: "stdio", command: "node", args: ["server.js"] }, enabled: true, updatedAt: 1, state, tools: [] }
+}
+
+test("MCP changes go to the engine and the store holds what it reports", async () => {
+  const h = harness({
+    mcpServers: async () => [mcpServer("docs", "connected")],
+    saveMcpServer: async (name: string) => mcpServer(name),
+    approveMcpServer: async (name: string) => mcpServer(name, "connected"),
+    setMcpServerEnabled: async (name: string, enabled: boolean) => ({ ...mcpServer(name, enabled ? "connected" : "disabled"), enabled }),
+    removeMcpServer: async () => undefined,
+  } as Partial<Client>)
+  await h.actions.refreshMcp()
+  expect(Object.keys(h.state.mcpServers)).toEqual(["docs"])
+  await h.actions.mcpSave("files", { type: "stdio", command: "npx", args: [] })
+  expect(h.state.mcpServers.files.state).toBe("needs_approval")
+  await h.actions.mcpApprove("files")
+  expect(h.state.mcpServers.files.state).toBe("connected")
+  await h.actions.mcpSetEnabled("files", false)
+  expect(h.state.mcpServers.files.enabled).toBeFalse()
+  await h.actions.mcpRemove("docs")
+  expect(Object.keys(h.state.mcpServers)).toEqual(["files"])
+})
+
+test("renaming an MCP server saves the new name before removing the old, and a failed save keeps the old", async () => {
+  const order: string[] = []
+  let failSave = false
+  const h = harness({
+    mcpServers: async () => [mcpServer("old", "connected")],
+    saveMcpServer: async (name: string) => {
+      order.push(`save ${name}`)
+      if (failSave) throw new EngineError(400, "/mcp/new", "invalid", "bad config")
+      return mcpServer(name)
+    },
+    removeMcpServer: async (name: string) => void order.push(`remove ${name}`),
+  } as Partial<Client>)
+  await h.actions.refreshMcp()
+  failSave = true
+  await expect(h.actions.mcpSave("new", { type: "stdio", command: "x" }, "old")).rejects.toThrow("bad config")
+  expect(Object.keys(h.state.mcpServers)).toEqual(["old"])
+  failSave = false
+  await h.actions.mcpSave("new", { type: "stdio", command: "x" }, "old")
+  expect(order).toEqual(["save new", "save new", "remove old"])
+  expect(Object.keys(h.state.mcpServers)).toEqual(["new"])
 })
 
 test("action agents are listed for Settings but hidden from the composer, with their pins and prompts", async () => {

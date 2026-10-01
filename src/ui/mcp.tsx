@@ -43,7 +43,7 @@ function McpDialog(props: { onClose: () => void }) {
         <div class="flex items-start justify-between border-b border-edge px-4 py-3">
           <div>
             <div class="text-sm font-semibold text-ink">{t("dialog.mcp.title")}</div>
-            <div class="mt-0.5 text-xs text-ink-faint">{t("drift.mcp.description")}</div>
+            <div class="mt-0.5 text-xs text-ink-faint">{t("drift.mcp.engineDescription")}</div>
           </div>
           <button
             title={t("common.close")}

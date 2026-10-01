@@ -11,8 +11,8 @@ import type {
   ToolPart,
 } from "@opencode-ai/sdk/client"
 import { createStore, produce, type SetStoreFunction } from "solid-js/store"
-import type { TaskRecord } from "./native/client"
-export type { TaskRecord }
+import type { McpServerConfig, McpServerStatus, TaskRecord } from "./native/client"
+export type { McpServerConfig, McpServerStatus, TaskRecord }
 export type Connection = "idle" | "connecting" | "online" | "offline"
 
 export type ModelInfo = Model & { family?: string; release_date?: string; variants?: Record<string, unknown> }
@@ -127,6 +127,8 @@ export type EngineState = {
   /** Workers each session launched, keyed by the launching session, oldest first. */
   tasks: Record<string, TaskRecord[]>
   providers: ProviderInfo[]
+  /** The engine's MCP servers by name: the only place their definition, approval and state live. */
+  mcpServers: Record<string, McpServerStatus>
   connected: string[]
   defaultModels: Record<string, string>
   agents: Agent[]
@@ -189,6 +191,7 @@ export function createEngineState() {
     todos: {},
     tasks: {},
     providers: [],
+    mcpServers: {},
     connected: [],
     defaultModels: {},
     agents: [],

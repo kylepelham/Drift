@@ -1,28 +1,19 @@
 import { createSignal, Index, onCleanup, onMount, Show, type JSX, type Setter } from "solid-js"
 import { Portal } from "solid-js/web"
-import {
-  mcpConfigFromForm,
-  mcpFormState,
-  withMcpOAuthPresence,
-  withMcpPresence,
-  type McpFormState,
-  type McpPair,
-} from "../../state/mcp-form"
-import type { McpStoredExpectation } from "../../state/mcp"
+import type { McpServerConfig } from "../../engine/store"
+import { mcpConfigFromForm, mcpFormState, type McpFormState, type McpPair } from "../../state/mcp-form"
 import { t } from "../../state/i18n"
-import type { McpConfig, StoredMcpServer } from "../../state/store"
 import { IconPlus, IconX } from "../icons"
 import { activateModal, closeOnBackdropPointerDown } from "../modal"
-import { Toggle } from "../controls"
+
+/** The engine names a server's tools `<server>_<tool>`, so a name is what a tool name may hold. */
+export const mcpServerName = /^[A-Za-z0-9_-]{1,128}$/
 
 export function McpEditor(props: {
-  server?: StoredMcpServer
-  expected: McpStoredExpectation
-  /** Config files defining an externally declared server; saving rewrites every one of them. */
-  paths?: string[]
+  server?: { name: string; config: McpServerConfig }
   pending: boolean
   onClose: () => void
-  onSave: (name: string, config: McpConfig, expected: McpStoredExpectation) => Promise<void>
+  onSave: (name: string, config: McpServerConfig) => Promise<void>
 }) {
   let dialog!: HTMLDivElement
   const [name, setName] = createSignal(props.server?.name ?? "")
@@ -35,15 +26,13 @@ export function McpEditor(props: {
     if (submitting() || props.pending) return
     const serverName = name().trim()
     if (!serverName) return setError(t("drift.mcp.nameRequired"))
-    if (serverName.length > 128 || !/^[A-Za-z0-9._/-]+$/.test(serverName)) {
-      return setError(t("drift.mcp.form.nameInvalid"))
-    }
+    if (!mcpServerName.test(serverName)) return setError(t("drift.mcp.form.nameInvalid"))
     const result = mcpConfigFromForm(form())
     if (result.issue) return setError(t(`drift.mcp.form.${result.issue}`))
     setSubmitting(true)
     setError("")
     try {
-      await props.onSave(serverName, result.config, props.expected)
+      await props.onSave(serverName, result.config)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
@@ -77,59 +66,38 @@ export function McpEditor(props: {
             </button>
           </div>
           <div class="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-            <Show when={props.paths?.length}>
-              <div class="rounded-md border border-edge bg-surface px-3 py-2 text-xs text-ink-faint">
-                {t("drift.mcp.definedIn", { files: props.paths!.join(", ") })}
-              </div>
-            </Show>
             <Field label={t("drift.mcp.name")} required>
               <TextInput autofocus value={name()} onInput={setName} label={t("drift.mcp.name")} mono />
             </Field>
-            <div class="grid gap-4 sm:grid-cols-2">
-              <Field label={t("drift.mcp.form.type")} required>
-                <div class="flex rounded-lg border border-edge bg-overlay/50 p-1">
-                  <Choice
-                    active={form().type === "local"}
-                    onClick={() => setForm((value) => ({ ...value, type: "local" }))}
-                  >
-                    {t("drift.mcp.form.local")}
-                  </Choice>
-                  <Choice
-                    active={form().type === "remote"}
-                    onClick={() => setForm((value) => ({ ...value, type: "remote" }))}
-                  >
-                    {t("drift.mcp.form.remote")}
-                  </Choice>
-                </div>
-              </Field>
-              <Field label={t("drift.mcp.form.timeout")}>
-                <TextInput
-                  type="number"
-                  value={form().timeout}
-                  onInput={(timeout) =>
-                    setForm((value) => withMcpPresence({ ...value, timeout }, "timeout", !!timeout))
-                  }
-                  label={t("drift.mcp.form.timeout")}
-                  placeholder="5000"
-                />
-              </Field>
-            </div>
-            {/* Mirrors SettingsRow: label left, control right, hairline separators. */}
-            <div class="flex min-h-13 items-center justify-between gap-4 border-y border-edge/70 px-1 py-2.5">
-              <span class="text-[0.82rem] font-medium text-ink">{t("drift.mcp.form.enabled")}</span>
-              <Toggle
-                label={t("drift.mcp.form.enabled")}
-                checked={form().enabled}
-                onChange={() =>
-                  setForm((value) => withMcpPresence({ ...value, enabled: !value.enabled }, "enabled", true))
-                }
-              />
-            </div>
-            <Show when={form().type === "local"}>
+            <Field label={t("drift.mcp.form.type")} required>
+              <div class="flex rounded-lg border border-edge bg-overlay/50 p-1">
+                <Choice active={form().type === "stdio"} onClick={() => setForm((value) => ({ ...value, type: "stdio" }))}>
+                  {t("drift.mcp.form.local")}
+                </Choice>
+                <Choice active={form().type === "http"} onClick={() => setForm((value) => ({ ...value, type: "http" }))}>
+                  {t("drift.mcp.form.remote")}
+                </Choice>
+              </div>
+            </Field>
+            <Show when={form().type === "stdio"}>
               <LocalFields form={form()} setForm={setForm} />
             </Show>
-            <Show when={form().type === "remote"}>
-              <RemoteFields form={form()} setForm={setForm} />
+            <Show when={form().type === "http"}>
+              <Field label={t("drift.mcp.form.url")} required>
+                <TextInput
+                  type="url"
+                  value={form().url}
+                  onInput={(url) => setForm((value) => ({ ...value, url }))}
+                  label={t("drift.mcp.form.url")}
+                  placeholder="https://example.com/mcp"
+                  mono
+                />
+              </Field>
+              <PairFields
+                label={t("drift.mcp.form.headers")}
+                pairs={form().headers}
+                onChange={(headers) => setForm((value) => ({ ...value, headers }))}
+              />
             </Show>
             <Show when={error()}>
               {(value) => (
@@ -179,10 +147,7 @@ function LocalFields(props: { form: McpFormState; setForm: Setter<McpFormState> 
                     class="flex size-8 shrink-0 items-center justify-center rounded-md border border-edge text-ink-muted transition-colors hover:border-danger hover:text-danger"
                     title={t("drift.mcp.form.removeArgument")}
                     onClick={() =>
-                      props.setForm((value) => ({
-                        ...value,
-                        command: value.command.filter((_, item) => item !== index),
-                      }))
+                      props.setForm((value) => ({ ...value, command: value.command.filter((_, item) => item !== index) }))
                     }
                   >
                     <IconX class="size-3.5" />
@@ -197,117 +162,12 @@ function LocalFields(props: { form: McpFormState; setForm: Setter<McpFormState> 
           />
         </div>
       </Field>
-      <Field label={t("drift.mcp.form.cwd")}>
-        <TextInput
-          value={props.form.cwd}
-          onInput={(cwd) => props.setForm((value) => withMcpPresence({ ...value, cwd }, "cwd", !!cwd))}
-          label={t("drift.mcp.form.cwd")}
-          placeholder="./tools"
-          mono
-        />
-      </Field>
       <PairFields
         label={t("drift.mcp.form.environment")}
         pairs={props.form.environment}
-        onChange={(environment) =>
-          props.setForm((value) => withMcpPresence({ ...value, environment }, "environment", true))
-        }
+        onChange={(environment) => props.setForm((value) => ({ ...value, environment }))}
       />
     </div>
-  )
-}
-
-function RemoteFields(props: { form: McpFormState; setForm: Setter<McpFormState> }) {
-  return (
-    <div class="space-y-4">
-      <Field label={t("drift.mcp.form.url")} required>
-        <TextInput
-          type="url"
-          value={props.form.url}
-          onInput={(url) => props.setForm((value) => ({ ...value, url }))}
-          label={t("drift.mcp.form.url")}
-          placeholder="https://example.com/mcp"
-          mono
-        />
-      </Field>
-      <PairFields
-        label={t("drift.mcp.form.headers")}
-        pairs={props.form.headers}
-        onChange={(headers) => props.setForm((value) => withMcpPresence({ ...value, headers }, "headers", true))}
-      />
-      <Field label={t("drift.mcp.form.oauth")}>
-        <div class="flex rounded-lg border border-edge bg-overlay/50 p-1">
-          <Choice
-            active={props.form.oauthMode === "auto"}
-            onClick={() => props.setForm((value) => ({ ...value, oauthMode: "auto" }))}
-          >
-            {t("drift.mcp.form.oauth.auto")}
-          </Choice>
-          <Choice
-            active={props.form.oauthMode === "disabled"}
-            onClick={() => props.setForm((value) => ({ ...value, oauthMode: "disabled" }))}
-          >
-            {t("drift.mcp.form.oauth.disabled")}
-          </Choice>
-          <Choice
-            active={props.form.oauthMode === "configured"}
-            onClick={() => props.setForm((value) => ({ ...value, oauthMode: "configured" }))}
-          >
-            {t("drift.mcp.form.oauth.configured")}
-          </Choice>
-        </div>
-      </Field>
-      <Show when={props.form.oauthMode === "configured"}>
-        <div class="grid gap-4 border-l-2 border-edge pl-3 sm:grid-cols-2">
-          <OAuthField field="clientId" label={t("drift.mcp.form.clientId")} form={props.form} setForm={props.setForm} />
-          <OAuthField
-            field="clientSecret"
-            label={t("drift.mcp.form.clientSecret")}
-            form={props.form}
-            setForm={props.setForm}
-            password
-          />
-          <OAuthField field="scope" label={t("drift.mcp.form.scope")} form={props.form} setForm={props.setForm} />
-          <OAuthField
-            field="callbackPort"
-            label={t("drift.mcp.form.callbackPort")}
-            form={props.form}
-            setForm={props.setForm}
-            number
-          />
-          <div class="sm:col-span-2">
-            <OAuthField
-              field="redirectUri"
-              label={t("drift.mcp.form.redirectUri")}
-              form={props.form}
-              setForm={props.setForm}
-            />
-          </div>
-        </div>
-      </Show>
-    </div>
-  )
-}
-
-function OAuthField(props: {
-  field: "clientId" | "clientSecret" | "scope" | "callbackPort" | "redirectUri"
-  label: string
-  form: McpFormState
-  setForm: Setter<McpFormState>
-  password?: boolean
-  number?: boolean
-}) {
-  return (
-    <Field label={props.label}>
-      <TextInput
-        type={props.password ? "password" : props.number ? "number" : "text"}
-        value={props.form[props.field]}
-        onInput={(text) =>
-          props.setForm((value) => withMcpOAuthPresence({ ...value, [props.field]: text }, props.field, !!text))
-        }
-        label={props.label}
-      />
-    </Field>
   )
 }
 
@@ -329,7 +189,6 @@ function PairFields(props: { label: string; pairs: McpPair[]; onChange: (pairs: 
                 value={pair().value}
                 onInput={(value) => props.onChange(updatePair(props.pairs, index, { value }))}
                 label={t("drift.mcp.form.value")}
-                placeholder="{env:NAME}"
                 mono
               />
               <button
@@ -342,10 +201,7 @@ function PairFields(props: { label: string; pairs: McpPair[]; onChange: (pairs: 
             </div>
           )}
         </Index>
-        <AddButton
-          label={t("drift.mcp.form.addPair")}
-          onClick={() => props.onChange([...props.pairs, { key: "", value: "" }])}
-        />
+        <AddButton label={t("drift.mcp.form.addPair")} onClick={() => props.onChange([...props.pairs, { key: "", value: "" }])} />
       </div>
     </Field>
   )

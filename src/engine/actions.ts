@@ -1,7 +1,7 @@
 // Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
-import type { Agent, Command, McpStatus, Permission, Session } from "@opencode-ai/sdk/client"
+import type { Agent, Command, Permission, Session } from "@opencode-ai/sdk/client"
 import { untrack } from "solid-js"
-import { produce, type SetStoreFunction } from "solid-js/store"
+import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
 import { applyProviderCatalog } from "../state/provider-cache"
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events"
@@ -16,6 +16,8 @@ import {
   putSession,
   putTasks,
   type EngineState,
+  type McpServerConfig,
+  type McpServerStatus,
   type MessageEntry,
   type ModelRef,
   type Notice,
@@ -493,24 +495,28 @@ export function createActions(
     }
   }
 
-  /** Engine MCP states in the vocabulary the manager already renders. */
-  async function mcpStatus(_directory: string, _signal: AbortSignal): Promise<Record<string, McpStatus>> {
+  async function refreshMcp() {
     const servers = await requireClient().mcpServers()
-    return Object.fromEntries(
-      servers.map((server) => {
-        const status: McpStatus =
-          server.state === "connected"
-            ? { status: "connected" }
-            : server.state === "disabled"
-              ? { status: "disabled" }
-              : server.state === "failed"
-                ? { status: "failed", error: server.error ?? "failed" }
-                : server.state === "needs_approval"
-                  ? { status: "needs_client_registration", error: "awaiting approval" }
-                  : { status: "failed", error: server.state }
-        return [server.name, status]
-      }),
-    )
+    set("mcpServers", reconcile(Object.fromEntries(servers.map((server) => [server.name, server]))))
+  }
+
+  /** Runs one MCP change on the engine and records the state it reports back. */
+  async function mcpChange(change: () => Promise<McpServerStatus>) {
+    const server = await change()
+    set("mcpServers", server.name, reconcile(server))
+    return server
+  }
+
+  /** A rename saves under the new name first, so a failed save leaves the old server untouched. */
+  async function mcpSave(name: string, config: McpServerConfig, previousName?: string) {
+    const saved = await mcpChange(() => requireClient().saveMcpServer(name, config))
+    if (previousName && previousName !== name) await mcpRemove(previousName)
+    return saved
+  }
+
+  async function mcpRemove(name: string) {
+    await requireClient().removeMcpServer(name)
+    set("mcpServers", produce((servers) => void delete servers[name]))
   }
 
   const notYet = (feature: string) => async (..._args: unknown[]) => {
@@ -562,11 +568,13 @@ export function createActions(
     runCommand,
     revert,
     unrevert,
-    mcpInitialize: async (_directory: string) => undefined,
-    mcpStatus,
-    mcpConnect: async (name: string, _directory: string) => void (await requireClient().connectMcpServer(name)),
-    mcpDisconnect: async (name: string, _directory: string) => void (await requireClient().disconnectMcpServer(name)),
-    mcpAuthenticate: async (_name: string, _directory: string) => unavailable("MCP OAuth"),
+    refreshMcp,
+    mcpSave,
+    mcpRemove,
+    mcpApprove: (name: string) => mcpChange(() => requireClient().approveMcpServer(name)),
+    mcpSetEnabled: (name: string, enabled: boolean) => mcpChange(() => requireClient().setMcpServerEnabled(name, enabled)),
+    mcpConnect: (name: string) => mcpChange(() => requireClient().connectMcpServer(name)),
+    mcpDisconnect: (name: string) => mcpChange(() => requireClient().disconnectMcpServer(name)),
   }
 }
 

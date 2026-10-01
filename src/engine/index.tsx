@@ -1,5 +1,5 @@
 import { createContext, onCleanup, untrack, useContext, type ParentProps } from "solid-js"
-import { produce } from "solid-js/store"
+import { produce, reconcile } from "solid-js/store"
 import { normalizeDir as normalizeWorkspacePath } from "./store"
 import { workspaces } from "../state/workspaces"
 import { clearPermissionAttentionFor } from "../state/permission-attention"
@@ -41,8 +41,13 @@ function workspaceIndex(): WorkspaceIndex {
 }
 
 /** Replaces local state from HTTP. Any failure rejects, so the socket keeps its cursor and retries. */
-export async function hydrateFrom(actions: Pick<EngineActions, "refreshProviders" | "loadSessions" | "refreshPermissions" | "refreshAgents">, directory: string | null) {
-  const [providers] = await Promise.all([actions.refreshProviders(), directory ? actions.loadSessions(directory) : Promise.resolve(), directory ? actions.refreshAgents() : Promise.resolve()])
+export async function hydrateFrom(actions: Pick<EngineActions, "refreshProviders" | "loadSessions" | "refreshPermissions" | "refreshAgents" | "refreshMcp">, directory: string | null) {
+  const [providers] = await Promise.all([
+    actions.refreshProviders(),
+    directory ? actions.loadSessions(directory) : Promise.resolve(),
+    directory ? actions.refreshAgents() : Promise.resolve(),
+    actions.refreshMcp(),
+  ])
   if (providers === false) throw new Error("provider catalog unavailable")
   await actions.refreshPermissions()
 }
@@ -85,6 +90,8 @@ export function EngineProvider(props: ParentProps) {
       event: (envelope) => {
         if (envelope.type === "catalog.updated") void actions.refreshProviders().catch(() => undefined)
         if (envelope.type === "task.updated") putTasks(set, state, envelope.task.parentSessionId, [envelope.task])
+        if (envelope.type === "mcp.updated") set("mcpServers", envelope.server.name, reconcile(envelope.server))
+        if (envelope.type === "mcp.removed") set("mcpServers", produce((servers) => void delete servers[envelope.name]))
         const legacy = adaptEvent(envelope, workspaceIndex())
         if (legacy) reduce(set, legacy, directory ?? undefined, state)
       },

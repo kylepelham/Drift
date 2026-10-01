@@ -226,17 +226,14 @@ const pendingTranslation = new Set([
   ...pendingKeys(
     "drift.mcp",
     `
-      servers registry add edit definedIn approve reject revoke pendingApproval
-      invalidStatus rejectedStatus awaitingReport selectWorkspace saved removed approved rejected revoked
+      servers registry add edit approve reject pendingApproval engineDescription status.disconnected saved removed approved
       name nameRequired registrySearch registrySource registryLoadFailed registryUnavailable install
       installedLabel installed
-      form.nameInvalid form.type form.local form.remote form.enabled form.timeout form.command
-      form.executable form.argument form.addArgument form.removeArgument form.cwd form.environment
-      form.url form.headers form.oauth form.oauth.auto form.oauth.disabled form.oauth.configured
-      form.clientId form.clientSecret form.scope form.callbackPort form.redirectUri form.key form.value
-      form.addPair form.removePair form.commandRequired form.urlRequired form.urlInvalid
-      form.timeoutInvalid form.pairInvalid form.callbackPortInvalid form.redirectUriInvalid
-      toast.pending.title toast.pending.message toast.exact toast.openSettings toast.failed
+      form.nameInvalid form.type form.local form.remote form.command
+      form.executable form.argument form.addArgument form.removeArgument form.environment
+      form.url form.headers form.key form.value
+      form.addPair form.removePair form.commandRequired form.urlRequired form.urlInvalid form.pairInvalid
+      toast.pending.title toast.pending.message toast.openSettings toast.failed
     `,
   ),
   ...pendingKeys(

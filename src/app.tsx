@@ -2,14 +2,11 @@ import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from "s
 import { EngineProvider, useEngine } from "./engine"
 import { messageText } from "./engine/store"
 import { PluginHost } from "./plugins"
-import { shellEvents } from "./shell"
 import { bindCodePreferences } from "./state/code"
 import { runScheduledCleanup } from "./state/storage"
 import { initKeybinds } from "./state/keybinds"
 import { t } from "./state/i18n"
 import { bindLanguage } from "./state/language"
-import { mcpCoordinator } from "./state/mcp"
-import { driftStore } from "./state/store"
 import { bindTheme } from "./state/theme"
 import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation"
 import { initZoom } from "./state/zoom"
@@ -57,7 +54,6 @@ export function App() {
   return (
     <EngineProvider>
       <WorkspaceBinding />
-      <McpBinding />
       <OrchestratorBinding />
       <PluginBinding />
       <div class="app-shell flex h-full flex-col bg-bg text-ink">
@@ -120,27 +116,6 @@ function MirrorConnectionNotice() {
       </div>
     </Show>
   )
-}
-
-function McpBinding() {
-  const engine = useEngine()
-  const event = shellEvents()
-  const stop = mcpCoordinator.start({
-    store: driftStore,
-    initialize: engine.actions.mcpInitialize,
-    status: engine.actions.mcpStatus,
-    connect: engine.actions.mcpConnect,
-    disconnect: engine.actions.mcpDisconnect,
-    authenticate: engine.actions.mcpAuthenticate,
-    listen: event
-      ? (refresh) => event.listen("mcp-config-changed", refresh)
-      : undefined,
-  })
-  onCleanup(stop)
-  createEffect(() => {
-    void mcpCoordinator.setActive(engine.state.directory, engine.state.connection === "online").catch(() => undefined)
-  })
-  return null
 }
 
 function PluginBinding() {

@@ -1091,6 +1091,16 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   the components were written against. That keeps the whole UI working on the new engine
   without touching a component. At M4 the store adopts the generated types, the adapter
   goes, and `@opencode-ai/sdk` leaves `package.json`.
+- MCP management has one authority, the engine. The manager, the registry installer and the
+  approval toast read `state.mcpServers` (loaded on hydrate, kept current by `mcp.updated` and
+  `mcp.removed`) and change servers only through `/mcp`: save (a rename saves the new name, then
+  removes the old), approve, enable or disable, connect or disconnect, remove. The editor offers
+  exactly what the engine's config holds (a command, its arguments and environment, or a URL and
+  headers); working directory, timeouts and OAuth are not offered because the engine cannot honour
+  them. Declining an approval disables the server. Registry installs carry no `{env:...}`
+  placeholders, which the engine would not expand: a stdio server inherits Drift's environment,
+  and a remote that needs a header Drift cannot fill is not offered. Workspace `opencode.json`
+  servers and the shell's `mcp_server` and `mcp_decision` tables are no longer read by the UI.
 - The composer's reasoning picker lists the model's catalog variants (`adaptModel` fills
   `variants` from them) and sends the chosen name as the prompt's `variant`, or null for the
   model's default. A model without variants shows no picker.

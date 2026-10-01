@@ -126,11 +126,14 @@ change the plan there when a decision changes.
 ### UI completion audit (`docs/research/ui-completion-audit-bc2a8cd.md`)
 
 - [x] Composer agent selection runs the session as that agent (prompt `agent`, validated, saved at admission); sessions and messages keep the agent they ran as
+- [x] MCP manager, registry installs and approval prompts on the native `/mcp` authority only; editor limited to fields the engine runs
 
 ## M4: cutover
 
 - [ ] Every legacy capability in `docs/research/opencode-exit-inventory.md` checked off or explicitly dropped
-- [ ] `drift-migrate`: sessions, messages, parts, todos, credentials, config
+- [ ] `drift-migrate`: sessions, messages, parts, todos, credentials, config, MCP servers from the shell's `mcp_server` table (unapproved)
+- [ ] Delete the shell MCP runtime (`mcp.rs`, `mcp_external.rs`, their commands and watcher hook); only the remote gateway still reaches it
+- [ ] i18n sweep: drop keys the native UI no longer uses from every locale (`drift.mcp.description`, `drift.mcp.authenticate`)
 - [ ] `DRIFT_*` env vars and `drift` data paths
 - [ ] Delete `engine/*`, `@opencode-ai/sdk`, overlays, `build-engine.ts`, `build-extensions.ts`
 - [ ] Remote gateway collapses into the engine router
