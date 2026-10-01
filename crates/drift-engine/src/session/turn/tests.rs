@@ -994,6 +994,33 @@ fn model_with(output: u64, reasoning: bool) -> crate::llm::catalog::Model {
 }
 
 #[tokio::test]
+async fn a_prompt_for_another_agent_sent_mid_turn_gets_a_turn_of_its_own_as_that_agent() {
+    let h = harness().await;
+    h.provider.push_slow(Duration::from_millis(400), tool_call("read", r#"{"path": "missing.txt"}"#)).push(text("planned"));
+    h.engine.submit(&h.session.id, prompt("build it")).await.await_ok();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let switched = h.engine.submit(&h.session.id, Prompt { agent: Some("plan".into()), ..prompt("plan instead") }).await;
+    switched.expect("admitted once the build turn handed over");
+    until_idle(&h).await;
+    let requests = h.provider.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2, "the build turn ends after its step instead of answering the plan prompt");
+    let asked = |index: usize| format!("{:?}", requests[index].messages);
+    assert!(!asked(0).contains("plan instead"));
+    assert!(asked(1).contains("plan instead"));
+    assert!(!requests[1].tools.iter().any(|t| t.name == "write" || t.name == "edit"), "answered with plan's tools");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let reply = transcript.last().unwrap();
+    assert_eq!((reply.info.role, reply.info.agent.as_deref()), (Role::Assistant, Some("plan")));
+}
+
+#[test]
+fn a_variant_left_unnamed_and_one_cleared_hash_apart() {
+    let unnamed = prompt("x");
+    let cleared = Prompt { variant: Some(None), ..prompt("x") };
+    assert_ne!(payload_hash(&unnamed), payload_hash(&cleared));
+}
+
+#[tokio::test]
 async fn a_prompt_that_picks_plan_runs_as_plan_and_every_message_says_so() {
     let h = harness().await;
     h.provider.push(text("planned")).push(text("still planning"));

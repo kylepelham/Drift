@@ -151,10 +151,31 @@ pub struct Turns {
     retry_waits: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Switch>>>,
     /// Sessions whose running job is a turn still taking prompts sent while it runs. Admitting one and
     /// a turn deciding it is done both hold this lock, so no prompt lands after the turn stops looking.
-    /// Each with the model its turn is running on, which is what a steered prompt is judged against.
-    steering: Mutex<HashMap<String, ModelRef>>,
+    /// Each with what its turn is running as, which is what a steered prompt is judged against.
+    steering: Mutex<HashMap<String, Steering>>,
+    /// Sessions whose running turn is asked to end at its next step, so a prompt for another agent or level can start its own.
+    yielding: Mutex<HashMap<String, usize>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
+}
+
+/// What a running turn was planned with; a steered prompt joins it only if it asks for the same agent and level.
+#[derive(Clone, Debug, PartialEq)]
+struct Steering {
+    model: ModelRef,
+    agent: String,
+    variant: Option<String>,
+}
+
+impl Steering {
+    fn of(plan: &Plan) -> Self {
+        Self { model: plan.model_ref.clone(), agent: plan.session.agent.clone(), variant: plan.variant.clone() }
+    }
+
+    /// Whether `prompt` asks for another agent or reasoning level than this turn runs as.
+    fn differs(&self, prompt: &Prompt) -> bool {
+        prompt.agent.as_ref().is_some_and(|agent| *agent != self.agent) || prompt.variant.as_ref().is_some_and(|variant| *variant != self.variant)
+    }
 }
 
 /// How a turn ended, from the loop's own view rather than whatever message happens to be last.
@@ -163,6 +184,23 @@ pub enum TurnEnd {
     Replied,
     Failed,
     Stopped,
+}
+
+struct Yield<'a> {
+    turns: &'a Turns,
+    session_id: &'a str,
+}
+
+impl Drop for Yield<'_> {
+    fn drop(&mut self) {
+        let mut yielding = self.turns.yielding.lock().unwrap();
+        if let Some(asks) = yielding.get_mut(self.session_id) {
+            *asks -= 1;
+            if *asks == 0 {
+                yielding.remove(self.session_id);
+            }
+        }
+    }
 }
 
 impl Turns {
@@ -218,6 +256,20 @@ impl Turns {
     /// A turn is running in the session and still takes prompts sent to it.
     pub fn is_steerable(&self, session_id: &str) -> bool {
         self.steering.lock().unwrap().contains_key(session_id)
+    }
+
+    fn differs(&self, session_id: &str, prompt: &Prompt) -> bool {
+        self.steering.lock().unwrap().get(session_id).is_some_and(|running| running.differs(prompt))
+    }
+
+    /// Asks the session's turn to end at its next step; the returned guard withdraws the ask.
+    fn ask_to_yield<'a>(&'a self, session_id: &'a str) -> impl Drop + 'a {
+        *self.yielding.lock().unwrap().entry(session_id.into()).or_default() += 1;
+        Yield { turns: self, session_id }
+    }
+
+    fn yielding(&self, session_id: &str) -> bool {
+        self.yielding.lock().unwrap().get(session_id).is_some_and(|asks| *asks > 0)
     }
 
     /// Resolves once the session has no turn in flight, or the caller is aborted.
@@ -370,7 +422,7 @@ impl Engine {
             }
         };
         let receipt = self.announce(session_id, admitted);
-        self.turns.steering.lock().unwrap().insert(session_id.into(), plan.model_ref.clone());
+        self.turns.steering.lock().unwrap().insert(session_id.into(), Steering::of(&plan));
         let engine = self.clone();
         self.spawn_job(session_id, async move { engine.run(plan, abort).await });
         Ok(receipt)
@@ -422,6 +474,10 @@ impl Engine {
     /// calls in flight finish, so their results come first). Any other job, such as a compaction or an
     /// undo, is waited out for up to [`QUEUE_WAIT`], then the prompt starts a turn of its own.
     async fn steer_or_queue(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>, payload_hash: &str) -> Result<Receipt, TurnError> {
+        // Another agent or level would be answered as the old one if it joined, so it waits for a turn of its own.
+        if self.turns.differs(session_id, &prompt) {
+            return self.after_yield(session_id, prompt, how).await;
+        }
         if let Some(receipt) = self.steer(session_id, &prompt, payload_hash, how)? {
             return Ok(receipt);
         }
@@ -439,13 +495,30 @@ impl Engine {
         Box::pin(self.admit(session_id, prompt, how)).await
     }
 
+    /// Waits for the running turn to finish the step it is on, then admits `prompt` as a turn of its own.
+    async fn after_yield(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>) -> Result<Receipt, TurnError> {
+        if how.steer_only {
+            return Err(TurnError::Stopped);
+        }
+        let never = CancellationToken::new();
+        let stop = how.parent.unwrap_or(&never);
+        {
+            let _asked = self.turns.ask_to_yield(session_id);
+            self.turns.wait_idle(session_id, stop).await;
+        }
+        if stop.is_cancelled() {
+            return Err(TurnError::Stopped);
+        }
+        Box::pin(self.admit(session_id, prompt, how)).await
+    }
+
     /// Admits `prompt` into the turn running in `session_id`, if one is running and still taking
     /// prompts. Its files are judged against the model that turn is running on, not one the prompt
     /// names: the running turn does not switch models for a steered prompt.
     fn steer(&self, session_id: &str, prompt: &Prompt, payload_hash: &str, how: Admission<'_>) -> Result<Option<Receipt>, TurnError> {
         let Some(running) = self.turns.steering.lock().unwrap().get(session_id).cloned() else { return Ok(None) };
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
-        let model = self.catalog.read().unwrap().providers.get(&running.provider).and_then(|p| p.models.get(&running.model)).cloned().ok_or(TurnError::UnknownModel)?;
+        let model = self.catalog.read().unwrap().providers.get(&running.model.provider).and_then(|p| p.models.get(&running.model.model)).cloned().ok_or(TurnError::UnknownModel)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         let workspace = crate::tool::canonical(Path::new(&workspace.path));
         let config = self.workspace_config(&workspace);
@@ -466,7 +539,7 @@ impl Engine {
             Some(_) => {}
         }
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
-        let pick = Pick { model: &running, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
+        let pick = Pick { model: &running.model, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
         let admitted = self.admit_fenced(session_id, pick, parts, submission, how.parent, how.delivery)?;
         drop(steering);
         Ok(Some(self.announce(session_id, admitted)))
@@ -612,6 +685,10 @@ impl Engine {
         let mut repeats = Repeats::default();
         let mut answered = None;
         loop {
+            // A prompt for another agent or level is waiting for this turn to hand over.
+            if self.turns.yielding(&plan.session.id) {
+                break;
+            }
             if steps >= limits.steps {
                 self.pause(plan, format!("Paused after {steps} steps, this turn's limit. Send a message to carry on."));
                 break;
@@ -711,7 +788,7 @@ impl Engine {
         }
         plan.model_ref = resolved.model_ref;
         if let Some(running) = self.turns.steering.lock().unwrap().get_mut(&plan.session.id) {
-            *running = plan.model_ref.clone();
+            *running = Steering::of(plan);
         }
         plan.model = resolved.model;
         plan.provider = resolved.provider.with_timeouts(plan.config.route_timeouts(&plan.model_ref.provider));
@@ -1233,7 +1310,9 @@ fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
 /// Identity of a prompt for replay checks: the same id must carry the same parts and model.
 pub(super) fn payload_hash(prompt: &Prompt) -> String {
     use sha2::Digest;
-    let body = serde_json::json!({ "parts": prompt.parts, "model": prompt.model, "variant": prompt.variant, "agent": prompt.agent });
+    // Wrapped, so a variant left unnamed and one cleared to the model's default hash apart.
+    let variant = prompt.variant.as_ref().map(|chosen| serde_json::json!({ "chosen": chosen }));
+    let body = serde_json::json!({ "parts": prompt.parts, "model": prompt.model, "variant": variant, "agent": prompt.agent });
     sha2::Sha256::digest(body.to_string().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 

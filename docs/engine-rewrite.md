@@ -329,6 +329,12 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   still ends the turn; the steered prompt stays in the transcript for the next one. A session held
   by a job that is not a turn (a compaction, an undo) makes the prompt wait up to 30 s and then
   start a turn of its own; past that it is 409 `busy`.
+- A prompt that names another agent or reasoning level than the running turn's never joins it,
+  since that turn's system prompt, tools and level would answer it as the old agent. It asks the
+  turn to end before its next step (the step under way finishes; nothing is cut mid-call), waits
+  for it with no time limit (a Stop still ends the wait), and then starts a turn of its own as
+  the agent and level it named. Nothing of it is written until then. Prompts that change neither
+  keep steering into the running turn.
 - Turn limits (`config::Limits`, drift.json `limits: { steps, repeats, polls }`, later files
   override field by field; an agent's front matter `steps:` replaces `steps` for its turns):
   - `steps` (default 200): model steps that ran tools in one turn. Reaching it pauses the turn.
