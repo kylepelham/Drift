@@ -1,5 +1,6 @@
 Replaces text in a file by exact match. Read the file first, then copy `old_string` verbatim from the read output, including indentation.
 
+- `read` shows each line as `N: text`. The `N: ` prefix is not in the file: copy only what follows it.
 - `old_string` must match exactly once. If it matches several places, add surrounding lines until it is unique, or set `replace_all` to change every occurrence (renames, for example).
 - Matching ignores the difference between CRLF and LF line endings; nothing else is fuzzy. On a miss the error shows the closest region of the file so you can copy it exactly.
 - The file's existing line endings are preserved.

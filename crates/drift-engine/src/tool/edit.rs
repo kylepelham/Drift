@@ -86,8 +86,24 @@ fn replace(content: &str, old: &str, new: &str, replace_all: bool) -> Result<(St
     }
 }
 
+/// `old` with read's `N: ` prefix taken off each line, when every line has one.
+fn without_line_numbers(old: &str) -> Option<String> {
+    let stripped: Option<Vec<&str>> = old
+        .split('\n')
+        .map(|line| {
+            let (number, rest) = line.trim_start().split_once(": ")?;
+            number.chars().all(|c| c.is_ascii_digit()).then_some(rest).filter(|_| !number.is_empty())
+        })
+        .collect();
+    stripped.map(|lines| lines.join("\n"))
+}
+
 /// The window of the file whose lines best overlap the search text, so the model can re-read it.
 fn miss(content: &str, old: &str) -> String {
+    if let Some(unnumbered) = without_line_numbers(old).filter(|text| content.contains(text.as_str())) {
+        let first = unnumbered.lines().next().unwrap_or_default();
+        return format!("old_string was not found: it includes the `N: ` line numbers that read shows. They are not in the file; send the same text without them, starting `{first}`");
+    }
     let lines: Vec<&str> = content.lines().collect();
     let wanted: Vec<&str> = old.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     if lines.is_empty() || wanted.is_empty() {
@@ -111,7 +127,7 @@ fn miss(content: &str, old: &str) -> String {
     let to = (best + window + NEAR_CONTEXT).min(lines.len());
     let region: Vec<String> = (from..to).map(|i| format!("{}: {}", i + 1, lines[i])).collect();
     format!(
-        "old_string was not found. The closest region is lines {}-{}; copy it exactly:\n{}",
+        "old_string was not found. The closest region is lines {}-{}, shown as `N: text`; copy the text after each `N: `, never the number:\n{}",
         from + 1,
         to,
         region.join("\n")
@@ -211,7 +227,10 @@ mod tests {
         sandbox.ctx.files.mark_read(&path);
         let err = edit(&sandbox, json!({ "path": "f.rs", "old_string": "fn target() {\n    let x = 2;\n}", "new_string": "" })).await.unwrap_err();
         assert!(err.0.contains("closest region is lines 1-8"), "{}", err.0);
-        assert!(err.0.contains("4:     let x = 1;"));
+        assert!(err.0.contains("4:     let x = 1;") && err.0.contains("never the number"));
+        let numbered = edit(&sandbox, json!({ "path": "f.rs", "old_string": "3: fn target() {\n4:     let x = 1;", "new_string": "" })).await.unwrap_err();
+        assert!(numbered.0.contains("includes the `N: ` line numbers") && numbered.0.contains("starting `fn target() {`"), "{}", numbered.0);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("let x = 1"), "nothing is guessed at");
     }
 
     #[tokio::test]
