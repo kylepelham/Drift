@@ -127,6 +127,7 @@ change the plan there when a decision changes.
 
 - [x] Composer agent selection runs the session as that agent (prompt `agent`, validated, saved at admission); sessions and messages keep the agent they ran as
 - [x] MCP manager, registry installs and approval prompts on the native `/mcp` authority only; editor limited to fields the engine runs
+- [x] Agent Settings apply what they show: overrides carry prompt, model, steps and tools (applied natively), any other field refused; editor projects the native agent
 
 ## M4: cutover
 

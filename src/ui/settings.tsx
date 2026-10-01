@@ -1,7 +1,8 @@
-import type { Agent, ProviderAuthMethod } from "@opencode-ai/sdk/client"
+import type { ProviderAuthMethod } from "@opencode-ai/sdk/client"
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useEngine } from "../engine"
+import type { AgentInfo } from "../engine/store"
 import { filePreviewTypes } from "../file-preview-types"
 import { filePreviewPrefs, setFilePreviewMode, setFilePreviewType } from "../state/file-preview-prefs"
 import {
@@ -86,7 +87,9 @@ import {
   type SplashMascotAnimation,
 } from "../state/startup"
 import {
+  agentBehaviorIssue,
   agentOverrideValue,
+  applicableOverride,
   loadPromptSnapshot,
   resetPromptOverride,
   savePromptOverride,
@@ -1667,11 +1670,16 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
       setError(t("drift.settings.prompts.invalidJson"))
       return
     }
+    const issue = agentBehaviorIssue(behavior as Record<string, unknown>)
+    if (issue) {
+      setError(t("drift.settings.prompts.behaviorRefused", { field: issue }))
+      return
+    }
     const key = `agent:${agentName()}`
     const storedOverride = override(key)
     const existing =
       storedOverride?.value && typeof storedOverride.value === "object"
-        ? (storedOverride.value as Record<string, unknown>)
+        ? applicableOverride(storedOverride.value as Record<string, unknown>)
         : {}
     const baseline = JSON.parse(agentBehaviorBaseline()) as Record<string, unknown>
     const value = agentOverrideValue(
@@ -1846,6 +1854,7 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
                       setAgentBehavior(value)
                     }}
                   />
+                  <span class="mt-1 block">{t("drift.settings.prompts.behaviorFields")}</span>
                 </label>
                 <PromptActions
                   disabled={saving()}
@@ -1912,31 +1921,19 @@ function familyLabel(id: string) {
   return labels[id] ?? id
 }
 
-function agentConfig(agent: Agent | undefined, snapshot: PromptSnapshot | null, storedOverride?: PromptOverride) {
+/** The agent as the engine runs it, in the fields Settings can change: nothing shown here goes unapplied. */
+function agentConfig(agent: AgentInfo | undefined, snapshot: PromptSnapshot | null, storedOverride?: PromptOverride) {
   const restored =
     storedOverride?.value && typeof storedOverride.value === "object"
-      ? (storedOverride.value as Record<string, unknown>)
+      ? applicableOverride(storedOverride.value as Record<string, unknown>)
       : undefined
   if (!agent) return restored ? { ...restored } : {}
-  const source = agent as Agent & {
-    prompt?: string
-    hidden?: boolean
-    model?: { providerID: string; modelID: string }
-    variant?: string
-    temperature?: number
-    topP?: number
-    steps?: number
-  }
   return {
-    prompt: source.prompt ?? snapshot?.catalog.agents.find((item) => item.name === source.name)?.prompt,
-    description: source.description,
-    mode: source.mode,
-    hidden: source.hidden,
-    model: source.model ? `${source.model.providerID}/${source.model.modelID}` : undefined,
-    variant: source.variant,
-    temperature: source.temperature,
-    top_p: source.topP,
-    steps: source.steps,
+    prompt: agent.prompt ?? snapshot?.catalog.agents.find((item) => item.name === agent.name)?.prompt,
+    model: agent.model ? `${agent.model.providerID}/${agent.model.modelID}` : undefined,
+    steps: agent.steps,
+    // An empty list is every tool; showing none keeps the editor from offering an override that would mean the same.
+    tools: agent.tools.length ? agent.tools : undefined,
     ...restored,
   }
 }

@@ -6,7 +6,7 @@ import {
   agentModelOptions,
   withAgentModel,
 } from "../src/state/agent-models"
-import { agentOverrideValue } from "../src/state/prompts"
+import { agentBehaviorIssue, agentOverrideValue, applicableOverride } from "../src/state/prompts"
 import { hiddenModelIds, setHiddenModelIds } from "../src/state/prefs"
 
 function model(id: string, name = id, toolcall = true, context = 65536, text = true): ModelInfo {
@@ -99,6 +99,31 @@ test("editing behavior JSON updates the model selection, including unavailable s
   expect(agentBehaviorModel('{"model":"removed-provider/old-model"}')).toBe("removed-provider/old-model")
   expect(agentBehaviorModel('{"model":"different-provider/new-model"}')).toBe("different-provider/new-model")
   expect(agentBehaviorModel('{"prompt":"No pin"}')).toBe("")
+})
+
+test("the behavior editor refuses what the engine would not apply, naming the field", () => {
+  expect(agentBehaviorIssue({ model: "provider/model", steps: 8, tools: ["read"] })).toBeUndefined()
+  expect(agentBehaviorIssue({ model: "" })).toBeUndefined()
+  for (const [behavior, field] of [
+    [{ temperature: 0.2 }, "temperature"],
+    [{ permission: { edit: "deny" } }, "permission"],
+    [{ variant: "high" }, "variant"],
+    [{ steps: 0 }, "steps"],
+    [{ steps: 1.5 }, "steps"],
+    [{ tools: [] }, "tools"],
+    [{ tools: { bash: false } }, "tools"],
+  ] as const) {
+    expect(agentBehaviorIssue(behavior as Record<string, unknown>)).toBe(field)
+  }
+})
+
+test("a stored override keeps only fields the engine still applies", () => {
+  expect(applicableOverride({ prompt: "p", model: "a/b", steps: 3, tools: ["read"], color: "#fff", permission: "deny" })).toEqual({
+    prompt: "p",
+    model: "a/b",
+    steps: 3,
+    tools: ["read"],
+  })
 })
 
 test.each(["{", "null", "[]", '"string"', "42"])("choosing a model does not replace invalid behavior JSON: %s", (behavior) => {

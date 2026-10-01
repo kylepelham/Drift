@@ -395,6 +395,8 @@ export const drift = {
   "drift.settings.prompts.agentPrompt": "Agent prompt",
   "drift.settings.prompts.agents": "Agents and subagents",
   "drift.settings.prompts.behavior": "Behavior configuration (JSON)",
+  "drift.settings.prompts.behaviorFields": "The engine applies model (provider/model, or empty to inherit), steps (this agent's step limit) and tools (the tool names it may use). Reset restores every tool.",
+  "drift.settings.prompts.behaviorRefused": "The engine does not apply \"{{field}}\" as written. Use model, steps (a positive whole number) or tools (a list of tool names).",
   "drift.settings.agents.automaticSmallModel": "Automatic small model",
   "drift.settings.agents.currentModel": "Current model",
   "drift.settings.agents.currentSessionModel": "Current session model",

@@ -579,7 +579,7 @@ async fn a_queued_worker_runs_as_it_was_admitted_not_as_settings_changed_since()
     let h = harness().await;
     let set_prompt = |text: &str| {
         let mut overrides = std::collections::HashMap::new();
-        overrides.insert("general".to_string(), crate::config::AgentOverride { model: None, prompt: Some(text.into()) });
+        overrides.insert("general".to_string(), crate::config::AgentOverride { prompt: Some(text.into()), ..Default::default() });
         h.engine.set_agent_overrides(overrides);
     };
     set_prompt("PROMPT-ALPHA");

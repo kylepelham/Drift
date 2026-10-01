@@ -363,7 +363,7 @@ export function Composer() {
 
   const agentItems = createMemo<PickerItem[]>(() =>
     engine.state.agents
-      .filter((agent) => agent.mode !== "subagent" && !(agent as { hidden?: boolean }).hidden)
+      .filter((agent) => agent.mode !== "subagent" && !agent.hidden)
       .map((agent) => ({ id: agent.name, label: agentLabel(agent.name), hint: agent.description })),
   )
 

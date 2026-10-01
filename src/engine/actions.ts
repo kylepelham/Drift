@@ -1,5 +1,5 @@
 // Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
-import type { Agent, Command, Permission, Session } from "@opencode-ai/sdk/client"
+import type { Command, Permission, Session } from "@opencode-ai/sdk/client"
 import { untrack } from "solid-js"
 import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
@@ -15,6 +15,7 @@ import {
   mergeTranscriptSnapshot,
   putSession,
   putTasks,
+  type AgentInfo,
   type EngineState,
   type McpServerConfig,
   type McpServerStatus,
@@ -468,17 +469,15 @@ export function createActions(
     const workspace = workspaces().id(state.directory)
     if (!workspace) return
     const config = await requireClient().workspaceConfig(workspace)
-    // Subagents and actions are configurable in Settings but never picked in the composer.
-    const agents: Agent[] = config.agents.map((agent) => ({
+    const agents: AgentInfo[] = config.agents.map((agent) => ({
       name: agent.name,
       description: agent.description,
       mode: agent.kind === "subagent" ? "subagent" : "primary",
       hidden: agent.kind === "action",
-      ...(agent.prompt ? { prompt: agent.prompt } : {}),
       builtIn: agent.builtin,
-      permission: { edit: "ask", bash: {}, webfetch: "ask" },
-      tools: {},
-      options: {},
+      tools: agent.tools ?? [],
+      ...(agent.prompt ? { prompt: agent.prompt } : {}),
+      ...(agent.steps ? { steps: agent.steps } : {}),
       ...(agent.model ? { model: { providerID: agent.model.provider, modelID: agent.model.model } } : {}),
     }))
     const commands: Command[] = config.commands.map((command) => ({ name: command.name, description: command.description, template: command.template }))

@@ -924,99 +924,33 @@ fn validate_prompt_override(key: &str, value: &Value) -> Result<(), String> {
     Ok(())
 }
 
+/// What the engine applies from an agent override (`AgentOverride`); a field it would ignore is refused, not stored.
+const AGENT_FIELDS: [&str; 4] = ["prompt", "model", "steps", "tools"];
+
 fn validate_agent_override(agent: &Map<String, Value>) -> Result<(), String> {
-    if agent.contains_key("name") {
-        return Err("Agent names are controlled by the configuration key".into());
+    if let Some(field) = agent.keys().find(|field| !AGENT_FIELDS.contains(&field.as_str())) {
+        return Err(format!(
+            "Agent {field} is not applied by the engine; only prompt, model, steps and tools are"
+        ));
     }
-    for field in ["prompt", "description", "model", "variant", "color"] {
+    for field in ["prompt", "model"] {
         if agent.get(field).is_some_and(|value| !value.is_string()) {
             return Err(format!("Agent {field} must be text"));
         }
     }
-    for field in ["hidden", "disable"] {
-        if agent.get(field).is_some_and(|value| !value.is_boolean()) {
-            return Err(format!("Agent {field} must be true or false"));
-        }
-    }
     if agent
-        .get("mode")
-        .is_some_and(|value| !matches!(value.as_str(), Some("primary" | "subagent" | "all")))
+        .get("steps")
+        .is_some_and(|value| !matches!(value.as_u64(), Some(steps) if steps > 0 && steps <= u64::from(u32::MAX)))
     {
-        return Err("Agent mode must be primary, subagent, or all".into());
-    }
-    for field in ["temperature", "top_p"] {
-        if agent.get(field).is_some_and(|value| !value.is_number()) {
-            return Err(format!("Agent {field} must be a number"));
-        }
-    }
-    for field in ["steps", "maxSteps"] {
-        if agent
-            .get(field)
-            .is_some_and(|value| !matches!(value.as_u64(), Some(steps) if steps > 0))
-        {
-            return Err(format!("Agent {field} must be a positive integer"));
-        }
-    }
-    if agent.get("options").is_some_and(|value| !value.is_object()) {
-        return Err("Agent options must be a JSON object".into());
+        return Err("Agent steps must be a positive integer".into());
     }
     if let Some(tools) = agent.get("tools") {
-        let Some(tools) = tools.as_object() else {
-            return Err("Agent tools must be a JSON object".into());
-        };
-        if tools.values().any(|value| !value.is_boolean()) {
-            return Err("Agent tool values must be true or false".into());
-        }
-    }
-    if let Some(color) = agent.get("color").and_then(Value::as_str) {
-        let named = [
-            "primary",
-            "secondary",
-            "accent",
-            "success",
-            "warning",
-            "error",
-            "info",
-        ];
-        let hex = color.len() == 7
-            && color.starts_with('#')
-            && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
-        if !hex && !named.contains(&color) {
-            return Err("Agent color must be a six-digit hex or theme color".into());
-        }
-    }
-    if let Some(permission) = agent.get("permission") {
-        validate_permission(permission)?;
-    }
-    Ok(())
-}
-
-fn validate_permission(value: &Value) -> Result<(), String> {
-    if value.as_str().is_some_and(permission_action) {
-        return Ok(());
-    }
-    let Some(rules) = value.as_object() else {
-        return Err("Agent permission must be ask, allow, deny, or a JSON object".into());
-    };
-    for rule in rules.values() {
-        if rule.as_str().is_some_and(permission_action) {
-            continue;
-        }
-        let Some(patterns) = rule.as_object() else {
-            return Err("Agent permission rules must contain ask, allow, or deny".into());
-        };
-        if patterns
-            .values()
-            .any(|action| !action.as_str().is_some_and(permission_action))
-        {
-            return Err("Agent permission rules must contain ask, allow, or deny".into());
+        let names = tools.as_array().filter(|names| !names.is_empty() && names.iter().all(Value::is_string));
+        if names.is_none() {
+            return Err("Agent tools must list one or more tool names".into());
         }
     }
     Ok(())
-}
-
-fn permission_action(value: &str) -> bool {
-    matches!(value, "ask" | "allow" | "deny")
 }
 
 fn validate_config(config: &Value) -> Result<(), String> {

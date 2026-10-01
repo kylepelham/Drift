@@ -986,6 +986,13 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   list filters the registry, its `model` is the default when the session has none. The
   filtered set is pinned for the run: a call to any tool outside it is refused before
   permission, snapshot or dispatch, so plan mode cannot write even if the model asks.
+- Settings overrides an agent with exactly what the engine applies (`AgentOverride`): `prompt`,
+  `model` (`provider/model`, or empty to inherit), `steps` (its own step limit) and `tools` (the
+  tool names it may use). The shell refuses to store any other field, naming it, and the editor
+  shows the agent as the engine resolved it, in those fields only. An override's tool list is
+  never empty, because on an agent an empty list means every tool: that would quietly lift
+  `plan`'s read-only set. Reset restores the definition's own tools. Stored overrides from
+  before keep only these fields when next saved.
 - A prompt may name its `agent`; the composer always sends the one it shows. It must be a
   primary agent of the workspace (a subagent, an action or an unknown name is 400 `agent`),
   it is written to the session in the admission transaction, and that turn and every later

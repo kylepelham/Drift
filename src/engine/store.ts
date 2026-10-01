@@ -1,5 +1,4 @@
 import type {
-  Agent,
   Command,
   Message,
   Model,
@@ -18,6 +17,21 @@ export type Connection = "idle" | "connecting" | "online" | "offline"
 export type ModelInfo = Model & { family?: string; release_date?: string; variants?: Record<string, unknown> }
 export type ProviderInfo = { id: string; name: string; models: Record<string, ModelInfo> }
 export type ModelRef = { providerID: string; modelID: string }
+/** An agent as the engine resolved it for the workspace, Settings overrides applied. */
+export type AgentInfo = {
+  name: string
+  description: string
+  mode: "primary" | "subagent"
+  /** Engine actions (titles, compaction, handoffs): configurable in Settings, never picked in the composer. */
+  hidden: boolean
+  builtIn: boolean
+  prompt?: string
+  model?: ModelRef
+  /** Tool names it may use; empty means every tool. */
+  tools: string[]
+  /** Its own step limit, in place of the workspace's. */
+  steps?: number
+}
 export type CommandInfo = Command & {
   usage?: string
   subcommands?: { name: string; description: string; usage?: string }[]
@@ -131,7 +145,7 @@ export type EngineState = {
   mcpServers: Record<string, McpServerStatus>
   connected: string[]
   defaultModels: Record<string, string>
-  agents: Agent[]
+  agents: AgentInfo[]
   commands: CommandInfo[]
   errors: Record<string, string>
   sessionModels: Record<string, ModelRef & { messageId?: string }>

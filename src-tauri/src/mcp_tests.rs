@@ -333,27 +333,27 @@ fn prompt_changes_preserve_pending_approval_reports() {
 }
 
 #[test]
-fn prompt_validation_matches_agent_configuration_shapes() {
+fn agent_overrides_store_only_what_the_engine_applies() {
     let (root, store, runtime) = fixture();
     runtime
         .save_prompt(
             &store,
             "agent:build",
-            json!({ "permission": "deny", "color": "#a1B2c3", "tools": { "bash": false } }),
+            json!({ "prompt": "Be brief", "model": "", "steps": 12, "tools": ["read", "grep"] }),
             None,
         )
         .unwrap();
-    assert!(runtime
-        .save_prompt(
-            &store,
-            "agent:build",
-            json!({ "permission": { "bash": "sometimes" } }),
-            None,
-        )
-        .is_err());
-    assert!(runtime
-        .save_prompt(&store, "agent:build", json!({ "color": "purple" }), None)
-        .is_err());
+    for (refused, why) in [
+        (json!({ "permission": "deny" }), "permissions are not applied"),
+        (json!({ "temperature": 0.2 }), "temperature is not applied"),
+        (json!({ "variant": "high" }), "variant is not applied"),
+        (json!({ "tools": { "bash": false } }), "tools are a list of names"),
+        (json!({ "tools": [] }), "an empty list would mean every tool"),
+        (json!({ "steps": 0 }), "steps must be positive"),
+    ] {
+        let saved = runtime.save_prompt(&store, "agent:build", refused, None);
+        assert!(saved.is_err(), "{why}");
+    }
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -371,7 +371,7 @@ fn windows_directory_normalization_is_ascii_only() {
 #[test]
 fn subagent_models_persist_and_materialize_independently() {
     let (root, store, runtime) = fixture();
-    let prompt = json!({ "prompt": "Keep this prompt", "permission": { "edit": "deny" } });
+    let prompt = json!({ "prompt": "Keep this prompt", "steps": 9 });
     for (name, model) in [
         ("explore", "provider/cheap"),
         ("general", "provider/smart"),
