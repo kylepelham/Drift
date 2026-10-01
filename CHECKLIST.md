@@ -143,6 +143,7 @@ change the plan there when a decision changes.
 - [x] Second review: a reconnected MCP tool is judged by name, input schema and safety hints, not its wording
 - [x] Third review: a queued start lands only if every row it read still waits, so a prompt handed back never runs
 - [x] Third review: a model change sent mid-turn waits for a turn on that model like an agent or level change; the composer shows the waiting model
+- [x] Third review: a turn hands over to what waits only after its first request, so a result or answer arriving meanwhile gets its reply
 
 #### Retained features still on the OpenCode database (pending native UI work)
 

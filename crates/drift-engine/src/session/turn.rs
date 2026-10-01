@@ -694,8 +694,8 @@ impl Engine {
         let mut repeats = Repeats::default();
         let mut answered = None;
         loop {
-            // A prompt for another agent or level is waiting for this turn to hand over.
-            if self.store.is_waiting(&plan.session.id).unwrap_or(false) {
+            // A prompt for another choice waits; this turn hands over once it has had its say, so what started it is answered.
+            if answered.is_some() && self.store.is_waiting(&plan.session.id).unwrap_or(false) {
                 break;
             }
             if steps >= limits.steps {

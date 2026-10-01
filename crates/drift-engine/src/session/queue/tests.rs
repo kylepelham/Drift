@@ -156,6 +156,23 @@ async fn a_start_planned_before_the_prompt_was_taken_back_writes_nothing_and_its
 }
 
 #[tokio::test]
+async fn a_turn_the_engine_starts_while_a_prompt_waits_still_answers_before_handing_over() {
+    let h = harness().await;
+    let waiting = Prompt { submission_id: Some("sub_plan".into()), ..as_agent("plan", "plan next") };
+    h.engine.store.queue(&h.session.id, &waiting_row(&waiting), false).unwrap();
+    h.provider.push(text("noted your answer")).push(text("planned"));
+    let answer = Part::Clarification { request_id: "q1".into(), items: vec![] };
+    h.engine.submit(&h.session.id, Prompt { parts: vec![answer], ..prompt("") }).await.unwrap();
+    until_settled(&h.engine, &h.session.id).await;
+    let requests = h.provider.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2, "the answer got a reply of its own, then the waiting prompt ran");
+    assert!(!format!("{:?}", requests[0].messages).contains("plan next"));
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let roles: Vec<_> = transcript.iter().map(|m| (m.info.role, m.info.agent.clone().unwrap_or_default())).collect();
+    assert_eq!(roles, [(Role::User, "build".into()), (Role::Assistant, "build".into()), (Role::User, "plan".into()), (Role::Assistant, "plan".into())]);
+}
+
+#[tokio::test]
 async fn what_waited_starts_after_a_restart() {
     let h = harness().await;
     let waiting = Prompt { submission_id: Some("sub_left".into()), ..as_agent("plan", "left waiting") };

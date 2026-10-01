@@ -336,7 +336,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   the prompt as sent) and the call returns 202 at once with no `message`; `session.queued` shows
   what waits (`model`, `agent`, `variant`, `text`, `files`, `since`, `error`) on every read of the session
   and every `session.updated`. While anything waits, the running turn ends before its next step
-  (the step under way finishes; nothing is cut mid-call). When the session's job ends, everything
+  (the step under way finishes; nothing is cut mid-call). A turn always makes its first request
+  before it checks, so one the engine starts while a prompt waits (a worker's result, an answer)
+  still replies to what started it. When the session's job ends, everything
   waiting is admitted as one prompt (the oldest's model, agent and level, all parts in order) and starts a
   turn of its own; the rows go in the same write that admits it, under all their submission ids,
   so a crash leaves either the rows or the message, never both, and a resent id replays either
