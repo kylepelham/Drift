@@ -418,6 +418,24 @@ async fn undo_refuses_non_prompts_and_stops_a_running_turn_before_undoing() {
 }
 
 #[tokio::test]
+async fn undo_stops_an_mcp_call_under_way_instead_of_waiting_for_it() {
+    let h = harness().await;
+    let (_, second) = two_writing_turns(&h).await;
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
+    let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default() };
+    h.engine.store.save_mcp_server("echo", &config).unwrap();
+    h.engine.connect_mcp("echo").await.unwrap();
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "mcp".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    h.provider.push(tool_call("echo_shout", &json!({ "text": "hang" }).to_string()));
+    h.engine.submit(&h.session.id, prompt("hang")).await.unwrap();
+    until_running_call(&h).await;
+    let started = std::time::Instant::now();
+    let undone = h.engine.revert(&h.session.id, &second).await.expect("the call is stopped, then the undo runs");
+    assert!(started.elapsed() < Duration::from_secs(2), "it waited {:?} for the call", started.elapsed());
+    assert_eq!(undone.session.revert.unwrap().message_id, second);
+}
+
+#[tokio::test]
 async fn undo_puts_back_what_a_subagent_wrote() {
     let h = harness().await;
     allow_writes(&h);
