@@ -740,13 +740,12 @@ impl Engine {
     /// a call to any other tool is refused before permission or snapshot.
     fn offer(&self, plan: &Plan) -> Offer {
         let agent = plan.config.agent(&plan.session.agent).cloned();
-        let allowed = agent.as_ref().map(|a| a.tools.clone()).unwrap_or_default();
         let subagent = plan.session.visibility == Visibility::Hidden;
         let tools: Vec<_> = self
             .offered_tools(plan.model.profile)
             .into_iter()
             .map(|tool| (tool.spec(), tool))
-            .filter(|(spec, _)| allowed.is_empty() || allowed.contains(&spec.name))
+            .filter(|(spec, _)| agent.as_ref().is_none_or(|agent| agent.allows_tool(&spec.name)))
             .filter(|(spec, _)| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))
             .collect();
         let system = prompt::system(&plan.workspace, &plan.config, agent.as_ref(), tools.iter().any(|(spec, _)| spec.name == "task"));

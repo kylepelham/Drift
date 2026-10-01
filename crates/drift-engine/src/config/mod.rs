@@ -91,7 +91,7 @@ pub struct Agent {
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelRef>,
-    /// Tool names this agent may use; empty means every tool.
+    /// Tool names this agent may use, any case; `!name` takes one away. Empty, or only `!` entries, means every other tool.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<String>,
     pub builtin: bool,
@@ -103,6 +103,17 @@ pub struct Agent {
     /// Front matter `background: true|false`: how a `task` for this agent runs when the call does not say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<bool>,
+}
+
+impl Agent {
+    /// Whether `tool` is one this agent may be offered. Names match in any case, as Claude-style files write them.
+    pub fn allows_tool(&self, tool: &str) -> bool {
+        let (taken, given): (Vec<&String>, Vec<&String>) = self.tools.iter().partition(|name| name.starts_with('!'));
+        if taken.iter().any(|name| name[1..].eq_ignore_ascii_case(tool)) {
+            return false;
+        }
+        given.is_empty() || given.iter().any(|name| name.eq_ignore_ascii_case(tool))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -278,7 +289,7 @@ impl Config {
                 description: doc.field("description").unwrap_or_default(),
                 prompt: doc.body.trim().into(),
                 model: doc.field("model").and_then(|m| parse_model(&m)),
-                tools: doc.field("tools").map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()).unwrap_or_default(),
+                tools: doc.list("tools").unwrap_or_default(),
                 builtin: false,
                 kind: self.workspace_kind(&name, doc.field("mode").as_deref()),
                 steps: doc.field("steps").and_then(|s| s.trim().parse().ok()).filter(|s: &u32| *s > 0),
@@ -456,6 +467,25 @@ mod tests {
         assert!(!config.agent("explore").unwrap().tools.contains(&"edit".to_string()), "explore is read-only");
         assert!(config.agent("plan").unwrap().tools.contains(&"read".to_string()));
         assert!(config.commands.is_empty() && config.skills.is_empty() && config.instructions.is_empty());
+        std::fs::remove_dir_all(ws).ok();
+    }
+
+    #[test]
+    fn agent_tool_lists_in_every_shape_restrict_and_match_any_case() {
+        let ws = std::env::temp_dir().join(format!("drift-config-tools-{}", crate::random_hex(4)));
+        write(&ws, ".drift/agents/listed.md", "---\ndescription: Read-only\ntools:\n  - read\n  - grep\n---\nReview.");
+        write(&ws, ".drift/agents/claude.md", "---\ndescription: Claude style\ntools: Read, Grep\n---\nReview.");
+        write(&ws, ".drift/agents/opencode.md", "---\ndescription: No writes\ntools:\n  write: false\n  edit: false\n---\nLook.");
+        let config = Config::load_with_home(&ws, None);
+        for name in ["listed", "claude"] {
+            let agent = config.agent(name).unwrap();
+            assert!(agent.allows_tool("read") && agent.allows_tool("grep"), "{name}");
+            assert!(!agent.allows_tool("edit") && !agent.allows_tool("bash"), "{name} is not handed every tool");
+        }
+        let opencode = config.agent("opencode").unwrap();
+        assert!(opencode.allows_tool("bash") && opencode.allows_tool("read"));
+        assert!(!opencode.allows_tool("write") && !opencode.allows_tool("edit"));
+        assert!(config.agent("build").unwrap().allows_tool("anything"), "no list means every tool");
         std::fs::remove_dir_all(ws).ok();
     }
 
