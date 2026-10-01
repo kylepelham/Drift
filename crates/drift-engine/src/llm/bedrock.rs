@@ -51,7 +51,9 @@ impl Bedrock {
         let status = response.status();
         if !status.is_success() {
             let headers = response.headers().clone();
-            return Err(api_error(status.as_u16(), &super::http::bounded_body(response, &self.timeouts).await).with_headers(&headers));
+            // `x-amzn-ErrorType` names the fault as `ThrottlingException:<doc url>`.
+            let kind = headers.get("x-amzn-errortype").and_then(|v| v.to_str().ok()).and_then(|v| v.split(':').next()).unwrap_or_default().to_string();
+            return Err(api_error(status.as_u16(), &kind, &super::http::bounded_body(response, &self.timeouts).await).with_headers(&headers));
         }
         let mut decoder = Decoder::default();
         let frames = super::sse::watched(response.bytes_stream(), self.timeouts.idle);
@@ -65,48 +67,64 @@ impl Bedrock {
     }
 }
 
-/// A `chunk` event wraps one Anthropic stream event, base64 in `bytes`; an exception ends the stream with its reason.
+/// A `chunk` wraps an Anthropic event; exception and error frames end the stream with their reason; unknown kinds are a broken stream.
 fn message_chunks(message: super::eventstream::Message) -> Vec<Result<Chunk, Error>> {
     let payload: Value = serde_json::from_slice(&message.payload).unwrap_or_default();
-    match message.headers.get(":message-type").map(String::as_str) {
-        Some("event") if message.headers.get(":event-type").map(String::as_str) == Some("chunk") => {
-            let decoded = payload["bytes"].as_str().and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok()).unwrap_or_default();
-            let text = String::from_utf8_lossy(&decoded);
-            let event: Value = serde_json::from_str(&text).unwrap_or_default();
-            match anthropic::chunks(event["type"].as_str().unwrap_or_default(), &text) {
-                Ok(chunks) => chunks.into_iter().map(Ok).collect(),
-                Err(error) => vec![Err(error)],
-            }
+    let header = |name: &str| message.headers.get(name).map(String::as_str);
+    match (header(":message-type"), header(":event-type")) {
+        (Some("event"), Some("chunk")) => chunk_events(&payload),
+        // Other event kinds carry no content for this route.
+        (Some("event"), _) => Vec::new(),
+        (Some("exception"), _) => vec![Err(stream_exception(header(":exception-type").unwrap_or("exception"), &payload))],
+        (Some("error"), _) => {
+            let message = header(":error-message").map(str::to_string).unwrap_or_else(|| String::from_utf8_lossy(&message.payload).into_owned());
+            vec![Err(classify(super::STREAMED, header(":error-code").unwrap_or("error"), &message))]
         }
-        Some("exception") => {
-            let kind = message.headers.get(":exception-type").cloned().unwrap_or_else(|| "exception".into());
-            vec![Err(exception(super::STREAMED, &kind, payload["message"].as_str().unwrap_or_default()))]
-        }
-        _ => Vec::new(),
+        (other, _) => vec![Err(Error::Malformed(format!("Bedrock sent an event-stream message of kind {other:?}")))],
     }
 }
 
-/// Bedrock answers errors as `{"message": ...}`, its kind in a header or implied by the status.
-fn api_error(status: u16, text: &str) -> Error {
+fn chunk_events(payload: &Value) -> Vec<Result<Chunk, Error>> {
+    let decoded = payload["bytes"].as_str().and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok());
+    let Some(decoded) = decoded else { return vec![Err(Error::Malformed("a Bedrock chunk had no bytes".into()))] };
+    let text = String::from_utf8_lossy(&decoded);
+    let event: Value = serde_json::from_str(&text).unwrap_or_default();
+    match anthropic::chunks(event["type"].as_str().unwrap_or_default(), &text) {
+        Ok(chunks) => chunks.into_iter().map(Ok).collect(),
+        Err(error) => vec![Err(error)],
+    }
+}
+
+/// A model stream error carries the model's own status and message when it has them.
+fn stream_exception(kind: &str, payload: &Value) -> Error {
+    let status = payload["originalStatusCode"].as_u64().and_then(|s| u16::try_from(s).ok()).unwrap_or(super::STREAMED);
+    let message = payload["originalMessage"].as_str().or(payload["message"].as_str()).unwrap_or(kind);
+    classify(status, kind, message)
+}
+
+/// Bedrock answers errors as `{"message": ...}`, naming the fault in a header; without one the status says.
+fn api_error(status: u16, kind: &str, text: &str) -> Error {
     let message = serde_json::from_str::<Value>(text).ok().and_then(|v| v["message"].as_str().map(str::to_string)).unwrap_or_else(|| text.to_string());
-    let kind = match status {
-        429 => "throttlingException",
-        400 => "validationException",
-        503 => "serviceUnavailableException",
-        _ => "internalServerException",
-    };
-    exception(status, kind, &message)
+    classify(status, kind, &message)
 }
 
-fn exception(status: u16, kind: &str, message: &str) -> Error {
-    match status {
-        401 | 403 => Error::Unauthenticated,
-        _ if kind.eq_ignore_ascii_case("accessDeniedException") => Error::Unauthenticated,
-        // Throttling and capacity are worth waiting out; Anthropic's names let the retry rules see that.
-        _ if kind.to_ascii_lowercase().contains("throttling") => Error::api(status.max(429), "rate_limit_error", message),
-        _ if kind.to_ascii_lowercase().contains("unavailable") || kind.to_ascii_lowercase().contains("overloaded") => Error::api(status.max(503), "overloaded_error", message),
-        _ => Error::api(status, kind, message),
+/// Each Bedrock fault as the retry rules read it: the status it stands for when the response gave none.
+fn classify(status: u16, kind: &str, message: &str) -> Error {
+    let name = kind.to_ascii_lowercase();
+    if matches!(status, 401 | 403) || ["accessdenied", "unrecognizedclient", "expiredtoken", "invalidsignature"].iter().any(|k| name.starts_with(k)) {
+        return Error::Unauthenticated;
     }
+    let implied = match name.trim_end_matches("exception") {
+        "throttling" => 429,
+        "serviceunavailable" | "modelnotready" => 503,
+        "internalserver" | "modelstreamerror" => 500,
+        "modeltimeout" => 504,
+        "validation" | "modelerror" => 400,
+        "resourcenotfound" => 404,
+        _ => status,
+    };
+    let status = if status == super::STREAMED || status == 0 { implied } else { status };
+    Error::api(status, kind, message)
 }
 
 #[cfg(test)]
@@ -137,14 +155,38 @@ mod tests {
         assert!(chunks.contains(&Chunk::Stop(crate::llm::StopReason::EndTurn)));
     }
 
+    fn first_error(bytes: &[u8]) -> Error {
+        Decoder::default().feed(bytes).unwrap().into_iter().flat_map(message_chunks).next().expect("a frame must not vanish").unwrap_err()
+    }
+
+    fn retryable(error: &Error) -> Option<(u16, bool)> {
+        match error {
+            Error::Api { status, retryable, .. } => Some((*status, *retryable)),
+            _ => None,
+        }
+    }
+
     #[test]
-    fn exceptions_end_the_stream_with_a_reason_retries_understand() {
-        let throttled = frame(&[(":message-type", "exception"), (":exception-type", "throttlingException")], br#"{"message":"Too many requests"}"#);
-        let mut decoder = Decoder::default();
-        let error = decoder.feed(&throttled).unwrap().into_iter().flat_map(message_chunks).next().unwrap().unwrap_err();
-        assert!(error.to_string().contains("Too many requests"), "{error}");
-        assert!(matches!(api_error(403, r#"{"message":"no access"}"#), Error::Unauthenticated));
-        assert!(api_error(429, r#"{"message":"slow"}"#).to_string().contains("slow"));
+    fn exceptions_and_error_frames_end_the_stream_with_a_reason_retries_understand() {
+        let throttled = first_error(&frame(&[(":message-type", "exception"), (":exception-type", "throttlingException")], br#"{"message":"Too many requests"}"#));
+        assert!(throttled.to_string().contains("Too many requests"));
+        assert_eq!(retryable(&throttled), Some((429, true)));
+        let internal = first_error(&frame(&[(":message-type", "exception"), (":exception-type", "internalServerException")], br#"{"message":"oops"}"#));
+        assert_eq!(retryable(&internal), Some((500, true)));
+        let model = br#"{"message":"stream failed","originalStatusCode":529,"originalMessage":"Overloaded"}"#;
+        let overloaded = first_error(&frame(&[(":message-type", "exception"), (":exception-type", "modelStreamErrorException")], model));
+        assert_eq!(retryable(&overloaded), Some((529, true)), "the model's own status is kept");
+        assert!(overloaded.to_string().contains("Overloaded"));
+        let invalid = first_error(&frame(&[(":message-type", "exception"), (":exception-type", "validationException")], br#"{"message":"bad input"}"#));
+        assert_eq!(retryable(&invalid), Some((400, false)));
+        let errored = first_error(&frame(&[(":message-type", "error"), (":error-code", "ServiceUnavailableException"), (":error-message", "try later")], b""));
+        assert!(errored.to_string().contains("try later"));
+        assert_eq!(retryable(&errored), Some((503, true)));
+        let unknown = first_error(&frame(&[(":message-type", "surprise")], b"{}"));
+        assert!(matches!(unknown, Error::Malformed(_)));
+        assert!(matches!(api_error(403, "", r#"{"message":"no access"}"#), Error::Unauthenticated));
+        assert_eq!(retryable(&api_error(400, "ThrottlingException", r#"{"message":"slow"}"#)), Some((400, false)), "a status given is the status kept");
+        assert!(api_error(429, "ThrottlingException", r#"{"message":"slow"}"#).to_string().contains("slow"));
     }
 
     /// Path, authorization and body of each request the fake saw.

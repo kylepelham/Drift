@@ -390,8 +390,14 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   profile's `region`, else us-east-1. Requests go to `invoke-with-response-stream` with the Anthropic
   Messages body (no `model`, `anthropic_version: bedrock-2023-05-31`, cache breakpoints kept); the
   reply is AWS event-stream framing (`llm::eventstream`, CRC32-checked), each `chunk` an Anthropic
-  stream event in base64. Throttling and unavailable exceptions map to the retryable kinds; access
-  denied is unauthenticated. Only Claude models (`anthropic.` ids and inference profiles) are
+  stream event in base64. Exception frames (`:exception-type`) and error frames (`:error-code`,
+  `:error-message`) end the stream with their reason; a frame of a kind this route does not know is
+  a broken stream, never skipped. Each fault takes the status it stands for (throttling 429,
+  service unavailable and model not ready 503, internal server and model stream errors 500, model
+  timeout 504, validation 400), unless the response or the model gave one: a model stream error's
+  `originalStatusCode` and `originalMessage` are kept, as is an HTTP error's status, with its kind
+  from `x-amzn-ErrorType` and its retry headers. Access denied and bad or expired keys are
+  unauthenticated. Only Claude models (`anthropic.` ids and inference profiles) are
   offered. SSO, `credential_process` and instance metadata are not read.
 - Vertex: `GOOGLE_APPLICATION_CREDENTIALS`, else gcloud's application-default file. A service
   account key signs an RS256 assertion (ring) for a cloud-platform token; user credentials refresh
