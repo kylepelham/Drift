@@ -973,7 +973,9 @@ Settled after the first external review of M1; each has a regression test.
   carries `running` and the client collects it across every page before setting status.
 - Tool calls keep the model's order: a run of consecutive read-only calls executes together,
   a mutating call waits for everything before it, and reads after it wait for it.
-- `DELETE /sessions/{id}` is the real purge (cascades messages, parts, todos, submissions).
+- `DELETE /sessions/{id}` is the real purge (cascades messages, parts, todos, submissions). It
+  takes the session's subagent sessions with it, at any depth; spawned threads are independent and
+  stay. The archive purge (`?archived=true`) does the same in one write.
   `PATCH { archived: true }` only archives. The UI's purge coordinator calls delete and
   reports success only when the engine confirms.
 

@@ -688,6 +688,29 @@ mod admission_tests {
     }
 
     #[test]
+    fn a_purge_takes_the_sessions_subagents_but_leaves_its_threads() {
+        fn new(parent: Option<&str>, visibility: Visibility) -> NewSession<'_> {
+            NewSession { workspace_id: "w", parent_id: parent, visibility, title: "", agent: "build", model: None }
+        }
+        let store = store();
+        let root = store.create_session(new(None, Visibility::Sibling)).unwrap();
+        let child = store.create_session(new(Some(&root.id), Visibility::Hidden)).unwrap();
+        let grandchild = store.create_session(new(Some(&child.id), Visibility::Hidden)).unwrap();
+        let thread = store.create_session(new(Some(&root.id), Visibility::Sibling)).unwrap();
+        let model = ModelRef { provider: "p".into(), model: "m".into() };
+        store.admit_prompt(&grandchild.id, &model, vec![Part::Text { text: "deep".into() }], None).unwrap();
+        assert_eq!(store.purge_archived(&root.id).unwrap(), Purge::Active, "not archived yet");
+        store.set_session_archived(&root.id, true).unwrap();
+        assert_eq!(store.purge_archived(&root.id).unwrap(), Purge::Deleted);
+        for gone in [&root.id, &child.id, &grandchild.id] {
+            assert!(store.session(gone).unwrap().is_none(), "{gone} left behind");
+        }
+        assert!(store.session(&thread.id).unwrap().is_some(), "a spawned thread is its own conversation");
+        let parts: i64 = store.lock().query_row("SELECT COUNT(*) FROM part", [], |r| r.get(0)).unwrap();
+        assert_eq!(parts, 0, "the subagents' transcripts went with them");
+    }
+
+    #[test]
     fn a_reused_submission_id_is_settled_inside_the_admission() {
         let store = store();
         let new = |title| NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title, agent: "build", model: None };
@@ -720,21 +743,37 @@ impl Store {
         submission_in(&self.lock(), id)
     }
 
-    /// Removes a session and everything under it. Archive first; this is the purge that follows.
+    /// Removes a session and everything under it, its subagents' sessions included. Archive first; this is the purge that follows.
     pub fn delete_session(&self, id: &str) -> rusqlite::Result<bool> {
-        let deleted = self.lock().prepare_cached("DELETE FROM session WHERE id = ?1")?.execute([id])?;
-        Ok(deleted > 0)
+        transaction(&self.lock(), |conn| delete_tree(conn, id))
     }
 
-    /// The archive purge: removes the session only while it is still archived, in one statement, so a restore cannot lose to it.
+    /// The archive purge: removes the session and its subagents only while it is still archived, in one write, so a restore cannot lose to it.
     pub fn purge_archived(&self, id: &str) -> rusqlite::Result<Purge> {
-        let conn = self.lock();
-        if conn.prepare_cached("DELETE FROM session WHERE id = ?1 AND archived_at IS NOT NULL")?.execute([id])? > 0 {
-            return Ok(Purge::Deleted);
-        }
-        let exists = conn.prepare_cached("SELECT 1 FROM session WHERE id = ?1")?.exists([id])?;
-        Ok(if exists { Purge::Active } else { Purge::Missing })
+        transaction(&self.lock(), |conn| {
+            let archived: Option<bool> = conn.prepare_cached("SELECT archived_at IS NOT NULL FROM session WHERE id = ?1")?.query_row([id], |row| row.get(0)).optional()?;
+            match archived {
+                Some(true) => delete_tree(conn, id).map(|_| Purge::Deleted),
+                Some(false) => Ok(Purge::Active),
+                None => Ok(Purge::Missing),
+            }
+        })
     }
+}
+
+/// Deletes `id` and its hidden subagent sessions at any depth; spawned threads are independent and stay.
+fn delete_tree(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
+    let deleted = conn
+        .prepare_cached(
+            "DELETE FROM session WHERE id IN (
+                 WITH RECURSIVE tree(id) AS (
+                     SELECT id FROM session WHERE id = ?1
+                     UNION SELECT s.id FROM session s JOIN tree ON s.parent_id = tree.id WHERE s.visibility = 'hidden'
+                 ) SELECT id FROM tree
+             )",
+        )?
+        .execute([id])?;
+    Ok(deleted > 0)
 }
 
 #[derive(Debug, PartialEq)]
