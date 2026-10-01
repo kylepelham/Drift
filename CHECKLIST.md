@@ -116,7 +116,8 @@ change the plan there when a decision changes.
   - [x] Attachments validated against model capabilities; no silent drops
   - [x] Explicit denial and stop feedback; parent-to-worker permission inheritance
 - [x] Per-session runtime config snapshots: a turn's `Plan` holds its config and the tool objects it offered (MCP clients included) until it ends; call-time config reads use the snapshot
-- [ ] Async questions and MCP reconnect/reload deferred from M2
+- [x] MCP reconnect and reload: watched connections reconnect with capped backoff under the server's generation, planning waits up to 2 s for connects under way, an approved save reconnects at once while running turns keep their client
+- [ ] Async questions deferred from M2
 - [ ] Bedrock, Vertex, xAI, Z.ai
 
 ## M4: cutover

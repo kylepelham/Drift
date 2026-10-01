@@ -60,6 +60,111 @@ async fn approval_gates_connection_and_tools_appear_prefixed() {
     assert!(engine.mcp.tools().is_empty());
 }
 
+fn context(engine: &Arc<crate::Engine>) -> Context {
+    Context {
+        workspace: std::env::temp_dir(),
+        session_id: "s".into(),
+        message_id: "m".into(),
+        call_id: "c".into(),
+        files: Arc::new(SessionFiles::default()),
+        abort: Default::default(),
+        engine: engine.clone(),
+        config: Default::default(),
+    }
+}
+
+async fn approved(engine: &Arc<crate::Engine>, name: &str, config: &ServerConfig) -> ServerRow {
+    let row = engine.store.save_mcp_server(name, config).unwrap();
+    engine.store.approve_mcp_server(name, &row.hash()).unwrap();
+    engine.store.mcp_server(name).unwrap().unwrap()
+}
+
+async fn until<F: Fn() -> bool>(what: &str, done: F) {
+    for _ in 0..300 {
+        if done() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("never: {what}");
+}
+
+fn find(engine: &crate::Engine, name: &str) -> Option<Arc<dyn crate::tool::Tool>> {
+    engine.offered_tools(crate::llm::catalog::ToolProfile::Edit).into_iter().find(|t| t.spec().name == name)
+}
+
+fn tool(engine: &crate::Engine, name: &str) -> Arc<dyn crate::tool::Tool> {
+    find(engine, name).unwrap()
+}
+
+#[tokio::test]
+async fn a_server_that_exits_by_itself_is_reconnected_and_its_tools_come_back() {
+    let engine = engine();
+    let row = approved(&engine, "echo", &echo_config()).await;
+    engine.connect_mcp(row.clone()).await.unwrap();
+    let ctx = context(&engine);
+    assert!(tool(&engine, "echo_echo").run(&ctx, json!({ "text": "crash" })).await.is_err());
+    until("it noticed", || engine.mcp.status_of(row.clone()).state != State::Connected).await;
+    until("it is back", || engine.mcp.status_of(row.clone()).state == State::Connected && find(&engine, "echo_echo").is_some()).await;
+    assert_eq!(tool(&engine, "echo_echo").run(&ctx, json!({ "text": "hi again" })).await.unwrap().output, "hi again", "a new process serves it");
+}
+
+#[tokio::test]
+async fn an_ordinary_tool_failure_is_not_a_lost_connection() {
+    let engine = engine();
+    let row = approved(&engine, "echo", &echo_config()).await;
+    engine.connect_mcp(row.clone()).await.unwrap();
+    let mut events = engine.hub.attach(None).rx;
+    let ctx = context(&engine);
+    assert_eq!(tool(&engine, "echo_shout").run(&ctx, json!({ "text": "fail" })).await.unwrap_err().0, "asked to fail");
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    while let Ok(envelope) = events.try_recv() {
+        assert!(!matches!(envelope.event, Event::McpUpdated { .. }), "no reconnect: {:?}", envelope.event);
+    }
+    assert_eq!(engine.mcp.status_of(row).state, State::Connected);
+}
+
+#[tokio::test]
+async fn a_deliberate_disconnect_ends_reconnecting() {
+    let engine = engine();
+    let row = approved(&engine, "echo", &echo_config()).await;
+    engine.connect_mcp(row.clone()).await.unwrap();
+    let _ = tool(&engine, "echo_echo").run(&context(&engine), json!({ "text": "crash" })).await;
+    until("it noticed", || engine.mcp.status_of(row.clone()).state != State::Connected).await;
+    engine.mcp.disconnect("echo", &engine.store, &engine.hub).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(engine.mcp.status_of(row).state, State::Disconnected, "the user's disconnect stands");
+    assert!(find(&engine, "echo_echo").is_none());
+}
+
+#[tokio::test]
+async fn a_turn_waits_briefly_for_a_server_still_connecting() {
+    let engine = engine();
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/slow-server.cjs");
+    let slow = |ms: &str| ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), ms.to_string())].into() };
+    let quick = approved(&engine, "quick", &slow("600")).await;
+    let connecting = tokio::spawn({
+        let engine = engine.clone();
+        async move { engine.connect_mcp(quick).await }
+    });
+    until("connecting", || engine.mcp.transient.lock().unwrap().values().any(|(s, _)| *s == State::Connecting)).await;
+    engine.mcp.wait_ready(READY_WAIT).await;
+    assert!(find(&engine, "quick_old_tool").is_some(), "the turn being planned sees it");
+    connecting.await.unwrap().unwrap();
+
+    let stuck = approved(&engine, "stuck", &slow("5000")).await;
+    let _connecting = tokio::spawn({
+        let engine = engine.clone();
+        async move { engine.connect_mcp(stuck).await }
+    });
+    until("connecting", || engine.mcp.transient.lock().unwrap().values().any(|(s, _)| *s == State::Connecting)).await;
+    let started = std::time::Instant::now();
+    engine.mcp.wait_ready(std::time::Duration::from_millis(400)).await;
+    let waited = started.elapsed();
+    assert!(waited >= std::time::Duration::from_millis(350) && waited < std::time::Duration::from_secs(2), "bounded: {waited:?}");
+    assert!(find(&engine, "stuck_old_tool").is_none());
+}
+
 #[tokio::test]
 async fn a_bad_command_reports_failed() {
     let engine = engine();

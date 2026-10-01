@@ -13,6 +13,7 @@ rl.on("line", (line) => {
   if (message.method === "tools/call") {
     const text = String(message.params.arguments?.text ?? "")
     if (text === "fail") return reply(message.id, { content: [{ type: "text", text: "asked to fail" }], isError: true })
+    if (text === "crash") process.exit(1)
     const out = message.params.name === "shout" ? text.toUpperCase() : text
     return reply(message.id, { content: [{ type: "text", text: out }] })
   }

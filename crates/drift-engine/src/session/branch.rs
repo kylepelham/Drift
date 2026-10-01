@@ -70,7 +70,7 @@ impl Engine {
         // The same view a turn would send: a compacted conversation hands off from its summary.
         let mut messages = compaction::request_messages(&transcript[..end.map_or(0, |i| i + 1)], &resolved.model_ref);
         convert::push(&mut messages, llm::Role::User, vec![Block::Text(format!("{instructions}\n\nGoal for the new conversation:\n{goal}"))]);
-        let shot = OneShot { system: String::new(), messages, tools: self.tools.specs(resolved.model.profile), max_tokens: DRAFT_MAX_TOKENS, timeout: DRAFT_TIMEOUT };
+        let shot = OneShot { system: String::new(), messages, tools: self.tool_specs(resolved.model.profile), max_tokens: DRAFT_MAX_TOKENS, timeout: DRAFT_TIMEOUT };
         let text = self.complete(&resolved, shot).await.map_err(BranchError::Draft)?;
         Ok(parse_draft(goal, &text, cutoff))
     }

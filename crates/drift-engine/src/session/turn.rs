@@ -484,6 +484,8 @@ impl Engine {
             thinking_budget: prompt.thinking_budget,
             offer: Offer::default(),
         };
+        // A server connecting right now would otherwise be missing from this turn's tools.
+        self.mcp.wait_ready(crate::mcp::READY_WAIT).await;
         plan.offer = self.offer(&plan);
         Ok(plan)
     }
@@ -617,8 +619,7 @@ impl Engine {
         let allowed = agent.as_ref().map(|a| a.tools.clone()).unwrap_or_default();
         let subagent = plan.session.visibility == Visibility::Hidden;
         let tools: Vec<_> = self
-            .tools
-            .offered(plan.model.profile)
+            .offered_tools(plan.model.profile)
             .into_iter()
             .map(|tool| (tool.spec(), tool))
             .filter(|(spec, _)| allowed.is_empty() || allowed.contains(&spec.name))

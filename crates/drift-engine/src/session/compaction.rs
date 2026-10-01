@@ -221,7 +221,7 @@ impl Engine {
             }
             convert::append(&mut messages, head[from..].iter().copied(), &resolved.model_ref);
             convert::push(&mut messages, llm::Role::User, vec![Block::Text(instructions.into())]);
-            let shot = OneShot { system: String::new(), messages, tools: self.tools.specs(resolved.model.profile), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT };
+            let shot = OneShot { system: String::new(), messages, tools: self.tool_specs(resolved.model.profile), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT };
             match self.complete(resolved, shot).await {
                 Err(error) if attempt < TRIM_ATTEMPTS && llm::mentions_context_overflow(&error) && dropped < starts.len() => {
                     dropped += (starts.len() / 5).max(1);

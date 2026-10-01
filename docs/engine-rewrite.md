@@ -824,6 +824,18 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   covers the whole server. Every save, disable, disconnect and remove bumps the server's
   generation; a connect that began under an older generation closes what it opened and
   publishes nothing. MCP OAuth is not implemented yet.
+- **MCP lifecycle (M3).** A turn's tools come straight from the connected servers when it is
+  planned (`Engine::offered_tools`); there is no separate copy to fall behind. Planning waits up to
+  2 s (`READY_WAIT`) for connects and reconnects already under way, so a server starting at the same
+  moment is not briefly missing; a slower one joins later turns. Each connected server is watched
+  (every second) for a transport that closed by itself, such as a stdio server that exited. It is
+  then dropped from later turns, shown connecting, and reconnected with waits of 500 ms doubling to
+  30 s, reading its row afresh each attempt; it stops when it connects or when its generation
+  changes (save, disable, disconnect, remove), so a deliberate disconnect is never undone and a
+  reconnect started under an old definition is discarded. A tool's own failure (`isError`) is not a
+  lost connection. Saving a server whose config is still approved reconnects it at once (reload):
+  the new client serves turns admitted afterwards, while running turns keep the client in their
+  snapshot until they end.
 - **Config.** `Config::load` reads `~/.config/drift/drift.json` then `<workspace>/drift.json`
   (project rules first, so they win), plus `.drift/agents/*.md`, `.drift/commands/*.md` and
   skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at both roots (project

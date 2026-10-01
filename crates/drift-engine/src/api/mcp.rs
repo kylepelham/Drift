@@ -29,17 +29,19 @@ pub async fn save(State(engine): State<Arc<Engine>>, Path(name): Path<String>, J
     }
     engine.mcp.invalidate(&name);
     engine.mcp.disconnect(&name, &engine.store, &engine.hub).await;
-    engine.tools.set_dynamic(engine.mcp.tools());
     let row = engine.store.save_mcp_server(&name, &config)?;
-    let status = engine.mcp.status_of(row);
+    let status = engine.mcp.status_of(row.clone());
     engine.hub.publish(Event::McpUpdated { server: status.clone() });
+    // Saved as already approved (unchanged): the new client serves later turns; running ones keep theirs.
+    if row.enabled && row.is_approved() {
+        return connect(&engine, &name).await;
+    }
     Ok(Json(status))
 }
 
 #[utoipa::path(delete, path = "/mcp/{name}", operation_id = "removeMcpServer", responses((status = 204), (status = 404)))]
 pub async fn remove(State(engine): State<Arc<Engine>>, Path(name): Path<String>) -> Result<StatusCode, ApiError> {
     engine.mcp.disconnect(&name, &engine.store, &engine.hub).await;
-    engine.tools.set_dynamic(engine.mcp.tools());
     if !engine.store.remove_mcp_server(&name)? {
         return Err(ApiError::not_found("mcp server"));
     }
@@ -62,8 +64,7 @@ pub async fn connect_route(State(engine): State<Arc<Engine>>, Path(name): Path<S
 
 async fn connect(engine: &Arc<Engine>, name: &str) -> Result<Json<ServerStatus>, ApiError> {
     let row = engine.store.mcp_server(name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
-    let _ = engine.mcp.connect(row.clone(), &engine.hub).await;
-    engine.tools.set_dynamic(engine.mcp.tools());
+    let _ = engine.connect_mcp(row).await;
     let row = engine.store.mcp_server(name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
     Ok(Json(engine.mcp.status_of(row)))
 }
@@ -71,7 +72,6 @@ async fn connect(engine: &Arc<Engine>, name: &str) -> Result<Json<ServerStatus>,
 #[utoipa::path(post, path = "/mcp/{name}/disconnect", operation_id = "disconnectMcpServer", responses((status = 200, body = ServerStatus), (status = 404)))]
 pub async fn disconnect(State(engine): State<Arc<Engine>>, Path(name): Path<String>) -> Result<Json<ServerStatus>, ApiError> {
     engine.mcp.disconnect(&name, &engine.store, &engine.hub).await;
-    engine.tools.set_dynamic(engine.mcp.tools());
     let row = engine.store.mcp_server(&name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
     Ok(Json(engine.mcp.status_of(row)))
 }

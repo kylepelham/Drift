@@ -1262,13 +1262,11 @@ async fn a_turn_keeps_the_tools_it_started_with_and_a_change_reaches_the_next_on
     let row = h.engine.store.save_mcp_server("echo", &config).unwrap();
     h.engine.store.approve_mcp_server("echo", &row.hash()).unwrap();
     h.engine.mcp.connect(h.engine.store.mcp_server("echo").unwrap().unwrap(), &h.engine.hub).await.unwrap();
-    h.engine.tools.set_dynamic(h.engine.mcp.tools());
     h.provider.push_slow(Duration::from_millis(500), tool_call("echo_echo", r#"{"text": "still here"}"#)).push(text("done"));
     h.engine.submit(&h.session.id, prompt("echo")).await.await_ok();
     // The server goes away while the turn is still streaming its first reply.
     tokio::time::sleep(Duration::from_millis(150)).await;
     h.engine.mcp.disconnect("echo", &h.engine.store, &h.engine.hub).await;
-    h.engine.tools.set_dynamic(h.engine.mcp.tools());
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };

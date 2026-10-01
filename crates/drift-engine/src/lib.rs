@@ -238,8 +238,7 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
     let starting = engine.clone();
     tokio::spawn(async move {
         starting.refresh_catalog().await;
-        starting.mcp.connect_all(&starting.store, &starting.hub).await;
-        starting.tools.set_dynamic(starting.mcp.tools());
+        starting.connect_all_mcp().await;
         starting.recover_tasks().await;
         starting.maintain().await;
     });

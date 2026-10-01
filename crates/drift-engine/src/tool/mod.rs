@@ -262,10 +262,9 @@ pub trait Tool: Send + Sync {
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a>;
 }
 
+/// The built-in tools. MCP tools come from the connected servers themselves (`Engine::offered_tools`).
 pub struct Registry {
     builtin: Vec<Arc<dyn Tool>>,
-    /// Tools that come and go with MCP servers; replaced wholesale when a server connects or drops.
-    dynamic: std::sync::RwLock<Vec<Arc<dyn Tool>>>,
 }
 
 impl Registry {
@@ -288,7 +287,6 @@ impl Registry {
                 Arc::new(task::TaskStop),
                 Arc::new(task::ReadThread),
             ],
-            dynamic: Default::default(),
         }
     }
 
@@ -297,25 +295,27 @@ impl Registry {
         self.offered(profile).iter().map(|tool| tool.spec()).collect()
     }
 
-    /// The tools themselves, held by a turn for as long as it runs, so a server dropped meanwhile stays usable to it.
     pub fn offered(&self, profile: ToolProfile) -> Vec<Arc<dyn Tool>> {
         let hidden: &[&str] = match profile {
             ToolProfile::Edit => &["apply_patch"],
             ToolProfile::ApplyPatch => &["edit", "write"],
         };
-        self.all().into_iter().filter(|tool| !hidden.contains(&tool.spec().name.as_str())).collect()
+        self.builtin.iter().filter(|tool| !hidden.contains(&tool.spec().name.as_str())).cloned().collect()
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        self.all().into_iter().find(|tool| tool.spec().name == name)
+        self.builtin.iter().find(|tool| tool.spec().name == name).cloned()
+    }
+}
+
+impl crate::Engine {
+    /// Every tool a turn starting now could be offered: the built-ins for the profile, then every connected server's.
+    pub fn offered_tools(&self, profile: ToolProfile) -> Vec<Arc<dyn Tool>> {
+        self.tools.offered(profile).into_iter().chain(self.mcp.tools()).collect()
     }
 
-    pub fn set_dynamic(&self, tools: Vec<Arc<dyn Tool>>) {
-        *self.dynamic.write().unwrap() = tools;
-    }
-
-    fn all(&self) -> Vec<Arc<dyn Tool>> {
-        self.builtin.iter().cloned().chain(self.dynamic.read().unwrap().iter().cloned()).collect()
+    pub fn tool_specs(&self, profile: ToolProfile) -> Vec<ToolSpec> {
+        self.offered_tools(profile).iter().map(|tool| tool.spec()).collect()
     }
 }
 
