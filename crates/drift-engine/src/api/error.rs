@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::session::branch::BranchError;
@@ -9,7 +9,7 @@ use crate::session::revert::RevertError;
 use crate::session::tree::TreeError;
 use crate::session::turn::TurnError;
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ErrorBody {
     pub code: String,
     pub message: String,
@@ -52,6 +52,7 @@ impl From<TurnError> for ApiError {
             TurnError::Reverted => (StatusCode::CONFLICT, "reverted"),
             TurnError::Stopped => (StatusCode::CONFLICT, "stopped"),
             TurnError::Moved => (StatusCode::CONFLICT, "moved"),
+            TurnError::Replayed(_) => (StatusCode::CONFLICT, "submission"),
             TurnError::SubmissionReused => (StatusCode::CONFLICT, "submission"),
             TurnError::NoModel | TurnError::UnknownModel => (StatusCode::BAD_REQUEST, "model"),
             TurnError::Attachment(_) => (StatusCode::BAD_REQUEST, "attachment"),

@@ -200,6 +200,20 @@ async fn client_close_ends_the_stream() {
     assert_eq!(h.engine.hub.publish(Event::WorkspaceCreated { workspace: h.workspace("x") }), 1);
 }
 
+#[tokio::test]
+async fn a_question_reply_on_the_socket_hears_how_it_ended() {
+    let h = harness().await;
+    let mut socket = h.ws("").await;
+    next_json(&mut socket).await;
+    let reply = json!({ "type": "question.reply", "requestId": "que_gone", "answers": [["yes"]] });
+    socket.send(Message::Text(reply.to_string().into())).await.unwrap();
+    let result = until(&mut socket, "question.result").await;
+    assert_eq!(result["requestId"], "que_gone");
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["error"]["code"], "not_found");
+    assert!(result.get("seq").is_none(), "a reply's result is not an event");
+}
+
 async fn until<S>(socket: &mut S, kind: &str) -> Value
 where
     S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,

@@ -24,25 +24,37 @@ impl From<TurnError> for AnswerError {
 impl Engine {
     /// Answers or declines a question; an async answer is saved before its card closes, so a failed save leaves it answerable.
     pub async fn answer_question(self: &Arc<Self>, request_id: &str, answers: Answers) -> Result<(), AnswerError> {
-        let Some(request) = self.questions.lookup(request_id) else {
-            return match (self.questions.answered(request_id), answers) {
-                (Some(saved), Some(again)) if saved == again => Ok(()),
-                (Some(_), _) => Err(AnswerError::Conflict),
-                (None, _) => Err(AnswerError::NotPending),
-            };
-        };
+        // One decision per request at a time: an answer and a dismissal never both go through.
+        let decision = self.questions.decision(request_id);
+        let _deciding = decision.lock().await;
+        let Some(request) = self.questions.lookup(request_id) else { return self.already_answered(request_id, answers) };
         if !request.is_async {
             return self.questions.reply(&self.hub, request_id, answers).map_err(|_| AnswerError::NotPending);
         }
         // Dismissed: the card closes and nothing is said or started.
         let Some(answers) = answers else {
-            self.questions.settle_async(&self.hub, &request, None);
+            self.questions.settle_async(&self.hub, &request);
             return Ok(());
         };
         let prompt = Prompt { parts: vec![answer_part(&request, &answers)], model: None, thinking_budget: None, submission_id: Some(format!("answer:{}", request.id)) };
         self.deliver_answer(&request, prompt).await?;
-        self.questions.settle_async(&self.hub, &request, Some(answers));
+        self.questions.settle_async(&self.hub, &request);
         Ok(())
+    }
+
+    /// A question no longer pending, settled by its saved answer, which outlives the card and a restart.
+    fn already_answered(&self, request_id: &str, answers: Answers) -> Result<(), AnswerError> {
+        let Some(saved) = self.store.submission(&format!("answer:{request_id}")).map_err(TurnError::from)? else { return Err(AnswerError::NotPending) };
+        let transcript = self.store.transcript(&saved.session_id).map_err(TurnError::from)?;
+        let parts = transcript.into_iter().find(|m| m.info.id == saved.message_id).map(|m| m.parts).unwrap_or_default();
+        let given = parts.into_iter().find_map(|row| match row.part {
+            Part::Clarification { items, .. } => Some(items.into_iter().map(|item| item.answers).collect::<Vec<_>>()),
+            _ => None,
+        });
+        match (given, answers) {
+            (Some(given), Some(again)) if given == again => Ok(()),
+            _ => Err(AnswerError::Conflict),
+        }
     }
 
     /// Joins the running turn, or starts one; after a Stop since the question, or with the session busy, it is only saved.
@@ -69,9 +81,15 @@ impl Engine {
         }
         let session = self.store.session(session_id).map_err(TurnError::from)?.ok_or(TurnError::NoSession)?;
         let model = session.model.ok_or(TurnError::NoModel)?;
-        let admitted = self.admit_fenced(session_id, &model, prompt.parts, submission, None, None)?;
-        self.announce(session_id, admitted);
-        Ok(())
+        match self.admit_fenced(session_id, &model, prompt.parts, submission, None, None) {
+            Ok(admitted) => {
+                self.announce(session_id, admitted);
+                Ok(())
+            }
+            Err(TurnError::Replayed(_)) => Ok(()),
+            Err(TurnError::SubmissionReused) => Err(AnswerError::Conflict),
+            Err(error) => Err(error.into()),
+        }
     }
 }
 

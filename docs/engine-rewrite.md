@@ -434,8 +434,18 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   saved, starting nothing; the next turn reads it. Held worker results ride along like with any
   prompt.
 - The card closes only after the answer is saved; a failed save (no model, no credentials) leaves it
-  pending and answerable, and the route returns the error. Resending the same answer is accepted
-  without writing anything; a different one is 409. Declining closes the card and says nothing.
+  pending and answerable, and the route returns the error. Declining closes the card and says nothing.
+- Decisions on one question take turns: answering and declining hold a per-request lock and check the
+  card is still pending after taking it, so an answer and a dismissal racing never both go through.
+  The loser sees the winner: a dismissal after a saved answer is 409, an answer after a dismissal 404.
+- Whether an answer already landed is read from the store, not from memory: the submission id is
+  checked inside the admission's own write, so two identical answers racing write one message and
+  both succeed, and a different answer under the same id is 409 with nothing written. Once the card
+  is gone (settled, or the engine restarted) a resent answer is compared with the saved
+  `clarification` part: the same answer is accepted, any other answer or a dismissal is 409.
+- A `question.reply` sent on the socket is answered on that socket with a `question.result` control
+  frame (`requestId`, `ok`, and the same `error` body the HTTP route would return). It carries no
+  `seq`; clients that reply over HTTP ignore it.
 - Pending questions live in the engine process: a restart drops unanswered cards, never a saved
   answer. Deleting a session drops its async questions.
 - A prompt sent through the API carries text and files only: `task_result`, `clarification`, tool and
@@ -860,8 +870,10 @@ Settled after the first external review of M1; each has a regression test.
   busy reservation is released and nothing half-written remains. `Prompt.submissionId`  is
   optional and durable: the `submission` table records id, session, message and a hash of
   the payload. Resubmitting with the same id and payload returns the original receipt, even
-  after a restart; the same id with a different payload or session is a 409. The UI sends a
-  fresh id with every prompt.
+  after a restart; the same id with a different payload or session is a 409. The id is checked
+  again inside the admission transaction, so two requests racing with one id write one message:
+  the loser gets the winner's receipt, or 409 if its payload differs. The UI sends a fresh id with
+  every prompt.
 - Only `done` and `aborted` assistant messages are replayed to the model. `error` and
   `streaming` rows stay in the transcript as audit history and never enter a request.
 - Token refresh is single-flight per provider and fenced: the first turn to notice an

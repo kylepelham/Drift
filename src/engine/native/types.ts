@@ -268,6 +268,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Dismissing a question whose answer was already saved is 409: the answer stands. */
         post: operations["rejectQuestion"];
         delete?: never;
         options?: never;
@@ -777,6 +778,12 @@ export interface components {
             seq: number;
             /** @enum {string} */
             type: "resync";
+        } | {
+            error?: components["schemas"]["ErrorBody"] | null;
+            ok: boolean;
+            requestId: string;
+            /** @enum {string} */
+            type: "question.result";
         };
         Cost: {
             /** Format: double */
@@ -1781,6 +1788,12 @@ export interface operations {
                 content?: never;
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

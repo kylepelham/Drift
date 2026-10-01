@@ -29,13 +29,14 @@ pub async fn reply(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Js
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[utoipa::path(post, path = "/questions/{id}/reject", operation_id = "rejectQuestion", responses((status = 204), (status = 404)))]
+/// Dismissing a question whose answer was already saved is 409: the answer stands.
+#[utoipa::path(post, path = "/questions/{id}/reject", operation_id = "rejectQuestion", responses((status = 204), (status = 404), (status = 409)))]
 pub async fn reject(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
     engine.answer_question(&id, None).await.map_err(answer_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn answer_error(error: AnswerError) -> ApiError {
+pub(super) fn answer_error(error: AnswerError) -> ApiError {
     match error {
         AnswerError::NotPending => ApiError::not_found("pending question"),
         AnswerError::Conflict => ApiError::new(StatusCode::CONFLICT, "answered", "this question was already answered differently"),

@@ -86,6 +86,8 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
       hydrate(frame.seq)
       return
     }
+    // Replies go over HTTP, which reports their outcome; a socket reply's result carries no seq.
+    if (frame.type === "question.result") return
     if (held) held.push(frame)
     else applyEvent(frame)
   }

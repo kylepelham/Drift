@@ -24,7 +24,7 @@ use crate::llm::{self, Credential, Provider, Request, StopReason};
 use crate::permission::{self, Outcome};
 use crate::session::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage, Visibility};
 use super::tasks::Claimant;
-use crate::store::{Admitted, Handover};
+use crate::store::{Admit, Admitted, Handover};
 use crate::tool::{Context, SessionFiles};
 use crate::Engine;
 
@@ -92,6 +92,8 @@ pub enum TurnError {
     Stopped,
     /// The session moved to another workspace after its turn was planned.
     Moved,
+    /// This submission already landed as this message; resolved to its receipt before any caller sees it.
+    Replayed(String),
 }
 
 impl std::fmt::Display for TurnError {
@@ -110,6 +112,7 @@ impl std::fmt::Display for TurnError {
             Self::Store(message) => write!(f, "store: {message}"),
             Self::Stopped => write!(f, "stopped before it started"),
             Self::Moved => write!(f, "the session moved to another workspace while it waited"),
+            Self::Replayed(message) => write!(f, "already admitted as {message}"),
         }
     }
 }
@@ -254,7 +257,15 @@ impl Engine {
         self.admit(session_id, prompt, Admission { parent, ..Admission::default() }).await
     }
 
+    /// A replay found inside admission's own write is the original receipt, as one found before it is.
     pub(super) async fn admit(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>) -> Result<Receipt, TurnError> {
+        match self.admit_once(session_id, prompt, how).await {
+            Err(TurnError::Replayed(message_id)) => self.receipt_for(session_id, &message_id),
+            other => other,
+        }
+    }
+
+    async fn admit_once(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>) -> Result<Receipt, TurnError> {
         let payload_hash = payload_hash(&prompt);
         if let Some(id) = prompt.submission_id.as_deref() {
             if let Some(receipt) = self.replayed_receipt(id, session_id, &payload_hash)? {
@@ -356,8 +367,19 @@ impl Engine {
             self.workers.release_where_task(&task.id, &Claimant::Automatic);
             self.publish_task(&task.id);
         }
-        // `None` only for a delivery another path already landed: this copy, and its riders, are not written.
-        admitted?.ok_or(TurnError::SubmissionReused)
+        match admitted? {
+            Admit::New(admitted) => Ok(*admitted),
+            Admit::Replayed { message_id } => Err(TurnError::Replayed(message_id)),
+            // A different prompt under the same id, or a result already handed over: nothing is written.
+            Admit::Conflict | Admit::Delivered => Err(TurnError::SubmissionReused),
+        }
+    }
+
+    /// The receipt of a prompt that already landed under the same submission id.
+    pub(super) fn receipt_for(&self, session_id: &str, message_id: &str) -> Result<Receipt, TurnError> {
+        let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
+        let message = self.store.message(message_id)?.ok_or(TurnError::NoSession)?;
+        Ok(Receipt { session, message })
     }
 
     pub(super) fn announce(&self, session_id: &str, admitted: Admitted) -> Receipt {

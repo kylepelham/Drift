@@ -1,7 +1,7 @@
 //! Questions the model asks the user mid-turn; answered over the socket or HTTP like permissions.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -63,8 +63,8 @@ pub type Answers = Option<Vec<Vec<String>>>;
 pub struct Questions {
     /// A blocking question's call waits on its sender; an async one has none.
     pending: Mutex<Vec<(Request, Option<oneshot::Sender<Answers>>)>>,
-    /// Async answers already saved, so a resent identical answer is accepted and a different one is not.
-    answered: Mutex<HashMap<String, Vec<Vec<String>>>>,
+    /// Held while a request is being answered or dismissed, so its decisions take turns.
+    decisions: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -107,16 +107,17 @@ impl Questions {
     }
 
     /// Closes an async question once its answer is saved (or it was dismissed).
-    pub fn settle_async(&self, hub: &Hub, request: &Request, answers: Answers) {
+    pub fn settle_async(&self, hub: &Hub, request: &Request) {
         self.pending.lock().unwrap().retain(|(pending, _)| pending.id != request.id);
-        if let Some(answers) = answers {
-            self.answered.lock().unwrap().insert(request.id.clone(), answers);
-        }
         hub.publish(Event::QuestionReplied { request_id: request.id.clone(), session_id: request.session_id.clone() });
     }
 
-    pub fn answered(&self, request_id: &str) -> Option<Vec<Vec<String>>> {
-        self.answered.lock().unwrap().get(request_id).cloned()
+    /// The lock a decision on `request_id` holds; the same one for every caller while any holds it.
+    pub fn decision(&self, request_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut decisions = self.decisions.lock().unwrap();
+        // Locks nobody holds or waits on are dropped as new ones are made.
+        decisions.retain(|_, lock| Arc::strong_count(lock) > 1);
+        decisions.entry(request_id.into()).or_default().clone()
     }
 
     /// A deleted session's async questions go with it; blocking ones end with their turn.

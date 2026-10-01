@@ -107,6 +107,47 @@ async fn a_dismissed_question_closes_and_says_nothing() {
 }
 
 #[tokio::test]
+async fn an_answer_and_a_dismissal_racing_never_both_go_through() {
+    let h = harness().await;
+    let request = asked(&h).await;
+    h.engine.abort(&h.session.id);
+    let yes = Some(vec![vec!["yes".into()]]);
+    let (answered, dismissed) = tokio::join!(h.engine.answer_question(&request.id, yes), h.engine.answer_question(&request.id, None));
+    let saved = answers(&h.engine.store.transcript(&h.session.id).unwrap());
+    match (answered, dismissed) {
+        (Ok(()), Err(AnswerError::Conflict)) => assert_eq!(saved.len(), 1, "the answer stands"),
+        (Err(AnswerError::NotPending), Ok(())) => assert!(saved.is_empty(), "the dismissal stands"),
+        other => panic!("both or neither went through: {other:?}"),
+    }
+    assert!(h.engine.questions.pending().is_empty());
+}
+
+#[tokio::test]
+async fn identical_answers_racing_save_once_and_both_succeed() {
+    let h = harness().await;
+    let request = asked(&h).await;
+    h.engine.abort(&h.session.id);
+    let yes = || Some(vec![vec!["yes".to_string()]]);
+    let (first, second) = tokio::join!(h.engine.answer_question(&request.id, yes()), h.engine.answer_question(&request.id, yes()));
+    assert_eq!((first, second), (Ok(()), Ok(())));
+    assert_eq!(answers(&h.engine.store.transcript(&h.session.id).unwrap()).len(), 1);
+}
+
+#[tokio::test]
+async fn a_saved_answer_is_recognised_from_the_store_once_its_card_is_gone() {
+    let h = harness().await;
+    let request = asked(&h).await;
+    h.engine.abort(&h.session.id);
+    h.engine.answer_question(&request.id, Some(vec![vec!["no".into()]])).await.unwrap();
+    // As after a restart: nothing in memory remembers the question.
+    h.engine.questions.forget_session(&h.session.id);
+    h.engine.answer_question(&request.id, Some(vec![vec!["no".into()]])).await.unwrap();
+    assert_eq!(h.engine.answer_question(&request.id, Some(vec![vec!["yes".into()]])).await, Err(AnswerError::Conflict));
+    assert_eq!(h.engine.answer_question(&request.id, None).await, Err(AnswerError::Conflict), "a saved answer cannot be dismissed");
+    assert_eq!(answers(&h.engine.store.transcript(&h.session.id).unwrap()).len(), 1);
+}
+
+#[tokio::test]
 async fn an_answer_that_cannot_be_saved_keeps_its_card() {
     let h = harness().await;
     let request = asked(&h).await;

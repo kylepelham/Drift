@@ -117,7 +117,7 @@ change the plan there when a decision changes.
   - [x] Explicit denial and stop feedback; parent-to-worker permission inheritance
 - [x] Per-session runtime config snapshots: a turn's `Plan` holds its config and the tool objects it offered (MCP clients included) until it ends; call-time config reads use the snapshot
 - [x] MCP reconnect and reload: watched connections reconnect with capped backoff under the server's generation, planning waits up to 2 s for connects under way, an approved save reconnects at once while running turns keep their client
-- [x] Async questions: default async, answers saved as a `clarification` prompt through normal admission (joins, starts, or only saves after Stop), card closes after the save, idempotent resend, engine-only parts refused from clients
+- [x] Async questions: default async, answers saved as a `clarification` prompt through normal admission (joins, starts, or only saves after Stop), card closes after the save, idempotent resend, engine-only parts refused from clients; per-request decision lock, submission replay settled inside the admission write, store-backed resend check that survives a restart, `question.result` frames for socket replies
 - [x] Bedrock (SigV4 or Bedrock API key, env and profile credentials, event-stream replies, Claude only) and Vertex (service account or ADC token, Claude and Gemini publishers); xAI and Z.ai as compatible presets. Verified against local stand-ins, not live accounts
 
 ## M4: cutover

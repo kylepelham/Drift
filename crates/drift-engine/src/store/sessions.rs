@@ -395,27 +395,43 @@ impl Store {
     /// Records a user prompt as one unit: message, parts and the session's model, or nothing at all.
     /// A prompt sent while undone commits the undo: the hidden messages go, in the same write.
     pub fn admit_prompt(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<Admitted> {
-        self.admit_delivering(session_id, model, parts, submission, Handover::default())?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+        match self.admit_delivering(session_id, model, parts, submission, Handover::default())? {
+            Admit::New(admitted) => Ok(*admitted),
+            _ => Err(rusqlite::Error::QueryReturnedNoRows),
+        }
     }
 
-    /// [`Self::admit_prompt`] that also hands worker results over in the same write; `None` if its delivery already landed.
-    pub fn admit_delivering(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>, handover: Handover) -> rusqlite::Result<Option<Admitted>> {
+    /// [`Self::admit_prompt`] that also hands worker results over and settles a reused submission id, all in one write.
+    pub fn admit_delivering(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>, handover: Handover) -> rusqlite::Result<Admit> {
         let conn = self.lock();
         let Handover { delivery, held } = handover;
-        let admitted = transaction(&conn, |conn| {
+        transaction(&conn, |conn| {
+            if let Some((id, hash)) = submission {
+                if let Some(earlier) = submission_in(conn, id)? {
+                    let same = earlier.session_id == session_id && earlier.payload_hash == hash;
+                    return Ok(if same { Admit::Replayed { message_id: earlier.message_id } } else { Admit::Conflict });
+                }
+            }
             if let Some(task_id) = delivery {
                 if !super::tasks::acknowledge(conn, task_id, session_id)? {
-                    return Err(rusqlite::Error::StatementChangedRows(0));
+                    return Ok(Admit::Delivered);
                 }
             }
             let carried = held_parts(conn, session_id, held)?;
-            admit_in(conn, session_id, model, carried.into_iter().chain(parts).collect(), submission)
-        });
-        match admitted {
-            Err(rusqlite::Error::StatementChangedRows(0)) if delivery.is_some() => Ok(None),
-            other => other.map(Some),
-        }
+            admit_in(conn, session_id, model, carried.into_iter().chain(parts).collect(), submission).map(|admitted| Admit::New(Box::new(admitted)))
+        })
     }
+}
+
+/// How an admission ended. Only `New` wrote anything.
+pub enum Admit {
+    New(Box<Admitted>),
+    /// The same submission id with the same prompt already landed as this message.
+    Replayed { message_id: String },
+    /// The submission id was used for a different prompt or session.
+    Conflict,
+    /// The worker result this prompt carries was already handed over.
+    Delivered,
 }
 
 /// Worker results a prompt carries into its session.
@@ -623,6 +639,21 @@ mod admission_tests {
         assert!(store.transcript(&session.id).unwrap().is_empty());
         assert!(!store.delete_session(&session.id).unwrap());
     }
+
+    #[test]
+    fn a_reused_submission_id_is_settled_inside_the_admission() {
+        let store = store();
+        let new = |title| NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title, agent: "build", model: None };
+        let (first, other) = (store.create_session(new("a")).unwrap(), store.create_session(new("b")).unwrap());
+        let model = ModelRef { provider: "p".into(), model: "m".into() };
+        let admit = |session: &str, hash| store.admit_delivering(session, &model, vec![Part::Text { text: "hi".into() }], Some(("sub_1", hash)), Handover::default()).unwrap();
+        let Admit::New(landed) = admit(&first.id, "h1") else { panic!("first admission") };
+        assert!(matches!(admit(&first.id, "h1"), Admit::Replayed { message_id } if message_id == landed.message.id));
+        assert!(matches!(admit(&first.id, "h2"), Admit::Conflict), "a different prompt");
+        assert!(matches!(admit(&other.id, "h1"), Admit::Conflict), "another session");
+        let count: i64 = store.lock().query_row("SELECT COUNT(*) FROM message", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 1, "only the first wrote anything");
+    }
 }
 
 pub struct Submission {
@@ -631,12 +662,15 @@ pub struct Submission {
     pub payload_hash: String,
 }
 
+fn submission_in(conn: &Connection, id: &str) -> rusqlite::Result<Option<Submission>> {
+    conn.prepare_cached("SELECT session_id, message_id, payload_hash FROM submission WHERE id = ?1")?
+        .query_row([id], |row| Ok(Submission { session_id: row.get(0)?, message_id: row.get(1)?, payload_hash: row.get(2)? }))
+        .optional()
+}
+
 impl Store {
     pub fn submission(&self, id: &str) -> rusqlite::Result<Option<Submission>> {
-        self.lock()
-            .prepare_cached("SELECT session_id, message_id, payload_hash FROM submission WHERE id = ?1")?
-            .query_row([id], |row| Ok(Submission { session_id: row.get(0)?, message_id: row.get(1)?, payload_hash: row.get(2)? }))
-            .optional()
+        submission_in(&self.lock(), id)
     }
 
     /// Removes a session and everything under it. Archive first; this is the purge that follows.
