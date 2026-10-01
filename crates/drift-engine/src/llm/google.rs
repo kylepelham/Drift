@@ -104,12 +104,12 @@ fn hex_digest(text: &str) -> String {
 async fn exchange(client: &reqwest::Client, file: &Value, timeouts: &super::http::Timeouts) -> Result<(String, i64), Error> {
     let now = crate::id::now_ms() / 1000;
     let form = match file["type"].as_str() {
-        Some("service_account") => vec![("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string()), ("assertion", assertion(&file, now)?)],
+        Some("service_account") => vec![("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string()), ("assertion", assertion(file, now)?)],
         Some("authorized_user") => vec![
             ("grant_type", "refresh_token".to_string()),
-            ("client_id", text(&file, "client_id")?),
-            ("client_secret", text(&file, "client_secret")?),
-            ("refresh_token", text(&file, "refresh_token")?),
+            ("client_id", text(file, "client_id")?),
+            ("client_secret", text(file, "client_secret")?),
+            ("refresh_token", text(file, "refresh_token")?),
         ],
         other => return Err(Error::Malformed(format!("unsupported Google credentials type {other:?}"))),
     };
