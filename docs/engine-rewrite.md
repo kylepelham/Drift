@@ -365,7 +365,8 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   finish. Runs as Plan, High", plus the model's name when it is not the session's current one, or
   why it could not start) with Discard. Whatever the engine gives back (Discard, Stop, or a newer
   prompt replacing it) goes into that session's draft ahead of anything typed since; pasted files
-  come back as attachments, mentions as text only. While something waits, the composer shows its
+  come back as attachments, and a `file:` part inside the workspace whose `@path` is still in the
+  text comes back as a mention, so a resend expands it under the same read rules as before. While something waits, the composer shows its
   model, agent and level, since that is what the session runs as next, so a follow-up joins it.
 - Turn limits (`config::Limits`, drift.json `limits: { steps, repeats, polls }`, later files
   override field by field; an agent's front matter `steps:` replaces `steps` for its turns):

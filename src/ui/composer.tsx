@@ -385,7 +385,7 @@ export function Composer() {
     const id = selectedSession()
     if (!id) return
     const returned = await engine.actions.discardQueued(id)
-    if (returned) restoreComposerDraft(composerScope(id), returned)
+    if (returned) restoreComposerDraft(composerScope(id), returned, activeWorkspace()?.path ?? "")
   }
   const model = () => resolveModel(engine.state, prefs().model)
   const modelId = () => {
@@ -456,7 +456,7 @@ export function Composer() {
         recordComposerHistory(historyDraft)
         setHistoryNavigation(null)
         clearComposerDraft(key, snapshot)
-        if (returned) restoreComposerDraft(key, returned)
+        if (returned) restoreComposerDraft(key, returned, activeWorkspace()?.path ?? "")
         setFileError("")
         resize()
         queueMicrotask(() => area.focus())
@@ -879,7 +879,7 @@ export function Composer() {
                 onClick={() => {
                   interruptResponseAnimations()
                   const id = selectedSession()!
-                  void engine.actions.abort(id).then((returned) => returned && restoreComposerDraft(composerScope(id), returned))
+                  void engine.actions.abort(id).then((returned) => returned && restoreComposerDraft(composerScope(id), returned, activeWorkspace()?.path ?? ""))
                 }}
               >
                 {t("prompt.action.stop")}

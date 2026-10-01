@@ -19,20 +19,25 @@ test("composer drafts are isolated by session and new-workspace scope", async ()
   clearComposerDraft(fresh)
 })
 
-test("a prompt the engine gives back goes ahead of anything typed since, pasted files included", async () => {
+test("a prompt the engine gives back keeps its pasted files and @mentions, so resending expands them again", async () => {
   const { composerDraft, composerScope, patchComposerDraft, restoreComposerDraft, clearComposerDraft } = await import("../src/state/composer")
+  const { mentionFiles } = await import("../src/ui/composer-mentions")
+  const { returnedPrompt } = await import("../src/engine/actions")
+  const root = "C:\\Work\\my repo"
+  const text = "Check @src/a b.txt before proceeding"
+  const sentFiles = [...mentionFiles(text, ["src/a b.txt"], root), { mime: "image/png", filename: "shot.png", url: "data:image/png;base64,AAAA" }]
+  // As the engine hands a waiting prompt back from Stop or Discard: the parts as they were sent.
+  const parts = [{ type: "text" as const, text }, ...sentFiles.map((file) => ({ type: "file" as const, mime: file.mime, name: file.filename ?? "file", url: file.url }))]
   const scope = composerScope("s-returned", "w1")
-  patchComposerDraft(scope, { text: "typed since" })
-  restoreComposerDraft(scope, {
-    text: "plan it\n\nand the tests",
-    files: [
-      { mime: "image/png", name: "shot.png", url: "data:image/png;base64,AAAA" },
-      { mime: "text/plain", name: "src/a.ts", url: "file:///repo/src/a.ts" },
-    ],
-  })
+  patchComposerDraft(scope, { text: "typed since", mentions: ["README.md"] })
+  restoreComposerDraft(scope, returnedPrompt(parts)!, root)
   const draft = composerDraft(scope)
-  expect(draft.text).toBe("plan it\n\nand the tests\n\ntyped since")
+  expect(draft.text).toBe(`${text}\n\ntyped since`)
   expect(draft.staged.map((file) => file.filename)).toEqual(["shot.png"])
+  expect(draft.mentions).toEqual(["src/a b.txt", "README.md"])
+  expect(mentionFiles(draft.text, draft.mentions, root).map((file) => file.url)).toEqual([sentFiles[0]!.url])
+  restoreComposerDraft(scope, { text: "outside", files: [{ mime: "text/plain", name: "x", url: "file:///D:/elsewhere/x.txt" }] }, root)
+  expect(composerDraft(scope).mentions).toEqual(["src/a b.txt", "README.md"])
   clearComposerDraft(scope)
 })
 
