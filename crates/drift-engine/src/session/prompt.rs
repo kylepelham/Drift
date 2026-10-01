@@ -6,16 +6,34 @@ use crate::config::{Agent, AgentKind, Config};
 
 const IDENTITY: &str = include_str!("prompts/system.txt");
 
-/// `delegates` is whether the `task` tool is offered; only then are the subagents listed.
-pub fn system(workspace: &Path, config: &Config, agent: Option<&Agent>, delegates: bool) -> String {
+/// What a turn's system prompt is built from.
+pub struct Setting<'a> {
+    pub workspace: &'a Path,
+    pub config: &'a Config,
+    pub agent: Option<&'a Agent>,
+    /// Whether the `task` tool is offered; only then are the subagents listed.
+    pub delegates: bool,
+    /// The model's name as the catalog gives it.
+    pub model: &'a str,
+    /// Instructions from the MCP servers whose tools are offered, by server.
+    pub servers: &'a [(String, String)],
+}
+
+pub fn system(setting: &Setting) -> String {
+    let Setting { workspace, config, agent, delegates, model, servers } = *setting;
     let mut prompt = IDENTITY.trim().to_string();
     if let Some(agent) = agent.filter(|a| !a.prompt.is_empty()) {
         prompt.push_str(&format!("\n\n{}", agent.prompt));
     }
     prompt.push_str("\n\n# Environment\n\n");
     prompt.push_str(&format!("Working directory: {}\n", workspace.display()));
+    prompt.push_str(&format!("Git repository: {}\n", if crate::config::in_repository(workspace) { "yes" } else { "no" }));
     prompt.push_str(&format!("Platform: {}\n", std::env::consts::OS));
     prompt.push_str(&format!("Date: {}\n", today()));
+    prompt.push_str(&format!("Model: {model}\n"));
+    for (server, text) in servers {
+        prompt.push_str(&format!("\n# Instructions from the {server} MCP server\n\n{text}\n"));
+    }
     if !config.skills.is_empty() {
         prompt.push_str("\n# Skills\n\nLoad one with the `skill` tool when its description matches the task.\n\n");
         for skill in &config.skills {
@@ -69,14 +87,19 @@ mod tests {
         std::fs::write(workspace.join("CLAUDE.md"), "claude rules").unwrap();
         std::fs::write(workspace.join("AGENTS.md"), "agent rules").unwrap();
         let config = Config::load_with_home(&workspace, None);
-        let prompt = system(&workspace, &config, config.agent("plan"), false);
+        let servers = [("web-test".to_string(), "Start a session first.".to_string())];
+        let setting = |agent: &str, delegates: bool| Setting { workspace: &workspace, config: &config, agent: config.agent(agent), delegates, model: "Claude Opus", servers: &servers };
+        let prompt = system(&setting("plan", false));
         assert!(prompt.starts_with("You are Drift"));
         assert!(prompt.contains("# Plan mode"));
-        assert!(prompt.contains("Working directory: "));
+        assert!(prompt.contains("Working directory: ") && prompt.contains("Git repository: no\n") && prompt.contains("Model: Claude Opus\n"));
+        assert!(prompt.contains("# Instructions from the web-test MCP server\n\nStart a session first."));
         assert!(prompt.contains("# Instructions from AGENTS.md\n\nagent rules"));
         assert!(!prompt.contains("claude rules"));
         assert!(!prompt.contains("# Subagents"), "no task tool, no subagent list");
-        let delegating = system(&workspace, &config, config.agent("build"), true);
+        std::fs::create_dir_all(workspace.join(".git")).unwrap();
+        assert!(system(&setting("plan", false)).contains("Git repository: yes\n"));
+        let delegating = system(&setting("build", true));
         assert!(delegating.contains("# Subagents") && delegating.contains("- general: ") && delegating.contains("- explore: "));
         assert!(!delegating.contains("- title: "), "actions are not subagents");
         std::fs::remove_dir_all(workspace).ok();

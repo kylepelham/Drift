@@ -85,6 +85,8 @@ pub struct ToolInfo {
 struct Live {
     service: RunningService<RoleClient, ()>,
     tools: Vec<rmcp::model::Tool>,
+    /// What the server said at initialize about using it; goes in the system prompt beside its tools.
+    instructions: Option<String>,
     /// The definition it was opened from; a client of another definition never stands in for this one.
     hash: String,
     since: Instant,
@@ -438,6 +440,12 @@ impl Servers {
         }
         tools
     }
+
+    /// Each connected server's own instructions, by server name.
+    pub fn instructions(&self) -> Vec<(String, String)> {
+        let slots = self.lock();
+        slots.servers.iter().filter_map(|(server, slot)| Some((server.clone(), slot.current()?.instructions.clone()?))).collect()
+    }
 }
 
 /// However a connect ends, even dropped mid-flight, its record goes and waiters hear.
@@ -467,7 +475,8 @@ impl Drop for Settle<'_> {
 async fn open(config: &ServerConfig, hash: String) -> Result<Live, String> {
     let (service, tree) = within("start", start(config)).await?;
     let tools = within("list its tools", async { service.list_all_tools().await.map_err(|e| format!("tools/list failed: {e}")) }).await?;
-    Ok(Live { service, tools, hash, since: Instant::now(), tree })
+    let instructions = service.peer_info().and_then(|info| info.instructions.clone()).map(|text| text.trim().to_string()).filter(|text| !text.is_empty());
+    Ok(Live { service, tools, instructions, hash, since: Instant::now(), tree })
 }
 
 async fn within<T>(what: &str, step: impl Future<Output = Result<T, String>>) -> Result<T, String> {

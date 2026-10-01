@@ -1499,7 +1499,9 @@ async fn a_turn_keeps_the_tools_it_started_with_and_a_change_reaches_the_next_on
     until_idle(&h).await;
     let requests = h.provider.requests.lock().unwrap();
     assert!(requests[0].tools.iter().any(|t| t.name == "echo_echo"));
+    assert!(requests[0].system.contains("# Instructions from the echo MCP server\n\nEcho repeats what it is given."), "the server's instructions come with its tools");
     assert!(!requests.last().unwrap().tools.iter().any(|t| t.name == "echo_echo"), "the next turn sees the change");
+    assert!(!requests.last().unwrap().system.contains("echo MCP server"), "and its instructions go with them");
 }
 
 #[tokio::test]

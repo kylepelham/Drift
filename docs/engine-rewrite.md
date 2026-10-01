@@ -1209,7 +1209,10 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   engine whose shell record outlived the restore is kept, and the record is dropped. Archive,
   restore and the purge also take turns in the UI, so a purge never runs mid-restore.
 - Model-family system prompts are not a native feature: the engine sends one Drift base prompt
-  (`session/prompts/system.txt`) to every model, plus the agent's prompt. Settings shows the
+  (`session/prompts/system.txt`) to every model, plus the agent's prompt. Its environment section
+  gives the working directory, whether it is a git repository, platform, date and the model's
+  catalog name; each MCP server whose tools the turn offers adds its initialize `instructions`
+  under "# Instructions from the <name> MCP server" (`prompt::Setting`). Settings shows the
   family prompts read-only under a notice saying they are not applied, offers no save, and keeps
   Reset only to clear an override stored before. The shell still records `family:*` for the
   frozen opencode plugins; nothing native reads it.

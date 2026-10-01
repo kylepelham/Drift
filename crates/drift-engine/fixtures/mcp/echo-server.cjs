@@ -25,7 +25,7 @@ const call = (message) => {
 }
 rl.on("line", (line) => {
   const message = JSON.parse(line)
-  if (message.method === "initialize") return reply(message.id, { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "echo", version: "0" } })
+  if (message.method === "initialize") return reply(message.id, { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "echo", version: "0" }, instructions: "Echo repeats what it is given." })
   if (message.method === "tools/list") return reply(message.id, { tools })
   if (message.method === "tools/call") return call(message)
   if (message.id !== undefined) reply(message.id, {})

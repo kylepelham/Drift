@@ -748,7 +748,17 @@ impl Engine {
             .filter(|(spec, _)| agent.as_ref().is_none_or(|agent| agent.allows_tool(&spec.name)))
             .filter(|(spec, _)| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))
             .collect();
-        let system = prompt::system(&plan.workspace, &plan.config, agent.as_ref(), tools.iter().any(|(spec, _)| spec.name == "task"));
+        // A server's instructions come only with its tools, so an agent without them is not told about it.
+        let servers: Vec<(String, String)> = self.mcp.instructions().into_iter().filter(|(server, _)| tools.iter().any(|(spec, _)| spec.name.starts_with(&format!("{server}_")))).collect();
+        let setting = prompt::Setting {
+            workspace: &plan.workspace,
+            config: &plan.config,
+            agent: agent.as_ref(),
+            delegates: tools.iter().any(|(spec, _)| spec.name == "task"),
+            model: &plan.model.name,
+            servers: &servers,
+        };
+        let system = prompt::system(&setting);
         Offer { tools, system }
     }
 

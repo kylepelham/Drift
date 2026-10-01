@@ -371,6 +371,11 @@ fn ancestors_to_repo_root(workspace: &Path) -> Vec<PathBuf> {
     }
 }
 
+/// Whether the workspace is in a git repository.
+pub fn in_repository(workspace: &Path) -> bool {
+    workspace.ancestors().any(|dir| dir.join(".git").exists())
+}
+
 /// The first of AGENTS.md and CLAUDE.md in `dir`.
 fn instruction_file(dir: &Path) -> Option<(&'static str, String)> {
     INSTRUCTION_FILES.iter().find_map(|name| std::fs::read_to_string(dir.join(name)).ok().map(|text| (*name, text)))
