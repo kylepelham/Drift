@@ -10,6 +10,7 @@ mod todos;
 mod tree;
 
 pub use sessions::{Admitted, Handover, NewSession, SessionFilter};
+pub use staged::StagedReplacement;
 pub use tasks::{Launch, NewTask};
 
 use std::path::Path;

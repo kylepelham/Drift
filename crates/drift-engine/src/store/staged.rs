@@ -1,28 +1,44 @@
-//! Files the engine creates beside a file it is replacing, recorded before they exist.
+//! Replacements in flight: a destination and the two files the engine creates beside it, recorded before they exist.
 
 use rusqlite::params;
 
+use super::sessions::transaction;
 use super::Store;
 use crate::id;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StagedReplacement {
+    pub destination: String,
+    pub staged: String,
+    pub backup: String,
+}
+
 impl Store {
-    pub fn record_staged(&self, paths: &[&str]) -> rusqlite::Result<()> {
-        let conn = self.lock();
-        for path in paths {
-            conn.prepare_cached("INSERT OR REPLACE INTO staged_file(path, created_at) VALUES(?1, ?2)")?.execute(params![path, id::now_ms()])?;
-        }
+    /// One row, one statement: both engine-owned paths are on record before either exists.
+    pub fn record_replacement(&self, replacement: &StagedReplacement) -> rusqlite::Result<()> {
+        self.lock()
+            .prepare_cached("INSERT OR REPLACE INTO staged_replacement(staged, destination, backup, created_at) VALUES(?1, ?2, ?3, ?4)")?
+            .execute(params![replacement.staged, replacement.destination, replacement.backup, id::now_ms()])?;
         Ok(())
     }
 
-    pub fn forget_staged(&self, paths: &[&str]) -> rusqlite::Result<()> {
-        let conn = self.lock();
-        for path in paths {
-            conn.prepare_cached("DELETE FROM staged_file WHERE path = ?1")?.execute([path])?;
+    /// Forgets settled replacements together, in one short write.
+    pub fn forget_replacements(&self, staged: &[&str]) -> rusqlite::Result<()> {
+        if staged.is_empty() {
+            return Ok(());
         }
-        Ok(())
+        transaction(&self.lock(), |conn| {
+            for path in staged {
+                conn.prepare_cached("DELETE FROM staged_replacement WHERE staged = ?1")?.execute([path])?;
+            }
+            Ok(())
+        })
     }
 
-    pub fn staged_files(&self) -> rusqlite::Result<Vec<String>> {
-        self.lock().prepare_cached("SELECT path FROM staged_file ORDER BY path")?.query_map([], |row| row.get(0))?.collect()
+    pub fn replacements(&self) -> rusqlite::Result<Vec<StagedReplacement>> {
+        self.lock()
+            .prepare_cached("SELECT destination, staged, backup FROM staged_replacement ORDER BY created_at, staged")?
+            .query_map([], |row| Ok(StagedReplacement { destination: row.get(0)?, staged: row.get(1)?, backup: row.get(2)? }))?
+            .collect()
     }
 }
