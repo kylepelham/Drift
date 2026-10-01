@@ -577,11 +577,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Admits the prompt, steered into a running turn or starting one. A prompt for another agent or level
-         *     than the running turn's waits instead (no `message`; `session.queued` shows it) and starts when that
-         *     turn finishes its step; one sent while others wait joins them or, asking for something else, replaces them.
-         */
+        /** Admits the prompt into the running turn or a new one; one for another agent or level waits instead (no `message`, see `session.queued`). */
         post: operations["submitTurn"];
         delete?: never;
         options?: never;

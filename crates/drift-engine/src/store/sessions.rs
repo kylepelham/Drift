@@ -405,8 +405,7 @@ impl Store {
         }
     }
 
-    /// [`Self::admit_prompt`] that also hands worker results over and settles a reused submission id, all in one write.
-    /// Several submissions are queued prompts landing as one message; they landed together or not at all, so the first decides.
+    /// [`Self::admit_prompt`] that also hands results over and settles reused submission ids (several land together, so the first decides), in one write.
     pub fn admit_delivering(&self, session_id: &str, pick: Pick, parts: Vec<Part>, submissions: &[(&str, &str)], handover: Handover) -> rusqlite::Result<Admit> {
         let conn = self.lock();
         let Handover { delivery, held } = handover;

@@ -582,8 +582,7 @@ impl Engine {
         Ok(Some(Receipt { session, message: Some(message), returned: Vec::new() }))
     }
 
-    /// Stops the session's turn, its background workers and, for a worker's transcript, that worker, all under the admission fence.
-    /// What waited for the turn is discarded first, so nothing starts once it stops.
+    /// Discards what waits, then stops the session's turn, its workers and (for a worker's transcript) that worker, under the admission fence.
     pub fn abort(&self, session_id: &str) -> bool {
         let discarded = !self.discard_queued(session_id).is_empty();
         let mut owners = self.workers.fence();

@@ -140,9 +140,7 @@ pub async fn messages(
     Ok(Json(engine.store.messages(&id, query.before.as_deref(), limit)?))
 }
 
-/// Admits the prompt, steered into a running turn or starting one. A prompt for another agent or level
-/// than the running turn's waits instead (no `message`; `session.queued` shows it) and starts when that
-/// turn finishes its step; one sent while others wait joins them or, asking for something else, replaces them.
+/// Admits the prompt into the running turn or a new one; one for another agent or level waits instead (no `message`, see `session.queued`).
 #[utoipa::path(post, path = "/sessions/{id}/turns", operation_id = "submitTurn", request_body = Prompt, responses((status = 202, body = Receipt), (status = 409), (status = 404)))]
 pub async fn submit(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(prompt): Json<Prompt>) -> Result<(StatusCode, Json<Receipt>), ApiError> {
     // Worker results, answers and tool calls are the engine's to write, never a client's to claim.

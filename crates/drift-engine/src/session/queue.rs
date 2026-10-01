@@ -1,5 +1,4 @@
-//! A user's prompt for another agent or level than the running turn's waits here, durably, for that
-//! turn to finish its step; then it runs as a turn of its own. Prompts sent while it waits join it or replace it.
+//! A user's prompt for another agent or level waits here, durably, for the running turn's step to end, then runs as its own turn.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -12,8 +11,7 @@ use crate::store::QueuedRow;
 use crate::Engine;
 
 impl Engine {
-    /// A user's prompt while others wait joins them when it asks for the same agent and level, and
-    /// replaces them otherwise; `None` when nothing waits. A waiting submission sent again is the same prompt.
+    /// A user's prompt while others wait joins them (same agent and level) or replaces them; `None` when nothing waits.
     pub(super) fn join_queue(self: &Arc<Self>, session_id: &str, prompt: &Prompt, payload_hash: &str) -> Result<Option<Receipt>, TurnError> {
         if let Some(id) = prompt.submission_id.as_deref() {
             if let Some((session, hash)) = self.store.queued_submission(id)? {
@@ -96,8 +94,7 @@ impl Engine {
         runtime.spawn(async move { engine.start_queued(&id).await });
     }
 
-    /// Starts everything waiting as one prompt and one turn. If the session is taken, its holder's
-    /// end starts it instead; if it cannot start, it stays with the reason until the user acts.
+    /// Starts everything waiting as one prompt and turn; a taken session's job starts it when it ends, and a failure stays with its reason.
     async fn start_queued(self: &Arc<Self>, session_id: &str) {
         let rows = self.store.queued(session_id).unwrap_or_default();
         if rows.is_empty() || rows.iter().any(|row| row.error.is_some()) {
