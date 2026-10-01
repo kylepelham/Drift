@@ -1,5 +1,4 @@
-//! Google Cloud access tokens as the client libraries find them: a service account key file or the
-//! gcloud application-default credentials, exchanged for a short-lived token that is cached.
+//! Google Cloud access tokens from a service account key or gcloud's application-default credentials, cached.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
