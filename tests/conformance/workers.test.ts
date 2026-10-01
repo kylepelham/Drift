@@ -19,7 +19,7 @@ afterAll(async () => {
   fake.stop()
 }, 30_000)
 
-type Task = { id: string; state: string; mode: string; delivered: boolean; description: string; result?: string }
+type Task = { id: string; state: string; mode: string; delivered: boolean; held: boolean; description: string; result?: string }
 const submit = (session: string, text: string) => engine.call("POST", `/sessions/${session}/turns`, { parts: [{ type: "text", text }], model })
 const taskFrame = (predicate: (task: Task) => boolean) => (frame: Frame) => frame.type === "task.updated" && predicate(frame.task as Task)
 const launch = (description: string, prompt: string) => sse.toolUse("task", { description, prompt, run_in_background: true })
@@ -73,7 +73,8 @@ test("session Stop ends a background worker while the parent is idle and wakes n
   const requests = fake.seen.length
   const stopped = await engine.call<{ aborted: boolean }>("POST", `/sessions/${session}/abort`)
   expect(stopped.json.aborted).toBe(true)
-  const ended = await events.until(taskFrame((task) => task.id === (running.task as Task).id && task.state === "stopped" && task.delivered))
+  // Held for the next prompt rather than marked handed over: nothing carried it yet.
+  const ended = await events.until(taskFrame((task) => task.id === (running.task as Task).id && task.state === "stopped" && task.held && !task.delivered))
   expect((ended.task as Task).mode).toBe("background")
   await new Promise((resolve) => setTimeout(resolve, 300))
   expect(fake.seen.length).toBe(requests)

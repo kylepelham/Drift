@@ -19,6 +19,7 @@ function task(id: string, overrides: Partial<TaskRecord> = {}): TaskRecord {
     reason: "requested",
     state: "running",
     delivered: false,
+    held: false,
     createdAt: 1,
     ...overrides,
   }
@@ -53,6 +54,10 @@ test("a snapshot that raced an event never moves a task back", () => {
     ["a", "replied", true],
   ])
   expect(mergeTasks(merged, [task("a", { state: "replied", delivered: true, result: "later copy" })])[1]!.result).toBe("later copy")
+  // Held after a Stop is past ended, and carried by the next prompt is past held.
+  const held = mergeTasks([task("h", { state: "stopped", held: true })], [task("h", { state: "stopped" })])
+  expect(held[0]!.held).toBe(true)
+  expect(mergeTasks(held, [task("h", { state: "stopped", held: true, delivered: true })])[0]!.delivered).toBe(true)
 })
 
 test("a background task row follows its worker, not the call that launched it", async () => {
@@ -93,6 +98,8 @@ test("the dock lists background workers while any is going or owed, and never fo
   // Finished but not yet handed to the conversation still counts as outstanding.
   expect(dockTasks([done, task("c", { state: "failed", delivered: false })]).map((t) => t.id)).toEqual(["a", "c"])
   expect(dockTasks([done, task("c", { state: "stopped", delivered: true })])).toEqual([])
+  // A result held back by Stop stays listed until a prompt carries it.
+  expect(dockTasks([done, task("c", { state: "replied", held: true })]).map((t) => t.id)).toEqual(["a", "c"])
 })
 
 function harness(overrides: Partial<Client>) {

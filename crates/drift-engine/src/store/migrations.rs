@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-const MIGRATIONS: [&str; 11] = [
+const MIGRATIONS: [&str; 12] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -100,6 +100,7 @@ const MIGRATIONS: [&str; 11] = [
         path TEXT PRIMARY KEY,
         created_at INTEGER NOT NULL
     ) STRICT;",
+    "ALTER TABLE task ADD COLUMN held INTEGER NOT NULL DEFAULT 0 CHECK(held IN (0, 1));",
 ];
 
 #[cfg(test)]

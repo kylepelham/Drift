@@ -1231,6 +1231,7 @@ export const drift = {
   "drift.task.stop": "停止",
   "drift.task.stopHint": "このタスクだけを止めます。会話は続きます。",
   "drift.task.stopFailed": "タスクを停止できませんでした",
+  "drift.task.held": "停止により保留中。次のメッセージと一緒に届きます",
   "drift.move.sessionBusy": "セッションはまだ実行中です。移動する前に停止してください。",
   "drift.message.revertHere": "ここまで戻す",
   "drift.message.tokenCounts": "入力 {{input}} / 出力 {{output}}",

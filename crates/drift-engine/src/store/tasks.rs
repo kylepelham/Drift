@@ -8,7 +8,7 @@ use crate::id;
 use crate::session::tasks::{Mode, TaskRecord, TaskState};
 use crate::session::types::{PartRow, Session};
 
-const COLUMNS: &str = "id, parent_session_id, session_id, call_id, description, agent, mode, reason, state, result, delivered, created_at, finished_at, generation";
+const COLUMNS: &str = "id, parent_session_id, session_id, call_id, description, agent, mode, reason, state, result, delivered, created_at, finished_at, generation, held";
 
 /// What launching a worker records before it starts.
 pub struct NewTask<'a> {
@@ -41,7 +41,7 @@ impl Store {
             insert_session(conn, &session)?;
             let task_id = id::new("task");
             let state = if new.mode == Mode::Background { TaskState::Queued } else { TaskState::Running };
-            conn.prepare_cached(&format!("INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11)"))?
+            conn.prepare_cached(&format!("INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0)"))?
                 .execute(params![task_id, new.parent_session_id, session.id, new.call_id, new.description, new.agent, new.mode.as_str(), new.reason, state.as_str(), id::now_ms(), new.generation])?;
             let task = query_one(conn, "id = ?1", &[&task_id])?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
             Ok(Launch { task, child: session, created: true })
@@ -77,10 +77,24 @@ impl Store {
         Ok(changed == 1)
     }
 
-    /// Settles a result that is not to be handed over (its parent was stopped, or it has nothing to say).
+    /// Records that a call's own result already holds this one, for a row from before that was transactional.
     pub fn mark_task_delivered(&self, task_id: &str) -> rusqlite::Result<()> {
         self.lock().prepare_cached("UPDATE task SET delivered = 1 WHERE id = ?1")?.execute([task_id])?;
         Ok(())
+    }
+
+    /// Keeps a finished result from waking its parent; it stays owed for the parent's next prompt.
+    pub fn hold_task(&self, task_id: &str) -> rusqlite::Result<bool> {
+        let changed = self.lock().prepare_cached("UPDATE task SET held = 1 WHERE id = ?1 AND delivered = 0 AND held = 0")?.execute([task_id])?;
+        Ok(changed == 1)
+    }
+
+    /// Finished background results held back from `parent`, oldest first.
+    pub fn held_tasks(&self, parent: &str) -> rusqlite::Result<Vec<TaskRecord>> {
+        self.lock()
+            .prepare_cached(&format!("SELECT {COLUMNS} FROM task WHERE parent_session_id = ?1 AND held = 1 AND delivered = 0 AND mode = 'background' ORDER BY id"))?
+            .query_map([parent], row)?
+            .collect()
     }
 
     /// Saves a call's result and marks `task_id` handed over in the same write; `false` if it already was.
@@ -101,10 +115,10 @@ impl Store {
             .execute([id::now_ms()])
     }
 
-    /// Finished workers whose result has not reached the parent.
+    /// Finished workers whose result has not reached the parent and is not held back from waking it.
     pub fn undelivered_tasks(&self) -> rusqlite::Result<Vec<TaskRecord>> {
         self.lock()
-            .prepare_cached(&format!("SELECT {COLUMNS} FROM task WHERE delivered = 0 AND state NOT IN ('queued', 'running') ORDER BY id"))?
+            .prepare_cached(&format!("SELECT {COLUMNS} FROM task WHERE delivered = 0 AND held = 0 AND state NOT IN ('queued', 'running') ORDER BY id"))?
             .query_map([], row)?
             .collect()
     }
@@ -151,6 +165,7 @@ fn row(row: &Row) -> rusqlite::Result<TaskRecord> {
         created_at: row.get(11)?,
         finished_at: row.get(12)?,
         generation: row.get(13)?,
+        held: row.get::<_, i64>(14)? == 1,
     })
 }
 

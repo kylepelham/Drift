@@ -1319,6 +1319,7 @@ export const drift = {
   "drift.task.stop": "Зупинити",
   "drift.task.stopHint": "Зупиняє лише це завдання; розмова триває.",
   "drift.task.stopFailed": "Не вдалося зупинити завдання",
+  "drift.task.held": "відкладено після зупинки; надійде з вашим наступним повідомленням",
   "drift.move.sessionBusy": "Сесія все ще зайнята; зупиніть її перед переміщенням.",
   "drift.message.revertHere": "Повернутися сюди",
   "drift.message.tokenCounts": "{{input}} вх. / {{output}} вих.",

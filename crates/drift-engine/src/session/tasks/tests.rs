@@ -122,7 +122,7 @@ async fn background_slots_are_bounded_and_session_stop_ends_them_even_when_idle(
 
     let requests = h.provider.requests.lock().unwrap().len();
     assert!(h.engine.abort(&h.session.id), "Stop has something to stop with the parent idle");
-    until("all stopped", || tasks(&h).len() == MAX_BACKGROUND + 1 && tasks(&h).iter().all(|t| t.state == TaskState::Stopped && t.delivered)).await;
+    until("all stopped and held", || tasks(&h).len() == MAX_BACKGROUND + 1 && tasks(&h).iter().all(|t| t.state == TaskState::Stopped && t.held && !t.delivered)).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(h.provider.requests.lock().unwrap().len(), requests, "no worker started after the stop and the parent was not woken");
     assert!(delivered_results(&h.engine.store.transcript(&h.session.id).unwrap()).is_empty());
@@ -342,7 +342,8 @@ async fn a_stop_while_a_result_waits_to_be_admitted_keeps_it_from_starting_a_tur
     tokio::time::timeout(Duration::from_secs(5), delivering).await.expect("the wait ends with the Stop").unwrap();
     h.engine.turns.release(&h.session.id);
     tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(h.engine.store.task(&task.id).unwrap().unwrap().delivered, "settled, not left owed");
+    let held = h.engine.store.task(&task.id).unwrap().unwrap();
+    assert!(held.held && !held.delivered, "held for the next prompt, not marked handed over");
     assert!(delivered_results(&h.engine.store.transcript(&h.session.id).unwrap()).is_empty(), "the stopped parent was not woken");
     assert!(!h.engine.turns.is_running(&h.session.id) && h.provider.requests.lock().unwrap().is_empty());
 }
@@ -362,10 +363,42 @@ async fn a_result_launched_before_a_stop_never_wakes_the_parent_even_after_a_res
     let restarted = crate::Engine::open_with(&h._dir.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
     *restarted.turns.provider_override.lock().unwrap() = h.engine.turns.provider_override.lock().unwrap().clone();
     restarted.recover_tasks().await;
-    until("both settled", || [&before, &after].iter().all(|t| restarted.store.task(&t.id).unwrap().unwrap().delivered)).await;
+    until("the later one delivered", || restarted.store.task(&after.id).unwrap().unwrap().delivered).await;
     until("the parent's turn ends", || !restarted.turns.is_running(&h.session.id)).await;
     let transcript = restarted.store.transcript(&h.session.id).unwrap();
     assert_eq!(delivered_results(&transcript), [("after".to_string(), "from after the stop".to_string())], "only the result launched after the stop arrives");
+    let kept = restarted.store.task(&before.id).unwrap().unwrap();
+    assert!(kept.held && !kept.delivered, "held across the restart, not marked handed over");
+}
+
+#[tokio::test]
+async fn a_result_held_by_stop_rides_along_with_the_next_prompt_once() {
+    let h = harness().await;
+    with_model(&h);
+    let task = recorded(&h, "launch", Mode::Background);
+    h.engine.end_task(&task.id, TaskState::Replied, "held answer");
+    h.engine.abort(&h.session.id);
+    h.engine.deliver(&task.id).await;
+    assert!(h.engine.store.task(&task.id).unwrap().unwrap().held);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(h.provider.requests.lock().unwrap().is_empty(), "never wakes the stopped parent");
+    // Neither another automatic attempt nor a restart delivers it.
+    h.engine.deliver(&task.id).await;
+    h.engine.recover_tasks().await;
+    assert!(!h.engine.turns.is_running(&h.session.id) && !h.engine.store.task(&task.id).unwrap().unwrap().delivered);
+
+    h.provider.push(text("thanks")).push(text("again"));
+    h.engine.submit(&h.session.id, prompt("what next")).await.unwrap();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert_eq!(delivered_results(&transcript), [("launch".to_string(), "held answer".to_string())]);
+    let user = &transcript[0];
+    assert!(matches!(user.parts[0].part, Part::TaskResult { .. }) && matches!(&user.parts[1].part, Part::Text { text } if text == "what next"), "carried in the user's own prompt, ahead of it");
+    assert!(h.engine.store.task(&task.id).unwrap().unwrap().delivered);
+
+    h.engine.submit(&h.session.id, prompt("and then")).await.unwrap();
+    until_idle(&h).await;
+    assert_eq!(delivered_results(&h.engine.store.transcript(&h.session.id).unwrap()).len(), 1, "once only");
 }
 
 #[tokio::test]

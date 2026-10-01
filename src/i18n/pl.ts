@@ -1240,6 +1240,7 @@ export const drift = {
   "drift.task.stop": "Zatrzymaj",
   "drift.task.stopHint": "Zatrzymuje tylko to zadanie; rozmowa trwa dalej.",
   "drift.task.stopFailed": "Nie udało się zatrzymać zadania",
+  "drift.task.held": "wstrzymane po zatrzymaniu; dotrze z twoją następną wiadomością",
   "drift.move.sessionBusy": "Sesja jest nadal zajęta; zatrzymaj ją przed przeniesieniem.",
   "drift.message.revertHere": "Cofnij do tego miejsca",
   "drift.message.tokenCounts": "{{input}} wej. / {{output}} wyj.",

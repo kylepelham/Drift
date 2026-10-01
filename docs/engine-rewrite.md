@@ -529,8 +529,15 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   transcript that worker. The last check before any prompt is written (`admit_fenced`) runs under
   the same lock, so a prompt lands wholly before a Stop or not at all. A delivery carries the
   owner's scope from the launch's generation as its parent token through every wait (a job holding
-  the session, planning, credential refresh) and into that final check. A delivery for a task
-  launched before the owner's latest Stop is settled without waking it.
+  the session, planning, credential refresh) and into that final check.
+- Held results: a result Stop keeps from waking its parent (launched before the owner's latest
+  Stop, or a stopped or interrupted worker with no turn running to take it) is not marked
+  delivered. It is marked `held` (migration 12) and stays owed: automatic delivery and restart
+  recovery skip it, and the next prompt admitted into the parent (typed, steered or a command, never
+  an engine delivery) carries it, ahead of the user's own parts, acknowledging it in the same write.
+  Each held result is claimed for that admission, so `task_output` and the prompt cannot both carry
+  it. `delivered` therefore always means a saved prompt or call result holds it, except rows a
+  restart interrupts, which are settled at startup as before.
 - Stop: session Stop (`POST /sessions/{id}/abort`) reaches its workers even with no turn running
   and reports whether anything was stopped. `task_stop` and `POST /tasks/{id}/abort` cancel one
   worker's token; a Stop that arrives before the worker registers waits for it. Worker permission

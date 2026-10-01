@@ -24,7 +24,7 @@ use crate::llm::{self, Credential, Provider, Request, StopReason};
 use crate::permission::{self, Outcome};
 use crate::session::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage, Visibility};
 use super::tasks::Claimant;
-use crate::store::Admitted;
+use crate::store::{Admitted, Handover};
 use crate::tool::{Context, SessionFiles};
 use crate::Engine;
 
@@ -345,8 +345,21 @@ impl Engine {
         if abort.is_some_and(CancellationToken::is_cancelled) {
             return Err(TurnError::Stopped);
         }
+        let Some(task_id) = delivery else { return self.admit_carrying_held(session_id, model, parts, submission) };
         // Already handed over by another path: this copy is not written.
-        self.store.admit_delivering(session_id, model, parts, submission, delivery)?.ok_or(TurnError::SubmissionReused)
+        self.store.admit_delivering(session_id, model, parts, submission, Handover::Delivery(task_id))?.ok_or(TurnError::SubmissionReused)
+    }
+
+    /// A prompt from the user carries the results a Stop held back, each claimed so no other path takes it meanwhile.
+    fn admit_carrying_held(&self, session_id: &str, model: &ModelRef, parts: Vec<Part>, submission: Option<(&str, &str)>) -> Result<Admitted, TurnError> {
+        let held: Vec<_> = self.store.held_tasks(session_id)?.into_iter().filter(|task| self.workers.claim(&task.id, Claimant::Automatic)).collect();
+        let carried = held.iter().map(|task| (task.id.clone(), super::tasks::result_part(task))).collect();
+        let admitted = self.store.admit_delivering(session_id, model, parts, submission, Handover::Held(carried));
+        for task in &held {
+            self.workers.release_where_task(&task.id, &Claimant::Automatic);
+            self.publish_task(&task.id);
+        }
+        Ok(admitted?.ok_or(rusqlite::Error::QueryReturnedNoRows)?)
     }
 
     fn announce(&self, session_id: &str, admitted: Admitted) -> Receipt {

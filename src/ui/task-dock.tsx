@@ -63,6 +63,9 @@ function TaskRow(props: { task: TaskRecord }) {
       <span class="min-w-0 flex-1 truncate">
         <span class="text-ink">{props.task.description}</span>
         <span class="text-ink-faint"> · @{props.task.agent} · {t(`drift.task.state.${props.task.state}`)}</span>
+        <Show when={props.task.held && !props.task.delivered}>
+          <span class="text-ink-faint"> · {t("drift.task.held")}</span>
+        </Show>
         <Show when={activity()}>{(text) => <span class="font-mono text-accent/80"> · {text()}</span>}</Show>
       </span>
       <Show when={taskActive(props.task)}>

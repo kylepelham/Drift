@@ -1321,6 +1321,7 @@ export const drift = {
   "drift.task.stop": "Detener",
   "drift.task.stopHint": "Detiene solo esta tarea; la conversación sigue.",
   "drift.task.stopFailed": "No se pudo detener la tarea",
+  "drift.task.held": "retenida tras Detener; llega con tu próximo mensaje",
   "drift.move.sessionBusy": "La sesión sigue ocupada; deténgala antes de moverla.",
   "drift.message.revertHere": "Revertir hasta aquí",
   "drift.message.tokenCounts": "{{input}} entrada / {{output}} salida",

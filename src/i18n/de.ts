@@ -1247,6 +1247,7 @@ export const drift = {
   "drift.task.stop": "Stoppen",
   "drift.task.stopHint": "Stoppt nur diese Aufgabe; die Unterhaltung läuft weiter.",
   "drift.task.stopFailed": "Die Aufgabe konnte nicht gestoppt werden",
+  "drift.task.held": "nach Stopp zurückgehalten; kommt mit deiner nächsten Nachricht",
   "drift.move.sessionBusy": "Die Sitzung ist noch beschäftigt; stoppen Sie sie vor dem Verschieben.",
   "drift.message.revertHere": "Bis hierher zurücksetzen",
   "drift.message.tokenCounts": "{{input}} ein / {{output}} aus",

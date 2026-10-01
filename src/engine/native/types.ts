@@ -1256,6 +1256,8 @@ export interface components {
             description: string;
             /** Format: int64 */
             finishedAt?: number | null;
+            /** @description Kept from waking a stopped parent; it goes along with the parent's next prompt instead. */
+            held: boolean;
             id: string;
             mode: components["schemas"]["Mode"];
             parentSessionId: string;

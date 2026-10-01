@@ -1323,6 +1323,7 @@ export const drift = {
   "drift.task.stop": "Stopp",
   "drift.task.stopHint": "Stopper bare denne oppgaven; samtalen fortsetter.",
   "drift.task.stopFailed": "Kunne ikke stoppe oppgaven",
+  "drift.task.held": "holdt tilbake etter Stopp; kommer med din neste melding",
   "drift.move.sessionBusy": "Sesjonen er fortsatt opptatt; stopp den før du flytter den.",
   "drift.message.revertHere": "Tilbakestill hit",
   "drift.message.tokenCounts": "{{input}} inn / {{output}} ut",

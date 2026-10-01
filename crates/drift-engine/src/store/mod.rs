@@ -9,7 +9,7 @@ pub(crate) mod tasks;
 mod todos;
 mod tree;
 
-pub use sessions::{Admitted, NewSession, SessionFilter};
+pub use sessions::{Admitted, Handover, NewSession, SessionFilter};
 pub use tasks::{Launch, NewTask};
 
 use std::path::Path;

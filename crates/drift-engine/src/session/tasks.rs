@@ -109,6 +109,8 @@ pub struct TaskRecord {
     pub result: Option<String>,
     /// The result reached the parent (as the call's own result, or delivered later).
     pub delivered: bool,
+    /// Kept from waking a stopped parent; it goes along with the parent's next prompt instead.
+    pub held: bool,
     pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<i64>,
@@ -212,7 +214,7 @@ impl Workers {
         self.claims.lock().unwrap().get(task_id) == Some(claimant)
     }
 
-    fn release_where_task(&self, task_id: &str, claimant: &Claimant) {
+    pub(crate) fn release_where_task(&self, task_id: &str, claimant: &Claimant) {
         let mut claims = self.claims.lock().unwrap();
         if claims.get(task_id) == Some(claimant) {
             claims.remove(task_id);
@@ -352,7 +354,7 @@ impl Engine {
         }
         // Read after claiming: a call may have taken it just before.
         if let Ok(Some(task)) = self.store.task(task_id) {
-            if !task.delivered && task.state.is_terminal() && task.mode == Mode::Background {
+            if !task.delivered && !task.held && task.state.is_terminal() && task.mode == Mode::Background {
                 self.deliver_claimed(&task).await;
             }
         }
@@ -362,28 +364,21 @@ impl Engine {
     async fn deliver_claimed(self: &Arc<Self>, task: &TaskRecord) {
         let owner = &task.parent_session_id;
         // Every wait before admission, and admission itself, ends when a Stop cancels this.
-        let Some(scope) = self.scope_at(owner, task.generation) else { return self.settle_delivery(&task.id) };
-        let part = Part::TaskResult {
-            task_id: task.id.clone(),
-            worker_session_id: task.session_id.clone(),
-            description: task.description.clone(),
-            outcome: task.state.as_str().into(),
-            text: task.result.clone().unwrap_or_default(),
-        };
-        let prompt = Prompt { parts: vec![part], model: None, thinking_budget: None, submission_id: Some(format!("task:{}", task.id)) };
+        let Some(scope) = self.scope_at(owner, task.generation) else { return self.hold(&task.id) };
+        let prompt = Prompt { parts: vec![result_part(task)], model: None, thinking_budget: None, submission_id: Some(format!("task:{}", task.id)) };
         let wakes = matches!(task.state, TaskState::Replied | TaskState::Failed);
         let how = super::turn::Admission { parent: Some(&scope), delivery: Some(&task.id), steer_only: !wakes };
         match self.admit(owner, prompt, how).await {
-            Ok(_) => self.publish_task(&task.id),
-            Err(TurnError::Stopped | TurnError::SubmissionReused) => self.settle_delivery(&task.id),
+            Ok(_) | Err(TurnError::SubmissionReused) => self.publish_task(&task.id),
+            Err(TurnError::Stopped) => self.hold(&task.id),
             // Left owed: the next start delivers it.
             Err(error) => eprintln!("drift: task {} result not delivered: {error}", task.id),
         }
     }
 
-    /// Settles a result that is not handed over: its parent was stopped, or it has nothing to wake it for.
-    fn settle_delivery(&self, task_id: &str) {
-        if self.store.mark_task_delivered(task_id).is_ok() {
+    /// Keeps a result from waking its parent; it rides along with the parent's next prompt instead.
+    fn hold(&self, task_id: &str) {
+        if self.store.hold_task(task_id).unwrap_or(false) {
             self.publish_task(task_id);
         }
     }
@@ -403,7 +398,7 @@ impl Engine {
     }
 
     fn redeliver(self: &Arc<Self>, task_id: &str) {
-        let owed = self.store.task(task_id).ok().flatten().is_some_and(|t| t.mode == Mode::Background && t.state.is_terminal() && !t.delivered);
+        let owed = self.store.task(task_id).ok().flatten().is_some_and(|t| t.mode == Mode::Background && t.state.is_terminal() && !t.delivered && !t.held);
         if owed {
             let (engine, task_id) = (self.clone(), task_id.to_string());
             tokio::spawn(async move { engine.deliver(&task_id).await });
@@ -447,7 +442,11 @@ impl Engine {
         let transcript = self.store.transcript(&task.parent_session_id).unwrap_or_default();
         let call = transcript.into_iter().flat_map(|m| m.parts).find(|row| matches!(&row.part, Part::ToolCall { call_id, .. } if *call_id == task.call_id));
         let unsettled = |row: &PartRow| matches!(row.part, Part::ToolCall { status: ToolStatus::Pending | ToolStatus::Running | ToolStatus::Error, .. });
-        let Some(mut row) = call.filter(unsettled) else { return self.settle_delivery(&task.id) };
+        let Some(mut row) = call.filter(unsettled) else {
+            // The call already shows its result (saved before that write also acknowledged it).
+            let _ = self.store.mark_task_delivered(&task.id);
+            return self.publish_task(&task.id);
+        };
         let status = if task.state == TaskState::Replied { ToolStatus::Done } else { ToolStatus::Error };
         let metadata = serde_json::json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": task.state.as_str(), "mode": "foreground" });
         self.settle_delivering(&mut row, status, Some(task.description.clone()), task.result.clone().unwrap_or_default(), Some(metadata), Some(&task.id));
@@ -455,6 +454,17 @@ impl Engine {
 }
 
 const STOPPED: &str = "The subagent was stopped before it finished.";
+
+/// A finished worker's result as the part that carries it into its parent.
+pub(super) fn result_part(task: &TaskRecord) -> Part {
+    Part::TaskResult {
+        task_id: task.id.clone(),
+        worker_session_id: task.session_id.clone(),
+        description: task.description.clone(),
+        outcome: task.state.as_str().into(),
+        text: task.result.clone().unwrap_or_default(),
+    }
+}
 
 /// How a session's last model attempt ended, as its transcript shows it.
 pub(crate) enum Attempt {

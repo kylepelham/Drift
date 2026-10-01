@@ -381,10 +381,10 @@ export function taskActive(task: Pick<TaskRecord, "state">) {
   return task.state === "queued" || task.state === "running"
 }
 
-// A task only moves forward (queued, running, ended, delivered), so the further one is the newer.
+// A task only moves forward (queued, running, ended, held, delivered), so the further one is the newer.
 function taskProgress(task: TaskRecord) {
   const stage = task.state === "queued" ? 0 : task.state === "running" ? 1 : 2
-  return stage + (task.delivered ? 1 : 0)
+  return stage + (task.held ? 1 : 0) + (task.delivered ? 2 : 0)
 }
 
 /** Folds task records in; an older copy (a snapshot that raced an event) never replaces a newer one. */
