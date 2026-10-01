@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
 use rmcp::model::{CallToolRequestParams, ContentBlock};
-use rmcp::service::RunningService;
+use rmcp::service::{RunningService, ServiceError};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
 use rmcp::{RoleClient, ServiceExt};
@@ -96,9 +96,85 @@ pub struct ToolInfo {
 struct Live {
     service: RunningService<RoleClient, ()>,
     tools: Vec<rmcp::model::Tool>,
+    /// The definition it was opened from; a client of another definition never stands in for this one.
+    hash: String,
     since: Instant,
     /// A stdio server's process tree; it dies with the last handle to this connection.
-    _tree: Option<Tree>,
+    tree: Option<Tree>,
+}
+
+/// A call that never got an answer because the connection ended, as opposed to one the server refused.
+enum CallError {
+    Lost,
+    Failed(String),
+}
+
+/// One server's connections from enable to disable or remove, shared by every tool made from it.
+#[derive(Default)]
+struct Slot {
+    current: Mutex<Option<Arc<Live>>>,
+    /// Every client it has served, so a disable reaches the ones running turns still hold.
+    served: Mutex<Vec<Weak<Live>>>,
+    /// Cancelled by disable and remove: tools made from it refuse, and calls under way end.
+    closed: CancellationToken,
+    published: tokio::sync::Notify,
+}
+
+impl Slot {
+    fn current(&self) -> Option<Arc<Live>> {
+        self.current.lock().unwrap().clone()
+    }
+
+    fn publish(&self, live: Arc<Live>) {
+        let mut served = self.served.lock().unwrap();
+        served.retain(|client| client.strong_count() > 0);
+        served.push(Arc::downgrade(&live));
+        drop(served);
+        *self.current.lock().unwrap() = Some(live);
+        self.published.notify_waiters();
+    }
+
+    fn take(&self) -> Option<Arc<Live>> {
+        self.current.lock().unwrap().take()
+    }
+
+    fn close(&self) {
+        self.closed.cancel();
+        self.take();
+        let served: Vec<_> = self.served.lock().unwrap().drain(..).collect();
+        for live in served.iter().filter_map(Weak::upgrade) {
+            live.close();
+        }
+    }
+
+    fn is_closed(&self) -> bool {
+        self.closed.is_cancelled()
+    }
+
+    async fn closing(&self) {
+        self.closed.cancelled().await;
+    }
+
+    /// The client a tool opened as `pinned` calls now: the current one when it serves the same definition.
+    fn client_for(&self, pinned: &Arc<Live>) -> Arc<Live> {
+        self.current().filter(|current| current.hash == pinned.hash && current.is_open()).unwrap_or_else(|| pinned.clone())
+    }
+
+    /// Waits, at most `limit`, for a client of the same definition to take over from `lost`.
+    async fn replacement(&self, lost: &Arc<Live>, limit: Duration) -> Option<Arc<Live>> {
+        let deadline = tokio::time::Instant::now() + limit;
+        loop {
+            let published = self.published.notified();
+            if let Some(next) = self.current().filter(|next| next.hash == lost.hash && !Arc::ptr_eq(next, lost) && next.is_open()) {
+                return Some(next);
+            }
+            tokio::select! {
+                () = published => {}
+                () = self.closed.cancelled() => return None,
+                () = tokio::time::sleep_until(deadline) => return None,
+            }
+        }
+    }
 }
 
 /// How often a connected server's transport is checked for having closed by itself.
@@ -124,6 +200,11 @@ const STABLE: Duration = Duration::from_secs(60);
 const STABLE: Duration = Duration::from_millis(500);
 /// How long a turn being planned waits for connects already under way, so its tools are not briefly missing.
 pub const READY_WAIT: Duration = Duration::from_secs(2);
+/// How long a read-only call cut off by a lost connection waits for the reconnect before giving up.
+#[cfg(not(test))]
+const REPLACEMENT_WAIT: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const REPLACEMENT_WAIT: Duration = Duration::from_secs(3);
 
 /// A connect in flight. A newer connect, or any change to the server, cancels it.
 #[derive(Clone)]
@@ -135,7 +216,7 @@ struct Attempt {
 
 #[derive(Default)]
 struct Slots {
-    live: HashMap<String, Arc<Live>>,
+    servers: HashMap<String, Arc<Slot>>,
     transient: HashMap<String, (State, Option<String>)>,
     /// Bumped by every save, disable, disconnect and remove; a connect from an older one publishes nothing.
     generation: HashMap<String, u64>,
@@ -150,6 +231,17 @@ impl Slots {
     fn is_current(&self, name: &str, attempt: &Attempt) -> bool {
         self.attempts.get(name).is_some_and(|a| a.id == attempt.id) && self.generation_of(name) == attempt.generation
     }
+
+    fn live(&self, name: &str) -> Option<Arc<Live>> {
+        self.servers.get(name).and_then(|slot| slot.current())
+    }
+}
+
+/// What a change does to the server's slot: a save or disconnect keeps it, a disable or remove ends it.
+#[derive(Clone, Copy, PartialEq)]
+enum Ending {
+    Keep,
+    Close,
 }
 
 #[derive(Default)]
@@ -178,7 +270,7 @@ impl Servers {
 
     pub fn status_of(&self, row: ServerRow) -> ServerStatus {
         let slots = self.lock();
-        let live = slots.live.get(&row.name);
+        let live = slots.live(&row.name);
         let (state, error) = if !row.enabled {
             (State::Disabled, None)
         } else if !row.is_approved() {
@@ -198,7 +290,7 @@ impl Servers {
         let _settle = Settle { servers: self, hub, row: &row, id: attempt.id };
         hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
         let opened = tokio::select! {
-            opened = open(&row.config) => opened,
+            opened = open(&row.config, row.hash()) => opened,
             () = attempt.cancel.cancelled() => Err("server definition changed during connect".into()),
         };
         self.finish(&row, hub, &attempt, opened)
@@ -236,7 +328,7 @@ impl Servers {
         let result = match opened {
             Ok(live) => {
                 let live = Arc::new(live);
-                slots.live.insert(row.name.clone(), live.clone());
+                slots.servers.entry(row.name.clone()).or_default().publish(live.clone());
                 slots.transient.remove(&row.name);
                 Ok(live)
             }
@@ -251,7 +343,7 @@ impl Servers {
     }
 
     /// Writes the server's row and, in the same step, ends its connection and any connect in flight.
-    fn detach<R>(&self, name: &str, store: &Store, write: impl FnOnce(&Store) -> rusqlite::Result<R>) -> rusqlite::Result<(Option<Arc<Live>>, R)> {
+    fn detach<R>(&self, name: &str, store: &Store, ending: Ending, write: impl FnOnce(&Store) -> rusqlite::Result<R>) -> rusqlite::Result<(Option<Arc<Live>>, R)> {
         let mut slots = self.lock();
         let written = write(store)?;
         *slots.generation.entry(name.into()).or_default() += 1;
@@ -259,18 +351,30 @@ impl Servers {
             attempt.cancel.cancel();
         }
         slots.transient.remove(name);
-        Ok((slots.live.remove(name), written))
+        let slot = if ending == Ending::Close { slots.servers.remove(name) } else { slots.servers.get(name).cloned() };
+        let live = slot.as_ref().and_then(|slot| slot.take());
+        if ending == Ending::Close {
+            slot.inspect(|slot| slot.close());
+        }
+        Ok((live, written))
     }
 
-    /// A save, disable or remove: the write and the end of the old connection are one step.
+    /// A save: the write and the end of the old connection are one step; running turns keep their client.
     pub async fn change<R>(&self, name: &str, store: &Store, hub: &Hub, write: impl FnOnce(&Store) -> rusqlite::Result<R>) -> rusqlite::Result<R> {
-        let (live, written) = self.detach(name, store, write)?;
+        let (live, written) = self.detach(name, store, Ending::Keep, write)?;
+        self.retire(name, store, hub, live).await;
+        Ok(written)
+    }
+
+    /// A disable or remove: as [`Self::change`], and every client the server served is closed, running turns' too.
+    pub async fn close<R>(&self, name: &str, store: &Store, hub: &Hub, write: impl FnOnce(&Store) -> rusqlite::Result<R>) -> rusqlite::Result<R> {
+        let (live, written) = self.detach(name, store, Ending::Close, write)?;
         self.retire(name, store, hub, live).await;
         Ok(written)
     }
 
     pub async fn disconnect(&self, name: &str, store: &Store, hub: &Hub) -> bool {
-        let Ok((live, ())) = self.detach(name, store, |_| Ok(())) else { return false };
+        let Ok((live, ())) = self.detach(name, store, Ending::Keep, |_| Ok(())) else { return false };
         let was_live = live.is_some();
         self.retire(name, store, hub, live).await;
         was_live
@@ -292,7 +396,7 @@ impl Servers {
     }
 
     fn is_live(&self, name: &str) -> bool {
-        self.lock().live.contains_key(name)
+        self.lock().live(name).is_some()
     }
 
     /// Whether any connect is in flight.
@@ -318,26 +422,25 @@ impl Servers {
     /// Whether `live` is still the server's connection; one whose transport closed by itself is dropped here.
     fn check(&self, name: &str, live: &Weak<Live>) -> Watch {
         let mut slots = self.lock();
-        let Some(current) = slots.live.get(name).filter(|current| Arc::downgrade(current).ptr_eq(live)) else { return Watch::Gone };
-        if !current.service.is_transport_closed() && !current.service.is_closed() {
+        let Some(slot) = slots.servers.get(name).cloned() else { return Watch::Gone };
+        let Some(current) = slot.current().filter(|current| Arc::downgrade(current).ptr_eq(live)) else { return Watch::Gone };
+        if current.is_open() {
             return Watch::Holding;
         }
-        let lived = current.since.elapsed();
-        slots.live.remove(name);
+        slot.take();
         slots.transient.insert(name.into(), (State::Connecting, Some("the connection closed; reconnecting".into())));
-        Watch::Lost { generation: slots.generation_of(name), lived }
+        Watch::Lost { generation: slots.generation_of(name), lived: current.since.elapsed() }
     }
 
     /// Every tool of every connected server, named `server_tool` so the model can tell them apart.
     pub fn tools(&self) -> Vec<Arc<dyn crate::tool::Tool>> {
         let slots = self.lock();
-        slots
-            .live
-            .iter()
-            .flat_map(|(server, live)| {
-                live.tools.iter().map(move |tool| Arc::new(McpTool::new(server, tool.clone(), live.clone())) as Arc<dyn crate::tool::Tool>)
-            })
-            .collect()
+        let mut tools: Vec<Arc<dyn crate::tool::Tool>> = Vec::new();
+        for (server, slot) in &slots.servers {
+            let Some(live) = slot.current() else { continue };
+            tools.extend(live.tools.iter().map(|tool| Arc::new(McpTool::new(server, tool.clone(), live.clone(), slot.clone())) as Arc<dyn crate::tool::Tool>));
+        }
+        tools
     }
 }
 
@@ -365,10 +468,10 @@ impl Drop for Settle<'_> {
     }
 }
 
-async fn open(config: &ServerConfig) -> Result<Live, String> {
+async fn open(config: &ServerConfig, hash: String) -> Result<Live, String> {
     let (service, tree) = within("start", start(config)).await?;
     let tools = within("list its tools", async { service.list_all_tools().await.map_err(|e| format!("tools/list failed: {e}")) }).await?;
-    Ok(Live { service, tools, since: Instant::now(), _tree: tree })
+    Ok(Live { service, tools, hash, since: Instant::now(), tree })
 }
 
 async fn within<T>(what: &str, step: impl Future<Output = Result<T, String>>) -> Result<T, String> {
@@ -483,11 +586,26 @@ impl crate::Engine {
 }
 
 impl Live {
-    async fn call(&self, name: &str, arguments: serde_json::Value) -> Result<(String, bool), String> {
+    fn is_open(&self) -> bool {
+        !self.service.is_transport_closed() && !self.service.is_closed()
+    }
+
+    /// Ends the connection and kills its process tree even while others still hold it.
+    fn close(&self) {
+        self.service.cancellation_token().cancel();
+        if let Some(tree) = &self.tree {
+            tree.kill();
+        }
+    }
+
+    async fn call(&self, name: &str, arguments: serde_json::Value) -> Result<(String, bool), CallError> {
         let arguments = arguments.as_object().cloned();
         let mut params = CallToolRequestParams::new(name.to_string());
         params.arguments = arguments;
-        let result = self.service.call_tool(params).await.map_err(|e| e.to_string())?;
+        let result = self.service.call_tool(params).await.map_err(|error| match error {
+            ServiceError::TransportClosed | ServiceError::TransportSend(_) | ServiceError::Cancelled { .. } => CallError::Lost,
+            other => CallError::Failed(other.to_string()),
+        })?;
         let text: Vec<String> = result
             .content
             .iter()

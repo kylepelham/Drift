@@ -919,9 +919,21 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   30 s, reading its row afresh each attempt; it stops when it connects or when its generation
   changes (save, disable, disconnect, remove), so a deliberate disconnect is never undone and a
   reconnect started under an old definition is discarded. A tool's own failure (`isError`) is not a
-  lost connection. Saving a server whose config is still approved reconnects it at once (reload):
-  the new client serves turns admitted afterwards, while running turns keep the client in their
-  snapshot until they end.
+  lost connection. Saving a server whose config is still approved reconnects it at once (reload).
+- **MCP tools in running turns.** A server has one slot from enable to disable or remove, and every
+  tool object made from it holds that slot and the client it was planned with. A call uses the
+  slot's current client when it serves the same definition (same config hash), so a running turn
+  follows a reconnect or reload instead of calling a dead process; otherwise it uses its own client,
+  so saving a different command never moves a running turn onto a command nobody approved. That
+  client stays alive while the turn holds it.
+- A call cut off by a lost connection is never replayed if the tool may change something: the
+  model is told the call may or may not have taken effect and was not retried. A read-only tool is
+  asked again, once, of the reconnected server if one comes within 10 s.
+- Disable and remove close the slot: calls under way end with an error saying the effect is
+  uncertain, every client the slot served is closed and its process tree killed, including ones
+  running turns still hold, and tools captured before the disable refuse from then on. Re-enabling
+  makes a new slot; tools captured before stay refused. A disconnect only takes the server out of
+  later turns, like a save.
 - **MCP lifecycle coordination.** One lock (`Servers::slots`) orders everything that decides which
   connection a server has: a save, disable or remove writes its row and bumps the generation in the
   same step (`Servers::change`); a connect reads the row and the generation together when it starts;

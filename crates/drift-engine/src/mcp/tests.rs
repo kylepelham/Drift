@@ -103,7 +103,7 @@ async fn a_server_that_exits_by_itself_is_reconnected_and_its_tools_come_back() 
     let row = approved(&engine, "echo", &echo_config()).await;
     engine.connect_mcp(&row.name).await.unwrap();
     let ctx = context(&engine);
-    assert!(tool(&engine, "echo_echo").run(&ctx, json!({ "text": "crash" })).await.is_err());
+    assert!(tool(&engine, "echo_shout").run(&ctx, json!({ "text": "crash" })).await.is_err());
     until("it noticed", || engine.mcp.status_of(row.clone()).state != State::Connected).await;
     until("it is back", || engine.mcp.status_of(row.clone()).state == State::Connected && find(&engine, "echo_echo").is_some()).await;
     assert_eq!(tool(&engine, "echo_echo").run(&ctx, json!({ "text": "hi again" })).await.unwrap().output, "hi again", "a new process serves it");
@@ -129,7 +129,7 @@ async fn a_deliberate_disconnect_ends_reconnecting() {
     let engine = engine();
     let row = approved(&engine, "echo", &echo_config()).await;
     engine.connect_mcp(&row.name).await.unwrap();
-    let _ = tool(&engine, "echo_echo").run(&context(&engine), json!({ "text": "crash" })).await;
+    let _ = tool(&engine, "echo_shout").run(&context(&engine), json!({ "text": "crash" })).await;
     until("it noticed", || engine.mcp.status_of(row.clone()).state != State::Connected).await;
     engine.mcp.disconnect("echo", &engine.store, &engine.hub).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -326,6 +326,83 @@ async fn a_newer_connect_supersedes_one_in_flight() {
     let ended = tokio::time::timeout(std::time::Duration::from_secs(1), first).await.expect("the first ends at once");
     assert!(ended.unwrap().is_err());
     all_dead(&pids).await;
+}
+
+/// The echo server, logging every call to the returned file and crashing `crash-once` only the first time.
+fn logged_echo() -> (ServerConfig, std::path::PathBuf) {
+    let ServerConfig::Stdio { command, args, .. } = echo_config() else { unreachable!() };
+    let dir = std::env::temp_dir().join(format!("drift-mcp-log-{}", crate::random_hex(4)));
+    std::fs::create_dir_all(&dir).unwrap();
+    let env = [("CALL_LOG", dir.join("calls")), ("CRASH_MARKER", dir.join("crashed"))].map(|(k, v)| (k.to_string(), v.to_string_lossy().into_owned()));
+    (ServerConfig::Stdio { command, args, env: env.into() }, dir.join("calls"))
+}
+
+fn calls(log: &std::path::Path) -> Vec<String> {
+    std::fs::read_to_string(log).unwrap_or_default().lines().map(String::from).collect()
+}
+
+#[tokio::test]
+async fn a_running_turns_tool_follows_a_reconnect_but_never_replays_a_call_that_may_have_landed() {
+    let engine = engine();
+    let (config, log) = logged_echo();
+    let row = approved(&engine, "echo", &config).await;
+    engine.connect_mcp("echo").await.unwrap();
+    let (ctx, shout) = (context(&engine), tool(&engine, "echo_shout"));
+    let lost = shout.run(&ctx, json!({ "text": "crash" })).await.unwrap_err().0;
+    assert!(lost.contains("may or may not have taken effect") && lost.contains("not retried"), "{lost}");
+    until("it noticed", || engine.mcp.status_of(row.clone()).state != State::Connected).await;
+    until("it is back", || engine.mcp.status_of(row.clone()).state == State::Connected).await;
+    assert_eq!(calls(&log), ["shout crash"], "sent once, not replayed on the new process");
+    assert_eq!(shout.run(&ctx, json!({ "text": "hi" })).await.unwrap().output, "HI", "the captured tool reaches the reconnected server");
+}
+
+#[tokio::test]
+async fn a_read_only_call_cut_off_by_a_lost_connection_is_asked_again_once() {
+    let engine = engine();
+    let (config, log) = logged_echo();
+    approved(&engine, "echo", &config).await;
+    engine.connect_mcp("echo").await.unwrap();
+    let out = tool(&engine, "echo_echo").run(&context(&engine), json!({ "text": "crash-once" })).await.unwrap();
+    assert_eq!(out.output, "crash-once", "answered by the reconnected server");
+    assert_eq!(calls(&log), ["echo crash-once", "echo crash-once"]);
+}
+
+#[tokio::test]
+async fn disabling_ends_calls_under_way_and_refuses_captured_tools_until_reenabled() {
+    let engine = engine();
+    let (config, log) = logged_echo();
+    approved(&engine, "echo", &config).await;
+    engine.connect_mcp("echo").await.unwrap();
+    let (echo, shout) = (tool(&engine, "echo_echo"), tool(&engine, "echo_shout"));
+    let hanging = tokio::spawn({
+        let (engine, shout) = (engine.clone(), shout.clone());
+        async move { shout.run(&context(&engine), json!({ "text": "hang" })).await.map(|out| out.output).map_err(|e| e.0) }
+    });
+    until("the call reached the server", || calls(&log) == ["shout hang"]).await;
+    engine.mcp.close("echo", &engine.store, &engine.hub, |store| store.set_mcp_enabled("echo", false)).await.unwrap();
+    let ended = tokio::time::timeout(std::time::Duration::from_secs(1), hanging).await.expect("the call ends at once").unwrap();
+    assert!(ended.unwrap_err().contains("disabled while the call ran"));
+    let ctx = context(&engine);
+    assert!(echo.run(&ctx, json!({ "text": "hi" })).await.unwrap_err().0.contains("disabled or removed"), "a captured tool refuses");
+
+    engine.store.set_mcp_enabled("echo", true).unwrap();
+    engine.connect_mcp("echo").await.unwrap();
+    assert_eq!(tool(&engine, "echo_echo").run(&ctx, json!({ "text": "back" })).await.unwrap().output, "back");
+    assert!(echo.run(&ctx, json!({ "text": "hi" })).await.is_err(), "re-enabling does not revive tools captured before the disable");
+}
+
+#[tokio::test]
+async fn a_save_leaves_running_turns_on_the_client_they_were_given() {
+    let engine = engine();
+    let (config, _log) = logged_echo();
+    approved(&engine, "echo", &config).await;
+    engine.connect_mcp("echo").await.unwrap();
+    let echo = tool(&engine, "echo_echo");
+    let ServerConfig::Stdio { command, args, mut env } = config else { unreachable!() };
+    env.insert("CHANGED".into(), "1".into());
+    engine.mcp.change("echo", &engine.store, &engine.hub, |store| store.save_mcp_server("echo", &ServerConfig::Stdio { command, args, env })).await.unwrap();
+    assert!(find(&engine, "echo_echo").is_none(), "later turns wait for approval of the new command");
+    assert_eq!(echo.run(&context(&engine), json!({ "text": "still" })).await.unwrap().output, "still", "the running turn keeps its client");
 }
 
 #[test]
