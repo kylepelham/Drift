@@ -1090,7 +1090,8 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     neither `git *` nor an "always" for `git status`, and "always" on it records only that line.
     Stream duplications (`2>&1`, `>&2`, `n>&-`) and sinks (`/dev/null`, `/dev/stdout`,
     `/dev/stderr` in bash, `$null` in PowerShell) write nothing. Git Bash has no `nul` device, so
-    `> nul` counts as a write. Quoted or escaped operators are text. Redirections are listed after
+    `> nul` counts as a write; the tool description on Windows says the shell is Unix bash, to use
+    `/dev/null` and not `NUL`, `cd` and not `cd /d`, and `C:/dir` or `/c/dir` paths. Quoted or escaped operators are text. Redirections are listed after
     the command's words (`Ask.writes` names the targets) so the program word stays first.
   - A secret read is held to the same bar: `read *` or an "always" widened to `**` never allows
     `.env`; a rule or approval naming that file does, and any matching deny still denies.

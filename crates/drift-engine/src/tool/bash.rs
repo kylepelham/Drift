@@ -64,15 +64,22 @@ fn git_bash() -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
+/// What the model must know about the shell, which differs most on Windows: Git's bash there is still Unix bash.
+fn shell_note(shell: &Shell, windows: bool) -> &'static str {
+    match shell {
+        Shell::Bash(_) if windows => {
+            "Git Bash on Windows. It is Unix bash, not cmd: discard output with `/dev/null`, never `NUL`; change directory with `cd`, never `cd /d`; write paths as `C:/dir/file` or `/c/dir/file`"
+        }
+        Shell::Bash(_) => "bash",
+        Shell::PowerShell(_) => "PowerShell 7 (pwsh); use PowerShell syntax, not bash",
+    }
+}
+
 impl Tool for Bash {
     fn spec(&self) -> ToolSpec {
-        let shell = match &self.shell {
-            Shell::Bash(_) => "bash",
-            Shell::PowerShell(_) => "PowerShell 7 (pwsh); use PowerShell syntax, not bash",
-        };
         ToolSpec {
             name: "bash".into(),
-            description: include_str!("prompts/bash.txt").trim().replace("{shell}", shell),
+            description: include_str!("prompts/bash.txt").trim().replace("{shell}", shell_note(&self.shell, cfg!(windows))),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -385,6 +392,17 @@ mod tests {
         };
         let unlimited = bash.run(&sandbox.ctx, json!({ "command": quick })).await.unwrap();
         assert!(!bash.failed(&unlimited) && unlimited.metadata["shellTimeoutMs"].is_null(), "no limit lets it finish");
+    }
+
+    #[test]
+    fn the_model_is_told_git_bash_on_windows_is_unix_bash() {
+        let bash = Shell::Bash("bash".into());
+        let windows = shell_note(&bash, true);
+        assert!(windows.contains("Unix bash") && windows.contains("/dev/null") && windows.contains("never `NUL`") && windows.contains("never `cd /d`"), "{windows}");
+        assert_eq!(shell_note(&bash, false), "bash");
+        assert!(shell_note(&Shell::PowerShell("pwsh".into()), true).starts_with("PowerShell 7"));
+        let spec = Bash::with(bash).spec();
+        assert!(spec.description.contains("/dev/null") == cfg!(windows), "{}", spec.description);
     }
 
     #[test]
