@@ -130,7 +130,8 @@ pub enum Error {
     Api { status: u16, kind: String, message: String, retryable: bool, retry_after: Option<std::time::Duration> },
     Transport(String),
     Malformed(String),
-    Unauthenticated,
+    /// The provider refused the credentials, in its own words; empty when there were none to send.
+    Unauthenticated(String),
 }
 
 /// The status adapters give an error that arrives inside a stream which began with 200 OK.
@@ -264,7 +265,8 @@ impl std::fmt::Display for Error {
             Self::Api { status, kind, message, .. } => write!(f, "{kind} ({status}): {message}"),
             Self::Transport(message) => write!(f, "transport: {message}"),
             Self::Malformed(message) => write!(f, "malformed response: {message}"),
-            Self::Unauthenticated => write!(f, "no credentials for this provider"),
+            Self::Unauthenticated(words) if words.is_empty() => write!(f, "no credentials for this provider"),
+            Self::Unauthenticated(words) => write!(f, "the provider refused the credentials: {words}"),
         }
     }
 }

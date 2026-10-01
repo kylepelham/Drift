@@ -943,6 +943,15 @@ Settled after the first external review of M1; each has a regression test.
   pair is written only if the stored credential is still the one the refresh started from
   (`Credentials::replace_if`). Every credential mutation (`set`, `remove`, `replace_if`)
   holds the same lock, so a sign-in or sign-out during the refresh wins and is never undone.
+- A sign-in the provider refuses (401/403 on an OAuth token our clock still thinks is live: revoked
+  or expired early) is renewed the same single-flight way, once, before any output, and the
+  request is sent again on the new token, which the turn keeps for its later steps. A newer stored
+  token (another turn renewed, or the user signed in again) is used without a refresh. If renewal
+  fails, the reply's error is the provider's words plus "the sign-in has expired and could not be
+  renewed; sign in again under Settings > Providers"; an admission-time refresh failure is 401
+  `signin_expired` with the same text. A refused key keeps the provider's words
+  ("the provider refused the credentials: ..."); "no credentials for this provider" now means
+  there was nothing to send.
 - The socket client never advances its cursor on a failed hydrate; it retries and keeps
   holding events. A `resync` that lands mid-hydrate folds into the same run. A `hello` from a
   different engine instance, or `close()`, discards held events and disowns any hydrate in

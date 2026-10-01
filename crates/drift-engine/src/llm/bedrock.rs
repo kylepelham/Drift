@@ -27,7 +27,7 @@ impl Bedrock {
         // A key saved in Settings is a Bedrock API key; otherwise the environment's, found now.
         let auth = match credential {
             Credential::ApiKey { key } => Auth::Bearer(key.clone()),
-            _ => aws::auth().ok_or(Error::Unauthenticated)?,
+            _ => aws::auth().ok_or(Error::Unauthenticated(String::new()))?,
         };
         self.send(request, &auth, &aws::region()).await
     }
@@ -112,7 +112,7 @@ fn api_error(status: u16, kind: &str, text: &str) -> Error {
 fn classify(status: u16, kind: &str, message: &str) -> Error {
     let name = kind.to_ascii_lowercase();
     if matches!(status, 401 | 403) || ["accessdenied", "unrecognizedclient", "expiredtoken", "invalidsignature"].iter().any(|k| name.starts_with(k)) {
-        return Error::Unauthenticated;
+        return Error::Unauthenticated(message.to_string());
     }
     let implied = match name.trim_end_matches("exception") {
         "throttling" => 429,
@@ -184,7 +184,7 @@ mod tests {
         assert_eq!(retryable(&errored), Some((503, true)));
         let unknown = first_error(&frame(&[(":message-type", "surprise")], b"{}"));
         assert!(matches!(unknown, Error::Malformed(_)));
-        assert!(matches!(api_error(403, "", r#"{"message":"no access"}"#), Error::Unauthenticated));
+        assert!(matches!(api_error(403, "", r#"{"message":"no access"}"#), Error::Unauthenticated(ref m) if m == "no access"));
         assert_eq!(retryable(&api_error(400, "ThrottlingException", r#"{"message":"slow"}"#)), Some((400, false)), "a status given is the status kept");
         assert!(api_error(429, "ThrottlingException", r#"{"message":"slow"}"#).to_string().contains("slow"));
     }

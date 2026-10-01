@@ -25,7 +25,7 @@ change the plan there when a decision changes.
 - [x] One `drift.db` connection shared by engine and shell
 - [x] Real turns against Anthropic through `drift-engined` (read, edit with ask, bash with ask)
 - [x] Drift UI against the new API (adapter over the legacy store shapes; engine-side verified, shell run pending)
-- [x] Failure paths: terminal validation, atomic admission, replay eligibility, single-flight refresh, hydrate cursor safety, full listings
+- [x] Failure paths: terminal validation, atomic admission, replay eligibility, single-flight refresh (also once on a refused sign-in, which otherwise says it expired), hydrate cursor safety, full listings
 - [x] M1 sign-off corrections: resolved paths, refused unsafe writes, process-tree stop, replay eligibility, auth fence
 - [x] Conformance suite with recorded Anthropic fixtures (`tests/conformance`)
 

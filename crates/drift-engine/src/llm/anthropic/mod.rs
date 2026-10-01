@@ -48,7 +48,7 @@ impl Anthropic {
                 claude_code::transform(&mut body);
                 http.bearer_auth(access).header("anthropic-beta", claude_code::BETAS).header("user-agent", claude_code::user_agent())
             }
-            Credential::Ambient { .. } => return Err(Error::Unauthenticated),
+            Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
         stream_from(http.json(&body), &self.timeouts, subscription).await
     }
@@ -189,7 +189,7 @@ pub(super) fn api_error(status: u16, text: &str) -> Error {
     let kind = parsed["error"]["type"].as_str().unwrap_or("api_error").to_string();
     let message = parsed["error"]["message"].as_str().unwrap_or(text).to_string();
     match status {
-        401 | 403 => Error::Unauthenticated,
+        401 | 403 => Error::Unauthenticated(message),
         _ => Error::api(status, kind, message),
     }
 }
@@ -386,6 +386,7 @@ mod tests {
         assert!(matches!(invalid, Error::Api { retryable: false, .. }));
         assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
         assert!(matches!(api_error(400, "{}"), Error::Api { retryable: false, .. }));
-        assert!(matches!(api_error(401, "{}"), Error::Unauthenticated));
+        let expired = api_error(401, r#"{"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}"#);
+        assert!(matches!(expired, Error::Unauthenticated(ref m) if m == "OAuth token has expired."), "the provider's words are kept: {expired:?}");
     }
 }

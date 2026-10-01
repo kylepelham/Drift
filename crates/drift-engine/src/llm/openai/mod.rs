@@ -49,7 +49,7 @@ impl OpenAi {
                     None => http,
                 }
             }
-            Credential::Ambient { .. } => return Err(Error::Unauthenticated),
+            Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
         let response = super::http::send(http.json(&body(request, subscription)), &self.timeouts).await?;
         let status = response.status();
@@ -148,7 +148,7 @@ fn api_error(status: u16, text: &str) -> Error {
     let kind = error["code"].as_str().or(error["type"].as_str()).unwrap_or("api_error").to_string();
     let message = error["message"].as_str().unwrap_or(text).to_string();
     match status {
-        401 | 403 => Error::Unauthenticated,
+        401 | 403 => Error::Unauthenticated(message),
         _ => Error::api(status, kind, message),
     }
 }
@@ -362,7 +362,7 @@ mod tests {
         let refused = StreamState::default().chunks(r#"{"type":"error","code":"invalid_prompt","message":"no"}"#);
         assert!(matches!(refused, Err(Error::Api { retryable: false, .. })));
         assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
-        assert!(matches!(api_error(401, "{}"), Error::Unauthenticated));
+        assert!(matches!(api_error(401, r#"{"error":{"message":"token expired"}}"#), Error::Unauthenticated(ref m) if m == "token expired"));
     }
 
     #[test]

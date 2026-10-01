@@ -41,7 +41,7 @@ impl Compat {
         let key = match credential {
             Credential::ApiKey { key } => key.clone(),
             Credential::OAuth { access, .. } => access.clone(),
-            Credential::Ambient { .. } => return Err(Error::Unauthenticated),
+            Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
         let mut body = body(request);
         reason(&mut body, request.reasoning.as_ref(), self.reasoning_object);
@@ -172,7 +172,7 @@ fn api_error(status: u16, text: &str) -> Error {
     let message = error["message"].as_str().unwrap_or(text).to_string();
     let named = error["code"].as_u64().and_then(|code| u16::try_from(code).ok()).filter(|_| status == super::STREAMED);
     match named.unwrap_or(status) {
-        401 | 403 => Error::Unauthenticated,
+        401 | 403 => Error::Unauthenticated(message),
         status => Error::api(status, kind, message),
     }
 }
@@ -478,7 +478,7 @@ mod tests {
         assert!(matches!(gateway, Err(Error::Api { status: 502, retryable: true, .. })), "a gateway's streamed 502 retries: {gateway:?}");
         let overloaded = StreamState::default().chunks(r#"{"error":{"message":"busy","type":"overloaded_error"}}"#);
         assert!(matches!(overloaded, Err(Error::Api { retryable: true, .. })), "an upstream overload passed through retries");
-        assert!(matches!(StreamState::default().chunks(r#"{"error":{"message":"key","code":401}}"#), Err(Error::Unauthenticated)));
+        assert!(matches!(StreamState::default().chunks(r#"{"error":{"message":"key","code":401}}"#), Err(Error::Unauthenticated(ref m)) if m == "key"));
         let mut state = StreamState::default();
         state.chunks(r#"{"choices":[{"delta":{"content":"x"},"finish_reason":"length"}]}"#).unwrap();
         assert!(state.done().unwrap().contains(&Chunk::Stop(StopReason::MaxTokens)));

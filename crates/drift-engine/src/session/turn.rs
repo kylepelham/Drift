@@ -91,6 +91,8 @@ pub enum TurnError {
     NoModel,
     UnknownModel,
     NoCredentials,
+    /// The sign-in's token could not be renewed; carries the provider's reason.
+    SignInExpired(String),
     /// The session is not waiting to retry a failed request, so there is nothing to switch.
     NotRetrying,
     /// The session is undone back to a prompt; send a prompt or redo first.
@@ -118,6 +120,7 @@ impl std::fmt::Display for TurnError {
             Self::NoModel => write!(f, "no model selected"),
             Self::UnknownModel => write!(f, "model is not in the catalog"),
             Self::NoCredentials => write!(f, "provider has no credentials"),
+            Self::SignInExpired(reason) => write!(f, "the sign-in has expired and could not be renewed; sign in again under Settings > Providers ({reason})"),
             Self::NotRetrying => write!(f, "the session is not waiting to retry"),
             Self::Reverted => write!(f, "the session is undone; send a prompt or redo first"),
             Self::Attachment(message) => write!(f, "{message}"),
@@ -571,15 +574,20 @@ impl Engine {
         Ok(plan)
     }
 
-    /// Expired subscription tokens are refreshed once, however many turns notice at the same time.
+    /// Expired subscription tokens are refreshed before they are sent.
     pub(super) async fn fresh_credential(&self, provider: &str, credential: Credential) -> Result<Credential, TurnError> {
         if !credential.is_expired() {
             return Ok(credential);
         }
+        self.renew(provider, credential).await
+    }
+
+    /// A new token for a sign-in that expired or was refused, refreshed once however many turns ask at the same time.
+    pub(super) async fn renew(&self, provider: &str, credential: Credential) -> Result<Credential, TurnError> {
         let lock = self.turns.refresh_lock(provider);
         let _held = lock.lock().await;
-        // Another turn may have refreshed while we waited; its token is the one to use.
-        if let Some(stored) = self.credentials.get(provider).filter(|stored| !stored.is_expired()) {
+        // Another turn, or the user signing in again, may have replaced it while we waited; that token is the one to use.
+        if let Some(stored) = self.credentials.get(provider).filter(|stored| *stored != credential && !stored.is_expired()) {
             return Ok(stored);
         }
         let Credential::OAuth { refresh, .. } = &credential else { return Ok(credential) };
@@ -588,7 +596,7 @@ impl Engine {
             "openai" => llm::openai::oauth::refresh(&self.http, refresh).await,
             _ => return Ok(credential),
         };
-        let fresh = refreshed.map_err(|_| TurnError::NoCredentials)?;
+        let fresh = refreshed.map_err(TurnError::SignInExpired)?;
         // If the user signed in or out while we were refreshing, their change stands and this turn uses it.
         if !self.credentials.replace_if(provider, &credential, &fresh).map_err(TurnError::Store)? {
             return self.credentials.get(provider).ok_or(TurnError::NoCredentials);
@@ -823,7 +831,7 @@ impl Engine {
     }
 
     /// One assistant message and the tool calls it makes.
-    async fn step(self: &Arc<Self>, plan: &Plan, mut message: Message, request: &Request, abort: &CancellationToken) -> Step {
+    async fn step(self: &Arc<Self>, plan: &mut Plan, mut message: Message, request: &Request, abort: &CancellationToken) -> Step {
         let streamed = match self.stream(&message, plan, request, abort).await {
             Ok(streamed) => streamed,
             Err(StreamError::Aborted) => {
@@ -877,10 +885,23 @@ impl Engine {
         saved
     }
 
-    async fn stream(&self, message: &Message, plan: &Plan, request: &Request, abort: &CancellationToken) -> Result<Streamed, StreamError> {
+    /// Opens the response. A refused sign-in is renewed once and the request sent again; the turn keeps the new token.
+    async fn open_response(&self, plan: &mut Plan, request: &Request) -> Result<llm::ChunkStream, llm::Error> {
+        let refused = match plan.provider.stream(request, &plan.credential).await {
+            Err(llm::Error::Unauthenticated(words)) if matches!(plan.credential, Credential::OAuth { .. }) => words,
+            opened => return opened,
+        };
+        match self.renew(&plan.model_ref.provider, plan.credential.clone()).await {
+            Ok(fresh) => plan.credential = fresh,
+            Err(error) => return Err(llm::Error::Unauthenticated(format!("{refused} ({error})"))),
+        }
+        plan.provider.stream(request, &plan.credential).await
+    }
+
+    async fn stream(&self, message: &Message, plan: &mut Plan, request: &Request, abort: &CancellationToken) -> Result<Streamed, StreamError> {
         // Stop counts while the request is still being sent or the response has not begun.
         let mut chunks = tokio::select! {
-            opened = plan.provider.stream(request, &plan.credential) => opened.map_err(StreamError::Provider)?,
+            opened = self.open_response(plan, request) => opened.map_err(StreamError::Provider)?,
             () = abort.cancelled() => return Err(StreamError::Aborted),
         };
         let mut assembler = Assembler::new(&self.store, &self.hub, message);

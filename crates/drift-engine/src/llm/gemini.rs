@@ -35,7 +35,7 @@ impl Gemini {
         let http = match credential {
             Credential::ApiKey { key } => self.client.post(url).header("x-goog-api-key", key),
             Credential::OAuth { access, .. } => self.client.post(url).bearer_auth(access),
-            Credential::Ambient { .. } => return Err(Error::Unauthenticated),
+            Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
         stream_from(http, request, &self.timeouts).await
     }
@@ -142,7 +142,7 @@ fn api_error(status: u16, text: &str) -> Error {
     let kind = parsed["error"]["status"].as_str().unwrap_or("api_error").to_string();
     let message = parsed["error"]["message"].as_str().unwrap_or(text).to_string();
     match status {
-        401 | 403 => Error::Unauthenticated,
+        401 | 403 => Error::Unauthenticated(message),
         _ => Error::api(status, kind, message),
     }
 }

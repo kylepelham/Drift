@@ -68,7 +68,7 @@ static MINTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A current access token, minted again only near its expiry or when the credentials (path or contents) change.
 pub async fn token(client: &reqwest::Client, timeouts: &super::http::Timeouts) -> Result<String, Error> {
-    token_from(client, credentials_file().ok_or(Error::Unauthenticated)?, timeouts).await
+    token_from(client, credentials_file().ok_or(Error::Unauthenticated(String::new()))?, timeouts).await
 }
 
 async fn token_from(client: &reqwest::Client, path: PathBuf, timeouts: &super::http::Timeouts) -> Result<String, Error> {
@@ -133,7 +133,7 @@ fn token_error(status: u16, body: &Value) -> Error {
     let message = body["error_description"].as_str().unwrap_or(kind);
     let refused = ["invalid_grant", "invalid_client", "unauthorized_client", "invalid_scope"].contains(&kind);
     if refused || matches!(status, 401 | 403) {
-        return Error::Unauthenticated;
+        return Error::Unauthenticated(message.to_string());
     }
     Error::api(status, kind, format!("Google token exchange: {message}"))
 }
@@ -246,7 +246,7 @@ mod tests {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = crate::llm::http::client();
         let (url, _) = endpoint(400, json!({ "error": "invalid_grant", "error_description": "Token has been expired or revoked." }), vec![], Duration::ZERO).await;
-        assert!(matches!(token_from(&client, user_file(&url, "r"), &Timeouts::default()).await, Err(Error::Unauthenticated)));
+        assert!(matches!(token_from(&client, user_file(&url, "r"), &Timeouts::default()).await, Err(Error::Unauthenticated(_))));
         let (url, _) = endpoint(503, json!({ "error": "backend_error" }), vec![("retry-after", "7")], Duration::ZERO).await;
         let busy = token_from(&client, user_file(&url, "r"), &Timeouts::default()).await.unwrap_err();
         assert!(matches!(busy, Error::Api { status: 503, retryable: true, retry_after: Some(wait), .. } if wait == Duration::from_secs(7)), "{busy:?}");

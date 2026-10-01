@@ -58,6 +58,7 @@ impl From<TurnError> for ApiError {
             TurnError::NoModel | TurnError::UnknownModel => (StatusCode::BAD_REQUEST, "model"),
             TurnError::Attachment(_) => (StatusCode::BAD_REQUEST, "attachment"),
             TurnError::NoCredentials => (StatusCode::UNAUTHORIZED, "credentials"),
+            TurnError::SignInExpired(_) => (StatusCode::UNAUTHORIZED, "signin_expired"),
             TurnError::Store(_) => (StatusCode::INTERNAL_SERVER_ERROR, "store"),
         };
         Self::new(status, code, error.to_string())
