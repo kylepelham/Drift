@@ -55,11 +55,14 @@ impl Tool for Edit {
             if !ctx.files.was_read(&path) {
                 return Err(ToolError(format!("{name} has not been read this session; read it before editing")));
             }
-            let raw = tokio::fs::read_to_string(&path).await.map_err(|_| ToolError(format!("{name} does not exist")))?;
+            let raw = tokio::fs::read_to_string(&path).await.map_err(|error| match error.kind() {
+                std::io::ErrorKind::NotFound => ToolError(format!("{name} does not exist")),
+                _ => ToolError(format!("{name} could not be read as text ({error})")),
+            })?;
             let ending = LineEnding::detect(&raw);
             let content = ending.normalise(&raw);
             let updated = replace(&content, &ending.normalise(old), &ending.normalise(new), replace_all)?;
-            tokio::fs::write(&path, ending.apply(&updated)).await?;
+            super::stage::replace(&ctx.engine.store, &path, ending.apply(&updated).as_bytes()).await?;
             Ok(Output {
                 title: name.clone(),
                 output: diff(&name, &content, &updated),
@@ -204,6 +207,21 @@ mod tests {
         sandbox.file("u.txt", "a\n");
         let err = edit(&sandbox, json!({ "path": "u.txt", "old_string": "a", "new_string": "b" })).await.unwrap_err();
         assert!(err.0.contains("has not been read"));
+    }
+
+    #[tokio::test]
+    async fn a_write_that_fails_once_begun_leaves_the_file_whole() {
+        use crate::tool::stage::tests::{inject, leftovers, Fault};
+        let sandbox = Sandbox::new("edit-fails");
+        let path = sandbox.file("w.txt", "one\r\ntwo\r\n");
+        sandbox.ctx.files.mark_read(&path);
+        inject(Fault::AfterStaging, &path);
+        let err = edit(&sandbox, json!({ "path": "w.txt", "old_string": "two", "new_string": "TWO" })).await.unwrap_err();
+        assert!(err.0.contains("injected"), "{}", err.0);
+        assert_eq!(std::fs::read(&path).unwrap(), b"one\r\ntwo\r\n", "not cut short");
+        assert!(leftovers(&sandbox.ctx.workspace).is_empty());
+        edit(&sandbox, json!({ "path": "w.txt", "old_string": "two", "new_string": "TWO" })).await.unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"one\r\nTWO\r\n", "line endings kept through the staged write");
     }
 
     #[test]

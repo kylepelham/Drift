@@ -230,7 +230,7 @@ pub(crate) mod tests {
         let store = reopen(&dir);
         assert_eq!(recover_leftovers(&store), 0);
         assert!(!file.exists() && Path::new(&pair.backup).exists() && Path::new(&pair.staged).exists(), "nothing deleted");
-        assert_eq!(store.replacements().unwrap(), [pair.clone()], "still on record");
+        assert_eq!(store.replacements().unwrap(), std::slice::from_ref(&pair), "still on record");
         drop(store);
 
         let store = reopen(&dir);

@@ -60,6 +60,20 @@ async fn undo_redo_and_moving_the_point_keep_files_and_history_in_step() {
 }
 
 #[tokio::test]
+async fn an_undo_whose_write_fails_once_begun_leaves_the_file_whole_and_can_be_tried_again() {
+    use crate::tool::stage::tests::{inject, leftovers, Fault};
+    let h = harness().await;
+    let (_, second) = two_writing_turns(&h).await;
+    let workspace = crate::tool::canonical(&h._dir.join("ws"));
+    inject(Fault::AfterStaging, &workspace.join("a.txt"));
+    assert!(matches!(h.engine.revert(&h.session.id, &second).await, Err(RevertError::Files(_))));
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("two"), "not cut short");
+    assert!(leftovers(&workspace).is_empty() && h.engine.store.replacements().unwrap().is_empty());
+    h.engine.revert(&h.session.id, &second).await.unwrap();
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("one"), "the conflict check still lets the untouched file go back");
+}
+
+#[tokio::test]
 async fn every_blob_undo_needs_is_kept_through_a_prune() {
     let h = harness().await;
     let (_, second) = two_writing_turns(&h).await;

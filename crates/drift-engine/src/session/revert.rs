@@ -134,7 +134,7 @@ impl Engine {
                 shifted.kept.push(change.path);
                 continue;
             }
-            self.snapshots.put(workspace, &change.path, target.as_deref()).await.map_err(|e| RevertError::Files(e.to_string()))?;
+            self.snapshots.put(&self.store, workspace, &change.path, target.as_deref()).await.map_err(|e| RevertError::Files(e.to_string()))?;
         }
         Ok(shifted)
     }

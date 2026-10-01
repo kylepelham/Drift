@@ -268,8 +268,8 @@ impl Snapshots {
         self.git(workspace, &args).await.map(Some)
     }
 
-    /// Makes `path` hold `blob`, or removes it for `None`.
-    pub async fn put(&self, workspace: &Path, path: &str, blob: Option<&str>) -> Result<(), Error> {
+    /// Makes `path` hold `blob` through the staged writer, or removes it for `None`.
+    pub async fn put(&self, store: &crate::store::Store, workspace: &Path, path: &str, blob: Option<&str>) -> Result<(), Error> {
         let file = workspace.join(path);
         let Some(blob) = blob else {
             return match tokio::fs::remove_file(&file).await {
@@ -278,10 +278,7 @@ impl Snapshots {
             };
         };
         let content = self.git_bytes(workspace, &["cat-file", "blob", blob]).await?;
-        if let Some(parent) = file.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| Error::Failed(e.to_string()))?;
-        }
-        tokio::fs::write(&file, content).await.map_err(|e| Error::Failed(e.to_string()))
+        crate::tool::stage::replace(store, &file, &content).await.map_err(|e| Error::Failed(e.to_string()))
     }
 
     /// Every path that differs between two trees, with its blob on each side.
@@ -365,8 +362,9 @@ mod tests {
         assert_eq!(changes[0].before.as_deref(), Some(one.as_str()));
 
         assert_ne!(snapshots.current(&workspace, "a.txt").await.unwrap(), Some(one.clone()));
-        snapshots.put(&workspace, "a.txt", Some(&one)).await.unwrap();
-        snapshots.put(&workspace, "new.txt", None).await.unwrap();
+        let store = crate::store::tests::store();
+        snapshots.put(&store, &workspace, "a.txt", Some(&one)).await.unwrap();
+        snapshots.put(&store, &workspace, "new.txt", None).await.unwrap();
         assert_eq!(std::fs::read_to_string(workspace.join("a.txt")).unwrap(), "one\n");
         assert!(!workspace.join("new.txt").exists());
         assert_eq!(snapshots.current(&workspace, "a.txt").await.unwrap(), Some(one));
@@ -447,7 +445,7 @@ mod tests {
         let after = snapshots.take(&workspace).await.unwrap();
         for change in snapshots.changes_between(&workspace, &before, &after).await.unwrap().changes {
             assert_eq!(snapshots.current(&workspace, &change.path).await.unwrap(), change.after, "{} after is the file's exact bytes", change.path);
-            snapshots.put(&workspace, &change.path, change.before.as_deref()).await.unwrap();
+            snapshots.put(&crate::store::tests::store(), &workspace, &change.path, change.before.as_deref()).await.unwrap();
         }
         assert_eq!(std::fs::read(workspace.join("a.txt")).unwrap(), b"one $Id$\r\ntwo\r\n");
         assert_eq!(std::fs::read(workspace.join("b.md")).unwrap(), b"crlf\r\n");
@@ -530,14 +528,15 @@ mod tests {
         snapshots.bind("ws_1", &workspace);
         assert!(!legacy.exists(), "the path-named repo was taken over");
         std::fs::write(workspace.join("a.txt"), "two\n").unwrap();
-        snapshots.put(&workspace, "a.txt", Some(&old)).await.unwrap();
+        let store = crate::store::tests::store();
+        snapshots.put(&store, &workspace, "a.txt", Some(&old)).await.unwrap();
         assert_eq!(std::fs::read_to_string(workspace.join("a.txt")).unwrap(), "one\n", "history from before the binding is kept");
 
         let moved = base.join("moved");
         std::fs::rename(&workspace, &moved).unwrap();
         snapshots.bind("ws_1", &moved);
         std::fs::write(moved.join("a.txt"), "three\n").unwrap();
-        snapshots.put(&moved, "a.txt", Some(&old)).await.unwrap();
+        snapshots.put(&store, &moved, "a.txt", Some(&old)).await.unwrap();
         assert_eq!(std::fs::read_to_string(moved.join("a.txt")).unwrap(), "one\n", "a workspace pointed elsewhere keeps its history");
         std::fs::remove_dir_all(base).ok();
     }
