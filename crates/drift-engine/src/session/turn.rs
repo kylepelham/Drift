@@ -79,12 +79,7 @@ pub(crate) fn present<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Opti
 #[serde(rename_all = "camelCase")]
 pub struct Receipt {
     pub session: Session,
-    /// The prompt as admitted; absent while it waits, as `session.queued` shows.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<Message>,
-    /// Waiting prompts this one replaced, for the client to put back; none of them ran.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub returned: Vec<Part>,
+    pub message: Message,
 }
 
 #[derive(Debug, PartialEq)]
@@ -158,46 +153,19 @@ pub struct Turns {
     /// a turn deciding it is done both hold this lock, so no prompt lands after the turn stops looking.
     /// Each with what its turn is running as, which is what a steered prompt is judged against.
     steering: Mutex<HashMap<String, Steering>>,
-    /// Held while deciding whether a prompt joins, replaces or starts what waits, and while discarding it.
-    pub(super) queueing: Mutex<()>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
 }
 
-/// What a running turn was planned with; a steered prompt joins it only if it asks for the same agent and level.
+/// The model a running turn makes its next request on, which a steered prompt's files are judged against.
 #[derive(Clone, Debug, PartialEq)]
 struct Steering {
     model: ModelRef,
-    choice: Choice,
 }
 
 impl Steering {
     fn of(plan: &Plan) -> Self {
-        let choice = Choice::new(Some(plan.model_ref.clone()), plan.session.agent.clone(), plan.variant.as_deref(), plan.model.variants.clone());
-        Self { model: plan.model_ref.clone(), choice }
-    }
-}
-
-/// The model and agent a turn runs as, and the reasoning its level comes to on that model.
-#[derive(Clone, Debug, PartialEq)]
-pub(super) struct Choice {
-    model: Option<ModelRef>,
-    agent: String,
-    reasoning: Option<Reasoning>,
-    variants: Vec<Variant>,
-}
-
-impl Choice {
-    pub(super) fn new(model: Option<ModelRef>, agent: String, variant: Option<&str>, variants: Vec<Variant>) -> Self {
-        Self { model, agent, reasoning: reasoning_in(&variants, variant), variants }
-    }
-
-    /// Whether `prompt` asks for another model or agent, or a level this model would reason at differently.
-    pub(super) fn differs(&self, prompt: &Prompt) -> bool {
-        let model = prompt.model.as_ref().is_some_and(|model| Some(model) != self.model.as_ref());
-        let agent = prompt.agent.as_ref().is_some_and(|agent| *agent != self.agent);
-        let level = prompt.variant.as_ref().is_some_and(|variant| reasoning_in(&self.variants, variant.as_deref()) != self.reasoning);
-        model || agent || level
+        Self { model: plan.model_ref.clone() }
     }
 }
 
@@ -270,10 +238,6 @@ impl Turns {
         self.steering.lock().unwrap().contains_key(session_id)
     }
 
-    fn differs(&self, session_id: &str, prompt: &Prompt) -> bool {
-        self.steering.lock().unwrap().get(session_id).is_some_and(|running| running.choice.differs(prompt))
-    }
-
     /// Resolves once the session has no turn in flight, or the caller is aborted.
     pub async fn wait_idle(&self, session_id: &str, abort: &CancellationToken) {
         loop {
@@ -289,7 +253,7 @@ impl Turns {
     }
 }
 
-/// Everything a turn runs on, fixed when it is admitted: a queued worker keeps what it was given.
+/// Everything a turn runs on: fixed when it is admitted (a queued worker keeps what it was given), then following the session's choice step by step.
 pub(crate) struct Plan {
     pub(super) session: Session,
     workspace: PathBuf,
@@ -319,8 +283,6 @@ pub(super) struct Admission<'a> {
     pub(super) delivery: Option<&'a str>,
     /// Only into a turn already running; it never starts one.
     pub(super) steer_only: bool,
-    /// The waiting submissions this prompt is, oldest first; it only ever starts a turn of its own.
-    pub(super) queued: &'a [(&'a str, &'a str)],
 }
 
 impl Engine {
@@ -344,9 +306,8 @@ impl Engine {
 
     async fn admit_once(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>) -> Result<Receipt, TurnError> {
         let payload_hash = payload_hash(&prompt);
-        // What waits already settled its own replays when it was queued, and its admission settles them again in one write.
-        if how.queued.is_empty() {
-            if let Some(receipt) = self.settled_before_claim(session_id, &prompt, &payload_hash)? {
+        if let Some(id) = prompt.submission_id.as_deref() {
+            if let Some(receipt) = self.replayed_receipt(id, session_id, &payload_hash)? {
                 return Ok(receipt);
             }
         }
@@ -356,10 +317,7 @@ impl Engine {
             return Err(TurnError::Stopped);
         }
         if !self.turns.claim(session_id, &abort) {
-            if !how.queued.is_empty() {
-                return Err(TurnError::Busy);
-            }
-            return self.steer_or_queue(session_id, prompt, how, &payload_hash).await;
+            return self.steer_or_wait(session_id, prompt, how, &payload_hash).await;
         }
         if how.steer_only {
             self.turns.release(session_id);
@@ -376,20 +334,6 @@ impl Engine {
                 Err(error)
             }
         }
-    }
-
-    /// A replayed submission, or a user's prompt that joins or replaces what waits: either way no turn is claimed.
-    fn settled_before_claim(self: &Arc<Self>, session_id: &str, prompt: &Prompt, payload_hash: &str) -> Result<Option<Receipt>, TurnError> {
-        if let Some(id) = prompt.submission_id.as_deref() {
-            if let Some(receipt) = self.replayed_receipt(id, session_id, payload_hash)? {
-                return Ok(Some(receipt));
-            }
-        }
-        // Results and answers are the engine's; they never wait behind a user's prompt.
-        if prompt.parts.iter().any(Part::is_engine_origin) {
-            return Ok(None);
-        }
-        self.join_queue(session_id, prompt, payload_hash)
     }
 
     /// Starts a turn on a queued worker's plan as admitted; only the credential is looked up afresh.
@@ -432,11 +376,9 @@ impl Engine {
     fn start(self: &Arc<Self>, session_id: &str, prompt: Prompt, plan: Plan, abort: CancellationToken, payload_hash: &str, how: Admission) -> Result<Receipt, TurnError> {
         let files = self.turns.files_for(session_id);
         let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), model: &plan.model, files: &files };
-        let own = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
-        let submissions = if how.queued.is_empty() { own.as_slice() } else { how.queued };
+        let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
         let pick = Pick { model: &plan.model_ref, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
-        let handover = Handover { delivery: how.delivery, queued: !how.queued.is_empty(), ..Handover::default() };
-        let admitted = attach.prepare(prompt.parts).and_then(|parts| self.admit_fenced(session_id, pick, parts, submissions, Some(&abort), handover));
+        let admitted = attach.prepare(prompt.parts).and_then(|parts| self.admit_fenced(session_id, pick, parts, submission, Some(&abort), how.delivery));
         let admitted = match admitted {
             Ok(admitted) => admitted,
             Err(error) => {
@@ -452,7 +394,7 @@ impl Engine {
     }
 
     /// The last check before a prompt is written, under the lock every Stop holds, so it lands wholly before a Stop or not at all.
-    pub(super) fn admit_fenced(&self, session_id: &str, pick: Pick, parts: Vec<Part>, submissions: &[(&str, &str)], abort: Option<&CancellationToken>, handover: Handover) -> Result<Admitted, TurnError> {
+    pub(super) fn admit_fenced(&self, session_id: &str, pick: Pick, parts: Vec<Part>, submission: Option<(&str, &str)>, abort: Option<&CancellationToken>, delivery: Option<&str>) -> Result<Admitted, TurnError> {
         let _fence = self.workers.fence();
         if abort.is_some_and(CancellationToken::is_cancelled) {
             return Err(TurnError::Stopped);
@@ -460,7 +402,7 @@ impl Engine {
         // Results a Stop held back ride along with any admitted prompt, each claimed so no other path takes it meanwhile.
         let held: Vec<_> = self.store.held_tasks(session_id)?.into_iter().filter(|task| self.workers.claim(&task.id, Claimant::Automatic)).collect();
         let carried = held.iter().map(|task| (task.id.clone(), super::tasks::result_part(task))).collect();
-        let admitted = self.store.admit_delivering(session_id, pick, parts, submissions, Handover { held: carried, ..handover });
+        let admitted = self.store.admit_delivering(session_id, pick, parts, submission, Handover { delivery, held: carried });
         for task in &held {
             self.workers.release_where_task(&task.id, &Claimant::Automatic);
             self.publish_task(&task.id);
@@ -468,7 +410,7 @@ impl Engine {
         match admitted? {
             Admit::New(admitted) => Ok(*admitted),
             Admit::Replayed { message_id } => Err(TurnError::Replayed(message_id)),
-            // A different prompt under the same id, or a result or waiting prompt already taken: nothing is written.
+            // A different prompt under the same id, or a result already handed over: nothing is written.
             Admit::Conflict | Admit::Delivered => Err(TurnError::SubmissionReused),
         }
     }
@@ -477,7 +419,7 @@ impl Engine {
     pub(super) fn receipt_for(&self, session_id: &str, message_id: &str) -> Result<Receipt, TurnError> {
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let message = self.store.message(message_id)?.ok_or(TurnError::NoSession)?;
-        Ok(Receipt { session, message: Some(message), returned: Vec::new() })
+        Ok(Receipt { session, message })
     }
 
     pub(super) fn announce(&self, session_id: &str, admitted: Admitted) -> Receipt {
@@ -490,16 +432,19 @@ impl Engine {
             self.hub.publish(Event::PartCreated { part: row });
         }
         self.hub.publish(Event::SessionUpdated { session: session.clone() });
-        Receipt { session, message: Some(message), returned: Vec::new() }
+        Receipt { session, message }
     }
 
     /// A prompt for a busy session. A running turn takes it at its next model request (after the
-    /// calls in flight finish, so their results come first). Any other job, such as a compaction or an
-    /// undo, is waited out for up to [`QUEUE_WAIT`], then the prompt starts a turn of its own.
-    async fn steer_or_queue(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>, payload_hash: &str) -> Result<Receipt, TurnError> {
-        // Another agent or level would be answered as the old one if it joined, so it waits for a turn of its own.
-        if self.turns.differs(session_id, &prompt) {
-            return self.queue_behind(session_id, &prompt, payload_hash);
+    /// calls in flight finish, so their results come first), switching to any model, agent or level it
+    /// names. Any other job, such as a compaction or an undo, is waited out for up to [`QUEUE_WAIT`],
+    /// then the prompt starts a turn of its own.
+    async fn steer_or_wait(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>, payload_hash: &str) -> Result<Receipt, TurnError> {
+        // A model the turn would switch to is checked now, so a bad choice fails for the sender, not inside the turn.
+        if let Some(model) = &prompt.model {
+            if self.turns.steering.lock().unwrap().get(session_id).is_some_and(|running| running.model != *model) {
+                self.resolve(model).await?;
+            }
         }
         if let Some(receipt) = self.steer(session_id, &prompt, payload_hash, how)? {
             return Ok(receipt);
@@ -519,12 +464,13 @@ impl Engine {
     }
 
     /// Admits `prompt` into the turn running in `session_id`, if one is running and still taking
-    /// prompts. Its files are judged against the model that turn is running on, not one the prompt
-    /// names: the running turn does not switch models for a steered prompt.
+    /// prompts. Its files are judged against the model the turn's next request runs on: the one the
+    /// prompt names, or the one the turn is on.
     fn steer(&self, session_id: &str, prompt: &Prompt, payload_hash: &str, how: Admission<'_>) -> Result<Option<Receipt>, TurnError> {
         let Some(running) = self.turns.steering.lock().unwrap().get(session_id).cloned() else { return Ok(None) };
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
-        let model = self.catalog.read().unwrap().providers.get(&running.model.provider).and_then(|p| p.models.get(&running.model.model)).cloned().ok_or(TurnError::UnknownModel)?;
+        let target = prompt.model.clone().unwrap_or_else(|| running.model.clone());
+        let model = self.catalog.read().unwrap().providers.get(&target.provider).and_then(|p| p.models.get(&target.model)).cloned().ok_or(TurnError::UnknownModel)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         let workspace = crate::tool::canonical(Path::new(&workspace.path));
         let config = self.workspace_config(&workspace);
@@ -545,8 +491,9 @@ impl Engine {
             Some(_) => {}
         }
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
-        let pick = Pick { model: &running.model, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
-        let admitted = self.admit_fenced(session_id, pick, parts, submission.as_slice(), how.parent, Handover { delivery: how.delivery, ..Handover::default() })?;
+        // Written to the session as it lands; the turn reads the session before its next request and follows it.
+        let pick = Pick { model: &target, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
+        let admitted = self.admit_fenced(session_id, pick, parts, submission, how.parent, how.delivery)?;
         drop(steering);
         Ok(Some(self.announce(session_id, admitted)))
     }
@@ -568,8 +515,6 @@ impl Engine {
             engine.release_claims_of(&id);
             engine.hub.publish(Event::SessionStatusChanged { session_id: id.clone(), status: SessionStatus::Idle });
             engine.turns.finished.notify_waiters();
-            // What waited for this job starts now, after the session is released, so a prompt queued meanwhile is seen here or starts itself.
-            engine.start_queued_soon(&id);
             // Results that found the session busy go in now; one racing its own failed attempt is retried by that attempt.
             engine.retry_deliveries(Some(&id));
         });
@@ -583,17 +528,16 @@ impl Engine {
         }
         let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let message = self.store.message(&found.message_id)?.ok_or(TurnError::NoSession)?;
-        Ok(Some(Receipt { session, message: Some(message), returned: Vec::new() }))
+        Ok(Some(Receipt { session, message }))
     }
 
-    /// Discards what waits, then stops the session's turn, its workers and (for a worker's transcript) that worker, under the admission fence.
+    /// Stops the session's turn, its background workers and, for a worker's transcript, that worker, all under the admission fence.
     pub fn abort(&self, session_id: &str) -> bool {
-        let discarded = !self.discard_queued(session_id).is_empty();
         let mut owners = self.workers.fence();
         let workers = self.stop_workers(&mut owners, session_id);
         let turn = self.turns.cancel(session_id);
         let worker = self.store.task_for_session(session_id).ok().flatten().is_some_and(|task| !task.state.is_terminal() && self.workers.cancel(&task.id));
-        turn || workers || worker || discarded
+        turn || workers || worker
     }
 
     pub(super) async fn plan(&self, session_id: &str, prompt: &Prompt) -> Result<Plan, TurnError> {
@@ -689,15 +633,15 @@ impl Engine {
     async fn run_steps(self: &Arc<Self>, plan: &mut Plan, abort: &CancellationToken) -> Option<String> {
         let mut attempts = 0;
         let mut recovered = false;
-        let limits = plan.config.limits_for(&plan.session.agent);
         let mut steps = 0;
         let mut repeats = Repeats::default();
         let mut answered = None;
         loop {
-            // A prompt for another choice waits; this turn hands over once it has had its say, so what started it is answered.
-            if answered.is_some() && self.store.is_waiting(&plan.session.id).unwrap_or(false) {
+            if let Err(reason) = self.follow_session(plan).await {
+                self.pause(plan, reason);
                 break;
             }
+            let limits = plan.config.limits_for(&plan.session.agent);
             if steps >= limits.steps {
                 self.pause(plan, format!("Paused after {steps} steps, this turn's limit. Send a message to carry on."));
                 break;
@@ -751,6 +695,30 @@ impl Engine {
             }
         }
         answered
+    }
+
+    /// Before each request: a model, agent or level a prompt chose since the last one, written on the
+    /// session as it landed, becomes the turn's, so the conversation carries on as that choice.
+    async fn follow_session(&self, plan: &mut Plan) -> Result<(), String> {
+        let Ok(Some(session)) = self.store.session(&plan.session.id) else { return Ok(()) };
+        let model = session.model.clone().filter(|model| *model != plan.model_ref);
+        if model.is_none() && session.agent == plan.session.agent && session.variant == plan.variant {
+            return Ok(());
+        }
+        if let Some(model) = model {
+            let resolved = self.resolve(&model).await.map_err(|error| format!("Could not switch to {}: {error}. Send a message to carry on.", model.model))?;
+            plan.model_ref = resolved.model_ref;
+            plan.model = resolved.model;
+            plan.provider = resolved.provider.with_timeouts(plan.config.route_timeouts(&plan.model_ref.provider));
+            plan.credential = resolved.credential;
+        }
+        plan.session.agent = session.agent;
+        plan.variant = session.variant;
+        plan.offer = self.offer(plan);
+        if let Some(running) = self.turns.steering.lock().unwrap().get_mut(&plan.session.id) {
+            *running = Steering::of(plan);
+        }
+        Ok(())
     }
 
     /// The tools and system prompt for the plan's model and agent. What was offered is what may run:
@@ -1322,7 +1290,7 @@ fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
 }
 
 /// Whether a prompt may switch its session to `agent`: only a primary agent of the workspace runs a conversation.
-pub(super) fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
+fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
     match config.agent(agent) {
         Some(found) if found.kind == crate::config::AgentKind::Primary => Ok(()),
         _ => Err(TurnError::UnknownAgent),

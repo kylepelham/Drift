@@ -10,7 +10,7 @@ import type {
   ToolPart,
 } from "@opencode-ai/sdk/client"
 import { createStore, produce, type SetStoreFunction } from "solid-js/store"
-import type { McpServerConfig, McpServerConfigView, McpServerStatus, Queued, TaskRecord } from "./native/client"
+import type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord } from "./native/client"
 export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord }
 export type Connection = "idle" | "connecting" | "online" | "offline"
 
@@ -424,24 +424,14 @@ export function taskForCall(state: EngineState, sessionId: string, callId: strin
   return tasks.find((task) => (typeof taskId === "string" && task.id === taskId) || (callId !== undefined && task.callId === callId))
 }
 
-type SavedSession = Session & { agent?: string; variant?: string | null; queued?: Queued | null; model?: { providerID: string; id: string } }
+type SavedSession = Session & { agent?: string; variant?: string | null; model?: { providerID: string; id: string } }
 
-/** What waits to run in a session once its turn finishes the step it is on. */
-export function queuedPrompt(state: EngineState, id: string | null | undefined) {
-  return (id ? (state.sessions[id] as SavedSession | undefined)?.queued : undefined) ?? undefined
-}
-
-/** The model, agent and reasoning level a session runs as next: what waits, else what the engine saved. */
+/** The model, agent and reasoning level the engine saved on a session: what its newest prompt chose. */
 export function savedChoice(state: EngineState, id: string | null | undefined): { agent?: string; variant?: string | null; model?: ModelRef } {
   const session = id ? (state.sessions[id] as SavedSession | undefined) : undefined
   if (!session) return {}
-  const next = session.queued ?? session
-  const model = session.queued?.model
-    ? { model: { providerID: session.queued.model.provider, modelID: session.queued.model.model } }
-    : session.model
-      ? { model: { providerID: session.model.providerID, modelID: session.model.id } }
-      : {}
-  return { agent: next.agent, variant: next.variant ?? null, ...model }
+  const model = session.model ? { model: { providerID: session.model.providerID, modelID: session.model.id } } : {}
+  return { agent: session.agent, variant: session.variant ?? null, ...model }
 }
 
 export function sessionBusy(state: EngineState, id: string) {

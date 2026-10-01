@@ -9,7 +9,6 @@ pub mod compaction;
 mod convert;
 mod oneshot;
 pub mod prompt;
-mod queue;
 pub mod revert;
 pub mod snapshot;
 pub mod tasks;

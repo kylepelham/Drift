@@ -19,39 +19,6 @@ test("composer drafts are isolated by session and new-workspace scope", async ()
   clearComposerDraft(fresh)
 })
 
-test("a prompt the engine gives back keeps its pasted files and @mentions, so resending expands them again", async () => {
-  const { composerDraft, composerScope, patchComposerDraft, restoreComposerDraft, clearComposerDraft } = await import("../src/state/composer")
-  const { mentionFiles } = await import("../src/ui/composer-mentions")
-  const { returnedPrompt } = await import("../src/engine/actions")
-  const root = "C:\\Work\\my repo"
-  const text = "Check @src/a b.txt before proceeding"
-  const sentFiles = [...mentionFiles(text, ["src/a b.txt"], root), { mime: "image/png", filename: "shot.png", url: "data:image/png;base64,AAAA" }]
-  // As the engine hands a waiting prompt back from Stop or Discard: the parts as they were sent.
-  const parts = [{ type: "text" as const, text }, ...sentFiles.map((file) => ({ type: "file" as const, mime: file.mime, name: file.filename ?? "file", url: file.url }))]
-  const scope = composerScope("s-returned", "w1")
-  patchComposerDraft(scope, { text: "typed since", mentions: ["README.md"] })
-  restoreComposerDraft(scope, returnedPrompt(parts)!, root)
-  const draft = composerDraft(scope)
-  expect(draft.text).toBe(`${text}\n\ntyped since`)
-  expect(draft.staged.map((file) => file.filename)).toEqual(["shot.png"])
-  expect(draft.mentions).toEqual(["src/a b.txt", "README.md"])
-  expect(mentionFiles(draft.text, draft.mentions, root).map((file) => file.url)).toEqual([sentFiles[0]!.url])
-  restoreComposerDraft(scope, { text: "outside", files: [{ mime: "text/plain", name: "x", url: "file:///D:/elsewhere/x.txt" }] }, root)
-  expect(composerDraft(scope).mentions).toEqual(["src/a b.txt", "README.md"])
-  clearComposerDraft(scope)
-})
-
-test("the waiting row says who the prompt runs as, or why it could not start", async () => {
-  const { queuedNotice } = await import("../src/ui/composer-queued")
-  const waiting = { agent: "plan", variant: "high", text: "plan it", files: 0, since: 1 }
-  expect(queuedNotice(waiting)).toEqual({ failed: false, text: "Waiting for the current step to finish. Runs as Plan, High" })
-  expect(queuedNotice(waiting, "GPT-5").text).toBe("Waiting for the current step to finish. Runs as Plan, High, GPT-5")
-  expect(queuedNotice({ ...waiting, variant: undefined, error: "provider has no credentials" })).toEqual({
-    failed: true,
-    text: "Couldn't start as Plan: provider has no credentials",
-  })
-})
-
 test("composer clipboard publishing uses the exact selected text", async () => {
   const { composerSelection } = await import("../src/ui/composer")
   expect(composerSelection("first\nsecond\nthird", 6, 12)).toBe("second")

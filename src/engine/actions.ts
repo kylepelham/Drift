@@ -36,9 +36,7 @@ export type PromptFile = {
 }
 /** `variant` null asks for the model's default level; left out, the session keeps its own (as for a level the model does not offer). */
 export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string | null; files?: PromptFile[]; directory?: string }
-/** A prompt the engine gave back unrun: discarded, stopped, or replaced by a newer one while it waited. */
-export type ReturnedPrompt = { text: string; files: { mime: string; name: string; url: string }[] }
-export type PromptSendResult = { ok: true; returned?: ReturnedPrompt } | { ok: false; error: string }
+export type PromptSendResult = { ok: true } | { ok: false; error: string }
 /** What became of an archived thread due for purging: gone, restored and kept, or not reached this time. */
 export type ArchivePurge = "deleted" | "kept" | "failed"
 export type PermissionResponse = "once" | "always" | "reject" | "stop"
@@ -226,8 +224,7 @@ export function createActions(
       const receipt = await requireClient().submit(id, { submissionId: submission, ...prompt })
       unsettled.delete(key)
       putSession(set, adaptSession(receipt.session, workspaces()))
-      const returned = returnedPrompt(receipt.returned)
-      return returned ? { ok: true, returned } : { ok: true }
+      return { ok: true }
     } catch (cause) {
       if (definite(cause)) unsettled.delete(key)
       return fail(id, `Prompt failed: ${errorMessage(cause)}`)
@@ -239,19 +236,8 @@ export function createActions(
     return { ok: false, error }
   }
 
-  /** Stops the turn; a prompt that was waiting for it never runs and comes back. */
   async function abort(id: string) {
-    return returnedPrompt((await requireClient().abort(id)).returned)
-  }
-
-  /** Takes back the prompt waiting for the turn; the turn carries on. */
-  async function discardQueued(id: string) {
-    try {
-      return returnedPrompt((await requireClient().discardQueued(id)).returned)
-    } catch (cause) {
-      if (!(cause instanceof EngineError && cause.status === 404)) notice({ id: `discard-${id}`, title: "Couldn't discard", message: errorMessage(cause), variant: "error" })
-      return undefined
-    }
+    await requireClient().abort(id)
   }
 
   async function rename(id: string, title: string) {
@@ -579,7 +565,6 @@ export function createActions(
     newSession,
     send,
     abort,
-    discardQueued,
     stopTask,
     rename,
     setArchived,
@@ -635,18 +620,6 @@ export type EngineActions = ReturnType<typeof createActions>
 /** The engine answered and refused: the prompt was not admitted, so a resend may be a new submission. */
 function definite(cause: unknown) {
   return cause instanceof EngineError && cause.status >= 400 && cause.status < 500
-}
-
-/** The text and files of prompts the engine gave back, oldest first; `undefined` when it gave nothing back. */
-export function returnedPrompt(parts: readonly components["schemas"]["Part"][] | undefined): ReturnedPrompt | undefined {
-  if (!parts?.length) return undefined
-  const texts: string[] = []
-  const files: ReturnedPrompt["files"] = []
-  for (const part of parts) {
-    if (part.type === "text") texts.push(part.text)
-    if (part.type === "file") files.push({ mime: part.mime, name: part.name, url: part.url })
-  }
-  return { text: texts.join("\n\n"), files }
 }
 
 /** A retried send with the same id gets the original receipt instead of a second turn. */

@@ -78,9 +78,8 @@ GET    /sessions?workspace=&cursor=&archived=
 POST   /sessions                            {workspace, parent?, visibility?, title?}
 GET    /sessions/{id}       PATCH           DELETE archives
 GET    /sessions/{id}/messages?before=&limit=
-POST   /sessions/{id}/turns                 {parts, model, agent, variant} -> 202 {session, message?, returned?}
-POST   /sessions/{id}/abort                 -> {aborted, returned?}
-DELETE /sessions/{id}/queued                discard what waits for the turn -> {returned}
+POST   /sessions/{id}/turns                 {parts, model, agent, variant} -> 202 {session, message}
+POST   /sessions/{id}/abort                 -> {aborted}
 GET    /sessions/{id}/tasks                 workers the session launched, finished ones included
 GET    /tasks/{id}                          one worker's state and result
 POST   /tasks/{id}/abort                    stop one worker and nothing else
@@ -330,44 +329,18 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   still ends the turn; the steered prompt stays in the transcript for the next one. A session held
   by a job that is not a turn (a compaction, an undo) makes the prompt wait up to 30 s and then
   start a turn of its own; past that it is 409 `busy`.
-- A prompt that names another model, agent or reasoning level than the running turn's never
-  joins it, since that turn's model, system prompt, tools and level would answer it. It is
-  queued instead (`session::queue`, table `queued_prompt`, migration 18: one row per submission,
-  the prompt as sent) and the call returns 202 at once with no `message`; `session.queued` shows
-  what waits (`model`, `agent`, `variant`, `text`, `files`, `since`, `error`) on every read of the session
-  and every `session.updated`. While anything waits, the running turn ends before its next step
-  (the step under way finishes; nothing is cut mid-call). A turn always makes its first request
-  before it checks, so one the engine starts while a prompt waits (a worker's result, an answer)
-  still replies to what started it. When the session's job ends, everything
-  waiting is admitted as one prompt (the oldest's model, agent and level, all parts in order) and starts a
-  turn of its own; the rows go in the same write that admits it, under all their submission ids,
-  so a crash leaves either the rows or the message, never both, and a resent id replays either
-  way. That write first requires every row it read to still wait (same id and payload); one
-  taken back while the turn was planned (Discard, Stop, a replacement) means nothing is written
-  and the claim is let go, so a prompt handed back to the user never runs. If a replacement waits
-  by then, it starts next. A queue left at shutdown starts when the engine does
-  (`resume_queued`). Prompts that change none of these keep steering into the running turn.
-  "Another" is judged by effect, not spelling: a model and an agent by name, a level by the
-  reasoning it resolves to on the model the turn is running on (after a retry switch, the new
-  one). A level that model does not offer asks for nothing, so it matches a turn with no level,
-  and a prompt naming the turn's own model, agent and level is an ordinary follow-up.
-- While something waits, a user's prompt is judged against what waits, not the running turn: one
-  that names nothing else joins it, and one asking for another model, agent or level replaces it, with
-  the replaced parts in the receipt's `returned` for the client to put back. Results and answers
-  (engine-origin parts) never queue. A waiting prompt that cannot start (its model is gone, no
-  credentials) stays with `error` and holds no turn; the next prompt added to it tries again. The
-  error is written in one transaction only if exactly the attempted prompts still wait; if they
-  were replaced meanwhile, the replacement is left alone and started.
-  `DELETE /sessions/{id}/queued` discards what waits and returns its parts; the running turn
-  carries on. Stop (`POST /sessions/{id}/abort`, and every engine-side stop: archive, delete)
-  discards what waits first, so nothing starts after it, and returns the parts in `returned`.
-- The composer draws what waits as a row above the input ("Waiting for the current step to
-  finish. Runs as Plan, High", plus the model's name when it is not the session's current one, or
-  why it could not start) with Discard. Whatever the engine gives back (Discard, Stop, or a newer
-  prompt replacing it) goes into that session's draft ahead of anything typed since; pasted files
-  come back as attachments, and a `file:` part inside the workspace whose `@path` is still in the
-  text comes back as a mention, so a resend expands it under the same read rules as before. While something waits, the composer shows its
-  model, agent and level, since that is what the session runs as next, so a follow-up joins it.
+- A prompt may switch the model, agent or level mid-turn, as in opencode. It is admitted like any
+  steered prompt, and admission writes its choice onto the session. Before every request the turn
+  reads the session (`follow_session`) and, if the choice changed, rebuilds what it runs on: the
+  model, provider and credential, the agent's tools, system prompt and step limit, and the level.
+  The conversation carries on as the new choice from that request; the prompt cache is lost. A
+  model is checked when the prompt is sent (unknown model, no credentials: the sender gets the
+  error); one that fails later pauses the turn with the reason. The prompt's files are judged
+  against the model the next request runs on. Anthropic quietly drops thinking for a request
+  that turns it on mid tool loop, so a level change there takes full effect on the next turn. The
+  newest prompt always decides; the composer's own unsent pick changes nothing until it is sent.
+  (A durable queue that gave such prompts a turn of their own was removed; migration 19 drops its
+  table.)
 - Turn limits (`config::Limits`, drift.json `limits: { steps, repeats, polls }`, later files
   override field by field; an agent's front matter `steps:` replaces `steps` for its turns):
   - `steps` (default 200): model steps that ran tools in one turn. Reaching it pauses the turn.

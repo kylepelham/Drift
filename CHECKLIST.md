@@ -144,6 +144,7 @@ change the plan there when a decision changes.
 - [x] Third review: a queued start lands only if every row it read still waits, so a prompt handed back never runs
 - [x] Third review: a model change sent mid-turn waits for a turn on that model like an agent or level change; the composer shows the waiting model
 - [x] Third review: a turn hands over to what waits only after its first request, so a result or answer arriving meanwhile gets its reply
+- [x] App test pass: a model, agent or level sent mid-turn is followed by the running turn from its next request, as in opencode; the durable queue, waiting row and Discard are removed
 - [x] Independent audit (`docs/research/independent-audit-ac1ab72.md`): undo point save failures put files back; queue failures fenced to the attempted prompts; oversize writes refused and failed change records put back or reported; undo ordered by when writes finished; returned drafts keep their mentions
 
 #### Retained features still on the OpenCode database (pending native UI work)

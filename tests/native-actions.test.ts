@@ -90,23 +90,12 @@ test("send maps model, agent, files and reasoning effort onto the native prompt"
   })
 })
 
-test("a waiting prompt shows on the session, runs as its own choice next, and comes back from replace, Stop and Discard", async () => {
+test("a sent prompt's choice is what the session runs as next, mid-turn or not", async () => {
   const { savedChoice } = await import("../src/engine/store")
-  const queued = { model: { provider: "openai", model: "gpt-5" }, agent: "plan", variant: "high", text: "plan it", files: 0, since: 1 }
-  const given = [{ type: "text", text: "plan it" }, { type: "file", mime: "image/png", name: "a.png", url: "data:image/png;base64,AA" }]
-  const h = harness({
-    submit: () => Promise.resolve({ session: { ...session("ses_1"), queued }, returned: given }),
-    abort: () => Promise.resolve({ aborted: true, returned: given }),
-    discardQueued: (id: string) => (id === "ses_1" ? Promise.resolve({ returned: given }) : Promise.reject(new EngineError(404, "/queued", "not_found"))),
-  } as Partial<Client>)
-  const sent = await h.actions.send("ses_1", "plan again", { model: null, agent: "plan" })
-  const back = { text: "plan it", files: [{ mime: "image/png", name: "a.png", url: "data:image/png;base64,AA" }] }
-  expect(sent).toEqual({ ok: true, returned: back })
+  const switched = { ...session("ses_1"), agent: "plan", variant: "high", model: { provider: "openai", model: "gpt-5" } }
+  const h = harness({ submit: () => Promise.resolve({ session: switched, message: {} }) } as Partial<Client>)
+  expect(await h.actions.send("ses_1", "plan again", { model: { providerID: "openai", modelID: "gpt-5" }, agent: "plan", variant: "high" })).toEqual({ ok: true })
   expect(savedChoice(h.state, "ses_1")).toEqual({ agent: "plan", variant: "high", model: { providerID: "openai", modelID: "gpt-5" } })
-  expect(await h.actions.abort("ses_1")).toEqual(back)
-  expect(await h.actions.discardQueued("ses_1")).toEqual(back)
-  expect(await h.actions.discardQueued("ses_2")).toBeUndefined()
-  expect(h.state.notices).toEqual([])
 })
 
 test("a follow-up names its agent and level only when they change what the session runs as next", async () => {

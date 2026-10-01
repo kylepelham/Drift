@@ -1,5 +1,4 @@
 import { createSignal } from "solid-js"
-import type { ReturnedPrompt } from "../engine/actions"
 import type { MessageEntry } from "../engine/store"
 import { resolveAttachmentKind, type StagedAttachment } from "../attachments"
 import { persisted } from "./persist"
@@ -145,30 +144,6 @@ export function draftFromMessage(entry: MessageEntry): ComposerDraft {
     })
   }
   return { text, staged, mentions: [...new Set(mentions)] }
-}
-
-/** Puts a prompt the engine gave back unrun into the draft, ahead of anything typed since: pasted files as attachments, `@path` references under `root` as mentions again. */
-export function restoreComposerDraft(scope: string, returned: ReturnedPrompt, root: string) {
-  const current = composerDraft(scope)
-  const staged: StagedFile[] = returned.files.flatMap((file, index) => {
-    const resolved = resolveAttachmentKind({ filename: file.name, mime: file.mime })
-    if (!file.url.startsWith("data:") || resolved.kind === "unsupported") return []
-    return [{ id: `returned-${Date.now()}-${index}`, filename: file.name, mime: resolved.mime, dataUrl: file.url, size: 0, status: "ready" as const, meta: {} }]
-  })
-  const mentions = returned.files.flatMap((file) => mentionPath(file.url, root)).filter((path) => returned.text.includes(`@${path}`))
-  setComposerDraft(scope, {
-    text: [returned.text, current.text].filter((text) => text.trim()).join("\n\n"),
-    staged: [...staged, ...current.staged],
-    mentions: [...new Set([...mentions, ...current.mentions])],
-  })
-}
-
-/** The workspace-relative path a mention's `file:` URL points at, if it is inside `root`. */
-function mentionPath(url: string, root: string) {
-  if (!url.startsWith("file:///")) return []
-  const directory = root.replaceAll("\\", "/").replace(/\/+$/, "")
-  const absolute = decodeURI(url.slice("file:///".length))
-  return directory && absolute.startsWith(`${directory}/`) ? [absolute.slice(directory.length + 1)] : []
 }
 
 function historyDraft(entry: ComposerHistoryEntry): ComposerDraft {

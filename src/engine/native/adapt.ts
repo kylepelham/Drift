@@ -37,7 +37,6 @@ export function adaptSession(session: NativeSession, workspaces: WorkspaceIndex)
     ...(session.revert ? { revert: { messageID: session.revert.messageId } } : {}),
     agent: session.agent,
     variant: session.variant ?? null,
-    queued: session.queued ?? null,
   } as Session
 }
 

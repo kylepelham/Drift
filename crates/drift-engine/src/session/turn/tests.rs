@@ -78,7 +78,7 @@ async fn a_plain_reply_is_stored_and_costed() {
     let h = harness().await;
     h.provider.push(text("Hello there"));
     let receipt = h.engine.submit(&h.session.id, prompt("say hello please")).await.await_ok();
-    assert_eq!(receipt.message.unwrap().role, Role::User);
+    assert_eq!(receipt.message.role, Role::User);
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     assert_eq!(transcript.len(), 2);
@@ -525,7 +525,7 @@ async fn failed_admission_releases_the_session_and_submission_ids_replay() {
     first.submission_id = Some("sub_1".into());
     let receipt = h.engine.submit(&h.session.id, first.clone()).await.await_ok();
     let replay = h.engine.submit(&h.session.id, first).await.await_ok();
-    assert_eq!(replay.message.unwrap().id, receipt.message.unwrap().id, "same submission id returns the same receipt");
+    assert_eq!(replay.message.id, receipt.message.id, "same submission id returns the same receipt");
     until_idle(&h).await;
     assert_eq!(h.engine.store.transcript(&h.session.id).unwrap().len(), 2);
 
@@ -593,7 +593,7 @@ async fn submission_ids_survive_a_restart_and_reject_a_different_payload() {
     let reopened = Engine::open_with(&h._dir.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
     *reopened.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(h.provider.clone()));
     let replay = reopened.submit(&h.session.id, first).await.await_ok();
-    assert_eq!(replay.message.unwrap().id, receipt.message.unwrap().id);
+    assert_eq!(replay.message.id, receipt.message.id);
     assert_eq!(reopened.store.transcript(&h.session.id).unwrap().len(), 2, "no second prompt after restart");
 
     let mut changed = prompt("different text");
@@ -713,7 +713,7 @@ async fn a_prompt_sent_during_a_call_reaches_the_next_request_after_its_result()
     steer.submission_id = Some("steer-1".into());
     let first = h.engine.submit(&h.session.id, steer.clone()).await.expect("a busy turn takes the prompt");
     let again = h.engine.submit(&h.session.id, steer).await.unwrap();
-    assert_eq!(first.message.unwrap().id, again.message.unwrap().id, "the same submission is one prompt");
+    assert_eq!(first.message.id, again.message.id, "the same submission is one prompt");
     until_idle(&h).await;
     let requests = h.provider.requests.lock().unwrap().clone();
     assert_eq!(requests.len(), 2, "taken at the next request, not as a turn of its own");
@@ -857,7 +857,7 @@ async fn a_file_read_in_through_a_mention_can_be_edited_straight_away() {
 }
 
 #[tokio::test]
-async fn a_steered_image_is_judged_against_the_model_the_turn_runs_on() {
+async fn a_steered_image_is_judged_against_the_model_the_next_request_runs_on() {
     let h = harness().await;
     let other = {
         let mut catalog = h.engine.catalog.write().unwrap();
@@ -865,7 +865,7 @@ async fn a_steered_image_is_judged_against_the_model_the_turn_runs_on() {
         models.get_mut("claude-sonnet-4-5").unwrap().attachment = false;
         models.values().find(|m| m.id != "claude-sonnet-4-5" && m.attachment).unwrap().id.clone()
     };
-    h.provider.push_slow(Duration::from_millis(600), text("done"));
+    h.provider.push_slow(Duration::from_millis(600), text("done")).push(text("seen it"));
     h.engine.submit(&h.session.id, prompt("slow")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(100)).await;
     let image = Part::File { mime: "image/png".into(), name: "shot.png".into(), url: "data:image/png;base64,iVBORw0KGgo=".into() };
@@ -875,10 +875,9 @@ async fn a_steered_image_is_judged_against_the_model_the_turn_runs_on() {
     assert!(matches!(&refused, TurnError::Attachment(m) if m.contains("cannot read images")), "the running model decides: {refused:?}");
     let mut elsewhere = with_files("look at this", vec![image]);
     elsewhere.model = Some(ModelRef { provider: "anthropic".into(), model: other.clone() });
-    let waiting = h.engine.submit(&h.session.id, elsewhere).await.unwrap();
-    assert_eq!(waiting.session.queued.and_then(|q| q.model).map(|m| m.model), Some(other), "naming another model waits for a turn on it");
-    h.engine.discard_queued(&h.session.id);
+    h.engine.submit(&h.session.id, elsewhere).await.expect("the model it switches to reads images");
     until_idle(&h).await;
+    assert_eq!(h.provider.requests.lock().unwrap().last().unwrap().model, other, "answered on the model it named");
 }
 
 fn limits(h: &Harness, json: &str) {
@@ -1014,6 +1013,46 @@ async fn an_edit_that_would_grow_a_file_past_what_undo_keeps_is_refused_before_i
     let Part::ToolCall { status, output, .. } = &transcript[2].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Error);
     assert!(output.as_deref().unwrap().contains("over the 10 MB undo can keep"), "{output:?}");
+}
+
+/// A turn busy with its first step while `switch` is sent; returns every request it made.
+async fn switched_mid_turn(h: &Harness, switch: Prompt) -> Vec<Request> {
+    h.provider.push_slow(Duration::from_millis(400), tool_call("read", r#"{"path": "missing.txt"}"#)).push(text("carried on"));
+    h.engine.submit(&h.session.id, prompt("start")).await.await_ok();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    h.engine.submit(&h.session.id, switch).await.expect("taken by the running turn");
+    until_idle(h).await;
+    h.provider.requests.lock().unwrap().clone()
+}
+
+#[tokio::test]
+async fn a_model_named_mid_turn_powers_its_next_request_and_the_conversation_carries_on() {
+    let h = harness().await;
+    let other = h.engine.catalog.read().unwrap().providers["anthropic"].models.keys().find(|id| *id != "claude-sonnet-4-5").unwrap().clone();
+    let requests = switched_mid_turn(&h, Prompt { model: Some(ModelRef { provider: "anthropic".into(), model: other.clone() }), ..prompt("try the other one") }).await;
+    assert_eq!(requests.iter().map(|r| r.model.as_str()).collect::<Vec<_>>(), ["claude-sonnet-4-5", other.as_str()], "one turn, the second request on the new model");
+    assert!(format!("{:?}", requests[1].messages).contains("try the other one"));
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert_eq!(transcript.last().unwrap().info.model.as_ref().map(|m| m.model.as_str()), Some(other.as_str()), "the reply records the model that wrote it");
+    let unknown = Prompt { model: Some(ModelRef { provider: "anthropic".into(), model: "no-such-model".into() }), ..prompt("x") };
+    h.provider.push_slow(Duration::from_millis(300), text("busy"));
+    h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(h.engine.submit(&h.session.id, unknown).await.err(), Some(TurnError::UnknownModel), "a bad choice fails for the sender");
+    until_idle(&h).await;
+}
+
+#[tokio::test]
+async fn an_agent_or_level_named_mid_turn_applies_from_the_next_request() {
+    let h = harness().await;
+    let requests = switched_mid_turn(&h, Prompt { agent: Some("plan".into()), ..prompt("plan instead") }).await;
+    assert!(requests[0].tools.iter().any(|t| t.name == "write") && !requests[1].tools.iter().any(|t| t.name == "write"), "plan's tools from the next request");
+    assert_eq!(h.engine.store.transcript(&h.session.id).unwrap().last().unwrap().info.agent.as_deref(), Some("plan"));
+
+    let h = harness().await;
+    let requests = switched_mid_turn(&h, Prompt { variant: Some(Some("max".into())), ..prompt("think harder") }).await;
+    assert_eq!(requests[0].reasoning, None);
+    assert!(matches!(requests[1].reasoning, Some(Reasoning::Budget { .. })), "{:?}", requests[1].reasoning);
 }
 
 #[tokio::test]

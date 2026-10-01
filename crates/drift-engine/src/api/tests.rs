@@ -287,14 +287,6 @@ async fn a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket() {
     assert_eq!(asked["request"]["tool"], "write");
     let pending: Value = h.get("/permissions").send().await.unwrap().json().await.unwrap();
     assert_eq!(pending[0]["id"], request_id);
-    // Another agent waits for the turn's step instead of joining it; the caller hears so at once, and can take it back.
-    let waiting: Value = h.post(&format!("/sessions/{session_id}/turns")).json(&json!({ "parts": [{ "type": "text", "text": "plan it" }], "agent": "plan" })).send().await.unwrap().json().await.unwrap();
-    assert!(waiting.get("message").is_none());
-    assert_eq!((&waiting["session"]["queued"]["agent"], &waiting["session"]["queued"]["text"]), (&json!("plan"), &json!("plan it")));
-    let discarded = h.delete(&format!("/sessions/{session_id}/queued")).send().await.unwrap();
-    assert_eq!(discarded.status(), 200);
-    assert_eq!(discarded.json::<Value>().await.unwrap()["returned"][0]["text"], "plan it");
-    assert_eq!(h.delete(&format!("/sessions/{session_id}/queued")).send().await.unwrap().status(), 404);
     let reply = json!({ "type": "permission.reply", "requestId": request_id, "reply": "once" }).to_string();
     socket.send(Message::Text(reply.into())).await.unwrap();
 
@@ -375,7 +367,7 @@ async fn browser_origins_get_cors_headers_and_preflight_needs_no_token() {
 async fn the_archive_purge_never_deletes_a_session_that_was_restored() {
     let h = harness().await;
     let (_, session_id) = session_with_model(&h).await;
-    let purge = || h.http.delete(h.url(&format!("/sessions/{session_id}?archived=true"))).bearer_auth(&h.engine.token).send();
+    let purge = || h.delete(&format!("/sessions/{session_id}?archived=true")).send();
     assert_eq!(purge().await.unwrap().status(), 409, "never archived");
     let archive = |archived: bool| h.patch(&format!("/sessions/{session_id}")).json(&json!({ "archived": archived })).send();
     archive(true).await.unwrap();
@@ -393,9 +385,9 @@ async fn deleting_a_session_removes_it_and_its_messages() {
     let h = harness().await;
     let (_, session_id) = session_with_model(&h).await;
     let mut socket = h.ws("").await;
-    assert_eq!(h.http.delete(h.url(&format!("/sessions/{session_id}"))).bearer_auth(&h.engine.token).send().await.unwrap().status(), 204);
+    assert_eq!(h.delete(&format!("/sessions/{session_id}")).send().await.unwrap().status(), 204);
     assert_eq!(h.get(&format!("/sessions/{session_id}")).send().await.unwrap().status(), 404);
-    assert_eq!(h.http.delete(h.url(&format!("/sessions/{session_id}"))).bearer_auth(&h.engine.token).send().await.unwrap().status(), 404);
+    assert_eq!(h.delete(&format!("/sessions/{session_id}")).send().await.unwrap().status(), 404);
     let deleted = until(&mut socket, "session.deleted").await;
     assert_eq!(deleted["sessionId"], session_id);
 }
@@ -420,7 +412,7 @@ async fn mcp_servers_are_saved_approved_connected_and_their_tools_reach_the_mode
     let off: Value = h.put("/mcp/echo/enabled").json(&json!({ "enabled": false })).send().await.unwrap().json().await.unwrap();
     assert_eq!(off["state"], "disabled");
     assert!(!h.engine.tool_specs(ToolProfile::Edit).iter().any(|s| s.name == "echo_shout"));
-    assert_eq!(h.http.delete(h.url("/mcp/echo")).bearer_auth(&h.engine.token).send().await.unwrap().status(), 204);
+    assert_eq!(h.delete("/mcp/echo").send().await.unwrap().status(), 204);
     assert_eq!(h.put("/mcp/bad name").json(&json!({ "type": "stdio", "command": "x" })).send().await.unwrap().status(), 400);
 }
 
