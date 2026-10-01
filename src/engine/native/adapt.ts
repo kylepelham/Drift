@@ -95,8 +95,12 @@ export function adaptPart(row: NativePartRow): Part {
       return { ...base, type: "text", text: row.text }
     case "reasoning":
       return { ...base, type: "reasoning", text: row.text, time: { start: 0 } }
-    case "file":
-      return { ...base, type: "file", mime: row.mime, filename: row.name, url: row.url }
+    case "file": {
+      // A mention keeps the workspace file it was read from, so its chip can open that file.
+      const value = `@${row.path ?? ""}`
+      const source = row.path ? { source: { type: "file" as const, path: row.path, text: { value, start: 0, end: value.length } } } : {}
+      return { ...base, type: "file", mime: row.mime, filename: row.name, url: row.url, ...source }
+    }
     case "tool_call":
       return { ...base, type: "tool", callID: row.callId, tool: row.name, state: toolState(row) }
     case "compaction":

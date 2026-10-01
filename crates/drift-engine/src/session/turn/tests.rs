@@ -759,7 +759,7 @@ async fn a_prompt_sent_during_another_job_waits_and_then_runs() {
 fn mention(path: &std::path::Path) -> Part {
     let path = path.to_string_lossy().replace('\\', "/");
     let url = if path.starts_with('/') { format!("file://{path}") } else { format!("file:///{path}") };
-    Part::File { mime: "text/plain".into(), name: "mention".into(), url }
+    Part::File { mime: "text/plain".into(), name: "mention".into(), url, path: None }
 }
 
 fn with_files(text: &str, files: Vec<Part>) -> Prompt {
@@ -785,6 +785,14 @@ async fn a_mentioned_workspace_file_is_read_into_the_prompt() {
     let sent = sent_text(&h, with_files("see @notes.md and @src", vec![mention(&ws.join("notes.md")), mention(&ws.join("src"))])).await;
     assert!(sent.contains("<file path=\"notes.md\">\nremember the milk"), "{sent}");
     assert!(sent.contains("<file path=\"src\">\nlib.rs"), "a directory lists its entries: {sent}");
+    let stored: Vec<Option<String>> = h.engine.store.transcript(&h.session.id).unwrap()[0].parts.iter().filter_map(|row| match &row.part { Part::File { path, .. } => Some(path.clone()), _ => None }).collect();
+    assert_eq!(stored, [Some("notes.md".to_string()), Some("src".to_string())], "a mention remembers the file it was, for the client to open");
+    let forged = Part::File { mime: "text/plain".into(), name: "x".into(), url: "data:text/plain;base64,eA==".into(), path: Some("../secret".into()) };
+    h.provider.push(text("ok"));
+    h.engine.submit(&h.session.id, with_files("pasted", vec![forged])).await.await_ok();
+    until_idle(&h).await;
+    let last_prompt = h.engine.store.transcript(&h.session.id).unwrap().into_iter().rev().find(|m| m.info.role == Role::User).unwrap();
+    assert!(last_prompt.parts.iter().all(|row| !matches!(&row.part, Part::File { path: Some(_), .. })), "a client cannot claim a part is a mention");
 }
 
 #[tokio::test]
@@ -808,18 +816,18 @@ async fn a_mentioned_secret_or_outside_file_is_not_read_without_a_rule() {
 #[tokio::test]
 async fn files_a_model_cannot_take_are_refused_not_dropped() {
     let h = harness().await;
-    let image = Part::File { mime: "image/png".into(), name: "shot.png".into(), url: "data:image/png;base64,iVBORw0KGgo=".into() };
+    let image = Part::File { mime: "image/png".into(), name: "shot.png".into(), url: "data:image/png;base64,iVBORw0KGgo=".into(), path: None };
     h.engine.catalog.write().unwrap().providers.get_mut("anthropic").unwrap().models.get_mut("claude-sonnet-4-5").unwrap().attachment = false;
     let refused = h.engine.submit(&h.session.id, with_files("look", vec![image.clone()])).await.unwrap_err();
     assert!(matches!(&refused, TurnError::Attachment(m) if m.contains("cannot read images") && m.contains("shot.png")), "{refused:?}");
     assert!(!h.engine.turns.is_running(&h.session.id), "a refused prompt leaves the session free");
-    let audio = Part::File { mime: "audio/wav".into(), name: "memo.wav".into(), url: "data:audio/wav;base64,UklGRg==".into() };
+    let audio = Part::File { mime: "audio/wav".into(), name: "memo.wav".into(), url: "data:audio/wav;base64,UklGRg==".into(), path: None };
     assert!(matches!(h.engine.submit(&h.session.id, with_files("hear", vec![audio])).await, Err(TurnError::Attachment(_))));
-    let remote = Part::File { mime: "text/plain".into(), name: "remote".into(), url: "https://example.com/a.txt".into() };
+    let remote = Part::File { mime: "text/plain".into(), name: "remote".into(), url: "https://example.com/a.txt".into(), path: None };
     assert!(matches!(h.engine.submit(&h.session.id, with_files("fetch", vec![remote])).await, Err(TurnError::Attachment(_))));
     assert!(h.provider.requests.lock().unwrap().is_empty());
 
-    let note = Part::File { mime: "text/plain".into(), name: "note.txt".into(), url: "data:text/plain;base64,aGVsbG8gdGhlcmU=".into() };
+    let note = Part::File { mime: "text/plain".into(), name: "note.txt".into(), url: "data:text/plain;base64,aGVsbG8gdGhlcmU=".into(), path: None };
     assert!(sent_text(&h, with_files("read this", vec![note])).await.contains("hello there"), "text travels as text");
 }
 
@@ -833,7 +841,7 @@ async fn malformed_attachments_are_refused_before_admission() {
         ("image/png", "data:image/png,rawbytes", "not valid base64"),
         ("image/png", "data:image/jpeg;base64,iVBORw0KGgo=", "its data is image/jpeg"),
     ] {
-        let part = Part::File { mime: mime.into(), name: "bad".into(), url: url.into() };
+        let part = Part::File { mime: mime.into(), name: "bad".into(), url: url.into(), path: None };
         let refused = h.engine.submit(&h.session.id, with_files("look", vec![part])).await.unwrap_err();
         assert!(matches!(&refused, TurnError::Attachment(m) if m.contains(why)), "{url}: {refused:?}");
     }
@@ -868,7 +876,7 @@ async fn a_steered_image_is_judged_against_the_model_the_next_request_runs_on() 
     h.provider.push_slow(Duration::from_millis(600), text("done")).push(text("seen it"));
     h.engine.submit(&h.session.id, prompt("slow")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(100)).await;
-    let image = Part::File { mime: "image/png".into(), name: "shot.png".into(), url: "data:image/png;base64,iVBORw0KGgo=".into() };
+    let image = Part::File { mime: "image/png".into(), name: "shot.png".into(), url: "data:image/png;base64,iVBORw0KGgo=".into(), path: None };
     let mut steered = with_files("look at this", vec![image.clone()]);
     steered.model = None;
     let refused = h.engine.submit(&h.session.id, steered).await.unwrap_err();

@@ -166,6 +166,9 @@ pub enum Part {
         name: String,
         /// Data URL for now; a content-addressed blob store replaces this later.
         url: String,
+        /// For an `@` mention, the workspace file it was read from, so a client can open it; only the engine sets it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
     },
     /// A background worker's result, put into its parent's conversation by the engine, not typed by the user.
     #[serde(rename_all = "camelCase")]

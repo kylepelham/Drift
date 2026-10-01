@@ -606,9 +606,14 @@ export async function openMarkdownLink(event: MouseEvent, directory?: string, wo
   if (link.kind === "unsupported") throw new Error("The link is invalid or its workspace directory is unavailable")
   if (fileGroups) link = resolveMarkdownCitation(href, directory, fileGroups())
   if (link.kind !== "file") return
+  await openWorkspaceFile(link, workspaceDirectory, href.includes("#") ? decodeURIComponent(href.slice(href.indexOf("#") + 1)) : undefined)
+}
+
+/** Opens a file the way a file link in a reply does: images in the lightbox, previewable files in the viewer, anything else in the editor. */
+export async function openWorkspaceFile(link: { path: string; line?: number; column?: number }, workspaceDirectory?: string, hash?: string) {
   if (filePreviewType(link.path) === "image" && shouldPreviewFile(link.path) && backendInvoke()) return openImageLink(link.path)
   if (workspaceDirectory && shouldPreviewFile(link.path) && backendInvoke()) {
-    openFilePreview({ ...link, directory: workspaceDirectory, hash: href.includes("#") ? decodeURIComponent(href.slice(href.indexOf("#") + 1)) : undefined })
+    openFilePreview({ ...link, directory: workspaceDirectory, hash })
     return
   }
   await openFile(link.path, { line: link.line, column: link.column, editorOnly: true })

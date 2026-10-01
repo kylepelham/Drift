@@ -881,7 +881,11 @@ Settled after the first external review of M1; each has a regression test.
     entries; binary files and files that do not exist say so; text past 64 KB is cut at a line
     with the offset to read on from. Only one byte past that bound is ever read from disk. A
     mention read in full is recorded in the session's read ledger, so the model can edit the file
-    straight away; one cut short is not, since the model has not seen all of it.
+    straight away; one cut short is not, since the model has not seen all of it. The stored part
+    keeps the workspace path it was read from (`path`, set only by the engine; one a client sends
+    is cleared), so its chip opens the file the way a file link in a reply does, and undo puts it
+    back as a mention. The composer sends one part per `@path` that appears whole in the text, so a
+    folder passed through while picking a file is not sent with it.
   - Every `data:` URL is taken apart and checked before admission: its MIME must match the part's,
     a text payload must decode to UTF-8 and an image payload must be valid base64. Anything else is
     refused with 400 `attachment` naming the file, never admitted and dropped later.

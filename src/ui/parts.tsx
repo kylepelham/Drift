@@ -8,7 +8,8 @@ import { showReasoning, toolErrorsExpanded } from "../state/prefs"
 import { agentLabel, t } from "../state/i18n"
 import { selectSession } from "../state/selection"
 import { IconArrowUpRight, IconBranch, IconCheck, IconCopy } from "./icons"
-import { codeTokens, Markdown, ProgressiveCodeView, type SyntaxToken } from "./markdown"
+import { codeTokens, Markdown, openWorkspaceFile, ProgressiveCodeView, type SyntaxToken } from "./markdown"
+import { classifyMarkdownLink } from "./markdown-links"
 import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../state/code"
 import { TextShimmer } from "./text-shimmer"
 import { openToolContextMenu } from "./tool-context-menu"
@@ -135,10 +136,39 @@ export function partVisible(part: Part) {
   }
 }
 
-export function FilePartView(props: { part: Pick<FilePart, "mime" | "filename" | "url"> }) {
+export function FilePartView(props: { part: Pick<FilePart, "mime" | "filename" | "url" | "source">; directory?: string }) {
   const linkable = () => props.part.url.startsWith("data:") || props.part.url.startsWith("http")
   const resolved = () => resolveAttachmentKind(props.part)
   const kind = () => resolved().kind
+  const mention = () => (props.part.source?.type === "file" && props.directory ? props.part.source.path : undefined)
+  return (
+    <Show when={mention()} fallback={<AttachmentView part={props.part} linkable={linkable()} kind={kind()} />}>
+      {(path) => <MentionChip path={path()} directory={props.directory!} kind={kind()} />}
+    </Show>
+  )
+}
+
+/** An `@` mention: opens the file it names, as a file link in a reply would. */
+function MentionChip(props: { path: string; directory: string; kind: string }) {
+  const open = () => {
+    const link = classifyMarkdownLink(props.path, props.directory)
+    if (link.kind === "file") void openWorkspaceFile(link, props.directory)
+  }
+  return (
+    <button
+      type="button"
+      title={props.path}
+      class="inline-flex max-w-full items-center gap-2 rounded-md border border-edge bg-raised py-1 pr-2 pl-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+      onClick={open}
+    >
+      <AttachmentFileLabel filename={props.path} kind={props.kind === "unsupported" ? "text" : props.kind} bare />
+    </button>
+  )
+}
+
+function AttachmentView(props: { part: Pick<FilePart, "mime" | "filename" | "url">; linkable: boolean; kind: string }) {
+  const linkable = () => props.linkable
+  const kind = () => props.kind
   return (
     <Switch
       fallback={

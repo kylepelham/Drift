@@ -34,9 +34,10 @@ impl Attach<'_> {
     }
 
     fn part(&self, part: Part) -> Result<Part, TurnError> {
-        let Part::File { mime, name, url } = part else { return Ok(part) };
+        let Part::File { mime, name, url, .. } = part else { return Ok(part) };
         if let Some(path) = file_path(&url) {
-            return Ok(text_part(&display_name(self.workspace, &path), &self.mention(&path)));
+            let shown = display_name(self.workspace, &path);
+            return Ok(mention_part(&shown, &self.mention(&path)));
         }
         let refuse = |why: String| Err(TurnError::Attachment(format!("{name}: {why}")));
         let Some(data) = DataUrl::parse(&url) else { return refuse("only files and data URLs can be attached".into()) };
@@ -44,10 +45,10 @@ impl Attach<'_> {
             return refuse(format!("it says it is {mime} but its data is {}", data.mime));
         }
         match mime.split('/').next().unwrap_or_default() {
-            "text" if data.text().is_some() => Ok(Part::File { mime, name, url }),
+            "text" if data.text().is_some() => Ok(Part::File { mime, name, url, path: None }),
             "text" => refuse("its text could not be decoded".into()),
             "image" if !data.base64 || data.bytes().is_none() => refuse("its image data is not valid base64".into()),
-            "image" if self.model.attachment => Ok(Part::File { mime, name, url }),
+            "image" if self.model.attachment => Ok(Part::File { mime, name, url, path: None }),
             "image" => Err(TurnError::Attachment(format!("{} cannot read images; pick a model that can, or remove {name}", self.model.name))),
             _ => refuse(format!("{mime} cannot be sent to a model yet; attach it as text, or as an image the model can read")),
         }
@@ -156,9 +157,10 @@ fn list(path: &Path) -> String {
     format!("{}{more}", names.join("\n"))
 }
 
-fn text_part(name: &str, text: &str) -> Part {
+/// A mention as the model reads it, a text file, that remembers which workspace file it was.
+fn mention_part(shown: &str, text: &str) -> Part {
     let url = format!("data:text/plain;base64,{}", base64::engine::general_purpose::STANDARD.encode(text));
-    Part::File { mime: "text/plain".into(), name: name.into(), url }
+    Part::File { mime: "text/plain".into(), name: shown.into(), url, path: Some(shown.into()) }
 }
 
 fn display_name(workspace: &Path, path: &Path) -> String {

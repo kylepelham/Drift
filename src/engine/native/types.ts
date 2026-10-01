@@ -1096,6 +1096,8 @@ export interface components {
         } | {
             mime: string;
             name: string;
+            /** @description For an `@` mention, the workspace file it was read from, so a client can open it; only the engine sets it. */
+            path?: string | null;
             /** @enum {string} */
             type: "file";
             /** @description Data URL for now; a content-addressed blob store replaces this later. */

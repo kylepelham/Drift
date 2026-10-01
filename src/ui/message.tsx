@@ -112,7 +112,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
             <div class="group flex flex-col items-end gap-1.5">
               <Show when={files().length > 0}>
                 <div class="flex max-w-[85%] flex-wrap justify-end gap-1.5">
-                  <For each={files()}>{(file) => <FilePartView part={file} />}</For>
+                  <For each={files()}>{(file) => <FilePartView part={file} directory={engine.state.sessions[info().sessionID]?.directory} />}</For>
                 </div>
               </Show>
               <Show when={text()}>

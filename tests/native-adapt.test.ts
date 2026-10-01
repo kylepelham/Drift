@@ -94,6 +94,24 @@ test("a reply that stopped at its output limit shows why", () => {
   expect(whole.error).toBeUndefined()
 })
 
+test("a mention keeps the file it names, so undo restores it as a mention and its chip can open it", async () => {
+  const { draftFromMessage } = await import("../src/state/composer")
+  const row = { id: "prt_m", messageId: "msg_m", sessionId: "ses_1", type: "file" as const, mime: "text/plain", name: "src/db.ts", url: "data:text/plain;base64,eA==", path: "src/db.ts" }
+  const mention = adaptPart(row)
+  expect(mention).toMatchObject({ type: "file", source: { type: "file", path: "src/db.ts" } })
+  const pasted = adaptPart({ ...row, id: "prt_p", name: "notes.txt", path: undefined })
+  expect("source" in pasted).toBe(false)
+  const entry = { info: { id: "msg_m", sessionID: "ses_1", role: "user", time: { created: 1 } }, parts: [{ id: "t", type: "text", text: "check @src/db.ts" }, mention] } as never
+  expect(draftFromMessage(entry).mentions).toEqual(["src/db.ts"])
+})
+
+test("one reference is one mention: a path never matches inside a longer one", async () => {
+  const { mentionFiles } = await import("../src/ui/composer-mentions")
+  const text = "what is in @src/database/database.ts, and @README.md."
+  const sent = mentionFiles(text, ["src/database", "src/database/database.ts", "README.md"], "C:/repo")
+  expect(sent.map((file) => file.filename)).toEqual(["database.ts", "README.md"])
+})
+
 test("a delivered background result is engine text, not the user's words", () => {
   const part = adaptPart({ id: "prt_9", messageId: "msg_9", sessionId: "ses_1", type: "task_result", taskId: "task_1", workerSessionId: "ses_w", description: "Survey", outcome: "replied", text: "three things" })
   expect(part).toMatchObject({ type: "text", synthetic: true, sessionID: "ses_1", text: 'Background task "Survey" replied:\n\nthree things' })
