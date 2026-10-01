@@ -124,6 +124,7 @@ change the plan there when a decision changes.
 
 ## M4: cutover
 
+- [ ] Every legacy capability in `docs/research/opencode-exit-inventory.md` checked off or explicitly dropped
 - [ ] `drift-migrate`: sessions, messages, parts, todos, credentials, config
 - [ ] `DRIFT_*` env vars and `drift` data paths
 - [ ] Delete `engine/*`, `@opencode-ai/sdk`, overlays, `build-engine.ts`, `build-extensions.ts`
