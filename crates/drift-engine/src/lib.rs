@@ -106,6 +106,7 @@ impl Engine {
         let store = Arc::new(store::open(data_dir)?);
         store.abandon_streaming_messages()?;
         store.interrupt_unfinished_tasks()?;
+        tool::stage::clean_leftovers(&store);
         Ok(Arc::new(Self {
             data_dir: data_dir.to_path_buf(),
             store,

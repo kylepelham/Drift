@@ -4,6 +4,7 @@ mod migrations;
 mod mcp;
 mod sessions;
 mod settings;
+mod staged;
 pub(crate) mod tasks;
 mod todos;
 mod tree;

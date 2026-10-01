@@ -12,6 +12,7 @@ pub mod read;
 pub mod sensitive;
 pub mod skill;
 pub mod spool;
+pub(crate) mod stage;
 pub mod task;
 pub mod todo;
 pub mod webfetch;

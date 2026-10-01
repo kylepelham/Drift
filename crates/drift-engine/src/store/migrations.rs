@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-const MIGRATIONS: [&str; 10] = [
+const MIGRATIONS: [&str; 11] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -95,6 +95,10 @@ const MIGRATIONS: [&str; 10] = [
     CREATE TABLE stop_generation(
         session_id TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE,
         generation INTEGER NOT NULL
+    ) STRICT;",
+    "CREATE TABLE staged_file(
+        path TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL
     ) STRICT;",
 ];
 

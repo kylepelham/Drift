@@ -4,8 +4,9 @@ use serde_json::{json, Value};
 
 use super::edit::{diff, LineEnding};
 use super::patch::{self, Op};
-use super::{display, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
+use super::{display, required_str, stage, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
+use crate::store::Store;
 
 pub struct ApplyPatch;
 
@@ -58,8 +59,7 @@ impl Tool for ApplyPatch {
         Some(paths)
     }
 
-    /// The whole patch is read, checked and worked out before any file changes, so a bad hunk in the
-    /// last file leaves the first untouched. A write that fails part way puts back what went before.
+    /// The whole patch is checked before any file changes; a failed write puts back what went before.
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let ops = patch::parse(required_str(&input, "patch")?)?;
@@ -70,7 +70,7 @@ impl Tool for ApplyPatch {
                 plan.prepare(ctx, op, &path).await.map_err(|e| ToolError(format!("{name}: {}", e.0)))?;
                 plan.touched.push(name);
             }
-            plan.apply().await?;
+            plan.apply(&ctx.engine.store).await?;
             for step in plan.steps.iter().filter(|s| s.after.is_some()) {
                 ctx.files.mark_read(&step.path);
             }
@@ -137,10 +137,10 @@ impl Plan {
     }
 
     /// Makes every change; on a failure, puts back every step through the failing one and names any file it could not.
-    async fn apply(&self) -> Result<(), ToolError> {
+    async fn apply(&self, store: &Store) -> Result<(), ToolError> {
         for (index, step) in self.steps.iter().enumerate() {
-            if let Err(error) = set(&step.path, step.after.as_deref()).await {
-                let unrestored = self.undo(index + 1).await;
+            if let Err(error) = set(store, &step.path, step.after.as_deref()).await {
+                let unrestored = self.undo(store, index + 1).await;
                 let state = if unrestored.is_empty() { "nothing was changed".to_string() } else { format!("these could not be put back: {}", unrestored.join("; ")) };
                 return Err(ToolError(format!("could not write {}: {error}; {state}", step.path.display())));
             }
@@ -149,10 +149,10 @@ impl Plan {
     }
 
     /// Puts back the first `count` steps, newest first; returns each file it could not, with why.
-    async fn undo(&self, count: usize) -> Vec<String> {
+    async fn undo(&self, store: &Store, count: usize) -> Vec<String> {
         let mut unrestored = Vec::new();
         for step in self.steps[..count].iter().rev() {
-            if let Err(error) = restore(&step.path, step.before.as_deref()).await {
+            if let Err(error) = restore(store, &step.path, step.before.as_deref()).await {
                 unrestored.push(format!("{} ({error})", step.path.display()));
             }
         }
@@ -174,52 +174,29 @@ async fn existing(ctx: &Context, path: &Path) -> Result<Option<Vec<u8>>, ToolErr
 }
 
 /// Puts a file back as it was; a directory where no file was is not this patch's, so it is left alone.
-async fn restore(path: &Path, before: Option<&[u8]>) -> std::io::Result<()> {
+async fn restore(store: &Store, path: &Path, before: Option<&[u8]>) -> std::io::Result<()> {
     match before {
         Some(bytes) if tokio::fs::read(path).await.is_ok_and(|now| now == bytes) => Ok(()),
-        Some(bytes) => set(path, Some(bytes)).await,
+        Some(bytes) => set(store, path, Some(bytes)).await,
         None => match tokio::fs::symlink_metadata(path).await {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Ok(meta) if meta.is_dir() => Ok(()),
-            _ => set(path, None).await,
+            _ => set(store, path, None).await,
         },
     }
 }
 
-/// Writes through a sibling file renamed into place, so a failed write never leaves the file cut short.
-async fn set(path: &Path, content: Option<&[u8]>) -> std::io::Result<()> {
-    let Some(bytes) = content else {
-        return match tokio::fs::remove_file(path).await {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
-            _ => Ok(()),
-        };
-    };
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+async fn set(store: &Store, path: &Path, content: Option<&[u8]>) -> std::io::Result<()> {
+    match content {
+        Some(bytes) => stage::replace(store, path, bytes).await?,
+        None => match tokio::fs::remove_file(path).await {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        },
     }
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let staged = path.with_file_name(format!(".{name}.drift-{}.tmp", crate::random_hex(4)));
-    let written = stage(&staged, path, bytes).await;
-    if written.is_err() {
-        let _ = tokio::fs::remove_file(&staged).await;
-    }
-    written?;
     #[cfg(test)]
     tests::injected_failure(path)?;
     Ok(())
-}
-
-/// Writes the staged copy with the original's permissions, then renames it over the original.
-async fn stage(staged: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let original = tokio::fs::metadata(path).await.ok();
-    if original.as_ref().is_some_and(|meta| meta.permissions().readonly()) {
-        return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "the file is read-only"));
-    }
-    tokio::fs::write(staged, bytes).await?;
-    if let Some(meta) = original {
-        tokio::fs::set_permissions(staged, meta.permissions()).await?;
-    }
-    tokio::fs::rename(staged, path).await
 }
 
 #[cfg(test)]
