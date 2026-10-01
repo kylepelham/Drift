@@ -15,6 +15,7 @@ import { codeFontSize } from "../state/code"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
+import { Chevron } from "./controls"
 import { IconArrowDown } from "./icons"
 import {
   assistantFlowContinues,
@@ -89,8 +90,17 @@ export function Chat() {
     if (!id || !session || !source) return undefined
     const copied = copiedCount(allEntries(), session.time.created)
     if (!copied) return undefined
-    const own = allEntries()[copied]
-    return { id, copied, ownID: own?.info.id, source: engine.state.sessions[source]?.title ?? "", shown: shownCopies().has(id) }
+    const list = allEntries()
+    const shown = shownCopies().has(id)
+    return {
+      id,
+      copied,
+      ownID: list[copied]?.info.id,
+      headerID: shown ? list[0].info.id : list[copied]?.info.id,
+      copiedIDs: new Set(shown ? list.slice(0, copied).map((entry) => entry.info.id) : []),
+      source: engine.state.sessions[source]?.title ?? "",
+      shown,
+    }
   })
   const entries = createMemo(() => {
     const copy = spawnedCopy()
@@ -500,7 +510,9 @@ export function Chat() {
                   terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
                   found={findHighlight() === entry.info.id}
                   measure={measureRow}
-                  copy={spawnedCopy()?.ownID === entry.info.id ? spawnedCopy() : undefined}
+                  copy={spawnedCopy()?.headerID === entry.info.id ? spawnedCopy() : undefined}
+                  copied={!!spawnedCopy()?.copiedIDs.has(entry.info.id)}
+                  instruction={spawnedCopy()?.ownID === entry.info.id}
                   toggleCopy={toggleCopy}
                 />
               )}
@@ -830,6 +842,8 @@ function Row(props: {
   found: boolean
   measure: (element: HTMLDivElement) => void
   copy?: { id: string; source: string; shown: boolean }
+  copied: boolean
+  instruction: boolean
   toggleCopy: (id: string) => void
 }) {
   const fresh = Date.now() - props.entry.info.time.created < freshMessageMs
@@ -854,22 +868,30 @@ function Row(props: {
     >
       <Show when={props.copy}>
         {(copy) => (
-          <div class="mb-4 flex items-center gap-3 text-xs text-ink-faint select-none">
+          <button
+            type="button"
+            class="mb-4 flex w-full items-center gap-3 py-1 text-xs text-ink-faint transition-colors select-none hover:text-ink-muted"
+            aria-expanded={copy().shown}
+            onClick={() => props.toggleCopy(copy().id)}
+          >
             <div class="h-px flex-1 bg-edge" />
-            <span class="min-w-0 truncate">{t("drift.chat.spawned.copy", { title: copy().source })}</span>
-            <button type="button" class="shrink-0 text-ink-muted hover:text-ink" aria-expanded={copy().shown} onClick={() => props.toggleCopy(copy().id)}>
-              {copy().shown ? t("drift.chat.spawned.hide") : t("drift.chat.spawned.show")}
-            </button>
+            <span class="flex min-w-0 items-center gap-1.5">
+              <Chevron open={copy().shown} />
+              <span class="truncate">{t("drift.chat.spawned.copy", { title: copy().source })}</span>
+            </span>
             <div class="h-px flex-1 bg-edge" />
-          </div>
+          </button>
         )}
       </Show>
-      <MessageView
-        entry={props.entry}
-        footer={props.next?.info.role !== "assistant"}
-        groups={props.groups}
-        thinking={compactionShimmer()}
-      />
+      <div classList={{ "border-l-2 border-edge pl-3": props.copied }}>
+        <MessageView
+          entry={props.entry}
+          footer={props.next?.info.role !== "assistant"}
+          groups={props.groups}
+          thinking={compactionShimmer()}
+          spawned={props.instruction}
+        />
+      </div>
       <Show when={props.thinking && !compactionShimmer()}>
         <div class="timeline-thinking select-none" role="status" aria-live="polite">
           <TextShimmer text={t("drift.chat.thinking")} />

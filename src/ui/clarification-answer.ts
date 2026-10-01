@@ -1,7 +1,7 @@
 import type { MessageEntry } from "../engine/store"
 
 type ClarificationItem = { header: string; question: string; answers: string[] }
-type ClarificationAnswer = { items: ClarificationItem[]; text: string; preview: string }
+export type ClarificationAnswer = { items: ClarificationItem[]; text: string; preview: string; spawned?: boolean }
 
 export function clarificationAnswer(entry: MessageEntry): ClarificationAnswer | undefined {
   // Held worker results can ride along with an answer; they are not the user's words.

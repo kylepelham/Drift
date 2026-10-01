@@ -14,10 +14,10 @@ import { Markdown } from "./markdown"
 import { Chevron } from "./controls"
 import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
 import { TextShimmer } from "./text-shimmer"
-import { clarificationAnswer } from "./clarification-answer"
+import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer"
 import { citationFileGroups } from "./citation-files"
 
-export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; thinking?: boolean }) {
+export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; thinking?: boolean; spawned?: boolean }) {
   onMount(() =>
     emitMessageRendered({
       sessionId: props.entry.info.sessionID,
@@ -27,7 +27,7 @@ export function MessageView(props: { entry: MessageEntry; footer?: boolean; grou
   )
   const summary = () => (props.entry.info as AssistantMessage).summary && collapseCompaction()
   return (
-    <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} thinking={props.thinking} />}>
+    <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} thinking={props.thinking} spawned={props.spawned} />}>
       <Show when={summary()} fallback={<AssistantFlow entry={props.entry} footer={props.footer} groups={props.groups} />}>
         <CompactionSummary entry={props.entry} footer={props.footer} thinking={props.thinking} />
       </Show>
@@ -86,10 +86,12 @@ export function boundaryCompactions(entry: MessageEntry, collapsible: boolean, s
   return collapsible && !starting ? [] : compactionParts(entry)
 }
 
-function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
+function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: boolean }) {
   const engine = useEngine()
   const info = () => props.entry.info as UserMessage
-  const clarification = createMemo(() => clarificationAnswer(props.entry))
+  const answered = createMemo(() => clarificationAnswer(props.entry))
+  // A spawned thread's instruction folds like an answer: a label, a preview, the full text on open.
+  const clarification = createMemo(() => answered() ?? (props.spawned ? spawnedInstruction(messageText(props.entry)) : undefined))
   const text = () => clarification()?.text ?? messageText(props.entry)
   // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
   const generated = () => props.entry.parts.some((part) => part.type === "text" && part.metadata?.generated === true)
@@ -148,8 +150,10 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
         <div class="group flex min-w-0 items-start justify-end gap-1.5">
           <details class="group/answer min-w-0 max-w-[85%] text-xs">
             <summary data-find-ignore class="flex min-w-0 cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-ink-muted hover:bg-raised/40 [&::-webkit-details-marker]:hidden">
-              <IconCheck class="size-3.5 shrink-0 text-ink-faint" />
-              <span class="shrink-0">{t("drift.question.answered")}</span>
+              <Show when={answer().spawned} fallback={<IconCheck class="size-3.5 shrink-0 text-ink-faint" />}>
+                <IconBranch class="size-3.5 shrink-0 text-ink-faint" />
+              </Show>
+              <span class="shrink-0">{answer().spawned ? t("drift.chat.spawned.instruction") : t("drift.question.answered")}</span>
               <Show when={answer().preview}>
                 <span class="min-w-0 truncate text-ink">{answer().preview}</span>
               </Show>
@@ -182,6 +186,10 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
       )}
     </Show>
   )
+}
+
+function spawnedInstruction(text: string): ClarificationAnswer {
+  return { text, preview: text.replace(/\s+/g, " ").trim(), items: [], spawned: true }
 }
 
 export function largeUserText(text: string) {
