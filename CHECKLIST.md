@@ -153,7 +153,7 @@ change the plan there when a decision changes.
 - [ ] Every legacy capability in `docs/research/opencode-exit-inventory.md` checked off or explicitly dropped
 - [ ] `drift-migrate`: sessions, messages, parts, todos, credentials, config, MCP servers from the shell's `mcp_server` table (unapproved)
 - [ ] Delete the shell MCP runtime and Jev routing (`mcp.rs`, `mcp_external.rs`, `tool_routing.rs`, their commands, remote gateway entries and watcher hook); the UI no longer calls any of them
-- [ ] i18n sweep: drop keys the native UI no longer uses from every locale (`drift.mcp.description`, `drift.mcp.authenticate`, `drift.settings.prompts.astraDescription`)
+- [ ] i18n sweep: drop keys the native UI no longer uses from every locale (done so far: `drift.mcp.description`, `drift.mcp.authenticate`, `drift.settings.prompts.astraDescription`)
 - [ ] `DRIFT_*` env vars and `drift` data paths
 - [ ] Delete `engine/*`, `@opencode-ai/sdk`, overlays, `build-engine.ts`, `build-extensions.ts`
 - [ ] Remote gateway collapses into the engine router
