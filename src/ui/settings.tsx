@@ -134,7 +134,6 @@ import { Jellyfish, preloadJellyfish } from "./jellyfish"
 import { SettingsGroup, SettingsRow } from "./settings-controls"
 import { RemoteAccessSection } from "./settings-remote-access"
 import { StorageSection } from "./settings-storage"
-import { ToolRoutingSetting } from "./settings-tool-routing"
 import { UsageLimitsSection } from "./settings-usage"
 import { VoiceSection } from "./settings-voice"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
@@ -252,7 +251,6 @@ const settingsSearchDefinitions = {
   ],
   Shortcuts: Object.values(keybindLabels).map((title) => ({ title })),
   Tools: [
-    { title: "drift.settings.toolRouting.title", description: "drift.settings.toolRouting.description" },
     { title: "drift.settings.shellTimeout.title", description: "drift.settings.shellTimeout.description" },
     { title: "drift.settings.shellTimeout.customMinutes", description: "drift.settings.shellTimeout.customDescription" },
   ],
@@ -826,7 +824,6 @@ function ToolExecutionSection() {
   return (
     <div class="space-y-5">
       <SettingsGroup title={t("drift.settings.toolExecution")}>
-        <ToolRoutingSetting />
         <SettingsRow
           title={t("drift.settings.shellTimeout.title")}
           description={t("drift.settings.shellTimeout.description")}

@@ -116,24 +116,13 @@ test("settings search covers every category and finds feature descriptions", asy
   expect(settingsSearchResults("engine version")[0]?.section).toBe("About")
 })
 
-test("tool execution exposes optional Jev routing without its old footer", async () => {
+test("Settings offers no Jev tool routing: the native engine has none, so a toggle would configure nothing", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
-  expect(source).toContain("<ToolRoutingSetting />")
+  expect(source).not.toContain("ToolRoutingSetting")
+  expect(source).not.toContain("drift.settings.toolRouting")
   expect(source).not.toContain('t("drift.settings.shellTimeout.scope")')
-  const routing = await Bun.file("src/ui/settings-tool-routing.tsx").text()
-  expect(routing).toContain("checked={toolRouting().enabled}")
-  expect(routing).toContain("disabled={busy()}")
-})
-
-test("Jev routing reports the engine's last outcome instead of guessing from provider connections", async () => {
-  const routing = await Bun.file("src/ui/settings-tool-routing.tsx").text()
-  expect(routing).not.toContain("engine.state.connected")
-  expect(routing).toContain("loadToolRoutingStatus")
-  const english = (await import("../src/i18n/en")).drift as Record<string, string>
-  const outcomes = routing.match(/const outcomes = new Set\(\[([^\]]+)\]/)![1]!.match(/"[^"]+"/g)!.map((item) => JSON.parse(item))
-  for (const outcome of outcomes) expect(english[`drift.settings.toolRouting.outcome.${outcome}`]).toBeString()
-  const engine = await Bun.file("src-tauri/src/engine.rs").text()
-  expect(engine).toContain('.env("DRIFT_TOOL_ROUTING_STATUS"')
+  expect(await Bun.file("src/ui/settings-tool-routing.tsx").exists()).toBeFalse()
+  expect(await Bun.file("src/state/tool-routing.ts").exists()).toBeFalse()
 })
 
 test("agent overrides retain only values changed from upstream", async () => {
@@ -184,15 +173,6 @@ const pendingTranslation = new Set([
   "drift.message.forkHere",
   ...pendingKeys("drift.branch", "title description drafting goal name summary excerpts create"),
   ...pendingKeys("drift.about", "row.native.title row.native.description native.connected native.offline"),
-  ...pendingKeys(
-    "drift.settings.toolRouting",
-    `
-      title description
-      outcome.routed outcome.no-key outcome.unauthorized outcome.insufficient-funds outcome.http-error
-      outcome.timeout outcome.network outcome.invalid-response outcome.uncertain outcome.no-context
-      outcome.too-few-groups outcome.catalog-too-large
-    `,
-  ),
   "drift.markdown.linkFailed",
   ...pendingKeys("drift.provider", "pasteCode enterCode copyCode openAgain copyLink linkCopied"),
   ...pendingKeys("drift.context", "window systemAndTools user assistant tool"),

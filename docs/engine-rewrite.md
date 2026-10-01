@@ -1106,6 +1106,9 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   native: the removed-workspace purge (its session removal is a stub that reports nothing
   deleted, so the purge retries forever), transcript search, and Settings > Storage, both of which
   still read OpenCode's database and schema and never see `drift.db`.
+- Settings has no Jev tool routing: the native engine routes no tools, so the toggle and its
+  status polling are gone. The shell's `tool_routing.rs` remains only for the frozen opencode
+  plugin and goes at M4 with the rest of the shell engine glue.
 - A finished reply's footer offers Fork from here: `POST /sessions/{id}/fork {atMessage}` copies
   the history through that reply into a new conversation. `/fork` and the sidebar's fork copy
   everything finished.
