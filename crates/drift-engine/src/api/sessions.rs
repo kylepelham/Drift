@@ -13,7 +13,7 @@ use crate::session::revert::Undone;
 use crate::session::tasks::TaskRecord;
 use crate::session::turn::{Prompt, Receipt};
 use crate::session::types::{MessageWithParts, ModelRef, Session, Visibility};
-use crate::store::{NewSession, SessionFilter};
+use crate::store::{NewSession, Purge, SessionFilter};
 use crate::Engine;
 
 const DEFAULT_LIMIT: usize = 50;
@@ -214,13 +214,27 @@ pub async fn abort_task(State(engine): State<Arc<Engine>>, Path(id): Path<String
     Ok(Json(engine.stop_task(&id)?))
 }
 
+#[derive(Deserialize, IntoParams)]
+pub struct DeleteQuery {
+    /// Only while the session is still archived: the archive purge, which a restore must always win against. 409 if it is not.
+    #[serde(default)]
+    pub archived: bool,
+}
+
 /// Permanent removal, for archived sessions past their retention. Live turns are aborted first.
-#[utoipa::path(delete, path = "/sessions/{id}", operation_id = "deleteSession", responses((status = 204), (status = 404)))]
-pub async fn delete(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
+#[utoipa::path(delete, path = "/sessions/{id}", operation_id = "deleteSession", params(DeleteQuery), responses((status = 204), (status = 404), (status = 409)))]
+pub async fn delete(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Query(query): Query<DeleteQuery>) -> Result<StatusCode, ApiError> {
+    if query.archived {
+        match engine.store.purge_archived(&id)? {
+            Purge::Deleted => {}
+            Purge::Active => return Err(ApiError::new(StatusCode::CONFLICT, "active", "the session was restored; it is kept")),
+            Purge::Missing => return Err(ApiError::not_found("session")),
+        }
+    }
     engine.abort(&id);
     engine.permissions.forget_session(&id);
     engine.questions.forget_session(&id);
-    if !engine.store.delete_session(&id)? {
+    if !query.archived && !engine.store.delete_session(&id)? {
         return Err(ApiError::not_found("session"));
     }
     engine.hub.publish(Event::SessionDeleted { session_id: id });

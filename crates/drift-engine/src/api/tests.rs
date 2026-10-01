@@ -359,6 +359,23 @@ async fn browser_origins_get_cors_headers_and_preflight_needs_no_token() {
 }
 
 #[tokio::test]
+async fn the_archive_purge_never_deletes_a_session_that_was_restored() {
+    let h = harness().await;
+    let (_, session_id) = session_with_model(&h).await;
+    let purge = || h.http.delete(h.url(&format!("/sessions/{session_id}?archived=true"))).bearer_auth(&h.engine.token).send();
+    assert_eq!(purge().await.unwrap().status(), 409, "never archived");
+    let archive = |archived: bool| h.patch(&format!("/sessions/{session_id}")).json(&json!({ "archived": archived })).send();
+    archive(true).await.unwrap();
+    archive(false).await.unwrap();
+    let refused: Value = purge().await.unwrap().json().await.unwrap();
+    assert_eq!(refused["code"], "active", "restored, so kept");
+    assert!(h.engine.store.session(&session_id).unwrap().is_some());
+    archive(true).await.unwrap();
+    assert_eq!(purge().await.unwrap().status(), 204);
+    assert_eq!(purge().await.unwrap().status(), 404);
+}
+
+#[tokio::test]
 async fn deleting_a_session_removes_it_and_its_messages() {
     let h = harness().await;
     let (_, session_id) = session_with_model(&h).await;

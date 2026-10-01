@@ -14,6 +14,35 @@ if (!("localStorage" in globalThis)) {
 localStorage.getItem = (key: string) => storage.get(key) ?? null
 localStorage.setItem = (key: string, value: string) => void storage.set(key, value)
 
+const long = Date.now() - 30 * 24 * 60 * 60 * 1000
+
+function archivedLongAgo(...sessionIds: string[]) {
+  storage.set("drift.store.archived", JSON.stringify(sessionIds.map((sessionId) => ({ sessionId, workspaceId: "w1", archivedAt: long }))))
+}
+
+test("the purge drops a record when the engine deleted the thread or kept it as restored, and retries one it could not reach", async () => {
+  const { archivedIds, purgeArchived } = await import("../src/state/workspaces")
+  archivedLongAgo("gone", "restored", "unreachable")
+  const outcomes = { gone: "deleted", restored: "kept", unreachable: "failed" } as const
+  const complete = await purgeArchived(async (sessionId) => outcomes[sessionId as keyof typeof outcomes])
+  expect(complete).toBeFalse()
+  expect([...archivedIds()]).toEqual(["unreachable"])
+})
+
+test("a purge waits for a restore under way, so it never acts on a half-restored thread", async () => {
+  const { purgeArchived, unarchiveSession } = await import("../src/state/workspaces")
+  archivedLongAgo("ses_9")
+  const order: string[] = []
+  let finishRestore!: () => void
+  const restoring = unarchiveSession("ses_9", () => new Promise<void>((resolve) => (finishRestore = () => (order.push("restored"), resolve()))))
+  const purging = purgeArchived(async () => (order.push("purge asked"), "kept"))
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  expect(order).toEqual([])
+  finishRestore()
+  await Promise.all([restoring, purging])
+  expect(order).toEqual(["restored"])
+})
+
 test("a thread is hidden only once the engine has archived it, and returns only once the engine has restored it", async () => {
   const { archiveSession, archivedIds, unarchiveSession } = await import("../src/state/workspaces")
   const calls: [string, boolean][] = []

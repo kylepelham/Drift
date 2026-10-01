@@ -721,6 +721,24 @@ impl Store {
         let deleted = self.lock().prepare_cached("DELETE FROM session WHERE id = ?1")?.execute([id])?;
         Ok(deleted > 0)
     }
+
+    /// The archive purge: removes the session only while it is still archived, in one statement, so a restore cannot lose to it.
+    pub fn purge_archived(&self, id: &str) -> rusqlite::Result<Purge> {
+        let conn = self.lock();
+        if conn.prepare_cached("DELETE FROM session WHERE id = ?1 AND archived_at IS NOT NULL")?.execute([id])? > 0 {
+            return Ok(Purge::Deleted);
+        }
+        let exists = conn.prepare_cached("SELECT 1 FROM session WHERE id = ?1")?.exists([id])?;
+        Ok(if exists { Purge::Active } else { Purge::Missing })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Purge {
+    Deleted,
+    /// Restored since it was archived: kept.
+    Active,
+    Missing,
 }
 
 #[cfg(test)]

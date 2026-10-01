@@ -9,7 +9,7 @@ pub(crate) mod tasks;
 mod todos;
 mod tree;
 
-pub use sessions::{Admit, Admitted, Handover, NewSession, Pick, SessionFilter};
+pub use sessions::{Admit, Admitted, Handover, NewSession, Pick, Purge, SessionFilter};
 pub use staged::StagedReplacement;
 pub use tasks::{Launch, NewTask};
 

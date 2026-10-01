@@ -1939,7 +1939,10 @@ export interface operations {
     };
     deleteSession: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Only while the session is still archived: the archive purge, which a restore must always win against. 409 if it is not. */
+                archived?: boolean;
+            };
             header?: never;
             path: {
                 id: string;
@@ -1955,6 +1958,12 @@ export interface operations {
                 content?: never;
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

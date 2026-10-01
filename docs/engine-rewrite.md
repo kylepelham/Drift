@@ -1123,6 +1123,10 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   workers and forgets its permissions), and only once that succeeds is the shell's archive record
   written or cleared. That record still hides the thread and is the seven-day purge tombstone. A
   refused archive leaves the thread in place with an error; a refused restore leaves it archived.
+  The purge deletes with `DELETE /sessions/{id}?archived=true`, which removes the session only while
+  it is still archived, in one statement, and is 409 `active` otherwise: a thread restored in the
+  engine whose shell record outlived the restore is kept, and the record is dropped. Archive,
+  restore and the purge also take turns in the UI, so a purge never runs mid-restore.
 - Model-family system prompts are not a native feature: the engine sends one Drift base prompt
   (`session/prompts/system.txt`) to every model, plus the agent's prompt. Settings shows the
   family prompts read-only under a notice saying they are not applied, offers no save, and keeps

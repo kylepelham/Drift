@@ -35,6 +35,8 @@ export type PromptFile = {
 }
 export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string; files?: PromptFile[]; directory?: string }
 export type PromptSendResult = { ok: true } | { ok: false; error: string }
+/** What became of an archived thread due for purging: gone, restored and kept, or not reached this time. */
+export type ArchivePurge = "deleted" | "kept" | "failed"
 export type PermissionResponse = "once" | "always" | "reject" | "stop"
 export type ProviderAuthResult = { ok: boolean; connected: boolean }
 export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
@@ -253,6 +255,19 @@ export function createActions(
     } catch (cause) {
       if (cause instanceof EngineError && cause.status === 404) return true
       return false
+    }
+  }
+
+  /** The archive purge: the engine deletes only what is still archived, so a thread restored meanwhile is `kept`. */
+  async function purgeArchivedSession(id: string): Promise<ArchivePurge> {
+    try {
+      await requireClient().purgeArchivedSession(id)
+      set(produce((draft) => purge(draft, id)))
+      return "deleted"
+    } catch (cause) {
+      if (cause instanceof EngineError && cause.status === 404) return "deleted"
+      if (cause instanceof EngineError && cause.status === 409) return "kept"
+      return "failed"
     }
   }
 
@@ -543,6 +558,7 @@ export function createActions(
     rename,
     setArchived,
     purgeSession,
+    purgeArchivedSession,
     refreshProviders,
     reloadProviders: refreshProviders,
     refreshPermissions,

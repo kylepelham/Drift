@@ -89,6 +89,7 @@ export function createClient(target: Target) {
     updateSession: (id: string, body: components["schemas"]["PatchSession"]) =>
       request<Json<"updateSession", 200>>("PATCH", `/sessions/${id}`, body),
     deleteSession: (id: string) => request<void>("DELETE", `/sessions/${id}`),
+    purgeArchivedSession: (id: string) => request<void>("DELETE", `/sessions/${id}?archived=true`),
     messages: (id: string, params: operations["listMessages"]["parameters"]["query"] = {}, signal?: AbortSignal) =>
       request<Json<"listMessages", 200>>("GET", `/sessions/${id}/messages${query({ ...params })}`, undefined, signal),
     submit: (id: string, prompt: Prompt) => request<Json<"submitTurn", 202>>("POST", `/sessions/${id}/turns`, prompt),
