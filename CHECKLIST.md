@@ -132,6 +132,12 @@ change the plan there when a decision changes.
 - [ ] Native base-prompt override (global or per model family) so the Prompts editor can save again
 - [x] Archive and restore (sidebar, `/archive`, Archive dialog) archive in the engine first, with its Stop, then update the shell record
 
+#### Retained features still on the OpenCode database (pending native UI work)
+
+- [ ] Removed-workspace purge: `actions.removeAllSessions` is a stub that reports nothing deleted, so the seven-day cleanup of a removed workspace never completes (its tombstone and sessions stay)
+- [ ] Transcript search (`session_search`) reads OpenCode's database and schema, so native transcripts are never matched
+- [ ] Settings > Storage (stats, analyze, prune, compact) reads and prunes OpenCode's database, not `drift.db`
+
 ## M4: cutover
 
 - [ ] Every legacy capability in `docs/research/opencode-exit-inventory.md` checked off or explicitly dropped

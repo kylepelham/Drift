@@ -554,6 +554,7 @@ export function createActions(
     branch,
     moveSession,
     moveWorkspaceSessions,
+    // Pending native work (CHECKLIST): reports nothing deleted, so a removed workspace's purge never completes.
     removeAllSessions: async (..._args: unknown[]) => false,
     switchRetryModel,
     summarize,

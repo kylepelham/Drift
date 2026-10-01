@@ -1098,6 +1098,10 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   the components were written against. That keeps the whole UI working on the new engine
   without touching a component. At M4 the store adopts the generated types, the adapter
   goes, and `@opencode-ai/sdk` leaves `package.json`.
+- Retained features not yet moved to the engine, tracked in `CHECKLIST.md` and not to be read as
+  native: the removed-workspace purge (its session removal is a stub that reports nothing
+  deleted, so the purge retries forever), transcript search, and Settings > Storage, both of which
+  still read OpenCode's database and schema and never see `drift.db`.
 - Archive and restore go through the engine first: the sidebar button, `/archive` and the
   Archive dialog call `PATCH /sessions/{id} {archived}` (archiving stops the session's turn and
   workers and forgets its permissions), and only once that succeeds is the shell's archive record
