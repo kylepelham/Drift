@@ -25,7 +25,10 @@ ring = "0.17"
 # Bedrock's event-stream frames carry CRC32 checksums; already in the tree through flate2.
 crc32fast = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "stream", "http2"] }
-rmcp = { version = "3", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider"] }
+# `auth`: MCP's OAuth (discovery, client registration, PKCE, refresh) rather than a hand-rolled client.
+rmcp = { version = "3", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider", "auth"] }
+# rmcp's credential store is an async trait; already in the tree through rmcp's auth.
+async-trait = "0.1"
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

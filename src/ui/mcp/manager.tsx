@@ -4,6 +4,7 @@ import type { McpServerConfig, McpServerStatus } from "../../engine/store"
 import { registryConfig, registryServerName, type RegistryServer } from "../../mcp-registry"
 import { createRegistrySearch } from "../../state/mcp-registry-search"
 import { t } from "../../state/i18n"
+import { openExternal } from "../../shell"
 import { Toggle } from "../controls"
 import { IconCheck, IconPlug, IconPlugOff, IconPlus, IconSquarePen, IconTrash } from "../icons"
 import { McpEditor } from "./editor"
@@ -108,6 +109,9 @@ export function McpManagement(props: { embedded?: boolean }) {
   }
   const runtime = (server: McpServerStatus, action: RuntimeAction) =>
     void run(server.name, () => (action === "connect" ? engine.actions.mcpConnect(server.name) : engine.actions.mcpDisconnect(server.name)))
+  const signIn = (name: string) =>
+    void run(name, async () => openExternal(await engine.actions.mcpSignIn(name)), t("drift.mcp.signInOpened", { name }))
+  const signOut = (name: string) => void run(name, () => engine.actions.mcpSignOut(name))
 
   return (
     <div class="space-y-3">
@@ -188,6 +192,8 @@ export function McpManagement(props: { embedded?: boolean }) {
                     onRemove={() => void remove(name)}
                     onEnabled={(enabled) => void run(name, () => engine.actions.mcpSetEnabled(name, enabled))}
                     onRuntime={(action) => runtime(server(), action)}
+                    onSignIn={() => signIn(name)}
+                    onSignOut={() => signOut(name)}
                   />
                 )}
               </Show>
@@ -245,8 +251,10 @@ function ServerRow(props: {
   onRemove: () => void
   onEnabled: (enabled: boolean) => void
   onRuntime: (action: RuntimeAction) => void
+  onSignIn: () => void
+  onSignOut: () => void
 }) {
-  const status = () => statusLabel(props.server, props.busy)
+  const status = () => mcpStatusLabel(props.server, props.busy)
   const runtime = () => mcpRuntimeAction(props.server)
   return (
     <div
@@ -295,6 +303,16 @@ function ServerRow(props: {
             {/* The confirm step keeps its text: an icon cannot ask "are you sure". */}
             {props.confirming ? t("drift.mcp.confirmRemove") : <IconTrash class="size-3.5" />}
           </Action>
+          <Show when={props.server.needsSignIn}>
+            <Action disabled={props.disabled} title={t("drift.mcp.signIn")} onClick={props.onSignIn}>
+              {t("drift.mcp.signIn")}
+            </Action>
+          </Show>
+          <Show when={props.server.signedIn}>
+            <Action disabled={props.disabled} title={t("drift.mcp.signOut")} onClick={props.onSignOut}>
+              {t("drift.mcp.signOut")}
+            </Action>
+          </Show>
           <Action disabled={props.disabled} title={t("common.edit")} onClick={props.onEdit}>
             <IconSquarePen class="size-3.5" />
           </Action>
@@ -317,7 +335,7 @@ function ServerRow(props: {
   )
 }
 
-function statusLabel(server: McpServerStatus, busy: boolean) {
+export function mcpStatusLabel(server: McpServerStatus, busy: boolean) {
   if (busy) return { text: t("common.loading"), tone: "text-ink-faint" }
   switch (server.state) {
     case "connected":
@@ -327,6 +345,7 @@ function statusLabel(server: McpServerStatus, busy: boolean) {
     case "disconnected":
       return { text: t("drift.mcp.status.disconnected"), tone: "text-ink-faint" }
     case "failed":
+      if (server.needsSignIn) return { text: t("drift.mcp.status.needsSignIn"), tone: "text-warn" }
       return { text: server.error || t("mcp.status.failed"), tone: "text-danger" }
     case "disabled":
       return { text: t("mcp.status.disabled"), tone: "text-ink-faint" }

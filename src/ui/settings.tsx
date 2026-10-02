@@ -66,7 +66,7 @@ import {
   toolErrorsExpanded,
   type AttentionKind,
 } from "../state/prefs"
-import { shellInvoke } from "../shell"
+import { openExternal, shellInvoke } from "../shell"
 import { isRemoteRuntime } from "../runtime"
 import { parseNavigationHash, pushRemoteOverlay } from "../state/navigation"
 import {
@@ -1482,15 +1482,6 @@ function AuthorizationHint(props: { auth: { url: string; method: string; instruc
       </div>
     </div>
   )
-}
-
-function openExternal(url: string) {
-  const invoke = shellInvoke()
-  if (invoke) {
-    void invoke("plugin:opener|open_url", { url }).catch(() => {})
-    return
-  }
-  window.open(url, "_blank")
 }
 
 function KeybindsSection() {

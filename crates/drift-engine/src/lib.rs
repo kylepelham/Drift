@@ -82,7 +82,7 @@ pub struct Engine {
     pub questions: question::Questions,
     pub tools: Registry,
     pub mcp: mcp::Servers,
-    pub credentials: Credentials,
+    pub credentials: Arc<Credentials>,
     pub catalog: RwLock<Catalog>,
     pub snapshots: Snapshots,
     pub turns: Turns,
@@ -114,7 +114,7 @@ impl Engine {
         store.interrupt_unfinished_tasks()?;
         tool::stage::recover_leftovers(&store);
         let _ = std::fs::create_dir_all(std::env::temp_dir().join("Drift"));
-        let credentials = Credentials::open(data_dir, options.file_credentials);
+        let credentials = Arc::new(Credentials::open(data_dir, options.file_credentials));
         let catalog = with_user_providers(Catalog::load(data_dir), &credentials);
         Ok(Arc::new(Self {
             data_dir: data_dir.to_path_buf(),
@@ -124,7 +124,7 @@ impl Engine {
             permissions: Permissions::new(Policy::default()),
             questions: question::Questions::default(),
             tools: Registry::builtin(),
-            mcp: mcp::Servers::default(),
+            mcp: mcp::Servers::new(credentials.clone()),
             credentials,
             catalog: RwLock::new(catalog),
             snapshots: Snapshots::new(data_dir),

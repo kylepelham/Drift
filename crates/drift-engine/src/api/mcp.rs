@@ -38,6 +38,7 @@ pub async fn list(State(engine): State<Arc<Engine>>) -> Result<Json<Vec<ServerSt
 #[utoipa::path(put, path = "/mcp/{name}", operation_id = "saveMcpServer", params(SaveQuery), request_body = ServerConfigInput, responses((status = 200, body = ServerStatus), (status = 400), (status = 409)))]
 pub async fn save(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Query(query): Query<SaveQuery>, Json(input): Json<ServerConfigInput>) -> Result<Json<ServerStatus>, ApiError> {
     valid_name(&name)?;
+    let before = engine.store.mcp_server(&name)?;
     let row = engine
         .mcp
         .change(&name, &engine.store, &engine.hub, |store| {
@@ -49,6 +50,9 @@ pub async fn save(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Q
             Ok(store.save_mcp_server(&name, &config)?)
         })
         .await?;
+    if let Some(before) = before {
+        crate::mcp::forget_if_moved(&engine.credentials, &name, &before.config, &row.config);
+    }
     reconnected(&engine, row).await
 }
 
@@ -65,8 +69,33 @@ pub async fn rename(State(engine): State<Arc<Engine>>, Path(name): Path<String>,
             None => Err(ApiError::not_found("mcp server")),
         })
         .await?;
+    // A sign-in belongs to the server, not to its old name.
+    crate::mcp::move_sign_in(&engine.credentials, &name, &row.name);
     engine.hub.publish(Event::McpRemoved { name });
     reconnected(&engine, row).await
+}
+
+#[derive(serde::Serialize, ToSchema)]
+pub struct SignInPage {
+    /// Open this in the browser; when the browser comes back, the server connects signed in.
+    pub url: String,
+}
+
+/// Starts signing in to a remote server that requires OAuth.
+#[utoipa::path(post, path = "/mcp/{name}/signin", operation_id = "signInMcpServer", responses((status = 200, body = SignInPage), (status = 400), (status = 404)))]
+pub async fn sign_in(State(engine): State<Arc<Engine>>, Path(name): Path<String>) -> Result<Json<SignInPage>, ApiError> {
+    engine.store.mcp_server(&name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
+    let url = engine.sign_in_mcp(&name).await.map_err(|why| ApiError::new(StatusCode::BAD_REQUEST, "signin", why))?;
+    Ok(Json(SignInPage { url }))
+}
+
+/// Forgets a server's sign-in and reconnects it without one.
+#[utoipa::path(delete, path = "/mcp/{name}/signin", operation_id = "signOutMcpServer", responses((status = 200, body = ServerStatus), (status = 404)))]
+pub async fn sign_out(State(engine): State<Arc<Engine>>, Path(name): Path<String>) -> Result<Json<ServerStatus>, ApiError> {
+    engine.store.mcp_server(&name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
+    engine.sign_out_mcp(&name).await.map_err(|why| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", why))?;
+    let row = engine.store.mcp_server(&name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
+    Ok(Json(engine.mcp.status_of(row)))
 }
 
 /// An enabled server connects under the row just written; a disabled one is reported as it stands.
@@ -95,6 +124,7 @@ pub async fn remove(State(engine): State<Arc<Engine>>, Path(name): Path<String>)
     if !engine.mcp.close(&name, &engine.store, &engine.hub, |store| store.remove_mcp_server(&name)).await? {
         return Err(ApiError::not_found("mcp server"));
     }
+    let _ = crate::mcp::forget_sign_in(&engine.credentials, &name);
     engine.hub.publish(Event::McpRemoved { name });
     Ok(StatusCode::NO_CONTENT)
 }

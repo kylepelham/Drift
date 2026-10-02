@@ -597,6 +597,9 @@ export function createActions(
     mcpSetEnabled: (name: string, enabled: boolean) => mcpChange(() => requireClient().setMcpServerEnabled(name, enabled)),
     mcpConnect: (name: string) => mcpChange(() => requireClient().connectMcpServer(name)),
     mcpDisconnect: (name: string) => mcpChange(() => requireClient().disconnectMcpServer(name)),
+    /** The page to open in the browser; the server connects by itself once the user comes back. */
+    mcpSignIn: async (name: string) => (await requireClient().signInMcpServer(name)).url,
+    mcpSignOut: (name: string) => mcpChange(() => requireClient().signOutMcpServer(name)),
   }
 }
 

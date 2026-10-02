@@ -106,6 +106,21 @@ impl Credentials {
         self.write(INDEX, &serde_json::to_string(&*index).unwrap())
     }
 
+    /// A secret that is not a provider's (an MCP server's sign-in), kept out of the provider index.
+    pub fn secret(&self, key: &str) -> Option<String> {
+        self.read(key)
+    }
+
+    pub fn set_secret(&self, key: &str, value: &str) -> Result<(), String> {
+        let _held = self.write_lock.lock().unwrap();
+        self.write(key, value)
+    }
+
+    pub fn remove_secret(&self, key: &str) -> Result<(), String> {
+        let _held = self.write_lock.lock().unwrap();
+        self.delete(key)
+    }
+
     pub fn providers(&self) -> Vec<String> {
         self.index.lock().unwrap().iter().cloned().collect()
     }

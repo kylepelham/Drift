@@ -45,6 +45,16 @@ export function shellInvoke(): ShellInvoke | undefined {
   return tauri()?.core?.invoke
 }
 
+/** Opens a page in the user's browser: the desktop opener, else a new tab. */
+export function openExternal(url: string) {
+  const invoke = shellInvoke()
+  if (invoke) {
+    void invoke("plugin:opener|open_url", { url }).catch(() => {})
+    return
+  }
+  window.open(url, "_blank")
+}
+
 export function shellWindow(): ShellWindow | undefined {
   return tauri()?.window?.getCurrentWindow?.()
 }

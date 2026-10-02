@@ -1,5 +1,6 @@
 //! ChatGPT sign-in as Codex does it: PKCE in the browser, a callback on localhost:1455, tokens by form post.
 
+use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 
 use serde_json::Value;
@@ -48,36 +49,37 @@ pub async fn wait_for_callback(expected_state: &str) -> Result<String, String> {
     let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, CALLBACK_PORT)))
         .await
         .map_err(|e| format!("port {CALLBACK_PORT} is busy: {e}"))?;
+    let (mut socket, params) = next_callback(&listener, "/auth/callback").await?;
+    let state_ok = params.get("state").map(String::as_str) == Some(expected_state);
+    match (params.get("code"), state_ok) {
+        (Some(code), true) => {
+            respond(&mut socket, 200, "Drift is connected to your ChatGPT account. You can close this tab and go back to the app.").await;
+            Ok(code.clone())
+        }
+        _ => {
+            respond(&mut socket, 400, "Sign-in failed: state mismatch or missing code.").await;
+            Err("callback carried a bad state or no code".into())
+        }
+    }
+}
+
+/// The browser's request to `path` on `listener`, with its query; anything else gets a 404 and is skipped.
+pub(crate) async fn next_callback(listener: &TcpListener, path: &str) -> Result<(tokio::net::TcpStream, HashMap<String, String>), String> {
     loop {
         let (mut socket, _) = listener.accept().await.map_err(|e| e.to_string())?;
         let mut buffer = vec![0u8; 8192];
         let read = socket.read(&mut buffer).await.unwrap_or(0);
         let request = String::from_utf8_lossy(&buffer[..read]);
         let Some(target) = request.split_whitespace().nth(1) else { continue };
-        let Some((path, query)) = target.split_once('?') else {
-            respond(&mut socket, 404, "Not found").await;
-            continue;
-        };
-        if path != "/auth/callback" {
-            respond(&mut socket, 404, "Not found").await;
-            continue;
-        }
-        let params = parse_query(query);
-        let state_ok = params.get("state").map(String::as_str) == Some(expected_state);
-        match (params.get("code"), state_ok) {
-            (Some(code), true) => {
-                respond(&mut socket, 200, "Drift is connected to your ChatGPT account. You can close this tab and go back to the app.").await;
-                return Ok(code.clone());
-            }
-            _ => {
-                respond(&mut socket, 400, "Sign-in failed: state mismatch or missing code.").await;
-                return Err("callback carried a bad state or no code".into());
-            }
+        match target.split_once('?') {
+            Some((at, query)) if at == path => return Ok((socket, parse_query(query))),
+            _ => respond(&mut socket, 404, "Not found").await,
         }
     }
 }
 
-async fn respond(socket: &mut tokio::net::TcpStream, status: u16, text: &str) {
+/// Answers the browser with Drift's sign-in page.
+pub(crate) async fn respond(socket: &mut tokio::net::TcpStream, status: u16, text: &str) {
     let reason = if status == 200 { "OK" } else { "Error" };
     let body = include_str!("callback.html").replace("{title}", if status == 200 { "Signed in" } else { "Sign-in failed" }).replace("{text}", text);
     let response = format!("HTTP/1.1 {status} {reason}\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
@@ -125,7 +127,7 @@ pub fn account_id(jwt: &str) -> Option<String> {
     found
 }
 
-fn parse_query(query: &str) -> std::collections::HashMap<String, String> {
+fn parse_query(query: &str) -> HashMap<String, String> {
     query
         .split('&')
         .filter_map(|pair| pair.split_once('='))

@@ -12,8 +12,15 @@ if (!("localStorage" in globalThis))
 type McpServer = components["schemas"]["ServerStatus"]
 
 function server(name: string, state: McpServer["state"]): McpServer {
-  return { name, config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] }, enabled: state !== "disabled", updatedAt: 1, state, tools: [], transport: "stdio" }
+  return { name, config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] }, enabled: state !== "disabled", updatedAt: 1, state, tools: [], transport: "stdio", needsSignIn: false, signedIn: false }
 }
+
+test("a server refusing until the user signs in says so instead of showing its raw error", async () => {
+  const { mcpStatusLabel } = await import("../src/ui/mcp/manager")
+  const refused = { ...server("secure", "failed"), error: "Auth required, when send initialize request" }
+  expect(mcpStatusLabel(refused, false).text).toBe(refused.error)
+  expect(mcpStatusLabel({ ...refused, needsSignIn: true }, false)).toEqual({ text: "sign-in required", tone: "text-warn" })
+})
 
 test("a server row says how it is spoken to, and the protocol version once connected", async () => {
   const { mcpProtocolLabel } = await import("../src/ui/mcp/manager")

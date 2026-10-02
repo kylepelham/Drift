@@ -147,6 +147,7 @@ change the plan there when a decision changes.
 - [x] App test pass: a model, agent or level sent mid-turn is followed by the running turn from its next request, as in opencode; the durable queue, waiting row and Discard are removed
 - [x] App test pass: MCP approval removed (engine gate, route, hash, toast, buttons); rows are delete, edit, disconnect, enabled
 - [x] Independent audit at ac1ab72: undo point save failures put files back; oversize writes refused and failed change records put back or reported; undo ordered by when writes finished (its queue findings went with the queue)
+- [x] MCP OAuth sign-in for streamable HTTP servers: needs/has sign-in on the status, browser sign-in through a loopback callback, tokens in the keychain, sign-out; renames carry it, URL changes and removes forget it
 
 #### Retained features still on the OpenCode database (pending native UI work)
 

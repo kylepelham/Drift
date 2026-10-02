@@ -130,6 +130,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mcp/{name}/signin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Starts signing in to a remote server that requires OAuth. */
+        post: operations["signInMcpServer"];
+        /** Forgets a server's sign-in and reconnects it without one. */
+        delete: operations["signOutMcpServer"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/permissions": {
         parameters: {
             query?: never;
@@ -1270,8 +1288,12 @@ export interface components {
         };
         ServerStatus: components["schemas"]["ServerView"] & {
             error?: string | null;
+            /** @description The server refused to connect until the user signs in (`POST /mcp/{name}/signin`). */
+            needsSignIn: boolean;
             /** @description The MCP protocol version the server agreed to at initialize; absent until connected. */
             protocol?: string | null;
+            /** @description A sign-in is kept for it (`DELETE /mcp/{name}/signin` forgets it). */
+            signedIn: boolean;
             state: components["schemas"]["State"];
             tools: components["schemas"]["ToolInfo"][];
             /** @description How the engine talks to it. */
@@ -1309,6 +1331,10 @@ export interface components {
         };
         /** @enum {string} */
         SessionStatus: "idle" | "running";
+        SignInPage: {
+            /** @description Open this in the browser; when the browser comes back, the server connects signed in. */
+            url: string;
+        };
         Skill: {
             description: string;
             name: string;
@@ -1652,6 +1678,66 @@ export interface operations {
                 content?: never;
             };
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    signInMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInPage"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    signOutMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

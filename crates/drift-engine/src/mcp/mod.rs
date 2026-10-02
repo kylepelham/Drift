@@ -1,5 +1,6 @@
 //! MCP servers: configured in the store, connected with rmcp, tools offered to the model.
 
+mod oauth;
 mod resources;
 mod sse;
 mod tool;
@@ -25,6 +26,7 @@ use crate::platform::process::Tree;
 use crate::store::Store;
 use crate::tool::image::Image;
 
+pub use oauth::{forget as forget_sign_in, forget_if_moved, move_sign_in};
 pub use tool::McpTool;
 pub use view::{ServerConfigInput, ServerConfigView, ServerView};
 
@@ -105,6 +107,10 @@ pub struct ServerStatus {
     /// The MCP protocol version the server agreed to at initialize; absent until connected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol: Option<String>,
+    /// The server refused to connect until the user signs in (`POST /mcp/{name}/signin`).
+    pub needs_sign_in: bool,
+    /// A sign-in is kept for it (`DELETE /mcp/{name}/signin` forgets it).
+    pub signed_in: bool,
 }
 
 /// The wire a server is spoken to over; a stateless transport will join these.
@@ -308,6 +314,8 @@ pub struct Servers {
     next_attempt: AtomicU64,
     /// Signalled whenever a connect attempt ends, for turns waiting on the catalog.
     settled: tokio::sync::Notify,
+    /// Where remote servers' sign-ins are kept; none in a bare test registry.
+    sign_ins: Option<Arc<crate::llm::credentials::Credentials>>,
 }
 
 enum Watch {
@@ -317,6 +325,10 @@ enum Watch {
 }
 
 impl Servers {
+    pub fn new(sign_ins: Arc<crate::llm::credentials::Credentials>) -> Self {
+        Self { sign_ins: Some(sign_ins), ..Self::default() }
+    }
+
     fn lock(&self) -> MutexGuard<'_, Slots> {
         self.slots.lock().unwrap()
     }
@@ -337,7 +349,10 @@ impl Servers {
         };
         let protocol = live.as_ref().and_then(|live| live.service.peer_info()).map(|info| info.protocol_version.to_string());
         let tools = live.map(|live| live.tools.iter().map(tool_info).collect()).unwrap_or_default();
-        ServerStatus { transport: Transport::of(&row.config), protocol, server: ServerView::of(&row), state, error, tools }
+        let remote = matches!(row.config, ServerConfig::Http { .. });
+        let needs_sign_in = remote && state == State::Failed && error.as_deref().is_some_and(oauth::wants_sign_in);
+        let signed_in = remote && self.sign_ins.as_ref().is_some_and(|store| oauth::has_sign_in(store, &row.name));
+        ServerStatus { transport: Transport::of(&row.config), protocol, needs_sign_in, signed_in, server: ServerView::of(&row), state, error, tools }
     }
 
     /// Connects `name` as its row stands now.
@@ -346,7 +361,7 @@ impl Servers {
         let _settle = Settle { servers: self, hub, row: &row, id: attempt.id };
         hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
         let opened = tokio::select! {
-            opened = open(&row.config, row.hash.clone()) => opened,
+            opened = open(&row.config, row.hash.clone(), SignIn { server: &row.name, credentials: self.sign_ins.as_ref() }) => opened,
             () = attempt.cancel.cancelled() => Err("server definition changed during connect".into()),
         };
         self.finish(&row, hub, &attempt, opened)
@@ -610,8 +625,14 @@ impl Drop for Settle<'_> {
     }
 }
 
-async fn open(config: &ServerConfig, hash: String) -> Result<Live, String> {
-    let (service, tree) = within("start", start(config)).await?;
+/// The signed-in server a connect is for, when it has a sign-in to use.
+struct SignIn<'a> {
+    server: &'a str,
+    credentials: Option<&'a Arc<crate::llm::credentials::Credentials>>,
+}
+
+async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>) -> Result<Live, String> {
+    let (service, tree) = within("start", start(config, sign_in)).await?;
     let tools = within("list its tools", async { service.list_all_tools().await.map_err(|e| format!("tools/list failed: {e}")) }).await?;
     let info = service.peer_info();
     let instructions = info.as_ref().and_then(|info| info.instructions.clone()).map(|text| text.trim().to_string()).filter(|text| !text.is_empty());
@@ -628,7 +649,7 @@ async fn within<T>(what: &str, step: impl Future<Output = Result<T, String>>) ->
     tokio::time::timeout(STEP_LIMIT, step).await.unwrap_or_else(|_| Err(format!("the server did not {what} within {STEP_LIMIT:?}")))
 }
 
-async fn start(config: &ServerConfig) -> Result<(RunningService<RoleClient, ()>, Option<Tree>), String> {
+async fn start(config: &ServerConfig, sign_in: SignIn<'_>) -> Result<(RunningService<RoleClient, ()>, Option<Tree>), String> {
     match config {
         ServerConfig::Stdio { command, args, env, cwd, .. } => {
             let mut cmd = tokio::process::Command::new(command);
@@ -645,7 +666,19 @@ async fn start(config: &ServerConfig) -> Result<(RunningService<RoleClient, ()>,
             let service = ().serve(transport).await.map_err(|e| e.to_string())?;
             Ok((service, tree))
         }
-        ServerConfig::Http { url, headers, .. } => Ok((().serve(http_transport(url, headers)).await.map_err(|e| e.to_string())?, None)),
+        ServerConfig::Http { url, headers, .. } => {
+            let config = http_config(url, headers);
+            // A server signed in to goes through rmcp's authorized client, which refreshes the token itself.
+            let signed_in = match sign_in.credentials {
+                Some(credentials) => oauth::signed_in_client(credentials, sign_in.server, url).await,
+                None => None,
+            };
+            let service = match signed_in {
+                Some(client) => ().serve(StreamableHttpClientTransport::with_client(client, config)).await,
+                None => ().serve(StreamableHttpClientTransport::with_client(crate::llm::http::client(), config)).await,
+            };
+            Ok((service.map_err(|e| e.to_string())?, None))
+        }
         ServerConfig::Sse { url, headers, .. } => {
             let transport = sse::SseTransport::connect(crate::llm::http::client(), url, header_map(headers)).await?;
             Ok((().serve(transport).await.map_err(|e| e.to_string())?, None))
@@ -658,7 +691,7 @@ fn header_map(headers: &BTreeMap<String, String>) -> http::HeaderMap {
     headers.iter().filter_map(|(name, value)| Some((name.parse::<http::HeaderName>().ok()?, value.parse::<http::HeaderValue>().ok()?))).collect()
 }
 
-fn http_transport(url: &str, headers: &BTreeMap<String, String>) -> StreamableHttpClientTransport<reqwest::Client> {
+fn http_config(url: &str, headers: &BTreeMap<String, String>) -> StreamableHttpClientTransportConfig {
     let mut config = StreamableHttpClientTransportConfig::with_uri(url);
     let mut custom = HashMap::new();
     for (name, value) in headers {
@@ -669,7 +702,7 @@ fn http_transport(url: &str, headers: &BTreeMap<String, String>) -> StreamableHt
         let (Ok(name), Ok(value)) = (name.parse::<http::HeaderName>(), value.parse::<http::HeaderValue>()) else { continue };
         custom.insert(name, value);
     }
-    StreamableHttpClientTransport::with_client(crate::llm::http::client(), config.custom_headers(custom))
+    config.custom_headers(custom)
 }
 
 /// The wait before reconnecting: the first again after a connection that held, else the one carried over.

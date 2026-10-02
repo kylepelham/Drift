@@ -1074,7 +1074,17 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   the rest ask under kind `mcp` with pattern `<server>/<tool>`, and "always" therefore
   covers the whole server. Every save, disable, disconnect and remove bumps the server's
   generation; a connect that began under an older generation closes what it opened and
-  publishes nothing. MCP OAuth is not implemented yet.
+  publishes nothing.
+- **MCP sign-in.** A streamable HTTP server that refuses to connect with "auth required" (a 401)
+  reports `needsSignIn`; `POST /mcp/{name}/signin` returns `{url}` for the browser. rmcp does the
+  OAuth work (protected-resource and authorization-server metadata, dynamic client registration as
+  "Drift", PKCE, token exchange and refresh); `mcp::oauth` serves the one-shot loopback callback on
+  `127.0.0.1:<random>/callback` (waiting up to 10 minutes) and keeps the tokens as a keychain secret
+  `mcp:<server>`, outside the provider list. Once the browser comes back the server connects, and
+  every later connect uses the stored tokens, refreshed as needed; the status then says `signedIn`.
+  `DELETE /mcp/{name}/signin` forgets them and reconnects signed out. A rename carries the sign-in to
+  the new name; a remove forgets it; a save that changes the URL forgets it, so tokens issued for
+  one host are never sent to another. Legacy SSE servers do not sign in.
 - **MCP transports and limits.** A server is `stdio` (with an optional `cwd`), `http` (streamable
   HTTP) or `sse`, the older HTTP+SSE transport, which rmcp no longer ships, so `mcp::sse` speaks it:
   a long-lived GET whose `endpoint` event names where to POST, replies arriving as `message`
@@ -1333,12 +1343,14 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   call, and the next turn sees the new definition.
 - MCP management has one authority, the engine. The manager and the registry installer read
   `state.mcpServers` (loaded on hydrate, kept current by `mcp.updated` and `mcp.removed`) and
-  change servers only through `/mcp`: save (a rename saves the new name, then removes the old),
-  enable or disable, connect or disconnect, remove. Each row offers, in order, delete, edit,
-  disconnect (or connect) and the enabled toggle. The editor offers
-  exactly what the engine's config holds (a command, its arguments and environment, or a URL and
-  headers); working directory, timeouts and OAuth are not offered because the engine cannot honour
-  them. Registry installs carry no `{env:...}`
+  change servers only through `/mcp`: save (a rename is one `POST /mcp/{name}/rename`),
+  enable or disable, connect or disconnect, sign in or out, remove. Each row offers, in order,
+  delete, Sign in (while the server needs one) or Sign out (while it has one), edit, disconnect (or
+  connect) and the enabled toggle; Sign in opens the page in the browser and the row connects by
+  itself once the user is back, its status reading "sign-in required" until then. The editor offers
+  exactly what the engine's config holds (a command, its arguments, environment and working
+  directory, or a URL and headers, plus the transport and a call timeout); the sign-in is not a
+  field, because the server asks for it. Registry installs carry no `{env:...}`
   placeholders, which the engine would not expand: a stdio server inherits Drift's environment,
   and a remote that needs a header Drift cannot fill is not offered. Workspace `opencode.json`
   servers and the shell's `mcp_server` and `mcp_decision` tables are no longer read by the UI.

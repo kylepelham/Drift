@@ -115,6 +115,8 @@ export function createClient(target: Target) {
     removeMcpServer: (name: string) => request<void>("DELETE", `/mcp/${name}`),
     connectMcpServer: (name: string) => request<Json<"connectMcpServer", 200>>("POST", `/mcp/${name}/connect`),
     disconnectMcpServer: (name: string) => request<Json<"disconnectMcpServer", 200>>("POST", `/mcp/${name}/disconnect`),
+    signInMcpServer: (name: string) => request<Json<"signInMcpServer", 200>>("POST", `/mcp/${name}/signin`),
+    signOutMcpServer: (name: string) => request<Json<"signOutMcpServer", 200>>("DELETE", `/mcp/${name}/signin`),
     setMcpServerEnabled: (name: string, enabled: boolean) => request<Json<"setMcpServerEnabled", 200>>("PUT", `/mcp/${name}/enabled`, { enabled }),
     todos: (id: string) => request<Json<"listTodos", 200>>("GET", `/sessions/${id}/todos`),
     tasks: (id: string) => request<Json<"listTasks", 200>>("GET", `/sessions/${id}/tasks`),

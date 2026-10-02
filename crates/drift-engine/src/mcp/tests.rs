@@ -438,6 +438,105 @@ async fn legacy_sse_server() -> String {
     base
 }
 
+#[tokio::test]
+async fn a_server_that_needs_a_sign_in_says_so_then_connects_once_signed_in() {
+    let base = oauth_mcp_server().await;
+    let engine = engine();
+    let row = saved(&engine, "secure", &ServerConfig::Http { url: format!("{base}/mcp"), headers: Default::default(), timeout_seconds: None }).await;
+    let _ = engine.connect_mcp("secure").await;
+    let before = engine.mcp.status_of(row.clone());
+    assert!(before.needs_sign_in && !before.signed_in, "{before:?}");
+
+    let page = engine.sign_in_mcp("secure").await.unwrap();
+    assert!(page.starts_with(&format!("{base}/authorize?")), "{page}");
+    // The browser: the server signs the user in at once and sends it back to Drift's callback.
+    let landed = crate::llm::http::client().get(&page).send().await.unwrap();
+    assert!(landed.status().is_success(), "{}", landed.status());
+    until("it connects signed in", || engine.mcp.status_of(row.clone()).state == State::Connected).await;
+    let after = engine.mcp.status_of(row.clone());
+    assert!(after.signed_in && !after.needs_sign_in);
+    assert_eq!(tool(&engine, "secure_echo").run(&context(&engine), json!({ "text": "authorized" })).await.unwrap().output, "authorized");
+
+    engine.sign_out_mcp("secure").await.unwrap();
+    assert!(!engine.mcp.status_of(row).signed_in, "signing out forgets the tokens");
+}
+
+#[tokio::test]
+async fn a_sign_in_follows_a_rename_but_never_a_new_url() {
+    let engine = engine();
+    let at = |url: &str| ServerConfig::Http { url: url.into(), headers: Default::default(), timeout_seconds: None };
+    engine.credentials.set_secret("mcp:old", "{}").unwrap();
+    crate::mcp::move_sign_in(&engine.credentials, "old", "new");
+    assert!(engine.credentials.secret("mcp:old").is_none() && engine.credentials.secret("mcp:new").is_some());
+    crate::mcp::forget_if_moved(&engine.credentials, "new", &at("https://a.example/mcp"), &at("https://a.example/mcp"));
+    assert!(engine.credentials.secret("mcp:new").is_some(), "a save on the same URL keeps it");
+    crate::mcp::forget_if_moved(&engine.credentials, "new", &at("https://a.example/mcp"), &at("https://b.example/mcp"));
+    assert!(engine.credentials.secret("mcp:new").is_none(), "its tokens must not reach another host");
+}
+
+/// An MCP endpoint that answers only a bearer token, with the OAuth metadata, registration,
+/// authorization and token endpoints a client needs to get one.
+async fn oauth_mcp_server() -> String {
+    use axum::extract::{Query, State as Shared};
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::{IntoResponse, Redirect};
+    use axum::routing::{get, post};
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let resource = {
+        let base = base.clone();
+        move || {
+            let base = base.clone();
+            async move { axum::Json(json!({ "resource": format!("{base}/mcp"), "authorization_servers": [base] })) }
+        }
+    };
+    let metadata = {
+        let base = base.clone();
+        move || {
+            let base = base.clone();
+            async move {
+                axum::Json(json!({
+                    "issuer": base, "authorization_endpoint": format!("{base}/authorize"), "token_endpoint": format!("{base}/token"),
+                    "registration_endpoint": format!("{base}/register"), "response_types_supported": ["code"], "code_challenge_methods_supported": ["S256"],
+                    "grant_types_supported": ["authorization_code", "refresh_token"], "token_endpoint_auth_methods_supported": ["none"]
+                }))
+            }
+        }
+    };
+    let register = post(|axum::Json(body): axum::Json<serde_json::Value>| async move {
+        (StatusCode::CREATED, axum::Json(json!({ "client_id": "drift-test-client", "redirect_uris": body["redirect_uris"], "token_endpoint_auth_method": "none" })))
+    });
+    let authorize = get(|Query(query): Query<std::collections::HashMap<String, String>>| async move {
+        Redirect::to(&format!("{}?code=granted&state={}", query["redirect_uri"], query["state"]))
+    });
+    let token = post(|| async { axum::Json(json!({ "access_token": "good-token", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "again" })) });
+    let mcp = post(move |Shared(base): Shared<String>, headers: HeaderMap, axum::Json(message): axum::Json<serde_json::Value>| async move {
+        if headers.get("authorization").and_then(|v| v.to_str().ok()) != Some("Bearer good-token") {
+            let challenge = format!("Bearer resource_metadata=\"{base}/.well-known/oauth-protected-resource\"");
+            return (StatusCode::UNAUTHORIZED, [("www-authenticate", challenge)]).into_response();
+        }
+        let result = match message["method"].as_str() {
+            Some("initialize") => json!({ "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "secure", "version": "0" } }),
+            Some("tools/list") => json!({ "tools": [{ "name": "echo", "inputSchema": { "type": "object" }, "annotations": { "readOnlyHint": true } }] }),
+            Some("tools/call") => json!({ "content": [{ "type": "text", "text": message["params"]["arguments"]["text"] }] }),
+            _ => return StatusCode::ACCEPTED.into_response(),
+        };
+        axum::Json(json!({ "jsonrpc": "2.0", "id": message["id"], "result": result })).into_response()
+    });
+    let app = axum::Router::new()
+        .route("/.well-known/oauth-protected-resource", get(resource.clone()))
+        .route("/.well-known/oauth-protected-resource/mcp", get(resource))
+        .route("/.well-known/oauth-authorization-server", get(metadata))
+        .route("/register", register)
+        .route("/authorize", authorize)
+        .route("/token", token)
+        .route("/mcp", mcp.get(|| async { StatusCode::METHOD_NOT_ALLOWED }).delete(|| async { StatusCode::ACCEPTED }))
+        .with_state(base.clone());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    base
+}
+
 fn calls(log: &std::path::Path) -> Vec<String> {
     std::fs::read_to_string(log).unwrap_or_default().lines().map(String::from).collect()
 }
