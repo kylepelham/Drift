@@ -803,9 +803,12 @@ these async criteria are new pending M3 work.
   their default address or the one the user set; what answers replaces that provider's listed
   models (embedding and tool-less models left out). Context is the window the server really runs
   with, since both cut longer prompts: LM Studio's loaded length for a loaded model and unknown (0)
-  for one it would load with its own default; Ollama's `num_ctx` from `/api/show`, else
-  `OLLAMA_CONTEXT_LENGTH` from this machine's environment, else Ollama's default 4096, never more
-  than the model's trained length. The
+  for one it would load with its own default; for Ollama, a loaded model's allocated
+  `context_length` from `/api/ps`, else the model's own `num_ctx` from `/api/show` (asked once per
+  model, again only after one leaves the list; never more than its trained length), else unknown,
+  since Ollama's default depends on the server's memory (4K below 24 GB of VRAM, 32K to 48 GB,
+  256K above, checked 2026-10 against docs.ollama.com) and Drift's environment says nothing about
+  a server elsewhere. An unknown window becomes known within a poll of the model loading. The
   provider counts as connected with no key while it answers, and `catalog.updated` tells the UI.
 - The user's own `~/.config/drift/drift.json` may add or re-point providers:
   `providers: { "<id>": { name?, baseUrl?, apiKeyEnv?, models?: { "<model>": { name?, context,
