@@ -12,24 +12,26 @@ impl Tool for Skill {
             description: "Loads a skill listed in the system prompt: returns its instructions and the directory holding any files it refers to. Load a skill before doing work its description covers.".into(),
             input_schema: json!({
                 "type": "object",
-                "properties": { "name": { "type": "string", "description": "The skill's name as listed." } },
+                "properties": { "name": { "type": "string", "description": "The skill's name as listed." }, "arguments": { "type":"string", "description":"Arguments for a skill command's template, when supplied." } },
                 "required": ["name"]
             }),
         }
     }
 
-    fn ask(&self, _ctx: &Context, _input: &Value) -> Option<Ask> {
-        None
+    fn ask(&self, _ctx: &Context, input: &Value) -> Option<Ask> {
+        let name = input["name"].as_str()?;
+        Some(Ask::new("skill", name, format!("Load skill {name}")).allow_by_default())
     }
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let name = required_str(&input, "name")?;
             let skill = ctx.config.skill(name).ok_or_else(|| ToolError(format!("no skill named `{name}`; the available skills are listed in the system prompt")))?;
+            let instructions = input["arguments"].as_str().map_or_else(|| skill.instructions.clone(), |arguments| crate::config::Command::new(name.into(), skill.description.clone(), skill.instructions.clone()).expand(arguments));
             // The instructions as the turn's config read them, never the file as it is now.
             Ok(Output {
                 title: skill.name.clone(),
-                output: format!("Skill directory: {}\n\n{}", skill.path, skill.instructions),
+                output: format!("Skill directory: {}\n\n{}", skill.path, instructions),
                 metadata: json!({ "path": skill.path }),
             })
         })

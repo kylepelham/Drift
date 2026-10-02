@@ -40,6 +40,10 @@ impl Tool for Grep {
         ctx.ask_to_read(&ctx.resolve(input["path"].as_str().unwrap_or(".")), "Search")
     }
 
+    fn asks(&self, ctx: &Context, input: &Value) -> Vec<Ask> {
+        self.ask(ctx, input).into_iter().chain(input["pattern"].as_str().map(|pattern| Ask::new("grep", pattern, format!("Search for {pattern}")).allow_by_default())).collect()
+    }
+
     fn starts_early(&self) -> bool {
         true
     }
@@ -50,7 +54,15 @@ impl Tool for Grep {
             let root = ctx.resolve(input["path"].as_str().unwrap_or("."));
             let include = input["include"].as_str().map(str::to_string);
             let (workspace, stop) = (ctx.workspace.clone(), ctx.abort.clone());
-            let found = tokio::task::spawn_blocking(move || search(&root, &pattern, include.as_deref(), &workspace, &stop))
+            let (engine, session, policy, read_root) = (ctx.engine.clone(), ctx.session_id.clone(), ctx.config.policy(), workspace.clone());
+            let agent_policy = ctx.config.agent_policy(&ctx.agent);
+            let approved = super::canonical(&root);
+            // The searched path itself was approved by this call's own ask, a one-time answer included.
+            let allowed = move |path: &Path| {
+                super::canonical(path) == approved
+                    || super::read_ask(&read_root, path, "Search").is_some_and(|ask| engine.permissions.decide_under(&session, &policy, &agent_policy, &ask) == crate::permission::Decision::Allow)
+            };
+            let found = tokio::task::spawn_blocking(move || search(&root, &pattern, include.as_deref(), &workspace, &stop, &allowed))
                 .await
                 .map_err(|e| ToolError(e.to_string()))??;
             let mut output = if found.lines.is_empty() { "No matches".to_string() } else { found.lines.join("\n") };
@@ -62,7 +74,10 @@ impl Tool for Grep {
             if found.withheld > 0 {
                 output.push_str(&format!("\n({} files that may hold secrets were not searched; read one directly and the user is asked)", found.withheld));
             }
-            let metadata = json!({ "count": found.lines.len(), "total": found.total.min(MAX_COUNTED), "capped": found.total > MAX_COUNTED, "truncated": found.total > found.lines.len(), "withheld": found.withheld });
+            if found.restricted > 0 {
+                output.push_str(&format!("\n({} files were excluded by read policy or need read approval; use read on an allowed file)", found.restricted));
+            }
+            let metadata = json!({ "count": found.lines.len(), "total": found.total.min(MAX_COUNTED), "capped": found.total > MAX_COUNTED, "truncated": found.total > found.lines.len(), "withheld": found.withheld, "restricted": found.restricted });
             Ok(Output { title: input["pattern"].as_str().unwrap_or_default().into(), output, metadata })
         })
     }
@@ -74,6 +89,7 @@ struct Found {
     total: usize,
     /// Files skipped because they may hold secrets.
     withheld: usize,
+    restricted: usize,
 }
 
 /// One matching line: the file as shown, its line number, and the line.
@@ -105,7 +121,7 @@ impl First {
 /// line, with how many there were in all, up to [`MAX_COUNTED`], where it stops. Binary files end
 /// their search at the first NUL; files that may hold secrets are skipped unless the search names
 /// one directly, which has already asked. A Stop ends the walk and every file search in it.
-fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path, stop: &CancellationToken) -> Result<Found, ToolError> {
+fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path, stop: &CancellationToken, allowed: &(dyn Fn(&Path) -> bool + Sync)) -> Result<Found, ToolError> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let matcher = RegexMatcherBuilder::new()
         .line_terminator(Some(b'\n'))
@@ -117,9 +133,10 @@ fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path, s
         .map_err(|e| ToolError(format!("invalid include glob: {e}")))?;
     let first = First::default();
     let (total, withheld) = (AtomicUsize::new(0), AtomicUsize::new(0));
+    let restricted = AtomicUsize::new(0);
     super::walker(root).build_parallel().run(|| {
         let mut searcher = SearcherBuilder::new().line_number(true).binary_detection(BinaryDetection::quit(0)).build();
-        let (matcher, include, first, total, withheld) = (&matcher, &include, &first, &total, &withheld);
+        let (matcher, include, first, total, withheld, restricted) = (&matcher, &include, &first, &total, &withheld, &restricted);
         Box::new(move |entry| {
             use ignore::WalkState;
             if stop.is_cancelled() || total.load(Ordering::Relaxed) > MAX_COUNTED {
@@ -135,6 +152,10 @@ fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path, s
             }
             if entry.path() != root && is_sensitive(entry.path()) {
                 withheld.fetch_add(1, Ordering::Relaxed);
+                return WalkState::Continue;
+            }
+            if !allowed(entry.path()) {
+                restricted.fetch_add(1, Ordering::Relaxed);
                 return WalkState::Continue;
             }
             let name = display(entry.path(), workspace);
@@ -159,7 +180,7 @@ fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path, s
         return Err(ToolError("stopped".into()));
     }
     let lines = first.into_sorted().into_iter().map(|(name, line, text)| format!("{name}:{line}: {text}")).collect();
-    Ok(Found { lines, total: total.into_inner(), withheld: withheld.into_inner() })
+    Ok(Found { lines, total: total.into_inner(), withheld: withheld.into_inner(), restricted: restricted.into_inner() })
 }
 fn clip(line: &str) -> String {
     if line.chars().count() <= MAX_LINE_CHARS {
@@ -250,6 +271,19 @@ mod tests {
         sandbox.ctx.abort.cancel();
         let err = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap_err();
         assert_eq!(err.0, "stopped");
+    }
+
+    #[tokio::test]
+    async fn a_directory_search_does_not_bypass_file_read_rules() {
+        let sandbox = Sandbox::new("grep-policy");
+        sandbox.file("allowed.txt", "hit public");
+        sandbox.file("blocked.txt", "hit restricted");
+        sandbox.ctx.engine.permissions.set_policy(crate::permission::Policy {
+            rules: vec![crate::permission::Rule { kind: "read".into(), pattern: "blocked.txt".into(), decision: crate::permission::Decision::Deny }],
+        });
+        let out = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
+        assert!(out.output.contains("hit public") && !out.output.contains("hit restricted"));
+        assert_eq!(out.metadata["restricted"], 1);
     }
 
     #[tokio::test]

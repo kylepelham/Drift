@@ -95,6 +95,28 @@ async fn a_plain_reply_is_stored_and_costed() {
 }
 
 #[tokio::test]
+async fn steering_uses_the_admitted_agent_and_model_generation() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "a").unwrap();
+    h.provider.push_slow(Duration::from_millis(500), tool_call("read", r#"{"path":"a.txt"}"#)).push(text("done"));
+    h.engine.submit(&h.session.id, prompt("start")).await.await_ok();
+    std::fs::create_dir_all(h._dir.join("ws/.drift/agents")).unwrap();
+    std::fs::write(h._dir.join("ws/.drift/agents/late.md"), "---\ndescription: Added mid-turn\n---\nA later agent.").unwrap();
+    let late = Prompt { agent: Some("late".into()), ..prompt("late selection") };
+    assert!(matches!(h.engine.submit(&h.session.id, late.clone()).await, Err(TurnError::UnknownAgent)));
+    let mut new_model = h.engine.catalog.read().unwrap().model("anthropic", "claude-sonnet-4-5").unwrap().clone();
+    new_model.id = "new-mid-turn".into();
+    h.engine.catalog.write().unwrap().providers.get_mut("anthropic").unwrap().models.insert(new_model.id.clone(), new_model);
+    let model = ModelRef { provider: "anthropic".into(), model: "new-mid-turn".into() };
+    assert!(matches!(h.engine.submit(&h.session.id, Prompt { model: Some(model), ..prompt("new model") }).await, Err(TurnError::UnknownModel)));
+    until_idle(&h).await;
+    h.provider.push(text("later turn"));
+    h.engine.submit(&h.session.id, late).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().agent, "late");
+}
+
+#[tokio::test]
 async fn tool_calls_run_and_feed_the_next_request() {
     let h = harness().await;
     std::fs::write(h._dir.join("ws/a.txt"), "alpha\n").unwrap();
@@ -196,6 +218,73 @@ async fn an_edit_holds_the_previewed_file_while_approval_is_pending() {
     h.engine.permissions.reply(&h.engine.hub, &ask.id, ReplyBody { reply: Reply::Once, pattern: None, message: None }).unwrap();
     until_idle(&h).await;
     assert_eq!(other.await.unwrap(), "two\ntwo\n");
+}
+
+#[tokio::test]
+async fn explicit_rules_restrict_default_allowed_tools() {
+    for (kind, input) in [
+        ("read", r#"{"path":"a.txt"}"#),
+        ("grep", r#"{"pattern":"secret"}"#),
+        ("glob", r#"{"pattern":"*.txt"}"#),
+        ("skill", r#"{"name":"private"}"#),
+        ("task", r#"{"description":"inspect","prompt":"inspect files","subagent_type":"explore"}"#),
+    ] {
+        let h = harness().await;
+        std::fs::write(h._dir.join("ws/a.txt"), "secret contents").unwrap();
+        h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: kind.into(), pattern: "*".into(), decision: Decision::Deny }] });
+        h.provider.push(tool_call(kind, input)).push(text("done"));
+        h.engine.submit(&h.session.id, prompt("inspect")).await.await_ok();
+        until_idle(&h).await;
+        let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+        let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+        assert_eq!(*status, ToolStatus::Denied, "{kind}");
+        assert_eq!(output.as_deref(), Some("A permission rule forbids this call."), "{kind}");
+        assert_eq!(h.engine.store.session_tree(&h.session.id).unwrap().len(), 1, "no task starts when delegation is denied");
+    }
+}
+
+#[tokio::test]
+async fn agent_permissions_and_default_variant_are_applied_to_the_turn() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "private contents").unwrap();
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind:"read".into(), pattern:"a.txt".into(), decision:Decision::Ask }] });
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider.push(tool_call("read", r#"{"path":"a.txt"}"#)).push(text("read"));
+    h.engine.submit(&h.session.id, prompt("read")).await.await_ok();
+    let ask = next_ask(&mut rx).await;
+    h.engine.permissions.reply(&h.engine.hub, &ask.id, ReplyBody { reply: Reply::Always, pattern:None, message:None }).unwrap();
+    until_idle(&h).await;
+    h.engine.set_agent_overrides(std::collections::HashMap::from([("build".into(), crate::config::AgentOverride::from_json(&json!({
+        "permissions":[{"kind":"read","pattern":"a.txt","decision":"deny"}], "variant":"high"
+    })))]));
+    h.provider.push(tool_call("read", r#"{"path":"a.txt"}"#)).push(text("denied"));
+    h.engine.submit(&h.session.id, prompt("read under restricted agent")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert!(transcript.iter().flat_map(|m| &m.parts).any(|row| matches!(&row.part, Part::ToolCall { status:ToolStatus::Denied,.. })), "agent denial overrides an earlier always grant");
+    assert!(h.provider.requests.lock().unwrap().last().unwrap().reasoning.is_some(), "the configured default variant reaches the provider");
+    h.provider.push(text("low"));
+    h.engine.submit(&h.session.id, Prompt { variant:Some(Some("low".into())), ..prompt("explicit level") }).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().variant.as_deref(), Some("low"));
+}
+
+#[tokio::test]
+async fn ordinary_reads_allow_by_default_but_explicit_ask_requires_approval() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "read me").unwrap();
+    h.provider.push(tool_call("read", r#"{"path":"a.txt"}"#)).push(text("done"));
+    h.engine.submit(&h.session.id, prompt("read")).await.await_ok();
+    until_idle(&h).await;
+    assert!(h.engine.permissions.pending().is_empty());
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "read".into(), pattern: "a.txt".into(), decision: Decision::Ask }] });
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider.push(tool_call("read", r#"{"path":"a.txt"}"#)).push(text("done"));
+    h.engine.submit(&h.session.id, prompt("read again")).await.await_ok();
+    let ask = next_ask(&mut rx).await;
+    assert_eq!(ask.ask.kind, "read");
+    h.engine.permissions.reply(&h.engine.hub, &ask.id, ReplyBody { reply: Reply::Once, pattern: None, message: None }).unwrap();
+    until_idle(&h).await;
 }
 
 #[tokio::test]
@@ -1497,17 +1586,24 @@ async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_
     let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default(), cwd: None, timeout_seconds: None };
     h.engine.store.save_mcp_server("echo", &config).unwrap();
     h.engine.connect_mcp("echo").await.unwrap();
-    std::fs::write(h._dir.join("ws/shot.png"), b"\x89PNG\r\n\x1a\nrest").unwrap();
+    let mut wide = Vec::new();
+    image::RgbImage::new(2600, 20).write_to(&mut std::io::Cursor::new(&mut wide), image::ImageFormat::Png).unwrap();
+    std::fs::write(h._dir.join("ws/shot.png"), wide).unwrap();
+    std::fs::write(h._dir.join("ws/broken.png"), b"\x89PNG\r\n\x1a\nrest").unwrap();
     h.provider
         .push(tool_call("echo_echo", r#"{"text": "picture"}"#))
         .push(tool_call("read", r#"{"path": "shot.png"}"#))
+        .push(tool_call("read", r#"{"path": "broken.png"}"#))
         .push(text("seen"));
     h.engine.submit(&h.session.id, prompt("look")).await.await_ok();
     until_idle(&h).await;
     let requests = h.provider.requests.lock().unwrap().clone();
     let last = requests.last().unwrap();
     let images: Vec<&str> = last.messages.iter().flat_map(|m| &m.blocks).filter_map(|b| match b { Block::Image { mime, .. } => Some(mime.as_str()), _ => None }).collect();
-    assert_eq!(images, ["image/png", "image/png"], "the MCP screenshot and the read image both reach the model");
+    assert_eq!(images, ["image/png", "image/png"], "the MCP screenshot and the scaled read image reach the model; the broken one does not");
+    let said = format!("{:?}", last.messages);
+    assert!(said.contains("was scaled from 2600x20 to 2000x15 to fit the model's limits"));
+    assert!(said.contains("[an image (image/png) is not shown: it could not be read"));
     let stored = serde_json::to_string(&h.engine.store.transcript(&h.session.id).unwrap()).unwrap();
     assert!(stored.contains("\"hash\"") && !stored.contains("iVBORw0KGgo"), "the part names its images; their bytes live in the blob table");
     let mut blind = model_with(0, false);

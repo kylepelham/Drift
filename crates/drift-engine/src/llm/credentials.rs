@@ -1,7 +1,9 @@
-//! Provider secrets in the OS keychain, with a file fallback for hosts that have none.
+//! Provider secrets in the OS keychain or an authenticated encrypted fallback.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde_json::Value;
@@ -10,6 +12,7 @@ use super::Credential;
 
 const SERVICE: &str = "dev.drift.app";
 const INDEX: &str = "__providers";
+#[cfg(test)]
 const FALLBACK_FILE: &str = "credentials.json";
 /// Windows stores secrets as UTF-16 under 2560 bytes; OAuth tokens are longer, so they are split.
 const CHUNK_CHARS: usize = 1000;
@@ -27,14 +30,22 @@ pub struct Credentials {
 
 enum Backend {
     Keyring,
+    Protected(super::credential_file::ProtectedFile),
+    Unavailable(String),
+    #[cfg(test)]
     File(PathBuf),
 }
 
 impl Credentials {
     pub fn open(data_dir: &Path, prefer_file: bool) -> Self {
+        #[cfg(test)]
+        if prefer_file { return Self::open_test_file(data_dir.join(FALLBACK_FILE)); }
         let backend = match keyring::Entry::store_status() {
             Ok(()) if !prefer_file => Backend::Keyring,
-            _ => Backend::File(data_dir.join(FALLBACK_FILE)),
+            _ => match super::credential_file::ProtectedFile::open(data_dir) {
+                Ok(file) => Backend::Protected(file),
+                Err(error) => Backend::Unavailable(error),
+            },
         };
         let this = Self { backend, write_lock: Mutex::default(), index: Mutex::default(), keyless: Mutex::default() };
         let index = this.read(INDEX).and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default();
@@ -44,7 +55,14 @@ impl Credentials {
 
     #[cfg(test)]
     pub fn in_file(path: PathBuf) -> Self {
-        Self { backend: Backend::File(path), write_lock: Mutex::default(), index: Mutex::default(), keyless: Mutex::default() }
+        Self::open_test_file(path)
+    }
+
+    #[cfg(test)]
+    fn open_test_file(path: PathBuf) -> Self {
+        let this = Self { backend: Backend::File(path), write_lock: Mutex::default(), index: Mutex::default(), keyless: Mutex::default() };
+        *this.index.lock().unwrap() = this.read(INDEX).and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default();
+        this
     }
 
     /// Marks a provider as taking no key (`on`), or as needing one again.
@@ -132,6 +150,9 @@ impl Credentials {
                 let Some(count) = head.strip_prefix(CHUNKED).and_then(|n| n.parse::<usize>().ok()) else { return Some(head) };
                 (0..count).map(|i| keyring::Entry::new(SERVICE, &format!("{key}#{i}")).ok()?.get_password().ok()).collect()
             }
+            Backend::Protected(file) => file.read().ok()?.get(key).and_then(Value::as_str).map(str::to_string),
+            Backend::Unavailable(_) => None,
+            #[cfg(test)]
             Backend::File(path) => file_map(path).get(key).and_then(Value::as_str).map(str::to_string),
         }
     }
@@ -149,6 +170,13 @@ impl Credentials {
                 }
                 put(key.into(), &format!("{CHUNKED}{}", chunks.len()))
             }
+            Backend::Protected(file) => {
+                let mut map = file.read()?;
+                map.insert(key.into(), Value::String(value.into()));
+                file.save(&map)
+            }
+            Backend::Unavailable(error) => Err(error.clone()),
+            #[cfg(test)]
             Backend::File(path) => {
                 let mut map = file_map(path);
                 map.insert(key.into(), Value::String(value.into()));
@@ -170,6 +198,13 @@ impl Credentials {
                     Err(error) => Err(error.to_string()),
                 }
             }
+            Backend::Protected(file) => {
+                let mut map = file.read()?;
+                map.remove(key);
+                file.save(&map)
+            }
+            Backend::Unavailable(error) => Err(error.clone()),
+            #[cfg(test)]
             Backend::File(path) => {
                 let mut map = file_map(path);
                 map.remove(key);
@@ -179,6 +214,7 @@ impl Credentials {
     }
 }
 
+#[cfg(test)]
 fn file_map(path: &Path) -> serde_json::Map<String, Value> {
     std::fs::read_to_string(path)
         .ok()
@@ -187,11 +223,9 @@ fn file_map(path: &Path) -> serde_json::Map<String, Value> {
         .unwrap_or_default()
 }
 
+#[cfg(test)]
 fn save_file(path: &Path, map: &serde_json::Map<String, Value>) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(path, serde_json::to_string(map).unwrap()).map_err(|e| e.to_string())
+    crate::platform::private_file::write(path, &serde_json::to_vec(map).unwrap()).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

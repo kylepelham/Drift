@@ -269,6 +269,8 @@ pub struct PartRow {
     pub id: String,
     pub message_id: String,
     pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_signature: Option<String>,
     #[serde(flatten)]
     pub part: Part,
 }
@@ -291,6 +293,7 @@ mod tests {
             id: "prt_1".into(),
             message_id: "msg_1".into(),
             session_id: "ses_1".into(),
+            provider_signature: None,
             part: Part::ToolCall {
                 call_id: "toolu_1".into(),
                 name: "read".into(),
@@ -318,6 +321,7 @@ mod tests {
             id: "prt_1".into(),
             message_id: "msg_1".into(),
             session_id: "ses_parent".into(),
+            provider_signature: None,
             part: Part::TaskResult { task_id: "task_1".into(), worker_session_id: "ses_worker".into(), description: "d".into(), outcome: "replied".into(), text: "t".into() },
         };
         let text = serde_json::to_string(&row).unwrap();

@@ -251,7 +251,7 @@ impl Store {
 }
 
 pub(super) fn save_part_in(conn: &Connection, row: &PartRow) -> rusqlite::Result<()> {
-    conn.prepare_cached("UPDATE part SET json = ?2 WHERE id = ?1")?.execute(params![row.id, serde_json::to_string(&row.part).unwrap()])?;
+    conn.prepare_cached("UPDATE part SET json = ?2, provider_signature = ?3 WHERE id = ?1")?.execute(params![row.id, serde_json::to_string(&row.part).unwrap(), row.provider_signature])?;
     Ok(())
 }
 
@@ -309,7 +309,7 @@ fn with_parts_in(store: &Store, conn: &Connection, session_id: &str, infos: Vec<
     let (Some(first), Some(last)) = (infos.first(), infos.last()) else { return Ok(Vec::new()) };
     let mut by_message: HashMap<String, Vec<PartRow>> = HashMap::new();
     let mut stmt = conn.prepare_cached(
-        "SELECT p.id, p.session_id, p.json, p.message_id FROM message m JOIN part p ON p.message_id = m.id
+        "SELECT p.id, p.session_id, p.json, p.message_id, p.provider_signature FROM message m JOIN part p ON p.message_id = m.id
          WHERE m.session_id = ?1 AND m.id >= ?2 AND m.id <= ?3 ORDER BY p.message_id, p.id",
     )?;
     let rows = stmt.query_map(params![session_id, first.id, last.id], |row| {
@@ -334,6 +334,7 @@ fn map_part(row: &Row, message_id: &str) -> rusqlite::Result<PartRow> {
         id: row.get(0)?,
         message_id: message_id.into(),
         session_id: row.get(1)?,
+        provider_signature: row.get(4)?,
         part,
     })
 }
@@ -762,7 +763,7 @@ fn insert_message(conn: &Connection, session_id: &str, role: Role, model: Option
 }
 
 fn insert_part(conn: &Connection, message_id: &str, session_id: &str, part: Part) -> rusqlite::Result<PartRow> {
-    let row = PartRow { id: id::new("prt"), message_id: message_id.into(), session_id: session_id.into(), part };
+    let row = PartRow { id: id::new("prt"), message_id: message_id.into(), session_id: session_id.into(), provider_signature: None, part };
     conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json) VALUES(?1, ?2, ?3, ?4)")?
         .execute(params![row.id, row.message_id, row.session_id, serde_json::to_string(&row.part).unwrap()])?;
     Ok(row)

@@ -1,6 +1,7 @@
 // The smallest MCP server that can be: one read-only `echo` tool and one `shout` tool, over stdio, in either era.
 const fs = require("node:fs")
 const readline = require("node:readline")
+const PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 const reply = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n")
 // REDEFINE_AFTER_CRASH: once CRASH_MARKER exists, the restarted server no longer calls echo read-only.
 const redefined = !!process.env.REDEFINE_AFTER_CRASH && !!process.env.CRASH_MARKER && fs.existsSync(process.env.CRASH_MARKER)
@@ -14,7 +15,7 @@ const call = (message) => {
   const text = String(message.params.arguments?.text ?? "")
   if (process.env.CALL_LOG) fs.appendFileSync(process.env.CALL_LOG, `${message.params.name} ${text}\n`)
   if (text === "fail") return reply(message.id, { content: [{ type: "text", text: "asked to fail" }], isError: true })
-  if (text === "picture") return reply(message.id, { content: [{ type: "text", text: "a screenshot" }, { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" }] })
+  if (text === "picture") return reply(message.id, { content: [{ type: "text", text: "a screenshot" }, { type: "image", mimeType: "image/png", data: PIXEL }] })
   if (text === "crash") process.exit(1)
   if (text === "crash-once" && !fs.existsSync(process.env.CRASH_MARKER)) {
     fs.writeFileSync(process.env.CRASH_MARKER, "")
@@ -29,7 +30,7 @@ const call = (message) => {
 const rich = !!process.env.RICH
 const capabilities = rich ? { tools: {}, resources: {}, prompts: {} } : { tools: {} }
 const resources = [{ uri: "note://readme", name: "readme", mimeType: "text/plain", description: "The notes" }, { uri: "note://shot", name: "shot", mimeType: "image/png" }]
-const contents = { "note://readme": [{ uri: "note://readme", mimeType: "text/plain", text: "remember the milk" }], "note://shot": [{ uri: "note://shot", mimeType: "image/png", blob: "iVBORw0KGgo=" }] }
+const contents = { "note://readme": [{ uri: "note://readme", mimeType: "text/plain", text: "remember the milk" }], "note://shot": [{ uri: "note://shot", mimeType: "image/png", blob: PIXEL }] }
 const prompt = { name: "review", description: "Review a file", arguments: [{ name: "file", required: true }, { name: "focus" }] }
 const filled = (args) => ({ messages: [{ role: "user", content: { type: "text", text: `Review ${args.file} for ${args.focus ?? "anything"}` } }] })
 const fail = (id, code, message) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }) + "\n")

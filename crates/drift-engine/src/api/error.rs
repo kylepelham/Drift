@@ -109,3 +109,16 @@ impl From<TreeError> for ApiError {
 fn changed() -> ApiError {
     ApiError::new(StatusCode::CONFLICT, "changed", "the conversation changed while it was being copied; try again")
 }
+
+impl From<crate::session::command::CommandError> for ApiError {
+    fn from(error: crate::session::command::CommandError) -> Self {
+        use crate::session::command::CommandError;
+        match error {
+            CommandError::Missing => Self::not_found("command"),
+            CommandError::Invalid(message) => Self::new(StatusCode::BAD_REQUEST, "command", message),
+            CommandError::Mcp(message) => Self::new(StatusCode::BAD_GATEWAY, "mcp", message),
+            CommandError::Turn(error) => error.into(),
+            CommandError::Store(error) => error.into(),
+        }
+    }
+}

@@ -137,6 +137,32 @@ async fn a_summary_that_cannot_be_stored_never_replaces_the_history() {
 }
 
 #[tokio::test]
+async fn unsuccessful_summary_endings_keep_the_previous_valid_context() {
+    for reason in [StopReason::MaxTokens, StopReason::Refused, StopReason::ContextFull, StopReason::ToolUse, StopReason::Other] {
+        let h = harness().await;
+        for ask in ["first", "second", "third"] {
+            h.provider.push(text("reply"));
+            turn(&h, ask).await;
+        }
+        h.provider.push(text("VALID SUMMARY"));
+        h.engine.start_compaction(&h.session.id).unwrap();
+        until_idle(&h).await;
+        let start = h.engine.store.view_start(&h.session.id).unwrap();
+        h.provider.push(vec![Chunk::TextStart, Chunk::TextDelta("PARTIAL SUMMARY".into()), Chunk::BlockStop, Chunk::Stop(reason)]);
+        h.engine.start_compaction(&h.session.id).unwrap();
+        until_idle(&h).await;
+        let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+        assert_eq!(transcript.last().unwrap().info.status, MessageStatus::Error, "{reason:?}");
+        assert_eq!(h.engine.store.view_start(&h.session.id).unwrap(), start, "{reason:?}");
+        assert_eq!(view(&transcript).summary.as_deref(), Some("VALID SUMMARY"), "{reason:?}");
+        h.provider.push(text("continued"));
+        turn(&h, "continue").await;
+        assert!(mentions(requests(&h).last().unwrap(), "VALID SUMMARY"));
+        assert!(!mentions(requests(&h).last().unwrap(), "PARTIAL SUMMARY"));
+    }
+}
+
+#[tokio::test]
 async fn a_storage_failure_counts_against_automatic_compaction() {
     let h = harness().await;
     h.provider.push(reply_using(980_000, "long"));

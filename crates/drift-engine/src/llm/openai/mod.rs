@@ -135,7 +135,8 @@ fn items(message: &ChatMessage) -> Vec<Value> {
         }
     };
     for block in &message.blocks {
-        match block {
+        match block.unsigned() {
+            Block::Signed { .. } => unreachable!("unsigned blocks cannot be signed"),
             Block::Text(text) if message.role == Role::User => content.push(json!({ "type": "input_text", "text": text })),
             Block::Text(text) => content.push(json!({ "type": "output_text", "text": text })),
             Block::Image { mime, base64 } => content.push(json!({ "type": "input_image", "image_url": format!("data:{mime};base64,{base64}") })),

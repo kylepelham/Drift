@@ -161,6 +161,10 @@ pub struct Agent {
     /// something (a writing tool, a shell line that is not only reads, a task to a writing subagent) is refused.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub read_only: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permissions: Vec<Rule>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
 }
 
 impl Agent {
@@ -208,9 +212,20 @@ pub struct Command {
     /// The prompt's arguments in order, which what follows the command fills word by word.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub arguments: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtask: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill: Option<String>,
 }
 
 impl Command {
+    pub fn new(name: String, description: String, template: String) -> Self {
+        Self { name, description, template, server: None, arguments: Vec::new(), agent: None, model: None, subtask: None, skill: None }
+    }
     /// `arguments` split for this command's named arguments: one word each, the last taking the rest.
     pub fn named_arguments(&self, arguments: &str) -> serde_json::Map<String, serde_json::Value> {
         let words: Vec<&str> = arguments.split_whitespace().collect();
@@ -325,12 +340,22 @@ impl Config {
         for dir in skill_folders(workspace, home, std::mem::take(&mut config.skill_paths)) {
             config.add_skills(&dir);
         }
+        for skill in &config.skills {
+            if config.commands.iter().any(|command| command.name == skill.name) { continue; }
+            let mut command = Command::new(skill.name.clone(), skill.description.clone(), skill.instructions.clone());
+            command.skill = Some(skill.name.clone());
+            config.commands.push(command);
+        }
         config.add_instructions(workspace, home);
         config
     }
 
     pub fn policy(&self) -> Policy {
         Policy { rules: self.permissions.clone() }
+    }
+
+    pub fn agent_policy(&self, agent: &str) -> Policy {
+        Policy { rules: self.agent(agent).map(|agent| agent.permissions.clone()).unwrap_or_default() }
     }
 
     pub fn agent(&self, name: &str) -> Option<&Agent> {
@@ -458,6 +483,15 @@ impl Config {
 
     fn apply_dir(&mut self, dir: &Path) {
         for (name, doc) in markdown_files(&dir.join("agents")) {
+            let unsupported: Vec<&str> = ["temperature", "top_p", "topP", "options", "provider_options"].into_iter().filter(|key| doc.fields.contains_key(*key)).collect();
+            if !unsupported.is_empty() {
+                self.problems.push(format!("agent {name} uses unsupported controls: {}; remove them, since native agents retain permissions and variant but not sampling/provider options", unsupported.join(", ")));
+                continue;
+            }
+            let permissions = match doc.permissions() {
+                Ok(rules) => rules,
+                Err(error) => { self.problems.push(format!("agent {name}: {error}")); continue; }
+            };
             let agent = Agent {
                 description: doc.field("description").unwrap_or_default(),
                 prompt: doc.body.trim().into(),
@@ -469,13 +503,20 @@ impl Config {
                 background: doc.field("background").and_then(|b| b.trim().parse().ok()),
                 read_only: doc.field("read_only").is_some_and(|value| value.trim() == "true"),
                 name: name.clone(),
+                permissions,
+                variant: doc.field("variant"),
             };
             self.agents.retain(|a| a.name != name);
             self.agents.push(agent);
         }
         for (name, doc) in markdown_files(&dir.join("commands")) {
             self.commands.retain(|c| c.name != name);
-            self.commands.push(Command { name, description: doc.field("description").unwrap_or_default(), template: doc.body.trim().into(), server: None, arguments: Vec::new() });
+            let mut command = Command::new(name, doc.field("description").unwrap_or_default(), doc.body.trim().into());
+            command.agent = doc.field("agent");
+            command.model = doc.field("model").and_then(|model| parse_model(&model));
+            command.subtask = doc.field("subtask").and_then(|value| value.parse().ok());
+            command.arguments = (1..=9).filter(|n| command.template.contains(&format!("${n}"))).map(|n| format!("arg{n}")).collect();
+            self.commands.push(command);
         }
     }
 
@@ -606,6 +647,8 @@ fn builtin_agents() -> Vec<Agent> {
         steps: None,
         background: None,
         read_only: false,
+        permissions: Vec::new(),
+        variant: None,
     };
     let read_only = |agent: Agent| Agent { read_only: true, ..agent };
     vec![
@@ -633,7 +676,7 @@ fn markdown_files(dir: &Path) -> Vec<(String, frontmatter::Document)> {
     files
 }
 
-fn parse_model(text: &str) -> Option<ModelRef> {
+pub(crate) fn parse_model(text: &str) -> Option<ModelRef> {
     let (provider, model) = text.trim().split_once('/')?;
     Some(ModelRef { provider: provider.into(), model: model.into() })
 }
@@ -782,7 +825,7 @@ mod tests {
 
     #[test]
     fn command_arguments_fill_placeholders_or_follow_the_template() {
-        let command = |template: &str| Command { name: "c".into(), description: String::new(), template: template.into(), server: None, arguments: Vec::new() };
+        let command = |template: &str| Command::new("c".into(), String::new(), template.into());
         assert_eq!(command("Run tests for $ARGUMENTS.").expand(" src/a.rs  "), "Run tests for src/a.rs.");
         assert_eq!(command("Move $1 to $2").expand("a.rs lib/b c.rs"), "Move a.rs to lib/b c.rs", "the highest takes the rest");
         assert_eq!(command("Only $1").expand(""), "Only ");

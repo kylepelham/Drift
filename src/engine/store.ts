@@ -31,6 +31,8 @@ export type AgentInfo = {
   tools: string[]
   /** Its own step limit, in place of the workspace's. */
   steps?: number
+  permissions?: import("./native/client").PermissionRule[]
+  variant?: string
 }
 export type CommandInfo = Command & {
   usage?: string

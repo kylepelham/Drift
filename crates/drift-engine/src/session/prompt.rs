@@ -81,7 +81,7 @@ pub(super) fn remind_agents(config: &Config, current: &str, transcript: &mut [Me
         let reminders = reminders(config, &ran_as, before.as_deref());
         let message = &mut transcript[index];
         for (at, text) in reminders.into_iter().enumerate() {
-            message.parts.insert(at, PartRow { id: String::new(), message_id: message.info.id.clone(), session_id: message.info.session_id.clone(), part: Part::Text { text } });
+            message.parts.insert(at, PartRow { id: String::new(), message_id: message.info.id.clone(), session_id: message.info.session_id.clone(), provider_signature: None, part: Part::Text { text } });
         }
     }
     let opens_with_prompt = shown.first().is_some_and(|i| transcript[*i].info.role == Role::User);
@@ -191,10 +191,10 @@ mod tests {
         assert!(texts(&run[0]).contains("# Plan mode") && texts(&run[2]).is_empty(), "a run of plan turns carries plan's prompt once");
 
         let mut boundary = message(Role::User, None);
-        boundary.parts.push(PartRow { id: String::new(), message_id: String::new(), session_id: String::new(), part: Part::Compaction { auto: true, tail_from: None } });
+        boundary.parts.push(PartRow { id: String::new(), message_id: String::new(), session_id: String::new(), provider_signature: None, part: Part::Compaction { auto: true, tail_from: None } });
         let mut summary = message(Role::Assistant, None);
         summary.info.summary = true;
-        summary.parts.push(PartRow { id: String::new(), message_id: String::new(), session_id: String::new(), part: Part::Text { text: "what happened".into() } });
+        summary.parts.push(PartRow { id: String::new(), message_id: String::new(), session_id: String::new(), provider_signature: None, part: Part::Text { text: "what happened".into() } });
         let mut compacted = numbered(vec![message(Role::User, Some("plan")), message(Role::Assistant, Some("plan")), boundary, summary, message(Role::Assistant, Some("plan"))]);
         let lead = remind_agents(&config, "plan", &mut compacted);
         assert!(lead.len() == 1 && lead[0].contains("# Plan mode"), "the prompt was summarised away, so the summary's turn carries plan's reminder: {lead:?}");

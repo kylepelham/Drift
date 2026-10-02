@@ -34,7 +34,7 @@ impl Rule {
     }
 
     fn matches_target(&self, kind: &str, target: &str) -> bool {
-        if self.kind != kind {
+        if self.kind != kind && self.kind != "*" {
             return false;
         }
         GlobBuilder::new(&self.pattern)
@@ -70,15 +70,19 @@ impl Grant {
     }
 }
 
-/// Ordered rules; the first match wins, and nothing matching means ask.
+/// Ordered rules; the first match wins, otherwise the operation's default applies.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Policy {
     pub rules: Vec<Rule>,
 }
 
 impl Policy {
+    pub fn explicit(&self, ask: &Ask) -> Option<Decision> {
+        self.rules.iter().find(|rule| rule.matches(ask)).map(|rule| rule.decision)
+    }
+
     pub fn decide(&self, ask: &Ask) -> Decision {
-        self.rules.iter().find(|rule| rule.matches(ask)).map_or(Decision::Ask, |rule| rule.decision)
+        self.explicit(ask).unwrap_or_else(|| fallback(ask.default_allow))
     }
 }
 
@@ -170,20 +174,20 @@ impl Permissions {
     /// that may hold secrets is held to the same bar, so `read *` never quietly covers `.env`.
     fn decide(&self, session_id: &str, workspace: &Policy, ask: &Ask) -> Decision {
         if ask.kind == "read" && crate::tool::sensitive::is_sensitive(std::path::Path::new(&ask.pattern)) {
-            return self.decide_target(session_id, workspace, "read", &ask.targets(), false);
+            return self.decide_target(session_id, workspace, "read", &ask.targets(), false, fallback(ask.default_allow));
         }
         if ask.kind != "bash" {
-            return self.decide_target(session_id, workspace, &ask.kind, &ask.targets(), true);
+            return self.decide_target(session_id, workspace, &ask.kind, &ask.targets(), true, fallback(ask.default_allow));
         }
         let Some(commands) = &ask.commands else {
-            return self.decide_target(session_id, workspace, "bash", &[&ask.pattern], false);
+            return self.decide_target(session_id, workspace, "bash", &[&ask.pattern], false, Decision::Ask);
         };
         let decisions: Vec<Decision> = commands.iter().enumerate().map(|(index, command)| self.decide_command(session_id, workspace, command, ask.canonical.get(index))).collect();
         if decisions.contains(&Decision::Deny) {
             Decision::Deny
         } else if !ask.writes.is_empty() {
             // A redirection that writes a file needs the line itself approved, never a grant for its program.
-            self.decide_target(session_id, workspace, "bash", &[&ask.pattern], false)
+            self.decide_target(session_id, workspace, "bash", &[&ask.pattern], false, Decision::Ask)
         } else if decisions.iter().all(|d| *d == Decision::Allow) {
             Decision::Allow
         } else {
@@ -194,7 +198,7 @@ impl Permissions {
     /// One command as written; and, for deny rules only, as it actually runs (`FOO=1 git push` is a
     /// `git push`, PowerShell's `rm` is `Remove-Item`). Approvals and allow rules see only what was written.
     fn decide_command(&self, session_id: &str, workspace: &Policy, command: &str, canonical: Option<&String>) -> Decision {
-        let written = self.decide_target(session_id, workspace, "bash", &[command], true);
+        let written = self.decide_target(session_id, workspace, "bash", &[command], true, Decision::Ask);
         let Some(canonical) = canonical.filter(|c| !c.is_empty() && c.as_str() != command) else { return written };
         let global = self.policy.lock().unwrap().rules.clone();
         let denied = workspace.rules.iter().chain(global.iter()).find(|rule| rule.matches_target("bash", canonical)).is_some_and(|rule| rule.decision == Decision::Deny);
@@ -203,7 +207,7 @@ impl Permissions {
 
     /// Session approvals first (a subagent's parents' included), then the workspace's drift.json,
     /// then the global policy.
-    fn decide_target(&self, session_id: &str, workspace: &Policy, kind: &str, targets: &[&str], wildcards: bool) -> Decision {
+    fn decide_target(&self, session_id: &str, workspace: &Policy, kind: &str, targets: &[&str], wildcards: bool, default: Decision) -> Decision {
         let lineage = self.lineage(session_id);
         let rules = self.session_rules.lock().unwrap();
         let granted = lineage
@@ -219,13 +223,25 @@ impl Permissions {
         match workspace.rules.iter().chain(global.iter()).find(|rule| targets.iter().any(|target| rule.matches_target(kind, target))) {
             Some(rule) if rule.decision == Decision::Allow && !wildcards && rule.has_wildcards() => Decision::Ask,
             Some(rule) => rule.decision,
-            None => Decision::Ask,
+            None => default,
         }
     }
 
     /// What the rules and the session's approvals say right now, without asking anyone.
     pub fn decide_now(&self, session_id: &str, workspace: &Policy, ask: &Ask) -> Decision {
         self.decide(session_id, workspace, ask)
+    }
+
+    pub fn decide_under(&self, session_id: &str, workspace: &Policy, agent: &Policy, ask: &Ask) -> Decision {
+        if agent.explicit(ask) == Some(Decision::Deny) { return Decision::Deny; }
+        let rules = agent.rules.iter().chain(&workspace.rules).cloned().collect();
+        self.decide(session_id, &Policy { rules }, ask)
+    }
+
+    pub async fn check_under(&self, hub: &Hub, workspace: &Policy, agent: &Policy, request: Request, abort: &CancellationToken) -> Outcome {
+        if agent.explicit(&request.ask) == Some(Decision::Deny) { return Outcome::Refused; }
+        let rules = agent.rules.iter().chain(&workspace.rules).cloned().collect();
+        self.check(hub, &Policy { rules }, request, abort).await
     }
 
     /// Resolves immediately from rules, or publishes a request and waits for the user.
@@ -288,6 +304,10 @@ impl Permissions {
         self.session_rules.lock().unwrap().remove(session_id);
         self.parents.lock().unwrap().remove(session_id);
     }
+}
+
+fn fallback(allow: bool) -> Decision {
+    if allow { Decision::Allow } else { Decision::Ask }
 }
 
 /// What "always" covers: each command of a shell line on its own, widened only to a known subcommand;

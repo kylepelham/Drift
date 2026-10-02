@@ -165,7 +165,8 @@ fn message(message: &ChatMessage) -> Vec<Value> {
     let mut tool_calls: Vec<Value> = Vec::new();
     let mut reasoning: Option<String> = None;
     for block in &message.blocks {
-        match block {
+        match block.unsigned() {
+            Block::Signed { .. } => unreachable!("unsigned blocks cannot be signed"),
             Block::Text(text) => content.push(json!({ "type": "text", "text": text })),
             Block::Image { mime, base64 } => content.push(json!({ "type": "image_url", "image_url": { "url": format!("data:{mime};base64,{base64}") } })),
             Block::Reasoning { text, .. } => reasoning = Some(text.clone()),

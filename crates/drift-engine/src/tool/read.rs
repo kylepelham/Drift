@@ -62,10 +62,11 @@ impl Tool for Read {
                 return Err(ToolError(format!("{} is binary", display(&path, &ctx.workspace))));
             }
             let text = String::from_utf8_lossy(&bytes);
+            let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
             let total = text.lines().count();
             // The reminders come first in the budget, so the page fits beside them within one result.
             let reminders = reminders(ctx, &path);
-            let body = page(&text, offset, limit, PAGE_BYTES.saturating_sub(reminders.len()));
+            let body = page(text, offset, limit, PAGE_BYTES.saturating_sub(reminders.len()));
             let shown = body.len();
             let mut output = body.join("\n");
             if offset - 1 + shown < total {
@@ -164,6 +165,7 @@ impl Page {
     /// Adds the line, or says `false` when the page is full; it never takes the line then.
     fn push(&mut self, number: usize, raw: &[u8]) -> bool {
         let text = String::from_utf8_lossy(raw);
+        let text = if number == 1 { text.strip_prefix('\u{feff}').unwrap_or(&text) } else { &text };
         let numbered = format!("{number}: {}", truncate(text.trim_end_matches(['\n', '\r'])));
         self.used += numbered.len() + 1;
         if self.lines.len() == self.limit || (self.used > self.budget && !self.lines.is_empty()) {
@@ -176,7 +178,7 @@ impl Page {
 /// An image or PDF comes back for the model to look at, not as text.
 fn attached(ctx: &Context, path: &std::path::Path, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
     let name = display(path, &ctx.workspace);
-    let (kind, limit) = if mime == super::image::PDF { ("a PDF", super::image::MAX_PDF_BYTES) } else { ("an image", super::image::MAX_IMAGE_BYTES) };
+    let (kind, limit) = if mime == super::image::PDF { ("a PDF", super::image::MAX_PDF_BYTES) } else { ("an image", super::image::MAX_SOURCE_BYTES) };
     if bytes.len() > limit {
         return Err(ToolError(format!("{name} is {kind} of {} bytes; too large to look at (the limit is {} MB)", bytes.len(), limit / 1024 / 1024)));
     }
@@ -277,7 +279,7 @@ mod tests {
     #[test]
     fn paths_inside_the_workspace_need_no_permission() {
         let sandbox = Sandbox::new("read-ask");
-        assert!(Read.ask(&sandbox.ctx, &json!({ "path": "a.txt" })).is_none());
+        assert!(Read.ask(&sandbox.ctx, &json!({ "path": "a.txt" })).unwrap().default_allow);
         let outside = Read.ask(&sandbox.ctx, &json!({ "path": "C:/Windows/hosts" })).unwrap();
         assert_eq!(outside.kind, "read");
     }
@@ -386,7 +388,7 @@ mod tests {
             std::fs::write(file, "output").unwrap();
         }
         let ask = |path: &std::path::Path| Read.ask(&sandbox.ctx, &json!({ "path": path.to_string_lossy() }));
-        assert!(ask(&own).is_none(), "its own output");
+        assert!(ask(&own).unwrap().default_allow, "its own output");
         assert!(ask(&other).is_some(), "another session's output");
         assert!(ask(&data.join("drift.db")).is_some(), "the rest of the data dir");
         let escape = data.join("tool-output").join(&sandbox.ctx.session_id).join("..").join("ses_someone_else").join("call_1.log");
@@ -400,8 +402,8 @@ mod tests {
         assert_eq!(ask.kind, "read");
         assert_eq!(std::path::PathBuf::from(&ask.pattern), sandbox.ctx.workspace.join("config/.env.local"));
         assert!(ask.title.contains("may hold secrets"), "{}", ask.title);
-        assert!(Read.ask(&sandbox.ctx, &json!({ "path": "config/.env.example" })).is_none());
-        assert!(Read.ask(&sandbox.ctx, &json!({ "path": "config" })).is_none(), "listing a directory shows names, not contents");
+        assert!(Read.ask(&sandbox.ctx, &json!({ "path": "config/.env.example" })).unwrap().default_allow);
+        assert!(Read.ask(&sandbox.ctx, &json!({ "path": "config" })).unwrap().default_allow, "listing a directory shows names, not contents");
     }
 }
 
@@ -417,7 +419,7 @@ mod escape_tests {
         std::fs::write(&outside, "secret").unwrap();
         let ask = Read.ask(&sandbox.ctx, &json!({ "path": "../outside.txt" })).expect("traversal must ask");
         assert_eq!(std::path::PathBuf::from(&ask.pattern), outside);
-        assert!(Read.ask(&sandbox.ctx, &json!({ "path": "sub/../a.txt" })).is_none());
+        assert!(Read.ask(&sandbox.ctx, &json!({ "path": "sub/../a.txt" })).unwrap().default_allow);
         assert!(Glob.ask(&sandbox.ctx, &json!({ "pattern": "*", "path": ".." })).is_some());
         assert!(Grep.ask(&sandbox.ctx, &json!({ "pattern": "x", "path": &outside.parent().unwrap().to_string_lossy() })).is_some());
 

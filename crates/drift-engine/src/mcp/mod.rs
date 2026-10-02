@@ -799,6 +799,10 @@ impl Servers {
                 template: String::new(),
                 arguments: prompt.arguments.iter().flatten().map(|argument| argument.name.clone()).collect(),
                 server: Some(server),
+                agent: None,
+                model: None,
+                subtask: None,
+                skill: None,
             })
             .collect()
     }
@@ -1175,7 +1179,8 @@ fn only_png_jpeg_gif_and_webp_within_the_limit_are_sent() {
     assert!(sendable("image/png", "AAAA").is_ok() && sendable("image/webp", "AAAA").is_ok());
     assert!(sendable("image/svg+xml", "AAAA").unwrap_err().contains("only PNG"));
     assert!(sendable("image/bmp", "AAAA").is_err());
-    assert!(sendable("image/png", &"A".repeat(8 * 1024 * 1024)).unwrap_err().contains("5 MB"));
+    assert!(sendable("image/png", &"A".repeat(8 * 1024 * 1024)).is_ok(), "scaled down when kept");
+    assert!(sendable("image/png", &"A".repeat(44 * 1024 * 1024)).unwrap_err().contains("32 MB"));
 }
 
 /// Whether an MCP image can go to a model: a format every provider takes, within the size limit.
@@ -1183,8 +1188,8 @@ fn sendable(mime: &str, base64: &str) -> Result<(), &'static str> {
     if !crate::tool::image::SENDABLE.contains(&mime) {
         return Err("only PNG, JPEG, GIF and WebP reach the model");
     }
-    if base64.len() > crate::tool::image::MAX_IMAGE_BYTES * 4 / 3 + 4 {
-        return Err("larger than 5 MB");
+    if base64.len() > crate::tool::image::MAX_SOURCE_BYTES * 4 / 3 + 4 {
+        return Err("larger than 32 MB");
     }
     Ok(())
 }

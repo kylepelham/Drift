@@ -31,6 +31,10 @@ impl Tool for Glob {
         ctx.ask_if_outside("read", &ctx.resolve(input["path"].as_str().unwrap_or(".")), "Search")
     }
 
+    fn asks(&self, ctx: &Context, input: &Value) -> Vec<Ask> {
+        self.ask(ctx, input).into_iter().chain(input["pattern"].as_str().map(|pattern| Ask::new("glob", pattern, format!("Find {pattern}")).allow_by_default())).collect()
+    }
+
     fn starts_early(&self) -> bool {
         true
     }

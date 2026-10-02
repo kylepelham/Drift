@@ -6,8 +6,14 @@
 use base64::Engine as _;
 use serde_json::{json, Value};
 
-/// Larger images are refused rather than sent: providers reject them (Anthropic's limit is 5 MB).
+/// An image's base64 size a provider accepts (Anthropic's limit is 5 MB); larger ones are scaled down.
 pub const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+/// The longest side sent; providers downscale or reject beyond it.
+pub const MAX_SIDE: u32 = 2000;
+/// Larger source images are refused before decoding.
+pub const MAX_SOURCE_BYTES: usize = 32 * 1024 * 1024;
+const MAX_DECODED_SIDE: u32 = 16_384;
+const JPEG_QUALITIES: [u8; 4] = [85, 70, 55, 40];
 /// Larger PDFs are refused: providers cap the whole request, and a PDF counts against it whole.
 pub const MAX_PDF_BYTES: usize = 10 * 1024 * 1024;
 pub const PDF: &str = "application/pdf";
@@ -35,6 +41,58 @@ impl Image {
     pub fn bytes(&self) -> Option<Vec<u8>> {
         base64::engine::general_purpose::STANDARD.decode(&self.base64).ok()
     }
+}
+
+/// `image` as a model can take it, with a note when it had to be scaled; a PDF passes through.
+pub fn normalize(image: Image) -> Result<(Image, Option<String>), String> {
+    if image.mime == PDF {
+        return Ok((image, None));
+    }
+    let bytes = image.bytes().ok_or("its data is not valid base64")?;
+    if bytes.len() > MAX_SOURCE_BYTES {
+        return Err(format!("it is over {} MB", MAX_SOURCE_BYTES / 1024 / 1024));
+    }
+    let (width, height) = reader(&bytes)?.into_dimensions().map_err(|e| format!("it could not be read ({e})"))?;
+    if width <= MAX_SIDE && height <= MAX_SIDE && image.base64.len() <= MAX_IMAGE_BYTES {
+        return Ok((image, None));
+    }
+    let decoded = reader(&bytes)?.decode().map_err(|e| format!("it could not be decoded ({e})"))?;
+    sizes(width, height)
+        .find_map(|(w, h)| encoded(&decoded.resize_exact(w, h, image::imageops::FilterType::Lanczos3)).map(|image| (image, Some(format!("scaled from {width}x{height} to {w}x{h}")))))
+        .ok_or_else(|| format!("at {width}x{height} it could not be scaled under {} MB", MAX_IMAGE_BYTES / 1024 / 1024))
+}
+
+fn reader(bytes: &[u8]) -> Result<image::ImageReader<std::io::Cursor<&[u8]>>, String> {
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| format!("it could not be read ({e})"))?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_DECODED_SIDE);
+    limits.max_image_height = Some(MAX_DECODED_SIDE);
+    reader.limits(limits);
+    Ok(reader)
+}
+
+/// Fits within `MAX_SIDE`, then shrinks by a quarter each step until it is one pixel.
+fn sizes(width: u32, height: u32) -> impl Iterator<Item = (u32, u32)> {
+    let scale = (MAX_SIDE as f64 / width as f64).min(MAX_SIDE as f64 / height as f64).min(1.0);
+    let first = (((width as f64 * scale).round() as u32).max(1), ((height as f64 * scale).round() as u32).max(1));
+    std::iter::successors(Some(first), |&(w, h)| (w > 1 || h > 1).then(|| ((w * 3 / 4).max(1), (h * 3 / 4).max(1)))).take(32)
+}
+
+fn encoded(picture: &image::DynamicImage) -> Option<Image> {
+    let mut png = Vec::new();
+    if picture.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).is_ok() {
+        let image = Image::from_bytes("image/png", &png);
+        if image.base64.len() <= MAX_IMAGE_BYTES {
+            return Some(image);
+        }
+    }
+    let rgb = picture.to_rgb8();
+    JPEG_QUALITIES.iter().find_map(|&quality| {
+        let mut jpeg = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality);
+        image::ImageEncoder::write_image(encoder, rgb.as_raw(), rgb.width(), rgb.height(), image::ExtendedColorType::Rgb8).ok()?;
+        Some(Image::from_bytes("image/jpeg", &jpeg)).filter(|image| image.base64.len() <= MAX_IMAGE_BYTES)
+    })
 }
 
 /// An image as a stored call names it.
@@ -92,5 +150,50 @@ mod tests {
         let saved = Stored { mime: "image/png".into(), hash: "abc".into() };
         assert_eq!(stored(Some(&json!({ "images": stored_metadata(std::slice::from_ref(&saved)) }))), vec![saved]);
         assert!(stored(None).is_empty());
+    }
+
+    fn png(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 3]) -> Image {
+        let picture = image::RgbImage::from_fn(width, height, |x, y| image::Rgb(pixel(x, y)));
+        let mut bytes = Vec::new();
+        picture.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
+        Image::from_bytes("image/png", &bytes)
+    }
+
+    fn dimensions(image: &Image) -> (u32, u32) {
+        reader(&image.bytes().unwrap()).unwrap().into_dimensions().unwrap()
+    }
+
+    #[test]
+    fn images_within_the_limits_are_sent_unchanged() {
+        let small = png(40, 30, |_, _| [9, 9, 9]);
+        assert_eq!(normalize(small.clone()).unwrap(), (small, None));
+        let pdf = Image::from_bytes(PDF, b"%PDF-1.7");
+        assert_eq!(normalize(pdf.clone()).unwrap(), (pdf, None));
+    }
+
+    #[test]
+    fn oversized_dimensions_are_scaled_to_fit_and_keep_their_shape() {
+        let (image, note) = normalize(png(2400, 600, |x, _| [(x % 256) as u8, 0, 0])).unwrap();
+        assert_eq!(dimensions(&image), (2000, 500));
+        assert_eq!(note.as_deref(), Some("scaled from 2400x600 to 2000x500"));
+    }
+
+    #[test]
+    fn oversized_bytes_are_reencoded_under_the_provider_limit() {
+        let mut seed = 0x2545_f491_u32;
+        let mut noise = || { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; seed.to_le_bytes() };
+        let pixels: Vec<[u8; 4]> = (0..1600 * 1600).map(|_| noise()).collect();
+        let large = png(1600, 1600, |x, y| { let p = pixels[(y * 1600 + x) as usize]; [p[0], p[1], p[2]] });
+        assert!(large.base64.len() > MAX_IMAGE_BYTES);
+        let (image, note) = normalize(large).unwrap();
+        assert!(image.base64.len() <= MAX_IMAGE_BYTES);
+        assert!(note.unwrap().starts_with("scaled from 1600x1600"));
+    }
+
+    #[test]
+    fn images_that_cannot_be_decoded_are_refused_with_a_reason() {
+        let broken = Image { mime: "image/png".into(), base64: Image::from_bytes("image/png", b"\x89PNG\r\n\x1a\nbroken").base64 };
+        assert!(normalize(broken).unwrap_err().starts_with("it could not be"));
+        assert_eq!(normalize(Image { mime: "image/png".into(), base64: "%%%".into() }).unwrap_err(), "its data is not valid base64");
     }
 }

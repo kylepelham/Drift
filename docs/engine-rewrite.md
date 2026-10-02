@@ -29,7 +29,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the upstream hook points. Compiled Rust plugins through a Drift SDK come later and are not designed for now. |
 | Tools | `read`, `edit`, `write`, `apply_patch`, `bash`, `glob`, `grep`, `webfetch`, `todowrite`, `skill`, `question`, `task`, `read_thread`. M3 adds parent-scoped `task_output` and `task_stop` for background workers. Branch creation is never a model tool. |
 | Dropped | `websearch`, the model-facing `lsp` tool (LSP diagnostics after edits come at M4), `execute`, `plan`, share, ACP, TUI, CLI, Jev tool routing, Copilot, Azure, Cohere, Perplexity, GitLab, Venice, Poe, Alibaba, Gateway. |
-| Edit | Exact match only, with line ending normalisation on both sides. On a miss, return the closest region so the model can re-read cheaply; the tool text and the miss both say read's `N: ` prefix is not in the file, and a miss caused by copied prefixes says exactly that (still no fuzzy apply). `apply_patch`, offered only to the GPT and Codex models whose catalog profile asks for it, finds hunks as Codex's own `seek_sequence` does, because those models write patches that rely on it: exactly, then ignoring trailing whitespace, then surrounding whitespace, then with typographic dashes, quotes and spaces read as ASCII; the first pass that matches wins, and a miss shows the closest region as `edit` does. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. It follows the same rules: every existing file it adds over, updates, deletes or moves onto must have been read this session (so a secret needs its own read approval before it can reach a diff); every source and move destination is a separate edit ask (`Tool::asks`), any refusal refusing the call; and the whole patch is read, checked and worked out before any file changes. Only a missing file counts as absent; any other read error (denied, locked, a directory) stops preparation, and so does an update to a file that is not UTF-8 (a Windows-1252 page, say), which `edit` refuses too: decoding it loosely and writing it back would replace every such byte in the whole file. Every whole-file write the engine makes (`edit`, `write`, `apply_patch`, and undo and redo putting a file back) goes to a sibling file swapped into place (`tool::stage::replace`), so a failed write never truncates its target. Each replacement is one row in `staged_replacement` (migration 14): the destination, the staged sibling (`.<name>.drift-<8 hex>.tmp`) and the backup the swap may leave (same name, `.bak`), written in one statement before either file exists. After the swap, and at startup before any tool can run (`recover_leftovers`), the pair is settled: if the destination is missing and the backup exists, the backup is moved back first; only then are the siblings removed. The moment a swap succeeds the row is marked `swapped` (migration 15), before the backup is removed: from then on the backup is old content, so a backup that could not be removed yet (a scanner holding it) is only ever deleted later, never restored, even if the file has been deleted on purpose meanwhile. Until then it sits beside the file, so it can show in `git status`. If that move or a removal fails, both files and the row stay, and the next start tries again; rows are forgotten together in one short transaction only after their files are settled, and the store lock is never held across file I/O. A row whose paths are not exactly what the engine would name for its destination is dropped without touching any file. `write` treats only a missing file as new: a file it cannot read or decode still exists, so it must have been read first, and any other read error stops the write. On Windows an existing file is swapped with `ReplaceFileW` and no ignore flags, so its ACL and attributes carry over or the write fails; if the swap moved the original aside and could not put the new file in, it is moved back, and if even that fails the error names where the original is. A file another program holds open without delete sharing cannot be swapped: the write fails with that reason and the file is left as it was. On Unix the mode carries over; owner, group, extended attributes and POSIX ACLs are the new file's. On both, a file with other hard links is not written through them: the patched path gets a new file and the other links keep the old content. On a failure every step through the failing one is put back (a step already in its before state is left alone) and the error names any file that could not be. |
+| Edit | Exact match only, with line ending normalisation on both sides. A file keeps its CRLF line endings and its UTF-8 byte order mark through `edit`, `write` and `apply_patch` (`tool::text::TextFormat`); `read` shows the text without the mark, so a match never has to include it. On a miss, return the closest region so the model can re-read cheaply; the tool text and the miss both say read's `N: ` prefix is not in the file, and a miss caused by copied prefixes says exactly that (still no fuzzy apply). `apply_patch`, offered only to the GPT and Codex models whose catalog profile asks for it, finds hunks as Codex's own `seek_sequence` does, because those models write patches that rely on it: exactly, then ignoring trailing whitespace, then surrounding whitespace, then with typographic dashes, quotes and spaces read as ASCII; the first pass that matches wins, and a miss shows the closest region as `edit` does. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. It follows the same rules: every existing file it adds over, updates, deletes or moves onto must have been read this session (so a secret needs its own read approval before it can reach a diff); every source and move destination is a separate edit ask (`Tool::asks`), any refusal refusing the call; and the whole patch is read, checked and worked out before any file changes. Only a missing file counts as absent; any other read error (denied, locked, a directory) stops preparation, and so does an update to a file that is not UTF-8 (a Windows-1252 page, say), which `edit` refuses too: decoding it loosely and writing it back would replace every such byte in the whole file. Every whole-file write the engine makes (`edit`, `write`, `apply_patch`, and undo and redo putting a file back) goes to a sibling file swapped into place (`tool::stage::replace`), so a failed write never truncates its target. Each replacement is one row in `staged_replacement` (migration 14): the destination, the staged sibling (`.<name>.drift-<8 hex>.tmp`) and the backup the swap may leave (same name, `.bak`), written in one statement before either file exists. After the swap, and at startup before any tool can run (`recover_leftovers`), the pair is settled: if the destination is missing and the backup exists, the backup is moved back first; only then are the siblings removed. The moment a swap succeeds the row is marked `swapped` (migration 15), before the backup is removed: from then on the backup is old content, so a backup that could not be removed yet (a scanner holding it) is only ever deleted later, never restored, even if the file has been deleted on purpose meanwhile. Until then it sits beside the file, so it can show in `git status`. If that move or a removal fails, both files and the row stay, and the next start tries again; rows are forgotten together in one short transaction only after their files are settled, and the store lock is never held across file I/O. A row whose paths are not exactly what the engine would name for its destination is dropped without touching any file. `write` treats only a missing file as new: a file it cannot read or decode still exists, so it must have been read first, and any other read error stops the write. On Windows an existing file is swapped with `ReplaceFileW` and no ignore flags, so its ACL and attributes carry over or the write fails; if the swap moved the original aside and could not put the new file in, it is moved back, and if even that fails the error names where the original is. A file another program holds open without delete sharing cannot be swapped: the write fails with that reason and the file is left as it was. On Unix the mode carries over; owner, group, extended attributes and POSIX ACLs are the new file's. On both, a file with other hard links is not written through them: the patched path gets a new file and the other links keep the old content. On a failure every step through the failing one is put back (a step already in its before state is left alone) and the error names any file that could not be. |
 | Post-edit | Formatter hooks only: built-in table, `drift.json` can add or disable, failures logged and never surfaced to the model. A formatter that changed the file is named in the result ("the file no longer matches what you wrote; read it again"), so the next edit is not built on stale text. Then opt-in checks (`drift.json` `checks`, any linter or type checker) run once per step, their problems added to the step's last writing call; they stand in for LSP diagnostics until those land at M4. |
 | Snapshot and revert | Kept. Shell out to `git` with a shadow git dir per worktree. Snapshot before every writing tool. Revert restores a snapshot; diffs are computed between snapshots. |
 | MCP | Native `rmcp` (stdio, streamable HTTP, deprecated HTTP+SSE, OAuth), 2026-07-28 stateless servers found by probing with the handshake as fallback. Reconnect and reload designed in rather than patched on; no approval step. |
@@ -821,8 +821,16 @@ these async criteria are new pending M3 work.
 - Every request carries `Authorization: Bearer <token>`; the socket takes `?token=` because
   browsers cannot set headers on a WebSocket. The shell hands the UI the token through the
   `native_engine_status` command.
-- `drift-engined --file-credentials` keeps secrets in `credentials.json` under the data dir
-  instead of the OS keychain; tests and CI use it so they never touch a real keychain.
+- The production file fallback and `drift-engined --file-credentials` keep authenticated encrypted
+  secrets in `credentials.enc`. Windows defaults to user-scoped DPAPI. Headless hosts without a
+  keychain must provide `DRIFT_CREDENTIALS_KEY`, a base64-encoded 32-byte key, for AES-256-GCM; the
+  key is not saved beside the file. Missing keys disable persistence rather than falling back to
+  plaintext. Files use mode 0600 and private directories 0700 on Unix; Windows installs a protected
+  DACL granting the current user and SYSTEM access. Saves use private temporary files, flush and
+  atomic replacement. An existing plaintext fallback is migrated, verified and removed only after
+  encrypted persistence succeeds. Corrupt or wrongly keyed stores cannot be overwritten silently.
+  Plain `credentials.json` storage exists only in Rust's test build. Conformance binaries use
+  encrypted storage with a fixture key retained across restarts, avoiding the real keychain.
   `DRIFT_ANTHROPIC_BASE_URL` points the Anthropic adapter at a fake for recorded runs.
 - Claude subscription sign-in is the PKCE flow Claude Code uses (`llm/anthropic/oauth.rs`).
   Requests made with a subscription token must look like Claude Code's:
@@ -969,9 +977,22 @@ Settled after the first external review of M1; each has a regression test.
 - An Anthropic content block or delta of a type the adapter does not know (server tools,
   citations, kinds added later) is skipped, not an error: nothing opens for it, so its deltas and
   stop fall on nothing and the reply goes on. Bedrock shares this.
-- Gemini tool schemas are adapted, not rejected: `$schema`, `additionalProperties`, `default` and
-  `examples` keywords go (a parameter of that name stays), `type: [x, "null"]` becomes `type: x,
-  nullable: true`, enum values become strings, and `required` keeps only real properties.
+- Gemini and Vertex Gemini send the original tool schema in `parametersJsonSchema`. Numeric enums,
+  nullability and multi-type unions retain the execution contract; no string-enum conversion or
+  first-type selection remains. Returned values are checked against that same schema.
+- Gemini thought signatures belong to individual parts, including calls with no preceding thought.
+  `PartSignature` updates the open part's `provider_signature`, persisted on `part` by migration 30
+  and copied into forks. Replay wraps that block with its opaque signature only for the model that
+  produced it, and Gemini places it on the original part, never on the first part or earlier thought.
+  Other provider adapters unwrap the content without sending Gemini's signature.
+- One-shot titles and compaction summaries require a normal `EndTurn` and no attempted tool calls.
+  Length-limited, refused, context-exhausted, unknown and unterminated replies fail instead of
+  publishing partial text. A failed summary leaves the previous valid model-visible context intact.
+- A turn captures its workspace config, model/provider catalog, MCP tools and MCP instructions.
+  Steering validates against that captured generation; new agents and models take effect on the
+  next turn. Model-profile and agent changes rebuild the offer from the same captured tool set,
+  so switching agent, model or reasoning level cannot introduce a newly connected server or its
+  instructions. Retry switches resolve routes from the same catalog; credentials can refresh.
 - A reply that stops at its output limit stays `done` but carries `error: "The reply stopped at the
   output limit (N tokens)."`, which the UI shows as `MessageOutputLengthError` with finish
   `length`. The turn ends there.
@@ -1101,10 +1122,17 @@ Settled after the first external review of M1; each has a regression test.
   PDF whole (Anthropic, OpenAI, Google, Vertex, Bedrock). Each adapter sends its own shape
   (Anthropic `document`, OpenAI `input_file`, Gemini `inlineData`, Chat Completions `file`); a
   model that does not read PDFs gets a line instead. Files share the ten-file and 20 MB budget.
-- Images reach the model (`tool::image`). `read` returns a PNG, JPEG, GIF or WebP (up to 5 MB,
+- Images reach the model (`tool::image`). `read` returns a PNG, JPEG, GIF or WebP (up to 32 MB,
   known by its bytes) as an image rather than refusing it as binary, and an MCP result's image
   content is kept instead of becoming `[image png]`, if it is one of those four formats within
-  5 MB (an SVG or BMP is named, never sent); text resources are inlined, binary ones named. The
+  32 MB (an SVG or BMP is named, never sent); text resources are inlined, binary ones named.
+  Before it is stored, every returned image is checked against what providers accept
+  (`image::normalize`, on a blocking thread): one within 2000 px a side and 5 MB of base64 passes
+  unchanged; a larger one is decoded (at most 16384 px a side) and scaled to fit, then down by a
+  quarter at a time, each size tried as PNG and then JPEG at falling quality until one fits. The
+  result says so ("was scaled from 4000x3000 to 2000x1500"). An image that cannot be read,
+  decoded or brought under the limit is dropped with a line saying why, as opencode does, since
+  a provider rejects the whole request over one bad image. PDFs pass through. The
   turn moves the bytes into the content-addressed `blob` table (migration 21) as the call settles,
   so the part, its events and every transcript load carry only `images: [{mime, hash}]`. Each blob's
   messages are recorded in `blob_ref` (migration 22) in the same transaction; a fork copies its
@@ -1393,9 +1421,15 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     subagent that is not read-only.
     So `plan` can read git history with `bash`, delegate to `explore` and load skills, and still
     cannot write even if the model asks.
+- An agent's front matter may set `permissions` (a map such as `{ bash: { "git *": allow },
+  edit: deny }`, JSON, or nested, with `*` as any kind) and a default reasoning `variant`. Its
+  rules are checked before the session's grants, so an agent's deny beats an "always" answer
+  (`Permissions::decide_under`), and the variant applies when the prompt names none.
+  `temperature`, `top_p` and provider `options` are not supported: an agent naming them is a
+  config problem, not a silent no-op.
 - Settings overrides an agent with exactly what the engine applies (`AgentOverride`): `prompt`,
-  `model` (`provider/model`, or empty to inherit), `steps` (its own step limit) and `tools` (the
-  tool names it may use). The shell refuses to store any other field, naming it, and the editor
+  `model` (`provider/model`, or empty to inherit), `steps` (its own step limit), `tools` (the
+  tool names it may use), `permissions` and `variant`. The shell refuses to store any other field, naming it, and the editor
   shows the agent as the engine resolved it, in those fields only. An override's tool list is
   never empty, because on an agent an empty list means every tool: that would quietly lift
   `plan`'s read-only set. Reset restores the definition's own tools. Stored overrides from
@@ -1412,11 +1446,24 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   it is written to the session in the admission transaction, and that turn and every later
   one run as it until a prompt names another. Each message records the agent it was written
   under (a turn's replies the agent that turn runs as), so history keeps it after a switch.
-- **Commands.** `POST /sessions/{id}/command` expands the template (`Command::expand`) and submits
-  the result as a turn: `$ARGUMENTS` is everything typed, `$1`..`$9` one word each with the highest
+- **Commands.** `POST /sessions/{id}/command` (`Engine::execute_command`) expands the template
+  (`Command::expand`): `$ARGUMENTS` is everything typed, `$1`..`$9` one word each with the highest
   taking the rest, and a template with neither gets the arguments appended rather than dropped.
+  Command front matter may name an `agent`, a `model` (`provider/model`) and `subtask`. The
+  command is validated against the running config generation, the one its turn is then admitted
+  with. An action agent is refused. Without `subtask`, the turn runs as the named agent (written to
+  the session as a prompt naming it would be) on the named model. With `subtask: true`, or by
+  default when the agent is a subagent, the session keeps its agent and the turn opens with an
+  engine-made `task` call (`Bootstrap`) carrying the expanded prompt, the agent and the model, so
+  the worker is a foreground task owned, stopped and recovered like any other, and its answer
+  reaches the parent as text. MCP prompts (`server:prompt`) still fill from the server.
 - **Skills** are listed in the system prompt by name and description; the `skill` tool
-  returns SKILL.md's body and its directory.
+  returns SKILL.md's body and its directory, and takes optional `arguments` that fill the body as
+  a command template does. Every skill is also a command (`Command::skill`) unless a command of
+  that name exists. Running one opens the turn with an engine-made `skill` call that passes
+  through the same permission check as the model's own, so a denied skill never reaches the model.
+  Engine-made calls are stored with `engineCommand` metadata and replayed to the model as the
+  user's text (`/name arguments`) followed by the result, never as a call the model made.
 - **Formatters.** After a mutating tool succeeds, the first formatter whose extensions
   match each written file runs. Built-ins (prettier, rustfmt, gofmt, ruff, black) apply
   only when installed, in the project's `node_modules/.bin` from the file's directory up (where a
@@ -1501,6 +1548,11 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   A permission rule of that kind (pattern `*`) allows them without asking.
 - **Permissions** resolve in order: session "always" answers, the workspace's `drift.json`
   rules, then the global policy.
+  - Policy evaluation is separate from an approval dialog. Ordinary workspace reads, scratch
+    access, searches, skills, delegation and read-only MCP calls carry an allow-by-default policy
+    request. Explicit deny/ask rules still apply; an unmatched default request produces no dialog.
+    Searches also evaluate their `grep`/`glob` rules. Grep excludes files denied by read policy or
+    still requiring read approval, so approving a directory search cannot bypass file restrictions.
   - File asks (read, edit, write, apply_patch) carry the absolute path and, inside the workspace,
     the relative one (`Ask::path`); rules and approvals match either, so a committed `src/**`
     or `src/generated/**` rule works on every machine.

@@ -2,6 +2,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { randomBytes } from "node:crypto"
 
 const root = path.resolve(import.meta.dir, "../..")
 const binary = path.join(root, "target", "debug", process.platform === "win32" ? "drift-engined.exe" : "drift-engined")
@@ -81,12 +82,15 @@ export function fakeAnthropic() {
 }
 
 export type Engine = Awaited<ReturnType<typeof startEngine>>
+const credentialKeys = new Map<string, string>()
 
 export async function startEngine(providerUrl: string, dataDir = mkdtempSync(path.join(os.tmpdir(), "drift-conformance-"))) {
+  const credentialKey = credentialKeys.get(dataDir) ?? randomBytes(32).toString("base64")
+  credentialKeys.set(dataDir, credentialKey)
   const proc = Bun.spawn([binary, "--data-dir", dataDir, "--file-credentials"], {
     stdout: "pipe",
     stderr: "inherit",
-    env: { ...process.env, DRIFT_ANTHROPIC_BASE_URL: providerUrl },
+    env: { ...process.env, DRIFT_ANTHROPIC_BASE_URL: providerUrl, DRIFT_CREDENTIALS_KEY: credentialKey },
   })
   const { url, token } = await readTarget(proc.stdout)
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" }
@@ -117,6 +121,7 @@ export async function startEngine(providerUrl: string, dataDir = mkdtempSync(pat
       return proc.exited
     },
     cleanup() {
+      credentialKeys.delete(dataDir)
       rmSync(dataDir, { recursive: true, force: true })
       rmSync(workspace, { recursive: true, force: true })
     },

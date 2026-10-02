@@ -20,16 +20,63 @@ impl Document {
     /// where a false entry comes back as `!name`.
     pub fn list(&self, key: &str) -> Option<Vec<String>> {
         if let Some(items) = self.nested.get(key) {
-            return Some(items.clone());
+            return Some(items.iter().filter_map(|item| entry(item.trim().strip_prefix("- ").unwrap_or(item.trim()))).collect());
         }
         let inline = self.field(key)?;
         let inner = inline.trim().trim_start_matches(['[', '{']).trim_end_matches([']', '}']);
         Some(inner.split(',').filter_map(entry).collect())
     }
+
+    pub fn permissions(&self) -> Result<Vec<crate::permission::Rule>, String> {
+        let key = if self.fields.contains_key("permissions") { "permissions" } else { "permission" };
+        if let Some(value) = self.field(key) {
+            if value.starts_with('[') { return serde_json::from_str(&value).map_err(|_| "permissions must be an array of kind/pattern/decision rules".into()); }
+            if value.starts_with('{') { return map_permissions(serde_json::from_str(&value).map_err(|_| "permission maps must be valid JSON")?); }
+            return Ok(vec![rule("*", "*", &value)?]);
+        }
+        let Some(lines) = self.nested.get(key) else { return Ok(Vec::new()) };
+        let base = lines.iter().map(|line| line.len() - line.trim_start().len()).min().unwrap_or(0);
+        let mut parent = None;
+        let mut rules = Vec::new();
+        for line in lines {
+            let depth = line.len() - line.trim_start().len();
+            let (name, value) = line.trim().rsplit_once(':').ok_or("permission entries must name a rule")?;
+            let (name, value) = (unquote(name.trim()), unquote(value.trim()));
+            if depth == base {
+                parent = Some(name);
+                if !value.is_empty() { rules.push(rule(name, "*", value)?); }
+            } else {
+                rules.push(rule(parent.ok_or("permission pattern has no tool namespace")?, name, value)?);
+            }
+        }
+        prioritise(&mut rules);
+        Ok(rules)
+    }
+}
+
+fn rule(kind: &str, pattern: &str, value: &str) -> Result<crate::permission::Rule, String> {
+    let decision = match value { "allow" => crate::permission::Decision::Allow, "ask" => crate::permission::Decision::Ask, "deny" => crate::permission::Decision::Deny, _ => return Err("permission decisions must be allow, ask or deny".into()) };
+    Ok(crate::permission::Rule { kind: kind.into(), pattern: pattern.into(), decision })
+}
+
+fn map_permissions(value: serde_json::Value) -> Result<Vec<crate::permission::Rule>, String> {
+    let mut rules = Vec::new();
+    for (kind, value) in value.as_object().ok_or("permission must be a tool map")? {
+        if let Some(value) = value.as_str() { rules.push(rule(kind, "*", value)?); continue; }
+        for (pattern, decision) in value.as_object().ok_or("permission patterns must be a map")? {
+            rules.push(rule(kind, pattern, decision.as_str().ok_or("permission decisions must be strings")?)?);
+        }
+    }
+    prioritise(&mut rules);
+    Ok(rules)
+}
+
+fn prioritise(rules: &mut [crate::permission::Rule]) {
+    rules.sort_by_key(|rule| (rule.kind == "*", rule.pattern == "*", std::cmp::Reverse(rule.pattern.len())));
 }
 
 pub fn parse(text: &str) -> Document {
-    let text = text.replace("\r\n", "\n");
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text).replace("\r\n", "\n");
     let Some(rest) = text.strip_prefix("---\n") else { return Document { body: text, ..Document::default() } };
     let Some((head, body)) = rest.split_once("\n---") else { return Document { body: text, ..Document::default() } };
     let mut doc = Document { body: body.trim_start_matches('-').trim_start_matches('\n').to_string(), ..Document::default() };
@@ -38,8 +85,7 @@ pub fn parse(text: &str) -> Document {
         let indented = line.starts_with([' ', '\t']);
         match (indented, &open) {
             (true, Some(key)) => {
-                let item = line.trim().strip_prefix("- ").unwrap_or(line.trim());
-                doc.nested.entry(key.clone()).or_default().extend(entry(item));
+                doc.nested.entry(key.clone()).or_default().push(line.to_string());
             }
             _ => {
                 let Some((key, value)) = line.split_once(':') else { continue };
@@ -97,5 +143,17 @@ mod tests {
         assert_eq!(list("tools: { write: false }"), Some(vec!["!write".into()]));
         assert_eq!(list("model: x"), None);
         assert_eq!(parse("---\ntools:\n  - read\nmodel: x\n---\n").field("model").as_deref(), Some("x"), "a list ends at the next key");
+    }
+
+    #[test]
+    fn permission_maps_keep_namespaces_and_specific_pattern_overrides() {
+        let doc = parse("---\npermission:\n  read:\n    \"*\": allow\n    \"private*\": deny\n  bash: ask\nvariant: high\n---\nbody");
+        let rules = doc.permissions().unwrap();
+        let policy = crate::permission::Policy { rules };
+        assert_eq!(policy.explicit(&crate::tool::Ask::new("read", "private.txt", "")), Some(crate::permission::Decision::Deny));
+        assert_eq!(policy.explicit(&crate::tool::Ask::new("read", "other.txt", "")), Some(crate::permission::Decision::Allow));
+        assert_eq!(policy.explicit(&crate::tool::Ask::new("bash", "git status", "")), Some(crate::permission::Decision::Ask));
+        assert_eq!(doc.field("variant").as_deref(), Some("high"));
+        assert!(parse("---\npermission: {\"read\":\"invalid\"}\n---\n").permissions().is_err());
     }
 }

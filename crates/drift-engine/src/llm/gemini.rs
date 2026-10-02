@@ -76,7 +76,7 @@ fn body(request: &Request) -> Value {
         let declarations: Vec<Value> = request
             .tools
             .iter()
-            .map(|tool| json!({ "name": tool.name, "description": tool.description, "parameters": schema(&tool.input_schema) }))
+            .map(|tool| json!({ "name": tool.name, "description": tool.description, "parametersJsonSchema": tool.input_schema }))
             .collect();
         body["tools"] = json!([{ "functionDeclarations": declarations }]);
     }
@@ -92,66 +92,26 @@ fn body(request: &Request) -> Value {
     body
 }
 
-/// Gemini's schema dialect rejects some JSON Schema keywords and shapes; adapt them rather than fail the call.
-fn schema(value: &Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            let mut out: serde_json::Map<String, Value> = map
-                .iter()
-                .filter(|(key, _)| !matches!(key.as_str(), "$schema" | "additionalProperties" | "default" | "examples"))
-                .map(|(key, value)| (key.clone(), if key == "properties" { properties(value) } else { schema(value) }))
-                .collect();
-            adapt(&mut out);
-            Value::Object(out)
-        }
-        Value::Array(items) => Value::Array(items.iter().map(schema).collect()),
-        other => other.clone(),
-    }
-}
-
-/// A `properties` map's keys are parameter names, so one named `default` or `examples` stays.
-fn properties(value: &Value) -> Value {
-    match value {
-        Value::Object(map) => Value::Object(map.iter().map(|(name, value)| (name.clone(), schema(value))).collect()),
-        other => schema(other),
-    }
-}
-
-/// `type: [x, "null"]` becomes `type: x, nullable: true`; enum values become strings; `required` names only real properties.
-fn adapt(map: &mut serde_json::Map<String, Value>) {
-    if let Some(Value::Array(types)) = map.get("type").cloned() {
-        let real: Vec<&Value> = types.iter().filter(|t| t.as_str() != Some("null")).collect();
-        if real.len() < types.len() {
-            map.insert("nullable".into(), Value::Bool(true));
-        }
-        map.insert("type".into(), real.first().map_or(Value::String("string".into()), |t| (*t).clone()));
-    }
-    if let Some(Value::Array(values)) = map.get("enum").cloned() {
-        let strings = values.iter().filter(|v| !v.is_null()).map(|v| Value::String(v.as_str().map_or_else(|| v.to_string(), str::to_string))).collect();
-        map.insert("enum".into(), Value::Array(strings));
-        map.insert("type".into(), Value::String("string".into()));
-    }
-    if let Some(Value::Array(required)) = map.get("required").cloned() {
-        let known = map.get("properties").and_then(Value::as_object).cloned().unwrap_or_default();
-        map.insert("required".into(), Value::Array(required.into_iter().filter(|name| name.as_str().is_some_and(|n| known.contains_key(n))).collect()));
-    }
-}
-
 /// Tool results need the function's name, which only the earlier call carries; `names` remembers it.
 fn content(message: &ChatMessage, names: &mut HashMap<String, String>) -> Value {
     let role = match message.role {
         Role::User => "user",
         Role::Assistant => "model",
     };
-    let mut signature: Option<String> = None;
     let mut parts: Vec<Value> = Vec::new();
     for block in &message.blocks {
-        match block {
+        let first = parts.len();
+        match block.unsigned() {
+            Block::Signed { .. } => unreachable!("unsigned blocks cannot be signed"),
             Block::Text(text) => parts.push(json!({ "text": text })),
             Block::Image { mime, base64 } => parts.push(json!({ "inlineData": { "mimeType": mime, "data": base64 } })),
-            Block::Reasoning { signature: Some(sig), .. } => signature = Some(sig.clone()),
+            Block::Reasoning { text, signature, .. } => {
+                let mut part = json!({ "text": text, "thought": true });
+                if let Some(signature) = signature { part["thoughtSignature"] = json!(signature); }
+                parts.push(part);
+            }
             Block::Pdf { base64 } => parts.push(json!({ "inlineData": { "mimeType": "application/pdf", "data": base64 } })),
-            Block::Reasoning { .. } | Block::Stored { .. } => {}
+            Block::Stored { .. } => {}
             Block::ToolUse { id, name, input } => {
                 names.insert(id.clone(), name.clone());
                 parts.push(json!({ "functionCall": { "id": id, "name": name, "args": input } }));
@@ -162,9 +122,9 @@ fn content(message: &ChatMessage, names: &mut HashMap<String, String>) -> Value 
                 parts.push(json!({ "functionResponse": { "id": call_id, "name": name, "response": { key: content } } }));
             }
         }
-    }
-    if let (Some(signature), Some(first)) = (signature, parts.first_mut()) {
-        first["thoughtSignature"] = Value::String(signature);
+        if let (Block::Signed { signature, .. }, Some(part)) = (block, parts.get_mut(first)) {
+            part["thoughtSignature"] = json!(signature);
+        }
     }
     json!({ "role": role, "parts": parts })
 }
@@ -184,7 +144,6 @@ struct StreamState {
     open: Option<Open>,
     calls: u32,
     called_tools: bool,
-    signature: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -229,40 +188,42 @@ impl StreamState {
 
     fn part(&mut self, part: &Value) -> Vec<Chunk> {
         let mut out = Vec::new();
-        if let Some(signature) = part["thoughtSignature"].as_str() {
-            self.signature = Some(signature.into());
-        }
+        let signature = part["thoughtSignature"].as_str();
         if let Some(call) = part.get("functionCall") {
             out.extend(self.close());
             self.calls += 1;
             self.called_tools = true;
             let id = call["id"].as_str().map(str::to_string).unwrap_or_else(|| format!("call_{}", self.calls));
             out.push(Chunk::ToolUseStart { id, name: call["name"].as_str().unwrap_or_default().into() });
-            out.push(Chunk::ToolInputDelta(call["args"].to_string()));
+            out.push(Chunk::ToolInputDelta(call.get("args").cloned().unwrap_or_else(|| json!({})).to_string()));
+            if let Some(signature) = signature { out.push(Chunk::PartSignature(signature.into())); }
             out.push(Chunk::BlockStop);
             return out;
         }
-        let Some(text) = part["text"].as_str() else { return out };
+        let text = match (part["text"].as_str(), signature) {
+            (Some(text), _) => text,
+            (None, Some(_)) => "",
+            _ => return out,
+        };
         let kind = if part["thought"].as_bool().unwrap_or(false) { Open::Thought } else { Open::Text };
-        if self.open != Some(kind) {
+        if self.open != Some(kind) || signature.is_some() {
             out.extend(self.close());
             out.push(if kind == Open::Thought { Chunk::ReasoningStart } else { Chunk::TextStart });
             self.open = Some(kind);
         }
         out.push(if self.open == Some(Open::Thought) { Chunk::ReasoningDelta(text.into()) } else { Chunk::TextDelta(text.into()) });
+        if let Some(signature) = signature {
+            out.push(Chunk::PartSignature(signature.into()));
+            out.extend(self.close());
+        }
         out
     }
 
-    /// The signature is attached to whatever thought block was open, so it can be replayed.
+    /// Closes only the open block; signatures have already been attached to their own parts.
     fn close(&mut self) -> Vec<Chunk> {
         let mut out = Vec::new();
         match self.open.take() {
-            Some(Open::Thought) => {
-                if let Some(signature) = self.signature.take() {
-                    out.push(Chunk::ReasoningSignature(signature));
-                }
-                out.push(Chunk::BlockStop);
-            }
+            Some(Open::Thought) => out.push(Chunk::BlockStop),
             Some(Open::Text) => out.push(Chunk::BlockStop),
             None => {}
         }
@@ -318,16 +279,16 @@ mod tests {
         assert_eq!(built["generationConfig"]["thinkingConfig"]["thinkingBudget"], 2048);
         let contents = built["contents"].as_array().unwrap();
         assert_eq!(contents[1]["role"], "model");
-        assert_eq!(contents[1]["parts"][0]["functionCall"]["name"], "read");
+        assert_eq!(contents[1]["parts"][1]["functionCall"]["name"], "read");
         assert_eq!(contents[1]["parts"][0]["thoughtSignature"], "sig");
         assert_eq!(contents[2]["parts"][0]["functionResponse"]["name"], "read");
         assert_eq!(contents[2]["parts"][0]["functionResponse"]["response"]["output"], "1: x");
         let declaration = &built["tools"][0]["functionDeclarations"][0];
-        assert!(declaration["parameters"].get("additionalProperties").is_none());
+        assert_eq!(declaration["parametersJsonSchema"]["additionalProperties"], false);
     }
 
     #[test]
-    fn schemas_keep_parameters_named_like_keywords_and_take_gemini_shapes() {
+    fn raw_json_schema_keeps_numeric_enums_and_all_union_types() {
         let input = serde_json::json!({
             "type": "object",
             "properties": {
@@ -335,17 +296,21 @@ mod tests {
                 "examples": { "type": ["integer", "null"], "examples": [1] },
                 "level": { "type": "integer", "enum": [1, 2] }
             },
-            "required": ["default", "gone"]
+            "required": ["default"]
         });
-        let out = schema(&input);
-        assert_eq!(out["properties"]["default"], serde_json::json!({ "type": "string" }), "the parameter stays, its own default goes");
-        assert_eq!(out["properties"]["examples"], serde_json::json!({ "type": "integer", "nullable": true }));
-        assert_eq!(out["properties"]["level"], serde_json::json!({ "type": "string", "enum": ["1", "2"] }));
-        assert_eq!(out["required"], serde_json::json!(["default"]));
+        let mut request = request();
+        request.tools[0].input_schema = input.clone();
+        let out = body(&request);
+        assert_eq!(out["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"], input);
+        assert!(crate::tool::schema::problems(&input, &json!({ "default":"x", "level":1, "examples":null })).is_empty());
+        assert!(!crate::tool::schema::problems(&input, &json!({ "default":"x", "level":"1" })).is_empty());
+        let union = json!({ "type": ["string", "number", "null"] });
+        request.tools[0].input_schema = union.clone();
+        assert_eq!(body(&request)["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"], union);
     }
 
     #[test]
-    fn stream_parts_become_blocks_with_signature_on_the_thought() {
+    fn stream_signatures_stay_on_the_function_call() {
         let mut state = StreamState::default();
         let feed = |state: &mut StreamState, json: &str| state.chunks(json).unwrap();
         assert_eq!(feed(&mut state, r#"{"candidates":[{"content":{"parts":[{"text":"th","thought":true}]}}]}"#), vec![Chunk::ReasoningStart, Chunk::ReasoningDelta("th".into())]);
@@ -353,10 +318,10 @@ mod tests {
         assert_eq!(
             call,
             vec![
-                Chunk::ReasoningSignature("sig".into()),
                 Chunk::BlockStop,
                 Chunk::ToolUseStart { id: "call_1".into(), name: "read".into() },
                 Chunk::ToolInputDelta(r#"{"path":"a"}"#.into()),
+                Chunk::PartSignature("sig".into()),
                 Chunk::BlockStop,
                 Chunk::Usage(Usage { input: 10, output: 7, cache_read: 0, cache_write: 0 }),
                 Chunk::Stop(StopReason::ToolUse),
@@ -367,5 +332,18 @@ mod tests {
         assert_eq!(feed(&mut plain, r#"{"candidates":[{"content":{"parts":[]},"finishReason":"MAX_TOKENS"}]}"#), vec![Chunk::BlockStop, Chunk::Stop(StopReason::MaxTokens)]);
         assert!(matches!(StreamState::default().chunks(r#"{"error":{"status":"UNAVAILABLE","message":"x"}}"#), Err(Error::Api { retryable: true, .. })));
         assert!(matches!(StreamState::default().chunks(r#"{"error":{"status":"INVALID_ARGUMENT","message":"x"}}"#), Err(Error::Api { retryable: false, .. })));
+    }
+
+    #[test]
+    fn a_call_signature_without_thought_text_round_trips_on_its_own_part() {
+        let chunks = StreamState::default().chunks(r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","args":{"path":"a"}},"thoughtSignature":"call-sig"}]},"finishReason":"STOP"}]}"#).unwrap();
+        assert!(chunks.contains(&Chunk::PartSignature("call-sig".into())));
+        assert!(!chunks.iter().any(|chunk| matches!(chunk, Chunk::ReasoningSignature(_) | Chunk::ReasoningStart)));
+        let sent = content(&ChatMessage { role: Role::Assistant, blocks: vec![Block::Text("before".into()), Block::Signed {
+            part: Box::new(Block::ToolUse { id: "call_1".into(), name: "read".into(), input: json!({ "path":"a" }) }), signature: "call-sig".into(),
+        }] }, &mut HashMap::new());
+        assert!(sent["parts"][0].get("thoughtSignature").is_none());
+        assert_eq!(sent["parts"][1]["thoughtSignature"], "call-sig");
+        assert_eq!(sent["parts"][1]["functionCall"]["name"], "read");
     }
 }

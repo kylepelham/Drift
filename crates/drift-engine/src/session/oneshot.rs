@@ -8,7 +8,7 @@ use futures_util::StreamExt;
 use super::turn::{Prompt, TurnError};
 use super::types::ModelRef;
 use crate::llm::catalog::Model;
-use crate::llm::{ChatMessage, Chunk, Credential, Provider, Request, ToolSpec};
+use crate::llm::{ChatMessage, Chunk, Credential, Provider, Request, StopReason, ToolSpec};
 use crate::config::Config;
 use crate::Engine;
 
@@ -55,8 +55,12 @@ impl Engine {
     }
     /// Everything needed to call `model_ref`, with an expired subscription token refreshed.
     pub(crate) async fn resolve(&self, model_ref: &ModelRef) -> Result<Resolved, TurnError> {
+        let catalog = self.catalog.read().unwrap().clone();
+        self.resolve_from(model_ref, &catalog).await
+    }
+
+    pub(super) async fn resolve_from(&self, model_ref: &ModelRef, catalog: &crate::llm::catalog::Catalog) -> Result<Resolved, TurnError> {
         let (model, env, api) = {
-            let catalog = self.catalog.read().unwrap();
             let info = catalog.providers.get(&model_ref.provider).ok_or(TurnError::UnknownModel)?;
             (info.models.get(&model_ref.model).cloned().ok_or(TurnError::UnknownModel)?, info.env.clone(), info.api.clone())
         };
@@ -99,15 +103,25 @@ pub(super) fn refuse_signin_elsewhere(provider: &str, credential: &Credential, a
 async fn collect_text(provider: &Provider, request: &Request, credential: &Credential) -> Result<String, String> {
     let mut chunks = provider.stream(request, credential).await.map_err(|e| e.to_string())?;
     let mut text = String::new();
-    let mut stopped = false;
+    let mut stopped = None;
+    let mut called_tool = false;
     while let Some(chunk) = chunks.next().await {
         match chunk.map_err(|e| e.to_string())? {
             Chunk::TextDelta(delta) => text.push_str(&delta),
-            Chunk::Stop(_) => stopped = true,
+            Chunk::Stop(reason) => stopped = Some(reason),
+            Chunk::ToolUseStart { .. } => called_tool = true,
             _ => {}
         }
     }
-    if !stopped || text.trim().is_empty() {
+    match stopped {
+        Some(StopReason::EndTurn) if !called_tool => {},
+        Some(StopReason::MaxTokens) => return Err("the model hit its output limit; the incomplete reply was discarded".into()),
+        Some(StopReason::Refused) => return Err("the model refused the request; its partial reply was discarded".into()),
+        Some(StopReason::ContextFull) => return Err("the reply exhausted its context window; its partial text was discarded".into()),
+        Some(_) => return Err("the model did not complete the text-only request normally".into()),
+        None => return Err("the stream ended without a terminal reason".into()),
+    }
+    if text.trim().is_empty() {
         return Err("the model returned no text".into());
     }
     Ok(text)

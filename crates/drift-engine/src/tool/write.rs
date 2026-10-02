@@ -1,6 +1,7 @@
 use serde_json::{json, Value};
 
-use super::edit::{diff, LineEnding};
+use super::edit::diff;
+use super::text::TextFormat;
 use super::{display, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
 
@@ -27,7 +28,8 @@ impl Tool for Write {
         let path = ctx.resolve(input["path"].as_str()?);
         let ask = ctx.ask_to_write(&path, "Write")?;
         let before = std::fs::read(&path).map(|bytes| String::from_utf8_lossy(&bytes).replace("\r\n", "\n")).unwrap_or_default();
-        let proposed = input["content"].as_str().map(|content| diff(&display(&path, &ctx.workspace), &before, content));
+        let format = TextFormat::detect(&before);
+        let proposed = input["content"].as_str().map(|content| diff(&display(&path, &ctx.workspace), &format.normalise(&before), &format.normalise(content)));
         Some(ask.with_diff(proposed))
     }
 
@@ -53,7 +55,7 @@ impl Tool for Write {
             if existing.is_some() && !ctx.files.was_read(&path) {
                 return Err(ToolError(format!("{name} exists and has not been read this session; read it before overwriting")));
             }
-            let ending = existing.as_deref().map(LineEnding::detect).unwrap_or_default();
+            let ending = existing.as_deref().map(TextFormat::detect).unwrap_or_default();
             let written = ending.apply(content);
             super::fits_history(&name, written.len())?;
             super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
@@ -62,7 +64,7 @@ impl Tool for Write {
             let before = existing.unwrap_or_default();
             Ok(Output {
                 title: name.clone(),
-                output: diff(&name, &before, content),
+                output: diff(&name, &ending.normalise(&before), &ending.normalise(content)),
                 metadata: json!({ "created": created, "files": [path.to_string_lossy()] }),
             })
         })

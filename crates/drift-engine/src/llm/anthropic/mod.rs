@@ -178,11 +178,12 @@ fn message(message: &ChatMessage) -> Value {
 
 /// Thinking without a signature (another wire's reasoning text) is refused by Anthropic, so it stays home.
 fn sendable(block: &Block) -> bool {
-    !matches!(block, Block::Stored { .. } | Block::Reasoning { signature: None, redacted: None, .. })
+    !matches!(block.unsigned(), Block::Stored { .. } | Block::Reasoning { signature: None, redacted: None, .. })
 }
 
 fn block(block: &Block) -> Value {
     match block {
+        Block::Signed { part, .. } => self::block(part),
         Block::Text(text) => json!({ "type": "text", "text": text }),
         Block::Reasoning { redacted: Some(data), .. } => json!({ "type": "redacted_thinking", "data": data }),
         Block::Reasoning { text, signature, .. } => {

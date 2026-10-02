@@ -1899,6 +1899,8 @@ function agentConfig(agent: AgentInfo | undefined, snapshot: PromptSnapshot | nu
     prompt: agent.prompt ?? snapshot?.catalog.agents.find((item) => item.name === agent.name)?.prompt,
     model: agent.model ? `${agent.model.providerID}/${agent.model.modelID}` : undefined,
     steps: agent.steps,
+    permissions: agent.permissions?.length ? agent.permissions : undefined,
+    variant: agent.variant,
     // An empty list is every tool; showing none keeps the editor from offering an override that would mean the same.
     tools: agent.tools.length ? agent.tools : undefined,
     ...restored,

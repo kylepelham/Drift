@@ -339,14 +339,15 @@ fn agent_overrides_store_only_what_the_engine_applies() {
         .save_prompt(
             &store,
             "agent:build",
-            json!({ "prompt": "Be brief", "model": "", "steps": 12, "tools": ["read", "grep"] }),
+            json!({ "prompt": "Be brief", "model": "", "steps": 12, "tools": ["read", "grep"], "permissions": [{"kind":"read","pattern":"private*","decision":"deny"}], "variant":"high" }),
             None,
         )
         .unwrap();
     for (refused, why) in [
         (json!({ "permission": "deny" }), "permissions are not applied"),
         (json!({ "temperature": 0.2 }), "temperature is not applied"),
-        (json!({ "variant": "high" }), "variant is not applied"),
+        (json!({ "variant": 3 }), "variant must be text"),
+        (json!({ "permissions": [{"kind":"read","pattern":"*","decision":"invalid"}] }), "permission decisions must be valid"),
         (json!({ "tools": { "bash": false } }), "tools are a list of names"),
         (json!({ "tools": [] }), "an empty list would mean every tool"),
         (json!({ "steps": 0 }), "steps must be positive"),

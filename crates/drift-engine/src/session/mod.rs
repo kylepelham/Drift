@@ -4,6 +4,7 @@ mod assemble;
 mod attach;
 pub mod branch;
 mod changes;
+pub(crate) mod command;
 pub mod clarify;
 pub mod compaction;
 mod convert;

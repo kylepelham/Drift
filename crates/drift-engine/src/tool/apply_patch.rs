@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use super::edit::{diff, LineEnding};
+use super::edit::diff;
+use super::text::TextFormat;
 use super::patch::{self, Op};
 use super::{display, required_str, stage, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
@@ -109,8 +110,9 @@ impl Plan {
             Op::Add { content, .. } => {
                 let existing = existing(ctx, path).await?;
                 let before_text = existing.as_ref().map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default();
-                self.diffs.push(diff(&display(path, &ctx.workspace), &before_text, content));
-                self.steps.push(Step { path: path.to_path_buf(), before: existing, after: Some(content.clone().into_bytes()) });
+                let format = TextFormat::detect(&before_text);
+                self.diffs.push(diff(&display(path, &ctx.workspace), &format.normalise(&before_text), &format.normalise(content)));
+                self.steps.push(Step { path: path.to_path_buf(), before: existing, after: Some(format.apply(content).into_bytes()) });
             }
             Op::Delete { .. } => {
                 let before = existing(ctx, path).await?.ok_or(ToolError("does not exist".into()))?;
@@ -121,7 +123,7 @@ impl Plan {
                 let raw = existing(ctx, path).await?.ok_or(ToolError("does not exist".into()))?;
                 // Decoding loosely and writing back would turn every byte that is not UTF-8 into U+FFFD, the whole file over.
                 let text = String::from_utf8(raw.clone()).map_err(|_| ToolError("is not UTF-8 text (Windows-1252, for example), so patching it would corrupt it; it was not changed".into()))?;
-                let ending = LineEnding::detect(&text);
+                let ending = TextFormat::detect(&text);
                 let before = ending.normalise(&text);
                 let after = patch::apply_chunks(&before, chunks)?;
                 let target: PathBuf = move_to.as_ref().map_or(path.to_path_buf(), |to| ctx.resolve(to));

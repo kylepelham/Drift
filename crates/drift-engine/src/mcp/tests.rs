@@ -34,6 +34,40 @@ async fn a_server_this_build_cannot_read_is_listed_failed_and_the_rest_still_con
 }
 
 #[tokio::test]
+async fn a_variant_switch_keeps_the_turns_admitted_mcp_catalog() {
+    use crate::llm::{Chunk, Provider};
+    use crate::session::turn::tests::{model, prompt, text, tool_call};
+    use crate::session::types::Visibility;
+    let engine = engine();
+    engine.credentials.set("anthropic", &crate::llm::Credential::ApiKey { key: "test".into() }).unwrap();
+    let dir = engine.data_dir.join("ws");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.txt"), "a").unwrap();
+    let workspace = engine.store.add_workspace(&dir.to_string_lossy(), "ws", "").unwrap();
+    let session = engine.store.create_session(crate::store::NewSession { workspace_id: &workspace.id, parent_id: None, visibility: Visibility::Sibling, title: "Test", agent: "build", model: Some(&model()) }).unwrap();
+    saved(&engine, "first", &echo_config()).await;
+    engine.connect_mcp("first").await.unwrap();
+    let provider = crate::llm::scripted::Scripted::default();
+    *engine.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(provider.clone()));
+    provider.push_paused(vec![Chunk::TextStart, Chunk::TextDelta("working".into())], std::time::Duration::from_millis(1000), [vec![Chunk::BlockStop], tool_call("read", r#"{"path":"a.txt"}"#)].concat()).push(text("done"));
+    engine.submit(&session.id, prompt("start")).await.unwrap();
+    saved(&engine, "later", &echo_config()).await;
+    engine.connect_mcp("later").await.unwrap();
+    engine.submit(&session.id, crate::session::turn::Prompt { variant: Some(Some("high".into())), ..prompt("switch level") }).await.unwrap();
+    for _ in 0..1000 {
+        if !engine.turns.is_running(&session.id) { break; }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    {
+        let requests = provider.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].tools.iter().any(|tool| tool.name == "first_echo"));
+        assert!(!requests[1].tools.iter().any(|tool| tool.name == "later_echo"));
+    }
+    for name in ["first", "later"] { engine.mcp.disconnect(name, &engine.store, &engine.hub).await; }
+}
+
+#[tokio::test]
 async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
     let engine = engine();
     let hub = Hub::new(32);
@@ -48,6 +82,7 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
     let names: Vec<String> = tools.iter().map(|t| t.spec().name).collect();
     assert_eq!(names, ["echo_echo", "echo_shout"]);
     let ctx = Context {
+        agent: "build".into(),
         workspace: std::env::temp_dir(),
         session_id: "s".into(),
         message_id: "m".into(),
@@ -59,7 +94,10 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
         progress: Default::default(),
     };
     let echo = tools.iter().find(|t| t.spec().name == "echo_echo").unwrap();
-    assert!(echo.ask(&ctx, &json!({})).is_none(), "read-only tools need no ask");
+    let read_only = echo.ask(&ctx, &json!({})).unwrap();
+    assert_eq!(engine.permissions.decide_now("s", &crate::permission::Policy::default(), &read_only), crate::permission::Decision::Allow, "read-only tools need no approval by default");
+    let denied = crate::permission::Policy { rules: vec![crate::permission::Rule { kind: "mcp".into(), pattern: "echo/*".into(), decision: crate::permission::Decision::Deny }] };
+    assert_eq!(engine.permissions.decide_now("s", &denied, &read_only), crate::permission::Decision::Deny);
     assert!(!echo.mutates());
     let out = echo.run(&ctx, json!({ "text": "hi" })).await.unwrap();
     assert_eq!(out.output, "hi");
@@ -84,6 +122,7 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
 
 fn context(engine: &Arc<crate::Engine>) -> Context {
     Context {
+        agent: "build".into(),
         workspace: std::env::temp_dir(),
         session_id: "s".into(),
         message_id: "m".into(),

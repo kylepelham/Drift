@@ -62,6 +62,7 @@ impl Early {
         let ctx = Context {
             workspace: plan.workspace.clone(),
             session_id: plan.session.id.clone(),
+            agent: plan.session.agent.clone(),
             message_id: message.id.clone(),
             call_id: call_id.clone(),
             files: scratch.clone(),
@@ -71,7 +72,8 @@ impl Early {
             progress: Default::default(),
         };
         let policy = plan.config.policy();
-        let allowed = tool.asks(&ctx, input).iter().all(|ask| engine.permissions.decide_now(&plan.session.id, &policy, ask) == crate::permission::Decision::Allow);
+        let agent_policy = plan.config.agent_policy(&plan.session.agent);
+        let allowed = tool.asks(&ctx, input).iter().all(|ask| engine.permissions.decide_under(&plan.session.id, &policy, &agent_policy, ask) == crate::permission::Decision::Allow);
         if !allowed {
             return;
         }

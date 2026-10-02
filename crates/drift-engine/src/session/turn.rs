@@ -175,11 +175,16 @@ pub struct Turns {
 #[derive(Clone, Debug, PartialEq)]
 struct Steering {
     model: ModelRef,
+    agent: String,
+    config: Arc<Config>,
+    workspace: PathBuf,
+    catalog: Arc<crate::llm::catalog::Catalog>,
+    mcp_commands: Vec<crate::config::Command>,
 }
 
 impl Steering {
     fn of(plan: &Plan) -> Self {
-        Self { model: plan.model_ref.clone() }
+        Self { model: plan.model_ref.clone(), agent: plan.session.agent.clone(), config: plan.config.clone(), workspace: plan.workspace.clone(), catalog: plan.catalog.clone(), mcp_commands: plan.mcp_commands.clone() }
     }
 }
 
@@ -300,6 +305,7 @@ pub(crate) struct Plan {
     pub(super) session: Session,
     pub(super) workspace: PathBuf,
     pub(super) config: Arc<Config>,
+    pub(super) catalog: Arc<crate::llm::catalog::Catalog>,
     pub(super) model_ref: ModelRef,
     pub(super) model: Model,
     pub(super) provider: Provider,
@@ -307,6 +313,10 @@ pub(crate) struct Plan {
     /// The reasoning variant by name, looked up on each request so a switched model reads it as its own.
     variant: Option<String>,
     offer: Offer,
+    mcp_tools: Vec<(llm::ToolSpec, Arc<dyn crate::tool::Tool>)>,
+    mcp_servers: Vec<(String, String)>,
+    mcp_commands: Vec<crate::config::Command>,
+    bootstrap: Option<super::command::Bootstrap>,
 }
 
 impl Plan {
@@ -330,6 +340,9 @@ pub(super) struct Admission<'a> {
     pub(super) delivery: Option<&'a str>,
     /// Only into a turn already running; it never starts one.
     pub(super) steer_only: bool,
+    pub(super) bootstrap: Option<&'a super::command::Bootstrap>,
+    pub(super) command_agent: bool,
+    pub(super) config: Option<&'a Config>,
 }
 
 impl Engine {
@@ -364,6 +377,7 @@ impl Engine {
             return Err(TurnError::Stopped);
         }
         if !self.turns.claim(session_id, &abort) {
+            if how.bootstrap.is_some() { return Err(TurnError::Busy); }
             return self.steer_or_wait(session_id, prompt, how, &payload_hash).await;
         }
         if how.steer_only {
@@ -371,11 +385,14 @@ impl Engine {
             return Err(TurnError::Stopped);
         }
         let planned = tokio::select! {
-            planned = self.plan(session_id, &prompt) => planned,
+            planned = self.plan_for(session_id, &prompt, how.command_agent, how.config) => planned,
             () = abort.cancelled() => Err(TurnError::Stopped),
         };
         match planned {
-            Ok(plan) => self.start(session_id, prompt, plan, abort, &payload_hash, how),
+            Ok(mut plan) => {
+                plan.bootstrap = how.bootstrap.cloned();
+                self.start(session_id, prompt, plan, abort, &payload_hash, how)
+            }
             Err(error) => {
                 self.turns.release(session_id);
                 Err(error)
@@ -413,7 +430,7 @@ impl Engine {
             return Err(TurnError::Moved);
         }
         let provider = plan.model_ref.provider.clone();
-        let (env, api) = self.catalog.read().unwrap().providers.get(&provider).map(|p| (p.env.clone(), p.api.clone())).unwrap_or_default();
+        let (env, api) = plan.catalog.providers.get(&provider).map(|p| (p.env.clone(), p.api.clone())).unwrap_or_default();
         let stored = self.credentials.resolve(&provider, &env).ok_or(TurnError::NoCredentials)?;
         super::oneshot::refuse_signin_elsewhere(&provider, &stored, api.as_deref())?;
         plan.credential = self.fresh_credential(&provider, stored).await?;
@@ -422,7 +439,7 @@ impl Engine {
 
     /// Admits the prompt into a session this call has claimed and starts its turn; releases the claim if it cannot.
     fn start(self: &Arc<Self>, session_id: &str, prompt: Prompt, plan: Plan, abort: CancellationToken, payload_hash: &str, how: Admission) -> Result<Receipt, TurnError> {
-        let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), model: &plan.model };
+        let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), agent_policy: &plan.config.agent_policy(&plan.session.agent), model: &plan.model };
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
         let pick = Pick { model: &plan.model_ref, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
         let admitted = attach.prepare(prompt.parts).and_then(|prepared| {
@@ -494,8 +511,9 @@ impl Engine {
     async fn steer_or_wait(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>, payload_hash: &str) -> Result<Receipt, TurnError> {
         // A model the turn would switch to is checked now, so a bad choice fails for the sender, not inside the turn.
         if let Some(model) = &prompt.model {
-            if self.turns.steering.lock().unwrap().get(session_id).is_some_and(|running| running.model != *model) {
-                self.resolve(model).await?;
+            let running = self.turns.steering.lock().unwrap().get(session_id).cloned();
+            if let Some(running) = running.filter(|running| running.model != *model) {
+                self.resolve_from(model, &running.catalog).await?;
             }
         }
         if let Some(receipt) = self.steer(session_id, &prompt, payload_hash, how)? {
@@ -520,17 +538,16 @@ impl Engine {
     /// prompt names, or the one the turn is on.
     fn steer(&self, session_id: &str, prompt: &Prompt, payload_hash: &str, how: Admission<'_>) -> Result<Option<Receipt>, TurnError> {
         let Some(running) = self.turns.steering.lock().unwrap().get(session_id).cloned() else { return Ok(None) };
-        let session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let target = prompt.model.clone().unwrap_or_else(|| running.model.clone());
-        let model = self.catalog.read().unwrap().providers.get(&target.provider).and_then(|p| p.models.get(&target.model)).cloned().ok_or(TurnError::UnknownModel)?;
-        let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
-        let workspace = crate::tool::canonical(Path::new(&workspace.path));
-        let config = self.workspace_config(&workspace);
+        let model = running.catalog.providers.get(&target.provider).and_then(|p| p.models.get(&target.model)).cloned().ok_or(TurnError::UnknownModel)?;
+        let workspace = &running.workspace;
+        let config = &running.config;
         if let Some(agent) = &prompt.agent {
-            pickable(&config, agent)?;
+            pickable_command(config, agent, how.command_agent)?;
         }
         let policy = config.policy();
-        let prepared = Attach { engine: self, session_id, workspace: &workspace, policy: &policy, model: &model }.prepare(prompt.parts.clone())?;
+        let agent_policy = config.agent_policy(prompt.agent.as_deref().unwrap_or(&running.agent));
+        let prepared = Attach { engine: self, session_id, workspace, policy: &policy, agent_policy: &agent_policy, model: &model }.prepare(prompt.parts.clone())?;
         let steering = self.turns.steering.lock().unwrap();
         match steering.get(session_id) {
             None => return Ok(None),
@@ -602,36 +619,49 @@ impl Engine {
     }
 
     pub(super) async fn plan(&self, session_id: &str, prompt: &Prompt) -> Result<Plan, TurnError> {
+        self.plan_for(session_id, prompt, false, None).await
+    }
+
+    async fn plan_for(&self, session_id: &str, prompt: &Prompt, command_agent: bool, config: Option<&Config>) -> Result<Plan, TurnError> {
         let mut session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         let workspace_path = crate::tool::canonical(Path::new(&workspace.path));
-        let config = self.workspace_config(&workspace_path);
+        let config = config.cloned().unwrap_or_else(|| self.workspace_config(&workspace_path));
         if let Some(problem) = config.problems.first() {
             return Err(TurnError::Config(problem.clone()));
         }
         if let Some(agent) = &prompt.agent {
-            pickable(&config, agent)?;
+            pickable_command(&config, agent, command_agent)?;
             session.agent = agent.clone();
         }
         let agent_model = config.agent(&session.agent).and_then(|a| a.model.clone());
         let model_ref = prompt.model.clone().or_else(|| session.model.clone()).or(agent_model).or_else(|| config.model.clone()).ok_or(TurnError::NoModel)?;
-        let resolved = self.resolve(&model_ref).await?;
+        let catalog = Arc::new(self.catalog.read().unwrap().clone());
+        let resolved = self.resolve_from(&model_ref, &catalog).await?;
         let provider = resolved.provider.with_timeouts(config.route_timeouts(&resolved.model_ref.provider));
-        let variant = prompt.variant.clone().unwrap_or_else(|| session.variant.clone());
+        let variant = prompt.variant.clone().unwrap_or_else(|| session.variant.clone()).or_else(|| config.agent(&session.agent).and_then(|agent| agent.variant.clone()));
         let mut plan = Plan {
             session,
             workspace: workspace_path,
             config: Arc::new(config),
+            catalog,
             model_ref: resolved.model_ref,
             model: resolved.model,
             provider,
             credential: resolved.credential,
             variant,
             offer: Offer::default(),
+            mcp_tools: Vec::new(),
+            mcp_servers: Vec::new(),
+            mcp_commands: Vec::new(),
+            bootstrap: None,
         };
         // A server connecting right now would otherwise be missing from this turn's tools.
         self.mcp.wait_ready(crate::mcp::READY_WAIT).await;
         self.mcp.refresh_stale(&self.store, &self.hub).await;
+        plan.mcp_tools = self.mcp.tools(&self.store).into_iter().map(|tool| (tool.spec(), tool)).collect();
+        plan.mcp_servers = self.mcp.instructions();
+        plan.mcp_commands = self.mcp.prompt_commands();
         plan.offer = self.offer(&plan);
         Ok(plan)
     }
@@ -678,6 +708,11 @@ impl Engine {
         self.title_untitled(&plan.session);
         // The prompt this turn answers; replies before it belong to turns already over.
         let started = self.store.newest_prompt(&plan.session.id).ok().flatten();
+        if !self.run_bootstrap(&mut plan, &abort).await {
+            self.turns.steering.lock().unwrap().remove(&plan.session.id);
+            self.record_end(&plan.session, &abort);
+            return;
+        }
         loop {
             let answered = self.run_steps(&mut plan, &abort, started.as_deref()).await;
             if abort.is_cancelled() || !self.steered_after(&plan.session.id, answered.as_deref()) {
@@ -686,6 +721,35 @@ impl Engine {
         }
         self.turns.steering.lock().unwrap().remove(&plan.session.id);
         self.record_end(&plan.session, &abort);
+    }
+
+    async fn run_bootstrap(self: &Arc<Self>, plan: &mut Plan, abort: &CancellationToken) -> bool {
+        let Some(bootstrap) = plan.bootstrap.take() else { return true };
+        let prepared = (|| -> rusqlite::Result<_> {
+            let mut message = self.store.create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent)?;
+            self.hub.publish(Event::MessageCreated { message: message.clone() });
+            let part = Part::ToolCall { call_id: id::new("call"), name: bootstrap.tool, input: bootstrap.input, status: ToolStatus::Pending, title: None, output: None, metadata: Some(json!({"engineCommand":bootstrap.command})), started_at: None, finished_at: None };
+            let row = self.store.add_part(&message.id, &plan.session.id, part)?;
+            self.hub.publish(Event::PartCreated { part: row.clone() });
+            message.status = MessageStatus::Done;
+            self.finish(&mut message)?;
+            Ok((message, row))
+        })();
+        let (message, row) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => { self.pause(plan, format!("could not record command execution: {error}")); return false; }
+        };
+        self.run_calls(plan, &message, vec![row], super::early::Early::new(abort), abort).await != Outcome::Aborted
+    }
+
+    pub(crate) fn command_config(&self, session_id: &str, workspace: &Path) -> Config {
+        let running = self.turns.steering.lock().unwrap().get(session_id).cloned();
+        let (mut config, commands) = match running {
+            Some(running) => ((*running.config).clone(), running.mcp_commands),
+            None => (self.workspace_config(workspace), self.mcp.prompt_commands()),
+        };
+        config.commands.extend(commands);
+        config
     }
 
     /// Under the steering lock: whether a prompt arrived after the last one this turn answered. If
@@ -776,18 +840,22 @@ impl Engine {
     async fn follow_session(&self, plan: &mut Plan) -> Result<(), String> {
         let Ok(Some(session)) = self.store.session(&plan.session.id) else { return Ok(()) };
         let model = session.model.clone().filter(|model| *model != plan.model_ref);
-        if model.is_none() && session.agent == plan.session.agent && session.variant == plan.variant {
+        let variant = session.variant.clone().or_else(|| plan.config.agent(&session.agent).and_then(|agent| agent.variant.clone()));
+        if model.is_none() && session.agent == plan.session.agent && variant == plan.variant {
             return Ok(());
         }
+        if session.agent != plan.session.agent {
+            pickable_command(&plan.config, &session.agent, true).map_err(|error| error.to_string())?;
+        }
         if let Some(model) = model {
-            let resolved = self.resolve(&model).await.map_err(|error| format!("Could not switch to {}: {error}. Send a message to carry on.", model.model))?;
+            let resolved = self.resolve_from(&model, &plan.catalog).await.map_err(|error| format!("Could not switch to {}: {error}. Send a message to carry on.", model.model))?;
             plan.model_ref = resolved.model_ref;
             plan.model = resolved.model;
             plan.provider = resolved.provider.with_timeouts(plan.config.route_timeouts(&plan.model_ref.provider));
             plan.credential = resolved.credential;
         }
         plan.session.agent = session.agent;
-        plan.variant = session.variant;
+        plan.variant = variant;
         plan.offer = self.offer(plan);
         if let Some(running) = self.turns.steering.lock().unwrap().get_mut(&plan.session.id) {
             *running = Steering::of(plan);
@@ -800,15 +868,16 @@ impl Engine {
     fn offer(&self, plan: &Plan) -> Offer {
         let agent = plan.config.agent(&plan.session.agent).cloned();
         let subagent = plan.session.visibility == Visibility::Hidden;
-        let tools: Vec<_> = self
-            .offered_tools(plan.model.profile)
+        let tools: Vec<_> = self.tools
+            .offered(plan.model.profile)
             .into_iter()
             .map(|tool| (tool.spec(), tool))
+            .chain(plan.mcp_tools.iter().cloned())
             .filter(|(spec, _)| agent.as_ref().is_none_or(|agent| agent.allows_tool(&spec.name)))
             .filter(|(spec, _)| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))
             .collect();
         // A server's instructions come only with its tools, so an agent without them is not told about it.
-        let servers: Vec<(String, String)> = self.mcp.instructions().into_iter().filter(|(server, _)| tools.iter().any(|(_, tool)| tool.server() == Some(server.as_str()))).collect();
+        let servers: Vec<(String, String)> = plan.mcp_servers.iter().filter(|(server, _)| tools.iter().any(|(_, tool)| tool.server() == Some(server.as_str()))).cloned().collect();
         let setting = prompt::Setting {
             workspace: &plan.workspace,
             config: &plan.config,
@@ -843,8 +912,8 @@ impl Engine {
     fn adopt(&self, plan: &mut Plan, switch: Switch) {
         let Switch { resolved, variant } = switch;
         if let Some(variant) = variant {
-            plan.variant = variant;
-            let _ = self.store.set_session_variant(&plan.session.id, plan.variant.as_deref());
+            let _ = self.store.set_session_variant(&plan.session.id, variant.as_deref());
+            plan.variant = variant.or_else(|| plan.config.agent(&plan.session.agent).and_then(|agent| agent.variant.clone()));
         }
         plan.model_ref = resolved.model_ref;
         plan.model = resolved.model;
@@ -866,7 +935,8 @@ impl Engine {
         if !self.turns.retry_waits.lock().unwrap().contains_key(session_id) {
             return Err(TurnError::NotRetrying);
         }
-        let resolved = self.resolve(model).await?;
+        let running = self.turns.steering.lock().unwrap().get(session_id).cloned().ok_or(TurnError::NotRetrying)?;
+        let resolved = self.resolve_from(model, &running.catalog).await?;
         let waiting = self.turns.retry_waits.lock().unwrap().remove(session_id).ok_or(TurnError::NotRetrying)?;
         waiting.send(Switch { resolved, variant }).map_err(|_| TurnError::NotRetrying)
     }
@@ -1163,6 +1233,7 @@ impl Engine {
         let mut ctx = Context {
             workspace: scope.plan.workspace.clone(),
             session_id: scope.plan.session.id.clone(),
+            agent: scope.plan.session.agent.clone(),
             message_id: scope.message.id.clone(),
             call_id: call_id.clone(),
             files: scope.files.clone(),
@@ -1208,7 +1279,7 @@ impl Engine {
             Err(outcome) => return outcome,
         };
         if let (Some(running), Part::ToolCall { metadata, .. }) = (tool.running_metadata(&ctx, &input), &mut row.part) {
-            *metadata = Some(running);
+            *metadata = merge(running, metadata.take());
         }
         if let Err(error) = self.start_call(&mut row) {
             self.settle(&mut row, ToolStatus::Error, None, format!("refused to run: could not record the call ({error})"), None);
@@ -1236,7 +1307,7 @@ impl Engine {
             }
             Err(error) => (ToolStatus::Error, None, error.0, serde_json::Value::Null),
         };
-        let (mut meta, text) = self.keep_images(&scope.message.id, meta, text);
+        let (mut meta, text) = self.keep_images(&scope.message.id, meta, text).await;
         // Every result, MCP and tools yet to come included, reaches the model within one bound.
         let spill = self.data_dir.join("tool-output").join(&scope.plan.session.id).join(format!("{call_id}.result.log"));
         let (text, spilled) = crate::tool::spool::bound(text, spill);
@@ -1331,7 +1402,7 @@ impl Engine {
     /// refused and the outcome says whether the turn goes on.
     async fn permit(&self, scope: &CallScope<'_>, row: &mut PartRow, call_id: &str, name: &str, ask: crate::tool::Ask) -> Option<Outcome> {
         let request = permission::new_request(&scope.plan.session.id, &scope.message.id, call_id, name, ask);
-        match self.permissions.check(&self.hub, &scope.plan.config.policy(), request, scope.abort).await {
+        match self.permissions.check_under(&self.hub, &scope.plan.config.policy(), &scope.plan.config.agent_policy(&scope.plan.session.agent), request, scope.abort).await {
             Outcome::Allowed => None,
             Outcome::Refused => {
                 self.settle(row, ToolStatus::Denied, None, "A permission rule forbids this call.".into(), None);
@@ -1386,22 +1457,37 @@ impl Engine {
         formatted
     }
 
-    /// Moves the images a call returned to the blob table, leaving `{mime, hash}` in its metadata; an
-    /// image that cannot be kept is said in the result instead.
-    fn keep_images(&self, message_id: &str, mut meta: serde_json::Value, mut text: String) -> (serde_json::Value, String) {
+    /// Scales the images a call returned within provider limits and moves them to the blob table,
+    /// leaving `{mime, hash}` in its metadata; a scaled or dropped image is said in the result.
+    async fn keep_images(&self, message_id: &str, mut meta: serde_json::Value, mut text: String) -> (serde_json::Value, String) {
         let returned = crate::tool::image::returned(&meta);
         if returned.is_empty() {
             return (meta, text);
         }
+        let mimes: Vec<String> = returned.iter().map(|image| image.mime.clone()).collect();
+        let normalized = tokio::task::spawn_blocking(move || returned.into_iter().map(crate::tool::image::normalize).collect::<Vec<_>>())
+            .await
+            .unwrap_or_else(|_| mimes.iter().map(|_| Err("it could not be prepared".to_string())).collect());
         let mut stored = Vec::new();
-        for image in returned {
-            match image.bytes().map(|bytes| self.store.put_blob(message_id, &bytes)) {
-                Some(Ok(hash)) => stored.push(crate::tool::image::Stored { mime: image.mime, hash }),
-                _ => text.push_str(&format!("\n\n[an image ({}) could not be kept, so it is not shown]", image.mime)),
+        for (mime, result) in mimes.into_iter().zip(normalized) {
+            match result.and_then(|(image, note)| self.keep_image(message_id, image).map(|kept| (kept, note))) {
+                Ok((kept, note)) => {
+                    if let Some(note) = note {
+                        text.push_str(&format!("\n\n[an image ({mime}) was {note} to fit the model's limits]"));
+                    }
+                    stored.push(kept);
+                }
+                Err(reason) => text.push_str(&format!("\n\n[an image ({mime}) is not shown: {reason}]")),
             }
         }
         meta["images"] = crate::tool::image::stored_metadata(&stored);
         (meta, text)
+    }
+
+    fn keep_image(&self, message_id: &str, image: crate::tool::image::Image) -> Result<crate::tool::image::Stored, String> {
+        let bytes = image.bytes().ok_or("its data is not valid base64")?;
+        let hash = self.store.put_blob(message_id, &bytes).map_err(|_| "it could not be kept".to_string())?;
+        Ok(crate::tool::image::Stored { mime: image.mime, hash })
     }
 
     /// Publishes a running call's part with what it reports merged into its metadata; nothing is stored.
@@ -1471,7 +1557,14 @@ impl Engine {
             *status = new_status;
             *title = new_title.or(title.take());
             *output = Some(text);
-            *metadata = meta;
+            let command = metadata.as_ref().and_then(|meta| meta["engineCommand"].as_str()).map(str::to_string);
+            let mut value = meta.unwrap_or(serde_json::Value::Null);
+            if let Some(object) = value.as_object_mut() { object.remove("engineCommand"); }
+            if let Some(command) = command {
+                if !value.is_object() { value = json!({}); }
+                value["engineCommand"] = json!(command);
+            }
+            *metadata = (!value.is_null()).then_some(value);
             *finished_at = Some(id::now_ms());
         }
         let saved = match delivers {
@@ -1653,6 +1746,11 @@ fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
         Some(found) if found.kind == crate::config::AgentKind::Primary => Ok(()),
         _ => Err(TurnError::UnknownAgent),
     }
+}
+
+fn pickable_command(config: &Config, agent: &str, command: bool) -> Result<(), TurnError> {
+    if command && config.agent(agent).is_some_and(|agent| agent.kind != crate::config::AgentKind::Action) { return Ok(()); }
+    pickable(config, agent)
 }
 
 /// Identity of a prompt for replay checks: the same id must carry the same parts and model.

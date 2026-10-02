@@ -509,6 +509,8 @@ export function createActions(
       hidden: agent.kind === "action",
       builtIn: agent.builtin,
       tools: agent.tools ?? [],
+      permissions: agent.permissions ?? [],
+      ...(agent.variant ? { variant: agent.variant } : {}),
       ...(agent.prompt ? { prompt: agent.prompt } : {}),
       ...(agent.steps ? { steps: agent.steps } : {}),
       ...(agent.model ? { model: { providerID: agent.model.provider, modelID: agent.model.model } } : {}),

@@ -704,6 +704,7 @@ export interface components {
             kind?: components["schemas"]["AgentKind"];
             model?: components["schemas"]["ModelRef"] | null;
             name: string;
+            permissions?: components["schemas"]["Rule"][];
             /**
              * @description A subagent's goes in its system prompt; a primary agent's rides on the prompts of the turns it
              *     runs, so switching agents mid-conversation keeps the cached prefix.
@@ -721,6 +722,7 @@ export interface components {
             steps?: number | null;
             /** @description Tool names this agent may use, any case; `!name` takes one away. Empty, or only `!` entries, means every other tool. */
             tools?: string[];
+            variant?: string | null;
         };
         /** @enum {string} */
         AgentKind: "primary" | "subagent" | "action";
@@ -765,12 +767,16 @@ export interface components {
             question: string;
         };
         Command: {
+            agent?: string | null;
             /** @description The prompt's arguments in order, which what follows the command fills word by word. */
             arguments?: string[];
             description: string;
+            model?: components["schemas"]["ModelRef"] | null;
             name: string;
             /** @description For an MCP server's prompt (`server:prompt`): the server that fills it; the template is unused. */
             server?: string | null;
+            skill?: string | null;
+            subtask?: boolean | null;
             /** @description The prompt; see [`Command::expand`] for how what follows the command fills it. */
             template: string;
         };
@@ -1176,6 +1182,7 @@ export interface components {
         PartRow: components["schemas"]["Part"] & {
             id: string;
             messageId: string;
+            providerSignature?: string | null;
             sessionId: string;
         };
         PatchSession: {

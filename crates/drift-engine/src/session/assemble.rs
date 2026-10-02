@@ -59,6 +59,10 @@ impl<'a> Assembler<'a> {
                     *slot = Some(signature);
                 }
             }),
+            Chunk::PartSignature(signature) => {
+                if let Some(open) = &mut self.open { open.row.provider_signature = Some(signature); }
+                Ok(())
+            }
             Chunk::ToolInputDelta(json) => {
                 if let Some(open) = &mut self.open {
                     open.tool_json.push_str(&json);
@@ -219,6 +223,39 @@ mod tests {
         store.lock().execute("UPDATE part SET json = '{\"type\":\"text\",\"text\":\"on disk\"}'", []).unwrap();
         let parts = store.transcript(&session.id).unwrap().remove(0).parts;
         assert_eq!(parts[0].part, Part::Text { text: "on disk".into() }, "a closed part is read from disk again");
+    }
+
+    #[test]
+    fn call_signatures_survive_storage_reopen_fork_and_model_replay() {
+        let dir = std::env::temp_dir().join(format!("drift-signature-{}", crate::random_hex(4)));
+        let store = crate::store::open(&dir).unwrap();
+        let workspace = store.add_workspace("ws", "ws", "").unwrap();
+        let session = store.create_session(NewSession { workspace_id: &workspace.id, parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None }).unwrap();
+        let model = crate::session::types::ModelRef { provider: "google".into(), model: "gemini-3-pro".into() };
+        let mut message = store.create_message(&session.id, Role::Assistant, Some(&model)).unwrap();
+        let hub = Hub::new(64);
+        {
+            let mut assembler = Assembler::new(&store, &hub, &message);
+            for chunk in [Chunk::ToolUseStart { id: "c".into(), name: "read".into() }, Chunk::ToolInputDelta(r#"{"path":"a"}"#.into()), Chunk::PartSignature("opaque-signature".into()), Chunk::BlockStop] {
+                assembler.apply(chunk).unwrap();
+            }
+        }
+        message.status = crate::session::types::MessageStatus::Done;
+        store.save_message(&message).unwrap();
+        drop(store);
+        let store = crate::store::open(&dir).unwrap();
+        let transcript = store.transcript(&session.id).unwrap();
+        assert_eq!(transcript[0].parts[0].provider_signature.as_deref(), Some("opaque-signature"));
+        let mut sent = Vec::new();
+        super::super::convert::append(&mut sent, &transcript, &model);
+        assert!(matches!(&sent[0].blocks[0], crate::llm::Block::Signed { part, signature } if signature == "opaque-signature" && matches!(part.as_ref(), crate::llm::Block::ToolUse { .. })));
+        let fork = store.fork_session(&session.id, NewSession { workspace_id: &workspace.id, parent_id: None, visibility: Visibility::Sibling, title: "fork", agent: "build", model: None }, &message.id, None).unwrap().unwrap();
+        assert_eq!(store.transcript(&fork.id).unwrap()[0].parts[0].provider_signature.as_deref(), Some("opaque-signature"));
+        let mut switched = Vec::new();
+        super::super::convert::append(&mut switched, &transcript, &crate::session::types::ModelRef { provider: "openai".into(), model: "gpt".into() });
+        assert!(matches!(switched[0].blocks[0], crate::llm::Block::ToolUse { .. }));
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

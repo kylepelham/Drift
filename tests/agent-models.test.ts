@@ -106,7 +106,8 @@ test("the behavior editor refuses what the engine would not apply, naming the fi
   for (const [behavior, field] of [
     [{ temperature: 0.2 }, "temperature"],
     [{ permission: { edit: "deny" } }, "permission"],
-    [{ variant: "high" }, "variant"],
+    [{ variant: 3 }, "variant"],
+    [{ permissions: [{kind:"read",pattern:"*",decision:"invalid"}] }, "permissions"],
     [{ steps: 0 }, "steps"],
     [{ steps: 1.5 }, "steps"],
     [{ tools: [] }, "tools"],

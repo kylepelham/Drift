@@ -96,7 +96,7 @@ async fn read_capped(mut response: reqwest::Response, url: &str) -> Result<Vec<u
 }
 
 fn fetched_file(url: &str, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
-    let limit = if mime == image::PDF { image::MAX_PDF_BYTES } else { image::MAX_IMAGE_BYTES };
+    let limit = if mime == image::PDF { image::MAX_PDF_BYTES } else { image::MAX_SOURCE_BYTES };
     if bytes.len() > limit {
         return Err(ToolError(format!("{url} is {mime} of {} bytes; too large to look at (the limit is {} MB)", bytes.len(), limit / 1024 / 1024)));
     }

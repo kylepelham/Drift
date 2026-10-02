@@ -18,6 +18,8 @@ http = "1"
 # `retry-after` may be an HTTP date; already in the tree through hyper.
 httpdate = "1"
 ignore = "0.4"
+# Oversized returned images are scaled under provider limits; only the four sendable codecs.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 keyring = "4"
 percent-encoding = "2"
 # Bedrock's SigV4 (HMAC, SHA-256) and Vertex service-account JWTs (RS256); already in the tree through rustls.
@@ -42,7 +44,7 @@ utoipa = { version = "6", features = ["axum_extras"] }
 utoipa-axum = "0.3"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Registry", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_System_JobObjects", "Win32_System_Registry", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

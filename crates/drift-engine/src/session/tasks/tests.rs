@@ -193,6 +193,7 @@ async fn a_workers_permission_wait_blocks_only_that_worker() {
 
 fn context(h: &Harness, session_id: &str, call_id: &str) -> crate::tool::Context {
     crate::tool::Context {
+        agent: "build".into(),
         workspace: h._dir.join("ws"),
         session_id: session_id.into(),
         message_id: "msg".into(),

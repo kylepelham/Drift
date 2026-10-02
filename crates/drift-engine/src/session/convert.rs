@@ -66,7 +66,7 @@ pub(crate) fn clarification_text(request_id: &str, items: &[super::types::Clarif
 pub(super) fn drop_earlier_reasoning(transcript: &mut [MessageWithParts], started: Option<&str>) {
     let Some(started) = started else { return };
     for message in transcript.iter_mut().filter(|m| m.info.role == Role::Assistant && m.info.id.as_str() < started) {
-        message.parts.retain(|row| !matches!(row.part, Part::Reasoning { signature: None, redacted: None, .. }));
+        message.parts.retain(|row| row.provider_signature.is_some() || !matches!(row.part, Part::Reasoning { signature: None, redacted: None, .. }));
     }
 }
 
@@ -77,15 +77,22 @@ fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> 
     message
         .parts
         .iter()
-        .filter_map(|row| match &row.part {
-            Part::Text { text } if !text.is_empty() => Some(Block::Text(text.clone())),
-            Part::Reasoning { text, signature, redacted } if same_model && (signature.is_some() || redacted.is_some() || (finished && !text.is_empty())) => {
+        .filter_map(|row| {
+            let block = match &row.part {
+            Part::Text { text } if !text.is_empty() || row.provider_signature.is_some() => Some(Block::Text(text.clone())),
+            Part::Reasoning { text, signature, redacted } if same_model && (row.provider_signature.is_some() || signature.is_some() || redacted.is_some() || (finished && !text.is_empty())) => {
                 Some(Block::Reasoning { text: text.clone(), signature: signature.clone(), redacted: redacted.clone() })
             }
+            Part::ToolCall { metadata: Some(metadata), .. } if metadata["engineCommand"].is_string() => None,
             Part::ToolCall { call_id, name, input, .. } if input.is_object() => {
                 Some(Block::ToolUse { id: call_id.clone(), name: name.clone(), input: input.clone() })
             }
             _ => None,
+            }?;
+            Some(match row.provider_signature.as_ref().filter(|_| same_model) {
+                Some(signature) => Block::Signed { part: Box::new(block), signature: signature.clone() },
+                None => block,
+            })
         })
         .collect()
 }
@@ -107,7 +114,11 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
             (ToolStatus::Denied, None) => ("The user denied permission for this call.".into(), true),
             _ => ("This call was interrupted before it produced a result.".into(), true),
         };
-        results.push(Block::ToolResult { call_id: call_id.clone(), content, is_error });
+        if let Some(command) = metadata.as_ref().and_then(|metadata| metadata["engineCommand"].as_str()) {
+            results.push(Block::Text(format!("The /{command} command {}:\n{content}", if is_error { "failed" } else { "returned" })));
+        } else {
+            results.push(Block::ToolResult { call_id: call_id.clone(), content, is_error });
+        }
         let returned = crate::tool::image::stored(metadata.as_ref());
         if !returned.is_empty() {
             images.push(Block::Text(format!("The {name} call ({call_id}) returned this:")));
@@ -152,7 +163,7 @@ pub(super) mod tests_support {
             },
             parts: parts
                 .into_iter()
-                .map(|part| PartRow { id: "p".into(), message_id: "m".into(), session_id: "s".into(), part })
+                .map(|part| PartRow { id: "p".into(), message_id: "m".into(), session_id: "s".into(), provider_signature: None, part })
                 .collect(),
         }
     }

@@ -925,15 +925,15 @@ fn validate_prompt_override(key: &str, value: &Value) -> Result<(), String> {
 }
 
 /// What the engine applies from an agent override (`AgentOverride`); a field it would ignore is refused, not stored.
-const AGENT_FIELDS: [&str; 4] = ["prompt", "model", "steps", "tools"];
+const AGENT_FIELDS: [&str; 6] = ["prompt", "model", "steps", "tools", "permissions", "variant"];
 
 fn validate_agent_override(agent: &Map<String, Value>) -> Result<(), String> {
     if let Some(field) = agent.keys().find(|field| !AGENT_FIELDS.contains(&field.as_str())) {
         return Err(format!(
-            "Agent {field} is not applied by the engine; only prompt, model, steps and tools are"
+            "Agent {field} is not applied by the engine; use prompt, model, steps, tools, permissions or variant"
         ));
     }
-    for field in ["prompt", "model"] {
+    for field in ["prompt", "model", "variant"] {
         if agent.get(field).is_some_and(|value| !value.is_string()) {
             return Err(format!("Agent {field} must be text"));
         }
@@ -949,6 +949,9 @@ fn validate_agent_override(agent: &Map<String, Value>) -> Result<(), String> {
         if names.is_none() {
             return Err("Agent tools must list one or more tool names".into());
         }
+    }
+    if let Some(permissions) = agent.get("permissions") {
+        serde_json::from_value::<Vec<drift_engine::permission::Rule>>(permissions.clone()).map_err(|_| "Agent permissions must list kind/pattern/decision rules")?;
     }
     Ok(())
 }

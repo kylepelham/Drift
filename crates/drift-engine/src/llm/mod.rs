@@ -6,6 +6,7 @@ pub mod bedrock;
 pub mod catalog;
 pub mod compat;
 pub mod credentials;
+mod credential_file;
 mod eventstream;
 pub mod gemini;
 pub mod google;
@@ -139,6 +140,7 @@ pub enum Role {
 /// One content block as the model sees it. Provider-specific fields ride along untouched.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Block {
+    Signed { part: Box<Block>, signature: String },
     Text(String),
     /// signature is whatever the provider needs to accept the block back: Anthropic's signature, OpenAI's encrypted content.
     Reasoning { text: String, signature: Option<String>, redacted: Option<String> },
@@ -150,6 +152,12 @@ pub enum Block {
     /// An image or PDF a stored call returned, named by its blob; [`prepare_files`] loads it or
     /// replaces it with a line before any adapter sees the request.
     Stored { mime: String, hash: String },
+}
+
+impl Block {
+    pub fn unsigned(&self) -> &Self {
+        match self { Self::Signed { part, .. } => part.unsigned(), other => other }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -192,6 +200,7 @@ pub enum Chunk {
     ReasoningStart,
     ReasoningDelta(String),
     ReasoningSignature(String),
+    PartSignature(String),
     ReasoningRedacted(String),
     ToolUseStart { id: String, name: String },
     ToolInputDelta(String),

@@ -149,12 +149,11 @@ impl Tool for McpTool {
         }
     }
 
-    /// Every MCP call asks unless the server marks the tool read-only; "always" then covers the whole server.
+    /// Read-only hints set the default decision, without bypassing explicit MCP policy.
     fn ask(&self, _ctx: &Context, _input: &Value) -> Option<Ask> {
-        if self.read_only() {
-            return None;
-        }
-        Some(Ask::new("mcp", format!("{}/{}", self.server, self.tool.name), format!("Call {} on {}", self.tool.name, self.server)))
+        let mut ask = Ask::new("mcp", format!("{}/{}", self.server, self.tool.name), format!("Call {} on {}", self.tool.name, self.server));
+        ask.default_allow = self.read_only();
+        Some(ask)
     }
 
     fn mutates(&self) -> bool {

@@ -17,6 +17,7 @@ pub mod skill;
 pub mod spool;
 pub(crate) mod stage;
 pub mod task;
+mod text;
 pub mod todo;
 pub mod webfetch;
 pub mod write;
@@ -91,6 +92,7 @@ impl SessionFiles {
 pub struct Context {
     pub workspace: PathBuf,
     pub session_id: String,
+    pub agent: String,
     pub message_id: String,
     pub call_id: String,
     pub files: Arc<SessionFiles>,
@@ -131,29 +133,27 @@ impl Context {
         path.starts_with(&self.workspace)
     }
 
-    /// An ask for anything outside the workspace and the scratch directory; reads inside them are free.
+    /// Rules apply everywhere; workspace and scratch operations default to allow.
     pub fn ask_if_outside(&self, kind: &str, path: &Path, verb: &str) -> Option<Ask> {
-        if self.inside_workspace(path) || in_scratch(path) {
-            return None;
-        }
-        Some(Ask::new(kind, path.to_string_lossy(), format!("{verb} {}", path.display())))
+        let mut ask = Ask::path(kind, path, &self.workspace, format!("{verb} {}", path.display()));
+        ask.default_allow = self.inside_workspace(path) || in_scratch(path);
+        Some(ask)
     }
 
     /// Reading asks for anything outside the workspace and for any file likely to hold secrets, even
     /// inside it. Everything else in the workspace, and the scratch directory, is free to read.
     pub fn ask_to_read(&self, path: &Path, verb: &str) -> Option<Ask> {
         if self.owns_output(path) || (in_scratch(path) && !sensitive::is_sensitive(path)) {
-            return None;
+            return Some(Ask::path("read", path, &self.workspace, format!("{verb} {}", display(path, &self.workspace))).allow_by_default());
         }
         read_ask(&self.workspace, path, verb)
     }
 
-    /// Writing a file asks, by the user's rules, unless it is in the scratch directory.
+    /// Writing evaluates policy; scratch writes default to allow.
     pub fn ask_to_write(&self, path: &Path, verb: &str) -> Option<Ask> {
-        if in_scratch(path) {
-            return None;
-        }
-        Some(Ask::path("edit", path, &self.workspace, format!("{verb} {}", display(path, &self.workspace))))
+        let mut ask = Ask::path("edit", path, &self.workspace, format!("{verb} {}", display(path, &self.workspace)));
+        ask.default_allow = in_scratch(path);
+        Some(ask)
     }
 
     /// Output this session's own calls spilled to disk, which their results name: reading it back asks
@@ -180,10 +180,9 @@ pub fn read_ask(workspace: &Path, path: &Path, verb: &str) -> Option<Ask> {
     if sensitive::is_sensitive(path) {
         return Some(Ask::path("read", path, workspace, format!("{verb} {} (it may hold secrets)", display(path, workspace))));
     }
-    if path.starts_with(workspace) {
-        return None;
-    }
-    Some(Ask::new("read", path.to_string_lossy(), format!("{verb} {}", path.display())))
+    let mut ask = Ask::path("read", path, workspace, format!("{verb} {}", display(path, workspace)));
+    ask.default_allow = path.starts_with(workspace);
+    Some(ask)
 }
 
 /// Directories that belong to version control, never to the project's content.
@@ -297,11 +296,19 @@ pub struct Ask {
     /// Proposed diff for review, excluded from permission rule and approval matching.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diff: Option<String>,
+    /// Default decision when no explicit rule or approval matches; never skips policy evaluation.
+    #[serde(skip)]
+    pub default_allow: bool,
 }
 
 impl Ask {
     pub fn new(kind: &str, pattern: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None, writes: Vec::new(), canonical: Vec::new(), relative: None, diff: None }
+        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None, writes: Vec::new(), canonical: Vec::new(), relative: None, diff: None, default_allow: false }
+    }
+
+    pub fn allow_by_default(mut self) -> Self {
+        self.default_allow = true;
+        self
     }
 
     /// The ask with the change it would make, cut to [`MAX_ASK_DIFF`] bytes at a line.
@@ -354,7 +361,8 @@ pub trait Tool: Send + Sync {
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask>;
     /// Everything the call must be allowed, each judged on its own; any refusal refuses the call.
     fn asks(&self, ctx: &Context, input: &Value) -> Vec<Ask> {
-        self.ask(ctx, input).into_iter().collect()
+        let ask = self.ask(ctx, input).unwrap_or_else(|| Ask::new(&self.spec().name, "*", format!("Use {}", self.spec().name)).allow_by_default());
+        vec![ask]
     }
     /// Whether this tool can write outside memory, so what its calls change is recorded for undo.
     fn mutates(&self) -> bool {
@@ -491,6 +499,7 @@ pub(crate) mod tests {
             let engine = crate::Engine::open_with(&root.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
             Self {
                 ctx: Context {
+                    agent: "build".into(),
                     config: Arc::new(engine.workspace_config(&workspace)),
                     progress: Default::default(),
                     workspace,
@@ -506,6 +515,7 @@ pub(crate) mod tests {
 
         pub(crate) fn ctx_clone(&self) -> Context {
             Context {
+                agent: self.ctx.agent.clone(),
                 workspace: self.ctx.workspace.clone(),
                 session_id: self.ctx.session_id.clone(),
                 message_id: self.ctx.message_id.clone(),
@@ -557,7 +567,7 @@ pub(crate) mod tests {
         let sandbox = Sandbox::new("scratch");
         let scratch = scratch_dir().join(format!("notes-{}.txt", crate::random_hex(4)));
         let elsewhere = canonical(&std::env::temp_dir().join("not-drift").join("notes.txt"));
-        assert!(sandbox.ctx.ask_to_write(&scratch, "Write").is_none() && sandbox.ctx.ask_to_read(&scratch, "Read").is_none());
+        assert!(sandbox.ctx.ask_to_write(&scratch, "Write").unwrap().default_allow && sandbox.ctx.ask_to_read(&scratch, "Read").unwrap().default_allow);
         assert!(sandbox.ctx.ask_to_write(&elsewhere, "Write").is_some() && sandbox.ctx.ask_to_read(&elsewhere, "Read").is_some());
         assert!(sandbox.ctx.ask_to_write(&scratch_dir(), "Write").is_some(), "the directory itself is not a file to write");
         assert!(sandbox.ctx.ask_to_read(&scratch_dir().join(".env"), "Read").is_some(), "a secret is a secret even there");

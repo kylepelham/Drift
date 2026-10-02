@@ -2,6 +2,7 @@
 
 use serde_json::{json, Value};
 use similar::TextDiff;
+use super::text::TextFormat;
 
 use super::{display, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
@@ -61,7 +62,7 @@ impl Tool for Edit {
                 std::io::ErrorKind::NotFound => ToolError(format!("{name} does not exist")),
                 _ => ToolError(format!("{name} could not be read as text ({error})")),
             })?;
-            let ending = LineEnding::detect(&raw);
+            let ending = TextFormat::detect(&raw);
             let content = ending.normalise(&raw);
             let (updated, replacements) = replace(&content, &ending.normalise(old), &ending.normalise(new), replace_all)?;
             let written = ending.apply(&updated);
@@ -79,7 +80,7 @@ impl Tool for Edit {
 /// The diff the edit would make now, or `None` when it would not apply.
 fn proposed(path: &std::path::Path, name: &str, input: &Value) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
-    let ending = LineEnding::detect(&raw);
+    let ending = TextFormat::detect(&raw);
     let content = ending.normalise(&raw);
     let (old, new) = (input["old_string"].as_str()?, input["new_string"].as_str()?);
     let (updated, _) = replace(&content, &ending.normalise(old), &ending.normalise(new), input["replace_all"].as_bool().unwrap_or(false)).ok()?;
@@ -153,34 +154,6 @@ pub fn diff(name: &str, before: &str, after: &str) -> String {
         .context_radius(3)
         .header(&format!("a/{name}"), &format!("b/{name}"))
         .to_string()
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum LineEnding {
-    #[default]
-    Lf,
-    CrLf,
-}
-
-impl LineEnding {
-    pub fn detect(text: &str) -> Self {
-        if text.contains("\r\n") {
-            Self::CrLf
-        } else {
-            Self::Lf
-        }
-    }
-
-    pub fn normalise(self, text: &str) -> String {
-        text.replace("\r\n", "\n")
-    }
-
-    pub fn apply(self, text: &str) -> String {
-        match self {
-            Self::Lf => text.to_string(),
-            Self::CrLf => text.replace("\r\n", "\n").replace('\n', "\r\n"),
-        }
-    }
 }
 
 #[cfg(test)]

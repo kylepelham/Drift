@@ -65,7 +65,7 @@ pub(super) fn frame_spawned(session: &Session, transcript: &mut [MessageWithPart
         return;
     }
     let Some(first) = transcript.iter_mut().find(|m| m.info.role == Role::User && !is_copied(session, &m.info)) else { return };
-    let framing = PartRow { id: String::new(), message_id: first.info.id.clone(), session_id: session.id.clone(), part: Part::Text { text: FRAMING.into() } };
+    let framing = PartRow { id: String::new(), message_id: first.info.id.clone(), session_id: session.id.clone(), provider_signature: None, part: Part::Text { text: FRAMING.into() } };
     first.parts.insert(0, framing);
 }
 

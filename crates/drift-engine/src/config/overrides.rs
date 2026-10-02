@@ -16,6 +16,9 @@ pub struct AgentOverride {
     pub steps: Option<u32>,
     /// The tool names it may use. Never empty: on an agent an empty list means every tool, so an override names them.
     pub tools: Option<Vec<String>>,
+    pub permissions: Option<Vec<crate::permission::Rule>>,
+    pub variant: Option<String>,
+    pub problem: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,6 +31,7 @@ pub enum ModelPin {
 impl AgentOverride {
     /// Reads the stored Settings value: `model` is `provider/model`, or empty to inherit.
     pub fn from_json(value: &Value) -> Self {
+        let mut problem = value.as_object().and_then(|map| map.keys().find(|key| !["model", "prompt", "steps", "tools", "permissions", "variant"].contains(&key.as_str()))).map(|key| format!("unsupported agent control {key}"));
         let model = value.get("model").and_then(Value::as_str).map(|model| match parse_model(model) {
             Some(model) => ModelPin::Use(model),
             None => ModelPin::Inherit,
@@ -39,7 +43,13 @@ impl AgentOverride {
             .and_then(Value::as_array)
             .map(|tools| tools.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>())
             .filter(|tools| !tools.is_empty());
-        Self { model, prompt, steps, tools }
+        let permissions = value.get("permissions").and_then(|value| match serde_json::from_value(value.clone()) {
+            Ok(rules) => Some(rules),
+            Err(_) => { problem = Some("permissions must be kind/pattern/decision rules".into()); None },
+        });
+        let variant = value.get("variant").and_then(Value::as_str).map(str::to_string);
+        if value.get("variant").is_some() && variant.is_none() { problem = Some("variant must be text".into()); }
+        Self { model, prompt, steps, tools, permissions, variant, problem }
     }
 }
 
@@ -48,6 +58,7 @@ impl Config {
     pub fn apply_overrides(&mut self, overrides: &HashMap<String, AgentOverride>) {
         for agent in &mut self.agents {
             let Some(chosen) = overrides.get(&agent.name) else { continue };
+            if let Some(problem) = &chosen.problem { self.problems.push(format!("agent {} override: {problem}", agent.name)); continue; }
             match &chosen.model {
                 Some(ModelPin::Use(model)) => agent.model = Some(model.clone()),
                 Some(ModelPin::Inherit) => agent.model = None,
@@ -62,6 +73,8 @@ impl Config {
             if let Some(tools) = &chosen.tools {
                 agent.tools = tools.clone();
             }
+            if let Some(permissions) = &chosen.permissions { agent.permissions = permissions.clone(); }
+            if let Some(variant) = &chosen.variant { agent.variant = (!variant.is_empty()).then(|| variant.clone()); }
         }
     }
 }

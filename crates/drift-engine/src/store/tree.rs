@@ -128,7 +128,7 @@ fn copy_message(conn: &Connection, source: &str, session_id: &str, copies: &mut 
             copy_boundary(conn, &part, &copy, &message_id, session_id, copies)?;
             continue;
         }
-        conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json) SELECT ?1, ?2, ?3, json FROM part WHERE id = ?4")?.execute(params![copy, message_id, session_id, part])?;
+        conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json, provider_signature) SELECT ?1, ?2, ?3, json, provider_signature FROM part WHERE id = ?4")?.execute(params![copy, message_id, session_id, part])?;
     }
     Ok(true)
 }

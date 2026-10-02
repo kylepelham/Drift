@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 29] = [
+pub(super) const MIGRATIONS: [&str; 30] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -160,6 +160,7 @@ pub(super) const MIGRATIONS: [&str; 29] = [
     ) STRICT, WITHOUT ROWID;",
     // Whether read-only agents may use a server's read-only tools; a changed definition clears it.
     "ALTER TABLE mcp_config ADD COLUMN read_only_trusted INTEGER NOT NULL DEFAULT 0;",
+    "ALTER TABLE part ADD COLUMN provider_signature TEXT;",
 ];
 
 #[cfg(test)]

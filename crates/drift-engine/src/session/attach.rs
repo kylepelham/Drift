@@ -22,6 +22,7 @@ pub struct Attach<'a> {
     pub session_id: &'a str,
     pub workspace: &'a Path,
     pub policy: &'a Policy,
+    pub agent_policy: &'a Policy,
     /// The model the prompt will actually run on (for a steered prompt, the running turn's).
     pub model: &'a Model,
 }
@@ -77,7 +78,7 @@ impl Attach<'_> {
     fn mention(&self, path: &Path, read_whole: &mut Vec<PathBuf>) -> String {
         let shown = display_name(self.workspace, path);
         if let Some(ask) = crate::tool::read_ask(self.workspace, path, "Read") {
-            match self.engine.permissions.decide_now(self.session_id, self.policy, &ask) {
+            match self.engine.permissions.decide_under(self.session_id, self.policy, self.agent_policy, &ask) {
                 Decision::Allow => {}
                 Decision::Deny => return format!("[@{shown} was mentioned but a rule forbids reading it.]"),
                 Decision::Ask => return format!("[@{shown} was mentioned but not read: {}. Use the read tool, which asks the user first.]", why(self.workspace, path)),
