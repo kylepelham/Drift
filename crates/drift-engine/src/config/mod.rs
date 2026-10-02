@@ -146,7 +146,7 @@ impl Agent {
     /// Whether `tool` is one this agent may be offered. Names match in any case, as Claude-style files write them.
     pub fn allows_tool(&self, tool: &str) -> bool {
         let (taken, given): (Vec<&String>, Vec<&String>) = self.tools.iter().partition(|name| name.starts_with('!'));
-        if taken.iter().any(|name| name[1..].eq_ignore_ascii_case(tool)) {
+        if taken.iter().any(|name| &name[1..] == "*" || name[1..].eq_ignore_ascii_case(tool)) {
             return false;
         }
         given.is_empty() || given.iter().any(|name| name.eq_ignore_ascii_case(tool))
@@ -345,7 +345,7 @@ impl Config {
                 description: doc.field("description").unwrap_or_default(),
                 prompt: doc.body.trim().into(),
                 model: doc.field("model").and_then(|m| parse_model(&m)),
-                tools: doc.list("tools").unwrap_or_default(),
+                tools: agent_tools(&doc),
                 builtin: false,
                 kind: self.workspace_kind(&name, doc.field("mode").as_deref()),
                 steps: doc.field("steps").and_then(|s| s.trim().parse().ok()).filter(|s: &u32| *s > 0),
@@ -431,6 +431,17 @@ pub fn nested_instructions(workspace: &Path, file: &Path) -> Vec<(PathBuf, Strin
         }
     }
     found
+}
+
+/// An agent file's tools. An explicit empty list (`tools: []`) means none, written `!*`; leaving
+/// the field out, or an empty map (`tools: {}`), means every tool.
+fn agent_tools(doc: &frontmatter::Document) -> Vec<String> {
+    let tools = doc.list("tools").unwrap_or_default();
+    let empty_list = doc.field("tools").is_some_and(|raw| raw.replace(' ', "") == "[]");
+    if tools.is_empty() && empty_list {
+        return vec!["!*".into()];
+    }
+    tools
 }
 
 /// A Markdown file's text after its front matter.
@@ -577,7 +588,9 @@ mod tests {
         let ws = std::env::temp_dir().join(format!("drift-config-tools-{}", crate::random_hex(4)));
         write(&ws, ".drift/agents/listed.md", "---\ndescription: Read-only\ntools:\n  - read\n  - grep\n---\nReview.");
         write(&ws, ".drift/agents/claude.md", "---\ndescription: Claude style\ntools: Read, Grep\n---\nReview.");
-        write(&ws, ".drift/agents/opencode.md", "---\ndescription: No writes\ntools:\n  write: false\n  edit: false\n---\nLook.");
+        write(&ws, ".drift/agents/opencode.md", "---\ndescription: No writes\ntools:\n  write: false\n  edit: false\n  bash: true\n---\nLook.");
+        write(&ws, ".drift/agents/none.md", "---\ndescription: Talks only\ntools: []\n---\nTalk.");
+        write(&ws, ".drift/agents/all.md", "---\ndescription: Everything\ntools: {}\n---\nDo.");
         let config = Config::load_with_home(&ws, None);
         for name in ["listed", "claude"] {
             let agent = config.agent(name).unwrap();
@@ -585,8 +598,10 @@ mod tests {
             assert!(!agent.allows_tool("edit") && !agent.allows_tool("bash"), "{name} is not handed every tool");
         }
         let opencode = config.agent("opencode").unwrap();
-        assert!(opencode.allows_tool("bash") && opencode.allows_tool("read"));
+        assert!(opencode.allows_tool("bash") && opencode.allows_tool("read"), "a true entry does not narrow the rest");
         assert!(!opencode.allows_tool("write") && !opencode.allows_tool("edit"));
+        assert!(!config.agent("none").unwrap().allows_tool("read"), "an empty list means no tools");
+        assert!(config.agent("all").unwrap().allows_tool("bash"), "an empty map means every tool");
         assert!(config.agent("build").unwrap().allows_tool("anything"), "no list means every tool");
         std::fs::remove_dir_all(ws).ok();
     }

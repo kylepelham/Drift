@@ -1077,8 +1077,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   `read` of a file under it appends it as a `<system-reminder>`, once per session (outermost
   first). `GET /workspaces/{id}/config` serves the
   merged result. Front matter is `key: value` lines; `tools` may also be `[a, b]`, `- item` lines,
-  or a `name: true|false` map (opencode's shape, where `false` takes that tool away from all the
-  rest). Tool names match in any case, so Claude-style `tools: Read, Grep` works. `drift.json` may hold `//` and `/* */`
+  or a `name: true|false` map (opencode's shape: `false` takes that tool away from all the rest,
+  `true` changes nothing). `tools: []` means no tools; leaving it out, or `tools: {}`, means every
+  tool. Tool names match in any case, so Claude-style `tools: Read, Grep` works. `drift.json` may hold `//` and `/* */`
   comments and trailing commas (`config::jsonc`). One that still cannot be parsed is named in
   `Config.problems`, and every turn in that workspace refuses with 400 `config` until it is fixed,
   because running without its rules would drop its denies; the UI shows the problem when the

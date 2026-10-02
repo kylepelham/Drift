@@ -52,17 +52,20 @@ pub fn parse(text: &str) -> Document {
     doc
 }
 
-/// One list or map entry: `name`, `name: true` or `name: false` (as `!name`).
+/// One list or map entry: `name`, or in a map `name: false` (as `!name`). A map's `name: true`
+/// changes nothing, as in opencode, where it only leaves the tool on.
 fn entry(text: &str) -> Option<String> {
     let (name, flag) = match text.split_once(':') {
         Some((name, flag)) => (name, Some(flag.trim())),
         None => (text, None),
     };
     let name = unquote(name.trim());
-    if name.is_empty() {
-        return None;
+    match flag {
+        _ if name.is_empty() => None,
+        Some("false") => Some(format!("!{name}")),
+        Some(_) => None,
+        None => Some(name.to_string()),
     }
-    Some(if flag == Some("false") { format!("!{name}") } else { name.to_string() })
 }
 
 fn unquote(text: &str) -> &str {
@@ -89,7 +92,8 @@ mod tests {
         assert_eq!(list("tools: Read, Grep"), Some(vec!["Read".into(), "Grep".into()]));
         assert_eq!(list("tools: [read, \"grep\"]"), Some(vec!["read".into(), "grep".into()]));
         assert_eq!(list("tools:\n  - read\n  - grep\nmodel: x"), Some(vec!["read".into(), "grep".into()]));
-        assert_eq!(list("tools:\n  write: false\n  bash: true"), Some(vec!["!write".into(), "bash".into()]));
+        assert_eq!(list("tools:\n  write: false\n  bash: true"), Some(vec!["!write".into()]), "true only leaves a tool on");
+        assert_eq!(list("tools: []"), Some(vec![]));
         assert_eq!(list("tools: { write: false }"), Some(vec!["!write".into()]));
         assert_eq!(list("model: x"), None);
         assert_eq!(parse("---\ntools:\n  - read\nmodel: x\n---\n").field("model").as_deref(), Some("x"), "a list ends at the next key");
