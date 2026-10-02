@@ -775,6 +775,8 @@ export interface components {
             problems?: string[];
             /** @description Formatters and checks whose command the project's own drift.json sets, as `formatter:<name>` or `check:<name>`. */
             projectCommands?: string[];
+            /** @description MCP servers the user vouches for: their read-only tools are open to read-only agents. */
+            readOnlyMcp?: string[];
             skills: components["schemas"]["Skill"][];
             timeouts: {
                 [key: string]: components["schemas"]["RouteTimeouts"];

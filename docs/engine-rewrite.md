@@ -1290,8 +1290,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     its tools as usual but refuses, before any ask, every call that would change something
     (`Tool::stays_read_only`): a writing tool, a shell line that is not only reads
     (`command::reads_only`; `git grep -O`/`--open-files-in-pager` runs a program, so it is not
-    one), any MCP tool (a server's read-only mark is its own claim: enough to skip an ask, not to
-    let a read-only agent act), a `task` to a subagent that is not read-only.
+    one), an MCP tool (a server's read-only mark is its own claim: enough to skip an ask, not to
+    let a read-only agent act, unless the user's own `~/.config/drift/drift.json` vouches for
+    that server with `readOnlyMcp: ["context7"]`; a project's file cannot), a `task` to a
+    subagent that is not read-only.
     So `plan` can read git history with `bash`, delegate to `explore` and load skills, and still
     cannot write even if the model asks.
 - Settings overrides an agent with exactly what the engine applies (`AgentOverride`): `prompt`,
