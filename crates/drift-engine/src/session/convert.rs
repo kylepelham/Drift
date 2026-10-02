@@ -79,7 +79,8 @@ fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> 
         .iter()
         .filter_map(|row| {
             let block = match &row.part {
-            Part::Text { text } if !text.is_empty() || row.provider_signature.is_some() => Some(Block::Text(text.clone())),
+            // An empty signed text part matters only to the model that signed it; others refuse empty text.
+            Part::Text { text } if !text.is_empty() || (same_model && row.provider_signature.is_some()) => Some(Block::Text(text.clone())),
             Part::Reasoning { text, signature, redacted } if same_model && (row.provider_signature.is_some() || signature.is_some() || redacted.is_some() || (finished && !text.is_empty())) => {
                 Some(Block::Reasoning { text: text.clone(), signature: signature.clone(), redacted: redacted.clone() })
             }
@@ -178,6 +179,17 @@ mod tests {
 
     fn message(role: Role, parts: Vec<Part>) -> MessageWithParts {
         message_with(role, MessageStatus::Done, parts)
+    }
+
+    #[test]
+    fn an_empty_signed_text_part_goes_only_to_the_model_that_signed_it() {
+        let mut reply = message(Role::Assistant, vec![Part::Text { text: "answer".into() }, Part::Text { text: String::new() }]);
+        reply.parts[1].provider_signature = Some("sig".into());
+        let transcript = [message(Role::User, vec![Part::Text { text: "q".into() }]), reply];
+        let same = messages(&transcript, &target());
+        assert!(matches!(&same[1].blocks[..], [Block::Text(_), Block::Signed { part, .. }] if matches!(part.as_ref(), Block::Text(text) if text.is_empty())));
+        let other = messages(&transcript, &ModelRef { provider: "openai".into(), model: "gpt".into() });
+        assert_eq!(other[1].blocks, [Block::Text("answer".into())], "no empty text reaches a model that refuses it");
     }
 
     fn call(status: ToolStatus, output: Option<&str>) -> Part {
