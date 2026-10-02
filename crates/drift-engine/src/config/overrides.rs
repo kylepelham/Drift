@@ -54,11 +54,15 @@ impl AgentOverride {
 }
 
 impl Config {
-    /// Settings win over workspace and built-in definitions; overrides for unknown agents are ignored.
+    /// Settings win over workspace and built-in definitions; overrides for unknown agents are ignored,
+    /// and an invalid one refuses only its own agent.
     pub fn apply_overrides(&mut self, overrides: &HashMap<String, AgentOverride>) {
         for agent in &mut self.agents {
             let Some(chosen) = overrides.get(&agent.name) else { continue };
-            if let Some(problem) = &chosen.problem { self.problems.push(format!("agent {} override: {problem}", agent.name)); continue; }
+            if let Some(problem) = &chosen.problem {
+                agent.problem = Some(format!("its Settings override is invalid ({problem}); fix or reset it"));
+                continue;
+            }
             match &chosen.model {
                 Some(ModelPin::Use(model)) => agent.model = Some(model.clone()),
                 Some(ModelPin::Inherit) => agent.model = None,

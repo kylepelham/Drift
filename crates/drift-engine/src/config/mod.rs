@@ -484,13 +484,14 @@ impl Config {
     fn apply_dir(&mut self, dir: &Path) {
         for (name, doc) in markdown_files(&dir.join("agents")) {
             let unsupported: Vec<&str> = ["temperature", "top_p", "topP", "options", "provider_options"].into_iter().filter(|key| doc.fields.contains_key(*key)).collect();
-            if !unsupported.is_empty() {
-                self.problems.push(format!("agent {name} uses unsupported controls: {}; remove them, since native agents retain permissions and variant but not sampling/provider options", unsupported.join(", ")));
-                continue;
-            }
-            let permissions = match doc.permissions() {
-                Ok(rules) => rules,
-                Err(error) => { self.problems.push(format!("agent {name}: {error}")); continue; }
+            let (permissions, broken_rules) = match doc.permissions() {
+                Ok(rules) => (rules, None),
+                Err(error) => (Vec::new(), Some(error)),
+            };
+            let problem = if unsupported.is_empty() {
+                broken_rules
+            } else {
+                Some(format!("uses unsupported controls ({}); native agents keep permissions and variant but not sampling or provider options", unsupported.join(", ")))
             };
             let agent = Agent {
                 description: doc.field("description").unwrap_or_default(),
@@ -505,6 +506,7 @@ impl Config {
                 name: name.clone(),
                 permissions,
                 variant: doc.field("variant"),
+                problem,
             };
             self.agents.retain(|a| a.name != name);
             self.agents.push(agent);
