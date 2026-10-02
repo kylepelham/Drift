@@ -41,8 +41,9 @@ impl Store {
     pub fn save_mcp_server(&self, name: &str, config: &ServerConfig) -> rusqlite::Result<ServerRow> {
         let json = serde_json::to_string(config).unwrap();
         let conn = self.lock();
-        // Compared as configs, not text, so a definition saved unchanged keeps its trust even if older text is spelled differently.
-        let same = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([name], map_row).optional()?.is_some_and(|row| row.config == *config);
+        // Compared as configs, not text; a stored config that no longer parses counts as different, so the save repairs it.
+        let stored: Option<String> = conn.prepare_cached("SELECT config_json FROM mcp_config WHERE name = ?1")?.query_row([name], |row| row.get(0)).optional()?;
+        let same = stored.and_then(|json| serde_json::from_str::<ServerConfig>(&json).ok()).is_some_and(|stored| stored == *config);
         conn.prepare_cached(
             "INSERT INTO mcp_config(name, config_json, enabled, updated_at) VALUES(?1, ?2, 1, ?3)
              ON CONFLICT(name) DO UPDATE SET read_only_trusted = read_only_trusted AND ?4, config_json = ?2, updated_at = ?3, era = NULL",
@@ -159,6 +160,10 @@ mod tests {
         assert!(store.save_mcp_server("notes", &changed).unwrap().read_only_trusted, "saved as it was, the trust stays");
         store.lock().execute("UPDATE mcp_config SET config_json = ?1 WHERE name = 'notes'", [serde_json::to_string_pretty(&changed).unwrap()]).unwrap();
         assert!(store.save_mcp_server("notes", &changed).unwrap().read_only_trusted, "even over the same config written another way");
+        store.lock().execute("UPDATE mcp_config SET config_json = '{\"type\":\"future\"}' WHERE name = 'notes'", []).unwrap();
+        let repaired = store.save_mcp_server("notes", &changed).unwrap();
+        assert!(repaired.config == changed && !repaired.read_only_trusted, "a config that no longer parses is overwritten, and the trust goes with it");
+        store.set_mcp_read_only_trusted("notes", true).unwrap();
         assert!(!store.save_mcp_server("notes", &config).unwrap().read_only_trusted, "another definition is not trusted");
         assert!(store.set_mcp_enabled("notes", false).unwrap());
         assert!(!store.mcp_servers().unwrap()[0].enabled);
