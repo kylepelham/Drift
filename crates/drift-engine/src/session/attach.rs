@@ -57,7 +57,19 @@ impl Attach<'_> {
             "image" if !data.base64 || data.bytes().is_none() => refuse("its image data is not valid base64".into()),
             "image" if self.model.attachment => Ok(Part::File { mime, name, url, path: None }),
             "image" => Err(TurnError::Attachment(format!("{} cannot read images; pick a model that can, or remove {name}", self.model.name))),
+            _ if mime.eq_ignore_ascii_case(crate::tool::image::PDF) => self.pdf(mime, name, &url, &data),
             _ => refuse(format!("{mime} cannot be sent to a model yet; attach it as text, or as an image the model can read")),
+        }
+    }
+
+    /// A PDF goes whole to a model that reads PDFs; one that does not, or bytes that are no PDF, are refused with the reason.
+    fn pdf(&self, mime: String, name: String, url: &str, data: &DataUrl) -> Result<Part, TurnError> {
+        let refuse = |why: String| Err(TurnError::Attachment(format!("{name}: {why}")));
+        match data.bytes().filter(|_| data.base64) {
+            None => refuse("its PDF data is not valid base64".into()),
+            Some(bytes) if !bytes.starts_with(b"%PDF-") => refuse("it says it is a PDF but its data is not one".into()),
+            Some(_) if !self.model.pdf => Err(TurnError::Attachment(format!("{} cannot read PDFs; pick a model that can, or remove {name}", self.model.name))),
+            Some(_) => Ok(Part::File { mime, name, url: url.to_string(), path: None }),
         }
     }
 

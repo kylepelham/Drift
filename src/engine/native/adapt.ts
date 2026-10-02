@@ -174,7 +174,7 @@ function adaptModel(providerID: string, model: NativeModel): ModelInfo {
       reasoning: model.reasoning,
       attachment: model.attachment,
       toolcall: true,
-      input: { text: true, audio: false, image: model.attachment, video: false, pdf: model.attachment },
+      input: { text: true, audio: false, image: model.attachment, video: false, pdf: model.pdf ?? false },
       output: { text: true, audio: false, image: false, video: false, pdf: false },
     },
     cost: { input: cost.input ?? 0, output: cost.output ?? 0, cache: { read: cost.cache_read ?? 0, write: cost.cache_write ?? 0 } },

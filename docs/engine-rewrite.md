@@ -1015,9 +1015,11 @@ Settled after the first external review of M1; each has a regression test.
   - A steered prompt's files are judged against the model the running turn is on (updated when a
     retry switches it), not a model the prompt names, and the prompt is recorded with that model.
   - Text data URLs travel as text. Images go only to a model whose catalog entry says it reads
-    attachments. Anything else (audio, video, a PDF sent as data, a non-`file`/`data` URL) and an
-    image for a model that cannot read it is refused with 400 `attachment` naming the file, never
-    dropped. The UI still extracts PDF, text and CSV attachments to text before sending.
+    attachments, PDFs (base64 data starting `%PDF-`) only to one whose entry says `pdf`, whole, as
+    each wire's document block. Anything else (audio, video, a non-`file`/`data` URL), and an image
+    or PDF for a model that cannot read it, is refused with 400 `attachment` naming the file, never
+    dropped. The UI reports a model's PDF input from that same `pdf` flag, and still extracts PDF,
+    text and CSV attachments to text before sending, which every model reads.
   - `GET /workspaces/{id}/files?query=` serves @ autocomplete: the same walk as `glob` (ignore
     rules apply, version-control internals never), directories with a trailing `/`, ranked by name
     prefix, name substring, path substring, then letters in order.

@@ -993,6 +993,24 @@ async fn files_a_model_cannot_take_are_refused_not_dropped() {
 }
 
 #[tokio::test]
+async fn a_pdf_goes_whole_to_a_model_that_reads_pdfs_and_is_refused_by_one_that_does_not() {
+    let h = harness().await;
+    let pdf = Part::File { mime: "application/pdf".into(), name: "spec.pdf".into(), url: "data:application/pdf;base64,JVBERi0xLjcK".into(), path: None };
+    let set_pdf = |reads: bool| h.engine.catalog.write().unwrap().providers.get_mut("anthropic").unwrap().models.get_mut("claude-sonnet-4-5").unwrap().pdf = reads;
+    set_pdf(false);
+    let refused = h.engine.submit(&h.session.id, with_files("read", vec![pdf.clone()])).await.unwrap_err();
+    assert!(matches!(&refused, TurnError::Attachment(m) if m.contains("cannot read PDFs") && m.contains("spec.pdf")), "{refused:?}");
+    let fake = Part::File { mime: "application/pdf".into(), name: "spec.pdf".into(), url: "data:application/pdf;base64,aGVsbG8=".into(), path: None };
+    set_pdf(true);
+    assert!(matches!(h.engine.submit(&h.session.id, with_files("read", vec![fake])).await, Err(TurnError::Attachment(m)) if m.contains("not one")));
+    h.provider.push(text("read it"));
+    h.engine.submit(&h.session.id, with_files("read", vec![pdf])).await.await_ok();
+    until_idle(&h).await;
+    let request = h.provider.requests.lock().unwrap().last().unwrap().clone();
+    assert!(request.messages[0].blocks.iter().any(|block| matches!(block, crate::llm::Block::Pdf { base64 } if base64 == "JVBERi0xLjcK")), "{:?}", request.messages[0].blocks);
+}
+
+#[tokio::test]
 async fn malformed_attachments_are_refused_before_admission() {
     let h = harness().await;
     for (mime, url, why) in [
