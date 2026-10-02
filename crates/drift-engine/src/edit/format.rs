@@ -66,8 +66,8 @@ pub async fn format(path: &Path, workspace: &Path, formatters: &[Formatter]) -> 
     let name = path.file_name()?.to_string_lossy().to_lowercase();
     let formatter = formatters.iter().find(|f| f.extensions.iter().any(|ext| name.ends_with(ext.as_str())))?;
     let mut parts = formatter.command.iter().map(|part| part.replace("$FILE", &path.to_string_lossy()));
-    let program = parts.next()?;
-    let mut command = tokio::process::Command::new(&program);
+    let program = crate::platform::process::which(&parts.next()?)?;
+    let mut command = tokio::process::Command::new(program);
     command.args(parts).current_dir(workspace).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
@@ -79,12 +79,7 @@ pub async fn format(path: &Path, workspace: &Path, formatters: &[Formatter]) -> 
 }
 
 fn on_path(program: &str) -> bool {
-    let candidates: Vec<String> = if cfg!(windows) { vec![format!("{program}.exe"), format!("{program}.cmd"), format!("{program}.bat")] } else { vec![program.to_string()] };
-    std::env::var_os("PATH")
-        .map(|path| {
-            std::env::split_paths(&path).any(|dir| candidates.iter().any(|c| dir.join(c).is_file()))
-        })
-        .unwrap_or(false)
+    crate::platform::process::which(program).is_some()
 }
 
 #[cfg(test)]
@@ -118,6 +113,22 @@ mod tests {
         let broken = vec![Formatter { name: "nope".into(), command: vec!["definitely-missing-binary".into(), "$FILE".into()], extensions: vec![".txt".into()] }];
         assert_eq!(format(&file, &dir, &broken).await, None);
         assert_eq!(format(&dir.join("b.xyz"), &dir, &ok).await, None, "no formatter for the extension");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_formatter_installed_as_a_script_shim_runs() {
+        let dir = std::env::temp_dir().join(format!("drift-fmt-shim-{}", crate::random_hex(4)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.txt");
+        std::fs::write(&file, "x").unwrap();
+        let (shim, body) = if cfg!(windows) { ("tidy.cmd", "@echo shimmed> %1\r\n") } else { ("tidy", "#!/bin/sh\necho shimmed > \"$1\"\n") };
+        std::fs::write(dir.join(shim), body).unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(dir.join(shim), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let tidy = vec![Formatter { name: "tidy".into(), command: vec![dir.join(shim).to_string_lossy().into(), "$FILE".into()], extensions: vec![".txt".into()] }];
+        assert_eq!(format(&file, &dir, &tidy).await.as_deref(), Some("tidy"));
+        assert!(std::fs::read_to_string(&file).unwrap().starts_with("shimmed"));
         std::fs::remove_dir_all(dir).ok();
     }
 }

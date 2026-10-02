@@ -1193,7 +1193,7 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   returns SKILL.md's body and its directory.
 - **Formatters.** After a mutating tool succeeds, the first formatter whose extensions
   match each written file runs. Built-ins (prettier, rustfmt, gofmt, ruff, black) apply
-  only when on PATH; `drift.json` `formatters` can set a name to `false` or to
+  only when on PATH, found as a shell would (npm's `prettier.cmd` included); `drift.json` `formatters` can set a name to `false` or to
   `{ command, extensions }` with `$FILE`. Results land in the call's `metadata.formatted`;
   failures are ignored.
 - **Checks.** After formatting, the checks in `drift.json` `checks` run over what an edit, write
