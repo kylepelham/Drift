@@ -3,6 +3,7 @@
 mod blobs;
 mod migrations;
 mod mcp;
+mod reads;
 mod sessions;
 mod settings;
 mod staged;

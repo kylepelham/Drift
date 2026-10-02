@@ -697,6 +697,28 @@ async fn submission_ids_survive_a_restart_and_reject_a_different_payload() {
 }
 
 #[tokio::test]
+async fn a_file_read_before_a_restart_may_be_edited_after_it() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "one\n").unwrap();
+    h.provider.push(tool_call("read", r#"{"path": "a.txt"}"#)).push(text("read it"));
+    h.engine.submit(&h.session.id, prompt("read a")).await.await_ok();
+    until_idle(&h).await;
+
+    let reopened = Engine::open_with(&h._dir.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
+    *reopened.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(h.provider.clone()));
+    reopened.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    h.provider.push(tool_call("edit", r#"{"path": "a.txt", "old_string": "one", "new_string": "two"}"#)).push(text("edited"));
+    reopened.submit(&h.session.id, prompt("edit a")).await.await_ok();
+    for _ in 0..500 {
+        if !reopened.turns.is_running(&h.session.id) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(std::fs::read_to_string(h._dir.join("ws/a.txt")).unwrap(), "two\n", "the read was kept across the restart");
+}
+
+#[tokio::test]
 async fn a_write_is_refused_when_its_files_cannot_be_recorded() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });

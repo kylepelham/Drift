@@ -40,9 +40,17 @@ use crate::llm::ToolSpec;
 pub struct SessionFiles {
     read: Mutex<HashSet<PathBuf>>,
     shown: Mutex<HashSet<PathBuf>>,
+    /// Where the reads are kept, so they outlast a restart; none in a bare test context.
+    kept: Option<(Arc<crate::store::Store>, String)>,
 }
 
 impl SessionFiles {
+    /// A session's files, starting from the reads its earlier runs kept.
+    pub fn kept(store: Arc<crate::store::Store>, session_id: &str) -> Self {
+        let read = store.read_files(session_id).unwrap_or_default().into_iter().map(PathBuf::from).collect();
+        Self { read: Mutex::new(read), kept: Some((store, session_id.into())), ..Self::default() }
+    }
+
     /// True the first time an instruction file is shown in this session; later reads near it say nothing.
     pub fn first_showing(&self, path: &Path) -> bool {
         self.shown.lock().unwrap().insert(path.to_path_buf())
@@ -54,7 +62,10 @@ impl SessionFiles {
     }
 
     pub fn mark_read(&self, path: &Path) {
-        self.read.lock().unwrap().insert(path.to_path_buf());
+        let new = self.read.lock().unwrap().insert(path.to_path_buf());
+        if let (true, Some((store, session_id))) = (new, &self.kept) {
+            let _ = store.mark_read(session_id, &path.to_string_lossy());
+        }
     }
 
     pub fn was_read(&self, path: &Path) -> bool {

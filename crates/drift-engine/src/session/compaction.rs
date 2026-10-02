@@ -139,7 +139,7 @@ impl Engine {
     pub(super) async fn compact(self: &Arc<Self>, session_id: &str, trigger: Trigger, abort: &CancellationToken) -> Result<(), String> {
         let result = self.compact_once(session_id, trigger, abort).await;
         if result.is_ok() {
-            self.turns.files_for(session_id).forget_shown();
+            self.turns.files_for(&self.store, session_id).forget_shown();
             self.turns.forget_checked(session_id);
         }
         if trigger != Trigger::Manual {

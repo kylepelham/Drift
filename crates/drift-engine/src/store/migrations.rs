@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 25] = [
+pub(super) const MIGRATIONS: [&str; 26] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -144,6 +144,11 @@ pub(super) const MIGRATIONS: [&str; 25] = [
     "ALTER TABLE message ADD COLUMN ending TEXT CHECK(ending IN ('length', 'refused'));
     UPDATE message SET ending = 'length' WHERE status = 'done' AND error LIKE 'The reply stopped at the output limit%';
     UPDATE message SET ending = 'refused' WHERE status = 'done' AND error = 'The provider''s safety filter ended the reply.';",
+    "CREATE TABLE read_file(
+        session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+        path TEXT NOT NULL,
+        PRIMARY KEY(session_id, path)
+    ) STRICT, WITHOUT ROWID;",
 ];
 
 #[cfg(test)]

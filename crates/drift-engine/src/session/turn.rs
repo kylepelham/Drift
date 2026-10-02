@@ -228,8 +228,9 @@ impl Turns {
         Some(result)
     }
 
-    pub(super) fn files_for(&self, session_id: &str) -> Arc<SessionFiles> {
-        self.files.lock().unwrap().entry(session_id.into()).or_default().clone()
+    /// The session's files, loaded with the reads its earlier runs kept the first time they are needed.
+    pub(super) fn files_for(&self, store: &Arc<crate::store::Store>, session_id: &str) -> Arc<SessionFiles> {
+        self.files.lock().unwrap().entry(session_id.into()).or_insert_with(|| Arc::new(SessionFiles::kept(store.clone(), session_id))).clone()
     }
 
     /// Forgets what the session's checks said, once the model may no longer see it (compaction, undo), so the next report is sent in full.
@@ -405,7 +406,7 @@ impl Engine {
 
     /// Admits the prompt into a session this call has claimed and starts its turn; releases the claim if it cannot.
     fn start(self: &Arc<Self>, session_id: &str, prompt: Prompt, plan: Plan, abort: CancellationToken, payload_hash: &str, how: Admission) -> Result<Receipt, TurnError> {
-        let files = self.turns.files_for(session_id);
+        let files = self.turns.files_for(&self.store, session_id);
         let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), model: &plan.model, files: &files };
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
         let pick = Pick { model: &plan.model_ref, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
@@ -509,7 +510,7 @@ impl Engine {
             pickable(&config, agent)?;
         }
         let policy = config.policy();
-        let files = self.turns.files_for(session_id);
+        let files = self.turns.files_for(&self.store, session_id);
         let parts = Attach { engine: self, session_id, workspace: &workspace, policy: &policy, model: &model, files: &files }.prepare(prompt.parts.clone())?;
         let steering = self.turns.steering.lock().unwrap();
         match steering.get(session_id) {
@@ -1009,7 +1010,7 @@ impl Engine {
 
     /// Calls run in the model's order. Consecutive reads run together; a write waits for what came before it.
     async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, abort: &CancellationToken) -> Outcome {
-        let files = self.turns.files_for(&plan.session.id);
+        let files = self.turns.files_for(&self.store, &plan.session.id);
         let scope = CallScope { plan, message, files: &files, abort, wrote: Mutex::default(), tree: Mutex::default() };
         let mut reads: Vec<PartRow> = Vec::new();
         for row in calls {

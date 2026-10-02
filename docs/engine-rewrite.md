@@ -882,8 +882,9 @@ these async criteria are new pending M3 work.
   `sed -n '<range>p'`, which now also counts as reading; `command::files_read`), since GPT and
   Codex models habitually read that way before `apply_patch`. A printer whose output feeds a pipe
   (`cat a.rs | grep fn`) counts nothing, the model having seen only what the pipe let through. A
-  line that moves directory first counts nothing, its paths no longer resolving from the workspace. The record is in memory, so
-  after a restart a file must be read again before it is edited.
+  line that moves directory first counts nothing, its paths no longer resolving from the workspace. The record is kept in
+  `drift.db` (`read_file`, migration 26, removed with its session), so a file read before a restart
+  may still be edited after it.
 - Ids are `prefix_<16 hex stamp><8 hex random>`; the stamp is milliseconds shifted left
   twelve bits plus a per-process counter, so rows made in the same millisecond still sort
   by creation.
