@@ -22,6 +22,8 @@ pub(super) struct Recorded {
     pub unrecorded: Vec<String>,
     /// A time-ordered stamp taken once the call's writes are done: the order undo replays calls in.
     pub at: String,
+    /// The tree taken after a whole-tree call, which the next one in the same step starts from.
+    pub tree: Option<Tree>,
 }
 
 /// A call whose after state could not be recorded: what was done about it, in words for the model and the user.
@@ -86,7 +88,7 @@ impl Engine {
                 let after = self.snapshots.take(workspace).await.map_err(|e| e.to_string())?;
                 let diff = self.snapshots.changes_between(workspace, &before, &after).await.map_err(|e| e.to_string())?;
                 let changes = diff.changes.into_iter().map(|change| FileChange { observed: true, ..change }).collect();
-                Ok(Recorded { changes, unrecorded: diff.unrecorded, ..Recorded::default() })
+                Ok(Recorded { changes, unrecorded: diff.unrecorded, tree: Some(after), ..Recorded::default() })
             }
             Capture::Paths(paths) => {
                 let mut changes = Vec::new();

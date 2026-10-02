@@ -508,10 +508,14 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - Cost, measured with `session::snapshot::tests::capture_cost` (release build, Windows): a first
   capture of 5,000 1 KB files takes 2.1 s; an unchanged one about 90 ms, of which the size walk is
   13 ms. This repository (7,161 tracked files) takes about 190 ms unchanged, 70 ms of it the size
-  walk. A shell call pays two captures. Git's stat cache already makes an unchanged capture cheap,
-  and `core.untrackedCache` measured no better. The previous call's tree is never reused as the next
-  call's before state: nothing short of a filesystem monitor establishes that no one edited in
-  between, and a stale before state would put the wrong content into undo.
+  walk. Git's stat cache already makes an unchanged capture cheap, and `core.untrackedCache`
+  measured no better. Within one step, a whole-tree call (a writing shell line, a writing MCP tool)
+  starts from the tree the step's previous whole-tree call ended on, so a run of n such calls takes
+  n + 1 captures, not 2n. That reuse is safe only because a tree capture's changes are all
+  observed, never undone: anything edited in the gap lands, still observed, in the next call's
+  record, where before it was recorded nowhere. A file tool's capture records undoable changes, so
+  its write breaks the chain (the next command captures afresh, or the file tool's write would be
+  taken as observed and its undo lost), and the chain never crosses steps.
 - Undo and redo stop a running turn first (as Stop does, workers included) and wait up to 15 s for
   it to end, then go ahead; only a job that does not stop in time makes them 409 `busy`.
 - `POST /sessions/{id}/revert { messageId }` takes a prompt the user sent. It hides that prompt and

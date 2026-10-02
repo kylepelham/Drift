@@ -1404,6 +1404,39 @@ async fn a_command_that_only_reads_is_not_captured_and_one_that_writes_is() {
 }
 
 #[tokio::test]
+async fn whole_tree_calls_in_a_step_chain_their_captures_and_a_file_tool_write_breaks_the_chain() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy {
+        rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }, Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }],
+    });
+    let call = |id: &str, name: &str, input: serde_json::Value| vec![Chunk::ToolUseStart { id: id.into(), name: name.into() }, Chunk::ToolInputDelta(input.to_string()), Chunk::BlockStop];
+    h.provider
+        .push(
+            [
+                call("t1", "bash", json!({ "command": "touch one.txt" })),
+                call("t2", "bash", json!({ "command": "touch two.txt" })),
+                call("t3", "write", json!({ "path": "three.txt", "content": "3\n" })),
+                call("t4", "bash", json!({ "command": "touch four.txt" })),
+                vec![Chunk::Stop(StopReason::ToolUse)],
+            ]
+            .concat(),
+        )
+        .push(text("done"));
+    h.engine.submit(&h.session.id, prompt("make files")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let changed: Vec<Vec<String>> = transcript[1]
+        .parts
+        .iter()
+        .filter_map(|row| match &row.part {
+            Part::ToolCall { metadata: Some(meta), .. } => Some(meta["changes"].as_array().into_iter().flatten().filter_map(|c| c["path"].as_str().map(String::from)).collect()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(changed, [vec!["one.txt"], vec!["two.txt"], vec!["three.txt"], vec!["four.txt"]], "each call records only its own change; the write in between is not taken for the next command's");
+}
+
+#[tokio::test]
 async fn a_subscription_sign_in_is_never_sent_to_a_route_the_user_re_pointed() {
     let h = harness().await;
     let live = Credential::OAuth { access: "a".into(), refresh: "r".into(), expires_at: crate::id::now_ms() + 3_600_000, account: None };

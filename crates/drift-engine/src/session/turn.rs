@@ -1007,7 +1007,7 @@ impl Engine {
     /// Calls run in the model's order. Consecutive reads run together; a write waits for what came before it.
     async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, abort: &CancellationToken) -> Outcome {
         let files = self.turns.files_for(&plan.session.id);
-        let scope = CallScope { plan, message, files: &files, abort, wrote: Mutex::default() };
+        let scope = CallScope { plan, message, files: &files, abort, wrote: Mutex::default(), tree: Mutex::default() };
         let mut reads: Vec<PartRow> = Vec::new();
         for row in calls {
             if !call_mutates(plan, &row) {
@@ -1157,7 +1157,14 @@ impl Engine {
         let writes = tool.call_mutates(&input);
         let capture = if writes {
             self.snapshots.bind(&scope.plan.session.workspace_id, &scope.plan.workspace);
-            match self.capture_before(&scope.plan.workspace, tool.touches(&ctx, &input)).await {
+            let touches = tool.touches(&ctx, &input);
+            // A whole-tree call starts from the tree the step's last one ended on; a file tool's write in between ends the chain.
+            let chained = scope.tree.lock().unwrap().take().filter(|_| touches.is_none());
+            let captured = match chained {
+                Some(tree) => Ok(super::changes::Capture::Tree(tree)),
+                None => self.capture_before(&scope.plan.workspace, touches).await,
+            };
+            match captured {
                 Ok(capture) => Some(capture),
                 Err(error) => {
                     // Nothing recorded means no way back, so the write does not happen.
@@ -1202,7 +1209,7 @@ impl Engine {
         }
         // After formatting, and on failure too: a failed or stopped command may still have written.
         let (status, text, changes) = match capture {
-            Some(capture) => self.history_of(scope.plan, capture, status, text).await,
+            Some(capture) => self.history_of(scope, capture, status, text).await,
             None => (status, text, None),
         };
         // A result this call hands over is acknowledged in the write that saves it, if the call holds its claim.
@@ -1217,10 +1224,14 @@ impl Engine {
     }
 
     /// The call's change record; one that could not be taken is said in its result, and a call whose files were put back fails.
-    async fn history_of(&self, plan: &Plan, capture: super::changes::Capture, status: ToolStatus, text: String) -> (ToolStatus, String, Option<serde_json::Value>) {
+    async fn history_of(&self, scope: &CallScope<'_>, capture: super::changes::Capture, status: ToolStatus, text: String) -> (ToolStatus, String, Option<serde_json::Value>) {
+        let plan = scope.plan;
         // `owner` names the workspace whose history holds these blobs, wherever it or the session moves.
         let owner = &plan.session.workspace_id;
-        match self.record_call(&plan.workspace, capture).await {
+        let recorded = self.record_call(&plan.workspace, capture).await;
+        // The tree this call ended on is where the step's next whole-tree call starts; anything changed in between is that call's to observe.
+        *scope.tree.lock().unwrap() = recorded.as_ref().ok().and_then(|recorded| recorded.tree.clone());
+        match recorded {
             Ok(recorded) => {
                 let mut changes = json!({ "changes": recorded.changes, "owner": owner, "at": recorded.at });
                 if !recorded.unrecorded.is_empty() {
@@ -1518,6 +1529,8 @@ struct CallScope<'a> {
     files: &'a Arc<SessionFiles>,
     abort: &'a CancellationToken,
     wrote: Mutex<StepWrites>,
+    /// The tree the step's last whole-tree call ended on, so the next one takes one capture, not two.
+    tree: Mutex<Option<super::snapshot::Tree>>,
 }
 
 /// What a step's calls wrote, for the checks that run once the step's calls are done.
