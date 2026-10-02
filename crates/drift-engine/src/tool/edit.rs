@@ -98,40 +98,41 @@ fn without_line_numbers(old: &str) -> Option<String> {
     stripped.map(|lines| lines.join("\n"))
 }
 
-/// The window of the file whose lines best overlap the search text, so the model can re-read it.
 fn miss(content: &str, old: &str) -> String {
     if let Some(unnumbered) = without_line_numbers(old).filter(|text| content.contains(text.as_str())) {
         let first = unnumbered.lines().next().unwrap_or_default();
         return format!("old_string was not found: it includes the `N: ` line numbers that read shows. They are not in the file; send the same text without them, starting `{first}`");
     }
+    let wanted: Vec<&str> = old.lines().collect();
+    match closest_region(content, &wanted) {
+        Some(region) => format!("old_string was not found. {region}"),
+        None => "old_string was not found in the file; read the file again and copy the text exactly".into(),
+    }
+}
+
+/// The window of the file whose lines best overlap `wanted`, numbered, so the model can copy it
+/// without another read; `None` when no line overlaps at all.
+pub(super) fn closest_region(content: &str, wanted: &[&str]) -> Option<String> {
     let lines: Vec<&str> = content.lines().collect();
-    let wanted: Vec<&str> = old.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let wanted: Vec<&str> = wanted.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
     if lines.is_empty() || wanted.is_empty() {
-        return "old_string was not found in the file".into();
+        return None;
     }
     let window = wanted.len().min(lines.len());
-    let score = |start: usize| {
-        lines[start..start + window]
-            .iter()
-            .filter(|line| wanted.contains(&line.trim()))
-            .count()
-    };
-    let (best, hits) = (0..=lines.len() - window)
-        .map(|start| (start, score(start)))
-        .max_by_key(|(start, hits)| (*hits, usize::MAX - *start))
-        .unwrap_or((0, 0));
+    let score = |start: usize| lines[start..start + window].iter().filter(|line| wanted.contains(&line.trim())).count();
+    let (best, hits) = (0..=lines.len() - window).map(|start| (start, score(start))).max_by_key(|(start, hits)| (*hits, usize::MAX - *start))?;
     if hits == 0 {
-        return "old_string was not found in the file; read the file again and copy the text exactly".into();
+        return None;
     }
     let from = best.saturating_sub(NEAR_CONTEXT);
     let to = (best + window + NEAR_CONTEXT).min(lines.len());
     let region: Vec<String> = (from..to).map(|i| format!("{}: {}", i + 1, lines[i])).collect();
-    format!(
-        "old_string was not found. The closest region is lines {}-{}, shown as `N: text`; copy the text after each `N: `, never the number:\n{}",
+    Some(format!(
+        "The closest region is lines {}-{}, shown as `N: text`; copy the text after each `N: `, never the number:\n{}",
         from + 1,
         to,
         region.join("\n")
-    )
+    ))
 }
 
 pub fn diff(name: &str, before: &str, after: &str) -> String {

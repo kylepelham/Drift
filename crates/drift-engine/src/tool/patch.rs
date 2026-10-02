@@ -114,7 +114,7 @@ pub fn apply_chunks(content: &str, chunks: &[Chunk]) -> Result<String, String> {
     let trailing_newline = content.ends_with('\n') || content.is_empty();
     let mut cursor = 0;
     for (index, chunk) in chunks.iter().enumerate() {
-        let at = locate(&lines, chunk, cursor).ok_or_else(|| miss(index, chunk))?;
+        let at = locate(&lines, chunk, cursor).ok_or_else(|| miss(content, index, chunk))?;
         lines.splice(at..at + chunk.old.len(), chunk.new.iter().cloned());
         cursor = at + chunk.new.len();
     }
@@ -144,9 +144,13 @@ fn matches_at(lines: &[String], old: &[String], at: usize) -> bool {
     lines.len() >= at + old.len() && lines[at..at + old.len()].iter().zip(old).all(|(a, b)| a == b)
 }
 
-fn miss(index: usize, chunk: &Chunk) -> String {
-    let shown: Vec<&str> = chunk.old.iter().map(String::as_str).take(4).collect();
-    format!("hunk {} did not match the file; read the file and copy the context lines exactly. Looking for:\n{}", index + 1, shown.join("\n"))
+/// What a missed hunk says: the part of the file it most likely meant, as `edit` does, else what it looked for.
+fn miss(content: &str, index: usize, chunk: &Chunk) -> String {
+    let wanted: Vec<&str> = chunk.old.iter().map(String::as_str).collect();
+    match super::edit::closest_region(content, &wanted) {
+        Some(region) => format!("hunk {} did not match the file. {region}", index + 1),
+        None => format!("hunk {} did not match the file; read the file and copy the context lines exactly. Looking for:\n{}", index + 1, wanted.iter().take(4).copied().collect::<Vec<_>>().join("\n")),
+    }
 }
 
 #[cfg(test)]
@@ -198,5 +202,9 @@ mod tests {
         let Op::Update { chunks, .. } = &ops[0] else { panic!() };
         let err = apply_chunks("a\n", chunks).unwrap_err();
         assert!(err.starts_with("hunk 1 did not match"));
+        let near = parse("*** Begin Patch\n*** Update File: f\n fn two() {\n-    let x = 1;\n+    let x = 2;\n*** End Patch\n").unwrap();
+        let Op::Update { chunks, .. } = &near[0] else { panic!() };
+        let err = apply_chunks("a\nb\nfn two() {\n    let x = 3;\n}\n", chunks).unwrap_err();
+        assert!(err.contains("closest region is lines") && err.contains("3: fn two() {"), "{err}");
     }
 }
