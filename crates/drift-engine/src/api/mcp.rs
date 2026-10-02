@@ -158,6 +158,7 @@ pub async fn disconnect(State(engine): State<Arc<Engine>>, Path(name): Path<Stri
 /// a later save that changes its definition takes this back.
 #[utoipa::path(put, path = "/mcp/{name}/readOnlyTrusted", operation_id = "setMcpServerReadOnlyTrusted", request_body = TrustedBody, responses((status = 200, body = ServerStatus), (status = 404)))]
 pub async fn set_read_only_trusted(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Json(body): Json<TrustedBody>) -> Result<Json<ServerStatus>, ApiError> {
+    readable(&engine, &name)?;
     if !engine.store.set_mcp_read_only_trusted(&name, body.trusted)? {
         return Err(ApiError::not_found("mcp server"));
     }
@@ -165,8 +166,14 @@ pub async fn set_read_only_trusted(State(engine): State<Arc<Engine>>, Path(name)
     Ok(Json(engine.mcp.status_of(row)))
 }
 
+/// A switch changes only a server this build can read; one it cannot is saved again or removed, so nothing is written for it.
+fn readable(engine: &Engine, name: &str) -> Result<(), ApiError> {
+    engine.store.mcp_server(name)?.map(|_| ()).ok_or_else(|| ApiError::not_found("mcp server"))
+}
+
 #[utoipa::path(put, path = "/mcp/{name}/enabled", operation_id = "setMcpServerEnabled", request_body = EnabledBody, responses((status = 200, body = ServerStatus), (status = 404)))]
 pub async fn set_enabled(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Json(body): Json<EnabledBody>) -> Result<Json<ServerStatus>, ApiError> {
+    readable(&engine, &name)?;
     if !body.enabled {
         if !engine.mcp.close(&name, &engine.store, &engine.hub, |store| store.set_mcp_enabled(&name, false)).await? {
             return Err(ApiError::not_found("mcp server"));
@@ -178,4 +185,25 @@ pub async fn set_enabled(State(engine): State<Arc<Engine>>, Path(name): Path<Str
         return Err(ApiError::not_found("mcp server"));
     }
     connect(&engine, &name).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn switches_on_a_server_that_does_not_parse_write_nothing() {
+        let dir = std::env::temp_dir().join(format!("drift-api-mcp-{}", crate::random_hex(4)));
+        let engine = Engine::open_with(&dir, crate::Options { file_credentials: true, ..Default::default() }).unwrap();
+        let config = crate::mcp::ServerConfig::Stdio { command: "npx".into(), args: vec![], env: Default::default(), cwd: None, timeout_seconds: None };
+        engine.store.save_mcp_server("newer", &config).unwrap();
+        engine.store.set_mcp_enabled("newer", false).unwrap();
+        engine.store.lock().execute("UPDATE mcp_config SET config_json = '{\"type\":\"future\"}'", []).unwrap();
+        let path = || Path("newer".to_string());
+        assert!(set_read_only_trusted(State(engine.clone()), path(), Json(TrustedBody { trusted: true })).await.is_err());
+        assert!(set_enabled(State(engine.clone()), path(), Json(EnabledBody { enabled: true })).await.is_err());
+        let (trusted, enabled): (bool, bool) = engine.store.lock().query_row("SELECT read_only_trusted, enabled FROM mcp_config", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert_eq!((trusted, enabled), (false, false), "refused before anything was written");
+        std::fs::remove_dir_all(dir).ok();
+    }
 }

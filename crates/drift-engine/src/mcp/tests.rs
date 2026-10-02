@@ -26,6 +26,7 @@ async fn a_server_this_build_cannot_read_is_listed_failed_and_the_rest_still_con
     engine.store.lock().execute("UPDATE mcp_config SET config_json = '{\"type\":\"future\"}' WHERE name = 'newer'", []).unwrap();
     let statuses = engine.mcp.statuses(&engine.store).unwrap();
     assert_eq!(statuses.iter().map(|s| (s.server.name.as_str(), s.state)).collect::<Vec<_>>(), [("echo", State::Disconnected), ("newer", State::Failed)]);
+    assert!(statuses[1].unreadable && !statuses[0].unreadable);
     assert!(statuses[1].error.as_deref().is_some_and(|e| e.contains("could not be read")), "{:?}", statuses[1].error);
     engine.mcp.connect("echo", &engine.store, &hub, Start::User).await.unwrap();
     assert!(engine.mcp.tools(&engine.store).iter().any(|t| t.spec().name == "echo_echo"), "the readable server works");

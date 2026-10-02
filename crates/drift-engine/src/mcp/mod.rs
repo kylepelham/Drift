@@ -115,6 +115,7 @@ fn unreadable(name: String) -> ServerStatus {
         era: None,
         needs_sign_in: false,
         signed_in: false,
+        unreadable: true,
     }
 }
 
@@ -167,6 +168,8 @@ pub struct ServerStatus {
     pub needs_sign_in: bool,
     /// A sign-in is kept for it (`DELETE /mcp/{name}/signin` forgets it).
     pub signed_in: bool,
+    /// Its saved definition does not parse in this build: it can only be saved again or removed.
+    pub unreadable: bool,
 }
 
 /// The wire a server is spoken to over; a stateless transport will join these.
@@ -522,7 +525,7 @@ impl Servers {
         let tools = live.map(|live| live.tools().iter().map(tool_info).collect()).unwrap_or_default();
         let needs_sign_in = needs_sign_in && state == State::Failed;
         let signed_in = row.config.is_remote() && self.sign_ins.as_ref().is_some_and(|store| oauth::has_sign_in(store, &row.name));
-        ServerStatus { transport: Transport::of(&row.config), protocol, era, needs_sign_in, signed_in, server: ServerView::of(&row), state, error, tools }
+        ServerStatus { transport: Transport::of(&row.config), protocol, era, needs_sign_in, signed_in, server: ServerView::of(&row), state, error, tools, unreadable: false }
     }
 
     /// A sign-in that did not finish: the server, unless it connected meanwhile, shows why and still asks to sign in.

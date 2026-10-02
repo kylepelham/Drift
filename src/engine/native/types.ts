@@ -1369,6 +1369,8 @@ export interface components {
             tools: components["schemas"]["ToolInfo"][];
             /** @description How the engine talks to it. */
             transport: components["schemas"]["Transport"];
+            /** @description Its saved definition does not parse in this build: it can only be saved again or removed. */
+            unreadable: boolean;
         };
         /** @description A server as clients see it: every field but the values of its env vars and headers. */
         ServerView: {

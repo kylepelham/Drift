@@ -13,7 +13,7 @@ if (!("localStorage" in globalThis))
 type McpServer = components["schemas"]["ServerStatus"]
 
 function server(name: string, state: McpServer["state"]): McpServer {
-  return { name, config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] }, enabled: state !== "disabled", updatedAt: 1, state, tools: [], transport: "stdio", needsSignIn: false, signedIn: false }
+  return { name, config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] }, enabled: state !== "disabled", readOnlyTrusted: false, updatedAt: 1, state, tools: [], transport: "stdio", needsSignIn: false, signedIn: false, unreadable: false }
 }
 
 test("a server refusing until the user signs in says so instead of showing its raw error", async () => {
@@ -297,6 +297,7 @@ test("rows offer connect or disconnect only where the engine can do it", async (
   const { mcpRuntimeAction, mcpRuntimeKeyAction, nextMcpRowName } = await import("../src/ui/mcp/manager")
   expect(mcpRuntimeAction(server("a", "connected"))).toBe("disconnect")
   expect(mcpRuntimeAction(server("a", "failed"))).toBe("connect")
+  expect(mcpRuntimeAction({ ...server("a", "failed"), unreadable: true }), "a definition this build cannot read is saved again or removed, not connected").toBeUndefined()
   expect(mcpRuntimeAction(server("a", "connecting"))).toBeUndefined()
   expect(mcpRuntimeAction(server("a", "disabled"))).toBeUndefined()
   expect(mcpRuntimeKeyAction(server("a", "connected"), "ArrowLeft")).toBe("disconnect")

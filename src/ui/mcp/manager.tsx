@@ -13,8 +13,9 @@ type RuntimeAction = "connect" | "disconnect"
 type RowKey = "ArrowUp" | "ArrowDown" | "Home" | "End"
 type EditorEntry = { server?: McpServerStatus }
 
-/** Connect and disconnect apply only to an enabled server. */
+/** Connect and disconnect apply only to an enabled server whose definition this build can read. */
 export function mcpRuntimeAction(server: McpServerStatus): RuntimeAction | undefined {
+  if (server.unreadable) return undefined
   if (server.state === "connected") return "disconnect"
   if (server.state === "disconnected" || server.state === "failed") return "connect"
 }
@@ -303,7 +304,7 @@ function ServerRow(props: {
             <Toggle
               label={t("drift.mcp.readOnlyTrusted.label", { name: props.server.name })}
               checked={props.server.readOnlyTrusted}
-              disabled={props.disabled}
+              disabled={props.disabled || props.server.unreadable}
               onChange={() => props.onReadOnlyTrusted(!props.server.readOnlyTrusted)}
             />
             <span>{t("drift.mcp.readOnlyTrusted")}</span>
@@ -342,7 +343,7 @@ function ServerRow(props: {
           <Toggle
             label={t("drift.mcp.enable", { name: props.server.name })}
             checked={props.server.enabled}
-            disabled={props.disabled}
+            disabled={props.disabled || props.server.unreadable}
             onChange={() => props.onEnabled(!props.server.enabled)}
           />
         </div>

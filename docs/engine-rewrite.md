@@ -1127,8 +1127,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   and on demand through rmcp (an earlier approval gate was removed; migration 20 drops its column
   and key). A saved definition this build cannot parse (written by a newer Drift) never takes
   the others down: it is left out of startup and tool lists and shown as a failed row with an
-  empty definition, which the editor can save over (trust cleared) or the user can remove; adding
-  a server under its name is still refused. Their tools join
+  empty definition (`unreadable` on its status), which the editor can save over (trust cleared)
+  or the user can remove; adding a server under its name is still refused, and its switches and
+  connect are refused before anything is written, the manager disabling them. Their tools join
   the registry as `<server>_<tool>` (`mcp::tool::wire_name`: any character outside
   `[A-Za-z0-9_-]` becomes `_`, a name past 60 characters is cut, and a name that had to change,
   that would spell a built-in tool's (`task` + `output`), or that another server's tool spells too
