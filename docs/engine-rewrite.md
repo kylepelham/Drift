@@ -278,8 +278,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - **Triggers**
   - Automatic, before each request in a turn: when the last finished reply since the latest summary
     used at least `context - reply room` tokens (`Model::reply_room`: the output limit, else a
-    quarter of the window, at most 32k; a 4k local model therefore compacts at 3k, not before every
-    step). The UI's context meter uses the same
+    quarter of the window, never more than half a known window nor 32k; a 4k local model therefore
+    compacts at 3k, and a model listing an output limit as large as its window at half, not before
+    every step). A request's `max_tokens` is held to the same half. The UI's context meter uses the same
     sum (`contextStats` in `src/engine/store.ts`), so "until compaction" is where it happens. One
     attempt per step; a failure still lets the request go.
   - Overflow: a provider error recognised as too long (`llm::Error::is_context_overflow`, status

@@ -1208,6 +1208,10 @@ fn output_and_thinking_budgets_are_valid_together() {
     assert_eq!(budgets(&local, None), (1_024, None), "an unknown limit asks for a quarter of a known window");
     local.limit.context = 2_048;
     assert_eq!(budgets(&local, None).0, MIN_ANSWER_TOKENS, "never less than room for an answer");
+    let mut whole = model_with(32_768, false);
+    whole.limit.context = 32_768;
+    assert_eq!(whole.reply_room(), 16_384, "an output limit as large as the window gets half of it");
+    assert_eq!(budgets(&whole, None).0, 16_384, "and asks for no more than that");
     let effort = Some(Reasoning::Effort { level: "high".into() });
     assert_eq!(budgets(&model_with(64_000, true), effort.clone()), (32_000, effort), "an effort passes through at the usual cap");
     for (limit, wanted) in [(4_096, 4_096), (8_192, 8_000), (128_000, 127_000), (2_048, 1_024)] {

@@ -354,10 +354,10 @@ const maxOutputTokens = 32000
 const compactionReserveTokens = 20000
 const percentScale = 100
 
-/** Mirrors the engine's `Model::reply_room`: the output limit, else a quarter of a known window, at most the cap. */
+/** Mirrors the engine's `Model::reply_room`: the output limit, else a quarter of a known window; never over half a known window or the cap. */
 export function replyRoom(output: number, context: number) {
   const room = output || (context ? Math.floor(context / 4) : maxOutputTokens)
-  return Math.min(room, maxOutputTokens)
+  return Math.min(room, context ? Math.floor(context / 2) : room, maxOutputTokens)
 }
 
 /** Below this window the system prompt and tool schemas leave little room for work; mirrors `SMALL_CONTEXT`. */

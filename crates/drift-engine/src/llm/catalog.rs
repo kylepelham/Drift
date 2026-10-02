@@ -91,12 +91,14 @@ pub const SMALL_CONTEXT: u64 = 16_384;
 impl Model {
     /// Room kept for the reply, and the most a request asks for: the model's output limit when known,
     /// else a quarter of its window (a small local model's whole window would otherwise go to a reply
-    /// it can never give), never more than [`MAX_REPLY_TOKENS`].
+    /// it can never give), never more than half a known window (an output limit as large as the window
+    /// would leave the prompt nothing) nor [`MAX_REPLY_TOKENS`].
     pub fn reply_room(&self) -> u64 {
         let room = match (self.limit.output, self.limit.context) {
             (0, 0) => MAX_REPLY_TOKENS,
             (0, context) => context / 4,
-            (output, _) => output,
+            (output, 0) => output,
+            (output, context) => output.min(context / 2),
         };
         room.min(MAX_REPLY_TOKENS)
     }

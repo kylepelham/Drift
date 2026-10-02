@@ -822,6 +822,8 @@ test("the meter keeps a quarter of a small window for the reply when the output 
   expect(replyRoom(0, 4_096)).toBe(1_024)
   expect(replyRoom(0, 0)).toBe(32_000)
   expect(replyRoom(64_000, 200_000)).toBe(32_000)
+  expect(replyRoom(32_768, 32_768)).toBe(16_384)
+  expect(replyRoom(8_192, 0)).toBe(8_192)
   expect(modelDetail("ollama", { id: "llama", limit: { context: 4_096 } })).toContain("too small")
   expect(modelDetail("openai", { id: "gpt", limit: { context: 200_000 } })).toBeUndefined()
 })

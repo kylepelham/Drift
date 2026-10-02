@@ -1398,7 +1398,9 @@ pub(super) fn payload_hash(prompt: &Prompt) -> String {
 fn budgets(model: &Model, requested: Option<Reasoning>) -> (u32, Option<Reasoning>) {
     // An unknown output limit asks for a quarter of a known window: a server may refuse a request whose reply could not fit.
     let unknown = u32::try_from(model.reply_room()).unwrap_or(MAX_OUTPUT_TOKENS).max(MIN_ANSWER_TOKENS);
-    let model_limit = u32::try_from(model.limit.output).ok().filter(|limit| *limit > 0).unwrap_or(unknown);
+    // Never more than half a known window, however large the listed output limit: the prompt needs the rest.
+    let half = u32::try_from(model.limit.context / 2).ok().filter(|half| *half > 0).unwrap_or(u32::MAX).max(MIN_ANSWER_TOKENS);
+    let model_limit = u32::try_from(model.limit.output).ok().filter(|limit| *limit > 0).map_or(unknown, |limit| limit.min(half));
     let wanted = match requested.filter(|_| model.reasoning) {
         Some(Reasoning::Budget { tokens }) => tokens,
         effort => return (model_limit.min(MAX_OUTPUT_TOKENS), effort),

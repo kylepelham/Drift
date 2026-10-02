@@ -73,6 +73,9 @@ fn a_small_window_compacts_only_when_it_is_actually_filling() {
     assert!(!overflowing(&model(32_000, 0), &used(20_000)));
     assert!(overflowing(&model(200_000, 64_000), &used(170_000)), "a known output limit is the room, at most 32k");
     assert!(!overflowing(&model(0, 0), &used(1_000_000)), "an unknown window never compacts on its own");
+    assert!(!overflowing(&model(32_768, 32_768), &used(8_000)), "an output limit as large as the window still leaves the prompt half");
+    assert!(!overflowing(&model(16_000, 64_000), &used(4_000)));
+    assert!(overflowing(&model(32_768, 32_768), &used(17_000)));
 }
 
 #[tokio::test]
