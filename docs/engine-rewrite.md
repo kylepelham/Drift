@@ -1368,12 +1368,17 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   `~/.config/drift/drift.json`, built-in formatters run from PATH and a project's `false` need no
   say-so (as custom providers come only from the user's file, opening a cloned repository must not
   run what it names). A write such a command would run on asks, a permission card of kind
-  `project-commands` listing the ones not yet answered (`check lint: eslint $FILE; formatter
-  prettier: C:\repo\node_modules\.bin\prettier.cmd`); a write none of them covers asks nothing.
-  Answers are per command line: always is kept for the workspace (setting
-  `trustedCommands:<workspace>`, the list of allowed lines), so a changed command or a newly
-  installed program asks again; once allows those lines for the session; deny skips the project's
-  commands for the session, built-in formatters from PATH and the user's own commands still running. Subagents take the answer of the session that delegated
+  `project-commands` listing the ones not yet answered; formatters are asked about after the call
+  (`formatter prettier: C:\repo\node_modules\.bin\prettier.cmd (3f2a9c10)`) and checks at the step's
+  end (`check lint: eslint $FILE`), each only for the files it runs on, and a write none of them
+  covers asks nothing. Answers are per command line, and each command runs or not on its own line's
+  answer: always is kept for the workspace (setting `trustedCommands:<workspace>`, the list of
+  allowed lines), once allows those lines for the session, deny skips them for the session; refusing
+  the project's formatter never stops its checks, nor the reverse. A program's line carries a hash
+  of the file, so one replaced at the same path asks again (an npm shim stays the same across
+  package versions, so an upgrade through it does not). A refused project copy is skipped, never
+  replaced by one on PATH, which may be another version. Built-in formatters from PATH and the
+  user's own commands always run. Subagents take the answer of the session that delegated
   to them, along the same lineage as permission approvals, so a delegated task does not ask again.
   A permission rule of that kind (pattern `*`) allows them without asking.
 - **Permissions** resolve in order: session "always" answers, the workspace's `drift.json`

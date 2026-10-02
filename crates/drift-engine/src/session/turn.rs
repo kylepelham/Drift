@@ -1038,10 +1038,9 @@ impl Engine {
         files.sort();
         files.dedup();
         let asker = super::trust::Asker { message_id: &scope.message.id, call_id: call_id_of(&row), abort: scope.abort };
-        let checks = match self.project_commands_trusted(scope.plan, asker, &files).await {
-            true => crate::edit::check::resolve(&scope.plan.config.checks),
-            false => crate::edit::check::resolve(&scope.plan.config.without_project_commands().1),
-        };
+        let lines = scope.plan.config.project_command_lines("check", &files);
+        let allowed = self.project_commands_allowed(scope.plan, asker, lines).await;
+        let checks = crate::edit::check::resolve(&scope.plan.config.only_allowed(|line| allowed.contains(line)).1);
         if checks.is_empty() || scope.abort.is_cancelled() {
             return;
         }
@@ -1280,9 +1279,14 @@ impl Engine {
     async fn after_write(&self, scope: &CallScope<'_>, call_id: &str, mut text: String, metadata: serde_json::Value) -> (String, serde_json::Value) {
         let asker = super::trust::Asker { message_id: &scope.message.id, call_id, abort: scope.abort };
         let files: Vec<PathBuf> = metadata["files"].as_array().into_iter().flatten().filter_map(|file| file.as_str()).map(PathBuf::from).collect();
-        let trusted = self.project_commands_trusted(scope.plan, asker, &files).await;
-        let overrides = if trusted { scope.plan.config.formatters.clone() } else { scope.plan.config.without_project_commands().0 };
-        let formatted = self.format_written(scope.plan, &metadata, &overrides, trusted).await;
+        // Formatters are asked about apart from checks, so refusing one never stops the other.
+        let config = &scope.plan.config;
+        let programs = crate::edit::format::project_programs(&files, &scope.plan.workspace, &crate::edit::format::resolve(&config.formatters));
+        let lines: Vec<String> = config.project_command_lines("formatter", &files).into_iter().chain(programs.iter().cloned()).collect();
+        let allowed = self.project_commands_allowed(scope.plan, asker, lines).await;
+        let overrides = config.only_allowed(|line| allowed.contains(line)).0;
+        let local: Vec<String> = programs.into_iter().filter(|line| allowed.contains(line)).collect();
+        let formatted = self.format_written(scope.plan, &metadata, &overrides, &local).await;
         if !formatted.is_empty() {
             text = format!("{text}\n\n{}", reformatted_note(&formatted));
         }
@@ -1290,7 +1294,7 @@ impl Engine {
     }
 
     /// Runs the workspace's formatters over whatever a mutating tool reported writing; names the files they changed.
-    async fn format_written(&self, plan: &Plan, metadata: &serde_json::Value, overrides: &std::collections::BTreeMap<String, crate::config::FormatterConfig>, local: bool) -> Vec<String> {
+    async fn format_written(&self, plan: &Plan, metadata: &serde_json::Value, overrides: &std::collections::BTreeMap<String, crate::config::FormatterConfig>, local: &[String]) -> Vec<String> {
         let formatters = crate::edit::format::resolve(overrides);
         let mut formatted = Vec::new();
         for file in metadata["files"].as_array().into_iter().flatten().filter_map(|f| f.as_str()) {

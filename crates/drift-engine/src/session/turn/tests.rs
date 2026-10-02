@@ -1721,6 +1721,38 @@ async fn a_formatter_installed_in_the_project_runs_only_once_allowed() {
     assert!(!marker.exists(), "a binary the repository brings never runs without the user's say-so");
 }
 
+#[tokio::test]
+async fn refusing_the_projects_formatter_leaves_its_checks_to_their_own_answer() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    let ws = h._dir.join("ws");
+    let (formatted, checked) = (h._dir.join("formatted.log"), h._dir.join("checked.log"));
+    std::fs::create_dir_all(ws.join("node_modules/.bin")).unwrap();
+    std::fs::write(ws.join("package.json"), r#"{ "devDependencies": { "prettier": "^3" } }"#).unwrap();
+    let (shim, body) = if cfg!(windows) { ("prettier.cmd", format!("@echo ran>> \"{}\"\r\n", formatted.display())) } else { ("prettier", format!("#!/bin/sh\necho ran >> '{}'\n", formatted.display())) };
+    std::fs::write(ws.join("node_modules/.bin").join(shim), body).unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(ws.join("node_modules/.bin").join(shim), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let (shell, flag, run) = if cfg!(windows) { ("cmd", "/c", format!("echo ran>> {}", checked.display())) } else { ("sh", "-c", format!("echo ran >> '{}'", checked.display())) };
+    std::fs::write(ws.join("drift.json"), json!({ "checks": { "mark": { "command": [shell, flag, run], "extensions": [".ts"] } } }).to_string()).unwrap();
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider.push(tool_call("write", r#"{"path": "a.ts", "content": "let a = 1\n"}"#)).push(text("one"));
+    h.engine.submit(&h.session.id, prompt("write a")).await.await_ok();
+    let formatter = next_ask(&mut rx).await;
+    assert!(formatter.ask.pattern.starts_with("formatter prettier: "), "{}", formatter.ask.pattern);
+    h.engine.permissions.reply(&h.engine.hub, &formatter.id, ReplyBody { reply: Reply::Deny, pattern: None, message: None }).unwrap();
+    let check = next_ask(&mut rx).await;
+    assert!(check.ask.pattern.starts_with("check mark: "), "asked about apart from the formatter: {}", check.ask.pattern);
+    h.engine.permissions.reply(&h.engine.hub, &check.id, ReplyBody { reply: Reply::Always, pattern: None, message: None }).unwrap();
+    until_idle(&h).await;
+    h.provider.push(tool_call("write", r#"{"path": "b.ts", "content": "let b = 1\n"}"#)).push(text("two"));
+    h.engine.submit(&h.session.id, prompt("write b")).await.await_ok();
+    until_idle(&h).await;
+    assert!(h.engine.permissions.pending().is_empty());
+    assert!(!formatted.exists(), "the refused formatter never runs");
+    assert_eq!(std::fs::read_to_string(&checked).unwrap().lines().count(), 2, "the allowed check runs after both writes");
+}
+
 async fn until_session_idle(h: &Harness, session_id: &str) {
     for _ in 0..1000 {
         if !h.engine.turns.is_running(session_id) {

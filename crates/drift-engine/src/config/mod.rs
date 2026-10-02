@@ -355,44 +355,49 @@ impl Config {
         }
     }
 
-    /// The commands only the project's drift.json names, as the user is asked to trust them: `check lint: eslint $FILE`.
-    pub fn project_command_lines(&self) -> Vec<String> {
-        let command = |key: &str| -> Option<String> {
-            let (kind, name) = key.split_once(':')?;
-            let parts = match kind {
-                "check" => match self.checks.get(name)? {
-                    CheckConfig::Custom { command, .. } => command,
-                    CheckConfig::Enabled(_) => return None,
-                },
-                _ => match self.formatters.get(name)? {
-                    FormatterConfig::Custom { command, .. } => command,
-                    FormatterConfig::Enabled(_) => return None,
-                },
-            };
-            Some(format!("{kind} {name}: {}", parts.join(" ")))
+    /// One of the project's own commands as the user is asked to trust it (`check lint: eslint $FILE`),
+    /// with the extensions it runs on.
+    fn project_line(&self, key: &str) -> Option<(String, &[String])> {
+        let (kind, name) = key.split_once(':')?;
+        let (command, extensions) = match kind {
+            "check" => match self.checks.get(name)? {
+                CheckConfig::Custom { command, extensions } => (command, extensions),
+                CheckConfig::Enabled(_) => return None,
+            },
+            _ => match self.formatters.get(name)? {
+                FormatterConfig::Custom { command, extensions } => (command, extensions),
+                FormatterConfig::Enabled(_) => return None,
+            },
         };
-        self.project_commands.iter().filter_map(|key| command(key)).collect()
+        Some((format!("{kind} {name}: {}", command.join(" ")), extensions))
     }
 
-    /// Whether any of the project's own commands covers one of `files`, so there is something to ask about.
-    pub fn project_commands_cover(&self, files: &[PathBuf]) -> bool {
+    /// The project's own commands of `kind` (`check` or `formatter`) that would run on one of `files`.
+    pub fn project_command_lines(&self, kind: &str, files: &[PathBuf]) -> Vec<String> {
         let covers = |extensions: &[String]| {
             files.iter().any(|file| {
                 let name = file.file_name().map(|name| name.to_string_lossy().to_lowercase()).unwrap_or_default();
                 extensions.iter().any(|ext| name.ends_with(&ext.to_lowercase()))
             })
         };
-        self.project_commands.iter().filter_map(|key| key.split_once(':')).any(|(kind, name)| match kind {
-            "check" => matches!(self.checks.get(name), Some(CheckConfig::Custom { extensions, .. }) if covers(extensions)),
-            _ => matches!(self.formatters.get(name), Some(FormatterConfig::Custom { extensions, .. }) if covers(extensions)),
-        })
+        self.project_commands
+            .iter()
+            .filter(|key| key.split_once(':').is_some_and(|(of, _)| of == kind))
+            .filter_map(|key| self.project_line(key))
+            .filter(|(_, extensions)| covers(extensions))
+            .map(|(line, _)| line)
+            .collect()
     }
 
-    /// Formatters and checks with the project's own commands taken out: built-in formatters and the user's own still run.
-    pub fn without_project_commands(&self) -> (BTreeMap<String, FormatterConfig>, BTreeMap<String, CheckConfig>) {
-        let untrusted = |kind: &str, name: &String| self.project_commands.contains(&format!("{kind}:{name}"));
-        let formatters = self.formatters.iter().filter(|(name, _)| !untrusted("formatter", name)).map(|(n, c)| (n.clone(), c.clone())).collect();
-        let checks = self.checks.iter().filter(|(name, _)| !untrusted("check", name)).map(|(n, c)| (n.clone(), c.clone())).collect();
+    /// Formatters and checks without the project's own commands the user has not allowed (`allowed`
+    /// judges each by its line); built-in formatters and the user's own always stay.
+    pub fn only_allowed(&self, allowed: impl Fn(&str) -> bool) -> (BTreeMap<String, FormatterConfig>, BTreeMap<String, CheckConfig>) {
+        let keeps = |kind: &str, name: &String| {
+            let key = format!("{kind}:{name}");
+            !self.project_commands.contains(&key) || self.project_line(&key).is_some_and(|(line, _)| allowed(&line))
+        };
+        let formatters = self.formatters.iter().filter(|(name, _)| keeps("formatter", name)).map(|(n, c)| (n.clone(), c.clone())).collect();
+        let checks = self.checks.iter().filter(|(name, _)| keeps("check", name)).map(|(n, c)| (n.clone(), c.clone())).collect();
         (formatters, checks)
     }
 
@@ -623,12 +628,15 @@ mod tests {
         write(&home, ".config/drift/drift.json", r#"{ "checks": { "mine": { "command": ["tsc"], "extensions": [".ts"] }, "shared": { "command": ["eslint", "$FILE"], "extensions": [".ts"] } } }"#);
         write(&ws, "drift.json", r#"{ "checks": { "shared": false, "theirs": { "command": ["make", "lint"], "extensions": [".c"] } }, "formatters": { "prettier": { "command": ["./fmt.sh", "$FILE"], "extensions": [".ts"] }, "rustfmt": false } }"#);
         let config = Config::load_with_home(&ws, Some(&home));
-        assert_eq!(config.project_command_lines(), ["check theirs: make lint", "formatter prettier: ./fmt.sh $FILE"]);
-        assert!(config.project_commands_cover(&[ws.join("main.C")]) && config.project_commands_cover(&[ws.join("app.ts")]));
-        assert!(!config.project_commands_cover(&[ws.join("notes.md")]), "nothing of the project's would run on it, so nothing to ask");
-        let (formatters, checks) = config.without_project_commands();
+        assert_eq!(config.project_command_lines("check", &[ws.join("main.C")]), ["check theirs: make lint"]);
+        assert_eq!(config.project_command_lines("formatter", &[ws.join("app.ts")]), ["formatter prettier: ./fmt.sh $FILE"]);
+        assert!(config.project_command_lines("check", &[ws.join("app.ts")]).is_empty(), "a check is asked about only for files it runs on");
+        assert!(config.project_command_lines("formatter", &[ws.join("notes.md")]).is_empty(), "nothing of the project's would run on it, so nothing to ask");
+        let (formatters, checks) = config.only_allowed(|_| false);
         assert_eq!(checks.keys().collect::<Vec<_>>(), ["mine", "shared"], "the user's own run; a project's `false` still turns one off");
         assert!(!formatters.contains_key("prettier") && formatters.contains_key("rustfmt"), "the built-in prettier comes back; a project's `false` stands");
+        let (formatters, checks) = config.only_allowed(|line| line.starts_with("check "));
+        assert!(checks.contains_key("theirs") && !formatters.contains_key("prettier"), "each command is judged on its own");
         std::fs::remove_dir_all(root).ok();
     }
 
