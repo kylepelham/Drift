@@ -95,10 +95,27 @@ impl ServerConfig {
         }
     }
 
+    /// What the server is, as a vouch in `readOnlyMcp` names it: the command line, each argument
+    /// with a space or quote in quotes, or the URL.
+    pub fn runs(&self) -> String {
+        match self {
+            Self::Stdio { command, args, .. } => std::iter::once(command).chain(args).map(|word| quoted(word)).collect::<Vec<_>>().join(" "),
+            Self::Http { url, .. } | Self::Sse { url, .. } => url.clone(),
+        }
+    }
+
     /// How long one tool call may take before it fails; unset, it runs until done or stopped.
     pub fn timeout(&self) -> Option<Duration> {
         let (Self::Stdio { timeout_seconds, .. } | Self::Http { timeout_seconds, .. } | Self::Sse { timeout_seconds, .. }) = self;
         timeout_seconds.filter(|s| *s > 0).map(Duration::from_secs)
+    }
+}
+
+fn quoted(word: &str) -> String {
+    if word.is_empty() || word.contains(|c: char| c.is_whitespace() || c == '"') {
+        format!("\"{}\"", word.replace('"', "\\\""))
+    } else {
+        word.to_string()
     }
 }
 
@@ -244,6 +261,8 @@ struct Live {
     timeout: Option<Duration>,
     /// The definition it was opened from; a client of another definition never stands in for this one.
     hash: String,
+    /// What it runs ([`ServerConfig::runs`]), which a `readOnlyMcp` vouch must name.
+    runs: String,
     since: Instant,
     /// A stdio server's process tree; it dies with the last handle to this connection.
     tree: Option<Tree>,
@@ -846,7 +865,7 @@ async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>, known: O
         true => within("list its prompts", async { service.list_all_prompts().await.map_err(|e| e.to_string()) }).await.unwrap_or_default(),
         false => Vec::new(),
     };
-    Ok(Live { service, era, transport: Transport::of(config), listing: Mutex::new(Listing::new(tools, ttl)), instructions, prompts, resources, timeout: config.timeout(), hash, since: Instant::now(), tree })
+    Ok(Live { service, era, transport: Transport::of(config), listing: Mutex::new(Listing::new(tools, ttl)), instructions, prompts, resources, timeout: config.timeout(), hash, runs: config.runs(), since: Instant::now(), tree })
 }
 
 /// Every page of the server's tools, and the shortest freshness any page gave.

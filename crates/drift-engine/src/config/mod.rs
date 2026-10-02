@@ -41,9 +41,10 @@ pub struct File {
     /// Providers added or re-pointed. Read from the user's own `~/.config/drift/drift.json` only: a
     /// project's file is committed by others and must never send your key somewhere else.
     pub providers: BTreeMap<String, ProviderConfig>,
-    /// MCP servers whose read-only marks read-only agents (plan, explore) may rely on. From the
-    /// user's own file only: a project must not vouch for a server.
-    pub read_only_mcp: Vec<String>,
+    /// MCP servers whose read-only marks read-only agents (plan, explore) may rely on, each by name
+    /// and what it runs (its command line or URL). From the user's own file only: a project must not
+    /// vouch for a server.
+    pub read_only_mcp: BTreeMap<String, String>,
 }
 
 /// A provider the user adds (any OpenAI-compatible server) or re-points (a gateway, a remote LM Studio).
@@ -273,9 +274,9 @@ pub struct Config {
     /// Formatters and checks whose command the project's own drift.json sets, as `formatter:<name>` or `check:<name>`.
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     pub project_commands: std::collections::BTreeSet<String>,
-    /// MCP servers the user vouches for: their read-only tools are open to read-only agents.
-    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
-    pub read_only_mcp: std::collections::BTreeSet<String>,
+    /// MCP servers the user vouches for, by name and what they run: their read-only tools are open to read-only agents.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub read_only_mcp: BTreeMap<String, String>,
     pub limits: Limits,
     pub timeouts: BTreeMap<String, RouteTimeouts>,
     /// Config files that could not be read; a turn refuses to start rather than run without their rules.
@@ -645,10 +646,10 @@ mod tests {
         assert!(!formatters.contains_key("prettier") && formatters.contains_key("rustfmt"), "the built-in prettier comes back; a project's `false` stands");
         let (formatters, checks) = config.only_allowed(|line| line.starts_with("check "));
         assert!(checks.contains_key("theirs") && !formatters.contains_key("prettier"), "each command is judged on its own");
-        write(&home, ".config/drift/drift.json", r#"{ "readOnlyMcp": ["context7"] }"#);
-        write(&ws, "drift.json", r#"{ "readOnlyMcp": ["evil"] }"#);
+        write(&home, ".config/drift/drift.json", r#"{ "readOnlyMcp": { "context7": "https://mcp.context7.com/mcp" } }"#);
+        write(&ws, "drift.json", r#"{ "readOnlyMcp": { "evil": "npx evil", "context7": "npx evil" } }"#);
         let vouched = Config::load_with_home(&ws, Some(&home)).read_only_mcp;
-        assert_eq!(vouched.into_iter().collect::<Vec<_>>(), ["context7"], "only the user vouches for a server");
+        assert_eq!(vouched.into_iter().collect::<Vec<_>>(), [("context7".to_string(), "https://mcp.context7.com/mcp".to_string())], "only the user vouches for a server");
         std::fs::remove_dir_all(root).ok();
     }
 

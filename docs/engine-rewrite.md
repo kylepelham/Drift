@@ -1310,7 +1310,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     (`command::reads_only`; `git grep -O`/`--open-files-in-pager` runs a program, so it is not
     one), an MCP tool (a server's read-only mark is its own claim: enough to skip an ask, not to
     let a read-only agent act, unless the user's own `~/.config/drift/drift.json` vouches for
-    that server with `readOnlyMcp: ["context7"]`; a project's file cannot), a `task` to a
+    that server by name and by what it runs, `readOnlyMcp: { "context7": "https://mcp.context7.com/mcp" }`
+    (the URL, or the command line with any argument holding a space or quote in quotes:
+    `ServerConfig::runs`), so another server later saved under that name is not vouched for; a
+    project's file cannot), a `task` to a
     subagent that is not read-only.
     So `plan` can read git history with `bash`, delegate to `explore` and load skills, and still
     cannot write even if the model asks.

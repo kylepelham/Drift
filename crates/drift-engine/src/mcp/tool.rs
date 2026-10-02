@@ -134,9 +134,10 @@ impl Tool for McpTool {
     }
 
     /// A server's read-only mark is its own claim, enough to skip an ask; a read-only agent relies on
-    /// it only for a server the user vouched for in their own drift.json (`readOnlyMcp`).
+    /// it only for a server the user vouched for in their own drift.json (`readOnlyMcp`), by name and
+    /// by what it runs, so another server later saved under that name is not vouched for.
     fn stays_read_only(&self, ctx: &Context, _input: &Value) -> bool {
-        self.read_only() && ctx.config.read_only_mcp.contains(&self.server)
+        self.read_only() && ctx.config.read_only_mcp.get(&self.server) == Some(&self.pinned.runs)
     }
 
     fn spec(&self) -> ToolSpec {

@@ -17,6 +17,14 @@ fn engine() -> Arc<crate::Engine> {
     crate::Engine::open_with(&dir, crate::Options { file_credentials: true, ..Default::default() }).unwrap()
 }
 
+#[test]
+fn what_a_server_runs_is_its_command_line_or_url() {
+    let stdio = ServerConfig::Stdio { command: "npx".into(), args: vec!["-y".into(), "my server".into(), "".into()], env: Default::default(), cwd: None, timeout_seconds: None };
+    assert_eq!(stdio.runs(), r#"npx -y "my server" """#);
+    let http = ServerConfig::Http { url: "https://mcp.example.com/mcp".into(), headers: Default::default(), oauth: None, timeout_seconds: None };
+    assert_eq!(http.runs(), "https://mcp.example.com/mcp");
+}
+
 #[tokio::test]
 async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
     let engine = engine();
@@ -53,9 +61,11 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
     assert_eq!(shout.run(&ctx, json!({ "text": "fail" })).await.unwrap_err().0, "asked to fail");
 
     assert!(!echo.stays_read_only(&ctx, &json!({})), "a server's own read-only mark does not open it to read-only agents");
-    let vouched = Context { config: Arc::new(crate::config::Config { read_only_mcp: ["echo".to_string()].into(), ..Default::default() }), ..context(&engine) };
+    let vouch = |runs: String| Context { config: Arc::new(crate::config::Config { read_only_mcp: [("echo".to_string(), runs)].into(), ..Default::default() }), ..context(&engine) };
+    let vouched = vouch(echo_config().runs());
     assert!(echo.stays_read_only(&vouched, &json!({})), "the user vouched for this server");
     assert!(!shout.stays_read_only(&vouched, &json!({})), "a tool it does not mark read-only still is not");
+    assert!(!echo.stays_read_only(&vouch("npx some-other-server".into()), &json!({})), "a vouch for what another server under this name ran covers nothing");
 
     assert!(engine.mcp.disconnect("echo", &engine.store, &hub).await);
     assert_eq!(engine.mcp.status_of(saved).state, State::Disconnected);
