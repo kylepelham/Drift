@@ -1262,6 +1262,8 @@ export const drift = {
   "drift.mcp.remove": "移除",
   "drift.mcp.confirmRemove": "确认移除？",
   "drift.mcp.enable": "启用 {{name}}",
+  "drift.mcp.readOnlyTrusted": "规划和探索可以使用其只读工具",
+  "drift.mcp.readOnlyTrusted.label": "允许规划和探索使用 {{name}} 的只读工具",
   "drift.mcp.status.connecting": "正在连接...",
   "drift.mcp.status.disconnecting": "正在断开连接...",
   "drift.message.compactedSummary": "上下文已压缩 · 摘要",

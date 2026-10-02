@@ -1203,6 +1203,8 @@ export const drift = {
   "drift.mcp.remove": "제거",
   "drift.mcp.confirmRemove": "제거할까요?",
   "drift.mcp.enable": "{{name}} 활성화",
+  "drift.mcp.readOnlyTrusted": "계획과 탐색이 이 서버의 읽기 전용 도구를 사용할 수 있음",
+  "drift.mcp.readOnlyTrusted.label": "계획과 탐색이 {{name}}의 읽기 전용 도구를 사용하도록 허용",
   "drift.mcp.status.connecting": "연결 중...",
   "drift.mcp.status.disconnecting": "연결 해제 중...",
   "drift.message.compactedSummary": "컨텍스트 압축됨 · 요약",

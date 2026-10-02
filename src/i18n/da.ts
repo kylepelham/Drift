@@ -1280,6 +1280,8 @@ export const drift = {
   "drift.mcp.remove": "Fjern",
   "drift.mcp.confirmRemove": "Fjern?",
   "drift.mcp.enable": "Aktivér {{name}}",
+  "drift.mcp.readOnlyTrusted": "Plan og Udforsk må bruge dens skrivebeskyttede værktøjer",
+  "drift.mcp.readOnlyTrusted.label": "Lad Plan og Udforsk bruge de skrivebeskyttede værktøjer fra {{name}}",
   "drift.mcp.status.connecting": "forbinder...",
   "drift.mcp.status.disconnecting": "afbryder forbindelsen...",
   "drift.message.compactedSummary": "Kontekst komprimeret · resumé",

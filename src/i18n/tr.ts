@@ -1290,6 +1290,8 @@ export const drift = {
   "drift.mcp.remove": "Kaldır",
   "drift.mcp.confirmRemove": "Kaldırılsın mı?",
   "drift.mcp.enable": "{{name}} etkinleştir",
+  "drift.mcp.readOnlyTrusted": "Planlama ve Keşif salt okunur araçlarını kullanabilir",
+  "drift.mcp.readOnlyTrusted.label": "Planlama ve Keşif'in {{name}} salt okunur araçlarını kullanmasına izin ver",
   "drift.mcp.status.connecting": "bağlanıyor...",
   "drift.mcp.status.disconnecting": "bağlantı kesiliyor...",
   "drift.message.compactedSummary": "Bağlam sıkıştırıldı · özet",

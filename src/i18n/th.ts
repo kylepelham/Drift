@@ -1275,6 +1275,8 @@ export const drift = {
   "drift.mcp.remove": "ลบ",
   "drift.mcp.confirmRemove": "ลบหรือไม่?",
   "drift.mcp.enable": "เปิดใช้ {{name}}",
+  "drift.mcp.readOnlyTrusted": "วางแผนและสำรวจใช้เครื่องมือแบบอ่านอย่างเดียวของเซิร์ฟเวอร์นี้ได้",
+  "drift.mcp.readOnlyTrusted.label": "อนุญาตให้วางแผนและสำรวจใช้เครื่องมือแบบอ่านอย่างเดียวของ {{name}}",
   "drift.mcp.status.connecting": "กำลังเชื่อมต่อ...",
   "drift.mcp.status.disconnecting": "กำลังตัดการเชื่อมต่อ...",
   "drift.message.compactedSummary": "ย่อบริบทแล้ว · สรุป",

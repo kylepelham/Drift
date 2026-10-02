@@ -1227,6 +1227,8 @@ export const drift = {
   "drift.mcp.remove": "Supprimer",
   "drift.mcp.confirmRemove": "Supprimer ?",
   "drift.mcp.enable": "Activer {{name}}",
+  "drift.mcp.readOnlyTrusted": "Planification et Exploration peuvent utiliser ses outils en lecture seule",
+  "drift.mcp.readOnlyTrusted.label": "Autoriser Planification et Exploration à utiliser les outils en lecture seule de {{name}}",
   "drift.mcp.status.connecting": "connexion...",
   "drift.mcp.status.disconnecting": "déconnexion...",
   "drift.message.compactedSummary": "Contexte compacté · résumé",

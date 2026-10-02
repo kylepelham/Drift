@@ -1293,6 +1293,8 @@ export const drift = {
   "drift.mcp.remove": "Видалити",
   "drift.mcp.confirmRemove": "Видалити?",
   "drift.mcp.enable": "Увімкнути {{name}}",
+  "drift.mcp.readOnlyTrusted": "Планування і Дослідження можуть використовувати його інструменти лише для читання",
+  "drift.mcp.readOnlyTrusted.label": "Дозволити Плануванню і Дослідженню використовувати інструменти лише для читання з {{name}}",
   "drift.mcp.status.connecting": "підключення...",
   "drift.mcp.status.disconnecting": "відключення...",
   "drift.message.compactedSummary": "Контекст стиснено · підсумок",

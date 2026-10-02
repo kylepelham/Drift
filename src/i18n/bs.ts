@@ -1288,6 +1288,8 @@ export const drift = {
   "drift.mcp.remove": "Ukloni",
   "drift.mcp.confirmRemove": "Ukloniti?",
   "drift.mcp.enable": "Omogući {{name}}",
+  "drift.mcp.readOnlyTrusted": "Planiranje i Istraživanje smiju koristiti njegove alate samo za čitanje",
+  "drift.mcp.readOnlyTrusted.label": "Dozvoli da Planiranje i Istraživanje koriste alate samo za čitanje servera {{name}}",
   "drift.mcp.status.connecting": "povezivanje...",
   "drift.mcp.status.disconnecting": "prekidanje veze...",
   "drift.message.compactedSummary": "Kontekst sažet · sažetak",

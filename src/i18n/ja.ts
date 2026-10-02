@@ -1205,6 +1205,8 @@ export const drift = {
   "drift.mcp.remove": "削除",
   "drift.mcp.confirmRemove": "削除しますか？",
   "drift.mcp.enable": "{{name}}を有効化",
+  "drift.mcp.readOnlyTrusted": "計画と探索がこのサーバーの読み取り専用ツールを使用できます",
+  "drift.mcp.readOnlyTrusted.label": "計画と探索に{{name}}の読み取り専用ツールの使用を許可",
   "drift.mcp.status.connecting": "接続中...",
   "drift.mcp.status.disconnecting": "切断中...",
   "drift.message.compactedSummary": "コンテキスト圧縮済み · 要約",

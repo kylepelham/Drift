@@ -1221,6 +1221,8 @@ export const drift = {
   "drift.mcp.remove": "Entfernen",
   "drift.mcp.confirmRemove": "Entfernen?",
   "drift.mcp.enable": "{{name}} aktivieren",
+  "drift.mcp.readOnlyTrusted": "Planen und Erkunden dürfen seine schreibgeschützten Werkzeuge nutzen",
+  "drift.mcp.readOnlyTrusted.label": "Planen und Erkunden die schreibgeschützten Werkzeuge von {{name}} nutzen lassen",
   "drift.mcp.status.connecting": "Verbindung wird hergestellt...",
   "drift.mcp.status.disconnecting": "Verbindung wird getrennt...",
   "drift.message.compactedSummary": "Kontext komprimiert · Zusammenfassung",

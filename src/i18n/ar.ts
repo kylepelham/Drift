@@ -1196,6 +1196,8 @@ export const drift = {
   "drift.mcp.remove": "إزالة",
   "drift.mcp.confirmRemove": "إزالة؟",
   "drift.mcp.enable": "تمكين {{name}}",
+  "drift.mcp.readOnlyTrusted": "يمكن لوكيلَي التخطيط والاستكشاف استخدام أدواته للقراءة فقط",
+  "drift.mcp.readOnlyTrusted.label": "السماح لوكيلَي التخطيط والاستكشاف باستخدام أدوات القراءة فقط في {{name}}",
   "drift.mcp.status.connecting": "جارٍ الاتصال...",
   "drift.mcp.status.disconnecting": "جارٍ قطع الاتصال...",
   "drift.message.compactedSummary": "تم ضغط السياق · ملخص",
