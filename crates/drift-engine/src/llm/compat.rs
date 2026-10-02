@@ -200,9 +200,12 @@ fn message(message: &ChatMessage) -> Vec<Value> {
 }
 
 /// Thinking models (Kimi, GLM, DeepSeek) want their `reasoning_content` back within the tool loop they
-/// are in; from before the latest prompt it is dropped, as their APIs ignore or refuse it there.
+/// are in; from before the prompt that started it, it is dropped, as their APIs ignore or refuse it
+/// there. A `user` message straight after tool results (an image's caption, a prompt or task result
+/// steered in) is inside the loop, not the start of a new one.
 fn keep_loop_reasoning(messages: &mut [Value]) {
-    let prompt = messages.iter().rposition(|m| m["role"] == "user").unwrap_or(0);
+    let starts_loop = |i: usize| messages[i]["role"] == "user" && (i == 0 || messages[i - 1]["role"] != "tool");
+    let prompt = (0..messages.len()).rev().find(|i| starts_loop(*i)).unwrap_or(0);
     for message in &mut messages[..prompt] {
         if let Some(fields) = message.as_object_mut() {
             fields.remove("reasoning_content");
@@ -523,10 +526,14 @@ mod tests {
         };
         let result = |text: &str| ChatMessage { role: Role::User, blocks: vec![Block::ToolResult { call_id: format!("c_{text}"), content: "r".into(), is_error: false }] };
         let prompt = |text: &str| ChatMessage { role: Role::User, blocks: vec![Block::Text(text.into())] };
-        let messages = vec![prompt("one"), thinking("old"), result("old"), ChatMessage { role: Role::Assistant, blocks: vec![Block::Text("done".into())] }, prompt("two"), thinking("new"), result("new")];
+        let steered = ChatMessage {
+            role: Role::User,
+            blocks: vec![Block::ToolResult { call_id: "c_next".into(), content: "r".into(), is_error: false }, Block::Text("also check b".into())],
+        };
+        let messages = vec![prompt("one"), thinking("old"), result("old"), ChatMessage { role: Role::Assistant, blocks: vec![Block::Text("done".into())] }, prompt("two"), thinking("new"), steered, thinking("next"), result("next")];
         let built = body(&Request { messages, ..request() });
         let kept: Vec<&str> = built["messages"].as_array().unwrap().iter().filter_map(|m| m["reasoning_content"].as_str()).collect();
-        assert_eq!(kept, ["new"], "the earlier turn's reasoning is not sent back");
+        assert_eq!(kept, ["new", "next"], "the earlier turn's reasoning is not sent back; a prompt steered in after results does not end the loop");
     }
 
     #[test]
