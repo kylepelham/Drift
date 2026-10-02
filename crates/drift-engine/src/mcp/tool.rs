@@ -27,9 +27,9 @@ impl McpTool {
         ToolError(format!("the {} MCP server was disabled or removed", self.server))
     }
 
-    /// A reconnected server may redefine the tool (no longer read-only, another schema); the turn was given this one.
+    /// A reconnected or re-listed server may redefine the tool (no longer read-only, another schema); the turn was given this one.
     fn unchanged_on(&self, client: &Arc<Live>) -> Result<(), ToolError> {
-        if Arc::ptr_eq(client, &self.pinned) || client.tools.iter().any(|tool| behaves_alike(tool, &self.tool)) {
+        if client.tools().iter().any(|tool| behaves_alike(tool, &self.tool)) {
             return Ok(());
         }
         Err(ToolError(format!("{} changed its {} tool since this turn began, so it was not run; the next turn sees the new one", self.server, self.tool.name)))

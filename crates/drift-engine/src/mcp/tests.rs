@@ -605,6 +605,33 @@ async fn a_kept_era_the_server_no_longer_speaks_is_probed_again() {
     assert_eq!(engine.store.mcp_server("moved").unwrap().unwrap().era, Some(Era::Stateless));
 }
 
+#[tokio::test]
+async fn a_tool_list_past_its_ttl_is_listed_again_when_a_turn_is_planned() {
+    let engine = engine();
+    let (mut config, log) = era_echo("v2");
+    let ServerConfig::Stdio { env, .. } = &mut config else { unreachable!() };
+    env.extend([("TOOLS_TTL_MS".to_string(), "100".to_string()), ("LATE_TOOL".to_string(), "1".to_string())]);
+    let row = saved(&engine, "modern", &config).await;
+    engine.connect_mcp("modern").await.unwrap();
+    engine.mcp.refresh_stale(&engine.store, &engine.hub).await;
+    assert!(find(&engine, "modern_late").is_none(), "still fresh: not asked again");
+    let echo = tool(&engine, "modern_echo");
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    let published = engine.hub.seq();
+    engine.mcp.refresh_stale(&engine.store, &engine.hub).await;
+    assert!(find(&engine, "modern_late").is_some(), "the next turn sees the new tool");
+    assert!(engine.mcp.status_of(row).tools.iter().any(|t| t.name == "late"));
+    assert!(engine.hub.seq() > published, "the menu hears the change");
+    assert_eq!(calls(&log).iter().filter(|m| *m == "tools/list").count(), 2);
+    assert_eq!(echo.run(&context(&engine), json!({ "text": "still" })).await.unwrap().output, "still", "an unchanged tool a turn holds still runs");
+
+    let (legacy, legacy_log) = era_echo("legacy");
+    saved(&engine, "old", &legacy).await;
+    engine.connect_mcp("old").await.unwrap();
+    engine.mcp.refresh_stale(&engine.store, &engine.hub).await;
+    assert_eq!(calls(&legacy_log).iter().filter(|m| *m == "tools/list").count(), 1, "a list with no ttlMs is not asked again");
+}
+
 /// What a v2 HTTP server saw: each request's HTTP method and headers, and the JSON-RPC method it carried.
 #[derive(Clone, Debug)]
 struct Seen {

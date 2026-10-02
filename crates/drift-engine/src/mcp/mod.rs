@@ -195,7 +195,7 @@ struct Live {
     /// The era the server answered in.
     era: Era,
     transport: Transport,
-    tools: Vec<rmcp::model::Tool>,
+    listing: Mutex<Listing>,
     /// What the server said at initialize about using it; goes in the system prompt beside its tools.
     instructions: Option<String>,
     /// Its prompts, offered to the user as `server:prompt` slash commands.
@@ -209,6 +209,18 @@ struct Live {
     since: Instant,
     /// A stdio server's process tree; it dies with the last handle to this connection.
     tree: Option<Tree>,
+}
+
+/// A server's tools as last listed, and when that list goes stale by its `ttlMs`; a server that gives none is listed once.
+struct Listing {
+    tools: Vec<rmcp::model::Tool>,
+    stale_at: Option<Instant>,
+}
+
+impl Listing {
+    fn new(tools: Vec<rmcp::model::Tool>, ttl: Option<Duration>) -> Self {
+        Self { tools, stale_at: ttl.map(|ttl| Instant::now() + ttl) }
+    }
 }
 
 /// A call that never got an answer because the connection ended, as opposed to one the server refused.
@@ -306,6 +318,8 @@ const STEP_LIMIT: Duration = Duration::from_millis(1500);
 const STABLE: Duration = Duration::from_secs(60);
 #[cfg(test)]
 const STABLE: Duration = Duration::from_millis(500);
+/// After a re-list fails, how long before a turn tries again, so a server that stopped answering does not hold up every turn.
+const RELIST_BACKOFF: Duration = Duration::from_secs(30);
 /// How long rmcp waits for a server to answer the `server/discover` probe before falling back to `initialize`; it is fixed there.
 const PROBE_WAIT: Duration = Duration::from_secs(10);
 /// How long a turn being planned waits for connects already under way, so its tools are not briefly missing.
@@ -405,7 +419,7 @@ impl Servers {
         };
         let protocol = live.as_ref().and_then(|live| live.service.peer_info()).map(|info| info.protocol_version.to_string());
         let era = live.as_ref().map(|live| live.era);
-        let tools = live.map(|live| live.tools.iter().map(tool_info).collect()).unwrap_or_default();
+        let tools = live.map(|live| live.tools().iter().map(tool_info).collect()).unwrap_or_default();
         let remote = matches!(row.config, ServerConfig::Http { .. });
         let needs_sign_in = remote && state == State::Failed && error.as_deref().is_some_and(oauth::wants_sign_in);
         let signed_in = remote && self.sign_ins.as_ref().is_some_and(|store| oauth::has_sign_in(store, &row.name));
@@ -568,13 +582,33 @@ impl Servers {
         let mut tools: Vec<Arc<dyn crate::tool::Tool>> = Vec::new();
         for (server, slot) in &slots.servers {
             let Some(live) = slot.current() else { continue };
-            tools.extend(live.tools.iter().map(|tool| Arc::new(McpTool::new(server, tool.clone(), live.clone(), slot.clone())) as Arc<dyn crate::tool::Tool>));
+            tools.extend(live.tools().into_iter().map(|tool| Arc::new(McpTool::new(server, tool, live.clone(), slot.clone())) as Arc<dyn crate::tool::Tool>));
         }
         if slots.servers.values().any(|slot| slot.current().is_some_and(|live| live.resources)) {
             tools.push(Arc::new(resources::ListResources));
             tools.push(Arc::new(resources::ReadResource));
         }
         tools
+    }
+
+    /// Lists again the tools of each server whose last list has gone stale by its `ttlMs`, one short request each, so a turn sees what changed.
+    pub async fn refresh_stale(&self, store: &Store, hub: &Hub) {
+        let due: Vec<(String, Arc<Live>)> = self.lock().servers.iter().filter_map(|(name, slot)| Some((name.clone(), slot.current()?))).filter(|(_, live)| live.listing_due()).collect();
+        let relist = |name: String, live: Arc<Live>| async move {
+            match tokio::time::timeout(READY_WAIT, list_tools(&live.service)).await {
+                Ok(Ok((tools, ttl))) => live.relisted(tools, ttl).then_some(name),
+                _ => {
+                    live.relist_failed();
+                    None
+                }
+            }
+        };
+        let changed = futures_util::future::join_all(due.into_iter().map(|(name, live)| relist(name, live))).await;
+        for name in changed.into_iter().flatten() {
+            if let Ok(Some(row)) = store.mcp_server(&name) {
+                hub.publish(Event::McpUpdated { server: self.status_of(row) });
+            }
+        }
     }
 
     /// Each connected server's own instructions, by server name.
@@ -700,7 +734,7 @@ struct SignIn<'a> {
 
 async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>, known: Option<Era>) -> Result<Live, String> {
     let (service, tree) = begin(config, sign_in, known).await?;
-    let tools = within("list its tools", async { service.list_all_tools().await.map_err(|e| format!("tools/list failed: {e}")) }).await?;
+    let (tools, ttl) = within("list its tools", list_tools(&service)).await?;
     let info = service.peer_info();
     let era = info.as_ref().map_or(Era::Legacy, |info| Era::of(&info.protocol_version));
     let instructions = info.as_ref().and_then(|info| info.instructions.clone()).map(|text| text.trim().to_string()).filter(|text| !text.is_empty());
@@ -710,7 +744,24 @@ async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>, known: O
         true => within("list its prompts", async { service.list_all_prompts().await.map_err(|e| e.to_string()) }).await.unwrap_or_default(),
         false => Vec::new(),
     };
-    Ok(Live { service, era, transport: Transport::of(config), tools, instructions, prompts, resources, timeout: config.timeout(), hash, since: Instant::now(), tree })
+    Ok(Live { service, era, transport: Transport::of(config), listing: Mutex::new(Listing::new(tools, ttl)), instructions, prompts, resources, timeout: config.timeout(), hash, since: Instant::now(), tree })
+}
+
+/// Every page of the server's tools, and the shortest freshness any page gave.
+async fn list_tools(service: &Client) -> Result<(Vec<rmcp::model::Tool>, Option<Duration>), String> {
+    let (mut tools, mut ttl, mut cursor) = (Vec::new(), None::<u64>, None);
+    loop {
+        let page = service.list_tools(Some(rmcp::model::PaginatedRequestParams::default().with_cursor(cursor))).await.map_err(|e| format!("tools/list failed: {e}"))?;
+        ttl = match (ttl, page.ttl_ms) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        tools.extend(page.tools);
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            return Ok((tools, ttl.map(Duration::from_millis)));
+        }
+    }
 }
 
 /// Starts in the remembered era; one the server refuses is probed afresh, but a server too slow to answer is not asked twice.
@@ -876,6 +927,26 @@ impl crate::Engine {
 impl Live {
     fn is_open(&self) -> bool {
         !self.service.is_transport_closed() && !self.service.is_closed()
+    }
+
+    fn tools(&self) -> Vec<rmcp::model::Tool> {
+        self.listing.lock().unwrap().tools.clone()
+    }
+
+    fn listing_due(&self) -> bool {
+        self.listing.lock().unwrap().stale_at.is_some_and(|at| at <= Instant::now())
+    }
+
+    /// Takes a fresh list; whether the tools changed.
+    fn relisted(&self, tools: Vec<rmcp::model::Tool>, ttl: Option<Duration>) -> bool {
+        let mut listing = self.listing.lock().unwrap();
+        let changed = listing.tools != tools;
+        *listing = Listing::new(tools, ttl);
+        changed
+    }
+
+    fn relist_failed(&self) {
+        self.listing.lock().unwrap().stale_at = Some(Instant::now() + RELIST_BACKOFF);
     }
 
     /// A stateless server over HTTP: one POST per request and no session, so between calls there is no connection to lose.

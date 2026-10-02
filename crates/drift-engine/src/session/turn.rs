@@ -577,6 +577,7 @@ impl Engine {
         };
         // A server connecting right now would otherwise be missing from this turn's tools.
         self.mcp.wait_ready(crate::mcp::READY_WAIT).await;
+        self.mcp.refresh_stale(&self.store, &self.hub).await;
         plan.offer = self.offer(&plan);
         Ok(plan)
     }

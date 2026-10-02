@@ -43,6 +43,13 @@ const probed = (message) => {
   if (era === "reject") return fail(message.id, -32600, "unknown request")
   if (era !== "ignore") fail(message.id, -32601, "method not found")
 }
+// TOOLS_TTL_MS: how long a tool list stays fresh; with LATE_TOOL, every list after the first also has a `late` tool.
+let lists = 0
+const late = { name: "late", description: "Arrived later", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }
+const listed = () => {
+  const all = process.env.LATE_TOOL && lists++ > 0 ? [...tools, late] : tools
+  return process.env.TOOLS_TTL_MS ? { tools: all, ttlMs: Number(process.env.TOOLS_TTL_MS), cacheScope: "public" } : { tools: all }
+}
 // METHOD_LOG: every method received, one per line.
 rl.on("line", (line) => {
   const message = JSON.parse(line)
@@ -51,7 +58,7 @@ rl.on("line", (line) => {
   const stamped = message.params?._meta?.["io.modelcontextprotocol/protocolVersion"]
   if (era === "v2" && message.id !== undefined && !stamped) return fail(message.id, -32602, "every request carries its protocol version in _meta")
   if (message.method === "initialize") return reply(message.id, { protocolVersion: "2025-06-18", capabilities, serverInfo: { name: "echo", version: "0" }, instructions })
-  if (message.method === "tools/list") return reply(message.id, { tools })
+  if (message.method === "tools/list") return reply(message.id, listed())
   if (message.method === "tools/call") return call(message)
   if (message.method === "resources/list") return reply(message.id, { resources })
   if (message.method === "resources/read") return reply(message.id, { contents: contents[message.params.uri] ?? [] })
