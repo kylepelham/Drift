@@ -85,13 +85,17 @@ fn behaves_alike(a: &rmcp::model::Tool, b: &rmcp::model::Tool) -> bool {
 /// The longest name a tool is given: providers take 64, and the subscription route adds `mcp_`.
 const MAX_NAME: usize = 60;
 
+/// Built-in tool names a server's `<server>_<tool>` could spell; providers refuse two tools of one name.
+pub(crate) const RESERVED: [&str; 6] = ["apply_patch", "task_output", "task_stop", "read_thread", "mcp_resources", "mcp_read_resource"];
+
 /// The name the model calls a server's tool by, in the characters every provider accepts
-/// (`[a-zA-Z0-9_-]`, at most 64). A name that had to change (a character replaced, or cut to fit)
-/// ends in a hash of the original, so `a.b` and `a_b` stay apart.
+/// (`[a-zA-Z0-9_-]`, at most 64). A name that had to change (a character replaced, or cut to fit),
+/// that spells a built-in tool's, or whose server's own name holds `_` (so `a_b` + `c` and `a` +
+/// `b_c` cannot meet) ends in a hash of the original, keeping every name apart.
 pub fn wire_name(server: &str, tool: &str) -> String {
     let raw = format!("{server}_{tool}");
     let clean: String = raw.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
-    if clean == raw && clean.len() <= MAX_NAME {
+    if clean == raw && clean.len() <= MAX_NAME && !RESERVED.contains(&clean.as_str()) && !server.contains('_') {
         return clean;
     }
     use sha2::Digest;
@@ -167,6 +171,10 @@ mod tests {
         assert!(wire_name("gh", "repos/list.all").starts_with("gh_repos_list_all_"), "a changed name carries a hash");
         assert_ne!(wire_name("s", "a.b"), wire_name("s", "a_b"), "names that clean to the same string stay apart");
         assert_eq!(wire_name("s", "a_b"), "s_a_b");
+        assert_ne!(wire_name("task", "output"), "task_output", "never a built-in tool's name");
+        assert_ne!(wire_name("a_b", "c"), wire_name("a", "b_c"), "servers with `_` in their name cannot meet another's tools");
+        let builtin: Vec<String> = crate::tool::Registry::builtin().specs(crate::llm::catalog::ToolProfile::Edit).into_iter().chain(crate::tool::Registry::builtin().specs(crate::llm::catalog::ToolProfile::ApplyPatch)).map(|s| s.name).chain(["mcp_resources".into(), "mcp_read_resource".into()]).filter(|n| n.contains('_')).collect();
+        assert!(builtin.iter().all(|name| super::RESERVED.contains(&name.as_str())), "every built-in name an MCP tool could spell is reserved: {builtin:?}");
         let long = wire_name("server", &"x".repeat(80));
         assert_eq!(long.len(), 60, "room left for the subscription route's mcp_ prefix");
         assert_ne!(long, wire_name("server", &"x".repeat(81)), "cut names stay apart");

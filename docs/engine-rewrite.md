@@ -1111,8 +1111,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   and on demand through rmcp (an earlier approval gate was removed; migration 20 drops its column
   and key). Their tools join
   the registry as `<server>_<tool>` (`mcp::tool::wire_name`: any character outside
-  `[A-Za-z0-9_-]` becomes `_`, a name past 60 characters is cut, and any name that had to change
-  ends in a hash of the original, so `a.b` and `a_b` stay apart; 60 leaves room for the
+  `[A-Za-z0-9_-]` becomes `_`, a name past 60 characters is cut, and a name that had to change,
+  that would spell a built-in tool's (`task` + `output`), or whose server's name holds `_` (so
+  `a_b` + `c` and `a` + `b_c` cannot meet) ends in a hash of the original, so no two tools share a
+  name and `a.b` and `a_b` stay apart; 60 leaves room for the
   subscription route's `mcp_` within providers' 64, so one odd tool name cannot get every request
   refused). Which server a tool came from is asked of the tool (`Tool::server`), never read back
   from its name; tools the server marks read-only run without asking,
