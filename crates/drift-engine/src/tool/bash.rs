@@ -154,6 +154,12 @@ impl Tool for Bash {
             if !matches!(ended, Ended::Exited { lingering: false, .. }) {
                 kill_tree(&tree, &mut child).await;
             }
+            // A file the line printed has been seen, as a `read` would have shown it, so it may be edited.
+            if matches!(ended, Ended::Exited { code: 0, .. }) {
+                for file in command::files_read(self.dialect(), command).iter().map(|file| ctx.resolve(file)).filter(|file| file.is_file()) {
+                    ctx.files.mark_read(&file);
+                }
+            }
             let title = input["description"].as_str().unwrap_or(command).to_string();
             Ok(report(title, spool.finish(), ended, limit))
         })
@@ -379,6 +385,22 @@ mod tests {
         assert!(out.output.ends_with("exit code 3"));
         assert_eq!(out.title, "list files");
         assert_eq!(out.metadata["exit"], 3);
+    }
+
+    #[tokio::test]
+    async fn a_file_printed_by_a_command_that_succeeded_counts_as_read() {
+        let sandbox = Sandbox::new("bash-reads");
+        let shown = sandbox.file("shown.txt", "one\n");
+        let missed = sandbox.file("missed.txt", "two\n");
+        let bash = Bash::detect();
+        let (print, fail) = match bash.shell {
+            Shell::Bash(_) => ("cat shown.txt", "cat missed.txt && exit 1"),
+            Shell::PowerShell(_) => ("Get-Content shown.txt", "Get-Content missed.txt; exit 1"),
+        };
+        bash.run(&sandbox.ctx, json!({ "command": print })).await.unwrap();
+        bash.run(&sandbox.ctx, json!({ "command": fail })).await.unwrap();
+        assert!(sandbox.ctx.files.was_read(&shown), "edit may follow a shell read");
+        assert!(!sandbox.ctx.files.was_read(&missed), "a line that failed is not trusted to have shown it");
     }
 
     #[tokio::test]

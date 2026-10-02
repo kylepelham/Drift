@@ -116,8 +116,47 @@ fn reader(command: &str) -> bool {
     match program {
         "git" => words.get(1).is_some_and(|sub| GIT_READERS.contains(&sub.as_str())) && !words.iter().any(|w| w.starts_with("--output")),
         "find" => true,
+        "sed" => printed_range(&words[1..]),
         _ => READERS.contains(&program),
     }
+}
+
+/// `sed -n '<line>[,<line>]p' file...`: printing lines is all it does (no `-i`, no `w` script).
+fn printed_range(args: &[String]) -> bool {
+    let script = |word: &str| {
+        let body = word.trim_matches(['\'', '"']).strip_suffix('p').unwrap_or("x");
+        !body.is_empty() && body.split(',').all(|line| !line.is_empty() && (line.chars().all(|c| c.is_ascii_digit()) || line == "$"))
+    };
+    matches!(args, [flag, range, ..] if flag == "-n" && script(range)) && !args.iter().any(|word| word.starts_with("-i") || word.starts_with("--in-place"))
+}
+
+/// Programs that print a file they are given, so a run that succeeded has shown the model that file.
+const PRINTERS: [&str; 6] = ["cat", "type", "get-content", "head", "tail", "sed"];
+/// Commands that change the directory later words are read against.
+const MOVES: [&str; 7] = ["cd", "chdir", "pushd", "popd", "set-location", "push-location", "pop-location"];
+
+/// The files a line that only reads prints (`cat a.rs`, `sed -n '1,80p' a.rs`, `Get-Content a.rs`),
+/// as written, so a model that reads through the shell may then edit them. Empty for a line that
+/// does anything else, or moves directory first, since its paths would no longer resolve from the
+/// workspace. Words that are not files (flag values such as `-n 20`) are for the caller to drop.
+pub fn files_read(dialect: Dialect, line: &str) -> Vec<String> {
+    let Some(segments) = Tokenizer::new(dialect).run(line).filter(|_| reads_only(dialect, line)) else { return Vec::new() };
+    let mut files = Vec::new();
+    for segment in segments.iter().filter(|s| !s.words.is_empty()) {
+        let words = canonical_words(dialect, &segment.words);
+        let first = words[0].to_ascii_lowercase();
+        let program = first.rsplit(['/', '\\']).next().unwrap_or(&first).trim_end_matches(".exe").to_string();
+        if MOVES.contains(&program.as_str()) {
+            return Vec::new();
+        }
+        if !PRINTERS.contains(&program.as_str()) {
+            continue;
+        }
+        // sed's first two words are `-n` and its script; anything else's flags start with `-`.
+        let rest = if program == "sed" { &words[3.min(words.len())..] } else { &words[1..] };
+        files.extend(rest.iter().filter(|word| !word.starts_with('-')).cloned());
+    }
+    files
 }
 
 /// The words as a deny rule should see them: what actually runs, not how it was spelt.
@@ -445,6 +484,21 @@ mod tests {
         assert!(reads_only(Dialect::PowerShell, "Get-ChildItem src; Select-String -Path a.txt -Pattern x"));
         assert!(reads_only(Dialect::PowerShell, "ls; cat a.txt"), "aliases read as their cmdlets");
         assert!(!reads_only(Dialect::PowerShell, "Set-Content a.txt x"));
+    }
+
+    #[test]
+    fn a_line_that_prints_files_names_them_and_anything_else_names_none() {
+        assert_eq!(files_read(Dialect::Bash, "cat src/a.rs"), ["src/a.rs"]);
+        assert_eq!(files_read(Dialect::Bash, "sed -n '1,80p' src/a.rs"), ["src/a.rs"]);
+        assert_eq!(files_read(Dialect::Bash, "head -n 20 a.rs && tail b.rs"), ["20", "a.rs", "b.rs"], "flag values are dropped by the caller, which keeps only files");
+        assert_eq!(files_read(Dialect::Bash, "cat \"my file.txt\" | grep x"), ["my file.txt"]);
+        assert_eq!(files_read(Dialect::PowerShell, "Get-Content -Path a.rs; gc b.rs"), ["a.rs", "b.rs"]);
+        assert!(files_read(Dialect::Bash, "cd src && cat a.rs").is_empty(), "paths after a move do not resolve from the workspace");
+        assert!(files_read(Dialect::Bash, "sed -i 's/a/b/' a.rs").is_empty() && !reads_only(Dialect::Bash, "sed -i 's/a/b/' a.rs"));
+        assert!(files_read(Dialect::Bash, "sed -n 'w out' a.rs").is_empty(), "a sed script that writes is not a read");
+        assert!(files_read(Dialect::Bash, "cat a.rs > b.rs").is_empty(), "a line that writes is not a read");
+        assert!(files_read(Dialect::Bash, "grep fn a.rs").is_empty(), "matches are not the file");
+        assert!(reads_only(Dialect::Bash, "sed -n 1,200p a.rs"));
     }
 
     #[test]

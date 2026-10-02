@@ -868,7 +868,12 @@ these async criteria are new pending M3 work.
   snapshot captures per workspace only; it does not coordinate two sessions or workers editing the
   same source file, which is what the read-before-write check and undo's kept files are for.
   `edit`, `write` and `apply_patch` refuse existing files the session has not `read`; every
-  mutating call records what it changed in its part's metadata.
+  mutating call records what it changed in its part's metadata. A shell line that only reads and
+  exits 0 counts too for each file it printed (`cat`, `type`, `head`, `tail`, `Get-Content`, and
+  `sed -n '<range>p'`, which now also counts as reading; `command::files_read`), since GPT and
+  Codex models habitually read that way before `apply_patch`. A line that moves directory first
+  counts nothing, its paths no longer resolving from the workspace. The record is in memory, so
+  after a restart a file must be read again before it is edited.
 - Ids are `prefix_<16 hex stamp><8 hex random>`; the stamp is milliseconds shifted left
   twelve bits plus a per-process counter, so rows made in the same millisecond still sort
   by creation.
