@@ -1271,7 +1271,7 @@ impl Engine {
         let mut formatted = Vec::new();
         for file in metadata["files"].as_array().into_iter().flatten().filter_map(|f| f.as_str()) {
             let before = tokio::fs::read(file).await.ok();
-            let Some(name) = crate::edit::format::format(Path::new(file), &plan.workspace, &formatters).await else { continue };
+            let Some(name) = crate::edit::format::format(Path::new(file), &plan.workspace, &formatters, &self.store).await else { continue };
             if tokio::fs::read(file).await.ok() != before {
                 formatted.push(format!("{name}: {}", crate::tool::display(Path::new(file), &plan.workspace)));
             }

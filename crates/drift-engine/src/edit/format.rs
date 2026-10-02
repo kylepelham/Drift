@@ -58,8 +58,8 @@ impl Formatter {
     }
 }
 
-/// The formatters that may apply in a workspace: built-ins that are installed and not disabled (each
-/// still checked against the project per file), plus custom ones.
+/// The formatters that may apply in a workspace: built-ins not disabled (each checked per file
+/// against the project, and for an install in it or on PATH), plus custom ones.
 pub fn resolve(overrides: &BTreeMap<String, FormatterConfig>) -> Vec<Formatter> {
     let mut out = Vec::new();
     for builtin in BUILTINS {
@@ -72,15 +72,14 @@ pub fn resolve(overrides: &BTreeMap<String, FormatterConfig>) -> Vec<Formatter> 
             Some(FormatterConfig::Enabled(true)) => Uses::Always,
             None => builtin.uses,
         };
-        if on_path(builtin.command[0]) {
-            out.push(Formatter {
-                name: builtin.name.into(),
-                command: builtin.command.iter().map(|s| s.to_string()).collect(),
-                extensions: builtin.extensions.iter().map(|s| s.to_string()).collect(),
-                uses,
-                stdin: builtin.stdin,
-            });
-        }
+        // Whether it is installed is asked per file, since the project's own copy counts.
+        out.push(Formatter {
+            name: builtin.name.into(),
+            command: builtin.command.iter().map(|s| s.to_string()).collect(),
+            extensions: builtin.extensions.iter().map(|s| s.to_string()).collect(),
+            uses,
+            stdin: builtin.stdin,
+        });
     }
     for (name, config) in overrides {
         if let FormatterConfig::Custom { command, extensions } = config {
@@ -94,12 +93,14 @@ pub fn resolve(overrides: &BTreeMap<String, FormatterConfig>) -> Vec<Formatter> 
 
 /// Runs the first formatter that matches the file and that the project uses. Failures are the
 /// formatter's problem, not the edit's: logged, never surfaced.
-pub async fn format(path: &Path, workspace: &Path, formatters: &[Formatter]) -> Option<String> {
+pub async fn format(path: &Path, workspace: &Path, formatters: &[Formatter], store: &crate::store::Store) -> Option<String> {
     let name = path.file_name()?.to_string_lossy().to_lowercase();
-    let formatter = formatters.iter().filter(|f| f.extensions.iter().any(|ext| name.ends_with(ext.as_str()))).find(|f| project_uses(f.uses, path, workspace))?;
+    let (formatter, program) = formatters
+        .iter()
+        .filter(|f| f.extensions.iter().any(|ext| name.ends_with(ext.as_str())) && project_uses(f.uses, path, workspace))
+        .find_map(|f| Some((f, program(f.command.first()?, path, workspace)?)))?;
     let edition = edition(path, workspace);
-    let mut parts = formatter.command.iter().map(|part| part.replace("$FILE", &path.to_string_lossy()).replace("$EDITION", &edition));
-    let program = crate::platform::process::which(&parts.next()?)?;
+    let parts = formatter.command.iter().skip(1).map(|part| part.replace("$FILE", &path.to_string_lossy()).replace("$EDITION", &edition));
     let mut command = tokio::process::Command::new(program);
     crate::platform::process::use_current_path(&mut command, &Default::default());
     // A stdin formatter finds its config from where it runs, so it runs beside the file.
@@ -108,26 +109,42 @@ pub async fn format(path: &Path, workspace: &Path, formatters: &[Formatter]) -> 
     command.stdin(if formatter.stdin { Stdio::piped() } else { Stdio::null() });
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
-    let ran = tokio::time::timeout(TIMEOUT, run(command, formatter.stdin.then_some(path))).await;
+    let ran = tokio::time::timeout(TIMEOUT, run(command, formatter.stdin.then_some(path), store)).await;
     matches!(ran, Ok(Some(()))).then(|| formatter.name.clone())
 }
 
-/// Runs the formatter; one that reads stdin gets the file and its output replaces it.
-async fn run(mut command: tokio::process::Command, through_stdin: Option<&Path>) -> Option<()> {
+/// Runs the formatter; one that reads stdin gets the file, and its output replaces it through the
+/// staged writer, so a failed write never cuts the file short.
+async fn run(mut command: tokio::process::Command, through_stdin: Option<&Path>, store: &crate::store::Store) -> Option<()> {
     let Some(path) = through_stdin else {
         return command.status().await.ok().filter(|status| status.success()).map(|_| ());
     };
     let before = tokio::fs::read(path).await.ok()?;
     let mut child = command.spawn().ok()?;
     let mut input = child.stdin.take()?;
+    let fed_bytes = before.clone();
     let feeding = async move {
-        let fed = input.write_all(&before).await;
+        let fed = input.write_all(&fed_bytes).await;
         drop(input);
         fed
     };
     let (fed, output) = tokio::join!(feeding, child.wait_with_output());
     let output = output.ok().filter(|output| output.status.success() && !output.stdout.is_empty() && fed.is_ok())?;
-    tokio::fs::write(path, &output.stdout).await.ok()
+    if output.stdout == before {
+        return Some(());
+    }
+    crate::tool::stage::replace(store, path, &output.stdout).await.ok()
+}
+
+/// A formatter's program: the project's own install first (`node_modules/.bin` from the file's
+/// directory up, where prettier usually lives), else PATH.
+fn program(name: &str, file: &Path, workspace: &Path) -> Option<PathBuf> {
+    if Path::new(name).components().count() > 1 {
+        return crate::platform::process::which(name);
+    }
+    let names: Vec<String> = if cfg!(windows) { vec![format!("{name}.cmd"), format!("{name}.exe"), name.to_string()] } else { vec![name.to_string()] };
+    let local = dirs_up(file, workspace).into_iter().map(|dir| dir.join("node_modules").join(".bin")).find_map(|bin| names.iter().map(|n| bin.join(n)).find(|candidate| candidate.is_file()));
+    local.or_else(|| crate::platform::process::which(name))
 }
 
 /// Whether the project around `file` uses this formatter: its config or dependency in the file's
@@ -170,13 +187,13 @@ fn dirs_up(file: &Path, workspace: &Path) -> Vec<PathBuf> {
     dirs
 }
 
-fn on_path(program: &str) -> bool {
-    crate::platform::process::which(program).is_some()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn format(path: &Path, workspace: &Path, formatters: &[Formatter]) -> Option<String> {
+        super::format(path, workspace, formatters, &crate::store::tests::store()).await
+    }
 
     #[test]
     fn overrides_disable_replace_and_add() {
@@ -244,6 +261,19 @@ mod tests {
         std::fs::write(api.join("Cargo.toml"), "[package]\nedition.workspace = true\n").unwrap();
         std::fs::write(repo.join("Cargo.toml"), "[workspace.package]\nedition = \"2024\"\n").unwrap();
         assert_eq!(edition(&api.join("lib.rs"), &repo), "2024", "a member inheriting its edition gets the workspace's");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn a_projects_own_install_is_found_before_path() {
+        let root = std::env::temp_dir().join(format!("drift-fmt-local-{}", crate::random_hex(4)));
+        let bin = root.join("node_modules/.bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let shim = if cfg!(windows) { "prettier.cmd" } else { "prettier" };
+        std::fs::write(bin.join(shim), "").unwrap();
+        assert_eq!(program("prettier", &root.join("src/a.ts"), &root), Some(bin.join(shim)), "a devDependency in node_modules/.bin");
+        assert_eq!(program("definitely-not-installed-anywhere", &root.join("src/a.ts"), &root), None);
         std::fs::remove_dir_all(root).ok();
     }
 
