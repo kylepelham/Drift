@@ -54,6 +54,10 @@ plan and checklist. Existing foreground and user-branch work remain implemented.
 
 ## Investigation results
 
+The [independent audit at ac1ab72](independent-audit-ac1ab72.md) reproduces five
+new failures in undo persistence, queue replacement, post-write capture,
+worker mutation ordering and returned file mentions.
+
 The [agent-loop follow-up at b93cbc9](agent-loop-review-b93cbc9.md) checks the
 latest external review and records additional reproduced patch, UTF-8, worker
 completion, attachment and error-body timeout failures.
