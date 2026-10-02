@@ -41,11 +41,13 @@ impl Store {
     pub fn save_mcp_server(&self, name: &str, config: &ServerConfig) -> rusqlite::Result<ServerRow> {
         let json = serde_json::to_string(config).unwrap();
         let conn = self.lock();
+        // Compared as configs, not text, so a definition saved unchanged keeps its trust even if older text is spelled differently.
+        let same = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([name], map_row).optional()?.is_some_and(|row| row.config == *config);
         conn.prepare_cached(
             "INSERT INTO mcp_config(name, config_json, enabled, updated_at) VALUES(?1, ?2, 1, ?3)
-             ON CONFLICT(name) DO UPDATE SET read_only_trusted = read_only_trusted AND config_json = ?2, config_json = ?2, updated_at = ?3, era = NULL",
+             ON CONFLICT(name) DO UPDATE SET read_only_trusted = read_only_trusted AND ?4, config_json = ?2, updated_at = ?3, era = NULL",
         )?
-        .execute(params![name, json, id::now_ms()])?;
+        .execute(params![name, json, id::now_ms(), same])?;
         let row = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([name], map_row)?;
         Ok(row)
     }
@@ -155,6 +157,8 @@ mod tests {
         assert_eq!(store.save_mcp_server("notes", &changed).unwrap().era, None, "a save forgets it");
         assert!(store.set_mcp_read_only_trusted("notes", true).unwrap());
         assert!(store.save_mcp_server("notes", &changed).unwrap().read_only_trusted, "saved as it was, the trust stays");
+        store.lock().execute("UPDATE mcp_config SET config_json = ?1 WHERE name = 'notes'", [serde_json::to_string_pretty(&changed).unwrap()]).unwrap();
+        assert!(store.save_mcp_server("notes", &changed).unwrap().read_only_trusted, "even over the same config written another way");
         assert!(!store.save_mcp_server("notes", &config).unwrap().read_only_trusted, "another definition is not trusted");
         assert!(store.set_mcp_enabled("notes", false).unwrap());
         assert!(!store.mcp_servers().unwrap()[0].enabled);
