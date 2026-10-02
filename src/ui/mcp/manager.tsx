@@ -231,10 +231,10 @@ export function McpManagement(props: { embedded?: boolean }) {
   )
 }
 
-/** How the engine talks to a server: its transport, and once connected the MCP protocol version it agreed to. */
-export function mcpProtocolLabel(server: Pick<McpServerStatus, "transport" | "protocol">) {
-  const transport = t(`drift.mcp.transport.${server.transport}`)
-  return server.protocol ? `${transport} · MCP ${server.protocol}` : transport
+/** How the engine talks to a server: its transport, and once connected the protocol version it agreed to and whether that is stateless. */
+export function mcpProtocolLabel(server: Pick<McpServerStatus, "transport" | "protocol" | "era">) {
+  const parts = [t(`drift.mcp.transport.${server.transport}`), server.protocol, server.era && t(`drift.mcp.era.${server.era}`)]
+  return parts.filter(Boolean).join(" · ")
 }
 
 function ServerRow(props: {

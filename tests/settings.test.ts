@@ -192,6 +192,7 @@ const pendingTranslation = new Set([
   ...pendingKeys("drift.chat.spawned", "copy instruction"),
   ...pendingKeys("drift.model", "smallContext unknownContext"),
   ...pendingKeys("drift.mcp.transport", "stdio streamable_http sse"),
+  ...pendingKeys("drift.mcp.era", "stateless legacy"),
   ...pendingKeys("drift.mcp.form", "transport cwd cwdDefault timeout timeoutNone timeoutInvalid"),
   ...pendingKeys("drift.mcp", "signIn signOut signInOpened status.needsSignIn"),
   ...pendingKeys(

@@ -25,8 +25,8 @@ test("a server refusing until the user signs in says so instead of showing its r
 test("a server row says how it is spoken to, and the protocol version once connected", async () => {
   const { mcpProtocolLabel } = await import("../src/ui/mcp/manager")
   expect(mcpProtocolLabel({ transport: "stdio" })).toBe("stdio")
-  expect(mcpProtocolLabel({ transport: "sse", protocol: "2024-11-05" })).toBe("HTTP + SSE (legacy) · MCP 2024-11-05")
-  expect(mcpProtocolLabel({ transport: "streamable_http", protocol: "2025-06-18" })).toBe("Streamable HTTP · MCP 2025-06-18")
+  expect(mcpProtocolLabel({ transport: "sse", protocol: "2024-11-05", era: "legacy" })).toBe("HTTP + SSE (deprecated) · 2024-11-05 · legacy")
+  expect(mcpProtocolLabel({ transport: "streamable_http", protocol: "2026-07-28", era: "stateless" })).toBe("Streamable HTTP · 2026-07-28 · stateless")
 })
 
 test("the editor never holds a saved secret: untouched ones are kept by name, typed ones replace them", () => {

@@ -968,6 +968,9 @@ impl Live {
         params.arguments = arguments;
         let result = self.service.call_tool(params).await.map_err(|error| match error {
             ServiceError::TransportClosed | ServiceError::TransportSend(_) | ServiceError::Cancelled { .. } => CallError::Lost,
+            ServiceError::InputRequiredRoundsExceeded { .. } => {
+                CallError::Failed("the server kept asking for input Drift does not give (a person's answer, a model's reply or the roots), so the call did not finish".into())
+            }
             other => CallError::Failed(other.to_string()),
         })?;
         let mut answer = Answer { text: String::new(), is_error: result.is_error.unwrap_or(false), images: Vec::new() };

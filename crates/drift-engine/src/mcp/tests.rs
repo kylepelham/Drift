@@ -712,6 +712,18 @@ async fn a_failed_post_to_a_stateless_server_is_asked_again_only_when_read_only(
     assert!(risky.contains("may or may not have taken effect"), "{risky}");
 }
 
+#[tokio::test]
+async fn a_server_asking_for_input_is_declined_and_the_call_fails_rather_than_hangs() {
+    let engine = engine();
+    let (url, seen) = v2_http_server().await;
+    saved(&engine, "remote", &ServerConfig::Http { url, headers: Default::default(), timeout_seconds: None }).await;
+    engine.connect_mcp("remote").await.unwrap();
+    let failed = tokio::time::timeout(std::time::Duration::from_secs(10), tool(&engine, "remote_echo").run(&context(&engine), json!({ "text": "ask" }))).await.expect("it ends").unwrap_err().0;
+    assert!(failed.contains("kept asking for input"), "{failed}");
+    let retries = seen.lock().unwrap().iter().filter(|s| s.rpc == "tools/call").count();
+    assert!(retries > 1, "each ask was answered and the request retried with the answer, not left waiting");
+}
+
 fn calls(log: &std::path::Path) -> Vec<String> {
     std::fs::read_to_string(log).unwrap_or_default().lines().map(String::from).collect()
 }
