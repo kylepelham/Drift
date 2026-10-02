@@ -800,6 +800,7 @@ impl Engine {
                 reasoning,
                 temperature: None,
                 cache_key: Some(plan.session.id.clone()),
+                no_tool_calls: false,
             };
             let Ok(message) = self.store.create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });

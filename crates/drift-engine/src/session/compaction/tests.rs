@@ -197,10 +197,12 @@ async fn a_manual_compaction_summarises_older_turns_and_keeps_the_recent_ones() 
     let summarised = requests(&h).last().unwrap().clone();
     assert_eq!(summarised.messages.len(), 3, "the first turn, then the instructions");
     assert!(summarised.messages[2].blocks.iter().any(|b| matches!(b, Block::Text(t) if t.contains("do not call tools"))));
+    assert!(summarised.no_tool_calls && !summarised.tools.is_empty(), "tools stay defined for the history but cannot be called");
 
     h.provider.push(text("four"));
     turn(&h, "fourth").await;
     let next = requests(&h).last().unwrap().clone();
+    assert!(!next.no_tool_calls);
     assert!(first_text(&next).contains("SUMMARY") && first_text(&next).starts_with("This conversation was compacted"));
     let rest: Vec<String> = next.messages.iter().flat_map(|m| m.blocks.iter()).filter_map(|b| match b { Block::Text(t) => Some(t.clone()), _ => None }).skip(1).collect();
     assert_eq!(rest, ["second", "two", "third", "three", "fourth"], "the summary replaces the first turn only");

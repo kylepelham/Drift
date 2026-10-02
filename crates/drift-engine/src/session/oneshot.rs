@@ -20,7 +20,7 @@ pub(crate) struct Resolved {
     pub credential: Credential,
 }
 
-/// One text-only request. Tools are offered only so a history with tool calls stays valid.
+/// One text-only request. Tools are defined only so a history with tool calls stays valid; calling one is forbidden.
 pub(crate) struct OneShot {
     pub system: String,
     pub messages: Vec<ChatMessage>,
@@ -71,7 +71,7 @@ impl Engine {
         Ok(Resolved { model_ref: model_ref.clone(), model, provider, credential })
     }
 
-    /// The reply's text. Tool calls the model attempts anyway are ignored, not run.
+    /// The reply's text. The request forbids tool calls; a reply that makes one anyway is refused, never run.
     pub(crate) async fn complete(&self, resolved: &Resolved, shot: OneShot) -> Result<String, String> {
         let request = Request {
             model: resolved.model_ref.model.clone(),
@@ -82,6 +82,7 @@ impl Engine {
             reasoning: None,
             temperature: None,
             cache_key: None,
+            no_tool_calls: true,
         };
         tokio::time::timeout(shot.timeout, collect_text(&resolved.provider, &request, &resolved.credential))
             .await
