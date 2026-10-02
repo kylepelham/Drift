@@ -1058,6 +1058,7 @@ impl Engine {
         }
         // Taken as a writing call's own is, so undo puts back what a fixing check rewrites; a whole-workspace check may touch anything, so the whole tree.
         let whole = checks.iter().any(|check| !check.command.iter().any(|part| part.contains("$FILE")));
+        let Some(_turn) = self.wait_turn(&files, scope.abort).await else { return };
         let capture = self.capture_before(&scope.plan.workspace, (!whole).then(|| files.clone())).await;
         // Without a capture the bytes are compared instead, so a rewrite is still announced.
         let bytes = match &capture {
@@ -1174,25 +1175,9 @@ impl Engine {
             }
         }
         let writes = tool.call_mutates(&input);
-        let capture = if writes {
-            self.snapshots.bind(&scope.plan.session.workspace_id, &scope.plan.workspace);
-            let touches = tool.touches(&ctx, &input);
-            // A whole-tree call starts from the tree the step's last one ended on; a file tool's write in between ends the chain.
-            let chained = scope.tree.lock().unwrap().take().filter(|_| touches.is_none());
-            let captured = match chained {
-                Some(tree) => Ok(super::changes::Capture::Tree(tree)),
-                None => self.capture_before(&scope.plan.workspace, touches).await,
-            };
-            match captured {
-                Ok(capture) => Some(capture),
-                Err(error) => {
-                    // Nothing recorded means no way back, so the write does not happen.
-                    self.settle(&mut row, ToolStatus::Error, None, format!("refused to write: could not record the files first ({error})"), None);
-                    return Outcome::Allowed;
-                }
-            }
-        } else {
-            None
+        let (_turn, capture) = match self.before_write(scope, &mut row, writes.then(|| tool.touches(&ctx, &input))).await {
+            Ok(ready) => ready,
+            Err(outcome) => return outcome,
         };
         if let (Some(running), Part::ToolCall { metadata, .. }) = (tool.running_metadata(&ctx, &input), &mut row.part) {
             *metadata = Some(running);
@@ -1240,6 +1225,46 @@ impl Engine {
             scope.wrote.lock().unwrap().note(&row);
         }
         if scope.abort.is_cancelled() { Outcome::Aborted } else { Outcome::Allowed }
+    }
+
+    /// For a writing call (`touches` is `Some`): its files' turn, held from the snapshot through the
+    /// record so another session's writer of them waits, and the snapshot. A call that cannot have
+    /// both is settled here and does not run.
+    async fn before_write(&self, scope: &CallScope<'_>, row: &mut PartRow, touches: Option<Option<Vec<PathBuf>>>) -> Result<(Option<crate::tool::lock::Held>, Option<super::changes::Capture>), Outcome> {
+        let Some(touches) = touches else { return Ok((None, None)) };
+        let turn = match &touches {
+            Some(paths) => match self.wait_turn(paths, scope.abort).await {
+                Some(held) => Some(held),
+                None => {
+                    self.settle(row, ToolStatus::Error, None, "Aborted while waiting for another write to these files.".into(), None);
+                    return Err(Outcome::Aborted);
+                }
+            },
+            None => None,
+        };
+        self.snapshots.bind(&scope.plan.session.workspace_id, &scope.plan.workspace);
+        // A whole-tree call starts from the tree the step's last one ended on; a file tool's write in between ends the chain.
+        let chained = scope.tree.lock().unwrap().take().filter(|_| touches.is_none());
+        let captured = match chained {
+            Some(tree) => Ok(super::changes::Capture::Tree(tree)),
+            None => self.capture_before(&scope.plan.workspace, touches).await,
+        };
+        match captured {
+            Ok(capture) => Ok((turn, Some(capture))),
+            Err(error) => {
+                // Nothing recorded means no way back, so the write does not happen.
+                self.settle(row, ToolStatus::Error, None, format!("refused to write: could not record the files first ({error})"), None);
+                Err(Outcome::Allowed)
+            }
+        }
+    }
+
+    /// The turn to write `paths`, or `None` if the call was stopped while another writer held them.
+    async fn wait_turn(&self, paths: &[PathBuf], abort: &CancellationToken) -> Option<crate::tool::lock::Held> {
+        tokio::select! {
+            held = crate::tool::lock::files(paths) => Some(held),
+            () = abort.cancelled() => None,
+        }
     }
 
     /// The call's change record; one that could not be taken is said in its result, and a call whose files were put back fails.

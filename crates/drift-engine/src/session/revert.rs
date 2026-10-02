@@ -168,6 +168,8 @@ impl Engine {
             Direction::Back => (change.after, change.before),
             Direction::Forward => (change.before, change.after),
         };
+        // The check and the write are one step: no other writer of the file lands between them.
+        let _turn = crate::tool::lock::files(&[workspace.join(&change.path)]).await;
         let current = self.snapshots.current(&workspace, &change.path).await.map_err(|e| e.to_string())?;
         if current != expected {
             shifted.kept.push(change.path);
@@ -181,6 +183,7 @@ impl Engine {
     async fn put_back(&self, applied: Vec<Applied>, error: String) -> RevertError {
         let mut stuck = Vec::new();
         for Applied { workspace, path, previous } in applied.into_iter().rev() {
+            let _turn = crate::tool::lock::files(&[workspace.join(&path)]).await;
             if let Err(failure) = self.snapshots.put(&self.store, &workspace, &path, previous.as_deref()).await {
                 stuck.push(format!("{path} ({failure})"));
             }

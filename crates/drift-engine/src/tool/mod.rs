@@ -7,6 +7,7 @@ pub mod edit;
 pub mod glob;
 pub mod grep;
 pub mod image;
+pub(crate) mod lock;
 pub mod patch;
 pub mod question;
 pub mod read;

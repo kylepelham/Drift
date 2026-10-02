@@ -1018,6 +1018,12 @@ Settled after the first external review of M1; each has a regression test.
   reached first. Past 2000 matches it stops, so a broad pattern in a large tree returns at once,
   and says so: the 200 shown are then sorted from the files it reached, and earlier files may be
   missing. A Stop ends the walk and the file search in progress.
+- Writers of one file take turns across sessions and workers (`tool::lock`): a file tool's call
+  (`edit`, `write`, `apply_patch`) holds the files it names from its snapshot through its change
+  record, formatting included, as do the step's checks over the files they run on and undo over
+  each file it checks and puts back. So two edits never start from the same bytes, and a change is
+  never attributed to another writer's call. A Stop while waiting ends the call. Shell commands
+  name no files and take no turn.
 - A mutating call refuses to run if its snapshot cannot be taken or its start cannot be
   recorded, and says so in its result. A result whose save fails is published as an error,
   never as a success the store lacks; a message whose terminal save fails stops the turn.
