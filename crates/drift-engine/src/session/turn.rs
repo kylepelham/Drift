@@ -286,7 +286,7 @@ impl Turns {
 /// Everything a turn runs on: fixed when it is admitted (a queued worker keeps what it was given), then following the session's choice step by step.
 pub(crate) struct Plan {
     pub(super) session: Session,
-    workspace: PathBuf,
+    pub(super) workspace: PathBuf,
     pub(super) config: Arc<Config>,
     pub(super) model_ref: ModelRef,
     pub(super) model: Model,
@@ -1277,11 +1277,9 @@ impl Engine {
     async fn after_write(&self, scope: &CallScope<'_>, call_id: &str, mut text: String, metadata: serde_json::Value) -> (String, serde_json::Value) {
         let asker = super::trust::Asker { message_id: &scope.message.id, call_id, abort: scope.abort };
         let files: Vec<PathBuf> = metadata["files"].as_array().into_iter().flatten().filter_map(|file| file.as_str()).map(PathBuf::from).collect();
-        let overrides = match self.project_commands_trusted(scope.plan, asker, &files).await {
-            true => scope.plan.config.formatters.clone(),
-            false => scope.plan.config.without_project_commands().0,
-        };
-        let formatted = self.format_written(scope.plan, &metadata, &overrides).await;
+        let trusted = self.project_commands_trusted(scope.plan, asker, &files).await;
+        let overrides = if trusted { scope.plan.config.formatters.clone() } else { scope.plan.config.without_project_commands().0 };
+        let formatted = self.format_written(scope.plan, &metadata, &overrides, trusted).await;
         if !formatted.is_empty() {
             text = format!("{text}\n\n{}", reformatted_note(&formatted));
         }
@@ -1289,12 +1287,12 @@ impl Engine {
     }
 
     /// Runs the workspace's formatters over whatever a mutating tool reported writing; names the files they changed.
-    async fn format_written(&self, plan: &Plan, metadata: &serde_json::Value, overrides: &std::collections::BTreeMap<String, crate::config::FormatterConfig>) -> Vec<String> {
+    async fn format_written(&self, plan: &Plan, metadata: &serde_json::Value, overrides: &std::collections::BTreeMap<String, crate::config::FormatterConfig>, local: bool) -> Vec<String> {
         let formatters = crate::edit::format::resolve(overrides);
         let mut formatted = Vec::new();
         for file in metadata["files"].as_array().into_iter().flatten().filter_map(|f| f.as_str()) {
             let before = tokio::fs::read(file).await.ok();
-            let Some(name) = crate::edit::format::format(Path::new(file), &plan.workspace, &formatters, &self.store).await else { continue };
+            let Some(name) = crate::edit::format::format(Path::new(file), &plan.workspace, &formatters, &self.store, local).await else { continue };
             if tokio::fs::read(file).await.ok() != before {
                 formatted.push(format!("{name}: {}", crate::tool::display(Path::new(file), &plan.workspace)));
             }

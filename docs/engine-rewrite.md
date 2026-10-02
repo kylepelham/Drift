@@ -1357,16 +1357,19 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   is in `metadata.checks` (`check`, `status` of `passed`, `problems` or `unavailable`, `output`).
   Stop cuts the checks off with their whole process tree; the writes stand. Checks stand in for
   LSP diagnostics until those land (M4).
-- **Project commands.** A command a check or formatter names in the project's own `drift.json`
-  runs only once the user has allowed it; the user's `~/.config/drift/drift.json`, built-in
-  formatters and a project's `false` need no say-so (as custom providers come only from the user's
-  file, opening a cloned repository must not run what it names). The first write one of those
-  commands covers (by its extensions) asks once, a permission card of kind `project-commands`
-  listing every such command (`check lint: eslint $FILE; formatter prettier: ./fmt.sh $FILE`); a
-  write none of them covers asks nothing. The answer covers the whole set: always is kept for the
-  workspace under a hash of all of them (setting `trustedCommands:<workspace>`), so any change asks
-  again; once allows them for the session; deny skips them for the session, built-in formatters and
-  the user's own commands still running. Subagents take the answer of the session that delegated
+- **Project commands.** What a project brings runs only once the user has allowed it: a command a
+  check or formatter names in the project's own `drift.json`, and a formatter program installed
+  inside the repository (`node_modules/.bin`, found from the written file up to the repository
+  root; `edit::format::project_programs`), since a cloned repository can commit one. The user's
+  `~/.config/drift/drift.json`, built-in formatters run from PATH and a project's `false` need no
+  say-so (as custom providers come only from the user's file, opening a cloned repository must not
+  run what it names). A write such a command would run on asks, a permission card of kind
+  `project-commands` listing the ones not yet answered (`check lint: eslint $FILE; formatter
+  prettier: C:\repo\node_modules\.bin\prettier.cmd`); a write none of them covers asks nothing.
+  Answers are per command line: always is kept for the workspace (setting
+  `trustedCommands:<workspace>`, the list of allowed lines), so a changed command or a newly
+  installed program asks again; once allows those lines for the session; deny skips the project's
+  commands for the session, built-in formatters from PATH and the user's own commands still running. Subagents take the answer of the session that delegated
   to them, along the same lineage as permission approvals, so a delegated task does not ask again.
   A permission rule of that kind (pattern `*`) allows them without asking.
 - **Permissions** resolve in order: session "always" answers, the workspace's `drift.json`

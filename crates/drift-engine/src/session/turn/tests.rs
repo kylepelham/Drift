@@ -1698,6 +1698,29 @@ async fn a_projects_own_commands_run_only_once_the_user_says_so_and_always_holds
     assert!(h.engine.abort(&fourth.id));
 }
 
+#[tokio::test]
+async fn a_formatter_installed_in_the_project_runs_only_once_allowed() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    let ws = h._dir.join("ws");
+    let marker = h._dir.join("ran.log");
+    std::fs::create_dir_all(ws.join("node_modules/.bin")).unwrap();
+    std::fs::write(ws.join("package.json"), r#"{ "devDependencies": { "prettier": "^3" } }"#).unwrap();
+    let (shim, body) = if cfg!(windows) { ("prettier.cmd", format!("@echo ran>> \"{}\"\r\n", marker.display())) } else { ("prettier", format!("#!/bin/sh\necho ran >> '{}'\n", marker.display())) };
+    std::fs::write(ws.join("node_modules/.bin").join(shim), body).unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(ws.join("node_modules/.bin").join(shim), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider.push(tool_call("write", r#"{"path": "a.ts", "content": "let a = 1\n"}"#)).push(text("written"));
+    h.engine.submit(&h.session.id, prompt("write a")).await.await_ok();
+    let ask = next_ask(&mut rx).await;
+    assert_eq!(ask.ask.kind, "project-commands");
+    assert!(ask.ask.pattern.starts_with("formatter prettier: ") && ask.ask.pattern.contains("node_modules"), "{}", ask.ask.pattern);
+    h.engine.permissions.reply(&h.engine.hub, &ask.id, ReplyBody { reply: Reply::Deny, pattern: None, message: None }).unwrap();
+    until_idle(&h).await;
+    assert!(!marker.exists(), "a binary the repository brings never runs without the user's say-so");
+}
+
 async fn until_session_idle(h: &Harness, session_id: &str) {
     for _ in 0..1000 {
         if !h.engine.turns.is_running(session_id) {

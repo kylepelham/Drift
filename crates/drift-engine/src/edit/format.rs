@@ -93,12 +93,10 @@ pub fn resolve(overrides: &BTreeMap<String, FormatterConfig>) -> Vec<Formatter> 
 
 /// Runs the first formatter that matches the file and that the project uses. Failures are the
 /// formatter's problem, not the edit's: logged, never surfaced.
-pub async fn format(path: &Path, workspace: &Path, formatters: &[Formatter], store: &crate::store::Store) -> Option<String> {
-    let name = path.file_name()?.to_string_lossy().to_lowercase();
-    let (formatter, program) = formatters
-        .iter()
-        .filter(|f| f.extensions.iter().any(|ext| name.ends_with(ext.as_str())) && project_uses(f.uses, path, workspace))
-        .find_map(|f| Some((f, program(f.command.first()?, path, workspace)?)))?;
+/// `local` lets a program installed inside the project run (`node_modules/.bin`); it is the project's
+/// own code, so only once the user has allowed the project's commands.
+pub async fn format(path: &Path, workspace: &Path, formatters: &[Formatter], store: &crate::store::Store, local: bool) -> Option<String> {
+    let (formatter, program) = chosen(path, workspace, formatters, local)?;
     let edition = edition(path, workspace);
     let parts = formatter.command.iter().skip(1).map(|part| part.replace("$FILE", &path.to_string_lossy()).replace("$EDITION", &edition));
     let mut command = tokio::process::Command::new(program);
@@ -136,15 +134,47 @@ async fn run(mut command: tokio::process::Command, through_stdin: Option<&Path>,
     crate::tool::stage::replace(store, path, &output.stdout).await.ok()
 }
 
-/// A formatter's program: the project's own install first (`node_modules/.bin` from the file's
-/// directory up, where prettier usually lives), else PATH.
-fn program(name: &str, file: &Path, workspace: &Path) -> Option<PathBuf> {
-    if Path::new(name).components().count() > 1 {
+/// The formatter that would run on `path`, and its program.
+fn chosen<'a>(path: &Path, workspace: &Path, formatters: &'a [Formatter], local: bool) -> Option<(&'a Formatter, PathBuf)> {
+    let name = path.file_name()?.to_string_lossy().to_lowercase();
+    formatters
+        .iter()
+        .filter(|f| f.extensions.iter().any(|ext| name.ends_with(ext.as_str())) && project_uses(f.uses, path, workspace))
+        .find_map(|f| Some((f, program(f.command.first()?, path, workspace, local)?)))
+}
+
+/// The programs inside the project that formatting `files` would run, one line each
+/// (`formatter prettier: <path>`), for the approval the project's own commands need.
+pub fn project_programs(files: &[PathBuf], workspace: &Path, formatters: &[Formatter]) -> Vec<String> {
+    let mut lines: Vec<String> = files
+        .iter()
+        .filter_map(|file| chosen(file, workspace, formatters, true))
+        .filter_map(|(formatter, program)| installed_in_project(formatter.command.first()?, &program, workspace).then(|| format!("formatter {}: {}", formatter.name, program.display())))
+        .collect();
+    lines.sort();
+    lines.dedup();
+    lines
+}
+
+/// Whether `program` is the project's own copy of `name`, not one on PATH.
+fn installed_in_project(name: &str, program: &Path, workspace: &Path) -> bool {
+    Path::new(name).components().count() == 1 && crate::platform::process::which(name).as_deref() != Some(program) && program.starts_with(repo_root(workspace))
+}
+
+/// The repository root above the workspace, else the workspace.
+fn repo_root(workspace: &Path) -> PathBuf {
+    workspace.ancestors().find(|dir| dir.join(".git").exists()).unwrap_or(workspace).to_path_buf()
+}
+
+/// A formatter's program: with `local`, the project's own install first (`node_modules/.bin` from the
+/// file's directory up, where prettier usually lives); else, or failing that, PATH.
+fn program(name: &str, file: &Path, workspace: &Path, local: bool) -> Option<PathBuf> {
+    if Path::new(name).components().count() > 1 || !local {
         return crate::platform::process::which(name);
     }
     let names: Vec<String> = if cfg!(windows) { vec![format!("{name}.cmd"), format!("{name}.exe"), name.to_string()] } else { vec![name.to_string()] };
-    let local = dirs_up(file, workspace).into_iter().map(|dir| dir.join("node_modules").join(".bin")).find_map(|bin| names.iter().map(|n| bin.join(n)).find(|candidate| candidate.is_file()));
-    local.or_else(|| crate::platform::process::which(name))
+    let found = dirs_up(file, workspace).into_iter().map(|dir| dir.join("node_modules").join(".bin")).find_map(|bin| names.iter().map(|n| bin.join(n)).find(|candidate| candidate.is_file()));
+    found.or_else(|| crate::platform::process::which(name))
 }
 
 /// Whether the project around `file` uses this formatter: its config or dependency in the file's
@@ -192,7 +222,7 @@ mod tests {
     use super::*;
 
     async fn format(path: &Path, workspace: &Path, formatters: &[Formatter]) -> Option<String> {
-        super::format(path, workspace, formatters, &crate::store::tests::store()).await
+        super::format(path, workspace, formatters, &crate::store::tests::store(), true).await
     }
 
     #[test]
@@ -265,15 +295,21 @@ mod tests {
     }
 
     #[test]
-    fn a_projects_own_install_is_found_before_path() {
+    fn a_projects_own_install_is_found_only_when_allowed_and_named_for_approval() {
         let root = std::env::temp_dir().join(format!("drift-fmt-local-{}", crate::random_hex(4)));
-        let bin = root.join("node_modules/.bin");
+        let bin = root.join("node_modules").join(".bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(root.join("src")).unwrap();
         let shim = if cfg!(windows) { "prettier.cmd" } else { "prettier" };
         std::fs::write(bin.join(shim), "").unwrap();
-        assert_eq!(program("prettier", &root.join("src/a.ts"), &root), Some(bin.join(shim)), "a devDependency in node_modules/.bin");
-        assert_eq!(program("definitely-not-installed-anywhere", &root.join("src/a.ts"), &root), None);
+        std::fs::write(root.join("package.json"), r#"{ "devDependencies": { "prettier": "^3" } }"#).unwrap();
+        let file = root.join("src/a.ts");
+        assert_eq!(program("prettier", &file, &root, true), Some(bin.join(shim)), "a devDependency in node_modules/.bin");
+        assert_ne!(program("prettier", &file, &root, false), Some(bin.join(shim)), "never the project's copy unless allowed");
+        assert_eq!(program("definitely-not-installed-anywhere", &file, &root, true), None);
+        let lines = project_programs(&[file.clone()], &root, &resolve(&BTreeMap::new()));
+        assert_eq!(lines, [format!("formatter prettier: {}", bin.join(shim).display())], "the project's binary goes on the approval card");
+        assert!(project_programs(&[root.join("notes.txt")], &root, &resolve(&BTreeMap::new())).is_empty());
         std::fs::remove_dir_all(root).ok();
     }
 
