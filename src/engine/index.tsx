@@ -99,6 +99,10 @@ export function EngineProvider(props: ParentProps) {
         set("nativeOnline", online)
         if (!online && state.connection === "online") set("connection", "offline")
       },
+      // A resume replays what was missed, so the views stay as they are and only come back online.
+      resumed: () => {
+        if (state.connection === "offline") set("connection", "online")
+      },
     })
   }
 

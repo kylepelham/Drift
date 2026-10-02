@@ -71,9 +71,11 @@ test("events advance the cursor and a reconnect resumes from it without hydratin
   const engine = fakeEngine()
   const hydrated: number[] = []
   const seen: number[] = []
+  let resumed = 0
   const stream = connectEvents(engine.target, {
     hydrate: (seq) => void hydrated.push(seq),
     event: (envelope) => seen.push(envelope.seq),
+    resumed: () => void (resumed += 1),
   })
   stops.push(engine.stop, stream.close)
   await until(() => engine.cursors.length === 1)
@@ -91,6 +93,7 @@ test("events advance the cursor and a reconnect resumes from it without hydratin
   engine.send(workspaceEvent(3))
   await until(() => seen.length === 3)
   expect(hydrated).toEqual([0])
+  expect(resumed, "the resume is reported, so the UI comes back online without a hydrate").toBe(1)
 })
 
 test("a hello from a different engine instance hydrates again", async () => {

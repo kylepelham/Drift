@@ -6,6 +6,8 @@ export type EventHandlers = {
   hydrate(seq: number): Promise<void> | void
   event(envelope: Envelope): void
   online?(connected: boolean): void
+  /** The socket picked up where it left off, with no hydrate needed: what was offline is live again. */
+  resumed?(): void
 }
 
 export type EventStream = { close(): void; cursor(): number | undefined }
@@ -80,6 +82,7 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
       const fresh = cursor === undefined || changed
       instance = frame.instance
       if (fresh) hydrate(frame.seq)
+      else if (!hydrating) handlers.resumed?.()
       return
     }
     if (frame.type === "resync") {
