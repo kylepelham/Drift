@@ -249,6 +249,8 @@ fn message_delta(value: &Value) -> Vec<Chunk> {
             "end_turn" | "stop_sequence" => StopReason::EndTurn,
             "tool_use" => StopReason::ToolUse,
             "max_tokens" => StopReason::MaxTokens,
+            "refusal" => StopReason::Refused,
+            "model_context_window_exceeded" => StopReason::ContextFull,
             _ => StopReason::Other,
         }));
     }
@@ -400,6 +402,9 @@ mod tests {
         }
         let both = chunks("message_delta", r#"{"delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}"#).unwrap();
         assert_eq!(both, vec![Chunk::Usage(Usage { output: 7, ..Usage::default() }), Chunk::Stop(StopReason::ToolUse)]);
+        let stop = |reason: &str| chunks("message_delta", &format!(r#"{{"delta":{{"stop_reason":"{reason}"}}}}"#)).unwrap().pop();
+        assert_eq!(stop("refusal"), Some(Chunk::Stop(StopReason::Refused)));
+        assert_eq!(stop("model_context_window_exceeded"), Some(Chunk::Stop(StopReason::ContextFull)));
     }
 
     #[test]

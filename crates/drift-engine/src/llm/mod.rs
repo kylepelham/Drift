@@ -177,6 +177,10 @@ pub enum StopReason {
     EndTurn,
     ToolUse,
     MaxTokens,
+    /// The provider's safety filter ended the reply (Anthropic `refusal`, `content_filter`, Gemini `SAFETY`).
+    Refused,
+    /// The reply ran into the end of the context window (Anthropic `model_context_window_exceeded`).
+    ContextFull,
     Other,
 }
 

@@ -239,8 +239,11 @@ impl StreamState {
         let usage = &response["usage"];
         let count = |path: &[&str]| path.iter().fold(usage, |v, key| &v[*key]).as_u64().unwrap_or(0);
         let cache_read = count(&["input_tokens_details", "cached_tokens"]);
-        let stop = if incomplete && response["incomplete_details"]["reason"] == "max_output_tokens" {
+        let reason = &response["incomplete_details"]["reason"];
+        let stop = if incomplete && reason == "max_output_tokens" {
             StopReason::MaxTokens
+        } else if incomplete && reason == "content_filter" {
+            StopReason::Refused
         } else if self.called_tools {
             StopReason::ToolUse
         } else {

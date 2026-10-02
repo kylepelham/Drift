@@ -168,6 +168,51 @@ async fn deny_and_stop_ends_the_turn() {
 }
 
 #[tokio::test]
+async fn a_stop_mid_batch_leaves_no_call_pending() {
+    let h = harness().await;
+    let mut rx = h.engine.hub.attach(None).rx;
+    let call = |id: &str, command: &str| vec![Chunk::ToolUseStart { id: id.into(), name: "bash".into() }, Chunk::ToolInputDelta(format!(r#"{{"command": "{command}"}}"#)), Chunk::BlockStop];
+    h.provider.push([call("t1", "rm -rf build"), call("t2", "rm -rf dist"), vec![Chunk::Stop(StopReason::ToolUse)]].concat());
+    h.engine.submit(&h.session.id, prompt("clean up")).await.await_ok();
+    let ask = next_ask(&mut rx).await;
+    h.engine.permissions.reply(&h.engine.hub, &ask.id, ReplyBody { reply: Reply::Stop, pattern: None, message: None }).unwrap();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[1].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error, "the call queued behind the stop is closed, not left pending");
+    assert!(output.as_deref().unwrap().starts_with("Not run: the turn was stopped"), "{output:?}");
+}
+
+#[tokio::test]
+async fn a_refused_reply_says_so_and_runs_nothing() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
+    h.provider.push(vec![Chunk::ToolUseStart { id: "t1".into(), name: "read".into() }, Chunk::ToolInputDelta(r#"{"path": "a.txt"}"#.into()), Chunk::BlockStop, Chunk::Stop(StopReason::Refused)]);
+    h.engine.submit(&h.session.id, prompt("read")).await.await_ok();
+    until_idle(&h).await;
+    let last = h.engine.store.transcript(&h.session.id).unwrap().pop().unwrap();
+    assert_eq!((last.info.status, last.info.error.as_deref()), (MessageStatus::Done, Some(super::REFUSED_ENDING)), "never a silent end");
+    let Part::ToolCall { status, .. } = &last.parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error);
+}
+
+#[tokio::test]
+async fn a_reply_that_fills_the_context_window_compacts_and_asks_again() {
+    let h = harness().await;
+    h.provider
+        .push(vec![Chunk::TextStart, Chunk::TextDelta("half an ans".into()), Chunk::BlockStop, Chunk::Stop(StopReason::ContextFull)])
+        .push(text("SUMMARY"))
+        .push(text("the whole answer"));
+    h.engine.submit(&h.session.id, prompt("long")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert!(transcript.iter().any(|m| m.info.summary), "compacted");
+    assert_eq!(transcript.last().unwrap().parts.iter().find_map(|p| match &p.part { Part::Text { text } => Some(text.as_str()), _ => None }), Some("the whole answer"));
+    let cut = transcript.iter().find(|m| m.parts.iter().any(|p| matches!(&p.part, Part::Text { text } if text == "half an ans"))).unwrap();
+    assert_eq!(cut.info.status, MessageStatus::Error, "the cut reply is never replayed");
+}
+
+#[tokio::test]
 async fn a_subagent_runs_under_its_parents_approvals() {
     let h = harness().await;
     let mut rx = h.engine.hub.attach(None).rx;

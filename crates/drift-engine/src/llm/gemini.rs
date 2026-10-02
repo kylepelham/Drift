@@ -220,6 +220,7 @@ impl StreamState {
                 "MAX_TOKENS" => StopReason::MaxTokens,
                 "STOP" if self.called_tools => StopReason::ToolUse,
                 "STOP" => StopReason::EndTurn,
+                "SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII" | "IMAGE_SAFETY" => StopReason::Refused,
                 _ => StopReason::Other,
             }));
         }

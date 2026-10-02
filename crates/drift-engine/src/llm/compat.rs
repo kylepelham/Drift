@@ -277,6 +277,7 @@ impl StreamState {
                 "tool_calls" | "function_call" => StopReason::ToolUse,
                 "length" => StopReason::MaxTokens,
                 "stop" => StopReason::EndTurn,
+                "content_filter" => StopReason::Refused,
                 _ => StopReason::Other,
             });
         }

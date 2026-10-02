@@ -47,6 +47,8 @@ const QUEUE_WAIT: Duration = Duration::from_secs(30);
 const QUEUE_WAIT: Duration = Duration::from_secs(2);
 /// A finished reply's `error` when it stopped at the output limit rather than ending on its own.
 pub const OUTPUT_LIMIT_ENDING: &str = "The reply stopped at the output limit";
+/// A finished reply's `error` when the provider's safety filter ended it, so it never ends in silence.
+pub const REFUSED_ENDING: &str = "The provider's safety filter ended the reply.";
 /// What a thinking budget always leaves for the answer itself.
 const MIN_ANSWER_TOKENS: u32 = 1024;
 /// The smallest thinking budget providers accept.
@@ -905,20 +907,36 @@ impl Engine {
         message.usage = streamed.usage;
         message.cost = if matches!(plan.credential, Credential::OAuth { .. }) { 0.0 } else { cost(&plan.model, streamed.usage) };
         message.status = MessageStatus::Done;
-        // The reply hit its output limit: say so, and run nothing, since a call's input may be cut short.
-        let cut_off = streamed.stop == StopReason::MaxTokens;
-        if cut_off {
-            message.error = Some(format!("{OUTPUT_LIMIT_ENDING} ({} tokens).", request.max_tokens));
+        // A reply that did not end on its own runs nothing, since a call's input may be cut short.
+        let ending = match streamed.stop {
+            StopReason::MaxTokens => Some((format!("{OUTPUT_LIMIT_ENDING} ({} tokens).", request.max_tokens), "the reply hit its output limit, so this call's input may be cut short.")),
+            StopReason::Refused => Some((REFUSED_ENDING.to_string(), "the provider's safety filter ended the reply before this call ran.")),
+            // Not replayed: the turn compacts and asks again, as for a request the provider refused as too long.
+            StopReason::ContextFull => {
+                message.status = MessageStatus::Error;
+                Some(("The reply ran into the end of the context window.".to_string(), "the reply ran out of context, so this call's input may be cut short."))
+            }
+            _ => None,
+        };
+        if let Some((error, _)) = &ending {
+            message.error = Some(error.clone());
         }
-        if self.finish(&mut message).is_err() || streamed.calls.is_empty() {
+        if self.finish(&mut message).is_err() {
             return Step::Done;
         }
-        if cut_off {
-            self.settle_unrun(&message, "the reply hit its output limit, so this call's input may be cut short.");
+        if let Some((_, unrun)) = ending {
+            self.settle_unrun(&message, unrun);
+            return if streamed.stop == StopReason::ContextFull { Step::Overflow } else { Step::Done };
+        }
+        if streamed.calls.is_empty() {
             return Step::Done;
         }
         match self.run_calls(plan, &message, streamed.calls, abort).await {
-            Outcome::Aborted => Step::Done,
+            Outcome::Aborted => {
+                // Calls queued behind the one that stopped never started; none is left pending.
+                self.settle_unrun(&message, "the turn was stopped before this call ran.");
+                Step::Done
+            }
             _ => Step::Continue,
         }
     }
