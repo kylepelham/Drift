@@ -56,11 +56,8 @@ impl Tool for Grep {
             let (workspace, stop) = (ctx.workspace.clone(), ctx.abort.clone());
             let (engine, session, policy, read_root) = (ctx.engine.clone(), ctx.session_id.clone(), ctx.config.policy(), workspace.clone());
             let agent_policy = ctx.config.agent_policy(&ctx.agent);
-            let approved = super::canonical(&root);
-            // The searched path itself was approved by this call's own ask, a one-time answer included.
             let allowed = move |path: &Path| {
-                super::canonical(path) == approved
-                    || super::read_ask(&read_root, path, "Search").is_some_and(|ask| engine.permissions.decide_under(&session, &policy, &agent_policy, &ask) == crate::permission::Decision::Allow)
+                super::read_ask(&read_root, path, "Search").is_none_or(|ask| engine.permissions.covered_by_approval(&session, &policy, &agent_policy, &ask))
             };
             let found = tokio::task::spawn_blocking(move || search(&root, &pattern, include.as_deref(), &workspace, &stop, &allowed))
                 .await
@@ -154,7 +151,7 @@ fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path, s
                 withheld.fetch_add(1, Ordering::Relaxed);
                 return WalkState::Continue;
             }
-            if !allowed(entry.path()) {
+            if entry.path() != root && !allowed(entry.path()) {
                 restricted.fetch_add(1, Ordering::Relaxed);
                 return WalkState::Continue;
             }
@@ -284,6 +281,38 @@ mod tests {
         let out = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
         assert!(out.output.contains("hit public") && !out.output.contains("hit restricted"));
         assert_eq!(out.metadata["restricted"], 1);
+    }
+
+    #[tokio::test]
+    async fn an_approved_search_outside_the_workspace_covers_its_files_unless_a_rule_says_otherwise() {
+        let sandbox = Sandbox::new("grep-outside");
+        let outside = sandbox.ctx.workspace.parent().unwrap().join("outside");
+        std::fs::create_dir_all(outside.join("deep")).unwrap();
+        std::fs::write(outside.join("deep/a.txt"), "hit outside").unwrap();
+        std::fs::write(outside.join("held.txt"), "hit held").unwrap();
+        let input = json!({ "pattern": "hit", "path": outside.to_string_lossy() });
+        assert!(Grep.ask(&sandbox.ctx, &input).is_some_and(|ask| !ask.default_allow), "searching outside asks first");
+        let out = Grep.run(&sandbox.ctx, input.clone()).await.unwrap();
+        assert!(out.output.contains("hit outside") && out.output.contains("hit held"), "{}", out.output);
+        sandbox.ctx.engine.permissions.set_policy(crate::permission::Policy {
+            rules: vec![crate::permission::Rule { kind: "read".into(), pattern: "*held.txt".into(), decision: crate::permission::Decision::Ask }],
+        });
+        let ruled = Grep.run(&sandbox.ctx, input).await.unwrap();
+        assert!(ruled.output.contains("hit outside") && !ruled.output.contains("hit held"), "{}", ruled.output);
+        assert_eq!(ruled.metadata["restricted"], 1);
+    }
+
+    #[tokio::test]
+    async fn the_scratch_directory_is_searched_without_asking() {
+        let sandbox = Sandbox::new("grep-scratch");
+        let scratch = super::super::scratch_dir().join(format!("grep-{}", crate::random_hex(4)));
+        std::fs::create_dir_all(&scratch).unwrap();
+        std::fs::write(scratch.join("notes.txt"), "hit scratch").unwrap();
+        let input = json!({ "pattern": "hit", "path": scratch.to_string_lossy() });
+        assert!(Grep.ask(&sandbox.ctx, &input).is_some_and(|ask| ask.default_allow));
+        let out = Grep.run(&sandbox.ctx, input).await.unwrap();
+        let _ = std::fs::remove_dir_all(&scratch);
+        assert!(out.output.contains("hit scratch"), "{}", out.output);
     }
 
     #[tokio::test]

@@ -238,6 +238,16 @@ impl Permissions {
         self.decide(session_id, &Policy { rules }, ask)
     }
 
+    /// A file inside a search already approved: only an explicit rule can exclude it, and an ask rule yields to a session grant.
+    pub fn covered_by_approval(&self, session_id: &str, workspace: &Policy, agent: &Policy, ask: &Ask) -> bool {
+        let global = self.policy.lock().unwrap().clone();
+        match agent.explicit(ask).or_else(|| workspace.explicit(ask)).or_else(|| global.explicit(ask)) {
+            None | Some(Decision::Allow) => true,
+            Some(Decision::Deny) => false,
+            Some(Decision::Ask) => self.decide_under(session_id, workspace, agent, ask) == Decision::Allow,
+        }
+    }
+
     pub async fn check_under(&self, hub: &Hub, workspace: &Policy, agent: &Policy, request: Request, abort: &CancellationToken) -> Outcome {
         if agent.explicit(&request.ask) == Some(Decision::Deny) { return Outcome::Refused; }
         let rules = agent.rules.iter().chain(&workspace.rules).cloned().collect();
