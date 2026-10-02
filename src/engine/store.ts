@@ -330,10 +330,24 @@ export function mergeTranscriptSnapshot(
       // (a full-transcript flash on each reconnect hydration).
       return [current && JSON.stringify(current) === JSON.stringify(entry) ? current : entry]
     }
-    return current ? [current] : []
+    return current ? [withSnapshotPrefixes(current, entry)] : []
   })
   for (const entry of live ?? []) if (advanced(entry.info.id) && !snapshotIds.has(entry.info.id)) merged.push(entry)
   return merged.sort(compareMessages)
+}
+
+// Live metadata wins, but a snapshot can repair a shorter compatible text prefix.
+function withSnapshotPrefixes(current: MessageEntry, snapshot: MessageEntry): MessageEntry {
+  const byId = new Map(snapshot.parts.map((part) => [part.id, part]))
+  let changed = false
+  const parts = current.parts.map((part) => {
+    if (part.type !== "text" && part.type !== "reasoning") return part
+    const incoming = byId.get(part.id)
+    if (incoming?.type !== part.type || incoming.text.length <= part.text.length || !incoming.text.startsWith(part.text)) return part
+    changed = true
+    return { ...part, text: incoming.text }
+  })
+  return changed ? { ...current, parts } : current
 }
 
 export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo | undefined {

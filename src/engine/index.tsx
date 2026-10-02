@@ -93,7 +93,7 @@ export function EngineProvider(props: ParentProps) {
         if (envelope.type === "mcp.updated") set("mcpServers", envelope.server.name, reconcile(envelope.server))
         if (envelope.type === "mcp.removed") set("mcpServers", produce((servers) => void delete servers[envelope.name]))
         const legacy = adaptEvent(envelope, workspaceIndex())
-        if (legacy) reduce(set, legacy, directory ?? undefined, state)
+        if (legacy) reduce(set, legacy, directory ?? undefined, state, (id) => void actions.reconcileSession(id))
       },
       online: (online) => {
         set("nativeOnline", online)

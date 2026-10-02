@@ -29,7 +29,7 @@ import {
 
 type SetEngineState = SetStoreFunction<EngineState>
 
-export function reduce(set: SetEngineState, event: Event, directory?: string, state?: EngineState) {
+export function reduce(set: SetEngineState, event: Event, directory?: string, state?: EngineState, reconcile?: (sessionID: string) => void) {
   // These events are newer than the generated v1 SDK's Event union.
   const raw = event as { id?: string; type: string; properties: Record<string, unknown> }
   if (raw.type === "question.v2.asked" || raw.type === "question.asked")
@@ -65,7 +65,7 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, st
       duration: typeof raw.properties.duration === "number" ? raw.properties.duration : 5000,
     })
   if (raw.type === "message.part.delta")
-    return appendPartDelta(set, raw.properties as PartDeltaRef)
+    return appendPartDelta(set, raw.properties as PartDeltaRef, reconcile)
   if (raw.type === "session.compacted") {
     const sessionID = raw.properties.sessionID as string
     clearError(set, sessionID)
@@ -357,29 +357,40 @@ type PartDeltaRef = { sessionID: string; messageID: string; partID: string; fiel
 
 /** The field after a delta: a snapshot that already holds it is left alone, one cut short is completed. */
 export function withDelta(current: string, delta: string, offset?: number) {
-  if (offset === undefined || offset > current.length) return current + delta
+  if (offset === undefined) return current + delta
+  if (offset > current.length) return current
   if (current.length >= offset + delta.length) return current
   return current.slice(0, offset) + delta
 }
 
-function appendPartDelta(set: SetEngineState, ref: PartDeltaRef) {
+function appendPartDelta(set: SetEngineState, ref: PartDeltaRef, reconcile?: (sessionID: string) => void) {
+  let gap = false
   set(
     produce((draft) => {
       const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
       const index = entry?.parts.findIndex((item) => item.id === ref.partID) ?? -1
-      if (!entry || index < 0) return
-      bumpRevision(draft, messageRevisionKey(ref.sessionID, ref.messageID))
+      if (!entry) return
+      if (index < 0) {
+        gap = ref.offset !== undefined
+        return
+      }
       const part = entry.parts[index]!
       const record = part as unknown as Record<string, unknown>
       const current = record[ref.field]
       if (typeof current === "string") {
-        // AssistantFlow mirrors parts into a persistent secondary store. Replacing the part gives
-        // that store a new source identity so streamed fields invalidate its Markdown consumer.
+        if (ref.offset !== undefined && ref.offset > current.length) {
+          gap = true
+          return
+        }
         const next = withDelta(current, ref.delta, ref.offset)
-        if (next !== current) entry.parts[index] = { ...part, [ref.field]: next } as Part
+        if (next !== current) {
+          bumpRevision(draft, messageRevisionKey(ref.sessionID, ref.messageID))
+          entry.parts[index] = { ...part, [ref.field]: next } as Part
+        }
       }
     }),
   )
+  if (gap) reconcile?.(ref.sessionID)
 }
 
 function trackActivity(draft: EngineState, part: Part & { type: "tool" }) {

@@ -65,6 +65,8 @@ export function createActions(
   workspaces: () => WorkspaceIndex,
 ) {
   const transcriptRequests = new Map<string, Promise<boolean>>()
+  const reconciliations = new Map<string, Promise<void>>()
+  const reconciliationWanted = new Set<string>()
   /** Submission ids of prompts whose fate is unknown, by session and exact prompt, until the engine answers for sure. */
   const unsettled = new Map<string, string>()
   let noticeSequence = 0
@@ -99,6 +101,26 @@ export function createActions(
     const [todos, tasks] = await Promise.all([requireClient().todos(id).catch(() => undefined), requireClient().tasks(id).catch(() => undefined)])
     if (todos) set("todos", id, adaptTodos(todos))
     if (tasks) putTasks(set, state, id, tasks)
+  }
+
+  // A gap during an existing reload needs a newer snapshot, not that reload's stale response.
+  function reconcileSession(id: string) {
+    reconciliationWanted.add(id)
+    const active = reconciliations.get(id)
+    if (active) return active
+    const request = (async () => {
+      await transcriptRequests.get(id)
+      while (reconciliationWanted.delete(id)) await reloadSession(id)
+    })()
+      .catch((cause) => {
+        notice({ id: `transcript-load-${id}`, title: "Transcript load failed", message: errorMessage(cause), variant: "error" })
+      })
+      .finally(() => {
+        reconciliations.delete(id)
+        reconciliationWanted.delete(id)
+      })
+    reconciliations.set(id, request)
+    return request
   }
 
   /** Stops one worker; the engine's `task.updated` reports how it ended. */
@@ -550,6 +572,7 @@ export function createActions(
 
   return {
     openSession,
+    reconcileSession,
     loadOlder,
     loadSessions,
     loadAllSessions,

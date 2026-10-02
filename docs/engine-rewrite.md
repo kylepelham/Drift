@@ -108,7 +108,11 @@ already covered. A text or reasoning part still streaming is read as far as its 
 gone (the store keeps it in memory, in step with what was published, and writes it to disk
 every 2 s and as it closes, so a crash loses at most that much), and each `part.delta` names
 its `offset`, the text's length before it in UTF-16 units, so a client whose snapshot already
-holds a delta skips it and one cut short mid-delta completes it. A resume that needs no
+holds a delta skips it and one cut short mid-delta completes it. An offset beyond the cached
+prefix is a gap: the client leaves the text and revision unchanged and requests reconciliation.
+Reconciliation waits for an in-flight transcript reload and fetches a newer snapshot after it.
+Snapshot merging preserves newer live metadata but accepts a longer compatible text prefix
+from HTTP, so an unrelated message update cannot discard the missing prefix. A resume that needs no
 hydrate brings the client back online by itself (`resumed`).
 
 ## Data model
