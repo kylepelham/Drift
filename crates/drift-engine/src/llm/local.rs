@@ -15,11 +15,20 @@ const ASK_WITHIN: Duration = Duration::from_secs(2);
 /// The local routes and where they listen unless the user's drift.json says otherwise.
 pub const LOCAL: [(&str, &str, &str); 2] = [("lmstudio", "LM Studio", "http://127.0.0.1:1234/v1"), ("ollama", "Ollama", "http://127.0.0.1:11434/v1")];
 
-/// Each Ollama model's own `num_ctx` (capped at its trained length), by the digest of what is
-/// installed: `/api/show` is asked once per build of a model, and a model re-created under the same
-/// name has a new digest, so it is asked again.
+/// What `/api/show` says of each Ollama model, by the digest of what is installed: asked once per
+/// build of a model, and a model re-created under the same name has a new digest, so it is asked again.
 #[derive(Default)]
-pub struct Shown(Mutex<BTreeMap<String, Option<u64>>>);
+pub struct Shown(Mutex<BTreeMap<String, Showing>>);
+
+/// One Ollama model as `/api/show` describes it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Showing {
+    /// Its own `num_ctx`, never more than it was trained for; `None` when it sets none.
+    window: Option<u64>,
+    /// `false` only when Ollama lists its capabilities without `tools`.
+    tools: bool,
+    vision: bool,
+}
 
 /// The chat models the server at `base` (an OpenAI-compatible `/v1` root) offers; `None` when it does not answer.
 pub async fn discover(client: &reqwest::Client, provider: &str, base: &str, shown: &Shown) -> Option<Vec<Model>> {
@@ -33,19 +42,28 @@ pub async fn discover(client: &reqwest::Client, provider: &str, base: &str, show
         .filter_map(|id| model(id, details.as_ref().and_then(|d| d.iter().find(|m| m["id"] == id))))
         .collect();
     if provider == "ollama" {
-        let running = ollama_listing(client, base, "ps", "context_length").await;
-        let digests = ollama_listing(client, base, "tags", "digest").await;
-        for model in &mut models {
-            model.limit.context = match running.get(&model.id).and_then(Value::as_u64) {
-                Some(window) => window,
-                None => {
-                    let digest = digests.get(&model.id).and_then(Value::as_str).map_or_else(|| format!("{base}|{}", model.id), str::to_string);
-                    shown.window(client, base, &model.id, &digest).await.unwrap_or(0)
-                }
-            };
-        }
+        models = ollama_details(client, base, shown, models).await;
     }
     Some(models)
+}
+
+/// Ollama's own answers for each model: a loaded one's allocated window (`/api/ps`), else its own
+/// `num_ctx`; whether it reads images; and models that cannot call tools are left out.
+async fn ollama_details(client: &reqwest::Client, base: &str, shown: &Shown, models: Vec<Model>) -> Vec<Model> {
+    let running = ollama_listing(client, base, "ps", "context_length").await;
+    let digests = ollama_listing(client, base, "tags", "digest").await;
+    let mut kept = Vec::new();
+    for mut model in models {
+        let digest = digests.get(&model.id).and_then(Value::as_str).map_or_else(|| format!("{base}|{}", model.id), str::to_string);
+        let showing = shown.describe(client, base, &model.id, &digest).await;
+        if !showing.tools {
+            continue;
+        }
+        model.attachment = showing.vision;
+        model.limit.context = running.get(&model.id).and_then(Value::as_u64).or(showing.window).unwrap_or(0);
+        kept.push(model);
+    }
+    kept
 }
 
 async fn get(client: &reqwest::Client, url: &str) -> Option<Value> {
@@ -79,22 +97,28 @@ async fn ollama_listing(client: &reqwest::Client, base: &str, what: &str, field:
 }
 
 impl Shown {
-    /// A model's own `num_ctx`, never more than it was trained for; `None` when it sets none, since
-    /// then Ollama decides when it loads (its default depends on the server's memory).
-    async fn window(&self, client: &reqwest::Client, base: &str, model: &str, digest: &str) -> Option<u64> {
+    /// What `/api/show` says of a model. A model whose window Ollama sets none of gets `None`, since
+    /// then Ollama decides when it loads (its default depends on the server's memory). One that does
+    /// not answer is taken as able to call tools, and asked again next time.
+    async fn describe(&self, client: &reqwest::Client, base: &str, model: &str, digest: &str) -> Showing {
         if let Some(known) = self.0.lock().unwrap().get(digest) {
             return *known;
         }
         let root = base.strip_suffix("/v1").unwrap_or(base);
         let shown = async { read(client.post(format!("{root}/api/show")).json(&serde_json::json!({ "model": model })).send().await.ok()?).await };
-        let shown = tokio::time::timeout(ASK_WITHIN, shown).await.ok().flatten()?;
+        let Some(shown) = tokio::time::timeout(ASK_WITHIN, shown).await.ok().flatten() else { return Showing { tools: true, ..Showing::default() } };
         let set = shown["parameters"].as_str().and_then(|parameters| {
             parameters.lines().find_map(|line| line.trim().strip_prefix("num_ctx").and_then(|value| value.trim().parse::<u64>().ok()))
         });
         let trained = shown["model_info"].as_object().and_then(|info| info.iter().find(|(key, _)| key.ends_with(".context_length")).and_then(|(_, value)| value.as_u64()));
-        let window = set.map(|set| trained.map_or(set, |trained| set.min(trained)));
-        self.0.lock().unwrap().insert(digest.into(), window);
-        window
+        let capabilities: Vec<&str> = shown["capabilities"].as_array().map(|c| c.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+        let showing = Showing {
+            window: set.map(|set| trained.map_or(set, |trained| set.min(trained))),
+            tools: capabilities.is_empty() || capabilities.contains(&"tools"),
+            vision: capabilities.contains(&"vision"),
+        };
+        self.0.lock().unwrap().insert(digest.into(), showing);
+        showing
     }
 }
 
@@ -169,13 +193,14 @@ mod tests {
         let build = std::sync::Arc::new(AtomicUsize::new(1));
         let rebuilt = build.clone();
         let app = axum::Router::new()
-            .route("/v1/models", axum::routing::get(|| async { axum::Json(json!({ "data": [{ "id": "loaded:latest" }, { "id": "set" }, { "id": "unset" }, { "id": "tiny" }] })) }))
+            .route("/v1/models", axum::routing::get(|| async { axum::Json(json!({ "data": [{ "id": "loaded:latest" }, { "id": "set" }, { "id": "unset" }, { "id": "tiny" }, { "id": "chatty" }] })) }))
             .route("/api/ps", axum::routing::get(|| async { axum::Json(json!({ "models": [{ "name": "loaded:latest", "model": "loaded:latest", "context_length": 262144 }] })) }))
             .route(
                 "/api/tags",
                 axum::routing::get(move || {
                     let build = rebuilt.load(Ordering::SeqCst);
-                    async move { axum::Json(json!({ "models": [{ "name": "set", "digest": format!("set-{build}") }, { "name": "unset", "digest": "u" }, { "name": "tiny", "digest": "t" }] })) }
+                    let tags = json!({ "models": [{ "name": "loaded:latest", "digest": "l" }, { "name": "set", "digest": format!("set-{build}") }, { "name": "unset", "digest": "u" }, { "name": "tiny", "digest": "t" }, { "name": "chatty", "digest": "c" }] });
+                    async move { axum::Json(tags) }
                 }),
             )
             .route(
@@ -185,8 +210,9 @@ mod tests {
                     async move {
                         let info = |n: u64| json!({ "llama.context_length": n });
                         axum::Json(match body["model"].as_str() {
-                            Some("set") => json!({ "parameters": "temperature 0.7\nnum_ctx 32768", "model_info": info(131072) }),
-                            Some("tiny") => json!({ "parameters": "num_ctx 8192", "model_info": info(2048) }),
+                            Some("set") => json!({ "parameters": "temperature 0.7\nnum_ctx 32768", "model_info": info(131072), "capabilities": ["completion", "tools", "vision"] }),
+                            Some("tiny") => json!({ "parameters": "num_ctx 8192", "model_info": info(2048), "capabilities": ["completion", "tools"] }),
+                            Some("chatty") => json!({ "model_info": info(8192), "capabilities": ["completion"] }),
                             _ => json!({ "model_info": info(131072) }),
                         })
                     }
@@ -199,12 +225,16 @@ mod tests {
         let client = crate::llm::http::client();
         let shown = Shown::default();
         let models = discover(&client, "ollama", &base, &shown).await.unwrap();
-        let windows: Vec<(&str, u64)> = models.iter().map(|m| (m.id.as_str(), m.limit.context)).collect();
-        assert_eq!(windows, [("loaded:latest", 262144), ("set", 32768), ("unset", 0), ("tiny", 2048)], "loaded as allocated; else num_ctx within the trained length; else unknown");
+        let found: Vec<(&str, u64, bool)> = models.iter().map(|m| (m.id.as_str(), m.limit.context, m.attachment)).collect();
+        assert_eq!(
+            found,
+            [("loaded:latest", 262144, false), ("set", 32768, true), ("unset", 0, false), ("tiny", 2048, false)],
+            "loaded as allocated; else num_ctx within the trained length; else unknown; vision read from its capabilities; a model without tools left out"
+        );
         discover(&client, "ollama", &base, &shown).await.unwrap();
-        assert_eq!(shows.load(Ordering::SeqCst), 3, "each installed model is shown once, not every poll");
+        assert_eq!(shows.load(Ordering::SeqCst), 5, "each installed model is shown once, not every poll");
         build.store(2, Ordering::SeqCst);
         discover(&client, "ollama", &base, &shown).await.unwrap();
-        assert_eq!(shows.load(Ordering::SeqCst), 4, "a model re-created under its name has a new digest, so it is asked again");
+        assert_eq!(shows.load(Ordering::SeqCst), 6, "a model re-created under its name has a new digest, so it is asked again");
     }
 }
