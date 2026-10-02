@@ -192,6 +192,7 @@ async fn a_refused_reply_says_so_and_runs_nothing() {
     until_idle(&h).await;
     let last = h.engine.store.transcript(&h.session.id).unwrap().pop().unwrap();
     assert_eq!((last.info.status, last.info.error.as_deref()), (MessageStatus::Done, Some(super::REFUSED_ENDING)), "never a silent end");
+    assert_eq!(last.info.ending, Some(crate::session::types::Ending::Refused), "typed, so the UI never reads the wording");
     let Part::ToolCall { status, .. } = &last.parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Error);
 }
@@ -758,6 +759,7 @@ async fn a_reply_cut_off_without_calls_still_says_so() {
     let last = h.engine.store.transcript(&h.session.id).unwrap().pop().unwrap();
     assert_eq!(last.info.status, MessageStatus::Done);
     assert!(last.info.error.as_deref().is_some_and(|e| e.starts_with(OUTPUT_LIMIT_ENDING)));
+    assert_eq!(last.info.ending, Some(crate::session::types::Ending::Length));
 }
 
 #[tokio::test]

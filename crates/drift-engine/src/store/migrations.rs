@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 24] = [
+pub(super) const MIGRATIONS: [&str; 25] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -141,6 +141,9 @@ pub(super) const MIGRATIONS: [&str; 24] = [
      FROM part, json_each(part.json, '$.metadata.images') AS image
      WHERE json_extract(part.json, '$.type') = 'tool_call' AND json_extract(image.value, '$.hash') IS NOT NULL;",
     "ALTER TABLE mcp_config ADD COLUMN era TEXT CHECK(era IN ('stateless', 'legacy'));",
+    "ALTER TABLE message ADD COLUMN ending TEXT CHECK(ending IN ('length', 'refused'));
+    UPDATE message SET ending = 'length' WHERE status = 'done' AND error LIKE 'The reply stopped at the output limit%';
+    UPDATE message SET ending = 'refused' WHERE status = 'done' AND error = 'The provider''s safety filter ended the reply.';",
 ];
 
 #[cfg(test)]

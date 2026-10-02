@@ -79,13 +79,14 @@ export function adaptMessage(message: NativeMessage, directory: string): Message
   // The turn stopped itself at a limit: an interruption with its reason, not a failure.
   if (message.status === "paused") assistant.error = { name: "MessageAbortedError", data: { message: message.error ?? "Paused" } }
   if (message.status === "done") assistant.finish = "stop"
-  // A finished reply that carries an error did not end on its own: its output limit, or the provider's safety filter.
-  if (message.status === "done" && message.error) {
-    const cutOff = message.error.startsWith("The reply stopped at the output limit")
-    assistant.finish = cutOff ? "length" : "content-filter"
-    assistant.error = cutOff
-      ? { name: "MessageOutputLengthError", data: { message: message.error } }
-      : { name: "UnknownError", data: { message: message.error } }
+  // A finished reply that did not end on its own says how (`ending`), and `error` says it in words.
+  if (message.status === "done" && message.ending === "length") {
+    assistant.finish = "length"
+    assistant.error = { name: "MessageOutputLengthError", data: { message: message.error ?? "The reply stopped at the output limit." } }
+  }
+  if (message.status === "done" && message.ending === "refused") {
+    assistant.finish = "content-filter"
+    assistant.error = { name: "UnknownError", data: { message: message.error ?? "The provider's safety filter ended the reply." } }
   }
   if (message.summary) assistant.summary = true
   return assistant

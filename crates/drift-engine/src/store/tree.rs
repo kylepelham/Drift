@@ -83,8 +83,8 @@ impl Store {
 fn copy_message(conn: &Connection, source: &str, session_id: &str, copies: &mut HashMap<String, String>) -> rusqlite::Result<()> {
     let message_id = id::new("msg");
     conn.prepare_cached(
-        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent)
-         SELECT ?1, ?2, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent FROM message WHERE id = ?3",
+        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending)
+         SELECT ?1, ?2, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending FROM message WHERE id = ?3",
     )?
     .execute(params![message_id, session_id, source])?;
     copies.insert(source.to_string(), message_id.clone());

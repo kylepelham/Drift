@@ -84,9 +84,13 @@ test("sessions and messages keep the agent they actually ran as", () => {
 
 test("a reply that stopped at its output limit shows why", () => {
   const base = { id: "msg_3", sessionId: "ses_1", role: "assistant" as const, model: { provider: "anthropic", model: "claude" }, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0, createdAt: 1 }
-  const cut = adaptMessage({ ...base, status: "done", error: "The reply stopped at the output limit (32000 tokens)." }, "C:/repo") as { finish?: string; error?: { name: string; data: { message: string } } }
+  type Shown = { finish?: string; error?: { name: string; data: { message: string } } }
+  const cut = adaptMessage({ ...base, status: "done", ending: "length", error: "The reply stopped at the output limit (32000 tokens)." }, "C:/repo") as Shown
   expect(cut.finish).toBe("length")
   expect(cut.error).toEqual({ name: "MessageOutputLengthError", data: { message: "The reply stopped at the output limit (32000 tokens)." } })
+  const refused = adaptMessage({ ...base, status: "done", ending: "refused", error: "Blocked, in any words." }, "C:/repo") as Shown
+  expect(refused.finish).toBe("content-filter")
+  expect(refused.error?.data.message).toBe("Blocked, in any words.")
   const paused = adaptMessage({ ...base, status: "paused", error: "Paused after 200 steps, this turn's limit." }, "C:/repo") as { error?: { name: string; data: { message: string } } }
   expect(paused.error).toEqual({ name: "MessageAbortedError", data: { message: "Paused after 200 steps, this turn's limit." } })
   const whole = adaptMessage({ ...base, status: "done" }, "C:/repo") as { finish?: string; error?: unknown }

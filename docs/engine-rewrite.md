@@ -897,6 +897,9 @@ Settled after the first external review of M1; each has a regression test.
   `content_filter`, Gemini `SAFETY` and its kin) runs none of its calls and stays `done` with
   `error: "The provider's safety filter ended the reply."`; the UI shows it with finish
   `content-filter`, so a refusal with no text never ends in silence.
+- How a `done` reply ended when not by itself is typed: `message.ending` is `length` or `refused`
+  (migration 25, which also marks earlier replies by their wording). The UI decides by it, never by
+  `error`'s words, which are only for reading.
 - An Anthropic content block or delta of a type the adapter does not know (server tools,
   citations, kinds added later) is skipped, not an error: nothing opens for it, so its deltas and
   stop fall on nothing and the reply goes on. Bedrock shares this.

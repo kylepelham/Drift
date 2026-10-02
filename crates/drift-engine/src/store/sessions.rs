@@ -10,7 +10,7 @@ use crate::session::types::{
 };
 
 pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant";
-const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent";
+const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending";
 
 pub struct NewSession<'a> {
     pub workspace_id: &'a str,
@@ -279,6 +279,7 @@ fn map_message(row: &Row) -> rusqlite::Result<Message> {
         created_at: row.get(9)?,
         finished_at: row.get(10)?,
         summary: row.get(11)?,
+        ending: row.get::<_, Option<String>>(13)?.as_deref().and_then(crate::session::types::Ending::parse),
     })
 }
 
@@ -669,14 +670,15 @@ pub(super) fn insert_session(conn: &Connection, session: &Session) -> rusqlite::
 }
 
 fn save_message_in(conn: &Connection, message: &Message) -> rusqlite::Result<()> {
-    conn.prepare_cached("UPDATE message SET status = ?2, usage_json = ?3, cost = ?4, error = ?5, finished_at = ?6 WHERE id = ?1")?
+    conn.prepare_cached("UPDATE message SET status = ?2, usage_json = ?3, cost = ?4, error = ?5, finished_at = ?6, ending = ?7 WHERE id = ?1")?
         .execute(params![
             message.id,
             status_str(message.status),
             serde_json::to_string(&message.usage).unwrap(),
             message.cost,
             message.error,
-            message.finished_at
+            message.finished_at,
+            message.ending.map(|ending| ending.as_str())
         ])?;
     Ok(())
 }
@@ -715,6 +717,7 @@ fn insert_message(conn: &Connection, session_id: &str, role: Role, model: Option
         created_at: id::now_ms(),
         finished_at: None,
         summary,
+        ending: None,
     };
     conn.prepare_cached(
         "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, created_at, summary, agent)

@@ -118,6 +118,36 @@ pub struct Message {
     /// A compaction summary: from here on the model sees this instead of the history before it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub summary: bool,
+    /// How a `done` reply ended when not on its own; `error` then says it in words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ending: Option<Ending>,
+}
+
+/// A finished reply that did not end by itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Ending {
+    /// It stopped at its output limit.
+    Length,
+    /// The provider's safety filter ended it.
+    Refused,
+}
+
+impl Ending {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Length => "length",
+            Self::Refused => "refused",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "length" => Some(Self::Length),
+            "refused" => Some(Self::Refused),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

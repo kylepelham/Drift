@@ -921,6 +921,11 @@ impl Engine {
         if let Some((error, _)) = &ending {
             message.error = Some(error.clone());
         }
+        message.ending = match streamed.stop {
+            StopReason::MaxTokens => Some(super::types::Ending::Length),
+            StopReason::Refused => Some(super::types::Ending::Refused),
+            _ => None,
+        };
         if self.finish(&mut message).is_err() {
             return Step::Done;
         }

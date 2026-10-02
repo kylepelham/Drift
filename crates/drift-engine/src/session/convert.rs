@@ -136,6 +136,7 @@ pub(super) mod tests_support {
                 created_at: 0,
                 finished_at: None,
                 summary: false,
+                ending: None,
             },
             parts: parts
                 .into_iter()

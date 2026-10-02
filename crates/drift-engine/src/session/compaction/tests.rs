@@ -59,6 +59,7 @@ fn a_small_window_compacts_only_when_it_is_actually_filling() {
             created_at: 0,
             finished_at: None,
             summary: false,
+            ending: None,
         },
         parts: Vec::new(),
     };
