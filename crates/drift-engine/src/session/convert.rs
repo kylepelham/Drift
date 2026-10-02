@@ -58,6 +58,17 @@ pub(crate) fn clarification_text(request_id: &str, items: &[super::types::Clarif
     format!("<question-answer id=\"{request_id}\">\nThe user answered the question you asked earlier.\n\n{}\n</question-answer>", answers.join("\n\n"))
 }
 
+/// Unsigned reasoning (Chat Completions `reasoning_content`) goes back only within the turn that
+/// wrote it: Kimi, GLM and DeepSeek want it through their tool loop and ignore or refuse it from
+/// earlier turns. The turn is known here, not from the wire, where a prompt steered in mid-loop and
+/// one sent after a Stop both land beside the last tool results. `started` is the turn's own prompt.
+pub(super) fn drop_earlier_reasoning(transcript: &mut [MessageWithParts], started: Option<&str>) {
+    let Some(started) = started else { return };
+    for message in transcript.iter_mut().filter(|m| m.info.role == Role::Assistant && m.info.id.as_str() < started) {
+        message.parts.retain(|row| !matches!(row.part, Part::Reasoning { signature: None, redacted: None, .. }));
+    }
+}
+
 /// Reasoning goes back only to the model that wrote it: signed or redacted always, unsigned (Chat
 /// Completions `reasoning_content`) only from a finished reply; each adapter keeps what its wire takes.
 fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> {
@@ -217,6 +228,22 @@ mod tests {
         assert_eq!(messages(&transcript, &target())[1].blocks.len(), 2);
         let other = ModelRef { provider: "openai".into(), model: "gpt-5".into() };
         assert_eq!(messages(&transcript, &other)[1].blocks, vec![Block::Text("x".into())]);
+    }
+
+    #[test]
+    fn unsigned_reasoning_from_turns_already_over_is_dropped_wherever_the_new_prompt_lands() {
+        let thought = |id: &str| {
+            let mut reply = message(Role::Assistant, vec![Part::Reasoning { text: format!("thought {id}"), signature: None, redacted: None }, Part::Reasoning { text: "signed".into(), signature: Some("s".into()), redacted: None }]);
+            reply.info.id = id.into();
+            reply
+        };
+        let mut prompt = message(Role::User, vec![Part::Text { text: "after a stop".into() }]);
+        prompt.info.id = "msg_2".into();
+        let mut transcript = vec![thought("msg_1"), prompt, thought("msg_3")];
+        drop_earlier_reasoning(&mut transcript, Some("msg_2"));
+        let kept = |m: &MessageWithParts| m.parts.iter().filter(|p| matches!(&p.part, Part::Reasoning { signature: None, .. })).count();
+        assert_eq!((kept(&transcript[0]), kept(&transcript[2])), (0, 1), "the stopped turn's unsigned thought goes; this turn's stays");
+        assert_eq!(transcript[0].parts.len(), 1, "signed reasoning is the adapter's to judge, never dropped here");
     }
 
     #[test]

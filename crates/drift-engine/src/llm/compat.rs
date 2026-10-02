@@ -75,8 +75,8 @@ fn body(request: &Request) -> Value {
     if !request.system.is_empty() {
         messages.push(json!({ "role": "system", "content": request.system }));
     }
+    // Reasoning from turns already over was left out by the session, which knows where its turn began.
     messages.extend(request.messages.iter().flat_map(message));
-    keep_loop_reasoning(&mut messages);
     let mut body = json!({
         "model": request.model,
         "messages": messages,
@@ -199,19 +199,6 @@ fn message(message: &ChatMessage) -> Vec<Value> {
     out
 }
 
-/// Thinking models (Kimi, GLM, DeepSeek) want their `reasoning_content` back within the tool loop they
-/// are in; from before the prompt that started it, it is dropped, as their APIs ignore or refuse it
-/// there. A `user` message straight after tool results (an image's caption, a prompt or task result
-/// steered in) is inside the loop, not the start of a new one.
-fn keep_loop_reasoning(messages: &mut [Value]) {
-    let starts_loop = |i: usize| messages[i]["role"] == "user" && (i == 0 || messages[i - 1]["role"] != "tool");
-    let prompt = (0..messages.len()).rev().find(|i| starts_loop(*i)).unwrap_or(0);
-    for message in &mut messages[..prompt] {
-        if let Some(fields) = message.as_object_mut() {
-            fields.remove("reasoning_content");
-        }
-    }
-}
 
 /// Gateways put an HTTP code inside a streamed error object; it classifies like the status it names.
 fn api_error(status: u16, text: &str) -> Error {
@@ -519,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_goes_back_within_the_tool_loop_only() {
+    fn reasoning_given_goes_back_on_its_own_assistant_message() {
         let thinking = |text: &str| ChatMessage {
             role: Role::Assistant,
             blocks: vec![Block::Reasoning { text: text.into(), signature: None, redacted: None }, Block::ToolUse { id: format!("c_{text}"), name: "read".into(), input: json!({}) }],
@@ -533,7 +520,7 @@ mod tests {
         let messages = vec![prompt("one"), thinking("old"), result("old"), ChatMessage { role: Role::Assistant, blocks: vec![Block::Text("done".into())] }, prompt("two"), thinking("new"), steered, thinking("next"), result("next")];
         let built = body(&Request { messages, ..request() });
         let kept: Vec<&str> = built["messages"].as_array().unwrap().iter().filter_map(|m| m["reasoning_content"].as_str()).collect();
-        assert_eq!(kept, ["new", "next"], "the earlier turn's reasoning is not sent back; a prompt steered in after results does not end the loop");
+        assert_eq!(kept, ["old", "new", "next"], "which turns' reasoning to send is the session's choice; the wire keeps what it is given");
     }
 
     #[test]

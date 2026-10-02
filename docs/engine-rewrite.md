@@ -821,10 +821,12 @@ these async criteria are new pending M3 work.
   - A turn's `tool` messages go straight after the assistant message that called them; anything
     else in that user turn (the line introducing a returned image, a prompt steered in mid-turn)
     follows them as a `user` message, since these APIs refuse anything between calls and results.
-  - Reasoning a model streamed as `reasoning_content` goes back to the same model, on the assistant
-    messages of the tool loop under way (after the latest `user` message) and nowhere earlier:
-    Kimi, GLM and DeepSeek thinking models expect it there, and ignore or refuse it from earlier
-    turns. Only finished replies give it; Anthropic never receives unsigned thinking.
+  - Reasoning a model streamed as `reasoning_content` goes back to the same model, on the replies of
+    the turn under way and nowhere earlier: Kimi, GLM and DeepSeek thinking models expect it there,
+    and ignore or refuse it from earlier turns. The session draws that line
+    (`convert::drop_earlier_reasoning`, at the prompt the turn started from), since on the wire a
+    prompt steered in mid-loop and one sent after a Stop both sit beside the last tool results.
+    Only finished replies give it; Anthropic never receives unsigned thinking.
 - Local servers report their own models (`llm::local`). Every 15 s the engine asks LM Studio and
   Ollama (`/v1/models`, plus LM Studio's `/api/v0/models` for kind, context and tool support) at
   their default address or the one the user set; what answers replaces that provider's listed

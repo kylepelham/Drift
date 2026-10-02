@@ -646,8 +646,10 @@ impl Engine {
     /// Steps until the model is done, then again for any prompt steered in meanwhile.
     async fn run(self: &Arc<Self>, mut plan: Plan, abort: CancellationToken) {
         self.title_untitled(&plan.session);
+        // The prompt this turn answers; replies before it belong to turns already over.
+        let started = self.store.newest_prompt(&plan.session.id).ok().flatten();
         loop {
-            let answered = self.run_steps(&mut plan, &abort).await;
+            let answered = self.run_steps(&mut plan, &abort, started.as_deref()).await;
             if abort.is_cancelled() || !self.steered_after(&plan.session.id, answered.as_deref()) {
                 break;
             }
@@ -669,7 +671,7 @@ impl Engine {
     }
 
     /// One run of model steps; returns the newest prompt the last request included.
-    async fn run_steps(self: &Arc<Self>, plan: &mut Plan, abort: &CancellationToken) -> Option<String> {
+    async fn run_steps(self: &Arc<Self>, plan: &mut Plan, abort: &CancellationToken, started: Option<&str>) -> Option<String> {
         let mut attempts = 0;
         let mut recovered = false;
         let mut steps = 0;
@@ -688,6 +690,7 @@ impl Engine {
             let Some(mut transcript) = self.transcript_for_step(plan, abort).await else { break };
             super::branch::frame_spawned(&plan.session, &mut transcript);
             prompt::remind_agents(&plan.config, &plan.session.agent, &mut transcript);
+            super::convert::drop_earlier_reasoning(&mut transcript, started);
             answered = transcript.iter().rev().find(|m| m.info.role == Role::User).map(|m| m.info.id.clone());
             let (max_tokens, reasoning) = budgets(&plan.model, plan.reasoning());
             let request = Request {
