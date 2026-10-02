@@ -1019,8 +1019,9 @@ impl Engine {
         if checks.is_empty() || scope.abort.is_cancelled() {
             return;
         }
-        // Taken as a writing call's own is, so undo puts back what a fixing check rewrites.
-        let capture = self.capture_before(&scope.plan.workspace, Some(files.clone())).await;
+        // Taken as a writing call's own is, so undo puts back what a fixing check rewrites; a whole-workspace check may touch anything, so the whole tree.
+        let whole = checks.iter().any(|check| !check.command.iter().any(|part| part.contains("$FILE")));
+        let capture = self.capture_before(&scope.plan.workspace, (!whole).then(|| files.clone())).await;
         // Without a capture the bytes are compared instead, so a rewrite is still announced.
         let bytes = match &capture {
             Ok(_) => Vec::new(),
@@ -1031,7 +1032,7 @@ impl Engine {
             () = scope.abort.cancelled() => return,
         };
         let recorded = match capture {
-            Ok(capture) => self.record_call(&scope.plan.workspace, capture).await.map(|recorded| observed_unless_covered(recorded, &checks)),
+            Ok(capture) => self.record_call(&scope.plan.workspace, capture).await.map(|recorded| attribute(recorded, &checks, &files, &scope.plan.workspace)),
             Err(error) => Err(self.unrecorded_rewrites(scope, &files, bytes, &error).await),
         };
         self.report_checks(scope, row, &reports, recorded);
@@ -1057,8 +1058,9 @@ impl Engine {
             Err(lost) => (Vec::new(), lost.unrecorded, Some(lost.note).filter(|note| !note.is_empty())),
         };
         let changed: Vec<String> = changes.iter().filter(|change| !change.observed).map(|change| change.path.clone()).chain(unrecorded.iter().cloned()).collect();
+        let elsewhere: Vec<String> = changes.iter().filter(|change| change.observed).map(|change| change.path.clone()).collect();
         let found = checks_note(reports, workspace, |label, said| self.turns.repeated(&scope.plan.session.id, label, said));
-        let notes: Vec<String> = [found, changed_note(&changed), lost].into_iter().flatten().collect();
+        let notes: Vec<String> = [found, changed_note(&changed), elsewhere_note(&elsewhere), lost].into_iter().flatten().collect();
         let Part::ToolCall { output, metadata, .. } = &mut row.part else { return };
         if !notes.is_empty() {
             *output = Some(format!("{}\n\n{}", output.take().unwrap_or_default(), notes.join("\n\n")));
@@ -1067,6 +1069,9 @@ impl Engine {
         meta["checks"] = checks_metadata(reports, workspace);
         if !changed.is_empty() {
             meta["checkChanged"] = json!(changed);
+        }
+        if !elsewhere.is_empty() {
+            meta["checkObserved"] = json!(elsewhere);
         }
         if !unrecorded.is_empty() {
             let mut all: Vec<serde_json::Value> = meta["unrecorded"].as_array().cloned().unwrap_or_default();
@@ -1570,9 +1575,11 @@ fn reformatted_note(formatted: &[String]) -> String {
 }
 
 /// A change to a file none of the checks runs over cannot be theirs: someone else made it while they ran, so undo leaves it alone.
-fn observed_unless_covered(mut recorded: super::changes::Recorded, checks: &[crate::edit::check::Check]) -> super::changes::Recorded {
+/// A check's own change is to a file the step wrote and a check covers; any other change seen while they ran could be anyone's, so undo leaves it alone.
+fn attribute(mut recorded: super::changes::Recorded, checks: &[crate::edit::check::Check], written: &[PathBuf], workspace: &Path) -> super::changes::Recorded {
+    let written: Vec<String> = written.iter().map(|file| super::changes::relative(workspace, file)).collect();
     for change in &mut recorded.changes {
-        change.observed |= !crate::edit::check::covers(checks, Path::new(&change.path));
+        change.observed = !(written.contains(&change.path) && crate::edit::check::covers(checks, Path::new(&change.path)));
     }
     recorded
 }
@@ -1601,6 +1608,13 @@ impl StepWrites {
 }
 
 /// What the model hears after checks changed files it wrote, as after a formatter.
+/// What the model hears of other files that changed while the checks ran: a whole-workspace fixer's work, or anyone's.
+fn elsewhere_note(changed: &[String]) -> Option<String> {
+    (!changed.is_empty()).then(|| {
+        format!("While the checks ran, files this step did not write changed too ({}), by a whole-workspace check or by someone else. Read them again before relying on what you knew of them; undo leaves them as they are.", changed.join(", "))
+    })
+}
+
 fn changed_note(changed: &[String]) -> Option<String> {
     (!changed.is_empty()).then(|| format!("A check then changed {}. Those files no longer match what you wrote; read them again before editing those lines.", changed.join(", ")))
 }

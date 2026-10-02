@@ -1497,6 +1497,27 @@ async fn a_change_no_check_covers_is_left_to_whoever_made_it_and_undo_keeps_it()
 }
 
 #[tokio::test]
+async fn a_whole_workspace_fixer_is_captured_whole_and_what_it_changed_elsewhere_is_said_and_left_to_stand() {
+    let h = harness().await;
+    allow_edits_and_project_commands(&h);
+    // No $FILE: it runs once over the workspace, like `eslint --fix .`, and rewrites more than the step wrote.
+    let fix = if cfg!(windows) { ["cmd", "/c", "echo fixed> a.md & echo fixed> other.md"] } else { ["sh", "-c", "echo fixed > a.md; echo fixed > other.md"] };
+    std::fs::write(h._dir.join("ws/drift.json"), json!({ "checks": { "fix-all": { "command": fix, "extensions": [".md"] } } }).to_string()).unwrap();
+    std::fs::write(h._dir.join("ws/other.md"), "untouched\n").unwrap();
+    h.provider.push(tool_call("write", r#"{"path": "a.md", "content": "draft\n"}"#)).push(text("written"));
+    h.engine.submit(&h.session.id, prompt("write a")).await.await_ok();
+    until_idle(&h).await;
+    let (output, meta) = &call_outputs(&h, 1)[0];
+    assert_eq!((&meta["checkChanged"], &meta["checkObserved"]), (&json!(["a.md"]), &json!(["other.md"])), "{meta:?}");
+    assert!(output.contains("files this step did not write changed too (other.md)"), "{output}");
+
+    let prompt_id = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
+    h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
+    assert!(!h._dir.join("ws/a.md").exists(), "the step's own file goes back, check's rewrite and all");
+    assert!(std::fs::read_to_string(h._dir.join("ws/other.md")).unwrap().starts_with("fixed"), "a file the step never wrote is not the session's to undo");
+}
+
+#[tokio::test]
 async fn a_check_rewrite_without_a_capture_is_still_announced_and_said_to_be_unrecorded() {
     let h = harness().await;
     let allow = |kind: &str| Rule { kind: kind.into(), pattern: "*".into(), decision: Decision::Allow };

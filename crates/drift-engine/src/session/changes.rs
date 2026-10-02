@@ -103,7 +103,7 @@ impl Engine {
 }
 
 /// Workspace-relative with `/`, matching the shadow repo's paths; absolute outside the workspace.
-fn relative(workspace: &Path, path: &Path) -> String {
+pub(super) fn relative(workspace: &Path, path: &Path) -> String {
     match path.strip_prefix(workspace) {
         Ok(inside) => inside.to_string_lossy().replace('\\', "/"),
         Err(_) => path.to_string_lossy().into_owned(),
