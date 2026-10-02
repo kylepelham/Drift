@@ -320,9 +320,23 @@ async fn the_startup_sweep_never_cancels_a_connect_already_under_way() {
         async move { engine.connect_mcp("slow").await }
     });
     until("connecting", || engine.mcp.connecting()).await;
-    engine.connect_all_mcp().await;
+    engine.connect_all_mcp();
     assert_eq!(connecting.await.unwrap(), Ok(()), "the user's connect lands");
     assert_eq!(engine.mcp.status_of(row).state, State::Connected);
+}
+
+#[tokio::test]
+async fn at_startup_every_server_connects_at_once_and_a_dead_one_holds_up_no_other() {
+    let engine = engine();
+    let (mute, _) = traced(&[("SLOW_MS", "600000")]);
+    saved_legacy(&engine, "mute", &mute).await;
+    let fine = saved(&engine, "echo", &echo_config()).await;
+    let started = std::time::Instant::now();
+    engine.connect_all_mcp();
+    assert!(engine.mcp.connecting(), "every connect has begun before the sweep returns");
+    until("echo connects", || engine.mcp.status_of(fine.clone()).state == State::Connected).await;
+    assert!(started.elapsed() < STEP_LIMIT, "echo did not wait for the server that never answers: {:?}", started.elapsed());
+    assert!(engine.mcp.connecting(), "the dead one is still trying on its own");
 }
 
 #[tokio::test]

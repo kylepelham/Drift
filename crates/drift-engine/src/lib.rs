@@ -300,13 +300,18 @@ impl Server {
     }
 }
 
+/// How long recovering interrupted tasks waits at startup for MCP servers still connecting.
+const RECOVERY_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
 pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Error> {
     let _ = engine.runtime.set(tokio::runtime::Handle::current());
     let starting = engine.clone();
     tokio::spawn(engine.clone().watch_local());
     tokio::spawn(async move {
+        starting.connect_all_mcp();
         starting.refresh_catalog().await;
-        starting.connect_all_mcp().await;
+        // Resumed work gets the servers that come up soon, but a dead one never holds it back for long.
+        starting.mcp.wait_ready(RECOVERY_WAIT).await;
         starting.recover_tasks().await;
         starting.maintain().await;
     });

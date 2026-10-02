@@ -436,6 +436,11 @@ impl Servers {
     /// Connects `name` as its row stands now.
     async fn connect(&self, name: &str, store: &Store, hub: &Hub, start: Start) -> Result<Arc<Live>, String> {
         let (row, attempt) = self.begin(name, store, start)?;
+        self.complete(row, attempt, store, hub).await
+    }
+
+    /// The rest of a connect `begin` started: opens the server and publishes what it opened.
+    async fn complete(&self, row: ServerRow, attempt: Attempt, store: &Store, hub: &Hub) -> Result<Arc<Live>, String> {
         let _settle = Settle { servers: self, hub, row: &row, id: attempt.id };
         hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
         let opened = tokio::select! {
@@ -889,10 +894,14 @@ impl crate::Engine {
     /// `backoff` is the wait before reconnecting if this connection drops before it proves stable.
     async fn connect_mcp_at(self: &Arc<Self>, name: &str, start: Start, backoff: Duration) -> Result<(), String> {
         let live = self.mcp.connect(name, &self.store, &self.hub, start).await?;
-        if !live.holds_nothing_open() {
-            self.watch_mcp(name.into(), Arc::downgrade(&live), backoff);
-        }
+        self.watch_if_open(name, &live, backoff);
         Ok(())
+    }
+
+    fn watch_if_open(self: &Arc<Self>, name: &str, live: &Arc<Live>, backoff: Duration) {
+        if !live.holds_nothing_open() {
+            self.watch_mcp(name.into(), Arc::downgrade(live), backoff);
+        }
     }
 
     /// What the watch does for a server with nothing to watch, asked by a call that failed: a client that has ended is replaced.
@@ -903,11 +912,17 @@ impl crate::Engine {
         }
     }
 
-    /// Connects every enabled server that is neither live nor already connecting.
-    pub async fn connect_all_mcp(self: &Arc<Self>) {
+    /// Begins connecting every enabled server not live or connecting, each on its own so none waits on another; `wait_ready` sees them at once.
+    pub fn connect_all_mcp(self: &Arc<Self>) {
         let Ok(rows) = self.store.mcp_servers() else { return };
         for row in rows.into_iter().filter(|r| r.enabled) {
-            let _ = self.connect_mcp_at(&row.name, Start::Startup, FIRST_RETRY).await;
+            let Ok((row, attempt)) = self.mcp.begin(&row.name, &self.store, Start::Startup) else { continue };
+            let engine = self.clone();
+            tokio::spawn(async move {
+                if let Ok(live) = engine.mcp.complete(row.clone(), attempt, &engine.store, &engine.hub).await {
+                    engine.watch_if_open(&row.name, &live, FIRST_RETRY);
+                }
+            });
         }
     }
 

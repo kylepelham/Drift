@@ -1180,6 +1180,11 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   change to it, cancels the one in flight at once rather than letting it run to its timeout. The
   engine's own connects (the startup sweep, reconnects) never cancel anything: they skip a server
   that is live or already connecting, checked under the same lock as the start.
+- The startup sweep (`connect_all_mcp`) begins every enabled server's connect at once, each in its
+  own task, before the engine fetches the model catalog, so a server that is down or slow to start
+  holds up no other and nothing else. It returns once every attempt is registered, so turns planned
+  meanwhile wait for them (`READY_WAIT`, 2 s) as for any connect. Recovering interrupted tasks waits
+  at most 15 s (`RECOVERY_WAIT`) for servers still connecting, then goes on without them.
   Starting (handshake or discovery) and `tools/list` each get 30 s; a server that misses either fails with a message
   saying which. A stdio server is adopted into a process tree (job object on Windows, process
   group on unix) as soon as it spawns, so a cancelled, timed-out or replaced attempt, or a dropped
