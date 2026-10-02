@@ -1144,6 +1144,11 @@ impl Engine {
             self.settle(&mut row, ToolStatus::Error, None, "call arguments were not valid JSON; the call did not run".into(), None);
             return Outcome::Allowed;
         }
+        let problems = crate::tool::schema::problems(&tool.spec().input_schema, &input);
+        if !problems.is_empty() {
+            self.settle(&mut row, ToolStatus::Error, None, format!("The call did not run: {}. Send it again with arguments that fit the tool's schema.", problems.join("; ")), None);
+            return Outcome::Allowed;
+        }
         // A read-only agent is offered the usual tools; whatever would change something is refused here, before any ask.
         let agent = &scope.plan.session.agent;
         if scope.plan.config.agent(agent).is_some_and(|found| found.read_only) && !tool.stays_read_only(&ctx, &input) {

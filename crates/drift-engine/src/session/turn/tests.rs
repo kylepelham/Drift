@@ -751,6 +751,19 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
 }
 
 #[tokio::test]
+async fn arguments_that_do_not_fit_the_schema_are_refused_before_the_call_runs() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
+    h.provider.push(tool_call("read", r#"{"path": "a.txt", "limit": "20"}"#)).push(text("ok"));
+    h.engine.submit(&h.session.id, prompt("read")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error);
+    assert!(output.as_deref().unwrap().contains("`limit` must be integer, not a string"), "{output:?}");
+}
+
+#[tokio::test]
 async fn a_reply_cut_off_without_calls_still_says_so() {
     let h = harness().await;
     h.provider.push(vec![Chunk::TextStart, Chunk::TextDelta("The answer is".into()), Chunk::BlockStop, Chunk::Stop(StopReason::MaxTokens)]);

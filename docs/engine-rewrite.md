@@ -915,7 +915,10 @@ Settled after the first external review of M1; each has a regression test.
   (after a failed, stopped, refused or cut-off reply, or queued behind a call that a Stop or
   "Deny and stop" ended) are closed as `error` with `Not run: <reason>`, never left `pending`, so
   the UI and the model's next request both see why. A call whose arguments did not parse as a JSON
-  object fails before dispatch.
+  object fails before dispatch, and so does one whose arguments do not fit its tool's input schema
+  (`tool::schema`: `type`, `required`, `properties`, `items` and `enum` are checked, other keywords
+  pass, and a `null` for an optional property counts as left out); the result names every problem
+  (`` `limit` must be integer, not a string``), so a wrong type is never read as missing.
 - A reply the provider's safety filter ended (Anthropic `refusal`, Chat Completions and OpenAI
   `content_filter`, Gemini `SAFETY` and its kin) runs none of its calls and stays `done` with
   `error: "The provider's safety filter ended the reply."`; the UI shows it with finish

@@ -10,6 +10,7 @@ pub mod image;
 pub mod patch;
 pub mod question;
 pub mod read;
+pub mod schema;
 pub mod sensitive;
 pub mod skill;
 pub mod spool;
