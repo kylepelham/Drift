@@ -278,8 +278,11 @@ Every job the engine does can run on its own model, chosen under Settings > Agen
   built-in and workspace definitions, so Settings wins. Overrides for unknown agents are ignored.
 - A workspace `.drift/agents/<action>.md` customises that action; it never turns it into an agent
   that can hold a conversation. `task` refuses action agents as `subagent_type`.
-- Actions are one request each (`session::oneshot`), text only; tools are offered only so a
-  history with tool calls stays valid, and calls the model attempts anyway are ignored.
+- Actions are one request each (`session::oneshot`), text only. Tools stay defined so a history
+  with tool calls stays valid, but the request forbids calling them (`Request::no_tool_calls`:
+  Anthropic, Bedrock and Vertex Claude `tool_choice: {type: none}`, Responses and Chat Completions
+  `tool_choice: "none"`, Gemini `functionCallingConfig.mode: NONE`). A reply that still makes a
+  call, or ends any way but a clean end of turn, is refused and nothing it said is used.
 - Titles: the first message becomes the title at once; the title model's answer replaces it in the
   background, only while the title is still that placeholder, so a rename wins. Any failure keeps
   the placeholder.
