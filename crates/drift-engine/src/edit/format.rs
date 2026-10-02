@@ -177,17 +177,13 @@ pub fn project_programs(files: &[PathBuf], workspace: &Path, formatters: &[Forma
     lines
 }
 
-/// The launcher and the package it starts (`node_modules/<name>/package.json`, which an install or
-/// upgrade rewrites while the launcher stays the same), hashed together; the version is shown too.
+/// The launcher with a hash of it, the package it starts and that package's dependencies
+/// ([`super::package::fingerprint`]), so an upgrade or a changed file behind the same launcher is
+/// asked about again; the version is shown too.
 fn program_line(formatter: &Formatter, program: &Path) -> String {
-    use sha2::Digest;
     let name = formatter.command.first().map(String::as_str).unwrap_or_default();
-    let manifest = program.parent().and_then(Path::parent).map(|modules| std::fs::read(modules.join(name).join("package.json")).unwrap_or_default()).unwrap_or_default();
-    let mut digest = sha2::Sha256::new();
-    digest.update(std::fs::read(program).unwrap_or_default());
-    digest.update(&manifest);
-    let hash: String = digest.finalize().iter().take(4).map(|b| format!("{b:02x}")).collect();
-    let version = serde_json::from_slice::<serde_json::Value>(&manifest).ok().and_then(|package| package["version"].as_str().map(|v| format!(" {v}"))).unwrap_or_default();
+    let (version, hash) = super::package::fingerprint(program, name);
+    let version = version.map(|v| format!(" {v}")).unwrap_or_default();
     format!("formatter {}{version}: {} ({hash})", formatter.name, program.display())
 }
 
@@ -348,6 +344,9 @@ mod tests {
         assert!(installed[0].starts_with("formatter prettier 3.1.0: "), "the version shows: {}", installed[0]);
         std::fs::write(root.join("node_modules/prettier/package.json"), r#"{ "version": "3.2.0" }"#).unwrap();
         assert!(chosen(&file, &root, &formatters, &installed).is_none(), "an upgrade behind the same launcher needs allowing again");
+        let upgraded = project_programs(std::slice::from_ref(&file), &root, &formatters);
+        std::fs::write(root.join("node_modules/prettier/index.js"), "tampered").unwrap();
+        assert!(chosen(&file, &root, &formatters, &upgraded).is_none(), "so does changed code with the package.json as it was");
         assert!(project_programs(&[root.join("notes.txt")], &root, &formatters).is_empty());
         std::fs::remove_dir_all(root).ok();
     }
