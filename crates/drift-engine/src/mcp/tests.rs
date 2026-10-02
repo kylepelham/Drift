@@ -207,6 +207,13 @@ fn traced(env: &[(&str, &str)]) -> (ServerConfig, std::path::PathBuf) {
     (ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: vars, cwd: None, timeout_seconds: None }, pids)
 }
 
+/// Saved as a server already known to use the handshake, so one process starts and no probe comes first.
+async fn saved_legacy(engine: &Arc<crate::Engine>, name: &str, config: &ServerConfig) -> ServerRow {
+    saved(engine, name, config).await;
+    engine.store.set_mcp_era(name, config, Some(Era::Legacy)).unwrap();
+    engine.store.mcp_server(name).unwrap().unwrap()
+}
+
 async fn pids_in(file: &std::path::Path) -> Vec<u32> {
     let read = || std::fs::read_to_string(file).ok().filter(|text| text.split_whitespace().count() == 2);
     until("the server wrote its pids", || read().is_some()).await;
@@ -235,10 +242,8 @@ async fn all_dead(pids: &[u32]) {
 async fn a_server_that_never_finishes_starting_times_out_and_its_process_tree_dies() {
     let engine = engine();
     let (config, file) = traced(&[("SLOW_MS", "600000")]);
-    saved(&engine, "mute", &config).await;
     // Known from before, so the wait is the start limit alone, and a server too slow to answer is not probed again.
-    engine.store.set_mcp_era("mute", &config, Some(Era::Legacy)).unwrap();
-    let row = engine.store.mcp_server("mute").unwrap().unwrap();
+    let row = saved_legacy(&engine, "mute", &config).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("mute").await }
@@ -256,7 +261,7 @@ async fn a_server_that_never_finishes_starting_times_out_and_its_process_tree_di
 async fn a_server_that_never_lists_its_tools_times_out() {
     let engine = engine();
     let (config, file) = traced(&[("SLOW_MS", "0"), ("LIST_SLOW_MS", "600000")]);
-    saved(&engine, "quiet", &config).await;
+    saved_legacy(&engine, "quiet", &config).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("quiet").await }
@@ -271,7 +276,7 @@ async fn a_server_that_never_lists_its_tools_times_out() {
 async fn disconnecting_cancels_a_connect_in_flight_and_kills_what_it_started() {
     let engine = engine();
     let (config, file) = traced(&[("SLOW_MS", "600000")]);
-    let row = saved(&engine, "slow", &config).await;
+    let row = saved_legacy(&engine, "slow", &config).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("slow").await }
@@ -288,7 +293,7 @@ async fn disconnecting_cancels_a_connect_in_flight_and_kills_what_it_started() {
 async fn a_connect_dropped_midway_settles_and_kills_what_it_started() {
     let engine = engine();
     let (config, file) = traced(&[("SLOW_MS", "600000")]);
-    let row = saved(&engine, "dropped", &config).await;
+    let row = saved_legacy(&engine, "dropped", &config).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("dropped").await }
@@ -324,7 +329,7 @@ async fn the_startup_sweep_never_cancels_a_connect_already_under_way() {
 async fn a_newer_connect_supersedes_one_in_flight() {
     let engine = engine();
     let (config, file) = traced(&[("SLOW_MS", "600000")]);
-    saved(&engine, "twice", &config).await;
+    saved_legacy(&engine, "twice", &config).await;
     let first = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("twice").await }
@@ -577,6 +582,28 @@ async fn an_older_server_refusing_the_probe_gets_the_handshake_instead() {
         assert_eq!(tool(&engine, "old_shout").run(&context(&engine), json!({ "text": "hi" })).await.unwrap().output, "HI");
         assert_eq!(calls(&log)[..2], ["server/discover", "initialize"], "{era}");
     }
+}
+
+#[tokio::test]
+async fn a_slow_starting_v2_server_answers_the_probe_and_is_never_sent_the_handshake() {
+    let engine = engine();
+    let (mut config, log) = era_echo("v2");
+    let ServerConfig::Stdio { env, .. } = &mut config else { unreachable!() };
+    env.insert("START_DELAY_MS".into(), "800".into());
+    let row = saved(&engine, "pulling", &config).await;
+    engine.connect_mcp("pulling").await.unwrap();
+    assert_eq!(engine.mcp.status_of(row).era, Some(Era::Stateless));
+    assert!(!calls(&log).iter().any(|m| m == "initialize"), "a late answer to the probe is not talked over: {:?}", calls(&log));
+}
+
+#[test]
+fn stdio_probes_alone_then_starts_afresh_for_the_handshake() {
+    let stdio = echo_config();
+    let http = ServerConfig::Http { url: "https://x.example/mcp".into(), headers: Default::default(), timeout_seconds: None };
+    assert_eq!(attempts(&stdio, None), (vec![Some(Era::Stateless), Some(Era::Legacy)], true), "even a probe that goes unanswered moves on");
+    assert_eq!(attempts(&stdio, Some(Era::Legacy)), (vec![Some(Era::Legacy), Some(Era::Stateless)], false));
+    assert_eq!(attempts(&http, None), (vec![None], false), "over HTTP a legacy server says so at once, so rmcp's own fallback serves");
+    assert_eq!(attempts(&http, Some(Era::Stateless)), (vec![Some(Era::Stateless), None], false));
 }
 
 #[tokio::test]

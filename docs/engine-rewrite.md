@@ -1106,16 +1106,21 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, and `Mcp-Param-*` for parameters the tool's
   schema marks `x-mcp-header`), answered as JSON or a stream that lasts only for that request; there
   is no GET stream and no resuming. rmcp 3.5 does all of this; Drift chooses the lifecycle
-  (`mcp::lifecycle`). A server whose era is unknown is probed (`Auto`): `server/discover` at
-  2026-07-28, and on a refusal (a JSON-RPC error, or over HTTP a 4xx that is not 401 or 403) or
-  silence the `initialize` handshake offering 2025-11-25. rmcp waits a fixed 10 s for a stdio
-  server that ignores the probe, so the first connect's start limit is 30 s plus that.
-  HTTP+SSE servers predate the probe and always use the handshake.
+  (`mcp::lifecycle`, `mcp::attempts`). An HTTP server whose era is unknown is probed with rmcp's
+  `Auto`: `server/discover` at 2026-07-28, and on a refusal (a JSON-RPC error, or a 4xx that is not
+  401 or 403) or 10 s of silence the `initialize` handshake offering 2025-11-25, on the same
+  connection. A stdio server is not: rmcp's 10 s is fixed, and a server still being pulled or
+  installed on its first start (a Docker image, an npx download) answers the probe after it, by
+  which time `initialize` has been sent over the answer; a 2026 server then refuses it as a
+  duplicate. So stdio probes alone (`Discover`) within the 30 s start limit and, refused or silent,
+  starts a fresh process for the handshake, which every 2026 server also accepts. HTTP+SSE servers
+  predate the probe and always use the handshake.
 - The era found is kept on the server's row (`mcp_config.era`, migration 24) and a reconnect starts
-  in it (`Discover` or `Initialize`), so the 10 s is paid once per config. A save forgets it, and it
-  is only written while the row still has the config it was found under. A connect in the kept era
-  that the server refuses probes again at once and keeps the new answer; one that only timed out is
-  not retried, so a stuck server is not waited on twice.
+  in it (`Discover` or `Initialize`), so probing and the extra start are paid once per config. A
+  save forgets it, and it is only written while the row still has the config it was found under. A
+  connect in the kept era that the server refuses tries the other era (stdio) or probes (HTTP) at
+  once and keeps the new answer; one that only timed out is not retried, so a stuck server is not
+  waited on twice.
 - Drift answers no server-to-client requests: sampling, elicitation and roots are declined (the
   roots list is empty). A 2026-07-28 server asks for them in an `input_required` result; rmcp
   answers with the refusal and retries, and a server that keeps asking past rmcp's 10 rounds fails

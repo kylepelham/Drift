@@ -165,6 +165,13 @@ impl Era {
     pub fn parse(text: &str) -> Option<Self> {
         [Self::Stateless, Self::Legacy].into_iter().find(|era| era.as_str() == text)
     }
+
+    fn other(self) -> Self {
+        match self {
+            Self::Stateless => Self::Legacy,
+            Self::Legacy => Self::Stateless,
+        }
+    }
 }
 
 /// How a connect begins: a probe when the server's era is unknown, else straight to the one it speaks.
@@ -320,7 +327,7 @@ const STABLE: Duration = Duration::from_secs(60);
 const STABLE: Duration = Duration::from_millis(500);
 /// After a re-list fails, how long before a turn tries again, so a server that stopped answering does not hold up every turn.
 const RELIST_BACKOFF: Duration = Duration::from_secs(30);
-/// How long rmcp waits for a server to answer the `server/discover` probe before falling back to `initialize`; it is fixed there.
+/// How long rmcp waits for an HTTP server to answer the `server/discover` probe before falling back to `initialize`; it is fixed there.
 const PROBE_WAIT: Duration = Duration::from_secs(10);
 /// How long a turn being planned waits for connects already under way, so its tools are not briefly missing.
 pub const READY_WAIT: Duration = Duration::from_secs(2);
@@ -764,16 +771,36 @@ async fn list_tools(service: &Client) -> Result<(Vec<rmcp::model::Tool>, Option<
     }
 }
 
-/// Starts in the remembered era; one the server refuses is probed afresh, but a server too slow to answer is not asked twice.
-async fn begin(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>) -> Result<(Client, Option<Tree>), String> {
-    // A probe a server ignores costs rmcp's whole wait before the handshake can begin.
-    let limit = |known: Option<Era>| if known.is_none() { STEP_LIMIT + PROBE_WAIT } else { STEP_LIMIT };
-    match tokio::time::timeout(limit(known), start(config, sign_in, known)).await {
-        Ok(Ok(started)) => Ok(started),
-        Ok(Err(_)) if known.is_some() => within_for(limit(None), "start", start(config, sign_in, None)).await,
-        Ok(Err(error)) => Err(error),
-        Err(_) => Err(format!("the server did not start within {:?}", limit(known))),
+/// The eras a connect tries in turn (`None` is rmcp's probe-then-handshake), and whether a try that timed out moves on.
+fn attempts(config: &ServerConfig, known: Option<Era>) -> (Vec<Option<Era>>, bool) {
+    match (config, known) {
+        (ServerConfig::Sse { .. }, _) => (vec![Some(Era::Legacy)], false),
+        // rmcp's own fallback gives up on the probe after 10 s and then talks over a slow starter's late answer, so stdio probes alone and starts afresh for the handshake.
+        (ServerConfig::Stdio { .. }, None) => (vec![Some(Era::Stateless), Some(Era::Legacy)], true),
+        (ServerConfig::Stdio { .. }, Some(era)) => (vec![Some(era), Some(era.other())], false),
+        (ServerConfig::Http { .. }, None) => (vec![None], false),
+        (ServerConfig::Http { .. }, Some(era)) => (vec![Some(era), None], false),
     }
+}
+
+/// Starts in each era `attempts` gives until one answers; the last failure is the one reported.
+async fn begin(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>) -> Result<(Client, Option<Tree>), String> {
+    let (tries, past_timeouts) = attempts(config, known);
+    let mut failed = String::new();
+    for era in tries {
+        let limit = if era.is_none() { STEP_LIMIT + PROBE_WAIT } else { STEP_LIMIT };
+        match tokio::time::timeout(limit, start(config, sign_in, era)).await {
+            Ok(Ok(started)) => return Ok(started),
+            Ok(Err(error)) => failed = error,
+            Err(_) => {
+                failed = format!("the server did not start within {limit:?}");
+                if !past_timeouts {
+                    break;
+                }
+            }
+        }
+    }
+    Err(failed)
 }
 
 async fn within<T>(what: &str, step: impl Future<Output = Result<T, String>>) -> Result<T, String> {

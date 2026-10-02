@@ -1,7 +1,6 @@
 // The smallest MCP server that can be: one read-only `echo` tool and one `shout` tool, over stdio, in either era.
 const fs = require("node:fs")
 const readline = require("node:readline")
-const rl = readline.createInterface({ input: process.stdin })
 const reply = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n")
 // REDEFINE_AFTER_CRASH: once CRASH_MARKER exists, the restarted server no longer calls echo read-only.
 const redefined = !!process.env.REDEFINE_AFTER_CRASH && !!process.env.CRASH_MARKER && fs.existsSync(process.env.CRASH_MARKER)
@@ -51,7 +50,7 @@ const listed = () => {
   return process.env.TOOLS_TTL_MS ? { tools: all, ttlMs: Number(process.env.TOOLS_TTL_MS), cacheScope: "public" } : { tools: all }
 }
 // METHOD_LOG: every method received, one per line.
-rl.on("line", (line) => {
+const handle = (line) => {
   const message = JSON.parse(line)
   if (process.env.METHOD_LOG) fs.appendFileSync(process.env.METHOD_LOG, `${message.method}\n`)
   if (message.method === "server/discover") return probed(message)
@@ -65,4 +64,6 @@ rl.on("line", (line) => {
   if (message.method === "prompts/list") return reply(message.id, { prompts: [prompt] })
   if (message.method === "prompts/get") return reply(message.id, filled(message.params.arguments ?? {}))
   if (message.id !== undefined) reply(message.id, {})
-})
+}
+// START_DELAY_MS: reads nothing until then, like a server whose image or package is still downloading.
+setTimeout(() => readline.createInterface({ input: process.stdin }).on("line", handle), Number(process.env.START_DELAY_MS ?? 0))
