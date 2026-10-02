@@ -103,6 +103,8 @@ pub struct Context {
     pub config: Arc<crate::config::Config>,
     /// Shows what a running call has done so far on its part; unset outside a turn.
     pub progress: Progress,
+    /// The model a user's command chose, set only on the call the engine makes for that command.
+    pub command_model: Option<crate::session::types::ModelRef>,
 }
 
 /// Metadata a running call publishes as it goes (a command's output so far). It is shown, never
@@ -502,6 +504,7 @@ pub(crate) mod tests {
                     agent: "build".into(),
                     config: Arc::new(engine.workspace_config(&workspace)),
                     progress: Default::default(),
+                    command_model: None,
                     workspace,
                     session_id: "ses_test".into(),
                     message_id: "msg_test".into(),
@@ -525,6 +528,7 @@ pub(crate) mod tests {
                 engine: self.ctx.engine.clone(),
                 config: self.ctx.config.clone(),
                 progress: self.ctx.progress.clone(),
+                command_model: self.ctx.command_model.clone(),
             }
         }
 

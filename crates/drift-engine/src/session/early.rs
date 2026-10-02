@@ -70,6 +70,7 @@ impl Early {
             engine: engine.clone(),
             config: plan.config.clone(),
             progress: Default::default(),
+            command_model: None,
         };
         let policy = plan.config.policy();
         let agent_policy = plan.config.agent_policy(&plan.session.agent);

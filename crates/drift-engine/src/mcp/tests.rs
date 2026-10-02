@@ -92,6 +92,7 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
         engine: engine.clone(),
         config: Default::default(),
         progress: Default::default(),
+        command_model: None,
     };
     let echo = tools.iter().find(|t| t.spec().name == "echo_echo").unwrap();
     let read_only = echo.ask(&ctx, &json!({})).unwrap();
@@ -132,6 +133,7 @@ fn context(engine: &Arc<crate::Engine>) -> Context {
         engine: engine.clone(),
         config: Default::default(),
         progress: Default::default(),
+        command_model: None,
     }
 }
 
