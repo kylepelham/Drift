@@ -36,7 +36,12 @@ impl Bedrock {
         let region = region.to_string();
         let base = self.base_url.clone().unwrap_or_else(|| format!("https://bedrock-runtime.{region}.amazonaws.com"));
         let path = format!("/model/{}/invoke-with-response-stream", aws::encode(&request.model));
-        let body = serde_json::to_vec(&anthropic::cloud_body(request, VERSION, false)).map_err(|e| Error::Malformed(e.to_string()))?;
+        let mut body = anthropic::cloud_body(request, VERSION, false);
+        // Bedrock takes Anthropic betas in the body.
+        if anthropic::interleaves(request) {
+            body["anthropic_beta"] = serde_json::json!([anthropic::INTERLEAVED_THINKING]);
+        }
+        let body = serde_json::to_vec(&body).map_err(|e| Error::Malformed(e.to_string()))?;
         let mut http = self.client.post(format!("{base}{path}")).header("content-type", "application/json").header("accept", "application/vnd.amazon.eventstream");
         http = match auth {
             Auth::Bearer(token) => http.bearer_auth(token),
@@ -229,6 +234,14 @@ mod tests {
         assert!(auth.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/") && auth.contains("/eu-west-1/bedrock/aws4_request"), "{auth}");
         let sent: Value = serde_json::from_str(&body).unwrap();
         assert_eq!(sent["anthropic_version"], VERSION);
+        assert!(sent.get("anthropic_beta").is_none(), "no budget, no beta");
+        let (budget_url, budget_seen) = fake(Vec::new()).await;
+        let mut budgeted = request.clone();
+        budgeted.tools = vec![crate::llm::ToolSpec { name: "read".into(), description: "r".into(), input_schema: serde_json::json!({}) }];
+        budgeted.reasoning = Some(crate::llm::catalog::Reasoning::Budget { tokens: 4096 });
+        let _ = Bedrock::new(Some(budget_url)).stream(&budgeted, &Credential::ApiKey { key: "k".into() }).await;
+        let sent: Value = serde_json::from_str(&budget_seen.lock().unwrap()[0].2).unwrap();
+        assert_eq!(sent["anthropic_beta"], serde_json::json!([anthropic::INTERLEAVED_THINKING]), "Bedrock takes the beta in the body");
 
         let (url, seen) = fake(Vec::new()).await;
         let _ = Bedrock::new(Some(url)).stream(&request, &Credential::ApiKey { key: "bedrock-api-key".into() }).await;

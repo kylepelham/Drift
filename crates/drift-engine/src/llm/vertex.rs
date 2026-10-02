@@ -29,7 +29,10 @@ impl Vertex {
         let models = format!("{}/v1/projects/{}/locations/{}/publishers", self.base(&target.location), target.project, target.location);
         if is_claude(&request.model) {
             let url = format!("{models}/anthropic/models/{}:streamRawPredict", request.model);
-            let http = self.client.post(url).bearer_auth(token).header("accept", "text/event-stream").json(&anthropic::cloud_body(request, VERSION, true));
+            let mut http = self.client.post(url).bearer_auth(token).header("accept", "text/event-stream").json(&anthropic::cloud_body(request, VERSION, true));
+            if anthropic::interleaves(request) {
+                http = http.header("anthropic-beta", anthropic::INTERLEAVED_THINKING);
+            }
             return anthropic::stream_from(http, &self.timeouts, false).await;
         }
         let url = format!("{models}/google/models/{}:streamGenerateContent?alt=sse", request.model);
@@ -58,14 +61,21 @@ mod tests {
     use super::*;
     use crate::llm::Chunk;
 
+    /// Path, authorization and anthropic-beta of each request the fake answered.
+    type Seen = std::sync::Arc<std::sync::Mutex<Vec<(String, String, String)>>>;
+
+    fn seen_beta(seen: &Seen) -> String {
+        seen.lock().unwrap().last().unwrap().2.clone()
+    }
+
     /// A local stand-in for Vertex that answers each publisher with its own SSE and records the paths.
-    async fn fake() -> (String, std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>) {
+    async fn fake() -> (String, Seen) {
         use axum::extract::{OriginalUri, State};
-        type Seen = std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>;
         let seen: Seen = Default::default();
         let handler = |State(seen): State<Seen>, OriginalUri(uri): OriginalUri, headers: axum::http::HeaderMap| async move {
             let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or_default().to_string();
-            seen.lock().unwrap().push((uri.to_string(), auth));
+            let beta = headers.get("anthropic-beta").and_then(|v| v.to_str().ok()).unwrap_or_default().to_string();
+            seen.lock().unwrap().push((uri.to_string(), auth, beta));
             let body = if uri.path().contains("/publishers/anthropic/") {
                 "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"claude on vertex\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":3}}\n\n"
             } else {
@@ -83,7 +93,7 @@ mod tests {
     #[tokio::test]
     async fn claude_and_gemini_each_reach_their_publisher_with_the_token() {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let (url, seen) = fake().await;
+        let (url, recorded) = fake().await;
         let vertex = Vertex::new(Some(url));
         let target = google::Target { project: "proj".into(), location: "us-east5".into() };
         let texts = |chunks: Vec<Chunk>| chunks.into_iter().filter_map(|c| if let Chunk::TextDelta(t) = c { Some(t) } else { None }).collect::<String>();
@@ -94,10 +104,16 @@ mod tests {
         request.model = "gemini-3.6-flash".into();
         let gemini: Vec<Chunk> = vertex.send(&request, "tok", &target).await.unwrap().map(Result::unwrap).collect().await;
         assert_eq!(texts(gemini), "gemini on vertex");
-        let seen = seen.lock().unwrap().clone();
+        let seen = recorded.lock().unwrap().clone();
         assert_eq!(seen[0].0, "/v1/projects/proj/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-5@20250929:streamRawPredict");
         assert_eq!(seen[1].0, "/v1/projects/proj/locations/us-east5/publishers/google/models/gemini-3.6-flash:streamGenerateContent?alt=sse");
-        assert!(seen.iter().all(|(_, auth)| auth == "Bearer tok"));
+        assert!(seen.iter().all(|(_, auth, _)| auth == "Bearer tok"));
+        assert!(seen.iter().all(|(_, _, beta)| beta.is_empty()), "no budget, no beta");
+        request.model = "claude-sonnet-4-5@20250929".into();
+        request.tools = vec![crate::llm::ToolSpec { name: "read".into(), description: "r".into(), input_schema: serde_json::json!({}) }];
+        request.reasoning = Some(crate::llm::catalog::Reasoning::Budget { tokens: 4096 });
+        vertex.send(&request, "tok", &target).await.unwrap().collect::<Vec<_>>().await;
+        assert_eq!(seen_beta(&recorded), anthropic::INTERLEAVED_THINKING, "a budget with tools asks for interleaved thinking");
     }
 
     #[test]

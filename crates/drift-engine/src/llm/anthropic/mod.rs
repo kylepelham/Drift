@@ -56,10 +56,10 @@ impl Anthropic {
 }
 
 /// Lets a model with a thinking budget think again between tool calls, not only before the first.
-const INTERLEAVED_THINKING: &str = "interleaved-thinking-2025-05-14";
+pub(super) const INTERLEAVED_THINKING: &str = "interleaved-thinking-2025-05-14";
 
 /// Only a budget needs the beta: adaptive thinking interleaves already, and without tools there is nothing between.
-fn interleaves(request: &Request) -> bool {
+pub(super) fn interleaves(request: &Request) -> bool {
     matches!(request.reasoning, Some(Reasoning::Budget { .. })) && !request.tools.is_empty()
 }
 
