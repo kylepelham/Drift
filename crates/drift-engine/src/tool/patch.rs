@@ -126,22 +126,51 @@ pub fn apply_chunks(content: &str, chunks: &[Chunk]) -> Result<String, String> {
 }
 
 fn locate(lines: &[String], chunk: &Chunk, from: usize) -> Option<usize> {
-    if chunk.end_of_file {
-        let at = lines.len().checked_sub(chunk.old.len())?;
-        return matches_at(lines, &chunk.old, at).then_some(at);
-    }
     let start = match &chunk.context {
-        Some(context) => (from..lines.len()).find(|i| lines[*i].trim() == context.trim()).map_or(from, |i| i + 1),
+        Some(context) => seek(lines, std::slice::from_ref(context), from, false).map_or(from, |i| i + 1),
         None => from,
     };
     if chunk.old.is_empty() {
-        return Some(start.min(lines.len()));
+        return Some(if chunk.end_of_file { lines.len() } else { start.min(lines.len()) });
     }
-    (start..=lines.len().saturating_sub(chunk.old.len())).find(|at| matches_at(lines, &chunk.old, *at))
+    seek(lines, &chunk.old, start, chunk.end_of_file)
 }
 
-fn matches_at(lines: &[String], old: &[String], at: usize) -> bool {
-    lines.len() >= at + old.len() && lines[at..at + old.len()].iter().zip(old).all(|(a, b)| a == b)
+/// How apply_patch finds a hunk, as Codex's own `seek_sequence` does, since the models it is offered to
+/// (GPT and Codex) write patches that rely on it: exactly, then ignoring trailing whitespace, then
+/// ignoring surrounding whitespace, then with Unicode dashes, quotes and spaces read as ASCII. The
+/// first pass that matches wins. `edit` stays exact.
+const PASSES: [fn(&str, &str) -> bool; 4] = [
+    |a, b| a == b,
+    |a, b| a.trim_end() == b.trim_end(),
+    |a, b| a.trim() == b.trim(),
+    |a, b| ascii_punctuation(a.trim()) == ascii_punctuation(b.trim()),
+];
+
+/// Where `pattern` starts at or after `from`, by the first pass that finds it; an end-of-file hunk
+/// tries the file's end first.
+fn seek(lines: &[String], pattern: &[String], from: usize, end_of_file: bool) -> Option<usize> {
+    PASSES.iter().find_map(|same| {
+        let at_end = lines.len().checked_sub(pattern.len()).filter(|at| end_of_file && *at >= from);
+        at_end.filter(|at| matches_at(lines, pattern, *at, *same)).or_else(|| (from..=lines.len().saturating_sub(pattern.len())).find(|at| matches_at(lines, pattern, *at, *same)))
+    })
+}
+
+fn matches_at(lines: &[String], pattern: &[String], at: usize, same: fn(&str, &str) -> bool) -> bool {
+    lines.len() >= at + pattern.len() && lines[at..at + pattern.len()].iter().zip(pattern).all(|(a, b)| same(a, b))
+}
+
+/// Codex's normalisation: typographic dashes, quotes and spaces as their ASCII forms.
+fn ascii_punctuation(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '\u{2010}'..='\u{2015}' | '\u{2212}' => '-',
+            '\u{2018}'..='\u{201B}' => '\'',
+            '\u{201C}'..='\u{201F}' => '"',
+            '\u{00A0}' | '\u{2002}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}' => ' ',
+            other => other,
+        })
+        .collect()
 }
 
 /// What a missed hunk says: the part of the file it most likely meant, as `edit` does, else what it looked for.
@@ -194,6 +223,20 @@ mod tests {
         assert_eq!(chunks.len(), 2);
         assert!(chunks[1].end_of_file);
         assert_eq!(apply_chunks("a\nb\nc\n", chunks).unwrap(), "a\nB\nc\nz\n");
+    }
+
+    #[test]
+    fn hunks_match_as_codex_matches_them_and_exact_wins() {
+        let patch = |old: &str, new: &str| {
+            let ops = parse(&format!("*** Begin Patch\n*** Update File: f\n-{old}\n+{new}\n*** End Patch\n")).unwrap();
+            let Op::Update { chunks, .. } = ops.into_iter().next().unwrap() else { panic!() };
+            chunks
+        };
+        assert_eq!(apply_chunks("let x = 1;   \nz\n", &patch("let x = 1;", "let x = 2;")).unwrap(), "let x = 2;\nz\n", "trailing whitespace");
+        assert_eq!(apply_chunks("    indented\n", &patch("indented", "done")).unwrap(), "done\n", "surrounding whitespace");
+        assert_eq!(apply_chunks("say \u{201C}hi\u{201D} \u{2014} ok\n", &patch("say \"hi\" - ok", "said")).unwrap(), "said\n", "typographic punctuation");
+        assert_eq!(apply_chunks("a \nb\na\n", &patch("a", "A")).unwrap(), "a \nb\nA\n", "an exact match anywhere beats a loose one earlier");
+        assert!(apply_chunks("something else\n", &patch("nothing like it", "x")).is_err());
     }
 
     #[test]
