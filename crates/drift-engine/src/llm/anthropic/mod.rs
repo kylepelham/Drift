@@ -130,6 +130,9 @@ fn body(request: &Request) -> Value {
             last["cache_control"] = ephemeral();
         }
         body["tools"] = Value::Array(tools);
+        if request.no_tool_calls {
+            body["tool_choice"] = json!({ "type": "none" });
+        }
     }
     match &request.reasoning {
         Some(Reasoning::Budget { tokens }) => body["thinking"] = json!({ "type": "enabled", "budget_tokens": tokens }),
@@ -288,7 +291,14 @@ mod tests {
         assert_eq!(sent, json!({ "type": "document", "source": { "type": "base64", "media_type": "application/pdf", "data": "JVBERi0=" } }));
     }
 
-    fn request() -> Request {
+    #[test]
+fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
+    assert!(body(&request()).get("tool_choice").is_none());
+    let built = body(&Request { no_tool_calls: true, ..request() });
+    assert_eq!((built["tool_choice"].clone(), built["tools"].as_array().map(Vec::len).unwrap_or(0) > 0), (json!({ "type": "none" }), true));
+}
+
+fn request() -> Request {
         Request {
             model: "claude-sonnet-4-5".into(),
             system: "You are Drift.".into(),
@@ -311,6 +321,7 @@ mod tests {
             reasoning: Some(Reasoning::Budget { tokens: 2048 }),
             temperature: Some(0.5),
             cache_key: None,
+            no_tool_calls: false,
         }
     }
 

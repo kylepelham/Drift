@@ -61,6 +61,7 @@ pub(crate) fn request() -> Request {
         reasoning: None,
         temperature: None,
         cache_key: None,
+        no_tool_calls: false,
     }
 }
 

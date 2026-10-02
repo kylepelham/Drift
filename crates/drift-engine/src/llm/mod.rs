@@ -178,6 +178,8 @@ pub struct Request {
     /// The same for every request of one conversation, so providers that route by it (OpenAI's
     /// `prompt_cache_key`) keep the conversation on one cache.
     pub cache_key: Option<String>,
+    /// Tools stay defined so history with calls is valid, but the model may not call one.
+    pub no_tool_calls: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
