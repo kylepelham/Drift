@@ -974,7 +974,8 @@ Settled after the first external review of M1; each has a regression test.
   so the part, its events and every transcript load carry only `images: [{mime, hash}]`. Each blob's
   messages are recorded in `blob_ref` (migration 22) in the same transaction; a fork copies its
   messages' references and a deleted message takes them with it (cascade), so maintenance drops
-  unnamed blobs with an indexed lookup, never a scan of every part. The request replays them after all of that
+  unnamed blobs with an indexed lookup, never a scan of every part. Migration 23 backfilled the
+  references for images stored before `blob_ref` existed, from the hashes in tool-call metadata. The request replays them after all of that
   turn's call results ("The <tool> call (<id>) returned this:" then the image), since providers
   want results first. `llm::prepare_images` loads them when a request is built and, newest first,
   keeps them until 10 (`MAX_IMAGES_SENT`) or 20 MB of image data (`MAX_IMAGE_DATA_SENT`) is

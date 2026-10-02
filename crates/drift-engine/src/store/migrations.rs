@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-const MIGRATIONS: [&str; 22] = [
+const MIGRATIONS: [&str; 23] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -136,6 +136,10 @@ const MIGRATIONS: [&str; 22] = [
         PRIMARY KEY(hash, message_id)
     ) STRICT, WITHOUT ROWID;
     CREATE INDEX idx_blob_ref_message ON blob_ref(message_id);",
+    "INSERT OR IGNORE INTO blob_ref(hash, message_id)
+     SELECT json_extract(image.value, '$.hash'), part.message_id
+     FROM part, json_each(part.json, '$.metadata.images') AS image
+     WHERE json_extract(part.json, '$.type') = 'tool_call' AND json_extract(image.value, '$.hash') IS NOT NULL;",
 ];
 
 #[cfg(test)]

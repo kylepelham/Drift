@@ -56,6 +56,34 @@ mod tests {
     }
 
     #[test]
+    fn images_stored_before_references_existed_are_kept_by_the_backfill() {
+        use crate::session::types::{Part, ToolStatus};
+        let store = store();
+        let session = store.create_session(new("w")).unwrap();
+        let message = store.create_message(&session.id, Role::Assistant, None).unwrap();
+        let hash = store.put_blob(&message.id, b"old screenshot").unwrap();
+        let call = Part::ToolCall {
+            call_id: "c".into(),
+            name: "web-test_screenshot".into(),
+            input: serde_json::json!({}),
+            status: ToolStatus::Done,
+            title: None,
+            output: Some("shot".into()),
+            metadata: Some(serde_json::json!({ "images": [{ "mime": "image/png", "hash": hash }] })),
+            started_at: None,
+            finished_at: None,
+        };
+        store.add_part(&message.id, &session.id, call).unwrap();
+        let conn = store.lock();
+        conn.execute("DELETE FROM blob_ref", []).unwrap();
+        conn.pragma_update(None, "user_version", 22).unwrap();
+        crate::store::migrations::apply(&conn).unwrap();
+        drop(conn);
+        assert_eq!(store.prune_blobs().unwrap(), 0, "the part's image is named again");
+        assert!(store.blob(&hash).unwrap().is_some());
+    }
+
+    #[test]
     fn a_forks_copy_keeps_an_image_its_source_no_longer_has() {
         let store = store();
         let source = store.create_session(new("w")).unwrap();
