@@ -30,7 +30,6 @@ impl Tool for Task {
                     "description": { "type": "string", "description": "Three to six words naming the job, shown to the user." },
                     "prompt": { "type": "string", "description": "Everything the subagent needs: the goal, what to return, constraints. It sees none of this conversation." },
                     "subagent_type": { "type": "string", "description": "A subagent from the list in the system prompt, such as explore for read-only searching. Default: general." },
-                    "model": { "type":"string", "description":"Optional provider/model override for this task, including command-selected models." },
                     "run_in_background": { "type": "boolean", "description": "Leave it running and carry on: this call returns at once with a task id, and the result arrives in this conversation when it finishes. For long work you do not need before your next step. Default: the subagent's own setting, else wait for it." },
                     "task_id": { "type": "string", "description": "Continue a finished subagent from this conversation instead of starting a new one: it keeps everything it saw and did, so `prompt` only needs the follow-up. Its agent stays as it was." }
                 },
@@ -65,14 +64,13 @@ impl Tool for Task {
             let agent = resumed.as_ref().map_or_else(|| input["subagent_type"].as_str().unwrap_or("general"), |earlier| earlier.agent.as_str());
             let config = &ctx.config;
             let background_default = match config.agent(agent) {
-                Some(found) if found.kind != AgentKind::Action => found.background,
+                Some(found) if found.kind != AgentKind::Action => found.usable().map_err(ToolError)?.background,
                 Some(_) => return Err(ToolError(format!("{agent} is an engine action, not an agent that can take a task"))),
                 None => return Err(ToolError(format!("no agent named {agent}"))),
             };
             let (mode, reason) = resolve_mode(input["run_in_background"].as_bool(), background_default, ctx.engine.background_enabled()).map_err(ToolError)?;
-            // An agent pinned to a model in Settings or its definition runs on it; otherwise the parent's model.
-            let override_model = input["model"].as_str().map(|value| crate::config::parse_model(value).ok_or_else(|| ToolError("task model must be provider/model".into()))).transpose()?;
-            let model = override_model.or_else(|| config.agent_model(agent)).or(parent.model.clone());
+            // A user's command may choose the model; else the agent's pin from Settings or its definition; else the parent's model.
+            let model = ctx.command_model.clone().or_else(|| config.agent_model(agent)).or(parent.model.clone());
             let title = format!("{description} (@{agent} subagent)");
             let (scope, generation) = ctx.engine.worker_scope(&parent.id);
             let new = NewTask { parent_session_id: &parent.id, call_id: &ctx.call_id, description, agent, mode, reason, generation };

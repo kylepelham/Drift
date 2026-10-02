@@ -728,7 +728,11 @@ impl Engine {
         let prepared = (|| -> rusqlite::Result<_> {
             let mut message = self.store.create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent)?;
             self.hub.publish(Event::MessageCreated { message: message.clone() });
-            let part = Part::ToolCall { call_id: id::new("call"), name: bootstrap.tool, input: bootstrap.input, status: ToolStatus::Pending, title: None, output: None, metadata: Some(json!({"engineCommand":bootstrap.command})), started_at: None, finished_at: None };
+            let mut metadata = json!({ "engineCommand": bootstrap.command });
+            if let Some(model) = &bootstrap.model {
+                metadata["commandModel"] = json!(format!("{}/{}", model.provider, model.model));
+            }
+            let part = Part::ToolCall { call_id: id::new("call"), name: bootstrap.tool, input: bootstrap.input, status: ToolStatus::Pending, title: None, output: None, metadata: Some(metadata), started_at: None, finished_at: None };
             let row = self.store.add_part(&message.id, &plan.session.id, part)?;
             self.hub.publish(Event::PartCreated { part: row.clone() });
             message.status = MessageStatus::Done;
@@ -1229,7 +1233,8 @@ impl Engine {
     }
 
     async fn run_call(self: &Arc<Self>, scope: &CallScope<'_>, mut row: PartRow) -> Outcome {
-        let Part::ToolCall { call_id, name, input, .. } = row.part.clone() else { return Outcome::Allowed };
+        let Part::ToolCall { call_id, name, input, metadata, .. } = row.part.clone() else { return Outcome::Allowed };
+        let command_model = metadata.as_ref().filter(|metadata| metadata["engineCommand"].is_string()).and_then(|metadata| metadata["commandModel"].as_str()).and_then(crate::config::parse_model);
         let mut ctx = Context {
             workspace: scope.plan.workspace.clone(),
             session_id: scope.plan.session.id.clone(),
@@ -1241,6 +1246,7 @@ impl Engine {
             engine: self.clone(),
             config: scope.plan.config.clone(),
             progress: Default::default(),
+            command_model,
         };
         // Only what this turn was offered runs, as it was when offered.
         let Some(tool) = scope.plan.offer.tool(&name) else {
