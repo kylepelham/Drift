@@ -1075,6 +1075,14 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   covers the whole server. Every save, disable, disconnect and remove bumps the server's
   generation; a connect that began under an older generation closes what it opened and
   publishes nothing. MCP OAuth is not implemented yet.
+- **MCP resources and prompts.** While a connected server declares resources, turns are also
+  offered `mcp_resources` (list, every such server or one) and `mcp_read_resource` (server and
+  uri; text inline, image and PDF blobs as files the model looks at, other binaries named). Both
+  only read, so neither asks. A server's prompts (listed at connect when it declares them) become
+  slash commands named `server:prompt` in `GET /workspaces/{id}/config`, with their arguments as
+  `arguments` (the UI's usage hint); `POST /sessions/{id}/command` has the server fill one through
+  `prompts/get`, the typed words going to its arguments in order, the last taking the rest, and
+  submits the text of its messages (502 `mcp` when the server fails).
 - **MCP lifecycle (M3).** A turn's tools come straight from the connected servers when it is
   planned (`Engine::offered_tools`); there is no separate copy to fall behind. Planning waits up to
   2 s (`READY_WAIT`) for connects and reconnects already under way, so a server starting at the same

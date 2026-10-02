@@ -488,7 +488,13 @@ export function createActions(
       ...(agent.steps ? { steps: agent.steps } : {}),
       ...(agent.model ? { model: { providerID: agent.model.provider, modelID: agent.model.model } } : {}),
     }))
-    const commands: Command[] = config.commands.map((command) => ({ name: command.name, description: command.description, template: command.template }))
+    // An MCP prompt's arguments become its usage hint, filled word by word.
+    const commands: Command[] = config.commands.map((command) => ({
+      name: command.name,
+      description: command.description,
+      template: command.template,
+      ...(command.arguments?.length ? { usage: command.arguments.map((argument) => `<${argument}>`).join(" ") } : {}),
+    }))
     // A config file that cannot be read stops every turn here until it is fixed; say so before the first send.
     for (const problem of config.problems ?? []) notice({ id: `config-${workspace}`, title: "Couldn't read the workspace config", message: problem, variant: "error", duration: 15_000 })
     set("agents", agents)

@@ -351,7 +351,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Expands a workspace command's template and submits it as a turn. */
+        /** Expands a workspace command's template, or has an MCP server fill its prompt, and submits it as a turn. */
         post: operations["runCommand"];
         delete?: never;
         options?: never;
@@ -712,8 +712,12 @@ export interface components {
             question: string;
         };
         Command: {
+            /** @description The prompt's arguments in order, which what follows the command fills word by word. */
+            arguments?: string[];
             description: string;
             name: string;
+            /** @description For an MCP server's prompt (`server:prompt`): the server that fills it; the template is unused. */
+            server?: string | null;
             /** @description The prompt; see [`Command::expand`] for how what follows the command fills it. */
             template: string;
         };
@@ -2072,6 +2076,12 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

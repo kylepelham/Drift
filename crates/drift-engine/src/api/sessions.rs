@@ -250,14 +250,21 @@ pub struct CommandBody {
     pub model: Option<ModelRef>,
 }
 
-/// Expands a workspace command's template and submits it as a turn.
-#[utoipa::path(post, path = "/sessions/{id}/command", operation_id = "runCommand", request_body = CommandBody, responses((status = 202, body = Receipt), (status = 404)))]
+/// Expands a workspace command's template, or has an MCP server fill its prompt, and submits it as a turn.
+#[utoipa::path(post, path = "/sessions/{id}/command", operation_id = "runCommand", request_body = CommandBody, responses((status = 202, body = Receipt), (status = 404), (status = 502)))]
 pub async fn command(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<CommandBody>) -> Result<(StatusCode, Json<Receipt>), ApiError> {
     let session = engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;
     let workspace = engine.store.workspace(&session.workspace_id)?.ok_or_else(|| ApiError::not_found("workspace"))?;
-    let config = engine.workspace_config(&crate::tool::canonical(std::path::Path::new(&workspace.path)));
+    let mut config = engine.workspace_config(&crate::tool::canonical(std::path::Path::new(&workspace.path)));
+    config.commands.extend(engine.mcp.prompt_commands());
     let command = config.commands.iter().find(|c| c.name == body.name).ok_or_else(|| ApiError::not_found("command"))?;
-    let text = command.expand(&body.arguments);
+    let text = match &command.server {
+        Some(server) => {
+            let prompt = command.name.split_once(':').map_or(command.name.as_str(), |(_, name)| name);
+            engine.mcp.get_prompt(server, prompt, command.named_arguments(&body.arguments)).await.map_err(|why| ApiError::new(StatusCode::BAD_GATEWAY, "mcp", why))?
+        }
+        None => command.expand(&body.arguments),
+    };
     let prompt = Prompt { parts: vec![crate::session::types::Part::Text { text }], model: body.model, variant: None, agent: None, submission_id: None };
     Ok((StatusCode::ACCEPTED, Json(engine.submit(&id, prompt).await?)))
 }

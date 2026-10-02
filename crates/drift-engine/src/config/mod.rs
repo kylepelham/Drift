@@ -181,9 +181,29 @@ pub struct Command {
     pub description: String,
     /// The prompt; see [`Command::expand`] for how what follows the command fills it.
     pub template: String,
+    /// For an MCP server's prompt (`server:prompt`): the server that fills it; the template is unused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    /// The prompt's arguments in order, which what follows the command fills word by word.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<String>,
 }
 
 impl Command {
+    /// `arguments` split for this command's named arguments: one word each, the last taking the rest.
+    pub fn named_arguments(&self, arguments: &str) -> serde_json::Map<String, serde_json::Value> {
+        let words: Vec<&str> = arguments.split_whitespace().collect();
+        let last = self.arguments.len().saturating_sub(1);
+        self.arguments
+            .iter()
+            .enumerate()
+            .filter_map(|(i, name)| {
+                let value = if i == last { words.get(i..).map(|rest| rest.join(" ")) } else { words.get(i).map(|w| w.to_string()) };
+                value.filter(|v| !v.is_empty()).map(|v| (name.clone(), serde_json::Value::String(v)))
+            })
+            .collect()
+    }
+
     /// The prompt for `arguments`: `$ARGUMENTS` is all of them, `$1`..`$n` one word each with the highest
     /// taking the rest, and a template that names none gets them appended so nothing typed is lost.
     pub fn expand(&self, arguments: &str) -> String {
@@ -357,7 +377,7 @@ impl Config {
         }
         for (name, doc) in markdown_files(&dir.join("commands")) {
             self.commands.retain(|c| c.name != name);
-            self.commands.push(Command { name, description: doc.field("description").unwrap_or_default(), template: doc.body.trim().into() });
+            self.commands.push(Command { name, description: doc.field("description").unwrap_or_default(), template: doc.body.trim().into(), server: None, arguments: Vec::new() });
         }
     }
 
@@ -608,7 +628,7 @@ mod tests {
 
     #[test]
     fn command_arguments_fill_placeholders_or_follow_the_template() {
-        let command = |template: &str| Command { name: "c".into(), description: String::new(), template: template.into() };
+        let command = |template: &str| Command { name: "c".into(), description: String::new(), template: template.into(), server: None, arguments: Vec::new() };
         assert_eq!(command("Run tests for $ARGUMENTS.").expand(" src/a.rs  "), "Run tests for src/a.rs.");
         assert_eq!(command("Move $1 to $2").expand("a.rs lib/b c.rs"), "Move a.rs to lib/b c.rs", "the highest takes the rest");
         assert_eq!(command("Only $1").expand(""), "Only ");

@@ -388,7 +388,7 @@ impl crate::Engine {
     }
 }
 
-fn required_str<'a>(input: &'a Value, key: &str) -> Result<&'a str, ToolError> {
+pub(crate) fn required_str<'a>(input: &'a Value, key: &str) -> Result<&'a str, ToolError> {
     input[key]
         .as_str()
         .filter(|value| !value.is_empty())

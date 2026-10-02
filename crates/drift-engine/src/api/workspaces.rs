@@ -76,5 +76,7 @@ pub async fn files(
 pub async fn config(State(engine): State<Arc<Engine>>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<Json<crate::config::Config>, StatusCode> {
     let workspace = engine.store.workspace(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
     let path = crate::tool::canonical(std::path::Path::new(&workspace.path));
-    Ok(Json(engine.workspace_config(&path)))
+    let mut config = engine.workspace_config(&path);
+    config.commands.extend(engine.mcp.prompt_commands());
+    Ok(Json(config))
 }

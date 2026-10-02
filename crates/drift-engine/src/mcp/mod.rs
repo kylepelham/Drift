@@ -1,5 +1,6 @@
 //! MCP servers: configured in the store, connected with rmcp, tools offered to the model.
 
+mod resources;
 mod tool;
 mod view;
 
@@ -88,6 +89,10 @@ struct Live {
     tools: Vec<rmcp::model::Tool>,
     /// What the server said at initialize about using it; goes in the system prompt beside its tools.
     instructions: Option<String>,
+    /// Its prompts, offered to the user as `server:prompt` slash commands.
+    prompts: Vec<rmcp::model::Prompt>,
+    /// Whether it serves resources, which the `mcp_resources` tools list and read.
+    resources: bool,
     /// The definition it was opened from; a client of another definition never stands in for this one.
     hash: String,
     since: Instant,
@@ -439,6 +444,10 @@ impl Servers {
             let Some(live) = slot.current() else { continue };
             tools.extend(live.tools.iter().map(|tool| Arc::new(McpTool::new(server, tool.clone(), live.clone(), slot.clone())) as Arc<dyn crate::tool::Tool>));
         }
+        if slots.servers.values().any(|slot| slot.current().is_some_and(|live| live.resources)) {
+            tools.push(Arc::new(resources::ListResources));
+            tools.push(Arc::new(resources::ReadResource));
+        }
         tools
     }
 
@@ -446,6 +455,82 @@ impl Servers {
     pub fn instructions(&self) -> Vec<(String, String)> {
         let slots = self.lock();
         slots.servers.iter().filter_map(|(server, slot)| Some((server.clone(), slot.current()?.instructions.clone()?))).collect()
+    }
+
+    fn live(&self, server: &str) -> Result<Arc<Live>, String> {
+        self.lock().servers.get(server).and_then(|slot| slot.current()).ok_or_else(|| format!("the {server} MCP server is not connected"))
+    }
+
+    /// Connected servers that serve resources, by name.
+    pub fn with_resources(&self) -> Vec<String> {
+        let slots = self.lock();
+        let mut names: Vec<String> = slots.servers.iter().filter(|(_, slot)| slot.current().is_some_and(|live| live.resources)).map(|(name, _)| name.clone()).collect();
+        names.sort();
+        names
+    }
+
+    /// Every connected server's prompts, as `(server, prompt)`.
+    pub fn prompts(&self) -> Vec<(String, rmcp::model::Prompt)> {
+        let slots = self.lock();
+        let mut all: Vec<(String, rmcp::model::Prompt)> =
+            slots.servers.iter().filter_map(|(name, slot)| slot.current().map(|live| (name.clone(), live))).flat_map(|(name, live)| live.prompts.iter().map(move |p| (name.clone(), p.clone())).collect::<Vec<_>>()).collect();
+        all.sort_by(|a, b| (&a.0, &a.1.name).cmp(&(&b.0, &b.1.name)));
+        all
+    }
+
+    pub async fn list_resources(&self, server: &str) -> Result<Vec<rmcp::model::Resource>, String> {
+        let live = self.live(server)?;
+        within("list its resources", async { live.service.list_all_resources().await.map_err(|e| e.to_string()) }).await
+    }
+
+    /// A resource's contents: text inline, images and PDFs as files, other binaries named.
+    pub(crate) async fn read_resource(&self, server: &str, uri: &str) -> Result<Answer, String> {
+        let live = self.live(server)?;
+        let read = within("read the resource", async { live.service.read_resource(rmcp::model::ReadResourceRequestParams::new(uri)).await.map_err(|e| e.to_string()) }).await?;
+        let mut answer = Answer { text: String::new(), is_error: false, images: Vec::new() };
+        let mut lines = Vec::new();
+        for content in &read.contents {
+            match content {
+                rmcp::model::ResourceContents::BlobResourceContents { mime_type: Some(mime), blob, .. } if sendable(mime, blob).is_ok() || mime == crate::tool::image::PDF => {
+                    answer.images.push(Image { mime: mime.clone(), base64: blob.clone() });
+                }
+                other => lines.push(resource_text(other)),
+            }
+        }
+        answer.text = lines.join("\n");
+        Ok(answer)
+    }
+
+    /// Every connected server's prompts as slash commands named `server:prompt`.
+    pub fn prompt_commands(&self) -> Vec<crate::config::Command> {
+        self.prompts()
+            .into_iter()
+            .map(|(server, prompt)| crate::config::Command {
+                name: format!("{server}:{}", prompt.name),
+                description: prompt.description.clone().unwrap_or_else(|| format!("A prompt from the {server} MCP server")),
+                template: String::new(),
+                arguments: prompt.arguments.iter().flatten().map(|argument| argument.name.clone()).collect(),
+                server: Some(server),
+            })
+            .collect()
+    }
+
+    /// A prompt filled with `arguments`, as the text of its messages.
+    pub async fn get_prompt(&self, server: &str, name: &str, arguments: serde_json::Map<String, serde_json::Value>) -> Result<String, String> {
+        let live = self.live(server)?;
+        let mut params = rmcp::model::GetPromptRequestParams::new(name);
+        params.arguments = Some(arguments);
+        let got = within("fill the prompt", async { live.service.get_prompt(params).await.map_err(|e| e.to_string()) }).await?;
+        let texts: Vec<String> = got
+            .messages
+            .iter()
+            .map(|message| match &message.content {
+                ContentBlock::Text(text) => text.text.clone(),
+                ContentBlock::Resource(resource) => resource_text(&resource.resource),
+                other => serde_json::to_string(other).unwrap_or_default(),
+            })
+            .collect();
+        Ok(texts.join("\n\n"))
     }
 }
 
@@ -476,8 +561,15 @@ impl Drop for Settle<'_> {
 async fn open(config: &ServerConfig, hash: String) -> Result<Live, String> {
     let (service, tree) = within("start", start(config)).await?;
     let tools = within("list its tools", async { service.list_all_tools().await.map_err(|e| format!("tools/list failed: {e}")) }).await?;
-    let instructions = service.peer_info().and_then(|info| info.instructions.clone()).map(|text| text.trim().to_string()).filter(|text| !text.is_empty());
-    Ok(Live { service, tools, instructions, hash, since: Instant::now(), tree })
+    let info = service.peer_info();
+    let instructions = info.as_ref().and_then(|info| info.instructions.clone()).map(|text| text.trim().to_string()).filter(|text| !text.is_empty());
+    let resources = info.as_ref().is_some_and(|info| info.capabilities.resources.is_some());
+    // A server whose prompts cannot be listed still serves its tools; it simply offers no commands.
+    let prompts = match info.as_ref().is_some_and(|info| info.capabilities.prompts.is_some()) {
+        true => within("list its prompts", async { service.list_all_prompts().await.map_err(|e| e.to_string()) }).await.unwrap_or_default(),
+        false => Vec::new(),
+    };
+    Ok(Live { service, tools, instructions, prompts, resources, hash, since: Instant::now(), tree })
 }
 
 async fn within<T>(what: &str, step: impl Future<Output = Result<T, String>>) -> Result<T, String> {

@@ -25,10 +25,21 @@ const call = (message) => {
   const out = message.params.name === "shout" ? text.toUpperCase() : text
   reply(message.id, { content: [{ type: "text", text: out }] })
 }
+// RICH: also serve one resource of each kind and one prompt with two arguments.
+const rich = !!process.env.RICH
+const capabilities = rich ? { tools: {}, resources: {}, prompts: {} } : { tools: {} }
+const resources = [{ uri: "note://readme", name: "readme", mimeType: "text/plain", description: "The notes" }, { uri: "note://shot", name: "shot", mimeType: "image/png" }]
+const contents = { "note://readme": [{ uri: "note://readme", mimeType: "text/plain", text: "remember the milk" }], "note://shot": [{ uri: "note://shot", mimeType: "image/png", blob: "iVBORw0KGgo=" }] }
+const prompt = { name: "review", description: "Review a file", arguments: [{ name: "file", required: true }, { name: "focus" }] }
+const filled = (args) => ({ messages: [{ role: "user", content: { type: "text", text: `Review ${args.file} for ${args.focus ?? "anything"}` } }] })
 rl.on("line", (line) => {
   const message = JSON.parse(line)
-  if (message.method === "initialize") return reply(message.id, { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "echo", version: "0" }, instructions: "Echo repeats what it is given." })
+  if (message.method === "initialize") return reply(message.id, { protocolVersion: "2025-06-18", capabilities, serverInfo: { name: "echo", version: "0" }, instructions: "Echo repeats what it is given." })
   if (message.method === "tools/list") return reply(message.id, { tools })
   if (message.method === "tools/call") return call(message)
+  if (message.method === "resources/list") return reply(message.id, { resources })
+  if (message.method === "resources/read") return reply(message.id, { contents: contents[message.params.uri] ?? [] })
+  if (message.method === "prompts/list") return reply(message.id, { prompts: [prompt] })
+  if (message.method === "prompts/get") return reply(message.id, filled(message.params.arguments ?? {}))
   if (message.id !== undefined) reply(message.id, {})
 })
