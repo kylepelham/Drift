@@ -1,6 +1,6 @@
 Searches file contents with a regular expression, using ripgrep's engine. Respects `.gitignore`.
 
-- Returns `path:line: text` for each match, by file then line, up to 200 matches. Past that it lists the first 200 and the total; narrow the pattern, `path` or `include` to see the rest.
+- Returns `path:line: text` for each match, by file then line, up to 200 matches. Past that it lists the first 200 and the total; past 2000 it stops searching. Narrow the pattern, `path` or `include` to see the rest.
 - `include` narrows the files searched by glob, such as `*.rs` or `src/**/*.tsx`.
 - Regex syntax is ripgrep's: `fn \w+\(`, `TODO|FIXME`, `class .*Error`.
 - Use `glob` to find files by name and `read` to look at a match in context.
