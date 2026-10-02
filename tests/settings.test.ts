@@ -191,6 +191,8 @@ const pendingTranslation = new Set([
   ...pendingKeys("drift.chat.retry", "switchModel switchingModel"),
   ...pendingKeys("drift.chat.spawned", "copy instruction"),
   ...pendingKeys("drift.model", "smallContext unknownContext"),
+  ...pendingKeys("drift.mcp.transport", "stdio streamable_http sse"),
+  ...pendingKeys("drift.mcp.form", "transport cwd cwdDefault timeout timeoutNone timeoutInvalid"),
   ...pendingKeys(
     "drift.code",
     `

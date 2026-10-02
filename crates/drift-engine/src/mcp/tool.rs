@@ -36,10 +36,17 @@ impl McpTool {
     }
 
     async fn call(&self, ctx: &Context, client: &Live, input: Value) -> Result<Answer, CallError> {
+        let limit = async {
+            match client.timeout {
+                Some(limit) => tokio::time::sleep(limit).await,
+                None => std::future::pending().await,
+            }
+        };
         tokio::select! {
             result = client.call(&self.tool.name, input) => result,
             () = ctx.abort.cancelled() => Err(CallError::Failed("aborted".into())),
             () = self.slot.closing() => Err(CallError::Failed(format!("the {} MCP server was disabled while the call ran; it may or may not have taken effect", self.server))),
+            () = limit => Err(CallError::Failed(format!("the {} MCP server did not answer within its {}s timeout; the call may or may not have taken effect", self.server, client.timeout.unwrap_or_default().as_secs()))),
         }
     }
 

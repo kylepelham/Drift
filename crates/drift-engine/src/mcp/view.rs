@@ -26,11 +26,24 @@ pub enum ServerConfigView {
         args: Vec<String>,
         /// Names only.
         env: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+        #[serde(rename = "timeoutSeconds", skip_serializing_if = "Option::is_none")]
+        timeout_seconds: Option<u64>,
     },
     Http {
         url: String,
         /// Names only.
         headers: Vec<String>,
+        #[serde(rename = "timeoutSeconds", skip_serializing_if = "Option::is_none")]
+        timeout_seconds: Option<u64>,
+    },
+    Sse {
+        url: String,
+        /// Names only.
+        headers: Vec<String>,
+        #[serde(rename = "timeoutSeconds", skip_serializing_if = "Option::is_none")]
+        timeout_seconds: Option<u64>,
     },
 }
 
@@ -44,19 +57,36 @@ pub enum ServerConfigInput {
         args: Vec<String>,
         #[serde(default)]
         env: BTreeMap<String, Option<String>>,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default, rename = "timeoutSeconds")]
+        timeout_seconds: Option<u64>,
     },
     Http {
         url: String,
         #[serde(default)]
         headers: BTreeMap<String, Option<String>>,
+        #[serde(default, rename = "timeoutSeconds")]
+        timeout_seconds: Option<u64>,
+    },
+    Sse {
+        url: String,
+        #[serde(default)]
+        headers: BTreeMap<String, Option<String>>,
+        #[serde(default, rename = "timeoutSeconds")]
+        timeout_seconds: Option<u64>,
     },
 }
 
 impl ServerView {
     pub fn of(row: &ServerRow) -> Self {
+        let names = |values: &BTreeMap<String, String>| values.keys().cloned().collect();
         let config = match &row.config {
-            ServerConfig::Stdio { command, args, env } => ServerConfigView::Stdio { command: command.clone(), args: args.clone(), env: env.keys().cloned().collect() },
-            ServerConfig::Http { url, headers } => ServerConfigView::Http { url: url.clone(), headers: headers.keys().cloned().collect() },
+            ServerConfig::Stdio { command, args, env, cwd, timeout_seconds } => {
+                ServerConfigView::Stdio { command: command.clone(), args: args.clone(), env: names(env), cwd: cwd.clone(), timeout_seconds: *timeout_seconds }
+            }
+            ServerConfig::Http { url, headers, timeout_seconds } => ServerConfigView::Http { url: url.clone(), headers: names(headers), timeout_seconds: *timeout_seconds },
+            ServerConfig::Sse { url, headers, timeout_seconds } => ServerConfigView::Sse { url: url.clone(), headers: names(headers), timeout_seconds: *timeout_seconds },
         };
         Self { name: row.name.clone(), config, enabled: row.enabled, updated_at: row.updated_at }
     }
@@ -65,12 +95,17 @@ impl ServerView {
 impl ServerConfigInput {
     /// The config to save: kept values come from `saved`, and one with nothing saved to keep is refused, naming it.
     pub fn resolve(self, saved: Option<&ServerConfig>) -> Result<ServerConfig, String> {
-        match (self, saved) {
-            (Self::Stdio { command, args, env }, Some(ServerConfig::Stdio { env: kept, .. })) => Ok(ServerConfig::Stdio { command, args, env: keep(env, Some(kept))? }),
-            (Self::Stdio { command, args, env }, _) => Ok(ServerConfig::Stdio { command, args, env: keep(env, None)? }),
-            (Self::Http { url, headers }, Some(ServerConfig::Http { headers: kept, .. })) => Ok(ServerConfig::Http { url, headers: keep(headers, Some(kept))? }),
-            (Self::Http { url, headers }, _) => Ok(ServerConfig::Http { url, headers: keep(headers, None)? }),
-        }
+        let (saved_env, saved_headers) = match saved {
+            Some(ServerConfig::Stdio { env, .. }) => (Some(env), None),
+            Some(ServerConfig::Http { headers, .. } | ServerConfig::Sse { headers, .. }) => (None, Some(headers)),
+            None => (None, None),
+        };
+        let cwd_of = |cwd: Option<String>| cwd.map(|c| c.trim().to_string()).filter(|c| !c.is_empty());
+        Ok(match self {
+            Self::Stdio { command, args, env, cwd, timeout_seconds } => ServerConfig::Stdio { command, args, env: keep(env, saved_env)?, cwd: cwd_of(cwd), timeout_seconds },
+            Self::Http { url, headers, timeout_seconds } => ServerConfig::Http { url, headers: keep(headers, saved_headers)?, timeout_seconds },
+            Self::Sse { url, headers, timeout_seconds } => ServerConfig::Sse { url, headers: keep(headers, saved_headers)?, timeout_seconds },
+        })
     }
 }
 
@@ -96,18 +131,21 @@ mod tests {
 
     #[test]
     fn a_view_names_secrets_without_their_values() {
-        let saved = row(ServerConfig::Http { url: "https://example.com/mcp".into(), headers: [("Authorization".to_string(), "Bearer secret-token".to_string())].into() });
+        let saved = row(ServerConfig::Http { url: "https://example.com/mcp".into(), headers: [("Authorization".to_string(), "Bearer secret-token".to_string())].into(), timeout_seconds: None });
         let shown = serde_json::to_string(&ServerView::of(&saved)).unwrap();
         assert!(shown.contains("Authorization") && !shown.contains("secret-token"), "{shown}");
     }
 
     #[test]
     fn a_null_value_keeps_the_saved_one_and_a_new_one_replaces_it() {
-        let saved = ServerConfig::Stdio { command: "npx".into(), args: vec![], env: [("TOKEN".to_string(), "old".to_string())].into() };
-        let sent: ServerConfigInput = serde_json::from_value(json!({ "type": "stdio", "command": "npx", "env": { "TOKEN": null, "MODE": "fast" } })).unwrap();
-        let ServerConfig::Stdio { env, .. } = sent.resolve(Some(&saved)).unwrap() else { panic!() };
+        let saved = ServerConfig::Stdio { command: "npx".into(), args: vec![], env: [("TOKEN".to_string(), "old".to_string())].into(), cwd: None, timeout_seconds: None };
+        let sent: ServerConfigInput = serde_json::from_value(json!({ "type": "stdio", "command": "npx", "env": { "TOKEN": null, "MODE": "fast" }, "cwd": " C:/tools ", "timeoutSeconds": 60 })).unwrap();
+        let ServerConfig::Stdio { env, cwd, timeout_seconds, .. } = sent.resolve(Some(&saved)).unwrap() else { panic!() };
         assert_eq!(env, BTreeMap::from([("TOKEN".to_string(), "old".to_string()), ("MODE".to_string(), "fast".to_string())]));
+        assert_eq!((cwd.as_deref(), timeout_seconds), (Some("C:/tools"), Some(60)));
         let nothing_kept: ServerConfigInput = serde_json::from_value(json!({ "type": "stdio", "command": "npx", "env": { "OTHER": null } })).unwrap();
         assert_eq!(nothing_kept.resolve(Some(&saved)).unwrap_err(), "OTHER has no saved value to keep");
+        let moved: ServerConfigInput = serde_json::from_value(json!({ "type": "sse", "url": "https://legacy.example/sse" })).unwrap();
+        assert!(matches!(moved.resolve(Some(&saved)).unwrap(), ServerConfig::Sse { .. }));
     }
 }

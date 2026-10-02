@@ -2,44 +2,53 @@ import type { McpServerConfig, McpServerConfigView } from "../engine/store"
 
 /** `saved`: the engine holds a value under this name, never shown; left empty, it is kept as it is. */
 export type McpPair = { key: string; value: string; saved?: boolean }
-/** Exactly what the engine's server config holds: a command with its arguments and environment, or a URL with headers. */
+/** Exactly what the engine's server config holds: a command with its arguments, environment and directory, or a URL with headers; and a call timeout. */
 export type McpFormState = {
-  type: "stdio" | "http"
+  type: "stdio" | "http" | "sse"
   command: string[]
   environment: McpPair[]
+  cwd: string
   url: string
   headers: McpPair[]
+  /** Seconds, as typed; empty means no limit. */
+  timeout: string
 }
 
-export type McpFormIssue = "commandRequired" | "urlRequired" | "urlInvalid" | "pairInvalid"
+export type McpFormIssue = "commandRequired" | "urlRequired" | "urlInvalid" | "pairInvalid" | "timeoutInvalid"
 export type McpFormResult = { config: McpServerConfig; issue?: never } | { config?: never; issue: McpFormIssue }
 
 export function mcpFormState(config?: McpServerConfigView): McpFormState {
-  if (config?.type === "http") {
-    return { type: "http", command: [""], environment: [], url: config.url, headers: savedPairs(config.headers) }
+  const timeout = config?.timeoutSeconds ? String(config.timeoutSeconds) : ""
+  if (config?.type === "http" || config?.type === "sse") {
+    return { type: config.type, command: [""], environment: [], cwd: "", url: config.url, headers: savedPairs(config.headers), timeout }
   }
   return {
     type: "stdio",
     command: config ? [config.command, ...config.args] : [""],
     environment: savedPairs(config?.env ?? []),
+    cwd: config?.cwd ?? "",
     url: "",
     headers: [],
+    timeout,
   }
 }
 
 export function mcpConfigFromForm(form: McpFormState): McpFormResult {
+  const timeout = form.timeout.trim()
+  const timeoutSeconds = timeout ? Number(timeout) : null
+  if (timeoutSeconds !== null && !(Number.isInteger(timeoutSeconds) && timeoutSeconds > 0)) return { issue: "timeoutInvalid" }
   if (form.type === "stdio") {
     const [command, ...args] = form.command
     if (!command?.trim()) return { issue: "commandRequired" }
     const env = pairRecord(form.environment)
     if (!env) return { issue: "pairInvalid" }
-    return { config: { type: "stdio", command, args, env } }
+    return { config: { type: "stdio", command, args, env, cwd: form.cwd.trim() || null, timeoutSeconds } }
   }
   if (!form.url) return { issue: "urlRequired" }
   if (!mcpRemoteUrlAllowed(form.url)) return { issue: "urlInvalid" }
   const headers = pairRecord(form.headers)
   if (!headers) return { issue: "pairInvalid" }
-  return { config: { type: "http", url: form.url, headers } }
+  return { config: { type: form.type, url: form.url, headers, timeoutSeconds } }
 }
 
 export function mcpRemoteUrlAllowed(value: string) {

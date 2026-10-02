@@ -1075,6 +1075,14 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   covers the whole server. Every save, disable, disconnect and remove bumps the server's
   generation; a connect that began under an older generation closes what it opened and
   publishes nothing. MCP OAuth is not implemented yet.
+- **MCP transports and limits.** A server is `stdio` (with an optional `cwd`), `http` (streamable
+  HTTP) or `sse`, the older HTTP+SSE transport, which rmcp no longer ships, so `mcp::sse` speaks it:
+  a long-lived GET whose `endpoint` event names where to POST, replies arriving as `message`
+  events. Any of them may set `timeoutSeconds`: a tool call that runs longer fails, saying it may or
+  may not have taken effect. Both fields are left out when unset, so older configs keep their hash.
+  Each status carries `transport` (`stdio`, `streamable_http`, `sse`) and, once connected, the
+  `protocol` version the server agreed to at initialize; the MCP menu shows them on each row. A
+  stateless transport (the coming v2) joins `Transport` as one more value.
 - **MCP resources and prompts.** While a connected server declares resources, turns are also
   offered `mcp_resources` (list, every such server or one) and `mcp_read_resource` (server and
   uri; text inline, image and PDF blobs as files the model looks at, other binaries named). Both

@@ -87,10 +87,10 @@ mod tests {
     #[test]
     fn servers_save_rename_disable_and_remove() {
         let store = store();
-        let config = ServerConfig::Stdio { command: "npx".into(), args: vec!["server".into()], env: Default::default() };
+        let config = ServerConfig::Stdio { command: "npx".into(), args: vec!["server".into()], env: Default::default(), cwd: None, timeout_seconds: None };
         let row = store.save_mcp_server("docs", &config).unwrap();
         assert!(row.enabled, "a saved server is on and needs nothing more to run");
-        let changed = ServerConfig::Stdio { command: "npx".into(), args: vec!["other".into()], env: Default::default() };
+        let changed = ServerConfig::Stdio { command: "npx".into(), args: vec!["other".into()], env: Default::default(), cwd: None, timeout_seconds: None };
         assert_ne!(store.save_mcp_server("docs", &changed).unwrap().hash, row.hash, "a changed definition is a different connection");
         assert!(matches!(store.rename_mcp_server("docs", "notes").unwrap(), Some(Renamed::To(renamed)) if renamed.config == changed));
         assert!(store.set_mcp_enabled("notes", false).unwrap());

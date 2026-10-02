@@ -422,7 +422,7 @@ async fn undo_stops_an_mcp_call_under_way_instead_of_waiting_for_it() {
     let h = harness().await;
     let (_, second) = two_writing_turns(&h).await;
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
-    let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default() };
+    let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default(), cwd: None, timeout_seconds: None };
     h.engine.store.save_mcp_server("echo", &config).unwrap();
     h.engine.connect_mcp("echo").await.unwrap();
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "mcp".into(), pattern: "*".into(), decision: Decision::Allow }] });

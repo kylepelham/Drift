@@ -22,6 +22,7 @@ const call = (message) => {
     process.exit(1)
   }
   if (text === "hang") return
+  if (text === "cwd") return reply(message.id, { content: [{ type: "text", text: process.cwd() }] })
   const out = message.params.name === "shout" ? text.toUpperCase() : text
   reply(message.id, { content: [{ type: "text", text: out }] })
 }

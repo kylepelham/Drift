@@ -225,6 +225,12 @@ export function McpManagement(props: { embedded?: boolean }) {
   )
 }
 
+/** How the engine talks to a server: its transport, and once connected the MCP protocol version it agreed to. */
+export function mcpProtocolLabel(server: Pick<McpServerStatus, "transport" | "protocol">) {
+  const transport = t(`drift.mcp.transport.${server.transport}`)
+  return server.protocol ? `${transport} · MCP ${server.protocol}` : transport
+}
+
 function ServerRow(props: {
   server: McpServerStatus
   selected: boolean
@@ -276,6 +282,7 @@ function ServerRow(props: {
           <div class="truncate text-sm font-medium text-ink">{props.server.name}</div>
           <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
             <span class={status().tone}>{status().text}</span>
+            <span class="text-ink-faint">{mcpProtocolLabel(props.server)}</span>
           </div>
         </div>
         <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">

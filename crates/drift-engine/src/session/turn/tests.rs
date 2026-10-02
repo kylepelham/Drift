@@ -1282,7 +1282,7 @@ async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_
     use crate::llm::Block;
     let h = harness().await;
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
-    let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default() };
+    let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default(), cwd: None, timeout_seconds: None };
     h.engine.store.save_mcp_server("echo", &config).unwrap();
     h.engine.connect_mcp("echo").await.unwrap();
     std::fs::write(h._dir.join("ws/shot.png"), b"\x89PNG\r\n\x1a\nrest").unwrap();
@@ -1687,7 +1687,7 @@ async fn a_turn_keeps_the_tools_it_started_with_and_a_change_reaches_the_next_on
     use crate::mcp::ServerConfig;
     let h = harness().await;
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
-    let config = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default() };
+    let config = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default(), cwd: None, timeout_seconds: None };
     h.engine.store.save_mcp_server("echo", &config).unwrap();
     h.engine.connect_mcp("echo").await.unwrap();
     h.provider.push_slow(Duration::from_millis(500), tool_call("echo_echo", r#"{"text": "still here"}"#)).push(text("done"));

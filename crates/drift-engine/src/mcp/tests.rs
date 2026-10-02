@@ -8,7 +8,7 @@ use crate::tool::{Context, SessionFiles};
 
 fn echo_config() -> ServerConfig {
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
-    ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default() }
+    ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default(), cwd: None, timeout_seconds: None }
 }
 
 fn engine() -> Arc<crate::Engine> {
@@ -137,7 +137,7 @@ async fn a_deliberate_disconnect_ends_reconnecting() {
 async fn a_turn_waits_briefly_for_a_server_still_connecting() {
     let engine = engine();
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/slow-server.cjs");
-    let slow = |ms: &str| ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), ms.to_string())].into() };
+    let slow = |ms: &str| ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), ms.to_string())].into(), cwd: None, timeout_seconds: None };
     saved(&engine, "quick", &slow("600")).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
@@ -165,7 +165,7 @@ async fn a_turn_waits_briefly_for_a_server_still_connecting() {
 async fn a_bad_command_reports_failed() {
     let engine = engine();
     let hub = Hub::new(8);
-    let config = ServerConfig::Stdio { command: "definitely-not-a-program".into(), args: vec![], env: Default::default() };
+    let config = ServerConfig::Stdio { command: "definitely-not-a-program".into(), args: vec![], env: Default::default(), cwd: None, timeout_seconds: None };
     let row = engine.store.save_mcp_server("broken", &config).unwrap();
     assert!(engine.mcp.connect("broken", &engine.store, &hub, Start::User).await.is_err());
     let status = engine.mcp.status_of(row);
@@ -178,7 +178,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
     let engine = engine();
     let hub = Hub::new(32);
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/slow-server.cjs");
-    let slow = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), "1500".to_string())].into() };
+    let slow = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), "1500".to_string())].into(), cwd: None, timeout_seconds: None };
     engine.store.save_mcp_server("probe", &slow).unwrap();
     let started = std::time::Instant::now();
     let connecting = tokio::spawn({
@@ -187,7 +187,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
         async move { engine.mcp.connect("probe", &engine.store, &hub, Start::User).await.map(|_| ()) }
     });
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    let replaced = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("TOOL_NAME".to_string(), "new_tool".to_string())].into() };
+    let replaced = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("TOOL_NAME".to_string(), "new_tool".to_string())].into(), cwd: None, timeout_seconds: None };
     let row = engine.mcp.change("probe", &engine.store, &hub, |store| store.save_mcp_server("probe", &replaced)).await.unwrap();
     assert!(connecting.await.unwrap().is_err(), "the stale connect must not succeed");
     assert!(started.elapsed() < std::time::Duration::from_millis(1200), "cancelled, not left to finish");
@@ -204,7 +204,7 @@ fn traced(env: &[(&str, &str)]) -> (ServerConfig, std::path::PathBuf) {
     let mut vars: BTreeMap<String, String> = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     vars.insert("PID_FILE".into(), pids.to_string_lossy().into());
     vars.insert("GRANDCHILD".into(), "1".into());
-    (ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: vars }, pids)
+    (ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: vars, cwd: None, timeout_seconds: None }, pids)
 }
 
 async fn pids_in(file: &std::path::Path) -> Vec<u32> {
@@ -305,7 +305,7 @@ async fn a_connect_dropped_midway_settles_and_kills_what_it_started() {
 async fn the_startup_sweep_never_cancels_a_connect_already_under_way() {
     let engine = engine();
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/slow-server.cjs");
-    let slow = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), "500".to_string())].into() };
+    let slow = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("SLOW_MS".to_string(), "500".to_string())].into(), cwd: None, timeout_seconds: None };
     let row = saved(&engine, "slow", &slow).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
@@ -343,14 +343,14 @@ fn logged_echo() -> (ServerConfig, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("drift-mcp-log-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&dir).unwrap();
     let env = [("CALL_LOG", dir.join("calls")), ("CRASH_MARKER", dir.join("crashed"))].map(|(k, v)| (k.to_string(), v.to_string_lossy().into_owned()));
-    (ServerConfig::Stdio { command, args, env: env.into() }, dir.join("calls"))
+    (ServerConfig::Stdio { command, args, env: env.into(), cwd: None, timeout_seconds: None }, dir.join("calls"))
 }
 
 #[tokio::test]
 async fn resources_are_listed_and_read_and_prompts_become_commands() {
     let engine = engine();
     let ServerConfig::Stdio { command, args, .. } = echo_config() else { unreachable!() };
-    saved(&engine, "notes", &ServerConfig::Stdio { command, args, env: [("RICH".to_string(), "1".to_string())].into() }).await;
+    saved(&engine, "notes", &ServerConfig::Stdio { command, args, env: [("RICH".to_string(), "1".to_string())].into(), cwd: None, timeout_seconds: None }).await;
     engine.connect_mcp("notes").await.unwrap();
     let ctx = context(&engine);
     let names: Vec<String> = engine.mcp.tools().iter().map(|t| t.spec().name).collect();
@@ -366,6 +366,76 @@ async fn resources_are_listed_and_read_and_prompts_become_commands() {
     assert_eq!((commands[0].name.as_str(), commands[0].arguments.clone()), ("notes:review", vec!["file".to_string(), "focus".to_string()]));
     let filled = engine.mcp.get_prompt("notes", "review", commands[0].named_arguments("src/a.rs error handling")).await.unwrap();
     assert_eq!(filled, "Review src/a.rs for error handling", "one word each, the last taking the rest");
+}
+
+#[tokio::test]
+async fn a_stdio_server_runs_where_it_is_told_and_a_call_past_its_timeout_fails() {
+    let engine = engine();
+    let ServerConfig::Stdio { command, args, .. } = echo_config() else { unreachable!() };
+    let dir = crate::tool::canonical(&std::env::temp_dir().join(format!("drift-mcp-cwd-{}", crate::random_hex(4))));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = ServerConfig::Stdio { command, args, env: Default::default(), cwd: Some(dir.to_string_lossy().into_owned()), timeout_seconds: Some(1) };
+    let row = saved(&engine, "echo", &config).await;
+    engine.connect_mcp("echo").await.unwrap();
+    let ctx = context(&engine);
+    let shout = tool(&engine, "echo_shout");
+    let cwd = shout.run(&ctx, json!({ "text": "cwd" })).await.unwrap().output;
+    let same = |path: &str| path.to_lowercase().replace('\\', "/").trim_end_matches('/').to_string();
+    assert_eq!(same(&crate::tool::canonical(std::path::Path::new(&cwd)).to_string_lossy()), same(&dir.to_string_lossy()));
+    let started = std::time::Instant::now();
+    let hung = shout.run(&ctx, json!({ "text": "hang" })).await.unwrap_err().0;
+    assert!(hung.contains("1s timeout") && started.elapsed() < std::time::Duration::from_secs(5), "{hung}");
+    let status = engine.mcp.status_of(row);
+    assert_eq!(status.transport, Transport::Stdio);
+    assert_eq!(status.protocol.as_deref(), Some("2025-06-18"), "the version the server agreed to");
+}
+
+#[tokio::test]
+async fn a_server_on_the_older_sse_transport_connects_and_answers() {
+    let base = legacy_sse_server().await;
+    let engine = engine();
+    let row = saved(&engine, "legacy", &ServerConfig::Sse { url: format!("{base}/sse"), headers: Default::default(), timeout_seconds: None }).await;
+    engine.connect_mcp("legacy").await.unwrap();
+    let out = tool(&engine, "legacy_echo").run(&context(&engine), json!({ "text": "over sse" })).await.unwrap();
+    assert_eq!(out.output, "over sse");
+    assert_eq!(engine.mcp.status_of(row).transport, Transport::Sse);
+}
+
+/// A server speaking the 2024-11-05 HTTP+SSE transport: the GET stream names the POST endpoint, and
+/// replies to posted messages come back on the stream.
+async fn legacy_sse_server() -> String {
+    use axum::routing::{get, post};
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let rx = Arc::new(tokio::sync::Mutex::new(Some(rx)));
+    let stream = get(move || {
+        let rx = rx.clone();
+        async move {
+            let rx = rx.lock().await.take().expect("one stream");
+            let first = futures_util::stream::once(async { Ok::<_, std::convert::Infallible>("event: endpoint\ndata: /messages?session=1\n\n".to_string()) });
+            let rest = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|m| (Ok(format!("event: message\ndata: {m}\n\n")), rx)) });
+            ([("content-type", "text/event-stream")], axum::body::Body::from_stream(futures_util::StreamExt::chain(first, rest)))
+        }
+    });
+    let messages = post(move |axum::Json(message): axum::Json<serde_json::Value>| {
+        let tx = tx.clone();
+        async move {
+            let result = match message["method"].as_str() {
+                Some("initialize") => json!({ "protocolVersion": "2024-11-05", "capabilities": { "tools": {} }, "serverInfo": { "name": "legacy", "version": "0" } }),
+                Some("tools/list") => json!({ "tools": [{ "name": "echo", "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } } }, "annotations": { "readOnlyHint": true } }] }),
+                Some("tools/call") => json!({ "content": [{ "type": "text", "text": message["params"]["arguments"]["text"] }] }),
+                _ => serde_json::Value::Null,
+            };
+            if !message["id"].is_null() {
+                let _ = tx.send(json!({ "jsonrpc": "2.0", "id": message["id"], "result": result }).to_string());
+            }
+            axum::http::StatusCode::ACCEPTED
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, axum::Router::new().route("/sse", stream).route("/messages", messages)).await.unwrap() });
+    base
 }
 
 fn calls(log: &std::path::Path) -> Vec<String> {
@@ -401,9 +471,9 @@ async fn a_read_only_call_cut_off_by_a_lost_connection_is_asked_again_once() {
 #[tokio::test]
 async fn a_captured_tool_is_not_run_on_a_reconnected_server_that_redefined_it() {
     let engine = engine();
-    let (ServerConfig::Stdio { command, args, mut env }, log) = logged_echo() else { unreachable!() };
+    let (ServerConfig::Stdio { command, args, mut env, .. }, log) = logged_echo() else { unreachable!() };
     env.insert("REDEFINE_AFTER_CRASH".into(), "1".into());
-    saved(&engine, "echo", &ServerConfig::Stdio { command, args, env }).await;
+    saved(&engine, "echo", &ServerConfig::Stdio { command, args, env, cwd: None, timeout_seconds: None }).await;
     engine.connect_mcp("echo").await.unwrap();
     let echo = tool(&engine, "echo_echo");
     let refused = echo.run(&context(&engine), json!({ "text": "crash-once" })).await.unwrap_err().0;
@@ -442,9 +512,9 @@ async fn a_save_leaves_running_turns_on_the_client_they_were_given() {
     saved(&engine, "echo", &config).await;
     engine.connect_mcp("echo").await.unwrap();
     let echo = tool(&engine, "echo_echo");
-    let ServerConfig::Stdio { command, args, mut env } = config else { unreachable!() };
+    let ServerConfig::Stdio { command, args, mut env, .. } = config else { unreachable!() };
     env.insert("CHANGED".into(), "1".into());
-    engine.mcp.change("echo", &engine.store, &engine.hub, |store| store.save_mcp_server("echo", &ServerConfig::Stdio { command, args, env })).await.unwrap();
+    engine.mcp.change("echo", &engine.store, &engine.hub, |store| store.save_mcp_server("echo", &ServerConfig::Stdio { command, args, env, cwd: None, timeout_seconds: None })).await.unwrap();
     assert!(find(&engine, "echo_echo").is_none(), "later turns see the server once it connects on the new command");
     assert_eq!(echo.run(&context(&engine), json!({ "text": "still" })).await.unwrap().output, "still", "the running turn keeps its client");
 }

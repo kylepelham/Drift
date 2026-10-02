@@ -1214,37 +1214,68 @@ export interface components {
         ServerConfigInput: {
             args?: string[];
             command: string;
+            cwd?: string | null;
             env?: {
                 [key: string]: string | null;
             };
+            /** Format: int64 */
+            timeoutSeconds?: number | null;
             /** @enum {string} */
             type: "stdio";
         } | {
             headers?: {
                 [key: string]: string | null;
             };
+            /** Format: int64 */
+            timeoutSeconds?: number | null;
             /** @enum {string} */
             type: "http";
+            url: string;
+        } | {
+            headers?: {
+                [key: string]: string | null;
+            };
+            /** Format: int64 */
+            timeoutSeconds?: number | null;
+            /** @enum {string} */
+            type: "sse";
             url: string;
         };
         ServerConfigView: {
             args: string[];
             command: string;
+            cwd?: string | null;
             /** @description Names only. */
             env: string[];
+            /** Format: int64 */
+            timeoutSeconds?: number | null;
             /** @enum {string} */
             type: "stdio";
         } | {
             /** @description Names only. */
             headers: string[];
+            /** Format: int64 */
+            timeoutSeconds?: number | null;
             /** @enum {string} */
             type: "http";
+            url: string;
+        } | {
+            /** @description Names only. */
+            headers: string[];
+            /** Format: int64 */
+            timeoutSeconds?: number | null;
+            /** @enum {string} */
+            type: "sse";
             url: string;
         };
         ServerStatus: components["schemas"]["ServerView"] & {
             error?: string | null;
+            /** @description The MCP protocol version the server agreed to at initialize; absent until connected. */
+            protocol?: string | null;
             state: components["schemas"]["State"];
             tools: components["schemas"]["ToolInfo"][];
+            /** @description How the engine talks to it. */
+            transport: components["schemas"]["Transport"];
         };
         /** @description A server as clients see it: every field but the values of its env vars and headers. */
         ServerView: {
@@ -1337,6 +1368,11 @@ export interface components {
         ToolProfile: "edit" | "apply_patch";
         /** @enum {string} */
         ToolStatus: "pending" | "running" | "done" | "error" | "denied";
+        /**
+         * @description The wire a server is spoken to over; a stateless transport will join these.
+         * @enum {string}
+         */
+        Transport: "stdio" | "streamable_http" | "sse";
         /** @description The session after an undo or redo, and the files it left alone. */
         Undone: {
             /** @description Changed by someone else since the session last wrote them. */

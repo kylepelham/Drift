@@ -12,7 +12,7 @@ pub mod google;
 pub mod http;
 pub mod local;
 pub mod openai;
-mod sse;
+pub(crate) mod sse;
 pub mod vertex;
 #[cfg(test)]
 pub(crate) mod tests;

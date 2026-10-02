@@ -1,6 +1,7 @@
 //! MCP servers: configured in the store, connected with rmcp, tools offered to the model.
 
 mod resources;
+mod sse;
 mod tool;
 mod view;
 
@@ -36,12 +37,36 @@ pub enum ServerConfig {
         args: Vec<String>,
         #[serde(default)]
         env: BTreeMap<String, String>,
+        /// Where the server runs; Drift's own directory when unset.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_seconds: Option<u64>,
     },
+    /// Streamable HTTP, the current transport.
     Http {
         url: String,
         #[serde(default)]
         headers: BTreeMap<String, String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_seconds: Option<u64>,
     },
+    /// The older HTTP+SSE transport some servers still speak.
+    Sse {
+        url: String,
+        #[serde(default)]
+        headers: BTreeMap<String, String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_seconds: Option<u64>,
+    },
+}
+
+impl ServerConfig {
+    /// How long one tool call may take before it fails; unset, it runs until done or stopped.
+    pub fn timeout(&self) -> Option<Duration> {
+        let (Self::Stdio { timeout_seconds, .. } | Self::Http { timeout_seconds, .. } | Self::Sse { timeout_seconds, .. }) = self;
+        timeout_seconds.filter(|s| *s > 0).map(Duration::from_secs)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -75,6 +100,30 @@ pub struct ServerStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub tools: Vec<ToolInfo>,
+    /// How the engine talks to it.
+    pub transport: Transport,
+    /// The MCP protocol version the server agreed to at initialize; absent until connected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+}
+
+/// The wire a server is spoken to over; a stateless transport will join these.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Transport {
+    Stdio,
+    StreamableHttp,
+    Sse,
+}
+
+impl Transport {
+    fn of(config: &ServerConfig) -> Self {
+        match config {
+            ServerConfig::Stdio { .. } => Self::Stdio,
+            ServerConfig::Http { .. } => Self::StreamableHttp,
+            ServerConfig::Sse { .. } => Self::Sse,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -93,6 +142,8 @@ struct Live {
     prompts: Vec<rmcp::model::Prompt>,
     /// Whether it serves resources, which the `mcp_resources` tools list and read.
     resources: bool,
+    /// How long one tool call may take, from its config.
+    timeout: Option<Duration>,
     /// The definition it was opened from; a client of another definition never stands in for this one.
     hash: String,
     since: Instant,
@@ -284,8 +335,9 @@ impl Servers {
         } else {
             slots.transient.get(&row.name).cloned().unwrap_or((State::Disconnected, None))
         };
+        let protocol = live.as_ref().and_then(|live| live.service.peer_info()).map(|info| info.protocol_version.to_string());
         let tools = live.map(|live| live.tools.iter().map(tool_info).collect()).unwrap_or_default();
-        ServerStatus { server: ServerView::of(&row), state, error, tools }
+        ServerStatus { transport: Transport::of(&row.config), protocol, server: ServerView::of(&row), state, error, tools }
     }
 
     /// Connects `name` as its row stands now.
@@ -569,7 +621,7 @@ async fn open(config: &ServerConfig, hash: String) -> Result<Live, String> {
         true => within("list its prompts", async { service.list_all_prompts().await.map_err(|e| e.to_string()) }).await.unwrap_or_default(),
         false => Vec::new(),
     };
-    Ok(Live { service, tools, instructions, prompts, resources, hash, since: Instant::now(), tree })
+    Ok(Live { service, tools, instructions, prompts, resources, timeout: config.timeout(), hash, since: Instant::now(), tree })
 }
 
 async fn within<T>(what: &str, step: impl Future<Output = Result<T, String>>) -> Result<T, String> {
@@ -578,9 +630,12 @@ async fn within<T>(what: &str, step: impl Future<Output = Result<T, String>>) ->
 
 async fn start(config: &ServerConfig) -> Result<(RunningService<RoleClient, ()>, Option<Tree>), String> {
     match config {
-        ServerConfig::Stdio { command, args, env } => {
+        ServerConfig::Stdio { command, args, env, cwd, .. } => {
             let mut cmd = tokio::process::Command::new(command);
             cmd.args(args).envs(env);
+            if let Some(cwd) = cwd.as_deref().filter(|cwd| !cwd.trim().is_empty()) {
+                cmd.current_dir(cwd);
+            }
             crate::platform::process::prepare(&mut cmd);
             #[cfg(windows)]
             cmd.creation_flags(0x0800_0000);
@@ -590,8 +645,17 @@ async fn start(config: &ServerConfig) -> Result<(RunningService<RoleClient, ()>,
             let service = ().serve(transport).await.map_err(|e| e.to_string())?;
             Ok((service, tree))
         }
-        ServerConfig::Http { url, headers } => Ok((().serve(http_transport(url, headers)).await.map_err(|e| e.to_string())?, None)),
+        ServerConfig::Http { url, headers, .. } => Ok((().serve(http_transport(url, headers)).await.map_err(|e| e.to_string())?, None)),
+        ServerConfig::Sse { url, headers, .. } => {
+            let transport = sse::SseTransport::connect(crate::llm::http::client(), url, header_map(headers)).await?;
+            Ok((().serve(transport).await.map_err(|e| e.to_string())?, None))
+        }
     }
+}
+
+/// Headers as given, any that are not valid HTTP left out.
+fn header_map(headers: &BTreeMap<String, String>) -> http::HeaderMap {
+    headers.iter().filter_map(|(name, value)| Some((name.parse::<http::HeaderName>().ok()?, value.parse::<http::HeaderValue>().ok()?))).collect()
 }
 
 fn http_transport(url: &str, headers: &BTreeMap<String, String>) -> StreamableHttpClientTransport<reqwest::Client> {

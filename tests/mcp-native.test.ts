@@ -12,18 +12,29 @@ if (!("localStorage" in globalThis))
 type McpServer = components["schemas"]["ServerStatus"]
 
 function server(name: string, state: McpServer["state"]): McpServer {
-  return { name, config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] }, enabled: state !== "disabled", updatedAt: 1, state, tools: [] }
+  return { name, config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] }, enabled: state !== "disabled", updatedAt: 1, state, tools: [], transport: "stdio" }
 }
+
+test("a server row says how it is spoken to, and the protocol version once connected", async () => {
+  const { mcpProtocolLabel } = await import("../src/ui/mcp/manager")
+  expect(mcpProtocolLabel({ transport: "stdio" })).toBe("stdio")
+  expect(mcpProtocolLabel({ transport: "sse", protocol: "2024-11-05" })).toBe("HTTP + SSE (legacy) · MCP 2024-11-05")
+  expect(mcpProtocolLabel({ transport: "streamable_http", protocol: "2025-06-18" })).toBe("Streamable HTTP · MCP 2025-06-18")
+})
 
 test("the editor never holds a saved secret: untouched ones are kept by name, typed ones replace them", () => {
   const form = mcpFormState({ type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: ["TOKEN", "MODE"] })
   expect(form.environment.every((pair) => pair.value === "" && pair.saved)).toBeTrue()
   const typed = { ...form, environment: updatePair(form.environment, 1, { value: "fast" }) }
-  expect(mcpConfigFromForm(typed)).toEqual({ config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: { TOKEN: null, MODE: "fast" } } })
+  expect(mcpConfigFromForm(typed)).toEqual({ config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: { TOKEN: null, MODE: "fast" }, cwd: null, timeoutSeconds: null } })
+  expect(mcpConfigFromForm({ ...typed, cwd: " C:/tools ", timeout: "90" }).config).toMatchObject({ cwd: "C:/tools", timeoutSeconds: 90 })
+  expect(mcpConfigFromForm({ ...typed, timeout: "1.5" }).issue).toBe("timeoutInvalid")
+  const legacy = mcpFormState({ type: "sse", url: "https://legacy.example/sse", headers: [], timeoutSeconds: 30 })
+  expect(mcpConfigFromForm(legacy).config).toEqual({ type: "sse", url: "https://legacy.example/sse", headers: {}, timeoutSeconds: 30 })
   const renamed = { ...form, environment: updatePair(form.environment, 0, { key: "API_TOKEN", value: "new" }) }
   expect(renamed.environment[0].saved).toBeFalse()
   const http = mcpFormState({ type: "http", url: "https://example.com/mcp", headers: ["Authorization"] })
-  expect(mcpConfigFromForm(http)).toEqual({ config: { type: "http", url: "https://example.com/mcp", headers: { Authorization: null } } })
+  expect(mcpConfigFromForm(http)).toEqual({ config: { type: "http", url: "https://example.com/mcp", headers: { Authorization: null }, timeoutSeconds: null } })
   expect(mcpConfigFromForm(mcpFormState())).toEqual({ issue: "commandRequired" })
 })
 

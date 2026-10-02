@@ -74,7 +74,7 @@ export function McpEditor(props: {
                 <Choice active={form().type === "stdio"} onClick={() => setForm((value) => ({ ...value, type: "stdio" }))}>
                   {t("drift.mcp.form.local")}
                 </Choice>
-                <Choice active={form().type === "http"} onClick={() => setForm((value) => ({ ...value, type: "http" }))}>
+                <Choice active={form().type !== "stdio"} onClick={() => setForm((value) => ({ ...value, type: value.type === "sse" ? "sse" : "http" }))}>
                   {t("drift.mcp.form.remote")}
                 </Choice>
               </div>
@@ -82,7 +82,17 @@ export function McpEditor(props: {
             <Show when={form().type === "stdio"}>
               <LocalFields form={form()} setForm={setForm} />
             </Show>
-            <Show when={form().type === "http"}>
+            <Show when={form().type !== "stdio"}>
+              <Field label={t("drift.mcp.form.transport")} required>
+                <div class="flex rounded-lg border border-edge bg-overlay/50 p-1">
+                  <Choice active={form().type === "http"} onClick={() => setForm((value) => ({ ...value, type: "http" }))}>
+                    {t("drift.mcp.transport.streamable_http")}
+                  </Choice>
+                  <Choice active={form().type === "sse"} onClick={() => setForm((value) => ({ ...value, type: "sse" }))}>
+                    {t("drift.mcp.transport.sse")}
+                  </Choice>
+                </div>
+              </Field>
               <Field label={t("drift.mcp.form.url")} required>
                 <TextInput
                   type="url"
@@ -99,6 +109,15 @@ export function McpEditor(props: {
                 onChange={(headers) => setForm((value) => ({ ...value, headers }))}
               />
             </Show>
+            <Field label={t("drift.mcp.form.timeout")}>
+              <TextInput
+                value={form().timeout}
+                onInput={(timeout) => setForm((value) => ({ ...value, timeout }))}
+                label={t("drift.mcp.form.timeout")}
+                placeholder={t("drift.mcp.form.timeoutNone")}
+                mono
+              />
+            </Field>
             <Show when={error()}>
               {(value) => (
                 <div role="alert" class="text-xs text-danger">
@@ -167,6 +186,15 @@ function LocalFields(props: { form: McpFormState; setForm: Setter<McpFormState> 
         pairs={props.form.environment}
         onChange={(environment) => props.setForm((value) => ({ ...value, environment }))}
       />
+      <Field label={t("drift.mcp.form.cwd")}>
+        <TextInput
+          value={props.form.cwd}
+          onInput={(cwd) => props.setForm((value) => ({ ...value, cwd }))}
+          label={t("drift.mcp.form.cwd")}
+          placeholder={t("drift.mcp.form.cwdDefault")}
+          mono
+        />
+      </Field>
     </div>
   )
 }
