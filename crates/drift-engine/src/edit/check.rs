@@ -9,6 +9,8 @@ use crate::config::CheckConfig;
 use crate::platform::process;
 
 const TIMEOUT: Duration = Duration::from_secs(60);
+/// How many check runs go at once.
+const PARALLEL: usize = 4;
 /// The most of one check's output the model is shown.
 const SHOWN: usize = 4 * 1024;
 
@@ -47,23 +49,34 @@ pub fn resolve(config: &BTreeMap<String, CheckConfig>) -> Vec<Check> {
         .collect()
 }
 
-/// Runs each check that applies to the written files, in config order: per file when its command names `$FILE`, else once.
-pub async fn run(files: &[PathBuf], workspace: &Path, checks: &[Check]) -> Vec<Report> {
-    let mut reports = Vec::new();
-    for check in checks {
-        let matching: Vec<&PathBuf> = files.iter().filter(|file| applies(check, file)).collect();
-        if matching.is_empty() {
-            continue;
-        }
-        if !check.command.iter().any(|part| part.contains("$FILE")) {
-            reports.push(Report { name: check.name.clone(), file: None, verdict: run_one(check, None, workspace).await });
-            continue;
-        }
-        for file in matching {
-            reports.push(Report { name: check.name.clone(), file: Some(file.clone()), verdict: run_one(check, Some(file), workspace).await });
-        }
-    }
-    reports
+/// Runs the checks that apply to a step's files (per file with `$FILE`, else once), a few at a time within `budget`, reported in config order.
+pub async fn run(files: &[PathBuf], workspace: &Path, checks: &[Check], budget: Duration) -> Vec<Report> {
+    use futures_util::StreamExt;
+    let deadline = tokio::time::Instant::now() + budget;
+    // Each run owns what it needs, so the runs can go side by side in a future the engine can move between threads.
+    let runs: Vec<(Check, Option<PathBuf>, PathBuf)> = checks
+        .iter()
+        .flat_map(|check| {
+            let matching: Vec<&PathBuf> = files.iter().filter(|file| applies(check, file)).collect();
+            let per_file = check.command.iter().any(|part| part.contains("$FILE"));
+            match (matching.is_empty(), per_file) {
+                (true, _) => Vec::new(),
+                (false, true) => matching.into_iter().map(|file| (check.clone(), Some(file.clone()), workspace.to_path_buf())).collect(),
+                (false, false) => vec![(check.clone(), None, workspace.to_path_buf())],
+            }
+        })
+        .collect();
+    futures_util::stream::iter(runs)
+        .map(|(check, file, workspace)| async move {
+            let verdict = match tokio::time::timeout_at(deadline, run_one(&check, file.as_ref(), &workspace)).await {
+                Ok(verdict) => verdict,
+                Err(_) => Verdict::Unavailable(format!("the step's time for checks ({budget:?}) ran out")),
+            };
+            Report { name: check.name, file, verdict }
+        })
+        .buffered(PARALLEL)
+        .collect()
+        .await
 }
 
 fn applies(check: &Check, file: &Path) -> bool {
@@ -133,13 +146,33 @@ mod tests {
             Check { name: "gone".into(), command: vec!["definitely-missing-checker".into()], extensions: vec![".md".into()] },
             Check { name: "unrelated".into(), command: shell("exit 1"), extensions: vec![".rs".into()] },
         ];
-        let reports = run(&[a.clone(), b], &dir, &checks).await;
+        let reports = run(&[a.clone(), b], &dir, &checks, Duration::from_secs(60)).await;
         assert_eq!(reports.len(), 3, "{reports:?}");
         assert_eq!(reports[0].file.as_ref(), Some(&a), "a $FILE check runs per matching file only");
         let Verdict::Problems(said) = &reports[0].verdict else { panic!("{reports:?}") };
         assert!(said.contains("bad line in") && said.contains("a.ts"), "{said}");
         assert_eq!((reports[1].file.clone(), reports[1].verdict.clone()), (None, Verdict::Passed), "one without $FILE runs once");
         assert!(matches!(&reports[2].verdict, Verdict::Unavailable(why) if why.contains("not on PATH")));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn per_file_runs_go_side_by_side_and_the_steps_budget_bounds_them_all() {
+        let dir = std::env::temp_dir().join(format!("drift-check-par-{}", crate::random_hex(4)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let files: Vec<PathBuf> = (0..4).map(|i| dir.join(format!("f{i}.ts"))).collect();
+        let pause = if cfg!(windows) { "ping -n 2 127.0.0.1 > nul && echo $FILE" } else { "sleep 1; echo $FILE" };
+        let slow = vec![Check { name: "slow".into(), command: shell(pause), extensions: vec![".ts".into()] }];
+        let started = std::time::Instant::now();
+        let reports = run(&files, &dir, &slow, Duration::from_secs(30)).await;
+        assert!(started.elapsed() < Duration::from_millis(2500), "four one-second runs side by side: {:?}", started.elapsed());
+        assert_eq!(reports.iter().map(|r| r.file.clone().unwrap()).collect::<Vec<_>>(), files, "in order");
+        let hang = if cfg!(windows) { "ping -n 30 127.0.0.1" } else { "sleep 30" };
+        let stuck = vec![Check { name: "stuck".into(), command: shell(hang), extensions: vec![".ts".into()] }];
+        let started = std::time::Instant::now();
+        let reports = run(&files[..1], &dir, &stuck, Duration::from_millis(500)).await;
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(matches!(&reports[0].verdict, Verdict::Unavailable(why) if why.contains("ran out")), "{reports:?}");
         std::fs::remove_dir_all(dir).ok();
     }
 

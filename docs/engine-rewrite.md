@@ -1248,18 +1248,25 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   only when on PATH, found as a shell would (npm's `prettier.cmd` included); `drift.json` `formatters` can set a name to `false` or to
   `{ command, extensions }` with `$FILE`. Results land in the call's `metadata.formatted`;
   failures are ignored.
-- **Checks.** After formatting, the checks in `drift.json` `checks` run over what an edit, write
-  or apply_patch wrote (a shell command lists no files, so it is not checked). Each is
-  `{ command, extensions }`, or `false` to turn off one an earlier file set; there are no
-  built-ins, because a linter or type checker on every edit is a cost the user chooses. A command
-  naming `$FILE` runs once per matching file (`eslint $FILE`); one without runs once per call
-  (`cargo check`). The program is found on PATH as a shell would, `.cmd` and `.bat` shims included,
-  and runs in the workspace for at most 60 s. A non-zero exit adds its output (at most 4 KB per
-  run) to the result under "Checks reported problems after this change", labelled by check and
-  file; a pass says nothing. A check that cannot start or times out is not mentioned to the model.
-  Every run is in `metadata.checks` (`check`, `status` of `passed`, `problems` or `unavailable`,
-  `output`). Stop cuts the checks off with their whole process tree; the write itself stands.
-  This stands in for LSP diagnostics: the user names the tool the project already trusts.
+- **Checks.** The checks in `drift.json` `checks` run once per step, after all of the step's
+  calls, over every file its edit, write and apply_patch calls wrote (a shell command lists no
+  files, so it is not checked). Each is `{ command, extensions }`, or `false` to turn off one an
+  earlier file set; there are no built-ins, because a linter or type checker after every step is a
+  cost the user chooses. A command naming `$FILE` runs once per matching file (`eslint $FILE`); one
+  without runs once for the step (`tsc --noEmit`), however many files it wrote. Runs go four at a
+  time, each for at most 60 s, all within one 90 s budget for the step; a run the budget cuts off is
+  `unavailable`. The program is found on PATH as a shell would, `.cmd` and `.bat` shims included,
+  and runs in the workspace. A non-zero exit adds its output (at most 4 KB per run) to the step's
+  last writing call, under "Checks reported problems after this step's changes", labelled by check
+  and file, before the model's next request; a pass says nothing, and a check that cannot start or
+  runs out of time is not mentioned to the model. Output identical to what the same check said last
+  time in the session is named ("the same problems as reported before"), not sent again, so
+  problems already in the repository do not fill the context step after step; a pass forgets it.
+  A check that changes a file the step wrote (a fixer such as `eslint --fix`) is announced as a
+  formatter is ("A check then changed ..."), with the files in `metadata.checkChanged`. Every run
+  is in `metadata.checks` (`check`, `status` of `passed`, `problems` or `unavailable`, `output`).
+  Stop cuts the checks off with their whole process tree; the writes stand. Checks stand in for
+  LSP diagnostics until those land (M4).
 - **Permissions** resolve in order: session "always" answers, the workspace's `drift.json`
   rules, then the global policy.
   - File asks (read, edit, write, apply_patch) carry the absolute path and, inside the workspace,

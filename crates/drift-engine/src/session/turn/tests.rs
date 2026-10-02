@@ -1445,6 +1445,66 @@ async fn a_configured_formatter_runs_after_a_write() {
     assert!(metadata.as_ref().unwrap().get("formatted").is_none() && !output.as_deref().unwrap().contains("formatter"), "a formatter that changed nothing is not mentioned");
 }
 
+fn two_writes(first: (&str, &str), second: (&str, &str)) -> Vec<Chunk> {
+    let call = |id: &str, (path, content): (&str, &str)| {
+        vec![Chunk::ToolUseStart { id: id.into(), name: "write".into() }, Chunk::ToolInputDelta(json!({ "path": path, "content": content }).to_string()), Chunk::BlockStop]
+    };
+    [call("toolu_first", first), call("toolu_second", second), vec![Chunk::Stop(StopReason::ToolUse)]].concat()
+}
+
+fn call_outputs(h: &Harness, message: usize) -> Vec<(String, serde_json::Value)> {
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    transcript[message]
+        .parts
+        .iter()
+        .filter_map(|row| match &row.part {
+            Part::ToolCall { output, metadata, .. } => Some((output.clone().unwrap_or_default(), metadata.clone().unwrap_or_default())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn checks_run_once_per_step_say_unchanged_problems_briefly_and_announce_files_they_change() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    let log = h._dir.join("whole.log");
+    let (shell, flag, whole, fix) = if cfg!(windows) {
+        ("cmd", "/c", format!("echo ran>> {} & echo 3 type errors in the workspace & exit 1", log.display()), "echo fixed> $FILE")
+    } else {
+        ("sh", "-c", format!("echo ran >> '{}'; echo 3 type errors in the workspace; exit 1", log.display()), "echo fixed > $FILE")
+    };
+    let config = json!({ "checks": {
+        "types": { "command": [shell, flag, whole], "extensions": [".ts"] },
+        "fixer": { "command": [shell, flag, fix], "extensions": [".md"] },
+    } });
+    std::fs::write(h._dir.join("ws/drift.json"), config.to_string()).unwrap();
+    h.provider.push(two_writes(("a.ts", "let a = 1\n"), ("b.ts", "let b = 2\n"))).push(text("written"));
+    h.engine.submit(&h.session.id, prompt("write two")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(std::fs::read_to_string(&log).unwrap().lines().count(), 1, "one run for the step, not one per write");
+    let calls = call_outputs(&h, 1);
+    assert!(!calls[0].0.contains("Checks reported"), "the step's report goes on its last write: {:?}", calls[0].0);
+    assert!(calls[1].0.contains("[types]\n3 type errors in the workspace"), "{:?}", calls[1].0);
+    assert_eq!(calls[1].1["checks"][0]["status"], "problems");
+
+    h.provider.push(tool_call("write", r#"{"path": "c.ts", "content": "let c = 3\n"}"#)).push(text("again"));
+    h.engine.submit(&h.session.id, prompt("write one more")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let again = call_outputs(&h, transcript.len() - 2);
+    assert!(again[0].0.contains("[types] the same problems as reported before") && !again[0].0.contains("3 type errors"), "{:?}", again[0].0);
+
+    h.provider.push(tool_call("write", r#"{"path": "notes.md", "content": "draft\n"}"#)).push(text("noted"));
+    h.engine.submit(&h.session.id, prompt("write notes")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let fixed = call_outputs(&h, transcript.len() - 2);
+    assert!(std::fs::read_to_string(h._dir.join("ws/notes.md")).unwrap().starts_with("fixed"));
+    assert!(fixed[0].0.contains("A check then changed notes.md"), "{:?}", fixed[0].0);
+    assert_eq!(fixed[0].1["checkChanged"][0], "notes.md");
+}
+
 #[tokio::test]
 async fn configured_checks_report_problems_with_the_write_and_stop_cuts_them_off() {
     let h = harness().await;
@@ -1463,7 +1523,7 @@ async fn configured_checks_report_problems_with_the_write_and_stop_cuts_them_off
     let Part::ToolCall { status, metadata, output, .. } = &transcript[1].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Done, "the write itself succeeded");
     let output = output.as_deref().unwrap();
-    assert!(output.contains("Checks reported problems after this change") && output.contains("[lint: a.ts]") && output.contains("unused import in"), "{output}");
+    assert!(output.contains("Checks reported problems after this step's changes") && output.contains("[lint: a.ts]") && output.contains("unused import in"), "{output}");
     assert_eq!(metadata.as_ref().unwrap()["checks"][0]["status"], "problems");
 
     h.provider.push(tool_call("write", r#"{"path": "b.rs", "content": "fn main() {}\n"}"#));

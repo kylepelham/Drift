@@ -148,6 +148,8 @@ pub struct Turns {
     /// Fired when a session's turn finishes; parents await their children through it.
     finished: tokio::sync::Notify,
     files: Mutex<HashMap<String, Arc<SessionFiles>>>,
+    /// What each session's checks last said, by check and file, so an unchanged report is not sent again.
+    checked: Mutex<HashMap<String, HashMap<String, String>>>,
     refreshing: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Automatic compactions that failed in a row, per session; enough of them turn it off for that session.
     pub(super) compaction_failures: Mutex<HashMap<String, u32>>,
@@ -224,6 +226,19 @@ impl Turns {
 
     pub(super) fn files_for(&self, session_id: &str) -> Arc<SessionFiles> {
         self.files.lock().unwrap().entry(session_id.into()).or_default().clone()
+    }
+
+    /// Records what a check said (`None` when it passed); whether the session was told exactly this last time.
+    fn repeated(&self, session_id: &str, label: &str, said: Option<&str>) -> bool {
+        let mut checked = self.checked.lock().unwrap();
+        let session = checked.entry(session_id.into()).or_default();
+        match said {
+            Some(said) => session.insert(label.into(), said.into()).as_deref() == Some(said),
+            None => {
+                session.remove(label);
+                false
+            }
+        }
     }
 
     pub(super) fn refresh_lock(&self, provider: &str) -> Arc<tokio::sync::Mutex<()>> {
@@ -962,7 +977,7 @@ impl Engine {
     /// Calls run in the model's order. Consecutive reads run together; a write waits for what came before it.
     async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, abort: &CancellationToken) -> Outcome {
         let files = self.turns.files_for(&plan.session.id);
-        let scope = CallScope { plan, message, files: &files, abort };
+        let scope = CallScope { plan, message, files: &files, abort, wrote: Mutex::default() };
         let mut reads: Vec<PartRow> = Vec::new();
         for row in calls {
             if !call_mutates(plan, &row) {
@@ -976,7 +991,47 @@ impl Engine {
                 return Outcome::Aborted;
             }
         }
-        self.run_reads(&scope, reads).await
+        let outcome = self.run_reads(&scope, reads).await;
+        if outcome == Outcome::Allowed {
+            self.check_step(&scope).await;
+        }
+        outcome
+    }
+
+    /// Runs the workspace's checks once over everything the step wrote, and adds what they found to its last writing call.
+    async fn check_step(&self, scope: &CallScope<'_>) {
+        let StepWrites { mut files, last } = std::mem::take(&mut *scope.wrote.lock().unwrap());
+        let checks = crate::edit::check::resolve(&scope.plan.config.checks);
+        let Some(mut row) = last.filter(|_| !checks.is_empty() && !files.is_empty()) else { return };
+        files.sort();
+        files.dedup();
+        let before: Vec<Option<Vec<u8>>> = futures_util::future::join_all(files.iter().map(tokio::fs::read)).await.into_iter().map(Result::ok).collect();
+        let reports = tokio::select! {
+            reports = crate::edit::check::run(&files, &scope.plan.workspace, &checks, CHECK_BUDGET) => reports,
+            () = scope.abort.cancelled() => return,
+        };
+        let mut changed = Vec::new();
+        for (file, was) in files.iter().zip(before) {
+            if tokio::fs::read(file).await.ok() != was {
+                changed.push(crate::tool::display(file, &scope.plan.workspace));
+            }
+        }
+        let workspace = &scope.plan.workspace;
+        let notes: Vec<String> = [checks_note(&reports, workspace, |label, said| self.turns.repeated(&scope.plan.session.id, label, said)), changed_note(&changed)].into_iter().flatten().collect();
+        let Part::ToolCall { output, metadata, .. } = &mut row.part else { return };
+        if !notes.is_empty() {
+            *output = Some(format!("{}\n\n{}", output.take().unwrap_or_default(), notes.join("\n\n")));
+        }
+        let mut meta = metadata.take().unwrap_or_else(|| json!({}));
+        meta["checks"] = checks_metadata(&reports, workspace);
+        if !changed.is_empty() {
+            meta["checkChanged"] = json!(changed);
+        }
+        *metadata = Some(meta);
+        // Unsaved, they are not shown either: what the user sees is what the model will be sent.
+        if self.store.save_part(&row).is_ok() {
+            self.hub.publish(Event::PartUpdated { part: row });
+        }
     }
 
     async fn run_reads(self: &Arc<Self>, scope: &CallScope<'_>, reads: Vec<PartRow>) -> Outcome {
@@ -1067,6 +1122,9 @@ impl Engine {
         let delivers = meta.get("delivers").and_then(serde_json::Value::as_str).filter(|task| self.workers.holds(task, &claimant)).map(str::to_owned);
         self.settle_delivering(&mut row, status, title, text, merge(meta, changes), delivers.as_deref());
         self.release_claims(&claimant);
+        if writes {
+            scope.wrote.lock().unwrap().note(&row);
+        }
         if scope.abort.is_cancelled() { Outcome::Aborted } else { Outcome::Allowed }
     }
 
@@ -1116,24 +1174,13 @@ impl Engine {
         }
     }
 
-    /// Formats, then checks, what a mutating call wrote; the model hears what either made of its change.
+    /// Formats what a mutating call wrote; the model hears when a formatter changed it. Checks wait for the step's end.
     async fn after_write(&self, scope: &CallScope<'_>, mut text: String, metadata: serde_json::Value) -> (String, serde_json::Value) {
         let formatted = self.format_written(scope.plan, &metadata).await;
         if !formatted.is_empty() {
             text = format!("{text}\n\n{}", reformatted_note(&formatted));
         }
-        let mut metadata = with_formatted(metadata, formatted);
-        let reports = tokio::select! {
-            reports = check_written(scope.plan, &metadata) => reports,
-            () = scope.abort.cancelled() => Vec::new(),
-        };
-        if let Some(note) = checks_note(&reports, &scope.plan.workspace) {
-            text = format!("{text}\n\n{note}");
-        }
-        if !reports.is_empty() {
-            metadata["checks"] = checks_metadata(&reports, &scope.plan.workspace);
-        }
-        (text, metadata)
+        (text, with_formatted(metadata, formatted))
     }
 
     /// Runs the workspace's formatters over whatever a mutating tool reported writing; names the files they changed.
@@ -1376,6 +1423,15 @@ struct CallScope<'a> {
     message: &'a Message,
     files: &'a Arc<SessionFiles>,
     abort: &'a CancellationToken,
+    wrote: Mutex<StepWrites>,
+}
+
+/// What a step's calls wrote, for the checks that run once the step's calls are done.
+#[derive(Default)]
+struct StepWrites {
+    files: Vec<std::path::PathBuf>,
+    /// The step's last writing call, whose result carries what the checks found.
+    last: Option<PartRow>,
 }
 
 struct Streamed {
@@ -1454,14 +1510,25 @@ fn reformatted_note(formatted: &[String]) -> String {
     format!("A formatter then changed the result ({}). The file no longer matches what you wrote; read it again before editing those lines.", formatted.join(", "))
 }
 
-/// Runs the workspace's checks over the files a mutating tool reported writing.
-async fn check_written(plan: &Plan, metadata: &serde_json::Value) -> Vec<crate::edit::check::Report> {
-    let checks = crate::edit::check::resolve(&plan.config.checks);
-    if checks.is_empty() {
-        return Vec::new();
+/// The most time one step's checks may take together.
+const CHECK_BUDGET: std::time::Duration = std::time::Duration::from_secs(90);
+
+impl StepWrites {
+    /// Adds what a settled writing call reports writing.
+    fn note(&mut self, row: &PartRow) {
+        let Part::ToolCall { metadata: Some(meta), .. } = &row.part else { return };
+        let files: Vec<std::path::PathBuf> = meta["files"].as_array().into_iter().flatten().filter_map(|file| file.as_str()).map(Into::into).collect();
+        if files.is_empty() {
+            return;
+        }
+        self.files.extend(files);
+        self.last = Some(row.clone());
     }
-    let files: Vec<std::path::PathBuf> = metadata["files"].as_array().into_iter().flatten().filter_map(|file| file.as_str()).map(Into::into).collect();
-    crate::edit::check::run(&files, &plan.workspace, &checks).await
+}
+
+/// What the model hears after checks changed files it wrote, as after a formatter.
+fn changed_note(changed: &[String]) -> Option<String> {
+    (!changed.is_empty()).then(|| format!("A check then changed {}. Those files no longer match what you wrote; read them again before editing those lines.", changed.join(", ")))
 }
 
 fn check_label(report: &crate::edit::check::Report, workspace: &Path) -> String {
@@ -1471,17 +1538,22 @@ fn check_label(report: &crate::edit::check::Report, workspace: &Path) -> String 
     }
 }
 
-/// What the model hears from checks that found problems; passing and unavailable ones are not mentioned.
-fn checks_note(reports: &[crate::edit::check::Report], workspace: &Path) -> Option<String> {
+/// What the model hears from checks that found problems; output `repeated` says it was given before is named, not sent again.
+fn checks_note(reports: &[crate::edit::check::Report], workspace: &Path, repeated: impl Fn(&str, Option<&str>) -> bool) -> Option<String> {
     use crate::edit::check::Verdict;
-    let problems: Vec<String> = reports
-        .iter()
-        .filter_map(|report| match &report.verdict {
-            Verdict::Problems(said) => Some(format!("[{}]\n{said}", check_label(report, workspace))),
-            _ => None,
-        })
-        .collect();
-    (!problems.is_empty()).then(|| format!("Checks reported problems after this change. Fix the ones your change caused:\n\n{}", problems.join("\n\n")))
+    let mut problems = Vec::new();
+    for report in reports {
+        let label = check_label(report, workspace);
+        match &report.verdict {
+            Verdict::Problems(said) if repeated(&label, Some(said)) => problems.push(format!("[{label}] the same problems as reported before")),
+            Verdict::Problems(said) => problems.push(format!("[{label}]\n{said}")),
+            Verdict::Passed => {
+                repeated(&label, None);
+            }
+            Verdict::Unavailable(_) => {}
+        }
+    }
+    (!problems.is_empty()).then(|| format!("Checks reported problems after this step's changes. Fix the ones your changes caused:\n\n{}", problems.join("\n\n")))
 }
 
 fn checks_metadata(reports: &[crate::edit::check::Report], workspace: &Path) -> serde_json::Value {
