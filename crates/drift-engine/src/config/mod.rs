@@ -32,6 +32,8 @@ pub struct File {
     pub instructions: Vec<String>,
     /// Formatter overrides by name; `false` disables a built-in.
     pub formatters: BTreeMap<String, FormatterConfig>,
+    /// Checks run after a write, by name; `false` turns off one an earlier file set.
+    pub checks: BTreeMap<String, CheckConfig>,
     /// Turn limits; each field set here replaces the one before it.
     pub limits: LimitsFile,
     /// Time limits per provider route (`ollama`, `anthropic`, ...), for slow local models or gateways.
@@ -114,6 +116,14 @@ impl Default for Limits {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(untagged)]
 pub enum FormatterConfig {
+    Enabled(bool),
+    Custom { command: Vec<String>, extensions: Vec<String> },
+}
+
+/// A check is a command over files with the given extensions; `$FILE` runs it once per written file, without it once per call.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(untagged)]
+pub enum CheckConfig {
     Enabled(bool),
     Custom { command: Vec<String>, extensions: Vec<String> },
 }
@@ -251,6 +261,7 @@ pub struct Config {
     pub skills: Vec<Skill>,
     pub instructions: Vec<Instruction>,
     pub formatters: BTreeMap<String, FormatterConfig>,
+    pub checks: BTreeMap<String, CheckConfig>,
     pub limits: Limits,
     pub timeouts: BTreeMap<String, RouteTimeouts>,
     /// Config files that could not be read; a turn refuses to start rather than run without their rules.
@@ -338,6 +349,7 @@ impl Config {
         rules.append(&mut self.permissions);
         self.permissions = rules;
         self.formatters.extend(file.formatters);
+        self.checks.extend(file.checks);
         self.timeouts.extend(file.timeouts);
         let limits = file.limits;
         self.limits.steps = limits.steps.unwrap_or(self.limits.steps).max(1);

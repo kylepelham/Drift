@@ -1446,6 +1446,37 @@ async fn a_configured_formatter_runs_after_a_write() {
 }
 
 #[tokio::test]
+async fn configured_checks_report_problems_with_the_write_and_stop_cuts_them_off() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    let (shell, flag, fail, hang) =
+        if cfg!(windows) { ("cmd", "/c", "echo unused import in $FILE&& exit 1", "ping -n 30 127.0.0.1") } else { ("sh", "-c", "echo unused import in $FILE; exit 1", "sleep 30") };
+    let config = json!({ "checks": {
+        "lint": { "command": [shell, flag, fail], "extensions": [".ts"] },
+        "slow": { "command": [shell, flag, hang], "extensions": [".rs"] },
+    } });
+    std::fs::write(h._dir.join("ws/drift.json"), config.to_string()).unwrap();
+    h.provider.push(tool_call("write", r#"{"path": "a.ts", "content": "import x\n"}"#)).push(text("written"));
+    h.engine.submit(&h.session.id, prompt("write")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, metadata, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Done, "the write itself succeeded");
+    let output = output.as_deref().unwrap();
+    assert!(output.contains("Checks reported problems after this change") && output.contains("[lint: a.ts]") && output.contains("unused import in"), "{output}");
+    assert_eq!(metadata.as_ref().unwrap()["checks"][0]["status"], "problems");
+
+    h.provider.push(tool_call("write", r#"{"path": "b.rs", "content": "fn main() {}\n"}"#));
+    let started = std::time::Instant::now();
+    h.engine.submit(&h.session.id, prompt("write rust")).await.await_ok();
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(h.engine.abort(&h.session.id));
+    until_idle(&h).await;
+    assert!(started.elapsed() < Duration::from_secs(15), "Stop does not wait out a slow check");
+    assert!(h._dir.join("ws/b.rs").exists());
+}
+
+#[tokio::test]
 async fn a_call_to_a_tool_the_run_did_not_offer_is_refused_before_anything_happens() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });

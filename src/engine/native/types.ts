@@ -723,6 +723,11 @@ export interface components {
              */
             writes?: string[];
         };
+        /** @description A check is a command over files with the given extensions; `$FILE` runs it once per written file, without it once per call. */
+        CheckConfig: boolean | {
+            command: string[];
+            extensions: string[];
+        };
         /** @description One answered question: what was asked and what the user chose or typed. */
         Clarified: {
             answers: string[];
@@ -747,6 +752,9 @@ export interface components {
         /** @description Everything resolved for one workspace: home config first, project config over it. */
         Config: {
             agents: components["schemas"]["Agent"][];
+            checks: {
+                [key: string]: components["schemas"]["CheckConfig"];
+            };
             commands: components["schemas"]["Command"][];
             formatters: {
                 [key: string]: components["schemas"]["FormatterConfig"];

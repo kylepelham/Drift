@@ -1043,9 +1043,9 @@ impl Engine {
         let (status, title, text, meta) = match result {
             Ok(output) => {
                 let status = if tool.failed(&output) { ToolStatus::Error } else { ToolStatus::Done };
-                let formatted = if writes { self.format_written(scope.plan, &output.metadata).await } else { Vec::new() };
-                let text = if formatted.is_empty() { output.output } else { format!("{}\n\n{}", output.output, reformatted_note(&formatted)) };
-                (status, Some(output.title), text, with_formatted(output.metadata, formatted))
+                let title = output.title;
+                let (text, meta) = if writes { self.after_write(scope, output.output, output.metadata).await } else { (output.output, output.metadata) };
+                (status, Some(title), text, meta)
             }
             Err(error) => (ToolStatus::Error, None, error.0, serde_json::Value::Null),
         };
@@ -1113,6 +1113,26 @@ impl Engine {
                 Some(Outcome::Aborted)
             }
         }
+    }
+
+    /// Formats, then checks, what a mutating call wrote; the model hears what either made of its change.
+    async fn after_write(&self, scope: &CallScope<'_>, mut text: String, metadata: serde_json::Value) -> (String, serde_json::Value) {
+        let formatted = self.format_written(scope.plan, &metadata).await;
+        if !formatted.is_empty() {
+            text = format!("{text}\n\n{}", reformatted_note(&formatted));
+        }
+        let mut metadata = with_formatted(metadata, formatted);
+        let reports = tokio::select! {
+            reports = check_written(scope.plan, &metadata) => reports,
+            () = scope.abort.cancelled() => Vec::new(),
+        };
+        if let Some(note) = checks_note(&reports, &scope.plan.workspace) {
+            text = format!("{text}\n\n{note}");
+        }
+        if !reports.is_empty() {
+            metadata["checks"] = checks_metadata(&reports, &scope.plan.workspace);
+        }
+        (text, metadata)
     }
 
     /// Runs the workspace's formatters over whatever a mutating tool reported writing; names the files they changed.
@@ -1431,6 +1451,46 @@ fn denial(feedback: Option<&str>, stop: bool) -> String {
 /// What the model needs to hear after a formatter rewrote its change: the file is not what it wrote.
 fn reformatted_note(formatted: &[String]) -> String {
     format!("A formatter then changed the result ({}). The file no longer matches what you wrote; read it again before editing those lines.", formatted.join(", "))
+}
+
+/// Runs the workspace's checks over the files a mutating tool reported writing.
+async fn check_written(plan: &Plan, metadata: &serde_json::Value) -> Vec<crate::edit::check::Report> {
+    let checks = crate::edit::check::resolve(&plan.config.checks);
+    if checks.is_empty() {
+        return Vec::new();
+    }
+    let files: Vec<std::path::PathBuf> = metadata["files"].as_array().into_iter().flatten().filter_map(|file| file.as_str()).map(Into::into).collect();
+    crate::edit::check::run(&files, &plan.workspace, &checks).await
+}
+
+fn check_label(report: &crate::edit::check::Report, workspace: &Path) -> String {
+    match &report.file {
+        Some(file) => format!("{}: {}", report.name, crate::tool::display(file, workspace)),
+        None => report.name.clone(),
+    }
+}
+
+/// What the model hears from checks that found problems; passing and unavailable ones are not mentioned.
+fn checks_note(reports: &[crate::edit::check::Report], workspace: &Path) -> Option<String> {
+    use crate::edit::check::Verdict;
+    let problems: Vec<String> = reports
+        .iter()
+        .filter_map(|report| match &report.verdict {
+            Verdict::Problems(said) => Some(format!("[{}]\n{said}", check_label(report, workspace))),
+            _ => None,
+        })
+        .collect();
+    (!problems.is_empty()).then(|| format!("Checks reported problems after this change. Fix the ones your change caused:\n\n{}", problems.join("\n\n")))
+}
+
+fn checks_metadata(reports: &[crate::edit::check::Report], workspace: &Path) -> serde_json::Value {
+    use crate::edit::check::Verdict;
+    let entry = |report: &crate::edit::check::Report| match &report.verdict {
+        Verdict::Passed => json!({ "check": check_label(report, workspace), "status": "passed" }),
+        Verdict::Problems(said) => json!({ "check": check_label(report, workspace), "status": "problems", "output": said }),
+        Verdict::Unavailable(why) => json!({ "check": check_label(report, workspace), "status": "unavailable", "output": why }),
+    };
+    json!(reports.iter().map(entry).collect::<Vec<_>>())
 }
 
 fn with_formatted(mut metadata: serde_json::Value, formatted: Vec<String>) -> serde_json::Value {

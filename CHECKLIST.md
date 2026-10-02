@@ -148,6 +148,7 @@ change the plan there when a decision changes.
 - [x] App test pass: MCP approval removed (engine gate, route, hash, toast, buttons); rows are delete, edit, disconnect, enabled
 - [x] Independent audit at ac1ab72: undo point save failures put files back; oversize writes refused and failed change records put back or reported; undo ordered by when writes finished (its queue findings went with the queue)
 - [x] MCP OAuth sign-in for streamable HTTP servers: needs/has sign-in on the status, browser sign-in through a loopback callback, tokens in the keychain, sign-out; renames carry it, URL changes and removes forget it
+- [x] Post-edit checks: `drift.json` `checks` run after edit, write and apply_patch (per file with `$FILE`, else once), problems added to the result, Stop kills them with their process tree
 
 #### Retained features still on the OpenCode database (pending native UI work)
 
@@ -159,6 +160,12 @@ change the plan there when a decision changes.
 
 - [ ] Every legacy capability in `docs/research/opencode-exit-inventory.md` checked off or explicitly dropped
 - [ ] `drift-migrate`: sessions, messages, parts, todos, credentials, config, MCP servers from the shell's `mcp_server` table (unapproved)
+- [ ] LSP diagnostics after edits (replaces what upstream's `edit`, `write` and `apply_patch` reported; change the plan's "Dropped" and "Post-edit" rows first):
+  - Language servers from a built-in table (rust-analyzer, typescript-language-server, pyright, gopls, ...) used only when on PATH; `drift.json` can add, replace or disable one, as with formatters
+  - Started lazily per workspace on the first edit of a matching file, adopted into a process tree, shut down when the workspace goes idle or the engine stops
+  - After a writing call (and after formatters), report the touched files' errors within a short wait, bounded in count and size, appended to the call's result and kept in its metadata
+  - A server that is missing, crashes or answers late never fails or delays the call beyond the wait; the result just carries no diagnostics
+  - No model-facing `lsp` tool for now; revisit once diagnostics prove useful
 - [ ] Delete the shell MCP runtime and Jev routing (`mcp.rs`, `mcp_external.rs`, `tool_routing.rs`, their commands, remote gateway entries and watcher hook); the UI no longer calls any of them
 - [ ] i18n sweep: drop keys the native UI no longer uses from every locale (done so far: `drift.mcp.description`, `drift.mcp.authenticate`, `drift.settings.prompts.astraDescription`)
 - [ ] `DRIFT_*` env vars and `drift` data paths

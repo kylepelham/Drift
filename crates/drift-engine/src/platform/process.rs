@@ -96,3 +96,38 @@ mod imp {
 }
 
 pub use imp::{prepare, Tree};
+
+/// Where a program named without a path is found on PATH, as a shell would, `.cmd` and `.bat` shims included on Windows.
+pub fn which(program: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    find_in(program, std::env::split_paths(&path))
+}
+
+fn find_in(program: &str, dirs: impl Iterator<Item = std::path::PathBuf>) -> Option<std::path::PathBuf> {
+    let named = std::path::Path::new(program);
+    if named.components().count() > 1 {
+        return named.is_file().then(|| named.to_path_buf());
+    }
+    let names: Vec<String> = if cfg!(windows) && named.extension().is_none() {
+        ["exe", "cmd", "bat"].iter().map(|ext| format!("{program}.{ext}")).collect()
+    } else {
+        vec![program.to_string()]
+    };
+    dirs.flat_map(|dir| names.iter().map(move |name| dir.join(name)).collect::<Vec<_>>()).find(|candidate| candidate.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_program_is_found_where_a_shell_would_find_it() {
+        let dir = std::env::temp_dir().join(format!("drift-which-{}", crate::random_hex(4)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let shim = if cfg!(windows) { "lint.cmd" } else { "lint" };
+        std::fs::write(dir.join(shim), "").unwrap();
+        assert_eq!(super::find_in("lint", [dir.join("missing"), dir.clone()].into_iter()), Some(dir.join(shim)));
+        assert_eq!(super::find_in("absent", [dir.clone()].into_iter()), None);
+        let full = dir.join(shim).to_string_lossy().to_string();
+        assert_eq!(super::find_in(&full, std::iter::empty()), Some(dir.join(shim)), "a path is taken as given");
+        std::fs::remove_dir_all(dir).ok();
+    }
+}
