@@ -1406,12 +1406,19 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   answer: always is kept for the workspace (setting `trustedCommands:<workspace>`, the list of
   allowed lines), once allows those lines for the session, deny skips them for the session; refusing
   the project's formatter never stops its checks, nor the reverse. A program's line carries its
-  package's version and a hash of the launcher, every file of the package it starts and every
-  file of that package's dependencies (`edit::package::fingerprint`: the package is found where a
-  symlink points or a shim names, `%dp0%`, `$basedir` or bun's `.bunx`, else `node_modules/<name>`;
-  dependencies as Node resolves them; file hashes are kept while size and modified time hold), so a
-  program replaced at the same path, upgraded behind an unchanged npm launcher, or edited in
-  `node_modules` with its `package.json` left alone asks again. A refused project copy is skipped, never
+  package's version and a 16-byte hash (too long to match by padding a tampered package, though
+  the card shows it) of the launcher, every file of the package it starts, the project's plugins
+  and shared configs for it (`<name>-plugin*` and `<name>-config*`, scoped or not, in the
+  `package.json` beside `node_modules`, since they load at run time) and every file of what those
+  depend on, peers included (`edit::package::fingerprint`: the package is found where a symlink
+  points or a shim names, `%dp0%`, `$basedir` or bun's `.bunx`, else `node_modules/<name>`;
+  dependencies as Node resolves them). So a program replaced at the same path, upgraded behind an
+  unchanged npm launcher, or edited in `node_modules` with its `package.json` left alone asks
+  again. Each write fingerprints each program once, on a blocking thread, and the formatter then
+  runs only a program whose line was just allowed; file hashes are reused while size and modified
+  time hold, and each fingerprint replaces its launcher's cached set, so the cache never outgrows
+  the packages in use. A plugin loaded by path, or the formatter's own config file run as code
+  (`prettier.config.js`), is not covered. A refused project copy is skipped, never
   replaced by one on PATH, which may be another version. Built-in formatters from PATH and the
   user's own commands always run. Subagents take the answer of the session that delegated
   to them, along the same lineage as permission approvals, so a delegated task does not ask again.

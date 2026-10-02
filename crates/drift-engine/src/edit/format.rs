@@ -93,9 +93,9 @@ pub fn resolve(overrides: &BTreeMap<String, FormatterConfig>) -> Vec<Formatter> 
 
 /// Runs the first formatter that matches the file and that the project uses. Failures are the
 /// formatter's problem, not the edit's: logged, never surfaced.
-/// `allowed` holds the lines (see [`project_programs`]) of programs installed inside the project that
-/// the user allowed; any other such program is the project's own code and never runs.
-pub async fn format(path: &Path, workspace: &Path, formatters: &[Formatter], store: &crate::store::Store, allowed: &[String]) -> Option<String> {
+/// `allowed` holds the programs installed inside the project (see [`project_programs`]) whose lines
+/// the user allowed for this write; any other such program is the project's own code and never runs.
+pub async fn format(path: &Path, workspace: &Path, formatters: &[Formatter], store: &crate::store::Store, allowed: &[PathBuf]) -> Option<String> {
     let (formatter, program) = chosen(path, workspace, formatters, allowed)?;
     let edition = edition(path, workspace);
     let parts = formatter.command.iter().skip(1).map(|part| part.replace("$FILE", &path.to_string_lossy()).replace("$EDITION", &edition));
@@ -144,10 +144,10 @@ enum Found {
 
 /// The formatter that would run on `path`, and its program. A project copy the user has not allowed
 /// is skipped, never swapped for one on PATH: another version formats differently.
-fn chosen<'a>(path: &'a Path, workspace: &'a Path, formatters: &'a [Formatter], allowed: &[String]) -> Option<(&'a Formatter, PathBuf)> {
+fn chosen<'a>(path: &'a Path, workspace: &'a Path, formatters: &'a [Formatter], allowed: &[PathBuf]) -> Option<(&'a Formatter, PathBuf)> {
     candidates(path, workspace, formatters).find_map(|(formatter, found)| match found {
         Found::User(program) => Some((formatter, program)),
-        Found::Project(program) => allowed.contains(&program_line(formatter, &program)).then_some((formatter, program)),
+        Found::Project(program) => allowed.contains(&program).then_some((formatter, program)),
     })
 }
 
@@ -160,21 +160,29 @@ fn candidates<'a>(path: &'a Path, workspace: &'a Path, formatters: &'a [Formatte
         .filter_map(move |f| Some((f, locate(f.command.first()?, path, workspace)?)))
 }
 
-/// The programs inside the project that formatting `files` could run, one line each, for the
-/// approval the project's own commands need. A line names the file and a hash of its content
-/// (`formatter prettier: C:\repo\node_modules\.bin\prettier.cmd (3f2a9c10)`), so a program replaced
-/// at the same path is asked about again.
-pub fn project_programs(files: &[PathBuf], workspace: &Path, formatters: &[Formatter]) -> Vec<String> {
-    let mut lines: Vec<String> = files
+/// A program inside the project that formatting could run, and its line for the approval.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Program {
+    pub path: PathBuf,
+    pub line: String,
+}
+
+/// The programs inside the project that formatting `files` could run, each fingerprinted once, for
+/// the approval the project's own commands need. A line names the program, its version and a hash
+/// of its code (`formatter prettier 3.3.3: C:\repo\node_modules\.bin\prettier.cmd (3f2a...)`), so a
+/// program changed in any way is asked about again. It reads the package from disk: run it off the
+/// async runtime.
+pub fn project_programs(files: &[PathBuf], workspace: &Path, formatters: &[Formatter]) -> Vec<Program> {
+    let mut found: Vec<(&Formatter, PathBuf)> = files
         .iter()
         .flat_map(|file| candidates(file, workspace, formatters).filter_map(|(formatter, found)| match found {
-            Found::Project(program) => Some(program_line(formatter, &program)),
+            Found::Project(program) => Some((formatter, program)),
             Found::User(_) => None,
         }).collect::<Vec<_>>())
         .collect();
-    lines.sort();
-    lines.dedup();
-    lines
+    found.sort_by(|a, b| (&a.0.name, &a.1).cmp(&(&b.0.name, &b.1)));
+    found.dedup_by(|a, b| a.0.name == b.0.name && a.1 == b.1);
+    found.into_iter().map(|(formatter, path)| Program { line: program_line(formatter, &path), path }).collect()
 }
 
 /// The launcher with a hash of it, the package it starts and that package's dependencies
@@ -331,23 +339,24 @@ mod tests {
         let formatters = resolve(&BTreeMap::new());
         assert!(matches!(locate("prettier", &file, &root), Some(Found::Project(found)) if found == bin.join(shim)), "a devDependency in node_modules/.bin");
         assert!(locate("definitely-not-installed-anywhere", &file, &root).is_none());
-        let lines = project_programs(std::slice::from_ref(&file), &root, &formatters);
-        assert_eq!(lines.len(), 1);
-        assert!(lines[0].starts_with(&format!("formatter prettier: {} (", bin.join(shim).display())), "the project's binary goes on the approval card: {}", lines[0]);
+        let lines = |file: &Path| project_programs(std::slice::from_ref(&file.to_path_buf()), &root, &formatters).into_iter().map(|program| program.line).collect::<Vec<_>>();
+        let first = lines(&file);
+        assert_eq!(first.len(), 1);
+        assert!(first[0].starts_with(&format!("formatter prettier: {} (", bin.join(shim).display())), "the project's binary goes on the approval card: {}", first[0]);
         assert!(chosen(&file, &root, &formatters, &[]).is_none(), "never the project's copy unless allowed, and never a global one in its place");
-        assert_eq!(chosen(&file, &root, &formatters, &lines).map(|(_, program)| program), Some(bin.join(shim)));
+        assert_eq!(chosen(&file, &root, &formatters, &[bin.join(shim)]).map(|(_, program)| program), Some(bin.join(shim)));
         std::fs::write(bin.join(shim), "replaced").unwrap();
-        assert!(chosen(&file, &root, &formatters, &lines).is_none(), "a program replaced at the same path needs allowing again");
+        assert_ne!(lines(&file), first, "a program replaced at the same path needs allowing again");
         std::fs::create_dir_all(root.join("node_modules/prettier")).unwrap();
         std::fs::write(root.join("node_modules/prettier/package.json"), r#"{ "version": "3.1.0" }"#).unwrap();
-        let installed = project_programs(std::slice::from_ref(&file), &root, &formatters);
+        let installed = lines(&file);
         assert!(installed[0].starts_with("formatter prettier 3.1.0: "), "the version shows: {}", installed[0]);
         std::fs::write(root.join("node_modules/prettier/package.json"), r#"{ "version": "3.2.0" }"#).unwrap();
-        assert!(chosen(&file, &root, &formatters, &installed).is_none(), "an upgrade behind the same launcher needs allowing again");
-        let upgraded = project_programs(std::slice::from_ref(&file), &root, &formatters);
+        let upgraded = lines(&file);
+        assert_ne!(upgraded, installed, "an upgrade behind the same launcher needs allowing again");
         std::fs::write(root.join("node_modules/prettier/index.js"), "tampered").unwrap();
-        assert!(chosen(&file, &root, &formatters, &upgraded).is_none(), "so does changed code with the package.json as it was");
-        assert!(project_programs(&[root.join("notes.txt")], &root, &formatters).is_empty());
+        assert_ne!(lines(&file), upgraded, "so does changed code with the package.json as it was");
+        assert!(lines(&root.join("notes.txt")).is_empty());
         std::fs::remove_dir_all(root).ok();
     }
 

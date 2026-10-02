@@ -1298,11 +1298,12 @@ impl Engine {
         let files: Vec<PathBuf> = metadata["files"].as_array().into_iter().flatten().filter_map(|file| file.as_str()).map(PathBuf::from).collect();
         // Formatters are asked about apart from checks, so refusing one never stops the other.
         let config = &scope.plan.config;
-        let programs = crate::edit::format::project_programs(&files, &scope.plan.workspace, &crate::edit::format::resolve(&config.formatters));
-        let lines: Vec<String> = config.project_command_lines("formatter", &files).into_iter().chain(programs.iter().cloned()).collect();
+        let (written, workspace, formatters) = (files.clone(), scope.plan.workspace.clone(), crate::edit::format::resolve(&config.formatters));
+        let programs = tokio::task::spawn_blocking(move || crate::edit::format::project_programs(&written, &workspace, &formatters)).await.unwrap_or_default();
+        let lines: Vec<String> = config.project_command_lines("formatter", &files).into_iter().chain(programs.iter().map(|program| program.line.clone())).collect();
         let allowed = self.project_commands_allowed(scope.plan, asker, lines).await;
         let overrides = config.only_allowed(|line| allowed.contains(line)).0;
-        let local: Vec<String> = programs.into_iter().filter(|line| allowed.contains(line)).collect();
+        let local: Vec<PathBuf> = programs.into_iter().filter(|program| allowed.contains(&program.line)).map(|program| program.path).collect();
         let formatted = self.format_written(scope.plan, &metadata, &overrides, &local).await;
         if !formatted.is_empty() {
             text = format!("{text}\n\n{}", reformatted_note(&formatted));
@@ -1311,7 +1312,7 @@ impl Engine {
     }
 
     /// Runs the workspace's formatters over whatever a mutating tool reported writing; names the files they changed.
-    async fn format_written(&self, plan: &Plan, metadata: &serde_json::Value, overrides: &std::collections::BTreeMap<String, crate::config::FormatterConfig>, local: &[String]) -> Vec<String> {
+    async fn format_written(&self, plan: &Plan, metadata: &serde_json::Value, overrides: &std::collections::BTreeMap<String, crate::config::FormatterConfig>, local: &[PathBuf]) -> Vec<String> {
         let formatters = crate::edit::format::resolve(overrides);
         let mut formatted = Vec::new();
         for file in metadata["files"].as_array().into_iter().flatten().filter_map(|f| f.as_str()) {
