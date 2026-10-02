@@ -98,6 +98,21 @@ async fn anthropic_streams_thinking_text_and_tool_use() {
     assert_eq!(seen.headers["x-api-key"], "k");
     assert_eq!(seen.headers["anthropic-version"], "2023-06-01");
     assert_eq!(seen.body["model"], "claude-sonnet-4-5");
+    assert!(seen.headers.get("anthropic-beta").is_none(), "no budget, no beta");
+}
+
+#[tokio::test]
+async fn a_key_with_a_thinking_budget_and_tools_asks_for_interleaved_thinking() {
+    let (fake, url) = fake(200, "event: message_stop\ndata: {}\n\n").await;
+    let mut request = request();
+    request.tools = vec![crate::llm::ToolSpec { name: "read".into(), description: "r".into(), input_schema: serde_json::json!({}) }];
+    request.reasoning = Some(crate::llm::catalog::Reasoning::Budget { tokens: 4096 });
+    let key = Credential::ApiKey { key: "k".into() };
+    Anthropic::new(&url).stream(&request, &key).await.unwrap().collect::<Vec<_>>().await;
+    assert_eq!(fake.seen.lock().unwrap().as_ref().unwrap().headers["anthropic-beta"], "interleaved-thinking-2025-05-14");
+    request.reasoning = Some(crate::llm::catalog::Reasoning::Effort { level: "high".into() });
+    Anthropic::new(&url).stream(&request, &key).await.unwrap().collect::<Vec<_>>().await;
+    assert!(fake.seen.lock().unwrap().as_ref().unwrap().headers.get("anthropic-beta").is_none(), "adaptive thinking interleaves already");
 }
 
 #[tokio::test]

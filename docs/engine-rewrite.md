@@ -794,6 +794,10 @@ these async criteria are new pending M3 work.
   `llm/anthropic/claude_code.rs` adds the identity and billing system blocks, prefixes tool
   names with `mcp_` and the adapter strips the prefix from what comes back. Subscription
   turns cost nothing, so their `cost` is recorded as zero.
+- An API-key Anthropic request with a thinking budget and tools sends `anthropic-beta:
+  interleaved-thinking-2025-05-14`, so the model thinks again between tool calls, not only before
+  the first; the subscription route already sends it, and adaptive thinking interleaves without it.
+  Bedrock and Vertex do not send it yet.
 - Anthropic prompt caching uses all four breakpoints: the last tool, the system prompt, and the
   last cacheable block of the two newest user messages. The newest writes the whole prefix; the
   one before it sits exactly where the previous step wrote, so a tool loop pays only for each

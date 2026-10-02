@@ -43,6 +43,7 @@ impl Anthropic {
         let url = format!("{}/v1/messages{}", self.base_url, if subscription { "?beta=true" } else { "" });
         let http = self.client.post(url).header("anthropic-version", API_VERSION).header("accept", "text/event-stream");
         let http = match credential {
+            Credential::ApiKey { key } if interleaves(request) => http.header("x-api-key", key).header("anthropic-beta", INTERLEAVED_THINKING),
             Credential::ApiKey { key } => http.header("x-api-key", key),
             Credential::OAuth { access, .. } => {
                 claude_code::transform(&mut body);
@@ -52,6 +53,14 @@ impl Anthropic {
         };
         stream_from(http.json(&body), &self.timeouts, subscription).await
     }
+}
+
+/// Lets a model with a thinking budget think again between tool calls, not only before the first.
+const INTERLEAVED_THINKING: &str = "interleaved-thinking-2025-05-14";
+
+/// Only a budget needs the beta: adaptive thinking interleaves already, and without tools there is nothing between.
+fn interleaves(request: &Request) -> bool {
+    matches!(request.reasoning, Some(Reasoning::Budget { .. })) && !request.tools.is_empty()
 }
 
 /// Sends a Messages request already addressed, authorised and given its body (the API or Vertex) and reads its events.
