@@ -799,7 +799,11 @@ these async criteria are new pending M3 work.
 - Local servers report their own models (`llm::local`). Every 15 s the engine asks LM Studio and
   Ollama (`/v1/models`, plus LM Studio's `/api/v0/models` for kind, context and tool support) at
   their default address or the one the user set; what answers replaces that provider's listed
-  models (embedding and tool-less models left out, LM Studio's loaded context preferred), the
+  models (embedding and tool-less models left out). Context is the window the server really runs
+  with, since both cut longer prompts: LM Studio's loaded length for a loaded model and unknown (0)
+  for one it would load with its own default; Ollama's `num_ctx` from `/api/show`, else
+  `OLLAMA_CONTEXT_LENGTH` from this machine's environment, else Ollama's default 4096, never more
+  than the model's trained length. The
   provider counts as connected with no key while it answers, and `catalog.updated` tells the UI.
 - The user's own `~/.config/drift/drift.json` may add or re-point providers:
   `providers: { "<id>": { name?, baseUrl?, apiKeyEnv?, models?: { "<model>": { name?, context,

@@ -232,7 +232,7 @@ impl Engine {
         let mut changed = false;
         for (id, name, default) in llm::local::LOCAL {
             let base = self.catalog.read().unwrap().providers.get(id).and_then(|p| p.api.clone()).unwrap_or_else(|| default.into());
-            let found = llm::local::discover(&self.http, &base).await;
+            let found = llm::local::discover(&self.http, id, &base).await;
             self.credentials.set_keyless(id, found.is_some());
             let mut known = self.local_models.lock().unwrap();
             let was_up = known.contains_key(id);
