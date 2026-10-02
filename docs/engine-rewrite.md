@@ -884,7 +884,9 @@ these async criteria are new pending M3 work.
   (`cat a.rs | grep fn`) counts nothing, the model having seen only what the pipe let through. A
   line that moves directory first counts nothing, its paths no longer resolving from the workspace. The record is kept in
   `drift.db` (`read_file`, migration 26, removed with its session), so a file read before a restart
-  may still be edited after it.
+  may still be edited after it. Each read is stamped in id order (`id::stamp`, migration 27), and a
+  fork or spawned thread is given the reads made before the first message it did not copy: the
+  reads its copied history shows, and no others.
 - Ids are `prefix_<16 hex stamp><8 hex random>`; the stamp is milliseconds shifted left
   twelve bits plus a per-process counter, so rows made in the same millisecond still sort
   by creation.
@@ -991,8 +993,8 @@ Settled after the first external review of M1; each has a regression test.
     to use `read`, which asks. A denied path says a rule forbids it. Directories list up to 1,000
     entries; binary files and files that do not exist say so; text past 64 KB is cut at a line
     with the offset to read on from. Only one byte past that bound is ever read from disk. A
-    mention read in full is recorded in the session's read ledger, so the model can edit the file
-    straight away; one cut short is not, since the model has not seen all of it. The stored part
+    mention read in full is recorded in the session's read ledger once the prompt is admitted (a
+    refused prompt showed the model nothing), so the model can edit the file straight away; one cut short is not, since the model has not seen all of it. The stored part
     keeps the workspace path it was read from (`path`, set only by the engine; one a client sends
     is cleared), so its chip opens the file the way a file link in a reply does, and undo puts it
     back as a mention. The composer sends one part per `@path` that appears whole in the text, so a

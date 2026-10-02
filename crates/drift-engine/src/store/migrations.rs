@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 26] = [
+pub(super) const MIGRATIONS: [&str; 27] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -149,6 +149,8 @@ pub(super) const MIGRATIONS: [&str; 26] = [
         path TEXT NOT NULL,
         PRIMARY KEY(session_id, path)
     ) STRICT, WITHOUT ROWID;",
+    // Where each read falls in id order, so a fork carries only the reads its copied history shows.
+    "ALTER TABLE read_file ADD COLUMN at INTEGER NOT NULL DEFAULT 0;",
 ];
 
 #[cfg(test)]

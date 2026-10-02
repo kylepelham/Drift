@@ -24,20 +24,27 @@ pub struct Attach<'a> {
     pub policy: &'a Policy,
     /// The model the prompt will actually run on (for a steered prompt, the running turn's).
     pub model: &'a Model,
-    /// The session's read ledger: a mention read in full counts as a read, so the model can edit it.
-    pub files: &'a crate::tool::SessionFiles,
+}
+
+/// A prompt's parts ready to admit, and the mentions read in full: once admitted, those count as
+/// read, so the model can edit them.
+pub struct Prepared {
+    pub parts: Vec<Part>,
+    pub read: Vec<PathBuf>,
 }
 
 impl Attach<'_> {
-    pub fn prepare(&self, parts: Vec<Part>) -> Result<Vec<Part>, TurnError> {
-        parts.into_iter().map(|part| self.part(part)).collect()
+    pub fn prepare(&self, parts: Vec<Part>) -> Result<Prepared, TurnError> {
+        let mut read = Vec::new();
+        let parts = parts.into_iter().map(|part| self.part(part, &mut read)).collect::<Result<_, _>>()?;
+        Ok(Prepared { parts, read })
     }
 
-    fn part(&self, part: Part) -> Result<Part, TurnError> {
+    fn part(&self, part: Part, read: &mut Vec<PathBuf>) -> Result<Part, TurnError> {
         let Part::File { mime, name, url, .. } = part else { return Ok(part) };
         if let Some(path) = file_path(&url) {
             let shown = display_name(self.workspace, &path);
-            return Ok(mention_part(&shown, &self.mention(&path)));
+            return Ok(mention_part(&shown, &self.mention(&path, read)));
         }
         let refuse = |why: String| Err(TurnError::Attachment(format!("{name}: {why}")));
         let Some(data) = DataUrl::parse(&url) else { return refuse("only files and data URLs can be attached".into()) };
@@ -55,7 +62,7 @@ impl Attach<'_> {
     }
 
     /// The mentioned file's text, or a note saying why it was not read.
-    fn mention(&self, path: &Path) -> String {
+    fn mention(&self, path: &Path, read_whole: &mut Vec<PathBuf>) -> String {
         let shown = display_name(self.workspace, path);
         if let Some(ask) = crate::tool::read_ask(self.workspace, path, "Read") {
             match self.engine.permissions.decide_now(self.session_id, self.policy, &ask) {
@@ -66,7 +73,7 @@ impl Attach<'_> {
         }
         match read(path) {
             Ok(Read::Whole(text)) => {
-                self.files.mark_read(path);
+                read_whole.push(path.to_path_buf());
                 format!("<file path=\"{shown}\">\n{text}\n</file>")
             }
             // Cut short, it does not count as read: the model has not seen the whole file.

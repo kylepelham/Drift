@@ -88,6 +88,26 @@ async fn a_fork_copies_the_history_into_an_independent_conversation() {
 }
 
 #[tokio::test]
+async fn a_fork_carries_the_reads_its_copied_history_shows() {
+    let h = harness().await;
+    for (name, ask) in [("a.txt", "read a"), ("b.txt", "read b")] {
+        std::fs::write(h._dir.join("ws").join(name), "x\n").unwrap();
+        h.provider.push(tool_call("read", &json!({ "path": name }).to_string())).push(text("read"));
+        h.engine.submit(&h.session.id, prompt(ask)).await.unwrap();
+        until_idle(&h).await;
+    }
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let end_of_first = transcript[transcript.iter().rposition(|m| m.info.role == Role::User).unwrap() - 1].info.id.clone();
+    let names = |id: &str| {
+        let mut paths: Vec<String> = h.engine.store.read_files(id).unwrap().iter().map(|p| p.rsplit(['/', '\\']).next().unwrap().to_string()).collect();
+        paths.sort();
+        paths
+    };
+    assert_eq!(names(&h.engine.fork(&h.session.id, Some(&end_of_first)).unwrap().id), ["a.txt"]);
+    assert_eq!(names(&h.engine.fork(&h.session.id, None).unwrap().id), ["a.txt", "b.txt"]);
+}
+
+#[tokio::test]
 async fn a_bounded_fork_stops_at_the_chosen_message() {
     let h = harness().await;
     two_turns(&h).await;

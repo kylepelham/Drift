@@ -406,11 +406,14 @@ impl Engine {
 
     /// Admits the prompt into a session this call has claimed and starts its turn; releases the claim if it cannot.
     fn start(self: &Arc<Self>, session_id: &str, prompt: Prompt, plan: Plan, abort: CancellationToken, payload_hash: &str, how: Admission) -> Result<Receipt, TurnError> {
-        let files = self.turns.files_for(&self.store, session_id);
-        let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), model: &plan.model, files: &files };
+        let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), model: &plan.model };
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
         let pick = Pick { model: &plan.model_ref, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
-        let admitted = attach.prepare(prompt.parts).and_then(|parts| self.admit_fenced(session_id, pick, parts, submission, Some(&abort), how.delivery));
+        let admitted = attach.prepare(prompt.parts).and_then(|prepared| {
+            let admitted = self.admit_fenced(session_id, pick, prepared.parts, submission, Some(&abort), how.delivery)?;
+            self.count_as_read(session_id, &prepared.read);
+            Ok(admitted)
+        });
         let admitted = match admitted {
             Ok(admitted) => admitted,
             Err(error) => {
@@ -510,8 +513,7 @@ impl Engine {
             pickable(&config, agent)?;
         }
         let policy = config.policy();
-        let files = self.turns.files_for(&self.store, session_id);
-        let parts = Attach { engine: self, session_id, workspace: &workspace, policy: &policy, model: &model, files: &files }.prepare(prompt.parts.clone())?;
+        let prepared = Attach { engine: self, session_id, workspace: &workspace, policy: &policy, model: &model }.prepare(prompt.parts.clone())?;
         let steering = self.turns.steering.lock().unwrap();
         match steering.get(session_id) {
             None => return Ok(None),
@@ -525,9 +527,18 @@ impl Engine {
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
         // Written to the session as it lands; the turn reads the session before its next request and follows it.
         let pick = Pick { model: &target, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
-        let admitted = self.admit_fenced(session_id, pick, parts, submission, how.parent, how.delivery)?;
+        let admitted = self.admit_fenced(session_id, pick, prepared.parts, submission, how.parent, how.delivery)?;
         drop(steering);
+        self.count_as_read(session_id, &prepared.read);
         Ok(Some(self.announce(session_id, admitted)))
+    }
+
+    /// Files a prompt showed in full count as read once it is admitted, not before: a refused prompt showed nothing.
+    fn count_as_read(&self, session_id: &str, paths: &[PathBuf]) {
+        let files = self.turns.files_for(&self.store, session_id);
+        for path in paths {
+            files.mark_read(path);
+        }
     }
 
     /// Runs `job` in a session already claimed: reports it running, then idle and releases it when done.

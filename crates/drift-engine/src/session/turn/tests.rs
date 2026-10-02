@@ -927,6 +927,18 @@ async fn a_mentioned_workspace_file_is_read_into_the_prompt() {
 }
 
 #[tokio::test]
+async fn a_mention_counts_as_read_only_once_its_prompt_is_admitted() {
+    let h = harness().await;
+    let notes = h._dir.join("ws/notes.md");
+    std::fs::write(&notes, "milk\n").unwrap();
+    let audio = Part::File { mime: "audio/wav".into(), name: "memo.wav".into(), url: "data:audio/wav;base64,UklGRg==".into(), path: None };
+    assert!(h.engine.submit(&h.session.id, with_files("see", vec![mention(&notes), audio])).await.is_err());
+    assert!(h.engine.store.read_files(&h.session.id).unwrap().is_empty(), "a refused prompt showed the model nothing");
+    sent_text(&h, with_files("see", vec![mention(&notes)])).await;
+    assert_eq!(h.engine.store.read_files(&h.session.id).unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn a_mentioned_secret_or_outside_file_is_not_read_without_a_rule() {
     let h = harness().await;
     let ws = h._dir.join("ws");

@@ -25,6 +25,7 @@ impl Store {
             for message in &messages {
                 copy_message(conn, message, &session.id, &mut copies)?;
             }
+            super::reads::copy_reads(conn, source_id, &session.id, through)?;
             super::sessions::session_in(conn, &session.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
         })?;
         Ok(session)
