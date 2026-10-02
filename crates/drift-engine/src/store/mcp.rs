@@ -1,5 +1,6 @@
 use rusqlite::{params, OptionalExtension, Row};
 
+use super::sessions::transaction;
 use super::Store;
 use crate::id;
 use crate::mcp::{wire_names, Era, Given, ServerConfig, ServerRow};
@@ -67,9 +68,12 @@ impl Store {
         Ok(changed > 0)
     }
 
+    /// Removes the server and the names its tools were given, which a later server may then use.
     pub fn remove_mcp_server(&self, name: &str) -> rusqlite::Result<bool> {
-        let changed = self.lock().prepare_cached("DELETE FROM mcp_config WHERE name = ?1")?.execute([name])?;
-        Ok(changed > 0)
+        transaction(&self.lock(), |conn| {
+            conn.prepare_cached("DELETE FROM mcp_tool_name WHERE server = ?1")?.execute([name])?;
+            Ok(conn.prepare_cached("DELETE FROM mcp_config WHERE name = ?1")?.execute([name])? > 0)
+        })
     }
 
     /// Renames `from` to `to`, saved secrets and all, unless `to` is taken; `None` when `from` does not exist.
@@ -81,6 +85,8 @@ impl Store {
         if conn.prepare_cached("UPDATE mcp_config SET name = ?2, updated_at = ?3 WHERE name = ?1")?.execute(params![from, to, id::now_ms()])? == 0 {
             return Ok(None);
         }
+        // Its tools are named after it, so they take new names; the old ones are free again.
+        conn.prepare_cached("DELETE FROM mcp_tool_name WHERE server = ?1")?.execute([from])?;
         let row = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([to], map_row)?;
         Ok(Some(Renamed::To(Box::new(row))))
     }
@@ -119,6 +125,13 @@ mod tests {
         assert_eq!(both[1], "a_b_c", "the first keeps its name");
         assert!(both[0].starts_with("a_b_c_"), "{both:?}");
         assert_eq!(store.name_mcp_tools(&[("a_b", "c")]).unwrap(), [both[0].clone()], "and so does the second, once given");
+        let config = ServerConfig::Stdio { command: "npx".into(), args: vec![], env: Default::default(), cwd: None, timeout_seconds: None };
+        store.save_mcp_server("a", &config).unwrap();
+        store.remove_mcp_server("a").unwrap();
+        assert_eq!(store.name_mcp_tools(&[("a_b", "c")]).unwrap(), [both[0].clone()], "a name stays with its tool");
+        store.save_mcp_server("a_b", &config).unwrap();
+        assert!(matches!(store.rename_mcp_server("a_b", "x").unwrap(), Some(Renamed::To(_))));
+        assert_eq!(store.name_mcp_tools(&[("a", "b_c")]).unwrap(), ["a_b_c"], "removed and renamed servers free their names");
     }
 
     #[test]
