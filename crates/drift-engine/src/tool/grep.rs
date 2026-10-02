@@ -5,6 +5,7 @@ use grep::regex::RegexMatcherBuilder;
 use grep::searcher::sinks::UTF8;
 use grep::searcher::{BinaryDetection, SearcherBuilder};
 use serde_json::{json, Value};
+use tokio_util::sync::CancellationToken;
 
 use super::sensitive::is_sensitive;
 use super::{display, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
@@ -42,18 +43,18 @@ impl Tool for Grep {
             let pattern = required_str(&input, "pattern")?.to_string();
             let root = ctx.resolve(input["path"].as_str().unwrap_or("."));
             let include = input["include"].as_str().map(str::to_string);
-            let workspace = ctx.workspace.clone();
-            let found = tokio::task::spawn_blocking(move || search(&root, &pattern, include.as_deref(), &workspace))
+            let (workspace, stop) = (ctx.workspace.clone(), ctx.abort.clone());
+            let found = tokio::task::spawn_blocking(move || search(&root, &pattern, include.as_deref(), &workspace, &stop))
                 .await
                 .map_err(|e| ToolError(e.to_string()))??;
             let mut output = if found.lines.is_empty() { "No matches".to_string() } else { found.lines.join("\n") };
-            if found.truncated {
-                output.push_str(&format!("\n(first {MAX_MATCHES} matches; narrow the pattern or path to see more)"));
+            if found.total > found.lines.len() {
+                output.push_str(&format!("\n({} matches; these are the first {MAX_MATCHES} by file and line. Narrow the pattern or path to see the rest)", found.total));
             }
             if found.withheld > 0 {
                 output.push_str(&format!("\n({} files that may hold secrets were not searched; read one directly and the user is asked)", found.withheld));
             }
-            let metadata = json!({ "count": found.lines.len(), "truncated": found.truncated, "withheld": found.withheld });
+            let metadata = json!({ "count": found.lines.len(), "total": found.total, "truncated": found.total > found.lines.len(), "withheld": found.withheld });
             Ok(Output { title: input["pattern"].as_str().unwrap_or_default().into(), output, metadata })
         })
     }
@@ -61,7 +62,8 @@ impl Tool for Grep {
 
 struct Found {
     lines: Vec<String>,
-    truncated: bool,
+    /// Every match, listed or not.
+    total: usize,
     /// Files skipped because they may hold secrets.
     withheld: usize,
 }
@@ -69,13 +71,34 @@ struct Found {
 /// One matching line: the file as shown, its line number, and the line.
 type Hit = (String, u64, String);
 
-/// Searches files on several threads, as ripgrep does, and lists matches by file then line. Binary
-/// files end their search at the first NUL; files that may hold secrets are skipped unless the
-/// search names one directly, which has already asked. Past [`MAX_MATCHES`] the walk stops, so which
-/// matches are listed then depends on which files were searched first.
-fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path) -> Result<Found, ToolError> {
+/// The first [`MAX_MATCHES`] hits by file then line, whatever order the threads find them in.
+#[derive(Default)]
+struct First(std::sync::Mutex<Vec<Hit>>);
+
+impl First {
+    fn add(&self, found: Vec<Hit>) {
+        let mut hits = self.0.lock().unwrap();
+        hits.extend(found);
+        if hits.len() > 2 * MAX_MATCHES {
+            hits.sort();
+            hits.truncate(MAX_MATCHES);
+        }
+    }
+
+    fn into_sorted(self) -> Vec<Hit> {
+        let mut hits = self.0.into_inner().unwrap();
+        hits.sort();
+        hits.truncate(MAX_MATCHES);
+        hits
+    }
+}
+
+/// Searches files on several threads, as ripgrep does, and lists the first matches by file then
+/// line, with how many there were in all. Binary files end their search at the first NUL; files
+/// that may hold secrets are skipped unless the search names one directly, which has already asked.
+/// A Stop ends the walk and every file search in it.
+fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path, stop: &CancellationToken) -> Result<Found, ToolError> {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Mutex;
     let matcher = RegexMatcherBuilder::new()
         .line_terminator(Some(b'\n'))
         .build(pattern)
@@ -84,17 +107,17 @@ fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path) -
         .map(|glob| GlobBuilder::new(glob).literal_separator(false).build().map(|g| g.compile_matcher()))
         .transpose()
         .map_err(|e| ToolError(format!("invalid include glob: {e}")))?;
-    let hits: Mutex<Vec<Hit>> = Mutex::default();
-    let (count, withheld) = (AtomicUsize::new(0), AtomicUsize::new(0));
+    let first = First::default();
+    let (total, withheld) = (AtomicUsize::new(0), AtomicUsize::new(0));
     super::walker(root).build_parallel().run(|| {
         let mut searcher = SearcherBuilder::new().line_number(true).binary_detection(BinaryDetection::quit(0)).build();
-        let (matcher, include, hits, count, withheld) = (&matcher, &include, &hits, &count, &withheld);
+        let (matcher, include, first, total, withheld) = (&matcher, &include, &first, &total, &withheld);
         Box::new(move |entry| {
             use ignore::WalkState;
-            let Ok(entry) = entry else { return WalkState::Continue };
-            if count.load(Ordering::Relaxed) > MAX_MATCHES {
+            if stop.is_cancelled() {
                 return WalkState::Quit;
             }
+            let Ok(entry) = entry else { return WalkState::Continue };
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 return WalkState::Continue;
             }
@@ -112,22 +135,24 @@ fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path) -
                 matcher,
                 entry.path(),
                 UTF8(|line_number, line| {
-                    found.push((name.clone(), line_number, clip(line.trim_end())));
-                    Ok(count.fetch_add(1, Ordering::Relaxed) < MAX_MATCHES)
+                    total.fetch_add(1, Ordering::Relaxed);
+                    // Later lines of this file sort after these, so past the limit only the count matters.
+                    if found.len() < MAX_MATCHES {
+                        found.push((name.clone(), line_number, clip(line.trim_end())));
+                    }
+                    Ok(!stop.is_cancelled())
                 }),
             );
-            hits.lock().unwrap().extend(found);
+            first.add(found);
             WalkState::Continue
         })
     });
-    let mut hits = hits.into_inner().unwrap();
-    hits.sort();
-    let truncated = hits.len() > MAX_MATCHES;
-    hits.truncate(MAX_MATCHES);
-    let lines = hits.into_iter().map(|(name, line, text)| format!("{name}:{line}: {text}")).collect();
-    Ok(Found { lines, truncated, withheld: withheld.into_inner() })
+    if stop.is_cancelled() {
+        return Err(ToolError("stopped".into()));
+    }
+    let lines = first.into_sorted().into_iter().map(|(name, line, text)| format!("{name}:{line}: {text}")).collect();
+    Ok(Found { lines, total: total.into_inner(), withheld: withheld.into_inner() })
 }
-
 fn clip(line: &str) -> String {
     if line.chars().count() <= MAX_LINE_CHARS {
         return line.to_string();
@@ -193,7 +218,19 @@ mod tests {
             sandbox.file(&format!("g{i}.txt"), "hit\nhit\n");
         }
         let past = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
-        assert_eq!((past.metadata["count"].as_u64(), past.metadata["truncated"].as_bool()), (Some(MAX_MATCHES as u64), Some(true)));
+        assert_eq!((past.metadata["count"].as_u64(), past.metadata["total"].as_u64(), past.metadata["truncated"].as_bool()), (Some(MAX_MATCHES as u64), Some(220), Some(true)));
+        let lines: Vec<&str> = past.output.lines().collect();
+        assert_eq!((lines[0], lines[MAX_MATCHES - 1]), ("f00.txt:1: hit", "g89.txt:2: hit"), "the first by file and line, not the first found");
+        assert!(past.output.contains("220 matches; these are the first 200 by file and line"), "{}", past.output);
+    }
+
+    #[tokio::test]
+    async fn a_stop_ends_the_search() {
+        let sandbox = Sandbox::new("grep-stop");
+        sandbox.file("a.txt", "hit\n");
+        sandbox.ctx.abort.cancel();
+        let err = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap_err();
+        assert_eq!(err.0, "stopped");
     }
 
     #[tokio::test]

@@ -1013,6 +1013,9 @@ Settled after the first external review of M1; each has a regression test.
     prefix, name substring, path substring, then letters in order.
 - `glob` and `grep` never descend into `.git`, `.hg`, `.svn` or `.jj`, and `grep` stops a
   file at its first NUL byte, so binaries produce no matches.
+- `grep` searches on several threads, as ripgrep does, and walks the whole tree: it lists the
+  first 200 matches by file then line and says how many there were in all, so a cut list is never
+  just whichever files a thread reached first. A Stop ends the walk and the file search in progress.
 - A mutating call refuses to run if its snapshot cannot be taken or its start cannot be
   recorded, and says so in its result. A result whose save fails is published as an error,
   never as a success the store lacks; a message whose terminal save fails stops the turn.
