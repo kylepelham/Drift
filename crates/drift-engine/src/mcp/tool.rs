@@ -82,10 +82,26 @@ fn behaves_alike(a: &rmcp::model::Tool, b: &rmcp::model::Tool) -> bool {
     a.name == b.name && a.input_schema == b.input_schema && hints(a) == hints(b)
 }
 
+/// The longest name a tool is given: providers take 64, and the subscription route adds `mcp_`.
+const MAX_NAME: usize = 60;
+
+/// The name the model calls a server's tool by, in the characters every provider accepts
+/// (`[a-zA-Z0-9_-]`, at most 64). A name cut to fit ends in a hash of the whole, so two stay apart.
+pub fn wire_name(server: &str, tool: &str) -> String {
+    let raw = format!("{server}_{tool}");
+    let clean: String = raw.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
+    if clean.len() <= MAX_NAME {
+        return clean;
+    }
+    use sha2::Digest;
+    let hash: String = sha2::Sha256::digest(raw.as_bytes()).iter().take(4).map(|b| format!("{b:02x}")).collect();
+    format!("{}_{hash}", &clean[..MAX_NAME - hash.len() - 1])
+}
+
 impl Tool for McpTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
-            name: format!("{}_{}", self.server, self.tool.name),
+            name: wire_name(&self.server, &self.tool.name),
             description: format!("[{} MCP server] {}", self.server, self.tool.description.clone().unwrap_or_default()),
             input_schema: Value::Object((*self.tool.input_schema).clone()),
         }
@@ -132,7 +148,17 @@ mod tests {
     use rmcp::model::{Tool, ToolAnnotations};
     use serde_json::json;
 
-    use super::behaves_alike;
+    use super::{behaves_alike, wire_name};
+
+    #[test]
+    fn tool_names_are_what_providers_accept() {
+        assert_eq!(wire_name("echo", "shout"), "echo_shout");
+        assert_eq!(wire_name("gh", "repos/list.all"), "gh_repos_list_all");
+        let long = wire_name("server", &"x".repeat(80));
+        assert_eq!(long.len(), 60, "room left for the subscription route's mcp_ prefix");
+        assert_ne!(long, wire_name("server", &"x".repeat(81)), "cut names stay apart");
+        assert!(long.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
+    }
 
     fn tool(description: &'static str, schema: serde_json::Value) -> Tool {
         Tool::new("search", description, std::sync::Arc::new(schema.as_object().unwrap().clone()))
