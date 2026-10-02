@@ -16,8 +16,6 @@ use crate::llm::catalog::Model;
 use crate::llm::{self, Block, ChatMessage};
 use crate::Engine;
 
-/// Reply room kept free in the context window, capped like the UI's context meter (`src/engine/store.ts`).
-const MAX_REPLY_TOKENS: u64 = 32_000;
 /// The recent history kept verbatim: at most this many turns, and at most this many estimated tokens.
 const TAIL_TURNS: usize = 2;
 const TAIL_TOKENS: usize = 15_000;
@@ -76,11 +74,8 @@ pub(super) fn overflowing(model: &Model, transcript: &[MessageWithParts]) -> boo
     if model.limit.context == 0 {
         return false;
     }
-    let reply = match model.limit.output {
-        0 => MAX_REPLY_TOKENS,
-        output => output.min(MAX_REPLY_TOKENS),
-    };
-    last_usage(transcript) >= model.limit.context.saturating_sub(reply)
+    let used = last_usage(transcript);
+    used > 0 && used >= model.limit.context.saturating_sub(model.reply_room())
 }
 
 /// Tokens the most recent finished reply used, counting only what came after the latest summary.

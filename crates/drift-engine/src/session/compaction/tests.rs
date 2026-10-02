@@ -43,6 +43,38 @@ const STORAGE_FAULTS: [(&str, &str); 2] = [
     ("reject_summary_done", "CREATE TEMP TRIGGER reject_summary_done BEFORE UPDATE OF status ON message WHEN OLD.summary = 1 AND NEW.status = 'done' BEGIN SELECT RAISE(ABORT, 'injected'); END;"),
 ];
 
+#[test]
+fn a_small_window_compacts_only_when_it_is_actually_filling() {
+    let message_with_usage = |input: u64| MessageWithParts {
+        info: Message {
+            id: "m".into(),
+            session_id: "s".into(),
+            role: Role::Assistant,
+            status: MessageStatus::Done,
+            model: None,
+            agent: None,
+            usage: Usage { input, ..Usage::default() },
+            cost: 0.0,
+            error: None,
+            created_at: 0,
+            finished_at: None,
+            summary: false,
+        },
+        parts: Vec::new(),
+    };
+    let model = |context: u64, output: u64| {
+        let mut model = crate::llm::catalog::Catalog::bundled().model("anthropic", "claude-sonnet-4-5").unwrap().clone();
+        model.limit = crate::llm::catalog::Limit { context, output };
+        model
+    };
+    let used = |tokens: u64| vec![message_with_usage(tokens)];
+    assert!(!overflowing(&model(4_096, 0), &used(1_000)), "a 4k model with room left does not compact every step");
+    assert!(overflowing(&model(4_096, 0), &used(3_200)), "it does once less than a quarter is left");
+    assert!(!overflowing(&model(32_000, 0), &used(20_000)));
+    assert!(overflowing(&model(200_000, 64_000), &used(170_000)), "a known output limit is the room, at most 32k");
+    assert!(!overflowing(&model(0, 0), &used(1_000_000)), "an unknown window never compacts on its own");
+}
+
 #[tokio::test]
 async fn a_step_loads_from_the_kept_tail_and_sends_what_the_whole_transcript_would() {
     let h = harness().await;

@@ -83,6 +83,25 @@ fn default_profile() -> ToolProfile {
     ToolProfile::Edit
 }
 
+/// The longest reply asked for, whatever the model allows.
+pub const MAX_REPLY_TOKENS: u64 = 32_000;
+/// Below this window the system prompt and tool schemas leave little room for any work.
+pub const SMALL_CONTEXT: u64 = 16_384;
+
+impl Model {
+    /// Room kept for the reply, and the most a request asks for: the model's output limit when known,
+    /// else a quarter of its window (a small local model's whole window would otherwise go to a reply
+    /// it can never give), never more than [`MAX_REPLY_TOKENS`].
+    pub fn reply_room(&self) -> u64 {
+        let room = match (self.limit.output, self.limit.context) {
+            (0, 0) => MAX_REPLY_TOKENS,
+            (0, context) => context / 4,
+            (output, _) => output,
+        };
+        room.min(MAX_REPLY_TOKENS)
+    }
+}
+
 /// What one reasoning level asks of the provider: an effort its API names, or a thinking token budget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]

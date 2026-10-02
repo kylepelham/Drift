@@ -35,7 +35,7 @@ import { selectedSession, selectSession } from "../state/selection"
 import { formatModelContext, lmStudioModelReady } from "../state/lm-studio"
 import { shellInvoke } from "../shell"
 import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
-import { normalizeDir } from "../engine/store"
+import { normalizeDir, smallContextTokens } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"
 import { permissionRequiresAttention, permissionShouldAutoReply } from "../state/permission-attention"
 import { AttentionStrip, PermissionCard, QuestionCard } from "./attention"
@@ -83,6 +83,13 @@ const clipboardRepublishDelayMs = 100
 
 export function firstManualPermission(permissions: Permission[], autoAccepted: (permission: Permission) => boolean) {
   return permissions.find((permission) => !autoAccepted(permission))
+}
+
+/** The picker's line under a model: a small window is warned about, and LM Studio shows its loaded window. */
+export function modelDetail(providerID: string, model: { id: string; limit: { context: number } }) {
+  const context = model.limit.context
+  if (context > 0 && context < smallContextTokens) return t("drift.model.smallContext", { size: formatModelContext(context) })
+  return providerID === "lmstudio" ? `${model.id} | ${formatModelContext(context)} context` : undefined
 }
 
 export function focusedQuestion(questions: QuestionRequest[], requestID?: string) {
@@ -348,10 +355,7 @@ export function Composer() {
           id: `${provider.id}/${model.id}`,
           label: model.name,
           group: provider.name,
-          detail:
-            provider.id === "lmstudio"
-              ? `${model.id} | ${formatModelContext(model.limit.context)} context`
-              : undefined,
+          detail: modelDetail(provider.id, model),
           providerID: provider.id,
           family: model.family,
           releaseDate: model.release_date,

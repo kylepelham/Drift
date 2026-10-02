@@ -277,7 +277,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   is too long, the oldest fifth of its turns is dropped with a note, up to three times.
 - **Triggers**
   - Automatic, before each request in a turn: when the last finished reply since the latest summary
-    used at least `context - min(output limit, 32k)` tokens. The UI's context meter uses the same
+    used at least `context - reply room` tokens (`Model::reply_room`: the output limit, else a
+    quarter of the window, at most 32k; a 4k local model therefore compacts at 3k, not before every
+    step). The UI's context meter uses the same
     sum (`contextStats` in `src/engine/store.ts`), so "until compaction" is where it happens. One
     attempt per step; a failure still lets the request go.
   - Overflow: a provider error recognised as too long (`llm::Error::is_context_overflow`, status
@@ -875,7 +877,11 @@ Settled after the first external review of M1; each has a regression test.
   exceeds the model's own limit; a thinking budget may raise it past the usual 32,000 cap but always
   leaves 1,024 tokens for the answer; a larger budget is reduced to fit, and one that cannot reach
   the 1,024 minimum is dropped. A 32,000 budget on a 32,000-output model sends 32,000 with a
-  30,976 budget, never 33,024.
+  30,976 budget, never 33,024. A model with no output limit but a known window asks for the same
+  reply room (a quarter of the window, at least 1,024), since a server such as vLLM refuses a
+  request whose reply could not fit. The composer's model picker marks a model whose window is
+  below 16K (`SMALL_CONTEXT`) as too small for most tasks: the system prompt and tools barely fit,
+  and compaction cannot help with that.
 - **Reasoning levels.** Each catalog model carries `variants`, derived once in `catalog.rs` from
   models.dev's `reasoning_options` (what opencode reads too) and nowhere else: an `effort` option
   becomes one variant per value (`null` is `none`), a `budget_tokens` option becomes `high` (half

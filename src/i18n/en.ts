@@ -579,6 +579,7 @@ export const drift = {
   "drift.lmStudio.refreshFailed": "Could not refresh LM Studio models.",
   "drift.lmStudio.unavailable": "Start LM Studio's local server on port 1234, then refresh.",
   "drift.model.enabledCount": "{{enabled}} of {{total}}",
+  "drift.model.smallContext": "{{size}} context: too small for most tasks",
   "drift.notification.threadError": "{{title}} - {{error}}",
   "drift.notification.threadFinished": "A thread finished working",
   "drift.permissions.autoGlobal": "Auto-accepting permissions globally",

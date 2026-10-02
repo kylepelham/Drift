@@ -349,10 +349,19 @@ function tokenCount(tokens: TokenUsage) {
 
 // Ceiling on how much of the context window is set aside for the model's own reply, and the slice
 // of that reserved for compaction headroom. The reply cap mirrors MAX_REPLY_TOKENS in
-// crates/drift-engine/src/session/compaction.rs; change both or the meter drifts from real compaction.
+// crates/drift-engine/src/llm/catalog.rs; change both or the meter drifts from real compaction.
 const maxOutputTokens = 32000
 const compactionReserveTokens = 20000
 const percentScale = 100
+
+/** Mirrors the engine's `Model::reply_room`: the output limit, else a quarter of a known window, at most the cap. */
+export function replyRoom(output: number, context: number) {
+  const room = output || (context ? Math.floor(context / 4) : maxOutputTokens)
+  return Math.min(room, maxOutputTokens)
+}
+
+/** Below this window the system prompt and tool schemas leave little room for work; mirrors `SMALL_CONTEXT`. */
+export const smallContextTokens = 16_384
 
 // Mirrors the engine's `overflowing` (session/compaction.rs) so the meter predicts the same compaction point.
 // Limits come from the model the next prompt would use; token counts from the last reply.
@@ -374,7 +383,7 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
   const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number }
   const context = limits.context ?? 0
   if (!context || !count) return null
-  const maxOutput = Math.min(limits.output || 0, maxOutputTokens) || maxOutputTokens
+  const maxOutput = replyRoom(limits.output ?? 0, context)
   const reserved = Math.min(compactionReserveTokens, maxOutput)
   const usable = limits.input ? Math.max(0, limits.input - reserved) : Math.max(0, context - maxOutput)
   return {

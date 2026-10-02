@@ -1397,7 +1397,9 @@ pub(super) fn payload_hash(prompt: &Prompt) -> String {
 /// [`MIN_ANSWER_TOKENS`] for the answer, and a budget that cannot fit is reduced, or dropped when even
 /// the provider's minimum would not fit.
 fn budgets(model: &Model, requested: Option<Reasoning>) -> (u32, Option<Reasoning>) {
-    let model_limit = u32::try_from(model.limit.output).ok().filter(|limit| *limit > 0).unwrap_or(MAX_OUTPUT_TOKENS);
+    // An unknown output limit asks for a quarter of a known window: a server may refuse a request whose reply could not fit.
+    let unknown = u32::try_from(model.reply_room()).unwrap_or(MAX_OUTPUT_TOKENS).max(MIN_ANSWER_TOKENS);
+    let model_limit = u32::try_from(model.limit.output).ok().filter(|limit| *limit > 0).unwrap_or(unknown);
     let wanted = match requested.filter(|_| model.reasoning) {
         Some(Reasoning::Budget { tokens }) => tokens,
         effort => return (model_limit.min(MAX_OUTPUT_TOKENS), effort),

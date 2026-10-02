@@ -1202,7 +1202,12 @@ fn output_and_thinking_budgets_are_valid_together() {
     assert_eq!(budgets(&model_with(64_000, true), budget(10)), (32_000, budget(MIN_THINKING_TOKENS)), "raised to the provider's minimum");
     assert_eq!(budgets(&model_with(1_500, true), budget(8_000)), (1_500, None), "no room for thinking and an answer");
     assert_eq!(budgets(&model_with(64_000, false), budget(8_000)), (32_000, None), "a model that does not reason gets no budget");
-    assert_eq!(budgets(&model_with(0, false), None), (MAX_OUTPUT_TOKENS, None), "an unknown limit uses our cap");
+    assert_eq!(budgets(&model_with(0, false), None), (MAX_OUTPUT_TOKENS, None), "an unknown limit and window use our cap");
+    let mut local = model_with(0, false);
+    local.limit.context = 4_096;
+    assert_eq!(budgets(&local, None), (1_024, None), "an unknown limit asks for a quarter of a known window");
+    local.limit.context = 2_048;
+    assert_eq!(budgets(&local, None).0, MIN_ANSWER_TOKENS, "never less than room for an answer");
     let effort = Some(Reasoning::Effort { level: "high".into() });
     assert_eq!(budgets(&model_with(64_000, true), effort.clone()), (32_000, effort), "an effort passes through at the usual cap");
     for (limit, wanted) in [(4_096, 4_096), (8_192, 8_000), (128_000, 127_000), (2_048, 1_024)] {
