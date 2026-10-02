@@ -62,6 +62,8 @@ struct Shifted {
     unattributed: Vec<String>,
     /// What the shift changed, oldest first, kept until the marker is saved so a failed save can put it back.
     applied: Vec<Applied>,
+    /// The turns of every file the shift may change, held until the marker is saved or the files put back.
+    _turns: Vec<crate::tool::lock::Held>,
 }
 
 /// A path a shift changed, and the content it had before, to restore if a later path fails.
@@ -141,8 +143,9 @@ impl Engine {
     /// change only observed while a command ran is never applied: it may not be the session's. Each
     /// change is applied where its owning workspace is now, whichever workspace the session is in.
     async fn shift(&self, session: &Session, from: &str, to: Option<&str>, direction: Direction) -> Result<Shifted, RevertError> {
-        let mut shifted = Shifted::default();
-        for net in self.net_changes(session, from, to)? {
+        let nets = self.net_changes(session, from, to)?;
+        let mut shifted = Shifted { _turns: self.turns_for(&nets).await, ..Shifted::default() };
+        for net in nets {
             match self.shift_one(net, &direction, &mut shifted).await {
                 Ok(Some(done)) => shifted.applied.push(done),
                 Ok(None) => {}
@@ -151,6 +154,21 @@ impl Engine {
             }
         }
         Ok(shifted)
+    }
+
+    /// The turns of the files `nets` may change, workspace by workspace in one order, all taken before any is changed.
+    async fn turns_for(&self, nets: &[Net]) -> Vec<crate::tool::lock::Held> {
+        let mut by_workspace: std::collections::BTreeMap<PathBuf, Vec<PathBuf>> = std::collections::BTreeMap::new();
+        for net in nets.iter().filter(|net| !net.change.observed && !net.broken) {
+            if let Some(workspace) = self.root_of(&net.owner) {
+                by_workspace.entry(workspace.clone()).or_default().push(workspace.join(&net.change.path));
+            }
+        }
+        let mut held = Vec::new();
+        for (workspace, paths) in by_workspace {
+            held.push(crate::tool::lock::files(&workspace, &paths).await);
+        }
+        held
     }
 
     /// Applies one path's change, or records why it is left alone; `Some` names what to put back if a later path fails.
@@ -168,8 +186,6 @@ impl Engine {
             Direction::Back => (change.after, change.before),
             Direction::Forward => (change.before, change.after),
         };
-        // The check and the write are one step: no other writer of the file lands between them.
-        let _turn = crate::tool::lock::files(&[workspace.join(&change.path)]).await;
         let current = self.snapshots.current(&workspace, &change.path).await.map_err(|e| e.to_string())?;
         if current != expected {
             shifted.kept.push(change.path);
@@ -179,11 +195,10 @@ impl Engine {
         Ok(Some(Applied { workspace, path: change.path, previous: expected }))
     }
 
-    /// Returns the paths a failed shift already changed to their content before it, newest first.
+    /// Returns the paths a failed shift already changed to their content before it, newest first; the shift still holds their turns.
     async fn put_back(&self, applied: Vec<Applied>, error: String) -> RevertError {
         let mut stuck = Vec::new();
         for Applied { workspace, path, previous } in applied.into_iter().rev() {
-            let _turn = crate::tool::lock::files(&[workspace.join(&path)]).await;
             if let Err(failure) = self.snapshots.put(&self.store, &workspace, &path, previous.as_deref()).await {
                 stuck.push(format!("{path} ({failure})"));
             }

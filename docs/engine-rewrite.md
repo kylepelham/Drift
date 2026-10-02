@@ -1044,10 +1044,15 @@ Settled after the first external review of M1; each has a regression test.
   missing. A Stop ends the walk and the file search in progress.
 - Writers of one file take turns across sessions and workers (`tool::lock`): a file tool's call
   (`edit`, `write`, `apply_patch`) holds the files it names from its snapshot through its change
-  record, formatting included, as do the step's checks over the files they run on and undo over
-  each file it checks and puts back. So two edits never start from the same bytes, and a change is
-  never attributed to another writer's call. A Stop while waiting ends the call. Shell commands
-  name no files and take no turn.
+  record, formatting included, and so do the step's checks over the files they run on. A check
+  without `$FILE` may touch anything, so it holds the whole workspace (a per-workspace lock every
+  file holder shares), waiting for every file writer there and making them wait. Undo takes the
+  turns of every file it may change, workspace by workspace, before changing any, and holds them
+  until its marker is saved or the files are put back, so a rollback never lands over another
+  writer. A Stop during checks kills them, but what a fixer already rewrote is recorded before the
+  turn is let go. So two edits never start from the same bytes, and a change is never attributed
+  to another writer's call. A Stop while waiting for a turn ends the call. Shell commands name no
+  files and take no turn.
 - A mutating call refuses to run if its snapshot cannot be taken or its start cannot be
   recorded, and says so in its result. A result whose save fails is published as an error,
   never as a success the store lacks; a message whose terminal save fails stops the turn.

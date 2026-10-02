@@ -1076,18 +1076,20 @@ impl Engine {
         if checks.is_empty() || scope.abort.is_cancelled() {
             return;
         }
-        // Taken as a writing call's own is, so undo puts back what a fixing check rewrites; a whole-workspace check may touch anything, so the whole tree.
+        // A whole-workspace check may touch anything, so it holds and captures the whole workspace.
         let whole = checks.iter().any(|check| !check.command.iter().any(|part| part.contains("$FILE")));
-        let Some(_turn) = self.wait_turn(&files, scope.abort).await else { return };
-        let capture = self.capture_before(&scope.plan.workspace, (!whole).then(|| files.clone())).await;
+        let named = (!whole).then(|| files.clone());
+        let Some(_turn) = self.wait_turn(&scope.plan.workspace, named.as_deref(), scope.abort).await else { return };
+        let capture = self.capture_before(&scope.plan.workspace, named).await;
         // Without a capture the bytes are compared instead, so a rewrite is still announced.
         let bytes = match &capture {
             Ok(_) => Vec::new(),
             Err(_) => futures_util::future::join_all(files.iter().map(tokio::fs::read)).await.into_iter().map(Result::ok).collect(),
         };
+        // A Stop kills the checks, but what a fixer already rewrote is still recorded before the turn is let go.
         let reports = tokio::select! {
             reports = crate::edit::check::run(&files, &scope.plan.workspace, &checks, CHECK_BUDGET) => reports,
-            () = scope.abort.cancelled() => return,
+            () = scope.abort.cancelled() => Vec::new(),
         };
         let recorded = match capture {
             Ok(capture) => self.record_call(&scope.plan.workspace, capture).await.map(|recorded| attribute(recorded, &checks, &files, &scope.plan.workspace)),
@@ -1257,7 +1259,7 @@ impl Engine {
     async fn before_write(&self, scope: &CallScope<'_>, row: &mut PartRow, touches: Option<Option<Vec<PathBuf>>>) -> Result<(Option<crate::tool::lock::Held>, Option<super::changes::Capture>), Outcome> {
         let Some(touches) = touches else { return Ok((None, None)) };
         let turn = match &touches {
-            Some(paths) => match self.wait_turn(paths, scope.abort).await {
+            Some(paths) => match self.wait_turn(&scope.plan.workspace, Some(paths), scope.abort).await {
                 Some(held) => Some(held),
                 None => {
                     self.settle(row, ToolStatus::Error, None, "Aborted while waiting for another write to these files.".into(), None);
@@ -1283,10 +1285,16 @@ impl Engine {
         }
     }
 
-    /// The turn to write `paths`, or `None` if the call was stopped while another writer held them.
-    async fn wait_turn(&self, paths: &[PathBuf], abort: &CancellationToken) -> Option<crate::tool::lock::Held> {
+    /// The turn to write `paths` in `workspace`, or all of it for `None`; `None` back if stopped while waiting.
+    async fn wait_turn(&self, workspace: &Path, paths: Option<&[PathBuf]>, abort: &CancellationToken) -> Option<crate::tool::lock::Held> {
+        let turn = async {
+            match paths {
+                Some(paths) => crate::tool::lock::files(workspace, paths).await,
+                None => crate::tool::lock::workspace(workspace).await,
+            }
+        };
         tokio::select! {
-            held = crate::tool::lock::files(paths) => Some(held),
+            held = turn => Some(held),
             () = abort.cancelled() => None,
         }
     }

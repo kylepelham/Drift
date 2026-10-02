@@ -740,7 +740,7 @@ async fn an_edit_waits_while_another_writer_holds_the_file() {
     std::fs::write(&file, "one\ntwo\n").unwrap();
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
     h.provider.push(tool_call("read", r#"{"path": "a.txt"}"#)).push(tool_call("edit", r#"{"path": "a.txt", "old_string": "one", "new_string": "ONE"}"#)).push(text("done"));
-    let held = crate::tool::lock::files(std::slice::from_ref(&file)).await;
+    let held = crate::tool::lock::files(&h._dir.join("ws"), std::slice::from_ref(&file)).await;
     h.engine.submit(&h.session.id, prompt("edit a")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(300)).await;
     // Another session's writer, holding the file, changes another line meanwhile.
@@ -1714,6 +1714,29 @@ async fn a_change_no_check_covers_is_left_to_whoever_made_it_and_undo_keeps_it()
     h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
     assert!(!h._dir.join("ws/a.md").exists(), "the check's rewrite is undone with the write");
     assert!(std::fs::read_to_string(&other).unwrap().starts_with("user edit"), "someone else's edit is never undone as the session's");
+}
+
+#[tokio::test]
+async fn a_stop_while_a_fixer_runs_still_records_what_it_rewrote() {
+    let h = harness().await;
+    allow_edits_and_project_commands(&h);
+    let fix = if cfg!(windows) { ["cmd", "/c", "echo fixed> $FILE & ping -n 30 127.0.0.1 > nul"] } else { ["sh", "-c", "echo fixed > $FILE; sleep 30"] };
+    std::fs::write(h._dir.join("ws/drift.json"), json!({ "checks": { "fixer": { "command": fix, "extensions": [".md"] } } }).to_string()).unwrap();
+    h.provider.push(tool_call("write", r#"{"path": "a.md", "content": "draft\n"}"#)).push(text("written"));
+    h.engine.submit(&h.session.id, prompt("write a")).await.await_ok();
+    for _ in 0..500 {
+        if std::fs::read_to_string(h._dir.join("ws/a.md")).is_ok_and(|text| text.starts_with("fixed")) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    h.engine.abort(&h.session.id);
+    until_idle(&h).await;
+    let (_, meta) = &call_outputs(&h, 1)[0];
+    assert_eq!(meta["checkChanged"], json!(["a.md"]), "{meta:?}");
+    let prompt_id = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
+    h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
+    assert!(!h._dir.join("ws/a.md").exists(), "undo puts back the fixer's rewrite too");
 }
 
 #[tokio::test]

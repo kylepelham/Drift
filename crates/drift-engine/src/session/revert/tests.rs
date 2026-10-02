@@ -164,6 +164,22 @@ async fn an_undo_or_redo_whose_marker_cannot_be_saved_puts_the_files_back_and_ca
 }
 
 #[tokio::test]
+async fn an_undo_takes_every_files_turn_before_changing_any() {
+    let h = harness().await;
+    let (_, second) = two_writing_turns(&h).await;
+    let ws = crate::tool::canonical(&h._dir.join("ws"));
+    let held = crate::tool::lock::files(&ws, &[ws.join("b.txt")]).await;
+    let (engine, id) = (h.engine.clone(), h.session.id.clone());
+    let undo = tokio::spawn(async move { engine.revert(&id, &second).await.map(|_| ()) });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!undo.is_finished());
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("two"), "a.txt waits too, so a rollback never lands over another writer");
+    drop(held);
+    tokio::time::timeout(Duration::from_secs(5), undo).await.unwrap().unwrap().unwrap();
+    assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt")), (Some("one"), None));
+}
+
+#[tokio::test]
 async fn every_blob_undo_needs_is_kept_through_a_prune() {
     let h = harness().await;
     let (_, second) = two_writing_turns(&h).await;
