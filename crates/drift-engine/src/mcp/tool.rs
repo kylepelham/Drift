@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -90,13 +91,24 @@ const MAX_NAME: usize = 60;
 /// Built-in tool names a server's `<server>_<tool>` could spell; providers refuse two tools of one name.
 pub(crate) const RESERVED: [&str; 6] = ["apply_patch", "task_output", "task_stop", "read_thread", "mcp_resources", "mcp_read_resource"];
 
-/// The names the model calls a set of servers' tools (`(server, tool)` pairs) by: `<server>_<tool>`
-/// as written wherever that is unique, and a hashed name ([`wire_name`] with `clashes`) for every
-/// tool whose plain name another shares (`a_b` + `c` and `a` + `b_c`).
-pub fn wire_names(tools: &[(&str, &str)]) -> Vec<String> {
+/// Names already given, by `(server, tool)`; a name once given is never given to another tool.
+pub type Given = HashMap<(String, String), String>;
+
+/// The names the model calls a set of servers' tools (`(server, tool)` pairs) by. A tool named
+/// before keeps its name, so connecting another server never renames one a transcript already
+/// calls. A new tool gets `<server>_<tool>` as written where no tool has or is getting that name,
+/// and a hashed name ([`wire_name`] with `clashes`) where one does (`a_b` + `c` and `a` + `b_c`).
+pub fn wire_names(given: &Given, tools: &[(&str, &str)]) -> Vec<String> {
+    let taken: HashSet<&str> = given.values().map(String::as_str).collect();
+    let known = |server: &str, tool: &str| given.get(&(server.to_string(), tool.to_string()));
     let plain: Vec<String> = tools.iter().map(|(server, tool)| wire_name(server, tool, false)).collect();
-    let shared = |name: &String| plain.iter().filter(|other| *other == name).count() > 1;
-    tools.iter().zip(&plain).map(|((server, tool), name)| if shared(name) { wire_name(server, tool, true) } else { name.clone() }).collect()
+    let fresh = |name: &String| tools.iter().zip(&plain).filter(|((server, tool), other)| *other == name && known(server, tool).is_none()).count();
+    let name = |(server, tool): &(&str, &str), plain: &String| match known(server, tool) {
+        Some(name) => name.clone(),
+        None if taken.contains(plain.as_str()) || fresh(plain) > 1 => wire_name(server, tool, true),
+        None => plain.clone(),
+    };
+    tools.iter().zip(&plain).map(|(pair, plain)| name(pair, plain)).collect()
 }
 
 /// The name the model calls a server's tool by, in the characters every provider accepts
@@ -176,10 +188,20 @@ mod tests {
     use rmcp::model::{Tool, ToolAnnotations};
     use serde_json::json;
 
-    use super::{behaves_alike, wire_names};
+    use super::{behaves_alike, wire_names, Given};
 
     fn wire_name(server: &str, tool: &str) -> String {
         super::wire_name(server, tool, false)
+    }
+
+    #[test]
+    fn a_name_once_given_stays_when_a_clashing_server_connects() {
+        let given = Given::from([(("a".to_string(), "b_c".to_string()), "a_b_c".to_string())]);
+        let names = wire_names(&given, &[("a", "b_c"), ("a_b", "c")]);
+        assert_eq!(names[0], "a_b_c", "the tool the transcript calls keeps its name");
+        assert!(names[1].starts_with("a_b_c_"), "the newcomer gets the hash: {names:?}");
+        let alone = wire_names(&given, &[("a_b", "c")]);
+        assert!(alone[0].starts_with("a_b_c_"), "a name stays taken while its tool is away: {alone:?}");
     }
 
     #[test]
@@ -190,7 +212,7 @@ mod tests {
         assert_eq!(wire_name("s", "a_b"), "s_a_b");
         assert_ne!(wire_name("task", "output"), "task_output", "never a built-in tool's name");
         assert_eq!(wire_name("my_server", "search"), "my_server_search", "a `_` in a server's name alone changes nothing");
-        let names = wire_names(&[("a_b", "c"), ("a", "b_c"), ("a", "d")]);
+        let names = wire_names(&Given::new(), &[("a_b", "c"), ("a", "b_c"), ("a", "d")]);
         assert!(names[0] != names[1] && names[0].starts_with("a_b_c_") && names[1].starts_with("a_b_c_"), "only names that meet get a hash: {names:?}");
         assert_eq!(names[2], "a_d");
         let builtin: Vec<String> = crate::tool::Registry::builtin().specs(crate::llm::catalog::ToolProfile::Edit).into_iter().chain(crate::tool::Registry::builtin().specs(crate::llm::catalog::ToolProfile::ApplyPatch)).map(|s| s.name).chain(["mcp_resources".into(), "mcp_read_resource".into()]).filter(|n| n.contains('_')).collect();

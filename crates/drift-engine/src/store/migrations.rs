@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 27] = [
+pub(super) const MIGRATIONS: [&str; 28] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -151,6 +151,13 @@ pub(super) const MIGRATIONS: [&str; 27] = [
     ) STRICT, WITHOUT ROWID;",
     // Where each read falls in id order, so a fork carries only the reads its copied history shows.
     "ALTER TABLE read_file ADD COLUMN at INTEGER NOT NULL DEFAULT 0;",
+    // The name each MCP tool was given, so a transcript's calls keep meaning one tool.
+    "CREATE TABLE mcp_tool_name(
+        server TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        name TEXT NOT NULL UNIQUE,
+        PRIMARY KEY(server, tool)
+    ) STRICT, WITHOUT ROWID;",
 ];
 
 #[cfg(test)]

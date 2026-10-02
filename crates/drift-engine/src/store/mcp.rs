@@ -2,11 +2,27 @@ use rusqlite::{params, OptionalExtension, Row};
 
 use super::Store;
 use crate::id;
-use crate::mcp::{Era, ServerConfig, ServerRow};
+use crate::mcp::{wire_names, Era, Given, ServerConfig, ServerRow};
 
 const COLUMNS: &str = "name, config_json, enabled, updated_at, era";
 
 impl Store {
+    /// The names the model calls these `(server, tool)` pairs by, keeping every name given before
+    /// and recording the new ones, under one lock so two turns never hand one name out twice.
+    pub fn name_mcp_tools(&self, tools: &[(&str, &str)]) -> rusqlite::Result<Vec<String>> {
+        let conn = self.lock();
+        let given: Given = conn
+            .prepare_cached("SELECT server, tool, name FROM mcp_tool_name")?
+            .query_map([], |row| Ok(((row.get(0)?, row.get(1)?), row.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let names = wire_names(&given, tools);
+        let mut keep = conn.prepare_cached("INSERT OR IGNORE INTO mcp_tool_name(server, tool, name) VALUES(?1, ?2, ?3)")?;
+        for ((server, tool), name) in tools.iter().zip(&names) {
+            keep.execute(params![server, tool, name])?;
+        }
+        Ok(names)
+    }
+
     pub fn mcp_servers(&self) -> rusqlite::Result<Vec<ServerRow>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config ORDER BY name"))?;
@@ -94,6 +110,16 @@ fn map_row(row: &Row) -> rusqlite::Result<ServerRow> {
 mod tests {
     use super::*;
     use crate::store::tests::store;
+
+    #[test]
+    fn tool_names_are_kept_across_calls() {
+        let store = store();
+        assert_eq!(store.name_mcp_tools(&[("a", "b_c")]).unwrap(), ["a_b_c"]);
+        let both = store.name_mcp_tools(&[("a_b", "c"), ("a", "b_c")]).unwrap();
+        assert_eq!(both[1], "a_b_c", "the first keeps its name");
+        assert!(both[0].starts_with("a_b_c_"), "{both:?}");
+        assert_eq!(store.name_mcp_tools(&[("a_b", "c")]).unwrap(), [both[0].clone()], "and so does the second, once given");
+    }
 
     #[test]
     fn servers_save_rename_disable_and_remove() {

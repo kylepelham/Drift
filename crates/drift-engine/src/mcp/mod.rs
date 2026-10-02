@@ -25,6 +25,7 @@ use crate::event::{Event, Hub};
 use crate::platform::process::Tree;
 use crate::store::Store;
 use crate::tool::image::Image;
+pub(crate) use tool::{wire_names, Given};
 
 pub use oauth::{forget as forget_sign_in, forget_if_moved, move_sign_in};
 pub use tool::McpTool;
@@ -669,18 +670,23 @@ impl Servers {
         Watch::Lost { generation: slots.generation_of(name), lived: current.since.elapsed() }
     }
 
-    /// Every tool of every connected server, named `server_tool` so the model can tell them apart.
-    pub fn tools(&self) -> Vec<Arc<dyn crate::tool::Tool>> {
-        let slots = self.lock();
-        let mut listed = Vec::new();
-        for (server, slot) in &slots.servers {
-            let Some(live) = slot.current() else { continue };
-            listed.extend(live.tools().into_iter().map(|tool| (server, tool, live.clone(), slot.clone())));
-        }
-        let names = tool::wire_names(&listed.iter().map(|(server, tool, ..)| (server.as_str(), tool.name.as_ref())).collect::<Vec<_>>());
+    /// Every tool of every connected server, named `server_tool` so the model can tell them apart;
+    /// the names are kept in `store`, so a tool keeps its name for good ([`wire_names`]).
+    pub fn tools(&self, store: &Store) -> Vec<Arc<dyn crate::tool::Tool>> {
+        let (listed, resources) = {
+            let slots = self.lock();
+            let mut listed = Vec::new();
+            for (server, slot) in &slots.servers {
+                let Some(live) = slot.current() else { continue };
+                listed.extend(live.tools().into_iter().map(|tool| (server.clone(), tool, live.clone(), slot.clone())));
+            }
+            (listed, slots.servers.values().any(|slot| slot.current().is_some_and(|live| live.resources)))
+        };
+        let pairs: Vec<(&str, &str)> = listed.iter().map(|(server, tool, ..)| (server.as_str(), tool.name.as_ref())).collect();
+        let names = store.name_mcp_tools(&pairs).unwrap_or_else(|_| wire_names(&Given::new(), &pairs));
         let mut tools: Vec<Arc<dyn crate::tool::Tool>> =
-            listed.into_iter().zip(names).map(|((server, tool, live, slot), name)| Arc::new(McpTool::new(server, tool, live, slot, name)) as Arc<dyn crate::tool::Tool>).collect();
-        if slots.servers.values().any(|slot| slot.current().is_some_and(|live| live.resources)) {
+            listed.iter().zip(names).map(|((server, tool, live, slot), name)| Arc::new(McpTool::new(server, tool.clone(), live.clone(), slot.clone(), name)) as Arc<dyn crate::tool::Tool>).collect();
+        if resources {
             tools.push(Arc::new(resources::ListResources));
             tools.push(Arc::new(resources::ReadResource));
         }

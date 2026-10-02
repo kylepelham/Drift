@@ -28,7 +28,7 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
     assert_eq!(status.state, State::Connected);
     assert_eq!(status.tools.iter().map(|t| (t.name.as_str(), t.read_only)).collect::<Vec<_>>(), [("echo", true), ("shout", false)]);
 
-    let tools = engine.mcp.tools();
+    let tools = engine.mcp.tools(&engine.store);
     let names: Vec<String> = tools.iter().map(|t| t.spec().name).collect();
     assert_eq!(names, ["echo_echo", "echo_shout"]);
     let ctx = Context {
@@ -59,7 +59,7 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
 
     assert!(engine.mcp.disconnect("echo", &engine.store, &hub).await);
     assert_eq!(engine.mcp.status_of(saved).state, State::Disconnected);
-    assert!(engine.mcp.tools().is_empty());
+    assert!(engine.mcp.tools(&engine.store).is_empty());
 }
 
 fn context(engine: &Arc<crate::Engine>) -> Context {
@@ -199,7 +199,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
     let status = engine.mcp.status_of(row);
     assert_ne!(status.state, State::Connected);
     assert!(status.tools.is_empty(), "no tools from the discarded connection");
-    assert!(engine.mcp.tools().is_empty());
+    assert!(engine.mcp.tools(&engine.store).is_empty());
 }
 
 /// A slow server that records its pid and a grandchild's in a file, so a test can see them die.
@@ -380,7 +380,7 @@ async fn resources_are_listed_and_read_and_prompts_become_commands() {
     saved(&engine, "notes", &ServerConfig::Stdio { command, args, env: [("RICH".to_string(), "1".to_string())].into(), cwd: None, timeout_seconds: None }).await;
     engine.connect_mcp("notes").await.unwrap();
     let ctx = context(&engine);
-    let names: Vec<String> = engine.mcp.tools().iter().map(|t| t.spec().name).collect();
+    let names: Vec<String> = engine.mcp.tools(&engine.store).iter().map(|t| t.spec().name).collect();
     assert!(names.contains(&"mcp_resources".to_string()) && names.contains(&"mcp_read_resource".to_string()), "{names:?}");
     let listed = tool(&engine, "mcp_resources").run(&ctx, json!({})).await.unwrap().output;
     assert!(listed.contains("notes note://readme readme (text/plain): The notes"), "{listed}");

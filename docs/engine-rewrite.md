@@ -1127,11 +1127,14 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   the registry as `<server>_<tool>` (`mcp::tool::wire_name`: any character outside
   `[A-Za-z0-9_-]` becomes `_`, a name past 60 characters is cut, and a name that had to change,
   that would spell a built-in tool's (`task` + `output`), or that another server's tool spells too
-  (`a_b` + `c` and `a` + `b_c`, both then hashed; `mcp::tool::wire_names`) ends in a hash of the
+  (`a_b` + `c` and `a` + `b_c`; `mcp::tool::wire_names`) ends in a hash of the
   server and tool, so no two tools share a name and `a.b` and `a_b` stay apart, while
   `my_server_search` stays readable; 60 leaves room for the
   subscription route's `mcp_` within providers' 64, so one odd tool name cannot get every request
-  refused). Which server a tool came from is asked of the tool (`Tool::server`), never read back
+  refused). A name once given is kept in `drift.db` (`mcp_tool_name`, migration 28) and never
+  given to another tool, even while its server is away: a server that connects later and would
+  clash gets the hash itself, so no tool a transcript already calls is renamed. Two new tools that
+  clash with each other are both hashed. Which server a tool came from is asked of the tool (`Tool::server`), never read back
   from its name; tools the server marks read-only run without asking,
   the rest ask under kind `mcp` with pattern `<server>/<tool>`, and "always" therefore
   covers the whole server. Every save, disable, disconnect and remove bumps the server's
