@@ -285,12 +285,16 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
     used at least `context - reply room` tokens (`Model::reply_room`: the output limit, else a
     quarter of the window, never more than half a known window nor 32k; a 4k local model therefore
     compacts at 3k, and a model listing an output limit as large as its window at half, not before
-    every step). A request's `max_tokens` is held to the same half. The UI's context meter uses the same
+    every step). A request's `max_tokens` is held to the same half. When models.dev gives an input
+    cap below the window (`limit.input`; gpt-5.4 takes 922k of its 1.05M), that cap less
+    `min(reply room, 20k)` is the point instead (`Model::compaction_point`), so a long Codex session
+    compacts before the provider refuses it. The UI's context meter uses the same
     sum (`contextStats` in `src/engine/store.ts`), so "until compaction" is where it happens. One
     attempt per step; a failure still lets the request go.
   - Overflow: a provider error recognised as too long (`llm::Error::is_context_overflow`, status
-    400 or 413 plus each provider's wording) compacts and retries once per turn; a second overflow
-    fails the turn.
+    400 or 413 plus each provider's wording), or a reply that stops because it filled the window
+    (Anthropic `model_context_window_exceeded`, kept as an `error` message so it is never
+    replayed), compacts and retries once per turn; a second overflow fails the turn.
   - Manual: `POST /sessions/{id}/compact` (`/compact`) runs as the session's job, 409 while a turn
     runs, cancelled by Stop.
 - **Off switch**: `GET`/`PUT /settings { autoCompact }`, stored in the engine's `setting` table,
@@ -804,6 +808,13 @@ these async criteria are new pending M3 work.
   hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)
   without ever giving a `finish_reason` is a failed reply: its calls are not run, as with any stream
   that ends without saying why.
+  - A turn's `tool` messages go straight after the assistant message that called them; anything
+    else in that user turn (the line introducing a returned image, a prompt steered in mid-turn)
+    follows them as a `user` message, since these APIs refuse anything between calls and results.
+  - Reasoning a model streamed as `reasoning_content` goes back to the same model, on the assistant
+    messages of the tool loop under way (after the latest `user` message) and nowhere earlier:
+    Kimi, GLM and DeepSeek thinking models expect it there, and ignore or refuse it from earlier
+    turns. Only finished replies give it; Anthropic never receives unsigned thinking.
 - Local servers report their own models (`llm::local`). Every 15 s the engine asks LM Studio and
   Ollama (`/v1/models`, plus LM Studio's `/api/v0/models` for kind, context and tool support) at
   their default address or the one the user set; what answers replaces that provider's listed
@@ -835,8 +846,10 @@ these async criteria are new pending M3 work.
   for some upstreams, or per-block breakpoints (at most four), which it passes to every
   Anthropic-compatible upstream, Bedrock and Vertex included (OpenRouter prompt-caching guide,
   checked 2026-10-01). Drift uses the per-block form, placed as the Anthropic adapter places it:
-  the system prompt (sent as a text block) and the last text block of the last two user messages,
-  three breakpoints. It applies only to `anthropic/...` (and `~anthropic/...` alias) models on that
+  the system prompt (sent as a text block) and the last text of each of the last two user turns,
+  three breakpoints. A user turn there is the run of `tool` and `user` messages between replies,
+  so in a tool loop the breakpoint lands on the newest tool result (its content sent as one text
+  part to carry it), not back on the prompt that started the loop. It applies only to `anthropic/...` (and `~anthropic/...` alias) models on that
   route (`Compat::caching_claude`); every other model and gateway is sent unchanged. Usage reads
   `prompt_tokens_details.cached_tokens` and `cache_write_tokens`. Verified with a recorded exchange
   against a local stand-in, not a live account.
@@ -876,9 +889,14 @@ Settled after the first external review of M1; each has a regression test.
   not completion. A stream that ends without one is an error, not a completed message: its
   tool calls never run, and the turn retries like any transport fault. A `max_tokens` stop
   dispatches nothing either, since the call input may be cut short. Calls that will never run
-  (after a failed, stopped or cut-off reply) are closed as `error` with `Not run: <reason>`, never
-  left `pending`, so the UI and the model's next request both see why. A call whose arguments did
-  not parse as a JSON object fails before dispatch.
+  (after a failed, stopped, refused or cut-off reply, or queued behind a call that a Stop or
+  "Deny and stop" ended) are closed as `error` with `Not run: <reason>`, never left `pending`, so
+  the UI and the model's next request both see why. A call whose arguments did not parse as a JSON
+  object fails before dispatch.
+- A reply the provider's safety filter ended (Anthropic `refusal`, Chat Completions and OpenAI
+  `content_filter`, Gemini `SAFETY` and its kin) runs none of its calls and stays `done` with
+  `error: "The provider's safety filter ended the reply."`; the UI shows it with finish
+  `content-filter`, so a refusal with no text never ends in silence.
 - An Anthropic content block or delta of a type the adapter does not know (server tools,
   citations, kinds added later) is skipped, not an error: nothing opens for it, so its deltas and
   stop fall on nothing and the reply goes on. Bedrock shares this.
@@ -976,7 +994,8 @@ Settled after the first external review of M1; each has a regression test.
   call ends `error` with `stopped` or `timedOut` in its metadata.
 - PDFs travel the same way: `read` returns one (up to 10 MB, known by `%PDF-`) instead of refusing
   it, and `webfetch` returns an image or PDF URL as the file rather than as text, whatever its
-  content type. A catalog model reads PDFs (`Model::pdf`) when models.dev lists `pdf` among its
+  content type. `webfetch` reads a body a chunk at a time and gives up once it passes 10 MB (or at
+  once when `Content-Length` says so), so a huge or endless response never fills memory. A catalog model reads PDFs (`Model::pdf`) when models.dev lists `pdf` among its
   input modalities, or, without them, when it takes attachments on a route whose wire carries a
   PDF whole (Anthropic, OpenAI, Google, Vertex, Bedrock). Each adapter sends its own shape
   (Anthropic `document`, OpenAI `input_file`, Gemini `inlineData`, Chat Completions `file`); a
@@ -1070,7 +1089,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   http config). There is no approval step: a saved, enabled server connects at once, at startup
   and on demand through rmcp (an earlier approval gate was removed; migration 20 drops its column
   and key). Their tools join
-  the registry as `<server>_<tool>`; tools the server marks read-only run without asking,
+  the registry as `<server>_<tool>` (`mcp::tool::wire_name`: any character outside
+  `[A-Za-z0-9_-]` becomes `_`, and a name past 60 characters is cut and ends in a hash of the
+  whole, leaving room for the subscription route's `mcp_` within providers' 64, so one odd tool name
+  cannot get every request refused); tools the server marks read-only run without asking,
   the rest ask under kind `mcp` with pattern `<server>/<tool>`, and "always" therefore
   covers the whole server. Every save, disable, disconnect and remove bumps the server's
   generation; a connect that began under an older generation closes what it opened and
@@ -1260,9 +1282,15 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   returns SKILL.md's body and its directory.
 - **Formatters.** After a mutating tool succeeds, the first formatter whose extensions
   match each written file runs. Built-ins (prettier, rustfmt, gofmt, ruff, black) apply
-  only when on PATH, found as a shell would (npm's `prettier.cmd` included); `drift.json` `formatters` can set a name to `false` or to
-  `{ command, extensions }` with `$FILE`. Results land in the call's `metadata.formatted`;
-  failures are ignored.
+  only when on PATH, found as a shell would (npm's `prettier.cmd` included), and only where the
+  project uses them, looked for from the file's directory up to the repository root: prettier when
+  a `package.json` names it or a prettier config exists, ruff with `ruff.toml` or `[tool.ruff]`,
+  black with `[tool.black]`, rustfmt with `rustfmt.toml`; gofmt always. A global prettier never
+  reformats a project that does not use it. rustfmt reads the file on stdin at the crate's edition
+  (from the nearest `Cargo.toml`) and its output replaces the file, so the out-of-line modules it
+  would otherwise follow are never touched. `drift.json` `formatters` can set a name to `true`
+  (on without looking), `false` or `{ command, extensions }` with `$FILE`. Results land in the
+  call's `metadata.formatted`; failures are ignored.
 - **Checks.** The checks in `drift.json` `checks` run once per step, after all of the step's
   calls, over every file its edit, write and apply_patch calls wrote (a shell command lists no
   files, so it is not checked). Each is `{ command, extensions }`, or `false` to turn off one an

@@ -152,6 +152,7 @@ change the plan there when a decision changes.
 - [x] MCP registry rebuilt: GitHub's curated registry popular-first with logos, stars and local ranked search, official registry matches appended; install sheet per run option (remote http/sse, npx, uvx, docker) asking only what the entry leaves open, secrets kept out of arguments, sign-in opened on install
 - [x] Checks once per step over everything it wrote, in parallel within one budget, unchanged output not resent, fixers announced; a project's own check and formatter commands run only once allowed (always kept per workspace under a hash of them)
 - [x] MCP sign-in: typed 401/403 detection, pre-registered apps (`oauth: { clientId, clientSecret, scopes }`), SSE servers, failed sign-ins reported; loopback-callback limit on remote devices documented
+- [x] External review at 0a38564: Chat Completions tool messages before same-turn text, `reasoning_content` back within the tool loop, OpenRouter Claude breakpoints on tool turns; built-in formatters only where the project uses them, rustfmt on the edited file alone; MCP tool names in provider-safe characters; refusals visible and context-window stops compacted; unrun calls closed after Stop; compaction under `limit.input`; glob newest of the whole walk; webfetch capped while streaming
 - [x] Post-edit checks: `drift.json` `checks` run after edit, write and apply_patch (per file with `$FILE`, else once), problems added to the result, Stop kills them with their process tree
 
 #### Retained features still on the OpenCode database (pending native UI work)
