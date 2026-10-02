@@ -76,8 +76,8 @@ mod tests {
         store.add_part(&message.id, &session.id, call).unwrap();
         let conn = store.lock();
         conn.execute("DELETE FROM blob_ref", []).unwrap();
-        conn.pragma_update(None, "user_version", 22).unwrap();
-        crate::store::migrations::apply(&conn).unwrap();
+        // Migration 23, the backfill, run again by itself.
+        conn.execute_batch(crate::store::migrations::MIGRATIONS[22]).unwrap();
         drop(conn);
         assert_eq!(store.prune_blobs().unwrap(), 0, "the part's image is named again");
         assert!(store.blob(&hash).unwrap().is_some());
