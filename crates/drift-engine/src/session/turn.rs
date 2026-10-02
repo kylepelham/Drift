@@ -230,6 +230,11 @@ impl Turns {
         self.files.lock().unwrap().entry(session_id.into()).or_default().clone()
     }
 
+    /// Forgets what the session's checks said, once the model may no longer see it (compaction, undo), so the next report is sent in full.
+    pub(super) fn forget_checked(&self, session_id: &str) {
+        self.checked.lock().unwrap().remove(session_id);
+    }
+
     /// Records what a check said (`None` when it passed); whether the session was told exactly this last time.
     fn repeated(&self, session_id: &str, label: &str, said: Option<&str>) -> bool {
         let mut checked = self.checked.lock().unwrap();
@@ -1003,38 +1008,53 @@ impl Engine {
     /// Runs the workspace's checks once over everything the step wrote, and adds what they found to its last writing call.
     async fn check_step(&self, scope: &CallScope<'_>) {
         let StepWrites { mut files, last } = std::mem::take(&mut *scope.wrote.lock().unwrap());
-        let Some(mut row) = last.filter(|_| !scope.plan.config.checks.is_empty() && !files.is_empty()) else { return };
+        let Some(row) = last.filter(|_| !scope.plan.config.checks.is_empty() && !files.is_empty()) else { return };
+        files.sort();
+        files.dedup();
         let asker = super::trust::Asker { message_id: &scope.message.id, call_id: call_id_of(&row), abort: scope.abort };
-        let checks = match self.project_commands_trusted(scope.plan, asker).await {
+        let checks = match self.project_commands_trusted(scope.plan, asker, &files).await {
             true => crate::edit::check::resolve(&scope.plan.config.checks),
             false => crate::edit::check::resolve(&scope.plan.config.without_project_commands().1),
         };
         if checks.is_empty() || scope.abort.is_cancelled() {
             return;
         }
-        files.sort();
-        files.dedup();
-        let before: Vec<Option<Vec<u8>>> = futures_util::future::join_all(files.iter().map(tokio::fs::read)).await.into_iter().map(Result::ok).collect();
+        // Taken as a writing call's own is, so undo puts back what a fixing check rewrites.
+        let capture = self.capture_before(&scope.plan.workspace, Some(files.clone())).await.ok();
         let reports = tokio::select! {
             reports = crate::edit::check::run(&files, &scope.plan.workspace, &checks, CHECK_BUDGET) => reports,
             () = scope.abort.cancelled() => return,
         };
-        let mut changed = Vec::new();
-        for (file, was) in files.iter().zip(before) {
-            if tokio::fs::read(file).await.ok() != was {
-                changed.push(crate::tool::display(file, &scope.plan.workspace));
-            }
-        }
+        let recorded = match capture {
+            Some(capture) => self.record_call(&scope.plan.workspace, capture).await,
+            None => Ok(super::changes::Recorded::default()),
+        };
+        self.report_checks(scope, row, &reports, recorded);
+    }
+
+    /// Adds what the checks found, and any file they rewrote, to the step's last writing call: its result, and its change record for undo.
+    fn report_checks(&self, scope: &CallScope<'_>, mut row: PartRow, reports: &[crate::edit::check::Report], recorded: Result<super::changes::Recorded, super::changes::Lost>) {
         let workspace = &scope.plan.workspace;
-        let notes: Vec<String> = [checks_note(&reports, workspace, |label, said| self.turns.repeated(&scope.plan.session.id, label, said)), changed_note(&changed)].into_iter().flatten().collect();
+        let (changes, lost) = match recorded {
+            Ok(recorded) => (recorded.changes, None),
+            Err(lost) => (Vec::new(), Some(lost.note)),
+        };
+        let changed: Vec<String> = changes.iter().map(|change| change.path.clone()).collect();
+        let found = checks_note(reports, workspace, |label, said| self.turns.repeated(&scope.plan.session.id, label, said));
+        let notes: Vec<String> = [found, changed_note(&changed), lost].into_iter().flatten().collect();
         let Part::ToolCall { output, metadata, .. } = &mut row.part else { return };
         if !notes.is_empty() {
             *output = Some(format!("{}\n\n{}", output.take().unwrap_or_default(), notes.join("\n\n")));
         }
         let mut meta = metadata.take().unwrap_or_else(|| json!({}));
-        meta["checks"] = checks_metadata(&reports, workspace);
-        if !changed.is_empty() {
+        meta["checks"] = checks_metadata(reports, workspace);
+        if !changes.is_empty() {
             meta["checkChanged"] = json!(changed);
+            // After the call's own changes, so undo chains them: the check's rewrite is put back first.
+            match meta.get_mut("changes").and_then(serde_json::Value::as_array_mut) {
+                Some(list) => list.extend(changes.iter().map(|change| json!(change))),
+                None => meta["changes"] = json!(changes),
+            }
         }
         *metadata = Some(meta);
         // Unsaved, they are not shown either: what the user sees is what the model will be sent.
@@ -1186,7 +1206,8 @@ impl Engine {
     /// Formats what a mutating call wrote; the model hears when a formatter changed it. Checks wait for the step's end.
     async fn after_write(&self, scope: &CallScope<'_>, call_id: &str, mut text: String, metadata: serde_json::Value) -> (String, serde_json::Value) {
         let asker = super::trust::Asker { message_id: &scope.message.id, call_id, abort: scope.abort };
-        let overrides = match self.project_commands_trusted(scope.plan, asker).await {
+        let files: Vec<PathBuf> = metadata["files"].as_array().into_iter().flatten().filter_map(|file| file.as_str()).map(PathBuf::from).collect();
+        let overrides = match self.project_commands_trusted(scope.plan, asker, &files).await {
             true => scope.plan.config.formatters.clone(),
             false => scope.plan.config.without_project_commands().0,
         };

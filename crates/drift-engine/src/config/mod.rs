@@ -369,6 +369,20 @@ impl Config {
         self.project_commands.iter().filter_map(|key| command(key)).collect()
     }
 
+    /// Whether any of the project's own commands covers one of `files`, so there is something to ask about.
+    pub fn project_commands_cover(&self, files: &[PathBuf]) -> bool {
+        let covers = |extensions: &[String]| {
+            files.iter().any(|file| {
+                let name = file.file_name().map(|name| name.to_string_lossy().to_lowercase()).unwrap_or_default();
+                extensions.iter().any(|ext| name.ends_with(&ext.to_lowercase()))
+            })
+        };
+        self.project_commands.iter().filter_map(|key| key.split_once(':')).any(|(kind, name)| match kind {
+            "check" => matches!(self.checks.get(name), Some(CheckConfig::Custom { extensions, .. }) if covers(extensions)),
+            _ => matches!(self.formatters.get(name), Some(FormatterConfig::Custom { extensions, .. }) if covers(extensions)),
+        })
+    }
+
     /// Formatters and checks with the project's own commands taken out: built-in formatters and the user's own still run.
     pub fn without_project_commands(&self) -> (BTreeMap<String, FormatterConfig>, BTreeMap<String, CheckConfig>) {
         let untrusted = |kind: &str, name: &String| self.project_commands.contains(&format!("{kind}:{name}"));
@@ -601,6 +615,8 @@ mod tests {
         write(&ws, "drift.json", r#"{ "checks": { "shared": false, "theirs": { "command": ["make", "lint"], "extensions": [".c"] } }, "formatters": { "prettier": { "command": ["./fmt.sh", "$FILE"], "extensions": [".ts"] }, "rustfmt": false } }"#);
         let config = Config::load_with_home(&ws, Some(&home));
         assert_eq!(config.project_command_lines(), ["check theirs: make lint", "formatter prettier: ./fmt.sh $FILE"]);
+        assert!(config.project_commands_cover(&[ws.join("main.C")]) && config.project_commands_cover(&[ws.join("app.ts")]));
+        assert!(!config.project_commands_cover(&[ws.join("notes.md")]), "nothing of the project's would run on it, so nothing to ask");
         let (formatters, checks) = config.without_project_commands();
         assert_eq!(checks.keys().collect::<Vec<_>>(), ["mine", "shared"], "the user's own run; a project's `false` still turns one off");
         assert!(!formatters.contains_key("prettier") && formatters.contains_key("rustfmt"), "the built-in prettier comes back; a project's `false` stands");

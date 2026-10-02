@@ -1445,6 +1445,44 @@ async fn a_configured_formatter_runs_after_a_write() {
     assert!(metadata.as_ref().unwrap().get("formatted").is_none() && !output.as_deref().unwrap().contains("formatter"), "a formatter that changed nothing is not mentioned");
 }
 
+#[tokio::test]
+async fn undo_puts_back_what_a_fixing_check_rewrote_and_forgets_what_checks_said() {
+    let h = harness().await;
+    allow_edits_and_project_commands(&h);
+    let fix = if cfg!(windows) { ["cmd", "/c", "echo fixed> $FILE"] } else { ["sh", "-c", "echo fixed > $FILE"] };
+    std::fs::write(h._dir.join("ws/drift.json"), json!({ "checks": { "fixer": { "command": fix, "extensions": [".md"] } } }).to_string()).unwrap();
+    std::fs::write(h._dir.join("ws/notes.md"), "original\n").unwrap();
+    // Read first: an existing file is only written after the session has read it.
+    h.provider.push(tool_call("read", r#"{"path": "notes.md"}"#)).push(text("read it"));
+    h.engine.submit(&h.session.id, prompt("read notes")).await.await_ok();
+    until_idle(&h).await;
+    h.provider.push(two_writes(("notes.md", "draft\n"), ("new.md", "new\n"))).push(text("written"));
+    h.engine.submit(&h.session.id, prompt("write notes")).await.await_ok();
+    until_idle(&h).await;
+    assert!(std::fs::read_to_string(h._dir.join("ws/notes.md")).unwrap().starts_with("fixed"));
+    assert!(std::fs::read_to_string(h._dir.join("ws/new.md")).unwrap().starts_with("fixed"));
+    h.engine.turns.repeated(&h.session.id, "fixer", Some("seen"));
+
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let prompt_id = transcript.iter().filter(|m| m.info.role == Role::User).nth(1).unwrap().info.id.clone();
+    let undone = h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
+    assert!(undone.kept.is_empty(), "the check's rewrite is the session's own, so nothing is kept: {:?}", undone.kept);
+    assert_eq!(std::fs::read_to_string(h._dir.join("ws/notes.md")).unwrap(), "original\n");
+    assert!(!h._dir.join("ws/new.md").exists(), "a file the step created and a check rewrote is gone again");
+    assert!(!h.engine.turns.repeated(&h.session.id, "fixer", Some("seen")), "undone, what checks said is forgotten");
+}
+
+#[tokio::test]
+async fn compaction_forgets_what_checks_said() {
+    let h = harness().await;
+    h.provider.push(text("hello")).push(text("the summary"));
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    until_idle(&h).await;
+    h.engine.turns.repeated(&h.session.id, "types", Some("3 errors"));
+    h.engine.compact(&h.session.id, super::compaction::Trigger::Manual, &Default::default()).await.unwrap();
+    assert!(!h.engine.turns.repeated(&h.session.id, "types", Some("3 errors")), "the summary may not hold the full report, so it is sent again");
+}
+
 /// For tests about what checks and formatters do, not whether they may run: a rule allows the project's commands.
 fn allow_edits_and_project_commands(h: &Harness) {
     let allow = |kind: &str| Rule { kind: kind.into(), pattern: "*".into(), decision: Decision::Allow };
@@ -1459,6 +1497,11 @@ async fn a_projects_own_commands_run_only_once_the_user_says_so_and_always_holds
     let (shell, flag, run) = if cfg!(windows) { ("cmd", "/c", format!("echo ran>> {}", marker.display())) } else { ("sh", "-c", format!("echo ran >> '{}'", marker.display())) };
     std::fs::write(h._dir.join("ws/drift.json"), json!({ "checks": { "mark": { "command": [shell, flag, run], "extensions": [".txt"] } } }).to_string()).unwrap();
     let mut rx = h.engine.hub.attach(None).rx;
+
+    h.provider.push(tool_call("write", r#"{"path": "readme.md", "content": "r\n"}"#)).push(text("zero"));
+    h.engine.submit(&h.session.id, prompt("write the readme")).await.await_ok();
+    until_idle(&h).await;
+    assert!(h.engine.permissions.pending().is_empty(), "nothing of the project's covers a .md file, so nothing is asked");
 
     h.provider.push(tool_call("write", r#"{"path": "a.txt", "content": "a\n"}"#)).push(text("one"));
     h.engine.submit(&h.session.id, prompt("write a")).await.await_ok();

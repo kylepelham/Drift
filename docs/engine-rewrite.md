@@ -1276,22 +1276,28 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   and file, before the model's next request; a pass says nothing, and a check that cannot start or
   runs out of time is not mentioned to the model. Output identical to what the same check said last
   time in the session is named ("the same problems as reported before"), not sent again, so
-  problems already in the repository do not fill the context step after step; a pass forgets it.
+  problems already in the repository do not fill the context step after step; a pass forgets it,
+  and so do compaction and undo, after which the model may no longer have the full report.
   A check that changes a file the step wrote (a fixer such as `eslint --fix`) is announced as a
-  formatter is ("A check then changed ..."), with the files in `metadata.checkChanged`. Every run
+  formatter is ("A check then changed ..."), with the files in `metadata.checkChanged`. The files
+  are captured around the checks as a writing call's are, and what a check rewrote is appended to
+  the last writing call's change record, so undo chains it after the step's writes and puts the
+  file back to before the step, rather than keeping it as someone else's edit. Every run
   is in `metadata.checks` (`check`, `status` of `passed`, `problems` or `unavailable`, `output`).
   Stop cuts the checks off with their whole process tree; the writes stand. Checks stand in for
   LSP diagnostics until those land (M4).
 - **Project commands.** A command a check or formatter names in the project's own `drift.json`
   runs only once the user has allowed it; the user's `~/.config/drift/drift.json`, built-in
   formatters and a project's `false` need no say-so (as custom providers come only from the user's
-  file, opening a cloned repository must not run what it names). The first write that would format
-  or check asks once, a permission card of kind `project-commands` listing every such command
-  (`check lint: eslint $FILE; formatter prettier: ./fmt.sh $FILE`). Always is kept for the
-  workspace under a hash of those commands (setting `trustedCommands:<workspace>`), so any change
-  to them asks again; once allows them for the session; deny skips them for the session, built-in
-  formatters and the user's own commands still running. A permission rule of that kind (pattern
-  `*`) allows them without asking.
+  file, opening a cloned repository must not run what it names). The first write one of those
+  commands covers (by its extensions) asks once, a permission card of kind `project-commands`
+  listing every such command (`check lint: eslint $FILE; formatter prettier: ./fmt.sh $FILE`); a
+  write none of them covers asks nothing. The answer covers the whole set: always is kept for the
+  workspace under a hash of all of them (setting `trustedCommands:<workspace>`), so any change asks
+  again; once allows them for the session; deny skips them for the session, built-in formatters and
+  the user's own commands still running. Subagents take the answer of the session that delegated
+  to them, along the same lineage as permission approvals, so a delegated task does not ask again.
+  A permission rule of that kind (pattern `*`) allows them without asking.
 - **Permissions** resolve in order: session "always" answers, the workspace's `drift.json`
   rules, then the global policy.
   - File asks (read, edit, write, apply_patch) carry the absolute path and, inside the workspace,

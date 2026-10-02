@@ -15,13 +15,28 @@ use crate::Engine;
 pub struct Answers(Mutex<HashMap<String, (String, bool)>>);
 
 impl Answers {
-    fn get(&self, session_id: &str, hash: &str) -> Option<bool> {
-        self.0.lock().unwrap().get(session_id).filter(|(asked, _)| asked == hash).map(|(_, allowed)| *allowed)
+    /// The nearest answer along `lineage` (the session, then the parents a subagent inherits approvals from).
+    fn get(&self, lineage: &[String], hash: &str) -> Option<bool> {
+        let answers = self.0.lock().unwrap();
+        lineage.iter().find_map(|id| answers.get(id).filter(|(asked, _)| asked == hash).map(|(_, allowed)| *allowed))
     }
 
     fn set(&self, session_id: &str, hash: &str, allowed: bool) {
         self.0.lock().unwrap().insert(session_id.into(), (hash.into(), allowed));
     }
+}
+
+#[cfg(test)]
+#[test]
+fn a_subagent_takes_its_parents_answer_and_a_changed_command_set_is_asked_again() {
+    let answers = Answers::default();
+    answers.set("parent", "h1", true);
+    let child = ["child".to_string(), "parent".to_string()];
+    assert_eq!(answers.get(&child, "h1"), Some(true), "once in the parent holds for the subagent it delegates to");
+    assert_eq!(answers.get(&child, "h2"), None);
+    answers.set("child", "h1", false);
+    assert_eq!(answers.get(&child, "h1"), Some(false), "its own answer comes first");
+    assert_eq!(answers.get(&["parent".to_string()], "h1"), Some(true), "and never reaches the parent");
 }
 
 /// Where a workspace's trusted command set is kept: the hash of the commands the user said always to run.
@@ -42,18 +57,19 @@ pub(super) struct Asker<'a> {
 }
 
 impl Engine {
-    /// Whether the project's own check and formatter commands may run: "always" holds for the workspace until they change, "once" and "deny" for the session.
-    pub(super) async fn project_commands_trusted(&self, plan: &Plan, asker: Asker<'_>) -> bool {
-        let lines = plan.config.project_command_lines();
-        if lines.is_empty() {
+    /// Whether the project's own check and formatter commands may run on `files`: asked only when one covers them; "always" holds for the workspace, "once" and "deny" for the session and its subagents.
+    pub(super) async fn project_commands_trusted(&self, plan: &Plan, asker: Asker<'_>, files: &[std::path::PathBuf]) -> bool {
+        // Nothing of the project's would run on these files, so nothing untrusted runs either way.
+        if !plan.config.project_commands_cover(files) {
             return true;
         }
+        let lines = plan.config.project_command_lines();
         let hash = hash(&lines);
         let session = &plan.session;
         if self.store.setting::<String>(&key(&session.workspace_id)).ok().flatten().as_deref() == Some(hash.as_str()) {
             return true;
         }
-        if let Some(allowed) = self.turns.trust.get(&session.id, &hash) {
+        if let Some(allowed) = self.turns.trust.get(&self.permissions.lineage(&session.id), &hash) {
             return allowed;
         }
         let ask = Ask::new("project-commands", lines.join("; "), "Run the commands this project's drift.json names");

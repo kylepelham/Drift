@@ -225,6 +225,8 @@ impl Engine {
 
     fn mark(&self, session_id: &str, revert: Option<&Revert>) -> Result<Session, String> {
         let session = self.store.set_revert(session_id, revert).map_err(|e| e.to_string())?.ok_or("the session is gone")?;
+        // Undone messages may hold a check's full output; the next report must not lean on it.
+        self.turns.forget_checked(session_id);
         self.hub.publish(Event::SessionUpdated { session: session.clone() });
         Ok(session)
     }

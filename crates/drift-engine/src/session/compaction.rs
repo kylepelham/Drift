@@ -138,6 +138,7 @@ impl Engine {
         let result = self.compact_once(session_id, trigger, abort).await;
         if result.is_ok() {
             self.turns.files_for(session_id).forget_shown();
+            self.turns.forget_checked(session_id);
         }
         if trigger != Trigger::Manual {
             let mut failures = self.turns.compaction_failures.lock().unwrap();

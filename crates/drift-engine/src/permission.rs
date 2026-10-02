@@ -151,7 +151,7 @@ impl Permissions {
     }
 
     /// The session and the parents whose approvals it inherits, nearest first.
-    fn lineage(&self, session_id: &str) -> Vec<String> {
+    pub(crate) fn lineage(&self, session_id: &str) -> Vec<String> {
         let parents = self.parents.lock().unwrap();
         let mut chain = vec![session_id.to_string()];
         while let Some(parent) = parents.get(chain.last().unwrap()).filter(|_| chain.len() < MAX_LINEAGE) {
