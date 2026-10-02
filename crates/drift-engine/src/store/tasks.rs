@@ -48,13 +48,31 @@ impl Store {
         })
     }
 
+    /// Records a launch that continues `session_id`, an earlier worker's transcript, or returns the one
+    /// this call already made. The worker's conversation goes on; only the task row is new.
+    pub fn resume_task(&self, new: NewTask, session_id: &str) -> rusqlite::Result<Launch> {
+        transaction(&self.lock(), |conn| {
+            if let Some(task) = query_one(conn, "parent_session_id = ?1 AND call_id = ?2", &[new.parent_session_id, new.call_id])? {
+                let child = session_in(conn, &task.session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+                return Ok(Launch { task, child, created: false });
+            }
+            let child = session_in(conn, session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+            let task_id = id::new("task");
+            let state = if new.mode == Mode::Background { TaskState::Queued } else { TaskState::Running };
+            conn.prepare_cached(&format!("INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0, NULL)"))?
+                .execute(params![task_id, new.parent_session_id, session_id, new.call_id, new.description, new.agent, new.mode.as_str(), new.reason, state.as_str(), id::now_ms(), new.generation])?;
+            let task = query_one(conn, "id = ?1", &[&task_id])?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+            Ok(Launch { task, child, created: true })
+        })
+    }
+
     pub fn task(&self, task_id: &str) -> rusqlite::Result<Option<TaskRecord>> {
         query_one(&self.lock(), "id = ?1", &[task_id])
     }
 
-    /// The worker whose transcript is `session_id`, if it is one.
+    /// The worker whose transcript is `session_id`, if it is one; the latest, when a worker was resumed.
     pub fn task_for_session(&self, session_id: &str) -> rusqlite::Result<Option<TaskRecord>> {
-        query_one(&self.lock(), "session_id = ?1", &[session_id])
+        query_one(&self.lock(), "session_id = ?1 ORDER BY id DESC LIMIT 1", &[session_id])
     }
 
     /// Every worker a session launched, oldest first.

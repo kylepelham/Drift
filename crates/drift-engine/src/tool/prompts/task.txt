@@ -5,5 +5,6 @@ Hands a self-contained job to a subagent and returns its final reply. The subage
 - Say whether it should change code or only research and report, and how it should check its work (the tests or command to run).
 - Once you have handed a job off, do not do the same work yourself; wait for its result and build on it.
 - Issue several `task` calls together when the jobs are independent.
+- To ask a finished subagent a follow-up, pass its `task_id`: it continues with everything it already found, so you need not repeat the context.
 - The user sees a subtask row while it runs but not its transcript.
 - With `run_in_background: true` the call returns at once with a task id and you keep working. The result arrives in this conversation as a `<task-result>` when the subagent finishes, even if your turn has ended by then. Do not sleep or poll for it; call `task_output` only when you cannot continue without the result, and `task_stop` to cancel one you no longer need.

@@ -1465,7 +1465,7 @@ async fn a_task_runs_a_hidden_child_and_returns_its_reply() {
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let Part::ToolCall { status, output, metadata, .. } = &transcript[1].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Done);
-    assert_eq!(output.as_deref(), Some("a.txt contains alpha"));
+    assert!(output.as_deref().unwrap().starts_with("a.txt contains alpha\n\n(task_id:"));
     let child_id = metadata.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
     let child = h.engine.store.session(&child_id).unwrap().unwrap();
     assert_eq!(child.parent_id.as_deref(), Some(h.session.id.as_str()));
@@ -1474,6 +1474,42 @@ async fn a_task_runs_a_hidden_child_and_returns_its_reply() {
     assert_eq!(h.engine.store.transcript(&child_id).unwrap().len(), 3);
     let listed = h.engine.store.sessions(crate::store::SessionFilter { workspace_id: None, archived: false, before: None, limit: 10 }).unwrap();
     assert!(listed.iter().any(|s| s.id == child_id && s.parent_id.as_deref() == Some(h.session.id.as_str())), "subagents are listed so the UI can nest them");
+}
+
+#[tokio::test]
+async fn a_finished_subagent_can_be_continued_with_what_it_already_saw() {
+    let h = harness().await;
+    h.provider
+        .push(tool_call("task", r#"{"description": "Find it", "prompt": "Where is FIRST_CONTEXT handled?"}"#))
+        .push(text("in parser.rs"))
+        .push(text("found"));
+    h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
+    until_idle(&h).await;
+    let (_, _, first) = task_call(&h.engine.store.transcript(&h.session.id).unwrap());
+    let (task_id, child_id) = (first["taskId"].as_str().unwrap().to_string(), first["sessionId"].as_str().unwrap().to_string());
+    let follow_up = json!({ "description": "Follow up", "prompt": "And who calls it?", "task_id": task_id, "subagent_type": "explore" }).to_string();
+    // Each call gets its own id from a real provider; the same id would be a replay of the first.
+    let mut again = tool_call("task", &follow_up);
+    again[0] = Chunk::ToolUseStart { id: "toolu_task_2".into(), name: "task".into() };
+    h.provider.push(again).push(text("main.rs calls it")).push(text("done"));
+    h.engine.submit(&h.session.id, prompt("ask again")).await.await_ok();
+    until_idle(&h).await;
+    let child_request = h.provider.requests.lock().unwrap().iter().rev().nth(1).unwrap().clone();
+    let seen = format!("{:?}", child_request.messages);
+    assert!(seen.contains("FIRST_CONTEXT") && seen.contains("in parser.rs") && seen.contains("who calls it"), "the subagent continues its own conversation: {seen}");
+    let tasks = h.engine.store.tasks_of(&h.session.id).unwrap();
+    assert_eq!(tasks.len(), 2);
+    assert_eq!((tasks[1].session_id.as_str(), tasks[1].agent.as_str()), (child_id.as_str(), "general"), "same transcript, same agent");
+    assert_eq!(h.engine.store.task_for_session(&child_id).unwrap().unwrap().id, tasks[1].id, "the latest task speaks for the session");
+
+    let mut bad = tool_call("task", &json!({ "description": "x", "prompt": "y", "task_id": "task_nope" }).to_string());
+    bad[0] = Chunk::ToolUseStart { id: "toolu_task_3".into(), name: "task".into() };
+    h.provider.push(bad).push(text("ok"));
+    h.engine.submit(&h.session.id, prompt("bad id")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let refused = transcript.iter().rev().flat_map(|m| &m.parts).find_map(|row| match &row.part { Part::ToolCall { output, .. } => output.clone(), _ => None }).unwrap();
+    assert!(refused.contains("no task task_nope"), "{refused}");
 }
 
 fn too_long() -> llm::Error {

@@ -620,9 +620,9 @@ async fn the_same_launch_again_gets_what_it_launched_and_makes_nothing_new() {
     let ctx = context(&h, &h.session.id, "fg_call");
     let front = json!({ "description": "Front", "prompt": "CHILD front" });
     let first = crate::tool::task::Task.run(&ctx, front.clone()).await.unwrap();
-    assert_eq!(first.output, "front answer");
+    assert!(first.output.starts_with("front answer\n\n(task_id: task_"), "{}", first.output);
     let again = crate::tool::task::Task.run(&ctx, front).await.unwrap();
-    assert_eq!((again.output.as_str(), again.metadata["mode"].as_str()), ("front answer", Some("foreground")), "a foreground replay is its result, not a background receipt");
+    assert_eq!((again.output.as_str(), again.metadata["mode"].as_str()), (first.output.as_str(), Some("foreground")), "a foreground replay is its result, not a background receipt");
     assert_eq!((children(&h), tasks(&h).len()), (2, 2));
     h.engine.abort(&h.session.id);
 }
@@ -687,5 +687,5 @@ async fn with_background_turned_off_an_explicit_request_is_refused_and_foregroun
     assert_eq!(recorded.len(), 1);
     assert_eq!((recorded[0].mode, recorded[0].state, recorded[0].delivered), (Mode::Foreground, TaskState::Replied, true));
     let Part::ToolCall { output, .. } = &transcript[2].parts[0].part else { panic!() };
-    assert_eq!(output.as_deref(), Some("waited result"), "foreground returns the result as the call's own");
+    assert!(output.as_deref().unwrap().starts_with("waited result\n\n(task_id:"), "foreground returns the result as the call's own");
 }

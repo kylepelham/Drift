@@ -286,6 +286,10 @@ test("taskBody extracts prompt and task_result for task cards", async () => {
     prompt: "spin off",
     result: "Spawned thread ok",
   })
+  expect(taskBody(part("task", { prompt: "find" }, "in parser.rs\n\n(task_id: task_1; pass it to task to continue this subagent's conversation)"))).toEqual({
+    prompt: "find",
+    result: "in parser.rs",
+  })
   expect(taskBody(part("bash", {}, "x"))).toBeNull()
 })
 

@@ -1058,7 +1058,8 @@ export function taskBody(part: ToolPart) {
   const input = part.state.input as { prompt?: string; task?: string }
   const output = part.state.status === "completed" ? (part.state as { output: string }).output : ""
   const result = output.match(/<task_result>\n?([\s\S]*?)\n?<\/task_result>/)?.[1] ?? output
-  return { prompt: input.prompt ?? input.task ?? "", result }
+  // The engine tells the model how to continue the subagent; the card shows the subagent's own words.
+  return { prompt: input.prompt ?? input.task ?? "", result: result.replace(/\n\n\(task_id: [^)]*\)$/, "") }
 }
 
 function GenericBody(props: { part: ToolPart }) {

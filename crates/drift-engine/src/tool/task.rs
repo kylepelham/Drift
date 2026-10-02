@@ -30,7 +30,8 @@ impl Tool for Task {
                     "description": { "type": "string", "description": "Three to six words naming the job, shown to the user." },
                     "prompt": { "type": "string", "description": "Everything the subagent needs: the goal, what to return, constraints. It sees none of this conversation." },
                     "subagent_type": { "type": "string", "description": "A subagent from the list in the system prompt, such as explore for read-only searching. Default: general." },
-                    "run_in_background": { "type": "boolean", "description": "Leave it running and carry on: this call returns at once with a task id, and the result arrives in this conversation when it finishes. For long work you do not need before your next step. Default: the subagent's own setting, else wait for it." }
+                    "run_in_background": { "type": "boolean", "description": "Leave it running and carry on: this call returns at once with a task id, and the result arrives in this conversation when it finishes. For long work you do not need before your next step. Default: the subagent's own setting, else wait for it." },
+                    "task_id": { "type": "string", "description": "Continue a finished subagent from this conversation instead of starting a new one: it keeps everything it saw and did, so `prompt` only needs the follow-up. Its agent stays as it was." }
                 },
                 "required": ["description", "prompt"]
             }),
@@ -45,11 +46,13 @@ impl Tool for Task {
         Box::pin(async move {
             let description = required_str(&input, "description")?;
             let text = required_str(&input, "prompt")?;
-            let agent = input["subagent_type"].as_str().unwrap_or("general");
             let parent = ctx.engine.store.session(&ctx.session_id)?.ok_or(ToolError("parent session is gone".into()))?;
             if parent.visibility == Visibility::Hidden {
                 return Err(ToolError("subagents cannot delegate".into()));
             }
+            let resumed = resumable(ctx, &input)?;
+            // A resumed subagent stays the agent it was, whatever this call names.
+            let agent = resumed.as_ref().map_or_else(|| input["subagent_type"].as_str().unwrap_or("general"), |earlier| earlier.agent.as_str());
             let config = &ctx.config;
             let background_default = match config.agent(agent) {
                 Some(found) if found.kind != AgentKind::Action => found.background,
@@ -62,12 +65,19 @@ impl Tool for Task {
             let title = format!("{description} (@{agent} subagent)");
             let (scope, generation) = ctx.engine.worker_scope(&parent.id);
             let new = NewTask { parent_session_id: &parent.id, call_id: &ctx.call_id, description, agent, mode, reason, generation };
-            let child = NewSession { workspace_id: &parent.workspace_id, parent_id: Some(&parent.id), visibility: Visibility::Hidden, title: &title, agent, model: model.as_ref() };
-            let Launch { task, child, created } = ctx.engine.store.launch_task(new, child)?;
+            let Launch { task, child, created } = match &resumed {
+                Some(earlier) => ctx.engine.store.resume_task(new, &earlier.session_id)?,
+                None => {
+                    let child = NewSession { workspace_id: &parent.workspace_id, parent_id: Some(&parent.id), visibility: Visibility::Hidden, title: &title, agent, model: model.as_ref() };
+                    ctx.engine.store.launch_task(new, child)?
+                }
+            };
             if !created {
                 return replay(ctx, task).await;
             }
-            ctx.engine.hub.publish(Event::SessionCreated { session: child.clone() });
+            if resumed.is_none() {
+                ctx.engine.hub.publish(Event::SessionCreated { session: child.clone() });
+            }
             ctx.engine.publish_task(&task.id);
             ctx.engine.permissions.inherit(&child.id, &parent.id);
             // The parent's reasoning level carries over; a model that does not offer it runs at its default.
@@ -92,6 +102,18 @@ impl Tool for Task {
     fn failed(&self, output: &Output) -> bool {
         !matches!(output.metadata["outcome"].as_str(), Some("replied" | "launched"))
     }
+}
+
+/// The earlier task a call asks to continue: one of this conversation's, finished.
+fn resumable(ctx: &Context, input: &Value) -> Result<Option<TaskRecord>, ToolError> {
+    if input["task_id"].as_str().is_none() {
+        return Ok(None);
+    }
+    let earlier = owned(ctx, input)?;
+    if !earlier.state.is_terminal() {
+        return Err(ToolError(format!("{} is still running; wait for its result, or stop it, before continuing it", earlier.id)));
+    }
+    Ok(Some(earlier))
 }
 
 /// The same call again gets what it launched, in its own mode; nothing new is recorded or started.
@@ -121,7 +143,8 @@ fn own_result(ctx: &Context, task_id: &str, outcome: &str) -> Result<Output, Too
     let engine = &ctx.engine;
     let task = engine.store.task(task_id)?.ok_or_else(|| ToolError("the task is gone".into()))?;
     let claimed = !task.delivered && engine.workers.claim(&task.id, Claimant::call(&ctx.session_id, &ctx.call_id));
-    let output = if task.delivered { "This subagent's result was already handed over.".to_string() } else { task.result.clone().unwrap_or_default() };
+    let said = if task.delivered { "This subagent's result was already handed over.".to_string() } else { task.result.clone().unwrap_or_default() };
+    let output = format!("{said}\n\n(task_id: {}; pass it to task to continue this subagent's conversation)", task.id);
     let mut metadata = json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": outcome, "mode": task.mode.as_str() });
     if claimed {
         metadata["delivers"] = json!(task.id);

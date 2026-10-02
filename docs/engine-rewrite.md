@@ -193,6 +193,11 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   `stopped`) for drill-down.
   Listings include subagent records for inspection; the sidebar shows only
   active/awaiting-attention workers. Background mode is described below.
+- A finished subagent can be continued: `task` with `task_id` (one of this conversation's, not
+  still running) records a new task on the same hidden session (`Store::resume_task`), so the
+  subagent keeps everything it saw and the prompt only needs the follow-up; its agent stays as it
+  was. Every result ends with `(task_id: ...)` so the model can do so; the UI's card hides that
+  line. `task_for_session` answers with the newest task of a session.
 - Delegation is one level deep: subagents are never offered `task` or `read_thread`, the tools
   refuse to run from one, and a subagent cannot be branched from.
 - The model cannot create branches; there is no `spawn_thread` tool. It may suggest one in prose.
