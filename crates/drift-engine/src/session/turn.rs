@@ -775,7 +775,7 @@ impl Engine {
             .filter(|(spec, _)| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))
             .collect();
         // A server's instructions come only with its tools, so an agent without them is not told about it.
-        let servers: Vec<(String, String)> = self.mcp.instructions().into_iter().filter(|(server, _)| tools.iter().any(|(spec, _)| spec.name.starts_with(&format!("{server}_")))).collect();
+        let servers: Vec<(String, String)> = self.mcp.instructions().into_iter().filter(|(server, _)| tools.iter().any(|(_, tool)| tool.server() == Some(server.as_str()))).collect();
         let setting = prompt::Setting {
             workspace: &plan.workspace,
             config: &plan.config,

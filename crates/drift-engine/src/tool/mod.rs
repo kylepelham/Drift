@@ -296,6 +296,10 @@ pub type RunFuture<'a> = Pin<Box<dyn Future<Output = Result<Output, ToolError>> 
 
 pub trait Tool: Send + Sync {
     fn spec(&self) -> ToolSpec;
+    /// The MCP server a tool comes from; built-ins have none.
+    fn server(&self) -> Option<&str> {
+        None
+    }
     /// `None` means the call needs no permission at all.
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask>;
     /// Everything the call must be allowed, each judged on its own; any refusal refuses the call.

@@ -86,19 +86,25 @@ fn behaves_alike(a: &rmcp::model::Tool, b: &rmcp::model::Tool) -> bool {
 const MAX_NAME: usize = 60;
 
 /// The name the model calls a server's tool by, in the characters every provider accepts
-/// (`[a-zA-Z0-9_-]`, at most 64). A name cut to fit ends in a hash of the whole, so two stay apart.
+/// (`[a-zA-Z0-9_-]`, at most 64). A name that had to change (a character replaced, or cut to fit)
+/// ends in a hash of the original, so `a.b` and `a_b` stay apart.
 pub fn wire_name(server: &str, tool: &str) -> String {
     let raw = format!("{server}_{tool}");
     let clean: String = raw.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
-    if clean.len() <= MAX_NAME {
+    if clean == raw && clean.len() <= MAX_NAME {
         return clean;
     }
     use sha2::Digest;
     let hash: String = sha2::Sha256::digest(raw.as_bytes()).iter().take(4).map(|b| format!("{b:02x}")).collect();
-    format!("{}_{hash}", &clean[..MAX_NAME - hash.len() - 1])
+    let keep = clean.len().min(MAX_NAME - hash.len() - 1);
+    format!("{}_{hash}", &clean[..keep])
 }
 
 impl Tool for McpTool {
+    fn server(&self) -> Option<&str> {
+        Some(&self.server)
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: wire_name(&self.server, &self.tool.name),
@@ -153,7 +159,9 @@ mod tests {
     #[test]
     fn tool_names_are_what_providers_accept() {
         assert_eq!(wire_name("echo", "shout"), "echo_shout");
-        assert_eq!(wire_name("gh", "repos/list.all"), "gh_repos_list_all");
+        assert!(wire_name("gh", "repos/list.all").starts_with("gh_repos_list_all_"), "a changed name carries a hash");
+        assert_ne!(wire_name("s", "a.b"), wire_name("s", "a_b"), "names that clean to the same string stay apart");
+        assert_eq!(wire_name("s", "a_b"), "s_a_b");
         let long = wire_name("server", &"x".repeat(80));
         assert_eq!(long.len(), 60, "room left for the subscription route's mcp_ prefix");
         assert_ne!(long, wire_name("server", &"x".repeat(81)), "cut names stay apart");

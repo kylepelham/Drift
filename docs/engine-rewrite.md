@@ -1090,9 +1090,11 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   and on demand through rmcp (an earlier approval gate was removed; migration 20 drops its column
   and key). Their tools join
   the registry as `<server>_<tool>` (`mcp::tool::wire_name`: any character outside
-  `[A-Za-z0-9_-]` becomes `_`, and a name past 60 characters is cut and ends in a hash of the
-  whole, leaving room for the subscription route's `mcp_` within providers' 64, so one odd tool name
-  cannot get every request refused); tools the server marks read-only run without asking,
+  `[A-Za-z0-9_-]` becomes `_`, a name past 60 characters is cut, and any name that had to change
+  ends in a hash of the original, so `a.b` and `a_b` stay apart; 60 leaves room for the
+  subscription route's `mcp_` within providers' 64, so one odd tool name cannot get every request
+  refused). Which server a tool came from is asked of the tool (`Tool::server`), never read back
+  from its name; tools the server marks read-only run without asking,
   the rest ask under kind `mcp` with pattern `<server>/<tool>`, and "always" therefore
   covers the whole server. Every save, disable, disconnect and remove bumps the server's
   generation; a connect that began under an older generation closes what it opened and
