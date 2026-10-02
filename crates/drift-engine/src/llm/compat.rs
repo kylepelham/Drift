@@ -139,6 +139,7 @@ fn message(message: &ChatMessage) -> Vec<Value> {
             Block::Reasoning { text, .. } => reasoning = Some(text.clone()),
             Block::ToolUse { id, name, input } => tool_calls.push(json!({ "id": id, "type": "function", "function": { "name": name, "arguments": input.to_string() } })),
             Block::ToolResult { call_id, content, .. } => out.push(json!({ "role": "tool", "tool_call_id": call_id, "content": content })),
+            Block::StoredImage { .. } => {}
         }
     }
     if content.is_empty() && tool_calls.is_empty() {

@@ -160,7 +160,7 @@ impl Engine {
     }
 
     /// Housekeeping at startup and every [`MAINTENANCE_INTERVAL`] after, for as long as the engine
-    /// lives: unreferenced snapshot content and old shell output logs go.
+    /// lives: unreferenced snapshot content, old shell output logs and images no call names go.
     pub async fn maintain(self: Arc<Self>) {
         let engine = Arc::downgrade(&self);
         drop(self);
@@ -170,6 +170,7 @@ impl Engine {
             let Some(engine) = engine.upgrade() else { return };
             engine.prune_snapshots().await;
             engine.prune_tool_output(TOOL_OUTPUT_RETENTION);
+            let _ = engine.store.prune_blobs();
         }
     }
 

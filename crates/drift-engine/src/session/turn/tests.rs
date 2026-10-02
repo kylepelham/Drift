@@ -1270,9 +1270,22 @@ async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_
     let last = requests.last().unwrap();
     let images: Vec<&str> = last.messages.iter().flat_map(|m| &m.blocks).filter_map(|b| match b { Block::Image { mime, .. } => Some(mime.as_str()), _ => None }).collect();
     assert_eq!(images, ["image/png", "image/png"], "the MCP screenshot and the read image both reach the model");
-    let reads_images = crate::llm::readable_by(last.messages.clone(), false);
-    assert!(reads_images.iter().flat_map(|m| &m.blocks).all(|b| !matches!(b, Block::Image { .. })));
-    assert!(format!("{reads_images:?}").contains("this model cannot read images"));
+    let stored = serde_json::to_string(&h.engine.store.transcript(&h.session.id).unwrap()).unwrap();
+    assert!(stored.contains("\"hash\"") && !stored.contains("iVBORw0KGgo"), "the part names its images; their bytes live in the blob table");
+    let text_only = crate::llm::prepare_images(last.messages.clone(), false, |_| None);
+    assert!(text_only.iter().flat_map(|m| &m.blocks).all(|b| !matches!(b, Block::Image { .. })));
+    assert!(format!("{text_only:?}").contains("this model cannot read images"));
+}
+
+#[test]
+fn only_the_newest_images_are_sent_and_a_lost_one_becomes_a_line() {
+    use crate::llm::{Block, ChatMessage, Role as LlmRole, MAX_IMAGES_SENT};
+    let stored = |n: usize| Block::StoredImage { mime: "image/png".into(), hash: format!("h{n}") };
+    let blocks: Vec<Block> = (0..MAX_IMAGES_SENT + 5).map(stored).collect();
+    let prepared = crate::llm::prepare_images(vec![ChatMessage { role: LlmRole::User, blocks }], true, |hash| (hash != "h14").then(|| b"png".to_vec()));
+    let kinds: Vec<&str> = prepared[0].blocks.iter().map(|b| match b { Block::Image { .. } => "image", Block::Text(t) if t.contains("earlier") => "older", _ => "lost" }).collect();
+    assert_eq!(kinds.iter().filter(|k| **k == "older").count(), 5, "the oldest beyond the limit become lines");
+    assert_eq!(&kinds[5..], [vec!["image"; MAX_IMAGES_SENT - 1], vec!["lost"]].concat(), "the newest are loaded; one no longer kept says so");
 }
 
 #[tokio::test]

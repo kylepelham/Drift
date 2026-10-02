@@ -56,16 +56,35 @@ impl Credential {
     }
 }
 
-/// For a model that cannot read images: each image becomes a line saying one was there.
-pub fn readable_by(messages: Vec<ChatMessage>, reads_images: bool) -> Vec<ChatMessage> {
-    if reads_images {
-        return messages;
-    }
-    let text = |block: Block| match block {
-        Block::Image { .. } => Block::Text("[An image was here, but this model cannot read images.]".into()),
-        other => other,
+/// Images a request carries at most, newest first. Providers cap the count (Anthropic at 100, and
+/// shrink limits past 20), and a long screenshot session must never grow past what they accept.
+pub const MAX_IMAGES_SENT: usize = 10;
+
+/// Makes the request's images sendable: stored ones are loaded, only the newest
+/// [`MAX_IMAGES_SENT`] stay, and for a model that cannot read images each becomes a line.
+pub fn prepare_images(messages: Vec<ChatMessage>, reads_images: bool, load: impl Fn(&str) -> Option<Vec<u8>>) -> Vec<ChatMessage> {
+    let total = messages.iter().flat_map(|m| &m.blocks).filter(|b| matches!(b, Block::Image { .. } | Block::StoredImage { .. })).count();
+    let mut seen = 0;
+    let mut image = |block: Block| {
+        if !matches!(block, Block::Image { .. } | Block::StoredImage { .. }) {
+            return block;
+        }
+        seen += 1;
+        if !reads_images {
+            return Block::Text("[An image was here, but this model cannot read images.]".into());
+        }
+        if total - seen >= MAX_IMAGES_SENT {
+            return Block::Text("[An earlier image was here; only the newest ones are sent.]".into());
+        }
+        match block {
+            Block::StoredImage { mime, hash } => match load(&hash) {
+                Some(bytes) => Block::Image { base64: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes), mime },
+                None => Block::Text("[An image was here but is no longer kept.]".into()),
+            },
+            other => other,
+        }
     };
-    messages.into_iter().map(|message| ChatMessage { blocks: message.blocks.into_iter().map(text).collect(), ..message }).collect()
+    messages.into_iter().map(|message| ChatMessage { blocks: message.blocks.into_iter().map(&mut image).collect(), ..message }).collect()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -90,6 +109,9 @@ pub enum Block {
     ToolUse { id: String, name: String, input: Value },
     ToolResult { call_id: String, content: String, is_error: bool },
     Image { mime: String, base64: String },
+    /// An image a stored call returned, named by its blob; [`prepare_images`] loads it or replaces it
+    /// with a line before any adapter sees the request.
+    StoredImage { mime: String, hash: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]

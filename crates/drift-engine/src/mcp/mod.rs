@@ -615,10 +615,10 @@ impl Live {
         for block in &result.content {
             match block {
                 ContentBlock::Text(text) => lines.push(text.text.clone()),
-                ContentBlock::Image(image) if image.data.len() <= crate::tool::image::MAX_IMAGE_BYTES * 4 / 3 + 4 => {
-                    answer.images.push(Image { mime: image.mime_type.clone(), base64: image.data.clone() });
-                }
-                ContentBlock::Image(image) => lines.push(format!("[an image ({}) too large to show]", image.mime_type)),
+                ContentBlock::Image(image) => match sendable(&image.mime_type, &image.data) {
+                    Ok(()) => answer.images.push(Image { mime: image.mime_type.clone(), base64: image.data.clone() }),
+                    Err(why) => lines.push(format!("[an image ({}) not shown: {why}]", image.mime_type)),
+                },
                 ContentBlock::Resource(resource) => lines.push(resource_text(&resource.resource)),
                 other => lines.push(serde_json::to_string(other).unwrap_or_default()),
             }
@@ -633,6 +633,26 @@ pub(super) struct Answer {
     pub text: String,
     pub is_error: bool,
     pub images: Vec<Image>,
+}
+
+#[cfg(test)]
+#[test]
+fn only_png_jpeg_gif_and_webp_within_the_limit_are_sent() {
+    assert!(sendable("image/png", "AAAA").is_ok() && sendable("image/webp", "AAAA").is_ok());
+    assert!(sendable("image/svg+xml", "AAAA").unwrap_err().contains("only PNG"));
+    assert!(sendable("image/bmp", "AAAA").is_err());
+    assert!(sendable("image/png", &"A".repeat(8 * 1024 * 1024)).unwrap_err().contains("5 MB"));
+}
+
+/// Whether an MCP image can go to a model: a format every provider takes, within the size limit.
+fn sendable(mime: &str, base64: &str) -> Result<(), &'static str> {
+    if !crate::tool::image::SENDABLE.contains(&mime) {
+        return Err("only PNG, JPEG, GIF and WebP reach the model");
+    }
+    if base64.len() > crate::tool::image::MAX_IMAGE_BYTES * 4 / 3 + 4 {
+        return Err("larger than 5 MB");
+    }
+    Ok(())
 }
 
 /// An embedded resource as the model reads it: its text, or a line naming a binary one.

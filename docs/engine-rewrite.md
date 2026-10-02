@@ -951,11 +951,16 @@ Settled after the first external review of M1; each has a regression test.
   call ends `error` with `stopped` or `timedOut` in its metadata.
 - Images reach the model (`tool::image`). `read` returns a PNG, JPEG, GIF or WebP (up to 5 MB,
   known by its bytes) as an image rather than refusing it as binary, and an MCP result's image
-  content is kept instead of becoming `[image png]`; text resources are inlined, binary ones named.
-  Either way the call's metadata holds `images: [{mime, data}]`, and the request replays them after
-  all of that turn's call results ("The <tool> call (<id>) returned this:" then the image), since
-  providers want results first. A model whose catalog entry does not take images gets a line
-  saying an image was there instead (`llm::readable_by`), on turns and engine requests alike.
+  content is kept instead of becoming `[image png]`, if it is one of those four formats within
+  5 MB (an SVG or BMP is named, never sent); text resources are inlined, binary ones named. The
+  turn moves the bytes into the content-addressed `blob` table (migration 21) as the call settles,
+  so the part, its events and every transcript load carry only `images: [{mime, hash}]`;
+  maintenance drops blobs no part names after an hour. The request replays them after all of that
+  turn's call results ("The <tool> call (<id>) returned this:" then the image), since providers
+  want results first. `llm::prepare_images` loads them when a request is built, sends only the
+  newest 10 (`MAX_IMAGES_SENT`: providers cap a request's images, and a rejected request would
+  replay the same images forever), turns older ones into a line, and gives a model whose catalog
+  entry does not take images a line for each, on turns and engine requests alike.
 - While a command runs, every 500 ms that it has printed more, its part is republished with
   `metadata.output` = the last 4 KB so far (`Spool::recent`), through the call's `tool::Progress`.
   That is shown, never stored: the saved part is the result, and the UI shows the result once the

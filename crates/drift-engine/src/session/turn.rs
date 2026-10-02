@@ -668,7 +668,7 @@ impl Engine {
             let request = Request {
                 model: plan.model_ref.model.clone(),
                 system: plan.offer.system.clone(),
-                messages: llm::readable_by(compaction::request_messages(&transcript, &plan.model_ref), plan.model.attachment),
+                messages: llm::prepare_images(compaction::request_messages(&transcript, &plan.model_ref), plan.model.attachment, |hash| self.store.blob(hash).ok().flatten()),
                 tools: plan.offer.specs(),
                 max_tokens,
                 reasoning,
@@ -1028,7 +1028,7 @@ impl Engine {
                 () = scope.abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
             }
         };
-        let (status, title, text, mut meta) = match result {
+        let (status, title, text, meta) = match result {
             Ok(output) => {
                 let status = if tool.failed(&output) { ToolStatus::Error } else { ToolStatus::Done };
                 let formatted = if writes { self.format_written(scope.plan, &output.metadata).await } else { Vec::new() };
@@ -1037,6 +1037,7 @@ impl Engine {
             }
             Err(error) => (ToolStatus::Error, None, error.0, serde_json::Value::Null),
         };
+        let (mut meta, text) = self.keep_images(meta, text);
         // Every result, MCP and tools yet to come included, reaches the model within one bound.
         let spill = self.data_dir.join("tool-output").join(&scope.plan.session.id).join(format!("{call_id}.result.log"));
         let (text, spilled) = crate::tool::spool::bound(text, spill);
@@ -1114,6 +1115,24 @@ impl Engine {
             }
         }
         formatted
+    }
+
+    /// Moves the images a call returned to the blob table, leaving `{mime, hash}` in its metadata; an
+    /// image that cannot be kept is said in the result instead.
+    fn keep_images(&self, mut meta: serde_json::Value, mut text: String) -> (serde_json::Value, String) {
+        let returned = crate::tool::image::returned(&meta);
+        if returned.is_empty() {
+            return (meta, text);
+        }
+        let mut stored = Vec::new();
+        for image in returned {
+            match image.bytes().map(|bytes| self.store.put_blob(&bytes)) {
+                Some(Ok(hash)) => stored.push(crate::tool::image::Stored { mime: image.mime, hash }),
+                _ => text.push_str(&format!("\n\n[an image ({}) could not be kept, so it is not shown]", image.mime)),
+            }
+        }
+        meta["images"] = crate::tool::image::stored_metadata(&stored);
+        (meta, text)
     }
 
     /// Publishes a running call's part with what it reports merged into its metadata; nothing is stored.

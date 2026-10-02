@@ -126,7 +126,7 @@ fn items(message: &ChatMessage) -> Vec<Value> {
                 flush(&mut content, &mut out);
                 out.push(json!({ "type": "reasoning", "summary": [{ "type": "summary_text", "text": text }], "encrypted_content": encrypted }));
             }
-            Block::Reasoning { .. } => {}
+            Block::Reasoning { .. } | Block::StoredImage { .. } => {}
             Block::ToolUse { id, name, input } => {
                 flush(&mut content, &mut out);
                 out.push(json!({ "type": "function_call", "call_id": id, "name": name, "arguments": input.to_string() }));
