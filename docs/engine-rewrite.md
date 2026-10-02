@@ -841,9 +841,13 @@ these async criteria are new pending M3 work.
   into the engine at M4. `workspace` is already the engine's table.
 - Loading messages is two queries whatever their number: the page of messages, then every part in
   that id range in one join (`with_parts_in`), so the shared lock is held briefly even on long
-  sessions. A step loads its transcript once (twice when it compacts first); the loop check, the
-  subagent outcome and closing unrun calls load only the message they need (`Store::last_reply`,
-  `Store::with_parts`). This is what opencode's `zz-prompt-row-scan` overlay fixed there.
+  sessions. A step loads only what a request can show (`request_window`): after a compaction, from
+  the latest finished summary's kept tail (`Store::view_start`: the boundary's `tailFrom`, else the
+  boundary) on, never the history already summarised; before any, all of it. A summary with no
+  text stands for nothing, so then the whole transcript is loaded and the view reaches past it. It
+  loads once per step (twice when it compacts first); the loop check, the subagent outcome and
+  closing unrun calls load only the message they need (`Store::last_reply`, `Store::with_parts`).
+  Together these do what opencode's `zz-prompt-row-scan` and `zz-prompt-context-bounds` overlays did.
 
 ## Failure-path contracts
 

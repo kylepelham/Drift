@@ -154,6 +154,37 @@ impl Store {
         self.messages(session_id, None, usize::MAX / 2)
     }
 
+    /// The messages from `from` on, in order.
+    pub fn messages_from(&self, session_id: &str, from: &str) -> rusqlite::Result<Vec<MessageWithParts>> {
+        let conn = self.lock();
+        let infos: Vec<Message> = conn
+            .prepare_cached(&format!("SELECT {MESSAGE_COLUMNS} FROM message WHERE session_id = ?1 AND id >= ?2 ORDER BY id"))?
+            .query_map(params![session_id, from], map_message)?
+            .collect::<Result<_, _>>()?;
+        with_parts_in(&conn, session_id, infos)
+    }
+
+    /// Where the model's view of a compacted session starts: the kept tail of the latest finished
+    /// summary, else its compaction boundary. `None` when nothing has been summarised.
+    pub fn view_start(&self, session_id: &str) -> rusqlite::Result<Option<String>> {
+        let conn = self.lock();
+        let summary: Option<String> = conn
+            .prepare_cached("SELECT id FROM message WHERE session_id = ?1 AND summary = 1 AND status = 'done' ORDER BY id DESC LIMIT 1")?
+            .query_row([session_id], |row| row.get(0))
+            .optional()?;
+        let Some(summary) = summary else { return Ok(None) };
+        let boundary: Option<(String, String)> = conn
+            .prepare_cached(
+                "SELECT m.id, p.json FROM message m JOIN part p ON p.message_id = m.id
+                 WHERE m.session_id = ?1 AND m.id < ?2 AND json_extract(p.json, '$.type') = 'compaction' ORDER BY m.id DESC LIMIT 1",
+            )?
+            .query_row(params![session_id, summary], |row| Ok((row.get(0)?, row.get(1)?)))
+            .optional()?;
+        let Some((boundary, json)) = boundary else { return Ok(Some(summary)) };
+        let tail = serde_json::from_str::<serde_json::Value>(&json).ok().and_then(|part| part["tailFrom"].as_str().map(str::to_string));
+        Ok(Some(tail.filter(|tail| *tail < boundary).unwrap_or(boundary)))
+    }
+
     /// The session's newest assistant message, without loading the rest of the conversation.
     pub fn last_reply(&self, session_id: &str) -> rusqlite::Result<Option<MessageWithParts>> {
         let conn = self.lock();

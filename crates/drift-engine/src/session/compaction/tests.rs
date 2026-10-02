@@ -44,6 +44,27 @@ const STORAGE_FAULTS: [(&str, &str); 2] = [
 ];
 
 #[tokio::test]
+async fn a_step_loads_from_the_kept_tail_and_sends_what_the_whole_transcript_would() {
+    let h = harness().await;
+    for (ask, reply) in [("first ANCIENT", "one"), ("second", "two"), ("third", "three"), ("fourth", "four")] {
+        h.provider.push(text(reply));
+        turn(&h, ask).await;
+    }
+    h.provider.push(text("SUMMARY of the start"));
+    h.engine.start_compaction(&h.session.id).unwrap();
+    until_idle(&h).await;
+    h.provider.push(text("five"));
+    turn(&h, "fifth").await;
+    let full = h.engine.store.transcript(&h.session.id).unwrap();
+    let start = h.engine.store.view_start(&h.session.id).unwrap().expect("a finished summary has a view start");
+    let window = h.engine.store.messages_from(&h.session.id, &start).unwrap();
+    assert!(window.len() < full.len() && !window.iter().any(|m| texts(m).contains("ANCIENT")), "summarised history is not loaded");
+    let target = crate::session::turn::tests::model();
+    assert_eq!(request_messages(&window, &target), request_messages(&full, &target), "the request is the same either way");
+    assert!(mentions(requests(&h).last().unwrap(), "SUMMARY of the start") && !mentions(requests(&h).last().unwrap(), "ANCIENT"));
+}
+
+#[tokio::test]
 async fn a_summary_that_cannot_be_stored_never_replaces_the_history() {
     for (name, fault) in STORAGE_FAULTS {
         let h = harness().await;

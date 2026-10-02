@@ -835,7 +835,7 @@ impl Engine {
     /// The transcript for the next request, compacted first when the last reply left too little room.
     /// A failed compaction still lets the request go; if it is too long, the overflow path tries once more.
     async fn transcript_for_step(self: &Arc<Self>, plan: &Plan, abort: &CancellationToken) -> Option<Vec<MessageWithParts>> {
-        let transcript = self.store.transcript(&plan.session.id).ok()?;
+        let transcript = self.request_window(&plan.session.id)?;
         if !self.wants_compaction(&plan.session.id, &plan.model, &transcript) {
             return Some(transcript);
         }
@@ -843,7 +843,19 @@ impl Engine {
         if abort.is_cancelled() {
             return None;
         }
-        self.store.transcript(&plan.session.id).ok()
+        self.request_window(&plan.session.id)
+    }
+
+    /// The part of the transcript a request can show: from the latest summary's kept tail on, or all
+    /// of it before any compaction. History already summarised is never loaded.
+    fn request_window(&self, session_id: &str) -> Option<Vec<MessageWithParts>> {
+        let Some(start) = self.store.view_start(session_id).ok()? else { return self.store.transcript(session_id).ok() };
+        let window = self.store.messages_from(session_id, &start).ok()?;
+        // A summary with no text stands for nothing, so the view reaches back past it.
+        if compaction::view(&window).summary.is_none() {
+            return self.store.transcript(session_id).ok();
+        }
+        Some(window)
     }
 
     /// One assistant message and the tool calls it makes.
