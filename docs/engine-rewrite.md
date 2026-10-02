@@ -1399,10 +1399,32 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   itself once the user is back, its status reading "sign-in required" until then. The editor offers
   exactly what the engine's config holds (a command, its arguments, environment and working
   directory, or a URL and headers, plus the transport and a call timeout); the sign-in is not a
-  field, because the server asks for it. Registry installs carry no `{env:...}`
-  placeholders, which the engine would not expand: a stdio server inherits Drift's environment,
-  and a remote that needs a header Drift cannot fill is not offered. Workspace `opencode.json`
-  servers and the shell's `mcp_server` and `mcp_decision` tables are no longer read by the UI.
+  field, because the server asks for it. Workspace `opencode.json` servers and the shell's
+  `mcp_server` and `mcp_decision` tables are no longer read by the UI.
+- The MCP registry tab (`src/ui/mcp/registry.tsx`) lists GitHub's MCP registry
+  (`api.mcp.github.com/v0.1/servers`, the same API as the official one, curated and ordered by
+  stars), read whole once per app run (cached 6 h, every page) and searched locally: each word
+  must match the title, the name after its namespace, the publisher, a GitHub topic or the
+  description, in that order of weight, stars breaking ties. A search of two letters or more also
+  asks the official registry (`registry.modelcontextprotocol.io`, name search only, slow), whose
+  matches GitHub lacks (by name or repository) join below under their own heading when they come.
+  Entries the registry marks deleted, deprecated or not latest are left out; one package or remote
+  Drift cannot read leaves the rest of the entry usable. Cards show the logo, publisher, stars,
+  description and how it runs (Remote, npm, PyPI, Docker, Needs a key); All, Remote and Local
+  filter them.
+- Opening a card shows its install sheet (`registryOptions` in `src/mcp-registry.ts`): every way
+  Drift can run it, remotes first, and for the chosen way only what the entry leaves open, as
+  fields: a header or variable with no value, or a `{placeholder}` in a URL, header or argument
+  (secret ones masked, described from the entry). The first way needing nothing typed is chosen.
+  Remotes become `http` or `sse` by the entry's own transport, and a bare key typed into an
+  Authorization header is sent as `Bearer <key>`. npm runs as `npx -y <pkg>@<version>`, PyPI as
+  `uvx <pkg>==<version>`, both `@latest` or unpinned when the entry names no exact version (as
+  READMEs do), which the sheet says; after `uvx --from <source>` the entry names its own command.
+  OCI images run as `docker run -i --rm`, with every `-e NAME=value` moved into the server's
+  environment and passed by name, so secrets live where the engine keeps them write-only, never in
+  the arguments. A named argument with nothing after it is a flag. The server installs under its
+  title as a tool-safe name (`github`), else its last name segment. Once saved it connects; if it
+  answers that it needs a sign-in, the sign-in page opens at once and the Servers tab shows it.
 - The composer's reasoning picker lists the model's catalog variants (`adaptModel` fills
   `variants` from them) and sends the chosen name as the prompt's `variant`, or null for the
   model's default. A model without variants shows no picker.

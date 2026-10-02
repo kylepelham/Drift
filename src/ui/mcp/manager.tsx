@@ -1,13 +1,13 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
 import { useEngine } from "../../engine"
 import type { McpServerConfig, McpServerStatus } from "../../engine/store"
-import { registryConfig, registryServerName, type RegistryServer } from "../../mcp-registry"
-import { createRegistrySearch } from "../../state/mcp-registry-search"
+import { registryInstallName, type RegistryServer } from "../../mcp-registry"
 import { t } from "../../state/i18n"
 import { openExternal } from "../../shell"
 import { Toggle } from "../controls"
-import { IconCheck, IconPlug, IconPlugOff, IconPlus, IconSquarePen, IconTrash } from "../icons"
+import { IconPlug, IconPlugOff, IconPlus, IconSquarePen, IconTrash } from "../icons"
 import { McpEditor } from "./editor"
+import { McpRegistry } from "./registry"
 
 type RuntimeAction = "connect" | "disconnect"
 type RowKey = "ArrowUp" | "ArrowDown" | "Home" | "End"
@@ -112,6 +112,20 @@ export function McpManagement(props: { embedded?: boolean }) {
   const signIn = (name: string) =>
     void run(name, async () => openExternal(await engine.actions.mcpSignIn(name)), t("drift.mcp.signInOpened", { name }))
   const signOut = (name: string) => void run(name, () => engine.actions.mcpSignOut(name))
+  /** Installs and connects; a server that answers with a sign-in request has its sign-in page opened at once. */
+  const install = async (server: RegistryServer, config: McpServerConfig) => {
+    const name = registryInstallName(server)
+    const done = await run(name, async () => {
+      const status = await engine.actions.mcpSave(name, config, { create: true })
+      if (status.needsSignIn) openExternal(await engine.actions.mcpSignIn(name))
+      setMessage(t(status.needsSignIn ? "drift.mcp.signInOpened" : "drift.mcp.installed", { name: server.title ?? name }))
+    })
+    if (done) {
+      setView("servers")
+      setSelected(name)
+    }
+    return done
+  }
 
   return (
     <div class="space-y-3">
@@ -205,17 +219,7 @@ export function McpManagement(props: { embedded?: boolean }) {
         </div>
       </Show>
       <Show when={view() === "registry"}>
-        <McpRegistry
-          embedded={props.embedded}
-          disabled={locked()}
-          installed={new Set(rowNames())}
-          onInstall={(server) => {
-            const config = registryConfig(server)
-            if (!config) return setMessage(t("drift.mcp.registryUnavailable"))
-            const name = registryServerName(server.name)
-            void run(name, () => engine.actions.mcpSave(name, config, { create: true }), t("drift.mcp.installed", { name: server.title ?? server.name }))
-          }}
-        />
+        <McpRegistry disabled={locked()} installed={new Set(rowNames())} onInstall={install} />
       </Show>
       <Show when={editor()}>
         {(entry) => (
@@ -356,89 +360,6 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
-function McpRegistry(props: {
-  installed: Set<string>
-  disabled: boolean
-  embedded?: boolean
-  onInstall: (server: RegistryServer) => void
-}) {
-  const [query, setQuery] = createSignal("")
-  const [servers, setServers] = createSignal<RegistryServer[]>([])
-  const [loading, setLoading] = createSignal(false)
-  const [error, setError] = createSignal("")
-  const registry = createRegistrySearch()
-  let request = 0
-  let disposed = false
-  const search = async () => {
-    const current = ++request
-    setLoading(true)
-    setError("")
-    try {
-      const result = await registry.search(query())
-      if (!disposed && current === request && !result.stale)
-        setServers(result.servers.filter((server) => registryConfig(server)))
-    } catch {
-      if (!disposed && current === request) setError(t("drift.mcp.registryLoadFailed"))
-    } finally {
-      if (!disposed && current === request) setLoading(false)
-    }
-  }
-  onMount(() => void search())
-  let timer: number | undefined
-  onCleanup(() => {
-    disposed = true
-    request++
-    window.clearTimeout(timer)
-    registry.dispose()
-  })
-  const schedule = (value: string) => {
-    setQuery(value)
-    window.clearTimeout(timer)
-    timer = window.setTimeout(() => void search(), 250)
-  }
-  const installed = (server: RegistryServer) => props.installed.has(registryServerName(server.name))
-  return (
-    <div class="space-y-2">
-      <TextInput value={query()} onInput={schedule} label={t("drift.mcp.registrySearch")} />
-      <div class="text-[0.7rem] text-ink-faint">{t("drift.mcp.registrySource")}</div>
-      <Show when={error()}>{(value) => <div class="text-xs text-danger">{value()}</div>}</Show>
-      <div classList={{ "space-y-2": !props.embedded, "border-y border-edge/80": props.embedded }}>
-        <For each={servers()}>
-          {(server) => (
-            <div
-              class="px-3 py-2.5"
-              classList={{
-                "rounded-lg border border-edge bg-surface": !props.embedded,
-                "border-b border-edge/70": props.embedded,
-              }}
-            >
-              <div class="flex items-start gap-3">
-                <div class="min-w-0 flex-1">
-                  <div class="truncate text-sm font-medium text-ink">{server.title ?? server.name}</div>
-                  <div class="text-[0.7rem] text-ink-faint">
-                    {server.name} · {server.version}
-                  </div>
-                  <div class="mt-1 text-xs text-ink-muted">{server.description}</div>
-                </div>
-                <Action disabled={props.disabled || installed(server)} onClick={() => props.onInstall(server)}>
-                  {installed(server) ? <IconCheck class="size-3.5" /> : <IconPlus class="size-3.5" />}
-                  {t(installed(server) ? "drift.mcp.installedLabel" : "drift.mcp.install")}
-                </Action>
-              </div>
-            </div>
-          )}
-        </For>
-        <Show when={loading()}>
-          <div class="px-3 py-4 text-sm text-ink-faint">{t("common.loading")}</div>
-        </Show>
-        <Show when={!loading() && !error() && !servers().length}>
-          <div class="px-3 py-4 text-sm text-ink-faint">{t("palette.empty")}</div>
-        </Show>
-      </div>
-    </div>
-  )
-}
-
 function Tab(props: {
   active: boolean
   autofocus?: boolean
@@ -458,18 +379,6 @@ function Tab(props: {
     >
       {props.children}
     </button>
-  )
-}
-
-function TextInput(props: { value: string; onInput: (value: string) => void; label: string }) {
-  return (
-    <input
-      aria-label={props.label}
-      class="h-9 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
-      placeholder={props.label}
-      value={props.value}
-      onInput={(event) => props.onInput(event.currentTarget.value)}
-    />
   )
 }
 
