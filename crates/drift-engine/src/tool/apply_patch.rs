@@ -117,7 +117,8 @@ impl Plan {
             }
             Op::Update { move_to, chunks, .. } => {
                 let raw = existing(ctx, path).await?.ok_or(ToolError("does not exist".into()))?;
-                let text = String::from_utf8_lossy(&raw).into_owned();
+                // Decoding loosely and writing back would turn every byte that is not UTF-8 into U+FFFD, the whole file over.
+                let text = String::from_utf8(raw.clone()).map_err(|_| ToolError("is not UTF-8 text (Windows-1252, for example), so patching it would corrupt it; it was not changed".into()))?;
                 let ending = LineEnding::detect(&text);
                 let before = ending.normalise(&text);
                 let after = patch::apply_chunks(&before, chunks)?;
@@ -223,6 +224,19 @@ mod tests {
         assert!(out.output.contains("+TWO"));
         let titles: Vec<String> = ApplyPatch.asks(&sandbox.ctx, &json!({ "patch": patch })).into_iter().map(|a| a.title).collect();
         assert_eq!(titles, ["Patch dir/new.txt", "Patch a.txt", "Patch b.txt", "Patch gone.txt"], "each path, the move destination included, asked on its own");
+    }
+
+    #[tokio::test]
+    async fn a_file_that_is_not_utf8_is_refused_untouched_not_rewritten() {
+        let sandbox = Sandbox::new("apply-patch-1252");
+        let path = sandbox.ctx.workspace.join("page.asp");
+        let bytes = b"<% caf\xe9 %>\r\nline two\r\n".to_vec();
+        std::fs::write(&path, &bytes).unwrap();
+        read_all(&sandbox, &["page.asp"]);
+        let patch = "*** Begin Patch\n*** Update File: page.asp\n-line two\n+line 2\n*** End Patch\n";
+        let refused = ApplyPatch.run(&sandbox.ctx, json!({ "patch": patch })).await.unwrap_err();
+        assert!(refused.0.contains("not UTF-8"), "{}", refused.0);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes, "every byte as it was");
     }
 
     #[test]
