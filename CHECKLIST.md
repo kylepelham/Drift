@@ -164,7 +164,7 @@ change the plan there when a decision changes.
 
 - [ ] Every legacy capability in `docs/research/opencode-exit-inventory.md` checked off or explicitly dropped
 - [ ] `drift-migrate`: sessions, messages, parts, todos, credentials, config, MCP servers from the shell's `mcp_server` table (unapproved)
-- [ ] LSP diagnostics after edits (replaces what upstream's `edit`, `write` and `apply_patch` reported; change the plan's "Dropped" and "Post-edit" rows first):
+- [ ] LSP diagnostics after edits (replaces what upstream's `edit`, `write` and `apply_patch` reported; the plan's "Dropped" and "Post-edit" rows already say so):
   - Language servers from a built-in table (rust-analyzer, typescript-language-server, pyright, gopls, ...) used only when on PATH; `drift.json` can add, replace or disable one, as with formatters
   - Started lazily per workspace on the first edit of a matching file, adopted into a process tree, shut down when the workspace goes idle or the engine stops
   - After a writing call (and after formatters), report the touched files' errors within a short wait, bounded in count and size, appended to the call's result and kept in its metadata
