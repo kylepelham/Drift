@@ -1033,6 +1033,10 @@ Settled after the first external review of M1; each has a regression test.
     prefix, name substring, path substring, then letters in order.
 - `glob` and `grep` never descend into `.git`, `.hg`, `.svn` or `.jj`, and `grep` stops a
   file at its first NUL byte, so binaries produce no matches.
+- `read` loads a file whole up to 10 MB. Past that (a log, generated output) it reads the page
+  line by line from the start, on a blocking thread that a Stop ends, so memory holds one page;
+  it gives no line count, which would mean reading the whole file, and says whether more lines
+  follow. Such a file can be read but not edited: undo keeps nothing over 10 MB.
 - `grep` searches on several threads, as ripgrep does: it lists the first 200 matches by file then
   line and says how many there were in all, so a cut list is not just whichever files a thread
   reached first. Past 2000 matches it stops, so a broad pattern in a large tree returns at once,

@@ -5,7 +5,8 @@ use crate::llm::ToolSpec;
 
 const MAX_LINES: usize = 2000;
 const MAX_LINE_CHARS: usize = 2000;
-const MAX_BYTES: u64 = 10 * 1024 * 1024;
+/// Past this a file is not loaded whole: its page is read line by line and the rest left on disk.
+const WHOLE_BYTES: u64 = 10 * 1024 * 1024;
 /// One page stays under the shared result bound, leaving room for the continuation note.
 const PAGE_BYTES: usize = super::spool::MAX_RESULT_BYTES - 1024;
 /// Subdirectory instructions take at most this much of a read's result; the page has the rest.
@@ -49,8 +50,8 @@ impl Tool for Read {
             if meta.is_dir() {
                 return list_dir(ctx, &path).await;
             }
-            if meta.len() > MAX_BYTES {
-                return Err(ToolError(format!("{} is {} bytes; too large to read", display(&path, &ctx.workspace), meta.len())));
+            if meta.len() > WHOLE_BYTES {
+                return read_large(ctx, &path, offset, limit).await;
             }
             let bytes = tokio::fs::read(&path).await?;
             if let Some(mime) = super::image::sniff(&bytes).or(super::image::is_pdf(&bytes).then_some(super::image::PDF)) {
@@ -78,6 +79,65 @@ impl Tool for Read {
                 metadata: json!({ "lines": total, "shown": shown }),
             })
         })
+    }
+}
+
+/// A page of a file too large to load whole (a log, generated output): read line by line from the
+/// start up to the page, so memory holds one page, and with no line count, which would mean reading
+/// it all; the note says whether more follows.
+async fn read_large(ctx: &Context, path: &std::path::Path, offset: usize, limit: usize) -> Result<Output, ToolError> {
+    let name = display(path, &ctx.workspace);
+    let reminders = reminders(ctx, path);
+    let budget = PAGE_BYTES.saturating_sub(reminders.len());
+    let (file, stop) = (path.to_path_buf(), ctx.abort.clone());
+    let read = tokio::task::spawn_blocking(move || large_page(&file, offset, limit, budget, &stop)).await.map_err(|e| ToolError(e.to_string()))??;
+    let Large { lines, more, binary } = read;
+    if binary {
+        return Err(ToolError(format!("{name} is binary")));
+    }
+    let shown = lines.len();
+    if shown == 0 {
+        return Err(ToolError(format!("{name} has fewer than {offset} lines")));
+    }
+    let mut output = lines.join("\n");
+    if more {
+        output.push_str(&format!("\n\n(more lines follow; read with offset {})", offset + shown));
+    }
+    output.push_str(&reminders);
+    ctx.files.mark_read(path);
+    Ok(Output { title: name, output, metadata: json!({ "lines": null, "shown": shown, "large": true }) })
+}
+
+struct Large {
+    lines: Vec<String>,
+    more: bool,
+    binary: bool,
+}
+
+/// Lines `offset..` of `path`, as [`page`] numbers them, reading no further than the page and one line past it.
+fn large_page(path: &std::path::Path, offset: usize, limit: usize, budget: usize, stop: &tokio_util::sync::CancellationToken) -> std::io::Result<Large> {
+    use std::io::BufRead;
+    let mut reader = std::io::BufReader::with_capacity(1 << 16, std::fs::File::open(path)?);
+    if reader.fill_buf()?.iter().take(8000).any(|b| *b == 0) {
+        return Ok(Large { lines: Vec::new(), more: false, binary: true });
+    }
+    let (mut lines, mut used, mut number, mut raw) = (Vec::new(), 0, 0, Vec::new());
+    loop {
+        raw.clear();
+        if reader.read_until(b'\n', &mut raw)? == 0 || stop.is_cancelled() {
+            return Ok(Large { lines, more: false, binary: false });
+        }
+        number += 1;
+        if number < offset {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&raw);
+        let numbered = format!("{number}: {}", truncate(text.trim_end_matches(['\n', '\r'])));
+        used += numbered.len() + 1;
+        if lines.len() == limit || (used > budget && !lines.is_empty()) {
+            return Ok(Large { lines, more: true, binary: false });
+        }
+        lines.push(numbered);
     }
 }
 
@@ -238,6 +298,20 @@ mod tests {
         assert!(out.output.len() <= super::super::spool::MAX_RESULT_BYTES, "{}", out.output.len());
         assert!(out.output.ends_with("</system-reminder>"), "the reminder is whole, not cut in the middle");
         assert!(out.output.contains("read with offset"), "the page says where to go on");
+    }
+
+    #[tokio::test]
+    async fn a_file_too_large_to_load_is_read_a_page_at_a_time() {
+        let sandbox = Sandbox::new("read-large");
+        let line = format!("{}\n", "log entry ".repeat(10));
+        let lines = (WHOLE_BYTES as usize / line.len()) + 5_000;
+        sandbox.file("big.log", &line.repeat(lines));
+        let first = Read.run(&sandbox.ctx, json!({ "path": "big.log", "limit": 3 })).await.unwrap();
+        assert!(first.output.starts_with("1: log entry") && first.output.ends_with("(more lines follow; read with offset 4)"), "{}", &first.output);
+        let deep = Read.run(&sandbox.ctx, json!({ "path": "big.log", "offset": lines, "limit": 10 })).await.unwrap();
+        assert!(deep.output.starts_with(&format!("{lines}: log entry")) && !deep.output.contains("more lines"), "the last line, with nothing after it");
+        assert!(Read.run(&sandbox.ctx, json!({ "path": "big.log", "offset": lines + 1 })).await.unwrap_err().0.contains("fewer than"));
+        assert!(sandbox.ctx.files.was_read(&sandbox.ctx.workspace.join("big.log")));
     }
 
     #[tokio::test]
