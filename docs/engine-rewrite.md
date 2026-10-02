@@ -1287,12 +1287,15 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   returns SKILL.md's body and its directory.
 - **Formatters.** After a mutating tool succeeds, the first formatter whose extensions
   match each written file runs. Built-ins (prettier, rustfmt, gofmt, ruff, black) apply
-  only when on PATH, found as a shell would (npm's `prettier.cmd` included), and only where the
+  only when installed, in the project's `node_modules/.bin` from the file's directory up (where a
+  devDependency prettier lives) or else on PATH as a shell finds it (npm's `prettier.cmd`
+  included), and only where the
   project uses them, looked for from the file's directory up to the repository root: prettier when
   a `package.json` names it or a prettier config exists, ruff with `ruff.toml` or `[tool.ruff]`,
   black with `[tool.black]`, rustfmt with `rustfmt.toml`; gofmt always. A global prettier never
   reformats a project that does not use it. rustfmt reads the file on stdin at the crate's edition
-  (from the nearest `Cargo.toml`) and its output replaces the file, so the out-of-line modules it
+  (from the nearest `Cargo.toml`) and its output replaces the file through the staged writer, as
+  every whole-file write the engine makes does, so the out-of-line modules it
   would otherwise follow are never touched. `drift.json` `formatters` can set a name to `true`
   (on without looking), `false` or `{ command, extensions }` with `$FILE`. Results land in the
   call's `metadata.formatted`; failures are ignored.
