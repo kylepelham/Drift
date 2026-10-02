@@ -1312,11 +1312,12 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     (`Tool::stays_read_only`): a writing tool, a shell line that is not only reads
     (`command::reads_only`; `git grep -O`/`--open-files-in-pager` runs a program, so it is not
     one), an MCP tool (a server's read-only mark is its own claim: enough to skip an ask, not to
-    let a read-only agent act, unless the user's own `~/.config/drift/drift.json` vouches for
-    that server by name and by what it runs, `readOnlyMcp: { "context7": "https://mcp.context7.com/mcp" }`
-    (the URL, or the command line with any argument holding a space or quote in quotes:
-    `ServerConfig::runs`), so another server later saved under that name is not vouched for; a
-    project's file cannot), a `task` to a
+    let a read-only agent act, unless the user trusts that server in its MCP settings
+    (`PUT /mcp/{name}/readOnlyTrusted`, `mcp_config.read_only_trusted`, migration 29). The trust
+    belongs to the definition: a save that changes it, env and headers included, clears it, and a
+    call is allowed only while the connection was opened from the trusted definition, so another
+    server later saved under the name is not trusted. MCP servers live in `drift.db`, which a
+    project cannot write), a `task` to a
     subagent that is not read-only.
     So `plan` can read git history with `bash`, delegate to `explore` and load skills, and still
     cannot write even if the model asks.

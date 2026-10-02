@@ -17,6 +17,11 @@ pub struct EnabledBody {
     pub enabled: bool,
 }
 
+#[derive(Deserialize, ToSchema)]
+pub struct TrustedBody {
+    pub trusted: bool,
+}
+
 #[derive(Deserialize, IntoParams)]
 pub struct SaveQuery {
     /// Adding a server: refused with 409 if one has the name, rather than replacing it.
@@ -144,6 +149,17 @@ async fn connect(engine: &Arc<Engine>, name: &str) -> Result<Json<ServerStatus>,
 #[utoipa::path(post, path = "/mcp/{name}/disconnect", operation_id = "disconnectMcpServer", responses((status = 200, body = ServerStatus), (status = 404)))]
 pub async fn disconnect(State(engine): State<Arc<Engine>>, Path(name): Path<String>) -> Result<Json<ServerStatus>, ApiError> {
     engine.mcp.disconnect(&name, &engine.store, &engine.hub).await;
+    let row = engine.store.mcp_server(&name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
+    Ok(Json(engine.mcp.status_of(row)))
+}
+
+/// Lets read-only agents (plan, explore) use the tools the server marks read-only, or stops them;
+/// a later save that changes its definition takes this back.
+#[utoipa::path(put, path = "/mcp/{name}/readOnlyTrusted", operation_id = "setMcpServerReadOnlyTrusted", request_body = TrustedBody, responses((status = 200, body = ServerStatus), (status = 404)))]
+pub async fn set_read_only_trusted(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Json(body): Json<TrustedBody>) -> Result<Json<ServerStatus>, ApiError> {
+    if !engine.store.set_mcp_read_only_trusted(&name, body.trusted)? {
+        return Err(ApiError::not_found("mcp server"));
+    }
     let row = engine.store.mcp_server(&name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
     Ok(Json(engine.mcp.status_of(row)))
 }

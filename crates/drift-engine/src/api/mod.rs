@@ -70,6 +70,7 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(mcp::connect_route))
         .routes(routes!(mcp::disconnect))
         .routes(routes!(mcp::set_enabled))
+        .routes(routes!(mcp::set_read_only_trusted))
         .routes(routes!(mcp::sign_in, mcp::sign_out))
         .routes(routes!(events::get))
 }

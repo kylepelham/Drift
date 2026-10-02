@@ -205,6 +205,7 @@ export function McpManagement(props: { embedded?: boolean }) {
                     onEdit={() => setEditor({ server: server() })}
                     onRemove={() => void remove(name)}
                     onEnabled={(enabled) => void run(name, () => engine.actions.mcpSetEnabled(name, enabled))}
+                    onReadOnlyTrusted={(trusted) => void run(name, () => engine.actions.mcpSetReadOnlyTrusted(name, trusted))}
                     onRuntime={(action) => runtime(server(), action)}
                     onSignIn={() => signIn(name)}
                     onSignOut={() => signOut(name)}
@@ -254,6 +255,7 @@ function ServerRow(props: {
   onEdit: () => void
   onRemove: () => void
   onEnabled: (enabled: boolean) => void
+  onReadOnlyTrusted: (trusted: boolean) => void
   onRuntime: (action: RuntimeAction) => void
   onSignIn: () => void
   onSignOut: () => void
@@ -295,6 +297,16 @@ function ServerRow(props: {
           <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
             <span class={status().tone}>{status().text}</span>
             <span class="text-ink-faint">{mcpProtocolLabel(props.server)}</span>
+          </div>
+          {/* Saving a changed definition clears this in the engine, so the switch always shows the truth. */}
+          <div class="mt-1.5 flex items-center gap-2 text-xs text-ink-faint">
+            <Toggle
+              label={t("drift.mcp.readOnlyTrusted.label", { name: props.server.name })}
+              checked={props.server.readOnlyTrusted}
+              disabled={props.disabled}
+              onChange={() => props.onReadOnlyTrusted(!props.server.readOnlyTrusted)}
+            />
+            <span>{t("drift.mcp.readOnlyTrusted")}</span>
           </div>
         </div>
         <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">

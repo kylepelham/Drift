@@ -5,7 +5,7 @@ use super::Store;
 use crate::id;
 use crate::mcp::{wire_names, Era, Given, ServerConfig, ServerRow};
 
-const COLUMNS: &str = "name, config_json, enabled, updated_at, era";
+const COLUMNS: &str = "name, config_json, enabled, updated_at, era, read_only_trusted";
 
 impl Store {
     /// The names the model calls these `(server, tool)` pairs by, keeping every name given before
@@ -43,7 +43,7 @@ impl Store {
         let conn = self.lock();
         conn.prepare_cached(
             "INSERT INTO mcp_config(name, config_json, enabled, updated_at) VALUES(?1, ?2, 1, ?3)
-             ON CONFLICT(name) DO UPDATE SET config_json = ?2, updated_at = ?3, era = NULL",
+             ON CONFLICT(name) DO UPDATE SET read_only_trusted = read_only_trusted AND config_json = ?2, config_json = ?2, updated_at = ?3, era = NULL",
         )?
         .execute(params![name, json, id::now_ms()])?;
         let row = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([name], map_row)?;
@@ -57,6 +57,12 @@ impl Store {
             .lock()
             .prepare_cached("UPDATE mcp_config SET era = ?3 WHERE name = ?1 AND config_json = ?2")?
             .execute(params![name, json, era.map(Era::as_str)])?;
+        Ok(changed > 0)
+    }
+
+    /// Lets read-only agents use the server's read-only tools, or stops them.
+    pub fn set_mcp_read_only_trusted(&self, name: &str, trusted: bool) -> rusqlite::Result<bool> {
+        let changed = self.lock().prepare_cached("UPDATE mcp_config SET read_only_trusted = ?2 WHERE name = ?1")?.execute(params![name, trusted])?;
         Ok(changed > 0)
     }
 
@@ -109,7 +115,7 @@ fn map_row(row: &Row) -> rusqlite::Result<ServerRow> {
     let config = serde_json::from_str(&json).map_err(|e| rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e)))?;
     let hash = config_hash(&config);
     let era = row.get::<_, Option<String>>(4)?.as_deref().and_then(Era::parse);
-    Ok(ServerRow { name: row.get(0)?, config, enabled: row.get(2)?, hash, updated_at: row.get(3)?, era })
+    Ok(ServerRow { name: row.get(0)?, config, enabled: row.get(2)?, hash, updated_at: row.get(3)?, era, read_only_trusted: row.get(5)? })
 }
 
 #[cfg(test)]
@@ -147,6 +153,9 @@ mod tests {
         assert!(!store.set_mcp_era("notes", &config, Some(Era::Legacy)).unwrap(), "an era found under an older config is not kept");
         assert_eq!(store.mcp_server("notes").unwrap().unwrap().era, Some(Era::Stateless));
         assert_eq!(store.save_mcp_server("notes", &changed).unwrap().era, None, "a save forgets it");
+        assert!(store.set_mcp_read_only_trusted("notes", true).unwrap());
+        assert!(store.save_mcp_server("notes", &changed).unwrap().read_only_trusted, "saved as it was, the trust stays");
+        assert!(!store.save_mcp_server("notes", &config).unwrap().read_only_trusted, "another definition is not trusted");
         assert!(store.set_mcp_enabled("notes", false).unwrap());
         assert!(!store.mcp_servers().unwrap()[0].enabled);
         assert!(store.remove_mcp_server("notes").unwrap());

@@ -15,6 +15,8 @@ pub struct ServerView {
     pub name: String,
     pub config: ServerConfigView,
     pub enabled: bool,
+    /// Read-only agents may use the tools it marks read-only (`PUT /mcp/{name}/readOnlyTrusted`).
+    pub read_only_trusted: bool,
     pub updated_at: i64,
 }
 
@@ -120,7 +122,7 @@ impl ServerView {
                 ServerConfigView::Sse { url: url.clone(), headers: names(headers), oauth: oauth.as_ref().map(OAuthView::of), timeout_seconds: *timeout_seconds }
             }
         };
-        Self { name: row.name.clone(), config, enabled: row.enabled, updated_at: row.updated_at }
+        Self { name: row.name.clone(), config, enabled: row.enabled, read_only_trusted: row.read_only_trusted, updated_at: row.updated_at }
     }
 }
 
@@ -177,7 +179,7 @@ mod tests {
     use super::*;
 
     fn row(config: ServerConfig) -> ServerRow {
-        ServerRow { name: "docs".into(), config, enabled: true, hash: "0011223344556677".into(), updated_at: 1, era: None }
+        ServerRow { name: "docs".into(), config, enabled: true, hash: "0011223344556677".into(), updated_at: 1, era: None, read_only_trusted: false }
     }
 
     #[test]

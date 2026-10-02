@@ -595,6 +595,7 @@ export function createActions(
     mcpRename,
     mcpRemove,
     mcpSetEnabled: (name: string, enabled: boolean) => mcpChange(() => requireClient().setMcpServerEnabled(name, enabled)),
+    mcpSetReadOnlyTrusted: (name: string, trusted: boolean) => mcpChange(() => requireClient().setMcpServerReadOnlyTrusted(name, trusted)),
     mcpConnect: (name: string) => mcpChange(() => requireClient().connectMcpServer(name)),
     mcpDisconnect: (name: string) => mcpChange(() => requireClient().disconnectMcpServer(name)),
     /** The page to open in the browser; the server connects by itself once the user comes back. */

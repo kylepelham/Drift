@@ -113,6 +113,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mcp/{name}/readOnlyTrusted": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Lets read-only agents (plan, explore) use the tools the server marks read-only, or stops them;
+         *     a later save that changes its definition takes this back.
+         */
+        put: operations["setMcpServerReadOnlyTrusted"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mcp/{name}/rename": {
         parameters: {
             query?: never;
@@ -775,10 +795,6 @@ export interface components {
             problems?: string[];
             /** @description Formatters and checks whose command the project's own drift.json sets, as `formatter:<name>` or `check:<name>`. */
             projectCommands?: string[];
-            /** @description MCP servers the user vouches for, by name and what they run: their read-only tools are open to read-only agents. */
-            readOnlyMcp?: {
-                [key: string]: string;
-            };
             skills: components["schemas"]["Skill"][];
             timeouts: {
                 [key: string]: components["schemas"]["RouteTimeouts"];
@@ -1359,6 +1375,8 @@ export interface components {
             config: components["schemas"]["ServerConfigView"];
             enabled: boolean;
             name: string;
+            /** @description Read-only agents may use the tools it marks read-only (`PUT /mcp/{name}/readOnlyTrusted`). */
+            readOnlyTrusted: boolean;
             /** Format: int64 */
             updatedAt: number;
         };
@@ -1454,6 +1472,9 @@ export interface components {
          * @enum {string}
          */
         Transport: "stdio" | "streamable_http" | "sse";
+        TrustedBody: {
+            trusted: boolean;
+        };
         /** @description The session after an undo or redo, and the files it left alone. */
         Undone: {
             /** @description Changed by someone else since the session last wrote them. */
@@ -1684,6 +1705,37 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EnabledBody"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setMcpServerReadOnlyTrusted: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrustedBody"];
             };
         };
         responses: {

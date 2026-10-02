@@ -562,6 +562,8 @@ export const drift = {
   "drift.markdown.copied": "Copied",
   "drift.markdown.copyCode": "Copy code",
   "drift.mcp.enable": "Enable {{name}}",
+  "drift.mcp.readOnlyTrusted": "Plan and explore may use its read-only tools",
+  "drift.mcp.readOnlyTrusted.label": "Let plan and explore use the read-only tools of {{name}}",
   "drift.mcp.status.connecting": "connecting...",
   "drift.mcp.status.disconnecting": "disconnecting...",
   "drift.message.compactedSummary": "Context compacted · summary",
