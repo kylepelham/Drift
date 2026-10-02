@@ -76,6 +76,7 @@ fn body(request: &Request) -> Value {
         messages.push(json!({ "role": "system", "content": request.system }));
     }
     messages.extend(request.messages.iter().flat_map(message));
+    keep_loop_reasoning(&mut messages);
     let mut body = json!({
         "model": request.model,
         "messages": messages,
@@ -110,19 +111,50 @@ fn is_claude(model: &str) -> bool {
     model.trim_start_matches('~').starts_with("anthropic/")
 }
 
-/// Claude's three explicit breakpoints, as the Anthropic adapter places them: the system prompt and the last two user messages.
+/// Claude's three explicit breakpoints, as the Anthropic adapter places them: the system prompt and the
+/// last two user turns. A turn here is the run of `tool` and `user` messages between assistant replies,
+/// so a tool loop keeps caching past the prompt that started it.
 fn mark_breakpoints(body: &mut Value) {
-    let ephemeral = || json!({ "type": "ephemeral" });
     let Some(messages) = body["messages"].as_array_mut() else { return };
     if let Some(system) = messages.iter_mut().find(|m| m["role"] == "system") {
         let text = system["content"].as_str().unwrap_or_default().to_string();
         system["content"] = json!([{ "type": "text", "text": text, "cache_control": ephemeral() }]);
     }
-    for user in messages.iter_mut().rev().filter(|m| m["role"] == "user").take(2) {
-        let last = user["content"].as_array_mut().and_then(|parts| parts.iter_mut().rev().find(|p| p["type"] == "text" && p["text"] != ""));
-        if let Some(part) = last {
-            part["cache_control"] = ephemeral();
+    let mut marked = 0;
+    let mut in_turn = false;
+    for message in messages.iter_mut().rev() {
+        let turn = message["role"] == "user" || message["role"] == "tool";
+        if !turn {
+            in_turn = false;
+            continue;
         }
+        if in_turn || marked == 2 {
+            continue;
+        }
+        if mark_last_text(message) {
+            in_turn = true;
+            marked += 1;
+        }
+    }
+}
+
+fn ephemeral() -> Value {
+    json!({ "type": "ephemeral" })
+}
+
+/// Marks a message's last non-empty text part; a `tool` message's plain content becomes one part to carry it.
+fn mark_last_text(message: &mut Value) -> bool {
+    if let Some(text) = message["content"].as_str().filter(|text| !text.is_empty()).map(str::to_string) {
+        message["content"] = json!([{ "type": "text", "text": text, "cache_control": ephemeral() }]);
+        return true;
+    }
+    let last = message["content"].as_array_mut().and_then(|parts| parts.iter_mut().rev().find(|p| p["type"] == "text" && p["text"] != ""));
+    match last {
+        Some(part) => {
+            part["cache_control"] = ephemeral();
+            true
+        }
+        None => false,
     }
 }
 
@@ -162,8 +194,20 @@ fn message(message: &ChatMessage) -> Vec<Value> {
     if let Some(reasoning) = reasoning.filter(|_| message.role == Role::Assistant) {
         item["reasoning_content"] = Value::String(reasoning);
     }
-    out.insert(0, item);
+    // Tool messages must follow the assistant's calls directly; text in the same turn comes after them.
+    out.push(item);
     out
+}
+
+/// Thinking models (Kimi, GLM, DeepSeek) want their `reasoning_content` back within the tool loop they
+/// are in; from before the latest prompt it is dropped, as their APIs ignore or refuse it there.
+fn keep_loop_reasoning(messages: &mut [Value]) {
+    let prompt = messages.iter().rposition(|m| m["role"] == "user").unwrap_or(0);
+    for message in &mut messages[..prompt] {
+        if let Some(fields) = message.as_object_mut() {
+            fields.remove("reasoning_content");
+        }
+    }
 }
 
 /// Gateways put an HTTP code inside a streamed error object; it classifies like the status it names.
@@ -451,6 +495,50 @@ mod tests {
         assert!(is_claude("~anthropic/claude-sonnet-latest") && !is_claude("openai/gpt-6"));
         let usage = usage_from(&json!({ "prompt_tokens": 10_339, "completion_tokens": 60, "prompt_tokens_details": { "cached_tokens": 10_000, "cache_write_tokens": 300 } }));
         assert_eq!(usage, Usage { input: 39, output: 60, cache_read: 10_000, cache_write: 300 });
+    }
+
+    #[test]
+    fn tool_messages_follow_the_calls_and_text_in_that_turn_comes_after_them() {
+        let results = ChatMessage {
+            role: Role::User,
+            blocks: vec![
+                Block::ToolResult { call_id: "call_1".into(), content: "1: x".into(), is_error: false },
+                Block::Text("The read call (call_1) returned this:".into()),
+                Block::Text("and also look at b".into()),
+            ],
+        };
+        let mut request = request();
+        request.messages[2] = results;
+        let built = body(&request);
+        let roles: Vec<&str> = built["messages"].as_array().unwrap().iter().map(|m| m["role"].as_str().unwrap()).collect();
+        assert_eq!(roles, ["system", "user", "assistant", "tool", "user"]);
+    }
+
+    #[test]
+    fn reasoning_goes_back_within_the_tool_loop_only() {
+        let thinking = |text: &str| ChatMessage {
+            role: Role::Assistant,
+            blocks: vec![Block::Reasoning { text: text.into(), signature: None, redacted: None }, Block::ToolUse { id: format!("c_{text}"), name: "read".into(), input: json!({}) }],
+        };
+        let result = |text: &str| ChatMessage { role: Role::User, blocks: vec![Block::ToolResult { call_id: format!("c_{text}"), content: "r".into(), is_error: false }] };
+        let prompt = |text: &str| ChatMessage { role: Role::User, blocks: vec![Block::Text(text.into())] };
+        let messages = vec![prompt("one"), thinking("old"), result("old"), ChatMessage { role: Role::Assistant, blocks: vec![Block::Text("done".into())] }, prompt("two"), thinking("new"), result("new")];
+        let built = body(&Request { messages, ..request() });
+        let kept: Vec<&str> = built["messages"].as_array().unwrap().iter().filter_map(|m| m["reasoning_content"].as_str()).collect();
+        assert_eq!(kept, ["new"], "the earlier turn's reasoning is not sent back");
+    }
+
+    #[test]
+    fn a_tool_loop_caches_past_the_prompt_that_started_it() {
+        let call = |id: &str| ChatMessage { role: Role::Assistant, blocks: vec![Block::ToolUse { id: id.into(), name: "read".into(), input: json!({}) }] };
+        let result = |id: &str| ChatMessage {
+            role: Role::User,
+            blocks: vec![Block::ToolResult { call_id: format!("{id}a"), content: format!("{id} first"), is_error: false }, Block::ToolResult { call_id: format!("{id}b"), content: format!("{id} second"), is_error: false }],
+        };
+        let prompt = ChatMessage { role: Role::User, blocks: vec![Block::Text("go".into())] };
+        let mut body = body(&Request { model: "anthropic/claude-sonnet-4.5".into(), messages: vec![prompt, call("x"), result("x"), call("y"), result("y")], ..request() });
+        mark_breakpoints(&mut body);
+        assert_eq!(marked(&body), ["system:sys", "tool:x second", "tool:y second"], "the last result of each of the last two turns");
     }
 
     /// A local OpenRouter: records the body it got and replies with cache-hit usage.

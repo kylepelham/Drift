@@ -164,7 +164,12 @@ fn message(message: &ChatMessage) -> Value {
         Role::User => "user",
         Role::Assistant => "assistant",
     };
-    json!({ "role": role, "content": message.blocks.iter().filter(|b| !matches!(b, Block::Stored { .. })).map(block).collect::<Vec<_>>() })
+    json!({ "role": role, "content": message.blocks.iter().filter(|b| sendable(b)).map(block).collect::<Vec<_>>() })
+}
+
+/// Thinking without a signature (another wire's reasoning text) is refused by Anthropic, so it stays home.
+fn sendable(block: &Block) -> bool {
+    !matches!(block, Block::Stored { .. } | Block::Reasoning { signature: None, redacted: None, .. })
 }
 
 fn block(block: &Block) -> Value {
@@ -309,6 +314,13 @@ mod tests {
         assert_eq!(body["messages"][1]["content"][0]["signature"], "sig");
         assert_eq!(body["messages"][1]["content"][1]["id"], "toolu_1");
         assert_eq!(body["messages"][2]["content"][0]["tool_use_id"], "toolu_1");
+    }
+
+    #[test]
+    fn unsigned_thinking_is_never_sent() {
+        let mut request = request();
+        request.messages[1].blocks[0] = Block::Reasoning { text: "think".into(), signature: None, redacted: None };
+        assert_eq!(body(&request)["messages"][1]["content"][0]["type"], "tool_use");
     }
 
     fn breakpoints(body: &Value) -> usize {

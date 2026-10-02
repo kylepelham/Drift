@@ -58,13 +58,16 @@ pub(crate) fn clarification_text(request_id: &str, items: &[super::types::Clarif
     format!("<question-answer id=\"{request_id}\">\nThe user answered the question you asked earlier.\n\n{}\n</question-answer>", answers.join("\n\n"))
 }
 
+/// Reasoning goes back only to the model that wrote it: signed or redacted always, unsigned (Chat
+/// Completions `reasoning_content`) only from a finished reply; each adapter keeps what its wire takes.
 fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> {
+    let finished = message.info.status == MessageStatus::Done;
     message
         .parts
         .iter()
         .filter_map(|row| match &row.part {
             Part::Text { text } if !text.is_empty() => Some(Block::Text(text.clone())),
-            Part::Reasoning { text, signature, redacted } if same_model && (signature.is_some() || redacted.is_some()) => {
+            Part::Reasoning { text, signature, redacted } if same_model && (signature.is_some() || redacted.is_some() || (finished && !text.is_empty())) => {
                 Some(Block::Reasoning { text: text.clone(), signature: signature.clone(), redacted: redacted.clone() })
             }
             Part::ToolCall { call_id, name, input, .. } if input.is_object() => {
@@ -216,15 +219,20 @@ mod tests {
     }
 
     #[test]
-    fn unsigned_reasoning_is_dropped_and_adjacent_users_merge() {
+    fn unsigned_reasoning_goes_back_only_from_a_finished_reply_and_adjacent_users_merge() {
+        let thought = || Part::Reasoning { text: "hm".into(), signature: None, redacted: None };
         let transcript = vec![
             message(Role::User, vec![Part::Text { text: "a".into() }]),
             message(Role::User, vec![Part::Text { text: "b".into() }]),
-            message(Role::Assistant, vec![Part::Reasoning { text: "hm".into(), signature: None, redacted: None }, Part::Text { text: "x".into() }]),
+            message(Role::Assistant, vec![thought(), Part::Text { text: "x".into() }]),
         ];
         let out = messages(&transcript, &target());
         assert_eq!(out[0].blocks, vec![Block::Text("a".into()), Block::Text("b".into())]);
-        assert_eq!(out[1].blocks, vec![Block::Text("x".into())]);
+        assert_eq!(out[1].blocks, vec![Block::Reasoning { text: "hm".into(), signature: None, redacted: None }, Block::Text("x".into())], "for wires that take reasoning_content");
+        let other = ModelRef { provider: "openai".into(), model: "gpt-5".into() };
+        assert_eq!(messages(&transcript, &other)[1].blocks, vec![Block::Text("x".into())], "never to another model");
+        let aborted = vec![message_with(Role::Assistant, MessageStatus::Aborted, vec![thought(), Part::Text { text: "x".into() }])];
+        assert_eq!(messages(&aborted, &target())[0].blocks, vec![Block::Text("x".into())], "a cut-off thought is not replayed");
     }
 }
 
