@@ -634,6 +634,9 @@ impl Engine {
             pickable_command(&config, agent, command_agent)?;
             session.agent = agent.clone();
         }
+        if let Some(agent) = config.agent(&session.agent) {
+            agent.usable().map_err(TurnError::Config)?;
+        }
         let agent_model = config.agent(&session.agent).and_then(|a| a.model.clone());
         let model_ref = prompt.model.clone().or_else(|| session.model.clone()).or(agent_model).or_else(|| config.model.clone()).ok_or(TurnError::NoModel)?;
         let catalog = Arc::new(self.catalog.read().unwrap().clone());

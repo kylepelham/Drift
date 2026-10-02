@@ -41,6 +41,9 @@ impl Engine {
     /// Returns the workspace config too, for the action's prompt.
     pub(crate) async fn action_model(&self, session_id: &str, action: &str, fallback: Fallback) -> Result<(Resolved, Config), TurnError> {
         let plan = self.plan(session_id, &Prompt { parts: Vec::new(), model: None, variant: None, agent: None, submission_id: None }).await?;
+        if let Some(agent) = plan.config.agent(action) {
+            agent.usable().map_err(TurnError::Config)?;
+        }
         let chosen = match (plan.config.agent_model(action), fallback) {
             (Some(pinned), _) => pinned,
             (None, Fallback::Conversation) => plan.model_ref.clone(),
