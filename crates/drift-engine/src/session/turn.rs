@@ -150,6 +150,8 @@ pub struct Turns {
     files: Mutex<HashMap<String, Arc<SessionFiles>>>,
     /// What each session's checks last said, by check and file, so an unchanged report is not sent again.
     checked: Mutex<HashMap<String, HashMap<String, String>>>,
+    /// What each session answered about running its project's own commands.
+    pub(super) trust: super::trust::Answers,
     refreshing: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Automatic compactions that failed in a row, per session; enough of them turn it off for that session.
     pub(super) compaction_failures: Mutex<HashMap<String, u32>>,
@@ -1001,8 +1003,15 @@ impl Engine {
     /// Runs the workspace's checks once over everything the step wrote, and adds what they found to its last writing call.
     async fn check_step(&self, scope: &CallScope<'_>) {
         let StepWrites { mut files, last } = std::mem::take(&mut *scope.wrote.lock().unwrap());
-        let checks = crate::edit::check::resolve(&scope.plan.config.checks);
-        let Some(mut row) = last.filter(|_| !checks.is_empty() && !files.is_empty()) else { return };
+        let Some(mut row) = last.filter(|_| !scope.plan.config.checks.is_empty() && !files.is_empty()) else { return };
+        let asker = super::trust::Asker { message_id: &scope.message.id, call_id: call_id_of(&row), abort: scope.abort };
+        let checks = match self.project_commands_trusted(scope.plan, asker).await {
+            true => crate::edit::check::resolve(&scope.plan.config.checks),
+            false => crate::edit::check::resolve(&scope.plan.config.without_project_commands().1),
+        };
+        if checks.is_empty() || scope.abort.is_cancelled() {
+            return;
+        }
         files.sort();
         files.dedup();
         let before: Vec<Option<Vec<u8>>> = futures_util::future::join_all(files.iter().map(tokio::fs::read)).await.into_iter().map(Result::ok).collect();
@@ -1100,7 +1109,7 @@ impl Engine {
             Ok(output) => {
                 let status = if tool.failed(&output) { ToolStatus::Error } else { ToolStatus::Done };
                 let title = output.title;
-                let (text, meta) = if writes { self.after_write(scope, output.output, output.metadata).await } else { (output.output, output.metadata) };
+                let (text, meta) = if writes { self.after_write(scope, &call_id, output.output, output.metadata).await } else { (output.output, output.metadata) };
                 (status, Some(title), text, meta)
             }
             Err(error) => (ToolStatus::Error, None, error.0, serde_json::Value::Null),
@@ -1175,8 +1184,13 @@ impl Engine {
     }
 
     /// Formats what a mutating call wrote; the model hears when a formatter changed it. Checks wait for the step's end.
-    async fn after_write(&self, scope: &CallScope<'_>, mut text: String, metadata: serde_json::Value) -> (String, serde_json::Value) {
-        let formatted = self.format_written(scope.plan, &metadata).await;
+    async fn after_write(&self, scope: &CallScope<'_>, call_id: &str, mut text: String, metadata: serde_json::Value) -> (String, serde_json::Value) {
+        let asker = super::trust::Asker { message_id: &scope.message.id, call_id, abort: scope.abort };
+        let overrides = match self.project_commands_trusted(scope.plan, asker).await {
+            true => scope.plan.config.formatters.clone(),
+            false => scope.plan.config.without_project_commands().0,
+        };
+        let formatted = self.format_written(scope.plan, &metadata, &overrides).await;
         if !formatted.is_empty() {
             text = format!("{text}\n\n{}", reformatted_note(&formatted));
         }
@@ -1184,8 +1198,8 @@ impl Engine {
     }
 
     /// Runs the workspace's formatters over whatever a mutating tool reported writing; names the files they changed.
-    async fn format_written(&self, plan: &Plan, metadata: &serde_json::Value) -> Vec<String> {
-        let formatters = crate::edit::format::resolve(&plan.config.formatters);
+    async fn format_written(&self, plan: &Plan, metadata: &serde_json::Value, overrides: &std::collections::BTreeMap<String, crate::config::FormatterConfig>) -> Vec<String> {
+        let formatters = crate::edit::format::resolve(overrides);
         let mut formatted = Vec::new();
         for file in metadata["files"].as_array().into_iter().flatten().filter_map(|f| f.as_str()) {
             let before = tokio::fs::read(file).await.ok();
@@ -1508,6 +1522,13 @@ fn denial(feedback: Option<&str>, stop: bool) -> String {
 /// What the model needs to hear after a formatter rewrote its change: the file is not what it wrote.
 fn reformatted_note(formatted: &[String]) -> String {
     format!("A formatter then changed the result ({}). The file no longer matches what you wrote; read it again before editing those lines.", formatted.join(", "))
+}
+
+fn call_id_of(row: &PartRow) -> &str {
+    match &row.part {
+        Part::ToolCall { call_id, .. } => call_id,
+        _ => "",
+    }
 }
 
 /// The most time one step's checks may take together.

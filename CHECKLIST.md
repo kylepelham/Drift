@@ -150,6 +150,8 @@ change the plan there when a decision changes.
 - [x] MCP OAuth sign-in for streamable HTTP servers: needs/has sign-in on the status, browser sign-in through a loopback callback, tokens in the keychain, sign-out; renames carry it, URL changes and removes forget it
 - [x] MCP 2026-07-28: probe then fall back to the handshake, era kept per server (re-probed on save or refusal), stateless HTTP holds nothing open, tool lists re-read past `ttlMs` at planning, `input_required` declined, era on each row
 - [x] MCP registry rebuilt: GitHub's curated registry popular-first with logos, stars and local ranked search, official registry matches appended; install sheet per run option (remote http/sse, npx, uvx, docker) asking only what the entry leaves open, secrets kept out of arguments, sign-in opened on install
+- [x] Checks once per step over everything it wrote, in parallel within one budget, unchanged output not resent, fixers announced; a project's own check and formatter commands run only once allowed (always kept per workspace under a hash of them)
+- [x] MCP sign-in: typed 401/403 detection, pre-registered apps (`oauth: { clientId, clientSecret, scopes }`), SSE servers, failed sign-ins reported; loopback-callback limit on remote devices documented
 - [x] Post-edit checks: `drift.json` `checks` run after edit, write and apply_patch (per file with `$FILE`, else once), problems added to the result, Stop kills them with their process tree
 
 #### Retained features still on the OpenCode database (pending native UI work)

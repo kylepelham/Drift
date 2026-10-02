@@ -765,6 +765,8 @@ export interface components {
             permissions: components["schemas"]["Rule"][];
             /** @description Config files that could not be read; a turn refuses to start rather than run without their rules. */
             problems?: string[];
+            /** @description Formatters and checks whose command the project's own drift.json sets, as `formatter:<name>` or `check:<name>`. */
+            projectCommands?: string[];
             skills: components["schemas"]["Skill"][];
             timeouts: {
                 [key: string]: components["schemas"]["RouteTimeouts"];

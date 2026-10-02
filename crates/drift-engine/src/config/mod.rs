@@ -262,6 +262,9 @@ pub struct Config {
     pub instructions: Vec<Instruction>,
     pub formatters: BTreeMap<String, FormatterConfig>,
     pub checks: BTreeMap<String, CheckConfig>,
+    /// Formatters and checks whose command the project's own drift.json sets, as `formatter:<name>` or `check:<name>`.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub project_commands: std::collections::BTreeSet<String>,
     pub limits: Limits,
     pub timeouts: BTreeMap<String, RouteTimeouts>,
     /// Config files that could not be read; a turn refuses to start rather than run without their rules.
@@ -302,7 +305,7 @@ impl Config {
         }
         roots.push(workspace.to_path_buf());
         for root in &roots {
-            config.apply_file(root);
+            config.apply_file(root, root == workspace);
             config.apply_dir(&root.join(DIR));
         }
         for root in roots.iter().rev() {
@@ -331,7 +334,50 @@ impl Config {
         self.skills.iter().find(|s| s.name == name)
     }
 
-    fn apply_file(&mut self, root: &Path) {
+    /// Records the commands a project file names, so they run only once the user trusts them; a `false` there runs nothing.
+    fn note_project_commands(&mut self, formatters: &BTreeMap<String, FormatterConfig>, checks: &BTreeMap<String, CheckConfig>) {
+        let named = |kind: &str, name: &String, custom: bool| (format!("{kind}:{name}"), custom);
+        let entries = formatters
+            .iter()
+            .map(|(name, set)| named("formatter", name, matches!(set, FormatterConfig::Custom { .. })))
+            .chain(checks.iter().map(|(name, set)| named("check", name, matches!(set, CheckConfig::Custom { .. }))));
+        for (key, custom) in entries {
+            if custom {
+                self.project_commands.insert(key);
+            } else {
+                self.project_commands.remove(&key);
+            }
+        }
+    }
+
+    /// The commands only the project's drift.json names, as the user is asked to trust them: `check lint: eslint $FILE`.
+    pub fn project_command_lines(&self) -> Vec<String> {
+        let command = |key: &str| -> Option<String> {
+            let (kind, name) = key.split_once(':')?;
+            let parts = match kind {
+                "check" => match self.checks.get(name)? {
+                    CheckConfig::Custom { command, .. } => command,
+                    CheckConfig::Enabled(_) => return None,
+                },
+                _ => match self.formatters.get(name)? {
+                    FormatterConfig::Custom { command, .. } => command,
+                    FormatterConfig::Enabled(_) => return None,
+                },
+            };
+            Some(format!("{kind} {name}: {}", parts.join(" ")))
+        };
+        self.project_commands.iter().filter_map(|key| command(key)).collect()
+    }
+
+    /// Formatters and checks with the project's own commands taken out: built-in formatters and the user's own still run.
+    pub fn without_project_commands(&self) -> (BTreeMap<String, FormatterConfig>, BTreeMap<String, CheckConfig>) {
+        let untrusted = |kind: &str, name: &String| self.project_commands.contains(&format!("{kind}:{name}"));
+        let formatters = self.formatters.iter().filter(|(name, _)| !untrusted("formatter", name)).map(|(n, c)| (n.clone(), c.clone())).collect();
+        let checks = self.checks.iter().filter(|(name, _)| !untrusted("check", name)).map(|(n, c)| (n.clone(), c.clone())).collect();
+        (formatters, checks)
+    }
+
+    fn apply_file(&mut self, root: &Path, project: bool) {
         let path = root.join(FILE);
         let Ok(text) = std::fs::read_to_string(&path) else { return };
         let file = match serde_json::from_str::<File>(&jsonc::strip(&text)) {
@@ -348,6 +394,9 @@ impl Config {
         let mut rules = file.permissions;
         rules.append(&mut self.permissions);
         self.permissions = rules;
+        if project {
+            self.note_project_commands(&file.formatters, &file.checks);
+        }
         self.formatters.extend(file.formatters);
         self.checks.extend(file.checks);
         self.timeouts.extend(file.timeouts);
@@ -542,6 +591,20 @@ mod tests {
         let path = root.join(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
+    }
+
+    #[test]
+    fn only_commands_the_project_file_names_wait_for_the_users_say_so() {
+        let root = std::env::temp_dir().join(format!("drift-config-trust-{}", crate::random_hex(4)));
+        let (home, ws) = (root.join("home"), root.join("ws"));
+        write(&home, ".config/drift/drift.json", r#"{ "checks": { "mine": { "command": ["tsc"], "extensions": [".ts"] }, "shared": { "command": ["eslint", "$FILE"], "extensions": [".ts"] } } }"#);
+        write(&ws, "drift.json", r#"{ "checks": { "shared": false, "theirs": { "command": ["make", "lint"], "extensions": [".c"] } }, "formatters": { "prettier": { "command": ["./fmt.sh", "$FILE"], "extensions": [".ts"] }, "rustfmt": false } }"#);
+        let config = Config::load_with_home(&ws, Some(&home));
+        assert_eq!(config.project_command_lines(), ["check theirs: make lint", "formatter prettier: ./fmt.sh $FILE"]);
+        let (formatters, checks) = config.without_project_commands();
+        assert_eq!(checks.keys().collect::<Vec<_>>(), ["mine", "shared"], "the user's own run; a project's `false` still turns one off");
+        assert!(!formatters.contains_key("prettier") && formatters.contains_key("rustfmt"), "the built-in prettier comes back; a project's `false` stands");
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

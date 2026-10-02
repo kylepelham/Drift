@@ -1424,7 +1424,7 @@ async fn a_running_command_shows_its_output_before_it_ends() {
 #[tokio::test]
 async fn a_configured_formatter_runs_after_a_write() {
     let h = harness().await;
-    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    allow_edits_and_project_commands(&h);
     let (program, rest) = if cfg!(windows) { ("cmd", r#""/c", "echo tidy> $FILE""#) } else { ("sh", r#""-c", "echo tidy > $FILE""#) };
     let config = format!(r#"{{ "formatters": {{ "tidy": {{ "command": ["{program}", {rest}], "extensions": [".txt"] }} }} }}"#);
     std::fs::write(h._dir.join("ws/drift.json"), config).unwrap();
@@ -1443,6 +1443,67 @@ async fn a_configured_formatter_runs_after_a_write() {
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let Part::ToolCall { metadata, output, .. } = &transcript[transcript.len() - 2].parts[0].part else { panic!() };
     assert!(metadata.as_ref().unwrap().get("formatted").is_none() && !output.as_deref().unwrap().contains("formatter"), "a formatter that changed nothing is not mentioned");
+}
+
+/// For tests about what checks and formatters do, not whether they may run: a rule allows the project's commands.
+fn allow_edits_and_project_commands(h: &Harness) {
+    let allow = |kind: &str| Rule { kind: kind.into(), pattern: "*".into(), decision: Decision::Allow };
+    h.engine.permissions.set_policy(Policy { rules: vec![allow("edit"), allow("project-commands")] });
+}
+
+#[tokio::test]
+async fn a_projects_own_commands_run_only_once_the_user_says_so_and_always_holds_for_the_workspace() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    let marker = h._dir.join("ran.log");
+    let (shell, flag, run) = if cfg!(windows) { ("cmd", "/c", format!("echo ran>> {}", marker.display())) } else { ("sh", "-c", format!("echo ran >> '{}'", marker.display())) };
+    std::fs::write(h._dir.join("ws/drift.json"), json!({ "checks": { "mark": { "command": [shell, flag, run], "extensions": [".txt"] } } }).to_string()).unwrap();
+    let mut rx = h.engine.hub.attach(None).rx;
+
+    h.provider.push(tool_call("write", r#"{"path": "a.txt", "content": "a\n"}"#)).push(text("one"));
+    h.engine.submit(&h.session.id, prompt("write a")).await.await_ok();
+    let ask = next_ask(&mut rx).await;
+    assert_eq!((ask.ask.kind.as_str(), ask.ask.pattern.as_str()), ("project-commands", format!("check mark: {shell} {flag} {run}").as_str()));
+    h.engine.permissions.reply(&h.engine.hub, &ask.id, ReplyBody { reply: Reply::Deny, pattern: None, message: None }).unwrap();
+    until_idle(&h).await;
+    assert!(!marker.exists(), "refused, the project's command does not run");
+    h.provider.push(tool_call("write", r#"{"path": "b.txt", "content": "b\n"}"#)).push(text("two"));
+    h.engine.submit(&h.session.id, prompt("write b")).await.await_ok();
+    until_idle(&h).await;
+    assert!(h.engine.permissions.pending().is_empty() && !marker.exists(), "a refusal holds for the session without asking again");
+
+    let session = |title| h.engine.store.create_session(NewSession { workspace_id: &h.session.workspace_id, parent_id: None, visibility: Visibility::Sibling, title, agent: "build", model: None }).unwrap();
+    let runs = || std::fs::read_to_string(&marker).unwrap_or_default().lines().count();
+    let other = session("Other");
+    h.provider.push(tool_call("write", r#"{"path": "c.txt", "content": "c\n"}"#)).push(text("three"));
+    h.engine.submit(&other.id, prompt("write c")).await.await_ok();
+    let ask = next_ask(&mut rx).await;
+    h.engine.permissions.reply(&h.engine.hub, &ask.id, ReplyBody { reply: Reply::Always, pattern: None, message: None }).unwrap();
+    until_session_idle(&h, &other.id).await;
+    assert_eq!(runs(), 1, "allowed, it runs");
+    let third = session("Third");
+    h.provider.push(tool_call("write", r#"{"path": "d.txt", "content": "d\n"}"#)).push(text("four"));
+    h.engine.submit(&third.id, prompt("write d")).await.await_ok();
+    until_session_idle(&h, &third.id).await;
+    assert_eq!(runs(), 2);
+    assert!(h.engine.permissions.pending().is_empty(), "always holds for the workspace, in a new session too");
+
+    std::fs::write(h._dir.join("ws/drift.json"), json!({ "checks": { "mark": { "command": [shell, flag, format!("{run} & echo changed")], "extensions": [".txt"] } } }).to_string()).unwrap();
+    let fourth = session("Fourth");
+    h.provider.push(tool_call("write", r#"{"path": "e.txt", "content": "e\n"}"#)).push(text("five"));
+    h.engine.submit(&fourth.id, prompt("write e")).await.await_ok();
+    assert_eq!(next_ask(&mut rx).await.ask.kind, "project-commands", "changed commands are asked about again");
+    assert!(h.engine.abort(&fourth.id));
+}
+
+async fn until_session_idle(h: &Harness, session_id: &str) {
+    for _ in 0..1000 {
+        if !h.engine.turns.is_running(session_id) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("turn never finished");
 }
 
 fn two_writes(first: (&str, &str), second: (&str, &str)) -> Vec<Chunk> {
@@ -1467,7 +1528,7 @@ fn call_outputs(h: &Harness, message: usize) -> Vec<(String, serde_json::Value)>
 #[tokio::test]
 async fn checks_run_once_per_step_say_unchanged_problems_briefly_and_announce_files_they_change() {
     let h = harness().await;
-    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    allow_edits_and_project_commands(&h);
     let log = h._dir.join("whole.log");
     let (shell, flag, whole, fix) = if cfg!(windows) {
         ("cmd", "/c", format!("echo ran>> {} & echo 3 type errors in the workspace & exit 1", log.display()), "echo fixed> $FILE")
@@ -1508,7 +1569,7 @@ async fn checks_run_once_per_step_say_unchanged_problems_briefly_and_announce_fi
 #[tokio::test]
 async fn configured_checks_report_problems_with_the_write_and_stop_cuts_them_off() {
     let h = harness().await;
-    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    allow_edits_and_project_commands(&h);
     let (shell, flag, fail, hang) =
         if cfg!(windows) { ("cmd", "/c", "echo unused import in $FILE&& exit 1", "ping -n 30 127.0.0.1") } else { ("sh", "-c", "echo unused import in $FILE; exit 1", "sleep 30") };
     let config = json!({ "checks": {

@@ -13,6 +13,7 @@ pub mod revert;
 pub mod snapshot;
 pub mod tasks;
 mod title;
+mod trust;
 pub mod tree;
 pub mod turn;
 pub mod types;

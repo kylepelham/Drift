@@ -1282,6 +1282,16 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   is in `metadata.checks` (`check`, `status` of `passed`, `problems` or `unavailable`, `output`).
   Stop cuts the checks off with their whole process tree; the writes stand. Checks stand in for
   LSP diagnostics until those land (M4).
+- **Project commands.** A command a check or formatter names in the project's own `drift.json`
+  runs only once the user has allowed it; the user's `~/.config/drift/drift.json`, built-in
+  formatters and a project's `false` need no say-so (as custom providers come only from the user's
+  file, opening a cloned repository must not run what it names). The first write that would format
+  or check asks once, a permission card of kind `project-commands` listing every such command
+  (`check lint: eslint $FILE; formatter prettier: ./fmt.sh $FILE`). Always is kept for the
+  workspace under a hash of those commands (setting `trustedCommands:<workspace>`), so any change
+  to them asks again; once allows them for the session; deny skips them for the session, built-in
+  formatters and the user's own commands still running. A permission rule of that kind (pattern
+  `*`) allows them without asking.
 - **Permissions** resolve in order: session "always" answers, the workspace's `drift.json`
   rules, then the global policy.
   - File asks (read, edit, write, apply_patch) carry the absolute path and, inside the workspace,
