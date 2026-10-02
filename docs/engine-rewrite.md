@@ -32,7 +32,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Edit | Exact match only, with line ending normalisation on both sides. On a miss, return the closest region so the model can re-read cheaply; the tool text and the miss both say read's `N: ` prefix is not in the file, and a miss caused by copied prefixes says exactly that (still no fuzzy apply). `apply_patch`, offered only to the GPT and Codex models whose catalog profile asks for it, finds hunks as Codex's own `seek_sequence` does, because those models write patches that rely on it: exactly, then ignoring trailing whitespace, then surrounding whitespace, then with typographic dashes, quotes and spaces read as ASCII; the first pass that matches wins, and a miss shows the closest region as `edit` does. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. It follows the same rules: every existing file it adds over, updates, deletes or moves onto must have been read this session (so a secret needs its own read approval before it can reach a diff); every source and move destination is a separate edit ask (`Tool::asks`), any refusal refusing the call; and the whole patch is read, checked and worked out before any file changes. Only a missing file counts as absent; any other read error (denied, locked, a directory) stops preparation, and so does an update to a file that is not UTF-8 (a Windows-1252 page, say), which `edit` refuses too: decoding it loosely and writing it back would replace every such byte in the whole file. Every whole-file write the engine makes (`edit`, `write`, `apply_patch`, and undo and redo putting a file back) goes to a sibling file swapped into place (`tool::stage::replace`), so a failed write never truncates its target. Each replacement is one row in `staged_replacement` (migration 14): the destination, the staged sibling (`.<name>.drift-<8 hex>.tmp`) and the backup the swap may leave (same name, `.bak`), written in one statement before either file exists. After the swap, and at startup before any tool can run (`recover_leftovers`), the pair is settled: if the destination is missing and the backup exists, the backup is moved back first; only then are the siblings removed. The moment a swap succeeds the row is marked `swapped` (migration 15), before the backup is removed: from then on the backup is old content, so a backup that could not be removed yet (a scanner holding it) is only ever deleted later, never restored, even if the file has been deleted on purpose meanwhile. Until then it sits beside the file, so it can show in `git status`. If that move or a removal fails, both files and the row stay, and the next start tries again; rows are forgotten together in one short transaction only after their files are settled, and the store lock is never held across file I/O. A row whose paths are not exactly what the engine would name for its destination is dropped without touching any file. `write` treats only a missing file as new: a file it cannot read or decode still exists, so it must have been read first, and any other read error stops the write. On Windows an existing file is swapped with `ReplaceFileW` and no ignore flags, so its ACL and attributes carry over or the write fails; if the swap moved the original aside and could not put the new file in, it is moved back, and if even that fails the error names where the original is. A file another program holds open without delete sharing cannot be swapped: the write fails with that reason and the file is left as it was. On Unix the mode carries over; owner, group, extended attributes and POSIX ACLs are the new file's. On both, a file with other hard links is not written through them: the patched path gets a new file and the other links keep the old content. On a failure every step through the failing one is put back (a step already in its before state is left alone) and the error names any file that could not be. |
 | Post-edit | Formatter hooks only: built-in table, `drift.json` can add or disable, failures logged and never surfaced to the model. A formatter that changed the file is named in the result ("the file no longer matches what you wrote; read it again"), so the next edit is not built on stale text. Then opt-in checks (`drift.json` `checks`, any linter or type checker) whose problems are added to the result, in place of language servers. |
 | Snapshot and revert | Kept. Shell out to `git` with a shadow git dir per worktree. Snapshot before every writing tool. Revert restores a snapshot; diffs are computed between snapshots. |
-| MCP | Native `rmcp` (stdio, streamable HTTP, OAuth). Reconnect and reload designed in rather than patched on; no approval step. |
+| MCP | Native `rmcp` (stdio, streamable HTTP, deprecated HTTP+SSE, OAuth), 2026-07-28 stateless servers found by probing with the handshake as fallback. Reconnect and reload designed in rather than patched on; no approval step. |
 | Storage | One `drift.db`, one writer, WAL, strict tables. Engine tables live beside the existing shell tables. |
 | Config | `drift.json` at the project root, `.drift/{agents,commands,skills}/`, `~/.config/drift/`. Instructions from `AGENTS.md` and `CLAUDE.md`: global (`~/.config/drift/AGENTS.md`), every directory up to the repository root, and subdirectories as their files are read. Skills from `.drift/skills`, `.agents/skills` and `.claude/skills` at project and home. No runtime `opencode.json` fallback. |
 | Identity | `DRIFT_*` env vars, `~/.local/share/drift` data dir. A one-time migrator runs on first launch. MIT attribution for opencode stays in `licenses/`. |
@@ -1086,13 +1086,49 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   the new name; a remove forgets it; a save that changes the URL forgets it, so tokens issued for
   one host are never sent to another. Legacy SSE servers do not sign in.
 - **MCP transports and limits.** A server is `stdio` (with an optional `cwd`), `http` (streamable
-  HTTP) or `sse`, the older HTTP+SSE transport, which rmcp no longer ships, so `mcp::sse` speaks it:
-  a long-lived GET whose `endpoint` event names where to POST, replies arriving as `message`
-  events. Any of them may set `timeoutSeconds`: a tool call that runs longer fails, saying it may or
+  HTTP) or `sse`, the 2024 HTTP+SSE transport, which the spec has deprecated and rmcp no longer
+  ships, so `mcp::sse` speaks it: a long-lived GET whose `endpoint` event names where to POST,
+  replies arriving as `message` events. It stays for servers that still need it; nothing new should
+  use it. Any of them may set `timeoutSeconds`: a tool call that runs longer fails, saying it may or
   may not have taken effect. Both fields are left out when unset, so older configs keep their hash.
   Each status carries `transport` (`stdio`, `streamable_http`, `sse`) and, once connected, the
-  `protocol` version the server agreed to at initialize; the MCP menu shows them on each row. A
-  stateless transport (the coming v2) joins `Transport` as one more value.
+  `protocol` version the server agreed to and its `era`; the MCP menu shows all three on each row
+  ("Streamable HTTP · 2026-07-28 · stateless"). The era is a protocol version, not a transport, so
+  `Transport` gains nothing for it.
+- **MCP eras.** MCP 2026-07-28 drops the handshake and the session: no `initialize`, no
+  `Mcp-Session-Id`; every request carries its protocol version, client info and capabilities in
+  `_meta`, and the server answers `server/discover`. Over HTTP each request is one POST (headers
+  `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, and `Mcp-Param-*` for parameters the tool's
+  schema marks `x-mcp-header`), answered as JSON or a stream that lasts only for that request; there
+  is no GET stream and no resuming. rmcp 3.5 does all of this; Drift chooses the lifecycle
+  (`mcp::lifecycle`). A server whose era is unknown is probed (`Auto`): `server/discover` at
+  2026-07-28, and on a refusal (a JSON-RPC error, or over HTTP a 4xx that is not 401 or 403) or
+  silence the `initialize` handshake offering 2025-11-25. rmcp waits a fixed 10 s for a stdio
+  server that ignores the probe, so the first connect's start limit is 30 s plus that.
+  HTTP+SSE servers predate the probe and always use the handshake.
+- The era found is kept on the server's row (`mcp_config.era`, migration 24) and a reconnect starts
+  in it (`Discover` or `Initialize`), so the 10 s is paid once per config. A save forgets it, and it
+  is only written while the row still has the config it was found under. A connect in the kept era
+  that the server refuses probes again at once and keeps the new answer; one that only timed out is
+  not retried, so a stuck server is not waited on twice.
+- Drift answers no server-to-client requests: sampling, elicitation and roots are declined (the
+  roots list is empty). A 2026-07-28 server asks for them in an `input_required` result; rmcp
+  answers with the refusal and retries, and a server that keeps asking past rmcp's 10 rounds fails
+  the call with "the server kept asking for input Drift does not give".
+- **MCP connections.** A stdio server and a pre-2026 HTTP server keep a connection open (the
+  process, or the session's GET stream) and are watched as below. A stateless HTTP server holds
+  nothing open between calls, so it is not watched: a failed request is the only sign of trouble.
+  A read-only call whose POST failed is asked again once on the same client; one that may have
+  changed something is not, and the model is told so. Only when the client itself has ended does
+  the call trigger the reconnect the watch would have.
+- **MCP list changes.** A tool list that gives `ttlMs` (required from 2026-07-28) goes stale after
+  it. When a turn is planned, each server whose list is stale is listed again (one short request,
+  in parallel, at most 2 s each); a changed list publishes `mcp.updated` and the turn sees it. A
+  failed re-list waits 30 s before the next. Lists without `ttlMs` are read once at connect. Tools a
+  running turn holds are checked against the current list as for a reconnect (`behaves_alike`), so
+  a re-listed tool that changed its input or safety hints is refused for the rest of that turn.
+  `subscriptions/listen`, the opt-in stream of change notices, is not opened: it would hold a
+  connection open per server for what the TTL already covers.
 - **MCP resources and prompts.** While a connected server declares resources, turns are also
   offered `mcp_resources` (list, every such server or one) and `mcp_read_resource` (server and
   uri; text inline, image and PDF blobs as files the model looks at, other binaries named). Both
@@ -1134,12 +1170,13 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   change to it, cancels the one in flight at once rather than letting it run to its timeout. The
   engine's own connects (the startup sweep, reconnects) never cancel anything: they skip a server
   that is live or already connecting, checked under the same lock as the start.
-  `initialize` and `tools/list` each get 30 s; a server that misses either fails with a message
+  Starting (handshake or discovery) and `tools/list` each get 30 s; a server that misses either fails with a message
   saying which. A stdio server is adopted into a process tree (job object on Windows, process
   group on unix) as soon as it spawns, so a cancelled, timed-out or replaced attempt, or a dropped
   connection, takes the server's children with it. However an attempt ends, even when its caller is
   dropped mid-flight, a guard clears its record and wakes turns waiting in `wait_ready`, so nothing
-  is left showing connecting.
+  is left showing connecting. The start limit covers the handshake or discovery; a first connect
+  that must probe gets 10 s more.
 - Reconnect backoff carries across connections that drop again quickly: a server that crashes
   straight after each reconnect is retried at 500 ms, 1 s, 2 s and so on up to 30 s. Only a
   connection that held for a minute starts its next reconnects from 500 ms again.
