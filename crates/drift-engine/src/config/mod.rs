@@ -36,6 +36,43 @@ pub struct File {
     pub limits: LimitsFile,
     /// Time limits per provider route (`ollama`, `anthropic`, ...), for slow local models or gateways.
     pub timeouts: BTreeMap<String, RouteTimeouts>,
+    /// Providers added or re-pointed. Read from the user's own `~/.config/drift/drift.json` only: a
+    /// project's file is committed by others and must never send your key somewhere else.
+    pub providers: BTreeMap<String, ProviderConfig>,
+}
+
+/// A provider the user adds (any OpenAI-compatible server) or re-points (a gateway, a remote LM Studio).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProviderConfig {
+    pub name: Option<String>,
+    /// Where its requests go: an OpenAI-compatible `/v1` root for a new or local provider.
+    pub base_url: Option<String>,
+    /// The environment variable holding its key. A new provider without one takes no key.
+    pub api_key_env: Option<String>,
+    pub models: BTreeMap<String, ProviderModel>,
+}
+
+/// A model of a user's provider, as the catalog needs it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProviderModel {
+    pub name: Option<String>,
+    /// Context window in tokens; 0 when unknown.
+    pub context: u64,
+    /// Longest reply in tokens; 0 when unknown.
+    pub output: u64,
+    pub images: bool,
+}
+
+/// The providers the user's own drift.json adds or re-points.
+pub fn user_providers() -> BTreeMap<String, ProviderConfig> {
+    home().map(|home| user_providers_in(&home)).unwrap_or_default()
+}
+
+fn user_providers_in(home: &Path) -> BTreeMap<String, ProviderConfig> {
+    let Ok(text) = std::fs::read_to_string(home.join(".config/drift").join(FILE)) else { return BTreeMap::new() };
+    serde_json::from_str::<File>(&jsonc::strip(&text)).map(|file| file.providers).unwrap_or_default()
 }
 
 /// A route's time limits in seconds; either may be left out to keep the route's default.

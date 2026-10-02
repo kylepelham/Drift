@@ -10,6 +10,7 @@ mod eventstream;
 pub mod gemini;
 pub mod google;
 pub mod http;
+pub mod local;
 pub mod openai;
 mod sse;
 pub mod vertex;
@@ -401,11 +402,13 @@ impl Provider {
     }
 }
 
-/// Builds the adapter for a catalog provider. `DRIFT_<ID>_BASE_URL` overrides the endpoint for recorded runs.
+/// Builds the adapter for a catalog provider. `DRIFT_<ID>_BASE_URL` overrides the endpoint for recorded
+/// runs; otherwise the catalog's (for the native routes, only ever the user's drift.json). An id the
+/// adapters do not know is an OpenAI-compatible server when it has an endpoint.
 pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
     let env_name = format!("DRIFT_{}_BASE_URL", id.to_uppercase().replace('-', "_"));
-    let override_url = std::env::var(env_name).ok();
-    let base = |default: &str| override_url.clone().or_else(|| catalog_api.map(str::to_string)).unwrap_or_else(|| default.to_string());
+    let override_url = std::env::var(env_name).ok().or_else(|| catalog_api.map(str::to_string));
+    let base = |default: &str| override_url.clone().unwrap_or_else(|| default.to_string());
     let provider = match id {
         "anthropic" => Provider::Anthropic(override_url.as_deref().map_or_else(anthropic::Anthropic::default, anthropic::Anthropic::new)),
         "openai" => Provider::OpenAi(override_url.as_deref().map_or_else(openai::OpenAi::default, openai::OpenAi::new)),
@@ -417,7 +420,7 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
         "ollama" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:11434/v1"))),
         "amazon-bedrock" => Provider::Bedrock(bedrock::Bedrock::new(override_url)),
         "google-vertex" | "google-vertex-anthropic" => Provider::Vertex(vertex::Vertex::new(override_url)),
-        _ => return None,
+        _ => Provider::Compat(compat::Compat::new(override_url.as_deref()?)),
     };
     Some(provider.with_timeouts(http::Timeouts::for_route(id)))
 }

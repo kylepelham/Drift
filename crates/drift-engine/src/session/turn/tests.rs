@@ -1299,6 +1299,30 @@ async fn a_command_that_only_reads_is_not_captured_and_one_that_writes_is() {
 }
 
 #[tokio::test]
+async fn a_local_servers_installed_models_appear_and_run_without_a_key_while_it_answers() {
+    let app = axum::Router::new().route("/v1/models", axum::routing::get(|| async { axum::Json(json!({ "data": [{ "id": "qwen3-coder-local" }] })) }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let serving = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let h = harness().await;
+    h.engine.catalog.write().unwrap().providers.get_mut("lmstudio").unwrap().api = Some(base);
+    h.engine.ask_local().await;
+    let local = ModelRef { provider: "lmstudio".into(), model: "qwen3-coder-local".into() };
+    assert!(h.engine.catalog.read().unwrap().model("lmstudio", "qwen3-coder-local").is_some(), "the installed model is listed");
+    h.provider.push(text("local reply"));
+    let mut ask = prompt("hi");
+    ask.model = Some(local.clone());
+    h.engine.submit(&h.session.id, ask).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(h.engine.store.transcript(&h.session.id).unwrap()[1].info.status, MessageStatus::Done, "no key was needed");
+
+    serving.abort();
+    let _ = serving.await;
+    h.engine.ask_local().await;
+    assert!(h.engine.credentials.resolve("lmstudio", &[]).is_none(), "a server that stopped answering is not connected");
+}
+
+#[tokio::test]
 async fn a_running_command_shows_its_output_before_it_ends() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });

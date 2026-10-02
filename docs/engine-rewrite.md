@@ -796,6 +796,18 @@ these async criteria are new pending M3 work.
   hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)
   without ever giving a `finish_reason` is a failed reply: its calls are not run, as with any stream
   that ends without saying why.
+- Local servers report their own models (`llm::local`). Every 15 s the engine asks LM Studio and
+  Ollama (`/v1/models`, plus LM Studio's `/api/v0/models` for kind, context and tool support) at
+  their default address or the one the user set; what answers replaces that provider's listed
+  models (embedding and tool-less models left out, LM Studio's loaded context preferred), the
+  provider counts as connected with no key while it answers, and `catalog.updated` tells the UI.
+- The user's own `~/.config/drift/drift.json` may add or re-point providers:
+  `providers: { "<id>": { name?, baseUrl?, apiKeyEnv?, models?: { "<model>": { name?, context,
+  output, images } } } }`. A known id gets its endpoint replaced (a gateway, a remote LM Studio) and
+  any listed models added; a new id is an OpenAI-compatible route, keyless unless `apiKeyEnv`
+  names its key. A project's drift.json cannot do this: a committed file must never send your key
+  elsewhere. models.dev's own `api` field is ignored for the native routes, so only the user
+  re-points those; `DRIFT_<ID>_BASE_URL` still wins for recorded runs.
 - OpenRouter is a catalog provider (`openrouter`, from models.dev at the first refresh; the
   bundled offline snapshot does not list it). Its Chat Completions route caches Claude only with
   explicit `cache_control`: a top-level field for automatic caching, which OpenRouter supports only

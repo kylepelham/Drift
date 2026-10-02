@@ -21,6 +21,8 @@ pub struct Credentials {
     write_lock: Mutex<()>,
     /// Providers with a stored credential; keychains cannot enumerate, so we keep our own list.
     index: Mutex<BTreeSet<String>>,
+    /// Providers that take no key: a local server that answered, a user's server with no key variable.
+    keyless: Mutex<BTreeSet<String>>,
 }
 
 enum Backend {
@@ -34,7 +36,7 @@ impl Credentials {
             Ok(()) if !prefer_file => Backend::Keyring,
             _ => Backend::File(data_dir.join(FALLBACK_FILE)),
         };
-        let this = Self { backend, write_lock: Mutex::default(), index: Mutex::default() };
+        let this = Self { backend, write_lock: Mutex::default(), index: Mutex::default(), keyless: Mutex::default() };
         let index = this.read(INDEX).and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default();
         *this.index.lock().unwrap() = index;
         this
@@ -42,14 +44,25 @@ impl Credentials {
 
     #[cfg(test)]
     pub fn in_file(path: PathBuf) -> Self {
-        Self { backend: Backend::File(path), write_lock: Mutex::default(), index: Mutex::default() }
+        Self { backend: Backend::File(path), write_lock: Mutex::default(), index: Mutex::default(), keyless: Mutex::default() }
+    }
+
+    /// Marks a provider as taking no key (`on`), or as needing one again.
+    pub fn set_keyless(&self, provider: &str, on: bool) {
+        let mut keyless = self.keyless.lock().unwrap();
+        if on {
+            keyless.insert(provider.into());
+        } else {
+            keyless.remove(provider);
+        }
     }
 
     pub fn get(&self, provider: &str) -> Option<Credential> {
         self.read(provider).and_then(|json| serde_json::from_str(&json).ok())
     }
 
-    /// A stored credential, else what a cloud route finds for itself, else the provider's environment variable as an API key.
+    /// A stored credential, else what a cloud route finds for itself, else the provider's environment
+    /// variable as an API key, else, for a provider that takes none, a placeholder its server ignores.
     pub fn resolve(&self, provider: &str, env: &[String]) -> Option<Credential> {
         if let Some(stored) = self.get(provider) {
             return Some(stored);
@@ -58,12 +71,9 @@ impl Credentials {
         if let Some(found) = super::ambient(provider) {
             return found.map(|source| Credential::Ambient { source });
         }
-        self.get(provider).or_else(|| {
-            env.iter()
-                .find_map(|name| std::env::var(name).ok())
-                .filter(|key| !key.is_empty())
-                .map(|key| Credential::ApiKey { key })
-        })
+        let from_env = env.iter().find_map(|name| std::env::var(name).ok()).filter(|key| !key.is_empty());
+        let keyless = || self.keyless.lock().unwrap().contains(provider).then(|| "none".to_string());
+        from_env.or_else(keyless).map(|key| Credential::ApiKey { key })
     }
 
     pub fn set(&self, provider: &str, credential: &Credential) -> Result<(), String> {
@@ -260,7 +270,7 @@ mod keyring_tests {
         if keyring::Entry::store_status().is_err() {
             return;
         }
-        let store = Credentials { backend: Backend::Keyring, write_lock: Mutex::default(), index: Mutex::default() };
+        let store = Credentials { backend: Backend::Keyring, write_lock: Mutex::default(), index: Mutex::default(), keyless: Mutex::default() };
         let key = format!("probe-{}", crate::random_hex(3));
         let long = Credential::OAuth { access: "a".repeat(2500), refresh: "r".repeat(700), expires_at: 1, account: Some("acc".into()) };
         store.set(&key, &long).unwrap();

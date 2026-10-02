@@ -97,6 +97,8 @@ pub struct Engine {
     shell_timeout: RwLock<Option<Option<std::time::Duration>>>,
     /// The runtime the engine serves on, for work started from outside it (a Settings change from the shell).
     runtime: std::sync::OnceLock<tokio::runtime::Handle>,
+    /// What each local server last reported, kept across catalog refreshes.
+    local_models: std::sync::Mutex<std::collections::BTreeMap<String, Vec<llm::catalog::Model>>>,
 }
 
 impl Engine {
@@ -109,6 +111,8 @@ impl Engine {
         store.abandon_streaming_messages()?;
         store.interrupt_unfinished_tasks()?;
         tool::stage::recover_leftovers(&store);
+        let credentials = Credentials::open(data_dir, options.file_credentials);
+        let catalog = with_user_providers(Catalog::load(data_dir), &credentials);
         Ok(Arc::new(Self {
             data_dir: data_dir.to_path_buf(),
             store,
@@ -118,8 +122,8 @@ impl Engine {
             questions: question::Questions::default(),
             tools: Registry::builtin(),
             mcp: mcp::Servers::default(),
-            credentials: Credentials::open(data_dir, options.file_credentials),
-            catalog: RwLock::new(Catalog::load(data_dir)),
+            credentials,
+            catalog: RwLock::new(catalog),
             snapshots: Snapshots::new(data_dir),
             turns: Turns::default(),
             workers: Default::default(),
@@ -128,6 +132,7 @@ impl Engine {
             agent_overrides: Default::default(),
             shell_timeout: Default::default(),
             runtime: Default::default(),
+            local_models: Default::default(),
         }))
     }
 
@@ -201,10 +206,67 @@ impl Engine {
             return;
         }
         if let Ok(catalog) = Catalog::refresh(&self.http, &self.data_dir).await {
+            let mut catalog = with_user_providers(catalog, &self.credentials);
+            for (id, models) in self.local_models.lock().unwrap().iter() {
+                catalog.with_local(id, id, models);
+            }
             *self.catalog.write().unwrap() = catalog;
             self.hub.publish(event::Event::CatalogUpdated {});
         }
     }
+
+    /// Asks each local server (LM Studio, Ollama) what it has, every [`LOCAL_INTERVAL`] for as long as
+    /// the engine lives; one that answers is connected with no key, one that stops is not.
+    pub async fn watch_local(self: Arc<Self>) {
+        let engine = Arc::downgrade(&self);
+        drop(self);
+        loop {
+            let Some(engine) = engine.upgrade() else { return };
+            engine.ask_local().await;
+            drop(engine);
+            tokio::time::sleep(LOCAL_INTERVAL).await;
+        }
+    }
+
+    pub(crate) async fn ask_local(&self) {
+        let mut changed = false;
+        for (id, name, default) in llm::local::LOCAL {
+            let base = self.catalog.read().unwrap().providers.get(id).and_then(|p| p.api.clone()).unwrap_or_else(|| default.into());
+            let found = llm::local::discover(&self.http, &base).await;
+            self.credentials.set_keyless(id, found.is_some());
+            let mut known = self.local_models.lock().unwrap();
+            let was_up = known.contains_key(id);
+            match found {
+                Some(models) if known.get(id) != Some(&models) => {
+                    self.catalog.write().unwrap().with_local(id, name, &models);
+                    known.insert(id.into(), models);
+                    changed = true;
+                }
+                None if was_up => {
+                    known.remove(id);
+                    changed = true;
+                }
+                _ => {}
+            }
+        }
+        if changed {
+            self.hub.publish(event::Event::CatalogUpdated {});
+        }
+    }
+}
+
+/// How often local servers are asked what they have.
+const LOCAL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The catalog with the user's own providers laid over it; a new one without a key variable takes none.
+fn with_user_providers(catalog: Catalog, credentials: &Credentials) -> Catalog {
+    let user = config::user_providers();
+    for (id, provider) in &user {
+        if !catalog.providers.contains_key(id) && provider.api_key_env.is_none() {
+            credentials.set_keyless(id, true);
+        }
+    }
+    catalog.with_user(&user)
 }
 
 /// How often housekeeping runs while the engine is up.
@@ -236,6 +298,7 @@ impl Server {
 pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Error> {
     let _ = engine.runtime.set(tokio::runtime::Handle::current());
     let starting = engine.clone();
+    tokio::spawn(engine.clone().watch_local());
     tokio::spawn(async move {
         starting.refresh_catalog().await;
         starting.connect_all_mcp().await;

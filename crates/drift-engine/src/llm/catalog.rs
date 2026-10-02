@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::config::{ProviderConfig, ProviderModel};
 use crate::session::types::ModelRef;
 
 const SNAPSHOT: &str = include_str!("../../data/models.json");
@@ -176,6 +177,69 @@ impl Catalog {
     pub fn model(&self, provider: &str, model: &str) -> Option<&Model> {
         self.providers.get(provider)?.models.get(model)
     }
+
+    /// The user's providers over models.dev's: a base URL re-points one, listed models join it, and a
+    /// new id becomes an OpenAI-compatible route.
+    pub fn with_user(mut self, user: &BTreeMap<String, ProviderConfig>) -> Self {
+        for (id, config) in user {
+            let info = self.providers.entry(id.clone()).or_insert_with(|| ProviderInfo { id: id.clone(), name: id.clone(), env: Vec::new(), api: None, models: BTreeMap::new() });
+            if let Some(name) = &config.name {
+                info.name = name.clone();
+            }
+            if let Some(base) = &config.base_url {
+                info.api = Some(base.clone());
+            }
+            if let Some(env) = &config.api_key_env {
+                info.env = vec![env.clone()];
+            }
+            info.models.extend(config.models.iter().map(|(model, listed)| (model.clone(), user_model(model, listed))));
+        }
+        self
+    }
+
+    /// What a local server reports replaces the provider's listed models: it knows what is installed.
+    pub fn with_local(&mut self, id: &str, name: &str, models: &[Model]) {
+        let info = self.providers.entry(id.into()).or_insert_with(|| ProviderInfo { id: id.into(), name: name.into(), env: Vec::new(), api: None, models: BTreeMap::new() });
+        info.models = models.iter().map(|model| (model.id.clone(), model.clone())).collect();
+    }
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::*;
+
+    #[test]
+    fn the_users_providers_repoint_add_and_list_models() {
+        let user: BTreeMap<String, ProviderConfig> = serde_json::from_value(serde_json::json!({
+            "lmstudio": { "baseUrl": "http://192.168.1.5:1234/v1" },
+            "gateway": { "name": "Our gateway", "baseUrl": "https://gw.example/v1", "apiKeyEnv": "GW_KEY", "models": { "big": { "context": 200000, "images": true } } }
+        }))
+        .unwrap();
+        let catalog = Catalog::bundled().with_user(&user);
+        assert_eq!(catalog.providers["lmstudio"].api.as_deref(), Some("http://192.168.1.5:1234/v1"));
+        let gateway = &catalog.providers["gateway"];
+        assert_eq!((gateway.name.as_str(), gateway.env.as_slice()), ("Our gateway", ["GW_KEY".to_string()].as_slice()));
+        assert_eq!((gateway.models["big"].limit.context, gateway.models["big"].attachment), (200_000, true));
+        assert!(matches!(crate::llm::provider_for("gateway", gateway.api.as_deref()), Some(crate::llm::Provider::Compat(_))), "a new id is an OpenAI-compatible route");
+        assert!(crate::llm::provider_for("unknown", None).is_none());
+        assert!(Catalog::bundled().providers.values().filter(|p| matches!(p.id.as_str(), "anthropic" | "openai" | "google")).all(|p| p.api.is_none()), "models.dev never re-points a native route");
+    }
+}
+
+fn user_model(id: &str, listed: &ProviderModel) -> Model {
+    Model {
+        id: id.into(),
+        name: listed.name.clone().unwrap_or_else(|| id.into()),
+        family: String::new(),
+        reasoning: false,
+        attachment: listed.images,
+        temperature: true,
+        release_date: String::new(),
+        limit: Limit { context: listed.context, output: listed.output },
+        cost: Cost::default(),
+        profile: ToolProfile::Edit,
+        variants: Vec::new(),
+    }
 }
 
 /// Cloud routes host many vendors; only the wires the adapters speak are offered: Claude on Bedrock, Claude and Gemini on Vertex.
@@ -270,7 +334,9 @@ impl RawProvider {
                 )
             })
             .collect();
-        ProviderInfo { id: self.id, name: self.name, env: self.env.unwrap_or_default(), api: self.api, models }
+        // The native routes' endpoints are ours; only the user's drift.json re-points them.
+        let api = self.api.filter(|_| !matches!(provider_id, "anthropic" | "openai" | "google" | "amazon-bedrock" | "google-vertex" | "google-vertex-anthropic"));
+        ProviderInfo { id: self.id, name: self.name, env: self.env.unwrap_or_default(), api, models }
     }
 }
 
