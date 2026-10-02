@@ -1,0 +1,3 @@
+# Keeps a bare `bun test` away from engine/upstream, whose tests touch the real ~/.config/opencode.
+[test]
+root = "tests"
