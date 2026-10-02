@@ -1036,7 +1036,9 @@ Settled after the first external review of M1; each has a regression test.
 - `glob` and `grep` never descend into `.git`, `.hg`, `.svn` or `.jj`, and `grep` stops a
   file at its first NUL byte, so binaries produce no matches.
 - `read` loads a file whole up to 10 MB. Past that (a log, generated output) it reads the page
-  line by line from the start, on a blocking thread that a Stop ends, so memory holds one page;
+  in 64 KB buffers from the start, on a blocking thread that checks Stop between buffers. Each
+  line keeps at most 8004 bytes, even while skipping to an offset, so a newline-free file never
+  grows the buffer with the file's size. Memory holds one page;
   it gives no line count, which would mean reading the whole file, and says whether more lines
   follow. Such a file can be read but not edited: undo keeps nothing over 10 MB.
 - `grep` searches on several threads, as ripgrep does: it lists the first 200 matches by file then

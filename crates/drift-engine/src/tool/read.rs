@@ -91,6 +91,9 @@ async fn read_large(ctx: &Context, path: &std::path::Path, offset: usize, limit:
     let budget = PAGE_BYTES.saturating_sub(reminders.len());
     let (file, stop) = (path.to_path_buf(), ctx.abort.clone());
     let read = tokio::task::spawn_blocking(move || large_page(&file, offset, limit, budget, &stop)).await.map_err(|e| ToolError(e.to_string()))??;
+    if ctx.abort.is_cancelled() {
+        return Err(ToolError("stopped".into()));
+    }
     let Large { lines, more, binary } = read;
     if binary {
         return Err(ToolError(format!("{name} is binary")));
@@ -114,33 +117,64 @@ struct Large {
     binary: bool,
 }
 
-/// Lines `offset..` of `path`, as [`page`] numbers them, reading no further than the page and one line past it.
+/// The most of one line kept in memory: enough for [`MAX_LINE_CHARS`] characters of any width.
+const LINE_BYTES: usize = MAX_LINE_CHARS * 4 + 4;
+
+/// Lines `offset..` of `path`, numbered as [`page`] does, read a buffer at a time: no line is held past [`LINE_BYTES`], and a Stop is seen between buffers.
 fn large_page(path: &std::path::Path, offset: usize, limit: usize, budget: usize, stop: &tokio_util::sync::CancellationToken) -> std::io::Result<Large> {
     use std::io::BufRead;
     let mut reader = std::io::BufReader::with_capacity(1 << 16, std::fs::File::open(path)?);
     if reader.fill_buf()?.iter().take(8000).any(|b| *b == 0) {
         return Ok(Large { lines: Vec::new(), more: false, binary: true });
     }
-    let (mut lines, mut used, mut number, mut raw) = (Vec::new(), 0, 0, Vec::new());
-    loop {
-        raw.clear();
-        if reader.read_until(b'\n', &mut raw)? == 0 || stop.is_cancelled() {
-            return Ok(Large { lines, more: false, binary: false });
+    let mut page = Page { lines: Vec::new(), used: 0, limit, budget };
+    let (mut number, mut line, mut started) = (1, Vec::new(), false);
+    while !stop.is_cancelled() {
+        let chunk = reader.fill_buf()?;
+        if chunk.is_empty() {
+            let more = started && number >= offset && !page.push(number, &line);
+            return Ok(Large { lines: page.lines, more, binary: false });
         }
-        number += 1;
-        if number < offset {
+        let (take, ended) = chunk.iter().position(|b| *b == b'\n').map_or((chunk.len(), false), |at| (at + 1, true));
+        if number >= offset {
+            let room = LINE_BYTES.saturating_sub(line.len());
+            line.extend_from_slice(&chunk[..take.min(room)]);
+        }
+        reader.consume(take);
+        started = !ended;
+        if !ended {
             continue;
         }
-        let text = String::from_utf8_lossy(&raw);
-        let numbered = format!("{number}: {}", truncate(text.trim_end_matches(['\n', '\r'])));
-        used += numbered.len() + 1;
-        if lines.len() == limit || (used > budget && !lines.is_empty()) {
-            return Ok(Large { lines, more: true, binary: false });
+        if number >= offset && !page.push(number, &line) {
+            return Ok(Large { lines: page.lines, more: true, binary: false });
         }
-        lines.push(numbered);
+        line.clear();
+        number += 1;
     }
+    Ok(Large { lines: page.lines, more: false, binary: false })
 }
 
+/// A page being filled: numbered lines within `limit` and `budget` bytes, at least one.
+struct Page {
+    lines: Vec<String>,
+    used: usize,
+    limit: usize,
+    budget: usize,
+}
+
+impl Page {
+    /// Adds the line, or says `false` when the page is full; it never takes the line then.
+    fn push(&mut self, number: usize, raw: &[u8]) -> bool {
+        let text = String::from_utf8_lossy(raw);
+        let numbered = format!("{number}: {}", truncate(text.trim_end_matches(['\n', '\r'])));
+        self.used += numbered.len() + 1;
+        if self.lines.len() == self.limit || (self.used > self.budget && !self.lines.is_empty()) {
+            return false;
+        }
+        self.lines.push(numbered);
+        true
+    }
+}
 /// An image or PDF comes back for the model to look at, not as text.
 fn attached(ctx: &Context, path: &std::path::Path, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
     let name = display(path, &ctx.workspace);
@@ -312,6 +346,15 @@ mod tests {
         assert!(deep.output.starts_with(&format!("{lines}: log entry")) && !deep.output.contains("more lines"), "the last line, with nothing after it");
         assert!(Read.run(&sandbox.ctx, json!({ "path": "big.log", "offset": lines + 1 })).await.unwrap_err().0.contains("fewer than"));
         assert!(sandbox.ctx.files.was_read(&sandbox.ctx.workspace.join("big.log")));
+
+        sandbox.file("one-line.log", &"x".repeat(WHOLE_BYTES as usize + 1024));
+        let long = Read.run(&sandbox.ctx, json!({ "path": "one-line.log" })).await.unwrap();
+        assert!(long.output.starts_with("1: xxx") && long.output.len() < 3 * MAX_LINE_CHARS && !long.output.contains("more lines"), "one huge line, cut as it is read");
+        sandbox.file("tail.log", &format!("{}last", line.repeat(lines)));
+        let tail = Read.run(&sandbox.ctx, json!({ "path": "tail.log", "offset": lines + 1 })).await.unwrap();
+        assert_eq!(tail.output, format!("{}: last", lines + 1), "a last line without a newline still counts");
+        sandbox.ctx.abort.cancel();
+        assert_eq!(Read.run(&sandbox.ctx, json!({ "path": "big.log", "offset": lines })).await.unwrap_err().0, "stopped");
     }
 
     #[tokio::test]
