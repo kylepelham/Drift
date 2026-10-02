@@ -1473,6 +1473,61 @@ async fn undo_puts_back_what_a_fixing_check_rewrote_and_forgets_what_checks_said
 }
 
 #[tokio::test]
+async fn a_change_no_check_covers_is_left_to_whoever_made_it_and_undo_keeps_it() {
+    let h = harness().await;
+    allow_edits_and_project_commands(&h);
+    let other = h._dir.join("ws/b.txt");
+    // A .md check that also stands in for someone editing b.txt while the checks run.
+    let fix = if cfg!(windows) {
+        ["cmd".to_string(), "/c".to_string(), format!("echo fixed> $FILE & echo user edit> {}", other.display())]
+    } else {
+        ["sh".to_string(), "-c".to_string(), format!("echo fixed > $FILE; echo user edit > '{}'", other.display())]
+    };
+    std::fs::write(h._dir.join("ws/drift.json"), json!({ "checks": { "fixer": { "command": fix, "extensions": [".md"] } } }).to_string()).unwrap();
+    h.provider.push(two_writes(("a.md", "draft\n"), ("b.txt", "bee\n"))).push(text("written"));
+    h.engine.submit(&h.session.id, prompt("write both")).await.await_ok();
+    until_idle(&h).await;
+    let calls = call_outputs(&h, 1);
+    assert_eq!(calls[1].1["checkChanged"], json!(["a.md"]), "only the file a check covers is the check's: {:?}", calls[1].1);
+
+    let prompt_id = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
+    h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
+    assert!(!h._dir.join("ws/a.md").exists(), "the check's rewrite is undone with the write");
+    assert!(std::fs::read_to_string(&other).unwrap().starts_with("user edit"), "someone else's edit is never undone as the session's");
+}
+
+#[tokio::test]
+async fn a_check_rewrite_without_a_capture_is_still_announced_and_said_to_be_unrecorded() {
+    let h = harness().await;
+    let allow = |kind: &str| Rule { kind: kind.into(), pattern: "*".into(), decision: Decision::Allow };
+    h.engine.permissions.set_policy(Policy { rules: vec![allow("edit"), allow("bash"), allow("project-commands")] });
+    let fix = if cfg!(windows) { ["cmd", "/c", "echo fixed> $FILE"] } else { ["sh", "-c", "echo fixed > $FILE"] };
+    std::fs::write(h._dir.join("ws/drift.json"), json!({ "checks": { "fixer": { "command": fix, "extensions": [".md"] } } }).to_string()).unwrap();
+    // A second call in the step leaves the shadow store unusable, so the checks cannot be captured.
+    let store = h._dir.join("data/snapshots").to_string_lossy().replace('\\', "/");
+    let breaks = match crate::tool::bash::Bash::detect().dialect() {
+        crate::tool::command::Dialect::Bash => format!("rm -rf '{store}' && printf x > '{store}'"),
+        crate::tool::command::Dialect::PowerShell => format!("Remove-Item -Recurse -Force '{store}'; Set-Content -Path '{store}' -Value x"),
+    };
+    let calls = [
+        vec![Chunk::ToolUseStart { id: "toolu_write".into(), name: "write".into() }, Chunk::ToolInputDelta(json!({ "path": "new.md", "content": "draft\n" }).to_string()), Chunk::BlockStop],
+        vec![Chunk::ToolUseStart { id: "toolu_bash".into(), name: "bash".into() }, Chunk::ToolInputDelta(json!({ "command": breaks }).to_string()), Chunk::BlockStop],
+        vec![Chunk::Stop(StopReason::ToolUse)],
+    ];
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider.push(calls.concat()).push(text("done"));
+    h.engine.submit(&h.session.id, prompt("write and break")).await.await_ok();
+    // A line that writes a file is only ever allowed as itself, so the shell call asks.
+    let ask = next_ask(&mut rx).await;
+    h.engine.permissions.reply(&h.engine.hub, &ask.id, ReplyBody { reply: Reply::Once, pattern: None, message: None }).unwrap();
+    until_idle(&h).await;
+    assert!(std::fs::read_to_string(h._dir.join("ws/new.md")).unwrap().starts_with("fixed"));
+    let write = &call_outputs(&h, 1)[0];
+    assert!(write.0.contains("A check then changed new.md") && write.0.contains("undo cannot put back what the checks rewrote"), "{}", write.0);
+    assert_eq!(write.1["unrecorded"], json!(["new.md"]));
+}
+
+#[tokio::test]
 async fn compaction_forgets_what_checks_said() {
     let h = harness().await;
     h.provider.push(text("hello")).push(text("the summary"));

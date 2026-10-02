@@ -1020,26 +1020,43 @@ impl Engine {
             return;
         }
         // Taken as a writing call's own is, so undo puts back what a fixing check rewrites.
-        let capture = self.capture_before(&scope.plan.workspace, Some(files.clone())).await.ok();
+        let capture = self.capture_before(&scope.plan.workspace, Some(files.clone())).await;
+        // Without a capture the bytes are compared instead, so a rewrite is still announced.
+        let bytes = match &capture {
+            Ok(_) => Vec::new(),
+            Err(_) => futures_util::future::join_all(files.iter().map(tokio::fs::read)).await.into_iter().map(Result::ok).collect(),
+        };
         let reports = tokio::select! {
             reports = crate::edit::check::run(&files, &scope.plan.workspace, &checks, CHECK_BUDGET) => reports,
             () = scope.abort.cancelled() => return,
         };
         let recorded = match capture {
-            Some(capture) => self.record_call(&scope.plan.workspace, capture).await,
-            None => Ok(super::changes::Recorded::default()),
+            Ok(capture) => self.record_call(&scope.plan.workspace, capture).await.map(|recorded| observed_unless_covered(recorded, &checks)),
+            Err(error) => Err(self.unrecorded_rewrites(scope, &files, bytes, &error).await),
         };
         self.report_checks(scope, row, &reports, recorded);
+    }
+
+    /// The files checks changed when there was no capture to record them in, said so.
+    async fn unrecorded_rewrites(&self, scope: &CallScope<'_>, files: &[PathBuf], before: Vec<Option<Vec<u8>>>, error: &str) -> super::changes::Lost {
+        let mut unrecorded = Vec::new();
+        for (file, was) in files.iter().zip(before) {
+            if tokio::fs::read(file).await.ok() != was {
+                unrecorded.push(crate::tool::display(file, &scope.plan.workspace));
+            }
+        }
+        let note = (!unrecorded.is_empty()).then(|| format!("Drift could not record these files before the checks ran ({error}), so undo cannot put back what the checks rewrote."));
+        super::changes::Lost { note: note.unwrap_or_default(), put_back: false, unrecorded }
     }
 
     /// Adds what the checks found, and any file they rewrote, to the step's last writing call: its result, and its change record for undo.
     fn report_checks(&self, scope: &CallScope<'_>, mut row: PartRow, reports: &[crate::edit::check::Report], recorded: Result<super::changes::Recorded, super::changes::Lost>) {
         let workspace = &scope.plan.workspace;
-        let (changes, lost) = match recorded {
-            Ok(recorded) => (recorded.changes, None),
-            Err(lost) => (Vec::new(), Some(lost.note)),
+        let (changes, unrecorded, lost) = match recorded {
+            Ok(recorded) => (recorded.changes, Vec::new(), None),
+            Err(lost) => (Vec::new(), lost.unrecorded, Some(lost.note).filter(|note| !note.is_empty())),
         };
-        let changed: Vec<String> = changes.iter().map(|change| change.path.clone()).collect();
+        let changed: Vec<String> = changes.iter().filter(|change| !change.observed).map(|change| change.path.clone()).chain(unrecorded.iter().cloned()).collect();
         let found = checks_note(reports, workspace, |label, said| self.turns.repeated(&scope.plan.session.id, label, said));
         let notes: Vec<String> = [found, changed_note(&changed), lost].into_iter().flatten().collect();
         let Part::ToolCall { output, metadata, .. } = &mut row.part else { return };
@@ -1048,8 +1065,15 @@ impl Engine {
         }
         let mut meta = metadata.take().unwrap_or_else(|| json!({}));
         meta["checks"] = checks_metadata(reports, workspace);
-        if !changes.is_empty() {
+        if !changed.is_empty() {
             meta["checkChanged"] = json!(changed);
+        }
+        if !unrecorded.is_empty() {
+            let mut all: Vec<serde_json::Value> = meta["unrecorded"].as_array().cloned().unwrap_or_default();
+            all.extend(unrecorded.iter().map(|path| json!(path)));
+            meta["unrecorded"] = json!(all);
+        }
+        if !changes.is_empty() {
             // After the call's own changes, so undo chains them: the check's rewrite is put back first.
             match meta.get_mut("changes").and_then(serde_json::Value::as_array_mut) {
                 Some(list) => list.extend(changes.iter().map(|change| json!(change))),
@@ -1543,6 +1567,14 @@ fn denial(feedback: Option<&str>, stop: bool) -> String {
 /// What the model needs to hear after a formatter rewrote its change: the file is not what it wrote.
 fn reformatted_note(formatted: &[String]) -> String {
     format!("A formatter then changed the result ({}). The file no longer matches what you wrote; read it again before editing those lines.", formatted.join(", "))
+}
+
+/// A change to a file none of the checks runs over cannot be theirs: someone else made it while they ran, so undo leaves it alone.
+fn observed_unless_covered(mut recorded: super::changes::Recorded, checks: &[crate::edit::check::Check]) -> super::changes::Recorded {
+    for change in &mut recorded.changes {
+        change.observed |= !crate::edit::check::covers(checks, Path::new(&change.path));
+    }
+    recorded
 }
 
 fn call_id_of(row: &PartRow) -> &str {

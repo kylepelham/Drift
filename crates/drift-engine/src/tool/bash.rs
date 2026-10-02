@@ -34,7 +34,7 @@ impl Bash {
         Self { shell }
     }
 
-    fn dialect(&self) -> command::Dialect {
+    pub(crate) fn dialect(&self) -> command::Dialect {
         match self.shell {
             Shell::Bash(_) => command::Dialect::Bash,
             Shell::PowerShell(_) => command::Dialect::PowerShell,

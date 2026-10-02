@@ -1282,7 +1282,16 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   formatter is ("A check then changed ..."), with the files in `metadata.checkChanged`. The files
   are captured around the checks as a writing call's are, and what a check rewrote is appended to
   the last writing call's change record, so undo chains it after the step's writes and puts the
-  file back to before the step, rather than keeping it as someone else's edit. Every run
+  file back to before the step, rather than keeping it as someone else's edit.
+  - The capture spans the whole check run (up to the 90 s budget), far longer than a file tool's.
+    A change in that window to a file none of the checks runs over (by extension) cannot be a
+    check's, so it is recorded as observed and undo leaves it alone, as it does what a shell
+    command was seen changing. A change to a file a check does cover is taken as the check's:
+    if the user or another session edits such a file while its checks run, undo puts that edit
+    back with the rest of the step. Nothing in the file can tell the two apart.
+  - When the files cannot be captured before the checks, their bytes are compared instead: a
+    rewrite is still announced, listed in the call's `unrecorded`, and the result says undo cannot
+    put it back. Every run
   is in `metadata.checks` (`check`, `status` of `passed`, `problems` or `unavailable`, `output`).
   Stop cuts the checks off with their whole process tree; the writes stand. Checks stand in for
   LSP diagnostics until those land (M4).

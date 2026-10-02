@@ -84,6 +84,11 @@ fn applies(check: &Check, file: &Path) -> bool {
     check.extensions.iter().any(|ext| name.ends_with(&ext.to_lowercase()))
 }
 
+/// Whether any of `checks` runs over `file`, so a change to it while they ran can be theirs.
+pub fn covers(checks: &[Check], file: &Path) -> bool {
+    checks.iter().any(|check| applies(check, file))
+}
+
 async fn run_one(check: &Check, file: Option<&PathBuf>, workspace: &Path) -> Verdict {
     let mut parts = check.command.iter().map(|part| match file {
         Some(file) => part.replace("$FILE", &file.to_string_lossy()),
