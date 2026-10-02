@@ -811,6 +811,10 @@ these async criteria are new pending M3 work.
   step's new blocks even past the 20-block lookback. Thinking blocks and empty text never carry
   one. The marks are set in the adapter's shared body, so key, subscription (whose extra system
   blocks add none) and Anthropic-dialect gateway base URLs all cache alike.
+- A Codex (ChatGPT sign-in) request also carries `session-id` (the session, so the backend keeps a
+  conversation's requests together) and, when the access token's claims bind the account to a
+  region (`chatgpt_compute_residency` other than `no_constraint`), `x-openai-internal-codex-residency`,
+  as upstream's Codex plugin sends them. The websocket transport is not used.
 - OpenAI caching is automatic, keyed by routing: every request of a conversation carries
   `prompt_cache_key` = the session id (API key and Codex routes alike, as Codex itself does), so
   its steps and turns stay on one cache. Title and compaction requests carry none.

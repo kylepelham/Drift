@@ -43,11 +43,19 @@ impl OpenAi {
         http = match credential {
             Credential::ApiKey { key } => http.bearer_auth(key),
             Credential::OAuth { access, account, .. } => {
-                let http = http.bearer_auth(access).header("originator", CODEX_ORIGINATOR);
-                match account {
-                    Some(account) => http.header("chatgpt-account-id", account),
-                    None => http,
+                let mut http = http.bearer_auth(access).header("originator", CODEX_ORIGINATOR);
+                if let Some(account) = account {
+                    http = http.header("chatgpt-account-id", account);
                 }
+                // The conversation, so the backend keeps its requests together, as Codex sends it.
+                if let Some(session) = &request.cache_key {
+                    http = http.header("session-id", session);
+                }
+                // An account bound to a region must say so, or the backend refuses it.
+                if let Some(residency) = residency(access) {
+                    http = http.header("x-openai-internal-codex-residency", residency);
+                }
+                http
             }
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
@@ -70,6 +78,15 @@ impl OpenAi {
             futures_util::stream::iter(items)
         })))
     }
+}
+
+/// The compute residency a ChatGPT sign-in's access token claims, unless it is unconstrained.
+fn residency(access: &str) -> Option<String> {
+    use base64::Engine as _;
+    let payload = access.split('.').nth(1)?;
+    let claims: Value = serde_json::from_slice(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?).ok()?;
+    let found = claims["https://api.openai.com/auth"]["chatgpt_compute_residency"].as_str().or(claims["chatgpt_compute_residency"].as_str())?;
+    (!found.is_empty() && found != "no_constraint").then(|| found.to_string())
 }
 
 fn body(request: &Request, subscription: bool) -> Value {
@@ -260,6 +277,37 @@ impl StreamState {
 mod tests {
     use super::*;
     use crate::llm::ToolSpec;
+
+    #[test]
+    fn a_sign_in_bound_to_a_region_names_it() {
+        use base64::Engine as _;
+        let token = |claims: Value| format!("h.{}.s", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string()));
+        assert_eq!(residency(&token(json!({ "https://api.openai.com/auth": { "chatgpt_compute_residency": "eu" } }))).as_deref(), Some("eu"));
+        assert_eq!(residency(&token(json!({ "chatgpt_compute_residency": "no_constraint" }))), None);
+        assert_eq!(residency("not-a-jwt"), None);
+    }
+
+    #[tokio::test]
+    async fn a_codex_request_carries_its_session_and_residency() {
+        use base64::Engine as _;
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let seen: std::sync::Arc<std::sync::Mutex<Option<axum::http::HeaderMap>>> = Default::default();
+        let recorded = seen.clone();
+        let app = axum::Router::new().fallback(axum::routing::post(move |headers: axum::http::HeaderMap| {
+            *recorded.lock().unwrap() = Some(headers);
+            async { ([("content-type", "text/event-stream")], "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{}}}\n\n") }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let access = format!("h.{}.s", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json!({ "chatgpt_compute_residency": "eu" }).to_string()));
+        let credential = Credential::OAuth { access, refresh: String::new(), expires_at: 0, account: Some("acct".into()) };
+        let request = Request { cache_key: Some("ses_1".into()), ..request() };
+        let _ = OpenAi::new(&url).stream(&request, &credential).await.unwrap().collect::<Vec<_>>().await;
+        let headers = seen.lock().unwrap().clone().unwrap();
+        assert_eq!((headers["session-id"].to_str().unwrap(), headers["x-openai-internal-codex-residency"].to_str().unwrap()), ("ses_1", "eu"));
+        assert_eq!(headers["chatgpt-account-id"], "acct");
+    }
 
     #[test]
     fn a_pdf_is_an_input_file() {
