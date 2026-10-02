@@ -953,9 +953,12 @@ Settled after the first external review of M1; each has a regression test.
   providers want results first. A model whose catalog entry does not take images gets a line
   saying an image was there instead (`llm::readable_by`), on turns and engine requests alike.
 - While a command runs, every 500 ms that it has printed more, its part is republished with
-  `metadata.output` = the output so far, bounded like the result (`Spool::so_far`), through the
-  call's `tool::Progress`. That is shown, never stored: the saved part is the result, and the UI
-  shows the result once the call ends, failed ones included.
+  `metadata.output` = the last 4 KB so far (`Spool::recent`), through the call's `tool::Progress`.
+  That is shown, never stored: the saved part is the result, and the UI shows the result once the
+  call ends, failed ones included. Progress goes out as a transient event
+  (`Hub::publish_transient`): it takes a `seq`, so clients keep their order, but it never enters
+  the replay window, so a noisy build cannot push real events out and force a resync. A cursor is
+  stale only when an event after it was evicted, so the gaps transient events leave are safe.
 - Every tool result reaches the model within 64 KB (`tool::spool::MAX_RESULT_BYTES`). `read`
   pages within it by itself (whole lines, at least one per page, with the offset to continue from)
   and a directory listing shows 1,000 entries and counts the rest. Anything else past the bound

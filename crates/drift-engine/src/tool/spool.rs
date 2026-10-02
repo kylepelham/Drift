@@ -83,14 +83,16 @@ impl Spool {
         }
     }
 
-    /// What has come so far, bounded like the result, for showing while the command still runs.
-    pub fn so_far(&self) -> String {
-        if self.head.is_empty() {
-            return String::from_utf8_lossy(&self.small).into_owned();
+    /// The last `max` bytes so far, for showing while the command still runs; cut text starts `...`.
+    pub fn recent(&self, max: usize) -> String {
+        let end: Vec<u8> = if self.head.is_empty() { self.small.clone() } else { self.tail.iter().copied().collect() };
+        let from = end.len().saturating_sub(max);
+        let text = String::from_utf8_lossy(&end[from..]).into_owned();
+        if from == 0 && self.head.is_empty() {
+            text
+        } else {
+            format!("...\n{text}")
         }
-        let tail: Vec<u8> = self.tail.iter().copied().collect();
-        let omitted = self.total - (self.head.len() + self.tail.len()) as u64;
-        format!("{}\n\n... {omitted} bytes so far not shown ...\n\n{}", String::from_utf8_lossy(&self.head), String::from_utf8_lossy(&tail))
     }
 
     pub fn total(&self) -> u64 {

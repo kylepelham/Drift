@@ -89,6 +89,8 @@ struct Ring {
     next_seq: u64,
     capacity: usize,
     events: VecDeque<Envelope>,
+    /// The newest sequence number pushed out of the window; a client behind it missed something.
+    evicted: u64,
 }
 
 /// What a client gets when it attaches: the events it missed, or word that it missed too many.
@@ -114,6 +116,7 @@ impl Hub {
                 next_seq: 1,
                 capacity,
                 events: VecDeque::with_capacity(capacity),
+                evicted: 0,
             }),
             tx,
         }
@@ -125,10 +128,22 @@ impl Hub {
         ring.next_seq += 1;
         let envelope = Envelope { seq, event };
         if ring.events.len() == ring.capacity {
-            ring.events.pop_front();
+            if let Some(dropped) = ring.events.pop_front() {
+                ring.evicted = dropped.seq;
+            }
         }
         ring.events.push_back(envelope.clone());
         let _ = self.tx.send(envelope);
+        seq
+    }
+
+    /// An event shown live and never replayed (a running command's output so far): it takes a
+    /// sequence number, so clients keep their order, but stays out of the replay window.
+    pub fn publish_transient(&self, event: Event) -> u64 {
+        let mut ring = self.ring.lock().unwrap();
+        let seq = ring.next_seq;
+        ring.next_seq += 1;
+        let _ = self.tx.send(Envelope { seq, event });
         seq
     }
 
@@ -163,8 +178,8 @@ impl Ring {
         if cursor > last {
             return Replay::Stale;
         }
-        let oldest = self.events.front().map(|e| e.seq).unwrap_or(self.next_seq);
-        if cursor + 1 < oldest {
+        // Transient events leave gaps in the window, so only an evicted event makes a cursor stale.
+        if cursor < self.evicted {
             return Replay::Stale;
         }
         Replay::Events(self.events.iter().filter(|e| e.seq > cursor).cloned().collect())
@@ -240,6 +255,29 @@ mod tests {
             panic!("cursor at the ring's edge must still replay");
         };
         assert_eq!(events.iter().map(|e| e.seq).collect::<Vec<_>>(), [2, 3]);
+    }
+
+    #[tokio::test]
+    async fn transient_events_are_seen_live_but_never_replayed_or_crowd_the_window() {
+        let hub = Hub::new(16);
+        let mut live = hub.attach(None);
+        hub.publish(workspace("a"));
+        for _ in 0..10 {
+            hub.publish_transient(workspace("progress"));
+        }
+        hub.publish(workspace("b"));
+        let seqs: Vec<u64> = (0..12).map(|_| live.rx.try_recv().unwrap().seq).collect();
+        assert_eq!(seqs, (1..=12).collect::<Vec<_>>(), "live order is kept");
+        let small = Hub::new(2);
+        small.publish(workspace("a"));
+        for _ in 0..10 {
+            small.publish_transient(workspace("progress"));
+        }
+        assert!(matches!(small.attach(Some(0)).replay, Replay::Events(ref kept) if kept.len() == 1), "progress never pushes a real event out");
+        let Replay::Events(events) = hub.attach(Some(0)).replay else { panic!("nothing real was evicted, so not stale") };
+        assert_eq!(events.iter().map(|e| e.seq).collect::<Vec<_>>(), [1, 12], "only real events replay");
+        let Replay::Events(after) = hub.attach(Some(5)).replay else { panic!("a cursor on a transient event resumes") };
+        assert_eq!(after.iter().map(|e| e.seq).collect::<Vec<_>>(), [12]);
     }
 
     #[test]

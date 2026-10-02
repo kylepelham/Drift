@@ -1126,7 +1126,7 @@ impl Engine {
             if let Part::ToolCall { metadata, .. } = &mut row.part {
                 *metadata = merge(metadata.take().unwrap_or_default(), Some(patch));
             }
-            engine.hub.publish(Event::PartUpdated { part: row.clone() });
+            engine.hub.publish_transient(Event::PartUpdated { part: row.clone() });
         })
     }
 

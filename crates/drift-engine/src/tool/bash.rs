@@ -186,8 +186,9 @@ enum Ended {
 /// After the shell exits, output still in flight gets this long to arrive; a pipe open past it is
 /// held by a background process, which does not outlive the call.
 const DRAIN: Duration = Duration::from_millis(500);
-/// How often a running command's output so far is shown.
+/// How often a running command's output so far is shown, and how much of its end.
 const SHOW_EVERY: Duration = Duration::from_millis(500);
+const SHOWN_BYTES: usize = 4 * 1024;
 
 /// Reads stdout and stderr into one spool in arrival order until both close and the shell exits.
 async fn collect(child: &mut tokio::process::Child, spool: &mut Spool, progress: &Progress) -> Ended {
@@ -215,7 +216,7 @@ async fn collect(child: &mut tokio::process::Child, spool: &mut Spool, progress:
             () = &mut drain, if exited.is_some() => return Ended::Exited { code: exited.unwrap_or(-1), lingering: true },
             _ = tick.tick(), if spool.total() != shown => {
                 shown = spool.total();
-                progress.show(json!({ "output": spool.so_far() }));
+                progress.show(json!({ "output": spool.recent(SHOWN_BYTES) }));
             }
         }
     }
