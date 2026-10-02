@@ -61,7 +61,7 @@ mod tests {
     use super::*;
     use crate::llm::Chunk;
 
-    /// Path, authorization and anthropic-beta of each request the fake answered.
+    /// Each request: its path, its authorization and its `anthropic-beta`.
     type Seen = std::sync::Arc<std::sync::Mutex<Vec<(String, String, String)>>>;
 
     fn seen_beta(seen: &Seen) -> String {
