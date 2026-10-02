@@ -194,6 +194,7 @@ struct Live {
     service: Client,
     /// The era the server answered in.
     era: Era,
+    transport: Transport,
     tools: Vec<rmcp::model::Tool>,
     /// What the server said at initialize about using it; goes in the system prompt beside its tools.
     instructions: Option<String>,
@@ -709,7 +710,7 @@ async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>, known: O
         true => within("list its prompts", async { service.list_all_prompts().await.map_err(|e| e.to_string()) }).await.unwrap_or_default(),
         false => Vec::new(),
     };
-    Ok(Live { service, era, tools, instructions, prompts, resources, timeout: config.timeout(), hash, since: Instant::now(), tree })
+    Ok(Live { service, era, transport: Transport::of(config), tools, instructions, prompts, resources, timeout: config.timeout(), hash, since: Instant::now(), tree })
 }
 
 /// Starts in the remembered era; one the server refuses is probed afresh, but a server too slow to answer is not asked twice.
@@ -807,8 +808,18 @@ impl crate::Engine {
     /// `backoff` is the wait before reconnecting if this connection drops before it proves stable.
     async fn connect_mcp_at(self: &Arc<Self>, name: &str, start: Start, backoff: Duration) -> Result<(), String> {
         let live = self.mcp.connect(name, &self.store, &self.hub, start).await?;
-        self.watch_mcp(name.into(), Arc::downgrade(&live), backoff);
+        if !live.holds_nothing_open() {
+            self.watch_mcp(name.into(), Arc::downgrade(&live), backoff);
+        }
         Ok(())
+    }
+
+    /// What the watch does for a server with nothing to watch, asked by a call that failed: a client that has ended is replaced.
+    fn recheck_mcp(self: &Arc<Self>, name: &str, live: &Arc<Live>) {
+        if let Watch::Lost { generation, lived } = self.mcp.check(name, &Arc::downgrade(live)) {
+            self.lost_mcp(name);
+            tokio::spawn(self.clone().reconnect_mcp(name.into(), generation, after_loss(lived, FIRST_RETRY)));
+        }
     }
 
     /// Connects every enabled server that is neither live nor already connecting.
@@ -865,6 +876,11 @@ impl crate::Engine {
 impl Live {
     fn is_open(&self) -> bool {
         !self.service.is_transport_closed() && !self.service.is_closed()
+    }
+
+    /// A stateless server over HTTP: one POST per request and no session, so between calls there is no connection to lose.
+    fn holds_nothing_open(&self) -> bool {
+        self.era == Era::Stateless && self.transport == Transport::StreamableHttp
     }
 
     /// Ends the connection and kills its process tree even while others still hold it.

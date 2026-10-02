@@ -605,6 +605,86 @@ async fn a_kept_era_the_server_no_longer_speaks_is_probed_again() {
     assert_eq!(engine.store.mcp_server("moved").unwrap().unwrap().era, Some(Era::Stateless));
 }
 
+/// What a v2 HTTP server saw: each request's HTTP method and headers, and the JSON-RPC method it carried.
+#[derive(Clone, Debug)]
+struct Seen {
+    verb: String,
+    rpc: String,
+    headers: BTreeMap<String, String>,
+}
+
+/// A 2026-07-28 server over HTTP: the first `flaky` (read-only) or `risky` call gets a 502, and text "ask" answers input_required forever.
+async fn v2_http_server() -> (String, Arc<Mutex<Vec<Seen>>>) {
+    use axum::http::{HeaderMap, Method, StatusCode};
+    use axum::response::IntoResponse;
+    let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
+    let failed: Arc<Mutex<std::collections::HashSet<String>>> = Arc::default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let schema = json!({ "type": "object", "properties": { "text": { "type": "string" }, "region": { "type": "string", "x-mcp-header": "Region" } } });
+    let tool = |name: &str, read_only: bool| json!({ "name": name, "inputSchema": schema, "annotations": { "readOnlyHint": read_only } });
+    let tools = json!([tool("echo", true), tool("flaky", true), tool("risky", false)]);
+    let handler = {
+        let seen = seen.clone();
+        move |verb: Method, headers: HeaderMap, body: String| {
+            let (seen, failed, tools) = (seen.clone(), failed.clone(), tools.clone());
+            async move {
+                let message: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+                let rpc = message["method"].as_str().unwrap_or_default().to_string();
+                let headers = headers.iter().map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or_default().to_string())).collect();
+                seen.lock().unwrap().push(Seen { verb: verb.to_string(), rpc: rpc.clone(), headers });
+                if verb != Method::POST {
+                    return StatusCode::METHOD_NOT_ALLOWED.into_response();
+                }
+                let name = message["params"]["name"].as_str().unwrap_or_default().to_string();
+                let result = match rpc.as_str() {
+                    "server/discover" => json!({ "resultType": "complete", "supportedVersions": ["2026-07-28"], "capabilities": { "tools": {} }, "ttlMs": 0, "cacheScope": "public", "_meta": { "io.modelcontextprotocol/serverInfo": { "name": "remote", "version": "0" } } }),
+                    "tools/list" => json!({ "resultType": "complete", "tools": tools, "ttlMs": 0, "cacheScope": "public" }),
+                    "tools/call" if name != "echo" && failed.lock().unwrap().insert(name.clone()) => return StatusCode::BAD_GATEWAY.into_response(),
+                    "tools/call" if message["params"]["arguments"]["text"] == "ask" => json!({ "resultType": "input_required", "inputRequests": { "who": { "method": "elicitation/create", "params": { "message": "Who are you?", "requestedSchema": { "type": "object", "properties": { "name": { "type": "string" } } } } } }, "requestState": "s" }),
+                    "tools/call" => json!({ "resultType": "complete", "content": [{ "type": "text", "text": format!("{name}: {}", message["params"]["arguments"]["text"].as_str().unwrap_or_default()) }] }),
+                    _ if message.get("id").is_some() => return axum::Json(json!({ "jsonrpc": "2.0", "id": message["id"], "error": { "code": -32601, "message": "method not found" } })).into_response(),
+                    _ => return StatusCode::ACCEPTED.into_response(),
+                };
+                axum::Json(json!({ "jsonrpc": "2.0", "id": message["id"], "result": result })).into_response()
+            }
+        }
+    };
+    let app = axum::Router::new().route("/mcp", axum::routing::any(handler));
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("{base}/mcp"), seen)
+}
+
+#[tokio::test]
+async fn a_v2_server_over_http_gets_one_post_per_request_with_its_headers_and_no_session() {
+    let engine = engine();
+    let (url, seen) = v2_http_server().await;
+    let row = saved(&engine, "remote", &ServerConfig::Http { url, headers: Default::default(), timeout_seconds: None }).await;
+    engine.connect_mcp("remote").await.unwrap();
+    assert_eq!(engine.mcp.status_of(row).era, Some(Era::Stateless));
+    let out = tool(&engine, "remote_echo").run(&context(&engine), json!({ "text": "hi", "region": "eu-west" })).await.unwrap();
+    assert_eq!(out.output, "echo: hi");
+    let seen = seen.lock().unwrap().clone();
+    assert!(seen.iter().all(|s| s.verb == "POST"), "no GET stream, no DELETE of a session: {seen:?}");
+    assert!(seen.iter().all(|s| !s.headers.contains_key("mcp-session-id")));
+    assert!(seen.iter().filter(|s| !s.rpc.is_empty()).all(|s| s.headers.get("mcp-protocol-version").map(String::as_str) == Some("2026-07-28") && s.headers.get("mcp-method") == Some(&s.rpc)), "{seen:?}");
+    let call = seen.iter().find(|s| s.rpc == "tools/call").unwrap();
+    assert_eq!((call.headers.get("mcp-name").map(String::as_str), call.headers.get("mcp-param-region").map(String::as_str)), (Some("echo"), Some("eu-west")));
+}
+
+#[tokio::test]
+async fn a_failed_post_to_a_stateless_server_is_asked_again_only_when_read_only() {
+    let engine = engine();
+    let (url, _) = v2_http_server().await;
+    saved(&engine, "remote", &ServerConfig::Http { url, headers: Default::default(), timeout_seconds: None }).await;
+    engine.connect_mcp("remote").await.unwrap();
+    let started = std::time::Instant::now();
+    assert_eq!(tool(&engine, "remote_flaky").run(&context(&engine), json!({ "text": "again" })).await.unwrap().output, "flaky: again");
+    assert!(started.elapsed() < REPLACEMENT_WAIT, "asked again on the same client, not after waiting for a reconnect");
+    let risky = tool(&engine, "remote_risky").run(&context(&engine), json!({ "text": "once" })).await.unwrap_err().0;
+    assert!(risky.contains("may or may not have taken effect"), "{risky}");
+}
+
 fn calls(log: &std::path::Path) -> Vec<String> {
     std::fs::read_to_string(log).unwrap_or_default().lines().map(String::from).collect()
 }

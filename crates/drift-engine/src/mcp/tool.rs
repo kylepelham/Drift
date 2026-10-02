@@ -57,7 +57,16 @@ impl McpTool {
             return Err(uncertain());
         }
         let lost_again = || ToolError(format!("the connection to {} closed during the call and it did not come back", self.server));
-        let Some(next) = self.slot.replacement(lost, REPLACEMENT_WAIT).await else { return Err(lost_again()) };
+        let next = match lost.holds_nothing_open() && lost.is_open() {
+            // Only the request failed; the client stands, so it is asked again there.
+            true => lost.clone(),
+            false => {
+                if lost.holds_nothing_open() {
+                    ctx.engine.recheck_mcp(&self.server, lost);
+                }
+                self.slot.replacement(lost, REPLACEMENT_WAIT).await.ok_or_else(lost_again)?
+            }
+        };
         self.unchanged_on(&next)?;
         match self.call(ctx, &next, input).await {
             Ok(answer) => Ok(answer),
