@@ -672,11 +672,14 @@ impl Servers {
     /// Every tool of every connected server, named `server_tool` so the model can tell them apart.
     pub fn tools(&self) -> Vec<Arc<dyn crate::tool::Tool>> {
         let slots = self.lock();
-        let mut tools: Vec<Arc<dyn crate::tool::Tool>> = Vec::new();
+        let mut listed = Vec::new();
         for (server, slot) in &slots.servers {
             let Some(live) = slot.current() else { continue };
-            tools.extend(live.tools().into_iter().map(|tool| Arc::new(McpTool::new(server, tool, live.clone(), slot.clone())) as Arc<dyn crate::tool::Tool>));
+            listed.extend(live.tools().into_iter().map(|tool| (server, tool, live.clone(), slot.clone())));
         }
+        let names = tool::wire_names(&listed.iter().map(|(server, tool, ..)| (server.as_str(), tool.name.as_ref())).collect::<Vec<_>>());
+        let mut tools: Vec<Arc<dyn crate::tool::Tool>> =
+            listed.into_iter().zip(names).map(|((server, tool, live, slot), name)| Arc::new(McpTool::new(server, tool, live, slot, name)) as Arc<dyn crate::tool::Tool>).collect();
         if slots.servers.values().any(|slot| slot.current().is_some_and(|live| live.resources)) {
             tools.push(Arc::new(resources::ListResources));
             tools.push(Arc::new(resources::ReadResource));

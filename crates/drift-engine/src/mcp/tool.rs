@@ -12,11 +12,13 @@ pub struct McpTool {
     tool: rmcp::model::Tool,
     pinned: Arc<Live>,
     slot: Arc<Slot>,
+    /// The name the model calls it by ([`wire_names`]), fixed when the turn's tools are made.
+    name: String,
 }
 
 impl McpTool {
-    pub(super) fn new(server: &str, tool: rmcp::model::Tool, pinned: Arc<Live>, slot: Arc<Slot>) -> Self {
-        Self { server: server.into(), tool, pinned, slot }
+    pub(super) fn new(server: &str, tool: rmcp::model::Tool, pinned: Arc<Live>, slot: Arc<Slot>, name: String) -> Self {
+        Self { server: server.into(), tool, pinned, slot, name }
     }
 
     fn read_only(&self) -> bool {
@@ -88,18 +90,28 @@ const MAX_NAME: usize = 60;
 /// Built-in tool names a server's `<server>_<tool>` could spell; providers refuse two tools of one name.
 pub(crate) const RESERVED: [&str; 6] = ["apply_patch", "task_output", "task_stop", "read_thread", "mcp_resources", "mcp_read_resource"];
 
+/// The names the model calls a set of servers' tools (`(server, tool)` pairs) by: `<server>_<tool>`
+/// as written wherever that is unique, and a hashed name ([`wire_name`] with `clashes`) for every
+/// tool whose plain name another shares (`a_b` + `c` and `a` + `b_c`).
+pub fn wire_names(tools: &[(&str, &str)]) -> Vec<String> {
+    let plain: Vec<String> = tools.iter().map(|(server, tool)| wire_name(server, tool, false)).collect();
+    let shared = |name: &String| plain.iter().filter(|other| *other == name).count() > 1;
+    tools.iter().zip(&plain).map(|((server, tool), name)| if shared(name) { wire_name(server, tool, true) } else { name.clone() }).collect()
+}
+
 /// The name the model calls a server's tool by, in the characters every provider accepts
 /// (`[a-zA-Z0-9_-]`, at most 64). A name that had to change (a character replaced, or cut to fit),
-/// that spells a built-in tool's, or whose server's own name holds `_` (so `a_b` + `c` and `a` +
-/// `b_c` cannot meet) ends in a hash of the original, keeping every name apart.
-pub fn wire_name(server: &str, tool: &str) -> String {
+/// that spells a built-in tool's, or that `clashes` with another server's, ends in a hash of the
+/// original, keeping every name apart.
+pub fn wire_name(server: &str, tool: &str, clashes: bool) -> String {
     let raw = format!("{server}_{tool}");
     let clean: String = raw.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
-    if clean == raw && clean.len() <= MAX_NAME && !RESERVED.contains(&clean.as_str()) && !server.contains('_') {
+    if clean == raw && clean.len() <= MAX_NAME && !RESERVED.contains(&clean.as_str()) && !clashes {
         return clean;
     }
     use sha2::Digest;
-    let hash: String = sha2::Sha256::digest(raw.as_bytes()).iter().take(4).map(|b| format!("{b:02x}")).collect();
+    // Server and tool apart, so `a_b` + `c` and `a` + `b_c` hash differently.
+    let hash: String = sha2::Sha256::digest(format!("{server}\0{tool}").as_bytes()).iter().take(4).map(|b| format!("{b:02x}")).collect();
     let keep = clean.len().min(MAX_NAME - hash.len() - 1);
     format!("{}_{hash}", &clean[..keep])
 }
@@ -117,7 +129,7 @@ impl Tool for McpTool {
 
     fn spec(&self) -> ToolSpec {
         ToolSpec {
-            name: wire_name(&self.server, &self.tool.name),
+            name: self.name.clone(),
             description: format!("[{} MCP server] {}", self.server, self.tool.description.clone().unwrap_or_default()),
             input_schema: Value::Object((*self.tool.input_schema).clone()),
         }
@@ -164,7 +176,11 @@ mod tests {
     use rmcp::model::{Tool, ToolAnnotations};
     use serde_json::json;
 
-    use super::{behaves_alike, wire_name};
+    use super::{behaves_alike, wire_names};
+
+    fn wire_name(server: &str, tool: &str) -> String {
+        super::wire_name(server, tool, false)
+    }
 
     #[test]
     fn tool_names_are_what_providers_accept() {
@@ -173,7 +189,10 @@ mod tests {
         assert_ne!(wire_name("s", "a.b"), wire_name("s", "a_b"), "names that clean to the same string stay apart");
         assert_eq!(wire_name("s", "a_b"), "s_a_b");
         assert_ne!(wire_name("task", "output"), "task_output", "never a built-in tool's name");
-        assert_ne!(wire_name("a_b", "c"), wire_name("a", "b_c"), "servers with `_` in their name cannot meet another's tools");
+        assert_eq!(wire_name("my_server", "search"), "my_server_search", "a `_` in a server's name alone changes nothing");
+        let names = wire_names(&[("a_b", "c"), ("a", "b_c"), ("a", "d")]);
+        assert!(names[0] != names[1] && names[0].starts_with("a_b_c_") && names[1].starts_with("a_b_c_"), "only names that meet get a hash: {names:?}");
+        assert_eq!(names[2], "a_d");
         let builtin: Vec<String> = crate::tool::Registry::builtin().specs(crate::llm::catalog::ToolProfile::Edit).into_iter().chain(crate::tool::Registry::builtin().specs(crate::llm::catalog::ToolProfile::ApplyPatch)).map(|s| s.name).chain(["mcp_resources".into(), "mcp_read_resource".into()]).filter(|n| n.contains('_')).collect();
         assert!(builtin.iter().all(|name| super::RESERVED.contains(&name.as_str())), "every built-in name an MCP tool could spell is reserved: {builtin:?}");
         let long = wire_name("server", &"x".repeat(80));
