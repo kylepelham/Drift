@@ -47,6 +47,11 @@ impl SessionFiles {
         self.shown.lock().unwrap().insert(path.to_path_buf())
     }
 
+    /// After a compaction the reads that carried instruction files are summarised away; show them again.
+    pub fn forget_shown(&self) {
+        self.shown.lock().unwrap().clear();
+    }
+
     pub fn mark_read(&self, path: &Path) {
         self.read.lock().unwrap().insert(path.to_path_buf());
     }

@@ -222,7 +222,7 @@ impl Turns {
         Some(result)
     }
 
-    fn files_for(&self, session_id: &str) -> Arc<SessionFiles> {
+    pub(super) fn files_for(&self, session_id: &str) -> Arc<SessionFiles> {
         self.files.lock().unwrap().entry(session_id.into()).or_default().clone()
     }
 

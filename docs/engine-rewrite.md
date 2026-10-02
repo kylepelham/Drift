@@ -1074,8 +1074,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   `~/.claude/CLAUDE.md`), then each directory's file from the repository root (nearest `.git`)
   down to the workspace, then what drift.json lists; in each directory `AGENTS.md` beats
   `CLAUDE.md`. A subdirectory's file below the workspace is not in the system prompt: the first
-  `read` of a file under it appends it as a `<system-reminder>`, once per session (outermost
-  first). `GET /workspaces/{id}/config` serves the
+  `read` of a file under it appends it as a `<system-reminder>` (outermost first), once per
+  session and again after a compaction summarises the read away. Reminders take at most half the
+  result, the page fits in the rest, and one that does not fit is named for the model to read. `GET /workspaces/{id}/config` serves the
   merged result. Front matter is `key: value` lines; `tools` may also be `[a, b]`, `- item` lines,
   or a `name: true|false` map (opencode's shape: `false` takes that tool away from all the rest,
   `true` changes nothing). `tools: []` means no tools; leaving it out, or `tools: {}`, means every

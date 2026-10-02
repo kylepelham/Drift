@@ -8,6 +8,8 @@ const MAX_LINE_CHARS: usize = 2000;
 const MAX_BYTES: u64 = 10 * 1024 * 1024;
 /// One page stays under the shared result bound, leaving room for the continuation note.
 const PAGE_BYTES: usize = super::spool::MAX_RESULT_BYTES - 1024;
+/// Subdirectory instructions take at most this much of a read's result; the page has the rest.
+const REMINDER_BYTES: usize = PAGE_BYTES / 2;
 /// Entries a directory listing shows before saying how many more there are.
 const MAX_ENTRIES: usize = 1000;
 
@@ -56,18 +58,16 @@ impl Tool for Read {
             }
             let text = String::from_utf8_lossy(&bytes);
             let total = text.lines().count();
-            let body = page(&text, offset, limit);
+            // The reminders come first in the budget, so the page fits beside them within one result.
+            let reminders = reminders(ctx, &path);
+            let body = page(&text, offset, limit, PAGE_BYTES.saturating_sub(reminders.len()));
             let shown = body.len();
             let mut output = body.join("\n");
             if offset - 1 + shown < total {
                 output.push_str(&format!("\n\n({} more lines; read with offset {})", total - (offset - 1 + shown), offset + shown));
             }
+            output.push_str(&reminders);
             ctx.files.mark_read(&path);
-            for (file, text) in crate::config::nested_instructions(&ctx.workspace, &path) {
-                if file != path && ctx.files.first_showing(&file) {
-                    output.push_str(&format!("\n\n<system-reminder>\nInstructions from {}, for files under it:\n{text}\n</system-reminder>", display(&file, &ctx.workspace)));
-                }
-            }
             Ok(Output {
                 title: display(&path, &ctx.workspace),
                 output,
@@ -91,15 +91,34 @@ fn image(ctx: &Context, path: &std::path::Path, mime: &str, bytes: &[u8]) -> Res
     })
 }
 
-/// Numbered lines from `offset`, at most `limit` of them and within the page budget; always at least
+/// Subdirectory instruction files not yet shown this session, within half a result; one that does
+/// not fit is named so the model can read it.
+fn reminders(ctx: &Context, path: &std::path::Path) -> String {
+    let mut out = String::new();
+    for (file, text) in crate::config::nested_instructions(&ctx.workspace, path) {
+        if file == path || !ctx.files.first_showing(&file) {
+            continue;
+        }
+        let name = display(&file, &ctx.workspace);
+        let reminder = format!("\n\n<system-reminder>\nInstructions from {name}, for files under it:\n{text}\n</system-reminder>");
+        if out.len() + reminder.len() <= REMINDER_BYTES {
+            out.push_str(&reminder);
+        } else {
+            out.push_str(&format!("\n\n<system-reminder>\n{name} holds instructions for files under it; read it before working there.\n</system-reminder>"));
+        }
+    }
+    out
+}
+
+/// Numbered lines from `offset`, at most `limit` of them and within `budget` bytes; always at least
 /// one line, so every read makes progress.
-fn page(text: &str, offset: usize, limit: usize) -> Vec<String> {
+fn page(text: &str, offset: usize, limit: usize, budget: usize) -> Vec<String> {
     let mut used = 0;
     let mut lines = Vec::new();
     for (index, line) in text.lines().enumerate().skip(offset - 1).take(limit) {
         let numbered = format!("{}: {}", index + 1, truncate(line));
         used += numbered.len() + 1;
-        if used > PAGE_BYTES && !lines.is_empty() {
+        if used > budget && !lines.is_empty() {
             break;
         }
         lines.push(numbered);
@@ -201,6 +220,19 @@ mod tests {
         assert_eq!(second.output, "1: b", "shown once per session");
         let itself = Read.run(&sandbox.ctx, json!({ "path": "pkg/AGENTS.md" })).await.unwrap();
         assert_eq!(itself.output, "1: pkg rules");
+        sandbox.ctx.files.forget_shown();
+        assert!(Read.run(&sandbox.ctx, json!({ "path": "pkg/web/b.ts" })).await.unwrap().output.contains("web rules"), "shown again once forgotten");
+    }
+
+    #[tokio::test]
+    async fn a_full_page_and_its_reminder_fit_in_one_result() {
+        let sandbox = Sandbox::new("read-nested-full");
+        sandbox.file("pkg/AGENTS.md", &"rule line\n".repeat(1_000));
+        sandbox.file("pkg/big.txt", &format!("{}\n", "w".repeat(1_500)).repeat(1_000));
+        let out = Read.run(&sandbox.ctx, json!({ "path": "pkg/big.txt" })).await.unwrap();
+        assert!(out.output.len() <= super::super::spool::MAX_RESULT_BYTES, "{}", out.output.len());
+        assert!(out.output.ends_with("</system-reminder>"), "the reminder is whole, not cut in the middle");
+        assert!(out.output.contains("read with offset"), "the page says where to go on");
     }
 
     #[tokio::test]

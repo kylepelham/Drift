@@ -141,6 +141,9 @@ impl Engine {
     /// records failure or abort; the caller decides what that means for the turn.
     pub(super) async fn compact(self: &Arc<Self>, session_id: &str, trigger: Trigger, abort: &CancellationToken) -> Result<(), String> {
         let result = self.compact_once(session_id, trigger, abort).await;
+        if result.is_ok() {
+            self.turns.files_for(session_id).forget_shown();
+        }
         if trigger != Trigger::Manual {
             let mut failures = self.turns.compaction_failures.lock().unwrap();
             match &result {
