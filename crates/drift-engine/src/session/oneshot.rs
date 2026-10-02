@@ -61,6 +61,7 @@ impl Engine {
             (info.models.get(&model_ref.model).cloned().ok_or(TurnError::UnknownModel)?, info.env.clone(), info.api.clone())
         };
         let credential = self.credentials.resolve(&model_ref.provider, &env).ok_or(TurnError::NoCredentials)?;
+        refuse_signin_elsewhere(&model_ref.provider, &credential, api.as_deref())?;
         let credential = self.fresh_credential(&model_ref.provider, credential).await?;
         let provider = self.provider_for(&model_ref.provider, api.as_deref()).ok_or(TurnError::UnknownModel)?;
         Ok(Resolved { model_ref: model_ref.clone(), model, provider, credential })
@@ -81,6 +82,17 @@ impl Engine {
         tokio::time::timeout(shot.timeout, collect_text(&resolved.provider, &request, &resolved.credential))
             .await
             .map_err(|_| "the model took too long to answer".to_string())?
+    }
+}
+
+/// A subscription sign-in goes only to its own vendor: on a route the user pointed at a gateway, the
+/// token and the identity headers sent with it would go to that gateway.
+pub(super) fn refuse_signin_elsewhere(provider: &str, credential: &Credential, api: Option<&str>) -> Result<(), TurnError> {
+    match (credential, api) {
+        (Credential::OAuth { .. }, Some(base)) => Err(TurnError::Config(format!(
+            "{provider} is pointed at {base} in your drift.json, and a subscription sign-in is only sent to {provider} itself; use an API key for that route, or remove its baseUrl"
+        ))),
+        _ => Ok(()),
     }
 }
 

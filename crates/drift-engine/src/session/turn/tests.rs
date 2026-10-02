@@ -1299,6 +1299,20 @@ async fn a_command_that_only_reads_is_not_captured_and_one_that_writes_is() {
 }
 
 #[tokio::test]
+async fn a_subscription_sign_in_is_never_sent_to_a_route_the_user_re_pointed() {
+    let h = harness().await;
+    let live = Credential::OAuth { access: "a".into(), refresh: "r".into(), expires_at: crate::id::now_ms() + 3_600_000, account: None };
+    h.engine.credentials.set("anthropic", &live).unwrap();
+    h.engine.catalog.write().unwrap().providers.get_mut("anthropic").unwrap().api = Some("https://gateway.example".into());
+    let refused = h.engine.submit(&h.session.id, prompt("hi")).await.err();
+    assert!(matches!(&refused, Some(TurnError::Config(why)) if why.contains("subscription sign-in is only sent to anthropic")), "{refused:?}");
+    h.engine.credentials.set("anthropic", &Credential::ApiKey { key: "k".into() }).unwrap();
+    h.provider.push(text("via the gateway"));
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    until_idle(&h).await;
+}
+
+#[tokio::test]
 async fn a_local_servers_installed_models_appear_and_run_without_a_key_while_it_answers() {
     let app = axum::Router::new().route("/v1/models", axum::routing::get(|| async { axum::Json(json!({ "data": [{ "id": "qwen3-coder-local" }] })) }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

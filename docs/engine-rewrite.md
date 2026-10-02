@@ -807,7 +807,9 @@ these async criteria are new pending M3 work.
   any listed models added; a new id is an OpenAI-compatible route, keyless unless `apiKeyEnv`
   names its key. A project's drift.json cannot do this: a committed file must never send your key
   elsewhere. models.dev's own `api` field is ignored for the native routes, so only the user
-  re-points those; `DRIFT_<ID>_BASE_URL` still wins for recorded runs.
+  re-points those; `DRIFT_<ID>_BASE_URL` still wins for recorded runs. A subscription sign-in is
+  never sent to a re-pointed route (its token and Claude Code or Codex identity would go to the
+  gateway): such a turn refuses with 400 `config`, and an API key for that provider works.
 - OpenRouter is a catalog provider (`openrouter`, from models.dev at the first refresh; the
   bundled offline snapshot does not list it). Its Chat Completions route caches Claude only with
   explicit `cache_control`: a top-level field for automatic caching, which OpenRouter supports only

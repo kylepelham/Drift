@@ -372,8 +372,9 @@ impl Engine {
             return Err(TurnError::Moved);
         }
         let provider = plan.model_ref.provider.clone();
-        let env = self.catalog.read().unwrap().providers.get(&provider).map(|p| p.env.clone()).unwrap_or_default();
+        let (env, api) = self.catalog.read().unwrap().providers.get(&provider).map(|p| (p.env.clone(), p.api.clone())).unwrap_or_default();
         let stored = self.credentials.resolve(&provider, &env).ok_or(TurnError::NoCredentials)?;
+        super::oneshot::refuse_signin_elsewhere(&provider, &stored, api.as_deref())?;
         plan.credential = self.fresh_credential(&provider, stored).await?;
         Ok(())
     }
