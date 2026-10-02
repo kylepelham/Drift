@@ -58,12 +58,14 @@ pub(super) fn view(transcript: &[MessageWithParts]) -> View<'_> {
     View { summary: Some(text_of(&transcript[index])), messages }
 }
 
-/// The request history for `target`: the summary as the opening user turn, then the kept messages.
-pub(super) fn request_messages(transcript: &[MessageWithParts], target: &ModelRef) -> Vec<ChatMessage> {
+/// The request history for `target`: the summary as the opening user turn (with `lead`, reminders for
+/// a prompt the summary stands for), then the kept messages.
+pub(super) fn request_messages(transcript: &[MessageWithParts], target: &ModelRef, lead: &[String]) -> Vec<ChatMessage> {
     let view = view(transcript);
     let mut out = Vec::new();
     if let Some(summary) = &view.summary {
-        convert::push(&mut out, llm::Role::User, vec![Block::Text(wrap(summary))]);
+        let blocks = std::iter::once(wrap(summary)).chain(lead.iter().cloned()).map(Block::Text).collect();
+        convert::push(&mut out, llm::Role::User, blocks);
     }
     convert::append(&mut out, view.messages, target);
     out

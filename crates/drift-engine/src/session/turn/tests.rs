@@ -1216,7 +1216,7 @@ async fn a_prompt_that_picks_plan_runs_as_plan_and_every_message_says_so() {
     h.engine.submit(&h.session.id, prompt("and then")).await.await_ok();
     until_idle(&h).await;
     let reminded: Vec<usize> = h.provider.requests.lock().unwrap().iter().map(|r| format!("{:?}", r.messages).matches("# Plan mode").count()).collect();
-    assert_eq!(reminded, [1, 2], "each planning prompt carries plan's reminder, the earlier one kept as it was sent");
+    assert_eq!(reminded, [1, 1], "the prompt that started planning carries plan's reminder, kept as it was sent; the next plan turn adds none");
     assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().agent, "plan", "a prompt that names none keeps it");
     let agents: Vec<Option<String>> = h.engine.store.transcript(&h.session.id).unwrap().into_iter().map(|m| m.info.agent).collect();
     assert_eq!(agents, vec![Some("plan".to_string()); 4]);

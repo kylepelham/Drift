@@ -57,25 +57,39 @@ pub fn system(setting: &Setting) -> String {
 }
 const LEFT_READ_ONLY: &str = "<system-reminder>\nThe conversation has switched from the {from} agent to the {agent} agent. The {from} agent's read-only limits no longer apply: you may now change files and run commands with the tools you have. Carry out the plan agreed above.\n</system-reminder>";
 
-/// In the request only: each prompt carries what the agent its turn ran as says (a primary agent's
-/// prompt), and a prompt after a read-only agent's reply, to one that writes, is told the earlier
-/// "change nothing" turns no longer bind it. Every prompt keeps its own reminder turn after turn, so
-/// the cached prefix stays the same; only a prompt's agent decides, never which agent runs now.
-pub(super) fn remind_agents(config: &Config, current: &str, transcript: &mut [MessageWithParts]) {
-    for index in 0..transcript.len() {
+/// In the request only, over what the model sees (the compaction view): the prompt that starts each
+/// run of a primary agent's turns carries that agent's prompt, and a prompt after a read-only agent's
+/// reply, to one that writes, is told the earlier "change nothing" turns no longer bind it. Each
+/// prompt keeps its reminder turn after turn, so the cached prefix stays the same, and a run of turns
+/// by one agent carries its prompt once. When a summary stands for the prompt that started the run
+/// still going, the returned reminders are for the summary's turn, so the agent never forgets itself.
+pub(super) fn remind_agents(config: &Config, current: &str, transcript: &mut [MessageWithParts]) -> Vec<String> {
+    let (summarised, shown) = {
+        let view = super::compaction::view(transcript);
+        let ids: std::collections::HashSet<&str> = view.messages.iter().map(|m| m.info.id.as_str()).collect();
+        let shown: Vec<usize> = (0..transcript.len()).filter(|i| ids.contains(transcript[*i].info.id.as_str())).collect();
+        (view.summary.is_some(), shown)
+    };
+    let agent_of = |message: &MessageWithParts| message.info.agent.clone();
+    for (k, &index) in shown.iter().enumerate() {
         if transcript[index].info.role != Role::User {
             continue;
         }
-        let agent_of = |message: &MessageWithParts| message.info.agent.clone();
-        let reply = || transcript[index + 1..].iter().find(|m| m.info.role == Role::Assistant).and_then(agent_of);
+        let reply = || shown[k + 1..].iter().map(|i| &transcript[*i]).find(|m| m.info.role == Role::Assistant).and_then(agent_of);
         let ran_as = agent_of(&transcript[index]).or_else(reply).unwrap_or_else(|| current.to_string());
-        let before = transcript[..index].iter().rev().find(|m| m.info.role == Role::Assistant).and_then(agent_of);
+        let before = shown[..k].iter().rev().map(|i| &transcript[*i]).find(|m| m.info.role == Role::Assistant).and_then(agent_of);
         let reminders = reminders(config, &ran_as, before.as_deref());
         let message = &mut transcript[index];
         for (at, text) in reminders.into_iter().enumerate() {
             message.parts.insert(at, PartRow { id: String::new(), message_id: message.info.id.clone(), session_id: message.info.session_id.clone(), part: Part::Text { text } });
         }
     }
+    let opens_with_prompt = shown.first().is_some_and(|i| transcript[*i].info.role == Role::User);
+    if !summarised || opens_with_prompt {
+        return Vec::new();
+    }
+    let running = shown.first().and_then(|i| agent_of(&transcript[*i])).unwrap_or_else(|| current.to_string());
+    agent_prompt(config, &running).into_iter().collect()
 }
 
 /// What a prompt run as `agent`, after a reply by `before`, is reminded of.
@@ -85,10 +99,16 @@ fn reminders(config: &Config, agent: &str, before: Option<&str>) -> Vec<String> 
     if let Some(from) = before.filter(|from| *from != agent && read_only(from) && !read_only(agent)) {
         out.push(LEFT_READ_ONLY.replace("{from}", from).replace("{agent}", agent));
     }
-    if let Some(found) = config.agent(agent).filter(|found| found.kind == AgentKind::Primary && !found.prompt.is_empty()) {
-        out.push(format!("<system-reminder>\n{}\n</system-reminder>", found.prompt));
+    if before != Some(agent) {
+        out.extend(agent_prompt(config, agent));
     }
     out
+}
+
+/// A primary agent's prompt as a reminder; subagents carry theirs in the system prompt.
+fn agent_prompt(config: &Config, agent: &str) -> Option<String> {
+    let found = config.agent(agent).filter(|found| found.kind == AgentKind::Primary && !found.prompt.is_empty())?;
+    Some(format!("<system-reminder>\n{}\n</system-reminder>", found.prompt))
 }
 
 fn today() -> String {
@@ -154,11 +174,33 @@ mod tests {
             parts: Vec::new(),
         };
         let texts = |message: &MessageWithParts| message.parts.iter().filter_map(|p| match &p.part { Part::Text { text } => Some(text.clone()), _ => None }).collect::<Vec<_>>().join("|");
-        let mut transcript = vec![message(Role::User, None), message(Role::Assistant, Some("plan")), message(Role::User, None), message(Role::Assistant, Some("build")), message(Role::User, None)];
-        remind_agents(&config, "build", &mut transcript);
+        let numbered = |mut list: Vec<MessageWithParts>| {
+            for (i, m) in list.iter_mut().enumerate() {
+                m.info.id = format!("msg_{i:02}");
+            }
+            list
+        };
+        let mut transcript = numbered(vec![message(Role::User, None), message(Role::Assistant, Some("plan")), message(Role::User, None), message(Role::Assistant, Some("build")), message(Role::User, None)]);
+        assert!(remind_agents(&config, "build", &mut transcript).is_empty(), "nothing summarised, nothing to lead with");
         assert!(texts(&transcript[0]).contains("# Plan mode"), "the planning turn's prompt keeps plan's reminder");
         assert!(texts(&transcript[2]).contains("switched from the plan agent to the build agent") && !texts(&transcript[2]).contains("# Plan mode"));
         assert!(texts(&transcript[4]).is_empty(), "build after build: nothing");
+
+        let mut run = numbered(vec![message(Role::User, Some("plan")), message(Role::Assistant, Some("plan")), message(Role::User, Some("plan")), message(Role::Assistant, Some("plan"))]);
+        remind_agents(&config, "plan", &mut run);
+        assert!(texts(&run[0]).contains("# Plan mode") && texts(&run[2]).is_empty(), "a run of plan turns carries plan's prompt once");
+
+        let mut boundary = message(Role::User, None);
+        boundary.parts.push(PartRow { id: String::new(), message_id: String::new(), session_id: String::new(), part: Part::Compaction { auto: true, tail_from: None } });
+        let mut summary = message(Role::Assistant, None);
+        summary.info.summary = true;
+        summary.parts.push(PartRow { id: String::new(), message_id: String::new(), session_id: String::new(), part: Part::Text { text: "what happened".into() } });
+        let mut compacted = numbered(vec![message(Role::User, Some("plan")), message(Role::Assistant, Some("plan")), boundary, summary, message(Role::Assistant, Some("plan"))]);
+        let lead = remind_agents(&config, "plan", &mut compacted);
+        assert!(lead.len() == 1 && lead[0].contains("# Plan mode"), "the prompt was summarised away, so the summary's turn carries plan's reminder: {lead:?}");
+        let target = super::super::types::ModelRef { provider: "anthropic".into(), model: "claude".into() };
+        let sent = format!("{:?}", super::super::compaction::request_messages(&compacted, &target, &lead)[0]);
+        assert!(sent.contains("what happened") && sent.contains("# Plan mode"), "{sent}");
     }
 
     #[test]

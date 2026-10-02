@@ -1280,9 +1280,12 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   registry and its `model` is the default when the session has none. The filtered set is pinned
   for the run: a call to any tool outside it is refused before permission, snapshot or dispatch.
   - A subagent's prompt goes in its system prompt. A primary agent's prompt goes, in the request
-    only, on the prompts of the turns it ran (`prompt::remind_agents`), each prompt keeping the
-    reminder of the agent its turn ran as, so plan and build send the same system prompt and
-    tools and a switch between them keeps the cached prefix.
+    only, on the prompt that starts each run of that agent's turns (`prompt::remind_agents`, over
+    the compaction view), so plan and build send the same system prompt and tools, a switch
+    between them keeps the cached prefix, and a long custom prompt is sent once per run, not once
+    per message. When compaction has summarised that prompt away (a summary standing for the whole
+    turn still going), the summary's opening turn carries the reminder instead, so the agent never
+    loses its instructions.
   - `read_only` (front matter `read_only: true`; `plan` and `explore` built in) offers the agent
     its tools as usual but refuses, before any ask, every call that would change something
     (`Tool::stays_read_only`): a writing tool, a shell line that is not only reads

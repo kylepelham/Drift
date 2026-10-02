@@ -689,14 +689,14 @@ impl Engine {
             }
             let Some(mut transcript) = self.transcript_for_step(plan, abort).await else { break };
             super::branch::frame_spawned(&plan.session, &mut transcript);
-            prompt::remind_agents(&plan.config, &plan.session.agent, &mut transcript);
+            let lead = prompt::remind_agents(&plan.config, &plan.session.agent, &mut transcript);
             super::convert::drop_earlier_reasoning(&mut transcript, started);
             answered = transcript.iter().rev().find(|m| m.info.role == Role::User).map(|m| m.info.id.clone());
             let (max_tokens, reasoning) = budgets(&plan.model, plan.reasoning());
             let request = Request {
                 model: plan.model_ref.model.clone(),
                 system: plan.offer.system.clone(),
-                messages: llm::prepare_files(compaction::request_messages(&transcript, &plan.model_ref), &plan.model, |hash| self.store.blob(hash).ok().flatten()),
+                messages: llm::prepare_files(compaction::request_messages(&transcript, &plan.model_ref, &lead), &plan.model, |hash| self.store.blob(hash).ok().flatten()),
                 tools: plan.offer.specs(),
                 max_tokens,
                 reasoning,

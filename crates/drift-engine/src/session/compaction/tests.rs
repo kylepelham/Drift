@@ -107,7 +107,7 @@ async fn a_step_loads_from_the_kept_tail_and_sends_what_the_whole_transcript_wou
     let window = h.engine.store.messages_from(&h.session.id, &start).unwrap();
     assert!(window.len() < full.len() && !window.iter().any(|m| texts(m).contains("ANCIENT")), "summarised history is not loaded");
     let target = crate::session::turn::tests::model();
-    assert_eq!(request_messages(&window, &target), request_messages(&full, &target), "the request is the same either way");
+    assert_eq!(request_messages(&window, &target, &[]), request_messages(&full, &target, &[]), "the request is the same either way");
     assert!(mentions(requests(&h).last().unwrap(), "SUMMARY of the start") && !mentions(requests(&h).last().unwrap(), "ANCIENT"));
 }
 
