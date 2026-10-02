@@ -884,8 +884,16 @@ these async criteria are new pending M3 work.
   read-only calls executes together, a mutating call waits for everything before it, and reads
   after it wait for it (see the M1 guarantees). Foreground `task` workers run within their parent's
   call; background workers and other sessions run alongside. The shadow-index lock serialises
-  snapshot captures per workspace only; it does not coordinate two sessions or workers editing the
-  same source file, which is what the read-before-write check and undo's kept files are for.
+  snapshot captures per workspace only; two sessions or workers editing one source file take turns
+  through `tool::lock` (below).
+- The reply's leading run of `read`, `grep` and `glob` calls starts while the reply still streams
+  (`session::early`), each as soon as its block closes, provided its arguments fit the schema and
+  every rule allows it without asking. The first call to any other tool ends the run, since a read
+  after a write, a command or a subagent must see what that did. The step still admits each call
+  as usual and takes the early result in its place; a reply that fails, is cut short or is stopped
+  drops them all, and what an early read read counts as read only once its result is used (it ran
+  against a copy of the session's read record). So reads overlap the rest of the reply without a
+  broken reply's calls ever reaching the model.
   `edit`, `write` and `apply_patch` refuse existing files the session has not `read`; every
   mutating call records what it changed in its part's metadata. A shell line that only reads and
   exits 0 counts too for each file it printed (`cat`, `type`, `head`, `tail`, `Get-Content`, and

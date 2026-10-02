@@ -7,6 +7,7 @@ mod changes;
 pub mod clarify;
 pub mod compaction;
 mod convert;
+mod early;
 mod oneshot;
 pub mod prompt;
 pub mod revert;

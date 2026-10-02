@@ -36,6 +36,10 @@ impl Tool for Read {
         ctx.ask_to_read(&ctx.resolve(input["path"].as_str()?), "Read")
     }
 
+    fn starts_early(&self) -> bool {
+        true
+    }
+
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let path = ctx.resolve(required_str(&input, "path")?);

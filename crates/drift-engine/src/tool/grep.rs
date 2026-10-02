@@ -40,6 +40,10 @@ impl Tool for Grep {
         ctx.ask_to_read(&ctx.resolve(input["path"].as_str().unwrap_or(".")), "Search")
     }
 
+    fn starts_early(&self) -> bool {
+        true
+    }
+
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let pattern = required_str(&input, "pattern")?.to_string();

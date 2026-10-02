@@ -504,6 +504,8 @@ pub mod scripted {
         FailMidway(Vec<Chunk>, Error),
         /// Streams the chunks after a pause, as a slow reply does.
         Slow(std::time::Duration, Vec<Chunk>),
+        /// Streams the first chunks, pauses, then the rest, as a reply still being written does.
+        Paused(Vec<Chunk>, std::time::Duration, Vec<Chunk>),
         /// A response that never finishes, for exercising Stop.
         Stall,
     }
@@ -537,6 +539,11 @@ pub mod scripted {
 
         pub fn push_slow(&self, delay: std::time::Duration, chunks: Vec<Chunk>) -> &Self {
             self.responses.lock().unwrap().push_back(Response::Slow(delay, chunks));
+            self
+        }
+
+        pub fn push_paused(&self, before: Vec<Chunk>, pause: std::time::Duration, after: Vec<Chunk>) -> &Self {
+            self.responses.lock().unwrap().push_back(Response::Paused(before, pause, after));
             self
         }
 
@@ -587,6 +594,10 @@ pub mod scripted {
             Response::Slow(delay, chunks) => {
                 let later = futures_util::stream::once(tokio::time::sleep(delay)).flat_map(move |()| futures_util::stream::iter(chunks.clone().into_iter().map(Ok)));
                 Ok(Box::pin(later))
+            }
+            Response::Paused(before, pause, after) => {
+                let rest = futures_util::stream::once(tokio::time::sleep(pause)).flat_map(move |()| futures_util::stream::iter(after.clone().into_iter().map(Ok)));
+                Ok(Box::pin(futures_util::stream::iter(before.into_iter().map(Ok)).chain(rest)))
             }
             Response::Stall => Ok(Box::pin(futures_util::stream::pending())),
         }

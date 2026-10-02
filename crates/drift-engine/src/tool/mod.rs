@@ -72,6 +72,21 @@ impl SessionFiles {
     pub fn was_read(&self, path: &Path) -> bool {
         self.read.lock().unwrap().contains(path)
     }
+
+    /// A copy an early call runs against: it knows what the session has read and been shown, and
+    /// what it reads stays here until [`Self::absorb`] takes it, once its result reaches the model.
+    pub fn scratch(&self) -> Self {
+        let read = self.read.lock().unwrap().clone();
+        let shown = self.shown.lock().unwrap().clone();
+        Self { read: Mutex::new(read), shown: Mutex::new(shown), kept: None }
+    }
+
+    pub fn absorb(&self, scratch: &SessionFiles) {
+        for path in scratch.read.lock().unwrap().iter() {
+            self.mark_read(path);
+        }
+        self.shown.lock().unwrap().extend(scratch.shown.lock().unwrap().iter().cloned());
+    }
 }
 
 pub struct Context {
@@ -371,6 +386,11 @@ pub trait Tool: Send + Sync {
     /// The call returns promptly by itself once `ctx.abort` fires, with a result worth keeping
     /// (partial output). Otherwise a stop drops the call and records it as aborted.
     fn stops_itself(&self) -> bool {
+        false
+    }
+    /// The call only reads, touches nothing outside the files it reads, and may start while the
+    /// reply still streams; its result is used only once the reply ends well.
+    fn starts_early(&self) -> bool {
         false
     }
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a>;

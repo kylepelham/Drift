@@ -306,6 +306,11 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
+    /// A tool this turn offers, as it was offered.
+    pub(super) fn offered(&self, name: &str) -> Option<Arc<dyn crate::tool::Tool>> {
+        self.offer.tool(name)
+    }
+
     /// What the variant asks of the model now planned; a name this model does not offer asks nothing.
     fn reasoning(&self) -> Option<Reasoning> {
         reasoning_in(&self.model.variants, self.variant.as_deref())
@@ -960,7 +965,7 @@ impl Engine {
         if streamed.calls.is_empty() {
             return Step::Done;
         }
-        match self.run_calls(plan, &message, streamed.calls, abort).await {
+        match self.run_calls(plan, &message, streamed.calls, streamed.early, abort).await {
             Outcome::Aborted => {
                 // Calls queued behind the one that stopped never started; none is left pending.
                 self.settle_unrun(&message, "the turn was stopped before this call ran.");
@@ -996,14 +1001,20 @@ impl Engine {
         plan.provider.stream(request, &plan.credential).await
     }
 
-    async fn stream(&self, message: &Message, plan: &mut Plan, request: &Request, abort: &CancellationToken) -> Result<Streamed, StreamError> {
+    async fn stream(self: &Arc<Self>, message: &Message, plan: &mut Plan, request: &Request, abort: &CancellationToken) -> Result<Streamed, StreamError> {
         // Stop counts while the request is still being sent or the response has not begun.
         let mut chunks = tokio::select! {
             opened = self.open_response(plan, request) => opened.map_err(StreamError::Provider)?,
             () = abort.cancelled() => return Err(StreamError::Aborted),
         };
         let mut assembler = Assembler::new(&self.store, &self.hub, message);
+        let files = self.turns.files_for(&self.store, &plan.session.id);
+        let mut early = super::early::Early::new(abort);
         loop {
+            // Each call that closed since the last chunk may start now, in the order the model wrote them.
+            for row in &assembler.calls[early.seen()..] {
+                early.consider(self, plan, message, &files, row);
+            }
             let next = tokio::select! {
                 chunk = chunks.next() => chunk,
                 () = abort.cancelled() => {
@@ -1025,13 +1036,13 @@ impl Engine {
         let Some(stop) = assembler.stop else {
             return Err(StreamError::Provider(llm::Error::Transport("stream ended without a stop reason".into())));
         };
-        Ok(Streamed { usage: assembler.usage, stop, calls: assembler.calls })
+        Ok(Streamed { usage: assembler.usage, stop, calls: assembler.calls, early })
     }
 
     /// Calls run in the model's order. Consecutive reads run together; a write waits for what came before it.
-    async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, abort: &CancellationToken) -> Outcome {
+    async fn run_calls(self: &Arc<Self>, plan: &Plan, message: &Message, calls: Vec<PartRow>, early: super::early::Early, abort: &CancellationToken) -> Outcome {
         let files = self.turns.files_for(&self.store, &plan.session.id);
-        let scope = CallScope { plan, message, files: &files, abort, wrote: Mutex::default(), tree: Mutex::default() };
+        let scope = CallScope { plan, message, files: &files, abort, wrote: Mutex::default(), tree: Mutex::default(), early: Mutex::new(early) };
         let mut reads: Vec<PartRow> = Vec::new();
         for row in calls {
             if !call_mutates(plan, &row) {
@@ -1196,13 +1207,17 @@ impl Engine {
             return Outcome::Allowed;
         }
         ctx.progress = self.progress_for(&row);
-        let result = if tool.stops_itself() {
-            tool.run(&ctx, input).await
-        } else {
-            tokio::select! {
+        let started = scope.early.lock().unwrap().take(&call_id);
+        let result = match started {
+            Some(started) => tokio::select! {
+                result = started.finish(scope.files) => result,
+                () = scope.abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
+            },
+            None if tool.stops_itself() => tool.run(&ctx, input).await,
+            None => tokio::select! {
                 result = tool.run(&ctx, input) => result,
                 () = scope.abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
-            }
+            },
         };
         let (status, title, text, meta) = match result {
             Ok(output) => {
@@ -1588,6 +1603,8 @@ struct CallScope<'a> {
     wrote: Mutex<StepWrites>,
     /// The tree the step's last whole-tree call ended on, so the next one takes one capture, not two.
     tree: Mutex<Option<super::snapshot::Tree>>,
+    /// Calls the reply started while it streamed, each taken by its own call when it runs.
+    early: Mutex<super::early::Early>,
 }
 
 /// What a step's calls wrote, for the checks that run once the step's calls are done.
@@ -1602,6 +1619,8 @@ struct Streamed {
     usage: Usage,
     stop: StopReason,
     calls: Vec<PartRow>,
+    /// Calls already started while the reply streamed.
+    early: super::early::Early,
 }
 
 enum StreamError {

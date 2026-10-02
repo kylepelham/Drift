@@ -113,6 +113,43 @@ async fn tool_calls_run_and_feed_the_next_request() {
     assert!(matches!(&requests[1].messages[2].blocks[0], llm::Block::ToolResult { content, .. } if content == "1: alpha"));
 }
 
+/// A call's chunks without the reply's stop, so more can follow it.
+fn call_block(id: &str, name: &str, input: &str) -> Vec<Chunk> {
+    vec![Chunk::ToolUseStart { id: id.into(), name: name.into() }, Chunk::ToolInputDelta(input.into()), Chunk::BlockStop]
+}
+
+#[tokio::test]
+async fn a_read_starts_while_the_reply_still_streams() {
+    let h = harness().await;
+    let file = h._dir.join("ws/a.txt");
+    std::fs::write(&file, "before\n").unwrap();
+    let rest = [call_block("t2", "glob", r#"{"pattern": "*.txt"}"#), vec![Chunk::Stop(StopReason::ToolUse)]].concat();
+    h.provider.push_paused(call_block("t1", "read", r#"{"path": "a.txt"}"#), Duration::from_millis(600), rest).push(text("done"));
+    h.engine.submit(&h.session.id, prompt("read a")).await.await_ok();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // Written while the reply is still streaming: a read that waited for the reply's end would see it.
+    std::fs::write(&file, "after\n").unwrap();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!((*status, output.as_deref()), (ToolStatus::Done, Some("1: before")), "the read ran as soon as its call closed");
+    assert!(h.engine.turns.files_for(&h.engine.store, &h.session.id).was_read(&crate::tool::canonical(&file)), "its result reached the model, so it counts as read");
+}
+
+#[tokio::test]
+async fn an_early_read_of_a_reply_that_fails_counts_for_nothing() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "secret plan\n").unwrap();
+    h.provider.push_fail_midway(call_block("t1", "read", r#"{"path": "a.txt"}"#), llm::Error::Transport("connection reset".into()));
+    h.engine.submit(&h.session.id, prompt("read a")).await.await_ok();
+    until_idle(&h).await;
+    let file = crate::tool::canonical(&h._dir.join("ws/a.txt"));
+    assert!(!h.engine.turns.files_for(&h.engine.store, &h.session.id).was_read(&file), "the model never saw it, so an edit must still read first");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert!(*status != ToolStatus::Done && !output.as_deref().unwrap_or_default().contains("secret"), "{output:?}");
+}
+
 #[tokio::test]
 async fn permission_denial_is_reported_to_the_model() {
     let h = harness().await;
