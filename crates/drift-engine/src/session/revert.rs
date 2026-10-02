@@ -49,12 +49,47 @@ pub struct Undone {
     pub unattributed: Vec<String>,
 }
 
-/// A path's net change over a range, and whether its chain of changes was broken by someone else's edit.
+/// A physical file's chronological change chain, with independent snapshot owners for its endpoints.
 struct Net {
-    /// The workspace whose history and directory the change belongs to.
-    owner: String,
-    change: FileChange,
+    file: Option<PathBuf>,
+    key: Option<PathBuf>,
+    path: String,
+    before: Endpoint,
+    after: Endpoint,
+    observed: bool,
     broken: bool,
+}
+
+struct Endpoint {
+    owner: String,
+    blob: Option<String>,
+}
+
+impl Net {
+    fn new(owner: String, change: FileChange, file: Option<PathBuf>) -> Self {
+        Self {
+            key: file.as_deref().map(crate::tool::lock::path_key),
+            file,
+            path: change.path,
+            before: Endpoint { owner: owner.clone(), blob: change.before },
+            after: Endpoint { owner, blob: change.after },
+            observed: change.observed,
+            broken: false,
+        }
+    }
+
+    fn names(&self, key: Option<&Path>, owner: &str, path: &str) -> bool {
+        match key {
+            Some(key) => self.key.as_deref() == Some(key),
+            None => self.file.is_none() && self.before.owner == owner && self.path == path,
+        }
+    }
+
+    fn extend(&mut self, owner: String, change: FileChange) {
+        self.broken |= self.after.blob != change.before;
+        self.after = Endpoint { owner, blob: change.after };
+        self.observed |= change.observed;
+    }
 }
 
 #[derive(Default)]
@@ -166,37 +201,36 @@ impl Engine {
 
     /// Reserves the complete canonical path set once, including files named by multiple historical workspaces.
     async fn turns_for(&self, nets: &[Net]) -> crate::tool::lock::Held {
-        let mut paths = Vec::new();
-        for net in nets.iter().filter(|net| !net.change.observed && !net.broken) {
-            if let Some(workspace) = self.root_of(&net.owner) {
-                paths.push(workspace.join(&net.change.path));
-            }
-        }
+        let paths: Vec<PathBuf> = nets.iter().filter(|net| !net.observed && !net.broken).filter_map(|net| net.file.clone()).collect();
         crate::tool::lock::files(&paths).await
     }
 
     /// Applies one path's change, or records why it is left alone; `Some` names what to put back if a later path fails.
-    async fn shift_one(&self, Net { owner, change, broken }: Net, direction: &Direction, shifted: &mut Shifted) -> Result<Option<Applied>, String> {
-        if change.observed {
-            shifted.unattributed.push(change.path);
+    async fn shift_one(&self, net: Net, direction: &Direction, shifted: &mut Shifted) -> Result<Option<Applied>, String> {
+        if net.observed {
+            shifted.unattributed.push(net.path);
             return Ok(None);
         }
-        // Someone else changed the file between two of the session's writes, or the workspace is gone.
-        let Some(workspace) = self.root_of(&owner).filter(|_| !broken) else {
-            shifted.kept.push(change.path);
+        let Some(file) = net.file.as_ref().filter(|_| !net.broken) else {
+            shifted.kept.push(net.path);
             return Ok(None);
         };
         let (expected, target) = match direction {
-            Direction::Back => (change.after, change.before),
-            Direction::Forward => (change.before, change.after),
+            Direction::Back => (&net.after, &net.before),
+            Direction::Forward => (&net.before, &net.after),
         };
-        let current = self.snapshots.current(&workspace, &change.path).await.map_err(|e| e.to_string())?;
-        if current != expected {
-            shifted.kept.push(change.path);
+        let Some((previous_workspace, target_workspace)) = self.root_of(&expected.owner).zip(self.root_of(&target.owner)) else {
+            shifted.kept.push(net.path);
+            return Ok(None);
+        };
+        let path = file.to_string_lossy().into_owned();
+        let current = self.snapshots.current(&previous_workspace, &path).await.map_err(|e| e.to_string())?;
+        if current != expected.blob {
+            shifted.kept.push(net.path);
             return Ok(None);
         }
-        self.snapshots.put(&self.store, &workspace, &change.path, target.as_deref()).await.map_err(|e| format!("{}: {e}", change.path))?;
-        Ok(Some(Applied { workspace, path: change.path, previous: expected }))
+        self.snapshots.put(&self.store, &target_workspace, &path, target.blob.as_deref()).await.map_err(|e| format!("{}: {e}", net.path))?;
+        Ok(Some(Applied { workspace: previous_workspace, path, previous: expected.blob.clone() }))
     }
 
     /// Returns the paths a failed shift already changed to their content before it, newest first; the shift still holds their turns.
@@ -211,10 +245,7 @@ impl Engine {
         RevertError::Files(format!("{error}; {state}"))
     }
 
-    /// Per path, the state before its first change and after its last one in `[from, to)`, across the
-    /// session and its subagents, in the order the calls' writes finished (their `at` stamp; records
-    /// made before it fall back to their message's id). A path whose next change did not start where
-    /// the previous one ended is `broken`.
+    /// Groups chronological changes by canonical physical path, retaining each endpoint's snapshot owner.
     fn net_changes(&self, session: &Session, from: &str, to: Option<&str>) -> Result<Vec<Net>, RevertError> {
         let mut calls: Vec<(String, String, String, Vec<FileChange>)> = Vec::new();
         for member in self.store.session_tree(&session.id)? {
@@ -232,16 +263,14 @@ impl Engine {
         calls.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
         let mut net: Vec<Net> = Vec::new();
         for (owner, change) in calls.into_iter().flat_map(|(_, _, owner, changes)| changes.into_iter().map(move |c| (owner.clone(), c))) {
-            match net.iter_mut().find(|n| n.owner == owner && n.change.path == change.path) {
-                Some(existing) => {
-                    existing.broken |= existing.change.after != change.before;
-                    existing.change.after = change.after;
-                    existing.change.observed |= change.observed;
-                }
-                None => net.push(Net { owner, change, broken: false }),
+            let file = self.root_of(&owner).map(|root| crate::tool::canonical(&root.join(&change.path)));
+            let key = file.as_deref().map(crate::tool::lock::path_key);
+            match net.iter_mut().find(|n| n.names(key.as_deref(), &owner, &change.path)) {
+                Some(existing) => existing.extend(owner, change),
+                None => net.push(Net::new(owner, change, file)),
             }
         }
-        net.retain(|n| n.broken || n.change.before != n.change.after);
+        net.retain(|n| n.broken || n.before.blob != n.after.blob);
         Ok(net)
     }
 

@@ -563,18 +563,23 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   stamp taken once the call's writes (and formatters) are done, so two workers that start in one
   order and write in the other are still undone as they happened. Records made before `at` use
   their message's id.
-- Changes to one path merge only while they chain: each change's `before` must equal the previous
-  one's `after`. A gap means someone else edited the file between two of the session's writes;
-  that path is kept and reported in both directions, since undoing to the first `before` (or
-  redoing to the last `after`) would erase their edit.
+- Changes merge by canonical physical path, using the same case-folded identity as writer
+  reservations on Windows. Different workspace owners and relative names can therefore form one
+  chronological chain. A session that writes `repo/sub/a.txt` as A -> B, moves to `repo/sub`, then
+  writes the same file as B -> C undoes directly to A and redoes directly to C. Each change's
+  `before` must equal the previous one's `after`; a gap marks the entire chain broken and the
+  file is kept in both directions, rather than partly restoring one workspace's segment.
 - The shadow repo is one per workspace, shared by every session and subagent in it, so creating it
   and every index operation (tree captures, prunes) hold a per-workspace lock.
 - History belongs to the workspace, not its path: the repo is named for the workspace id
   (`Snapshots::bind`, taking over a repo kept under the old path-derived name once), and every
-  recorded call stores its `owner` workspace id beside its changes. Undo and redo apply each change
-  where its owner's directory is now, whichever workspace the session has moved to, so a session
-  moved from A to B undoes A's files in A with A's history; a workspace pointed at a new directory
-  keeps its history there. Records older than `owner` use the session's workspace; a change whose
+  recorded call stores its `owner` workspace id beside its changes. Physical paths are resolved
+  from those owners' current directories. A merged chain retains separate snapshot owners for its
+  first `before` and final `after` endpoints. Undo reads the original bytes from the first owner's
+  repository; redo reads the final bytes from the last owner's repository. Rollback retains the
+  expected endpoint's repository too, so a failed marker save can restore the previous bytes even
+  when the endpoints live in different repositories. Different physical files stay separate after
+  a session move. Records older than `owner` use the session's workspace; a change whose owning
   workspace no longer exists is kept and reported.
 - Files over 10 MB are never copied into it: a file tool refuses to change one, or to write
   content that would make one (`edit`, `write` and `apply_patch` check the prepared bytes before

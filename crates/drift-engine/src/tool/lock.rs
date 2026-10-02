@@ -61,7 +61,7 @@ impl Drop for Pending {
 
 /// Reserves all physical paths at once; dropping a waiting future cancels without retaining any paths.
 pub async fn files(paths: &[PathBuf]) -> Held {
-    let mut paths: Vec<PathBuf> = paths.iter().map(|path| key(path)).collect();
+    let mut paths: Vec<PathBuf> = paths.iter().map(|path| path_key(path)).collect();
     paths.sort();
     paths.dedup();
     acquire(Scope::Files(paths)).await
@@ -69,10 +69,11 @@ pub async fn files(paths: &[PathBuf]) -> Held {
 
 /// Excludes all writers beneath this root, irrespective of the workspace each writer belongs to.
 pub async fn workspace(root: &Path) -> Held {
-    acquire(Scope::Tree(key(root))).await
+    acquire(Scope::Tree(path_key(root))).await
 }
 
-fn key(path: &Path) -> PathBuf {
+/// Case-folded reservation identity on Windows; callers retain the real path for file operations.
+pub(crate) fn path_key(path: &Path) -> PathBuf {
     let path = super::canonical(path);
     #[cfg(windows)]
     let path = PathBuf::from(path.to_string_lossy().to_lowercase());

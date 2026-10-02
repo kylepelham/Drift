@@ -203,15 +203,83 @@ async fn rollback_keeps_competing_writers_out_until_the_marker_failure_is_repair
 }
 
 #[tokio::test]
+async fn undo_and_redo_merge_one_files_history_across_nested_workspace_moves() {
+    let (h, first, second, file) = overlapping_writes(false).await;
+    let undone = h.engine.revert(&h.session.id, &first).await.unwrap();
+    assert!(undone.kept.is_empty(), "the uninterrupted A -> B -> C chain belongs to this session");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "A");
+    h.engine.prune_snapshots().await;
+    let redone = h.engine.unrevert(&h.session.id).await.unwrap();
+    assert!(redone.kept.is_empty());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "C");
+    h.engine.revert(&h.session.id, &second).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "B");
+    h.engine.revert(&h.session.id, &first).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "A");
+    h.engine.revert(&h.session.id, &second).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "B");
+    h.engine.unrevert(&h.session.id).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "C");
+}
+
+#[tokio::test]
+async fn cross_workspace_undo_rolls_back_from_the_endpoint_that_owns_the_previous_bytes() {
+    let (h, first, _, file) = overlapping_writes(false).await;
+    refuse_marker(&h);
+    assert!(matches!(h.engine.revert(&h.session.id, &first).await, Err(RevertError::Files(_))));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "C", "C is stored only in the nested workspace's snapshot repository");
+    assert!(h.engine.store.session(&h.session.id).unwrap().unwrap().revert.is_none());
+    allow_marker(&h);
+    h.engine.revert(&h.session.id, &first).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "A");
+    refuse_marker(&h);
+    assert!(matches!(h.engine.unrevert(&h.session.id).await, Err(RevertError::Files(_))));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "A", "redo rollback reads A from the original workspace's repository");
+    assert!(h.engine.store.session(&h.session.id).unwrap().unwrap().revert.is_some());
+}
+
+#[tokio::test]
+async fn a_broken_cross_workspace_chain_preserves_the_entire_file() {
+    let (h, first, _, file) = overlapping_writes(true).await;
+    let undone = h.engine.revert(&h.session.id, &first).await.unwrap();
+    assert_eq!(undone.kept.len(), 1);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "C", "A -> B then external X -> C is not partially undone to X");
+    let redone = h.engine.unrevert(&h.session.id).await.unwrap();
+    assert_eq!(redone.kept.len(), 1);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "C");
+}
+
+async fn overlapping_writes(break_chain: bool) -> (Harness, String, String, PathBuf) {
+    let h = harness().await;
+    allow_writes(&h);
+    let nested = h._dir.join("ws/sub");
+    std::fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("a.txt");
+    std::fs::write(&file, "A").unwrap();
+    h.provider.push(tool_call("read", r#"{"path":"sub/a.txt"}"#)).push(text("read"));
+    turn(&h, "read the file").await;
+    h.provider.push(write("sub/a.txt", "B")).push(text("first write"));
+    let first = h.engine.submit(&h.session.id, prompt("first write")).await.unwrap().message.id;
+    until_idle(&h).await;
+    let workspace = h.engine.store.add_workspace(&nested.to_string_lossy(), "nested", "").unwrap();
+    h.engine.move_session(&h.session.id, &workspace.id).unwrap();
+    if break_chain { std::fs::write(&file, "X").unwrap(); }
+    h.provider.push(write("a.txt", "C")).push(text("second write"));
+    let second = h.engine.submit(&h.session.id, prompt("second write")).await.unwrap().message.id;
+    until_idle(&h).await;
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "C");
+    (h, first, second, file)
+}
+
+#[tokio::test]
 async fn undo_deduplicates_paths_across_overlapping_historical_workspaces() {
     let h = harness().await;
     let root = crate::tool::canonical(&h._dir.join("ws"));
     std::fs::create_dir_all(root.join("sub")).unwrap();
     let nested = h.engine.store.add_workspace(&root.join("sub").to_string_lossy(), "nested", "").unwrap();
-    let change = |owner: String, path: &str| Net {
-        owner,
-        change: FileChange { path: path.into(), before: None, after: None, observed: false },
-        broken: false,
+    let change = |owner: String, path: &str| {
+        let file = crate::tool::canonical(&h.engine.root_of(&owner).unwrap().join(path));
+        Net::new(owner, FileChange { path: path.into(), before: None, after: None, observed: false }, Some(file))
     };
     let nets = [change(h.session.workspace_id.clone(), "sub/a.txt"), change(nested.id, "a.txt")];
     let held = tokio::time::timeout(Duration::from_secs(1), h.engine.turns_for(&nets)).await.expect("one reservation for the same physical file");
