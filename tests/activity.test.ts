@@ -826,6 +826,8 @@ test("the meter keeps a quarter of a small window for the reply when the output 
   expect(replyRoom(8_192, 0)).toBe(8_192)
   expect(modelDetail("ollama", { id: "llama", limit: { context: 4_096 } })).toContain("too small")
   expect(modelDetail("openai", { id: "gpt", limit: { context: 200_000 } })).toBeUndefined()
+  expect(modelDetail("ollama", { id: "cold", limit: { context: 0 } })).toContain("unknown")
+  expect(modelDetail("openai", { id: "gpt", limit: { context: 0 } })).toBeUndefined()
 })
 
 test("activity counts distinct tool parts and tracks the running tool", () => {

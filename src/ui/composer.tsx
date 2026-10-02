@@ -85,10 +85,14 @@ export function firstManualPermission(permissions: Permission[], autoAccepted: (
   return permissions.find((permission) => !autoAccepted(permission))
 }
 
-/** The picker's line under a model: a small window is warned about, and LM Studio shows its loaded window. */
+const localProviders = ["ollama", "lmstudio"]
+
+/** The picker's line under a model: a small or unknown window is warned about, and LM Studio shows its loaded window. */
 export function modelDetail(providerID: string, model: { id: string; limit: { context: number } }) {
   const context = model.limit.context
   if (context > 0 && context < smallContextTokens) return t("drift.model.smallContext", { size: formatModelContext(context) })
+  // A local model not yet loaded runs at whatever window its server picks, and compaction cannot plan for it.
+  if (context === 0 && localProviders.includes(providerID)) return t("drift.model.unknownContext")
   return providerID === "lmstudio" ? `${model.id} | ${formatModelContext(context)} context` : undefined
 }
 
