@@ -154,7 +154,8 @@ impl Engine {
     async fn compact_once(&self, session_id: &str, trigger: Trigger, abort: &CancellationToken) -> Result<(), String> {
         let (resolved, config) = self.action_model(session_id, "compaction", Fallback::Conversation).await.map_err(|e| e.to_string())?;
         let instructions = config.agent("compaction").map(|agent| agent.prompt.clone()).unwrap_or_default();
-        let transcript = self.store.transcript(session_id).map_err(|e| e.to_string())?;
+        // Only what the view shows is summarised again, so history the last summary covered is not loaded.
+        let transcript = self.request_window(session_id).ok_or("the conversation could not be read")?;
         let view = view(&transcript);
         let tail = tail_start(&view.messages);
         let head = &view.messages[..tail.unwrap_or(view.messages.len())];

@@ -185,6 +185,14 @@ impl Store {
         Ok(Some(tail.filter(|tail| *tail < boundary).unwrap_or(boundary)))
     }
 
+    /// The id of the session's newest user message.
+    pub fn newest_prompt(&self, session_id: &str) -> rusqlite::Result<Option<String>> {
+        self.lock()
+            .prepare_cached("SELECT id FROM message WHERE session_id = ?1 AND role = 'user' ORDER BY id DESC LIMIT 1")?
+            .query_row([session_id], |row| row.get(0))
+            .optional()
+    }
+
     /// The session's newest assistant message, without loading the rest of the conversation.
     pub fn last_reply(&self, session_id: &str) -> rusqlite::Result<Option<MessageWithParts>> {
         let conn = self.lock();

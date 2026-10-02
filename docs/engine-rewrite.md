@@ -850,8 +850,10 @@ these async criteria are new pending M3 work.
   the latest finished summary's kept tail (`Store::view_start`: the boundary's `tailFrom`, else the
   boundary) on, never the history already summarised; before any, all of it. A summary with no
   text stands for nothing, so then the whole transcript is loaded and the view reaches past it. It
-  loads once per step (twice when it compacts first); the loop check, the subagent outcome and
-  closing unrun calls load only the message they need (`Store::last_reply`, `Store::with_parts`).
+  loads once per step (twice when it compacts first), and a compaction summarises from the same
+  window; the loop check, the subagent outcome, closing unrun calls and the end-of-turn steering
+  check load only the message or id they need (`Store::last_reply`, `Store::with_parts`,
+  `Store::newest_prompt`).
   Together these do what opencode's `zz-prompt-row-scan` and `zz-prompt-context-bounds` overlays did.
 
 ## Failure-path contracts

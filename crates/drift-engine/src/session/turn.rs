@@ -635,9 +635,8 @@ impl Engine {
     /// none did, the turn stops taking prompts in the same breath, so none can land unanswered.
     fn steered_after(&self, session_id: &str, answered: Option<&str>) -> bool {
         let mut steering = self.turns.steering.lock().unwrap();
-        let transcript = self.store.transcript(session_id).unwrap_or_default();
-        let newest = transcript.iter().rev().find(|m| m.info.role == Role::User).map(|m| m.info.id.as_str());
-        let steered = matches!((newest, answered), (Some(newest), Some(answered)) if newest > answered);
+        let newest = self.store.newest_prompt(session_id).ok().flatten();
+        let steered = matches!((newest.as_deref(), answered), (Some(newest), Some(answered)) if newest > answered);
         if !steered {
             steering.remove(session_id);
         }
@@ -848,7 +847,7 @@ impl Engine {
 
     /// The part of the transcript a request can show: from the latest summary's kept tail on, or all
     /// of it before any compaction. History already summarised is never loaded.
-    fn request_window(&self, session_id: &str) -> Option<Vec<MessageWithParts>> {
+    pub(super) fn request_window(&self, session_id: &str) -> Option<Vec<MessageWithParts>> {
         let Some(start) = self.store.view_start(session_id).ok()? else { return self.store.transcript(session_id).ok() };
         let window = self.store.messages_from(session_id, &start).ok()?;
         // A summary with no text stands for nothing, so the view reaches back past it.
