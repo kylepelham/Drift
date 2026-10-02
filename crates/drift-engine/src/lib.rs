@@ -99,6 +99,8 @@ pub struct Engine {
     runtime: std::sync::OnceLock<tokio::runtime::Handle>,
     /// What each local server last reported, kept across catalog refreshes.
     local_models: std::sync::Mutex<std::collections::BTreeMap<String, Vec<llm::catalog::Model>>>,
+    /// Ollama models' own windows, asked once per installed build.
+    local_shown: llm::local::Shown,
 }
 
 impl Engine {
@@ -133,6 +135,7 @@ impl Engine {
             shell_timeout: Default::default(),
             runtime: Default::default(),
             local_models: Default::default(),
+            local_shown: Default::default(),
         }))
     }
 
@@ -233,7 +236,7 @@ impl Engine {
         let mut changed = false;
         for (id, name, default) in llm::local::LOCAL {
             let base = self.catalog.read().unwrap().providers.get(id).and_then(|p| p.api.clone()).unwrap_or_else(|| default.into());
-            let found = llm::local::discover(&self.http, id, &base).await;
+            let found = llm::local::discover(&self.http, id, &base, &self.local_shown).await;
             self.credentials.set_keyless(id, found.is_some());
             let mut known = self.local_models.lock().unwrap();
             let was_up = known.contains_key(id);

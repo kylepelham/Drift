@@ -15,12 +15,14 @@ const ASK_WITHIN: Duration = Duration::from_secs(2);
 /// The local routes and where they listen unless the user's drift.json says otherwise.
 pub const LOCAL: [(&str, &str, &str); 2] = [("lmstudio", "LM Studio", "http://127.0.0.1:1234/v1"), ("ollama", "Ollama", "http://127.0.0.1:11434/v1")];
 
-/// Each Ollama model's own `num_ctx` (capped at its trained length) by server and model, asked once:
-/// `/api/show` describes the installed model, which changes only when the list does.
-static OLLAMA_SET: Mutex<BTreeMap<String, Option<u64>>> = Mutex::new(BTreeMap::new());
+/// Each Ollama model's own `num_ctx` (capped at its trained length), by the digest of what is
+/// installed: `/api/show` is asked once per build of a model, and a model re-created under the same
+/// name has a new digest, so it is asked again.
+#[derive(Default)]
+pub struct Shown(Mutex<BTreeMap<String, Option<u64>>>);
 
 /// The chat models the server at `base` (an OpenAI-compatible `/v1` root) offers; `None` when it does not answer.
-pub async fn discover(client: &reqwest::Client, provider: &str, base: &str) -> Option<Vec<Model>> {
+pub async fn discover(client: &reqwest::Client, provider: &str, base: &str, shown: &Shown) -> Option<Vec<Model>> {
     let base = base.trim_end_matches('/');
     let listed = get(client, &format!("{base}/models")).await?;
     let details = lm_studio_details(client, base).await;
@@ -31,12 +33,15 @@ pub async fn discover(client: &reqwest::Client, provider: &str, base: &str) -> O
         .filter_map(|id| model(id, details.as_ref().and_then(|d| d.iter().find(|m| m["id"] == id))))
         .collect();
     if provider == "ollama" {
-        forget_if_changed(base, &models);
-        let running = ollama_running(client, base).await;
+        let running = ollama_listing(client, base, "ps", "context_length").await;
+        let digests = ollama_listing(client, base, "tags", "digest").await;
         for model in &mut models {
-            model.limit.context = match running.get(&model.id) {
-                Some(window) => *window,
-                None => ollama_set(client, base, &model.id).await.unwrap_or(0),
+            model.limit.context = match running.get(&model.id).and_then(Value::as_u64) {
+                Some(window) => window,
+                None => {
+                    let digest = digests.get(&model.id).and_then(Value::as_str).map_or_else(|| format!("{base}|{}", model.id), str::to_string);
+                    shown.window(client, base, &model.id, &digest).await.unwrap_or(0)
+                }
             };
         }
     }
@@ -54,50 +59,43 @@ async fn read(response: reqwest::Response) -> Option<Value> {
     tokio::time::timeout(ASK_WITHIN, response.json::<Value>()).await.ok()?.ok()
 }
 
-/// A model gone from the list may come back re-created with other settings: ask about every model again.
-/// A newly pulled one is asked about anyway, having no answer yet.
-fn forget_if_changed(base: &str, models: &[Model]) {
-    let mut set = OLLAMA_SET.lock().unwrap();
-    let prefix = format!("{base}|");
-    let gone = set.keys().filter_map(|key| key.strip_prefix(&prefix)).any(|id| !models.iter().any(|m| m.id == id));
-    if gone {
-        set.retain(|key, _| !key.starts_with(&prefix));
-    }
-}
-
-/// The window each loaded model really runs with, as Ollama allocated it (`/api/ps`), by model id.
-async fn ollama_running(client: &reqwest::Client, base: &str) -> BTreeMap<String, u64> {
+/// One field of each model Ollama lists at `/api/<what>` (`ps` for loaded models' windows, `tags`
+/// for installed models' digests), by every name the model goes by.
+async fn ollama_listing(client: &reqwest::Client, base: &str, what: &str, field: &str) -> BTreeMap<String, Value> {
     let root = base.strip_suffix("/v1").unwrap_or(base);
-    let Some(listed) = get(client, &format!("{root}/api/ps")).await else { return BTreeMap::new() };
-    let models = listed["models"].as_array().cloned().unwrap_or_default();
-    let mut windows = BTreeMap::new();
-    for model in models {
-        let Some(window) = model["context_length"].as_u64() else { continue };
+    let Some(listed) = get(client, &format!("{root}/api/{what}")).await else { return BTreeMap::new() };
+    let mut by_name = BTreeMap::new();
+    for model in listed["models"].as_array().cloned().unwrap_or_default() {
+        let value = model[field].clone();
+        if value.is_null() {
+            continue;
+        }
         for name in [&model["name"], &model["model"]].into_iter().filter_map(Value::as_str) {
-            windows.insert(name.to_string(), window);
-            windows.entry(format!("{name}:latest")).or_insert(window);
+            by_name.insert(name.to_string(), value.clone());
+            by_name.entry(format!("{name}:latest")).or_insert(value.clone());
         }
     }
-    windows
+    by_name
 }
 
-/// A model's own `num_ctx`, never more than it was trained for; `None` when it sets none, since
-/// then Ollama decides when it loads (its default depends on the server's memory).
-async fn ollama_set(client: &reqwest::Client, base: &str, model: &str) -> Option<u64> {
-    let key = format!("{base}|{model}");
-    if let Some(known) = OLLAMA_SET.lock().unwrap().get(&key) {
-        return *known;
+impl Shown {
+    /// A model's own `num_ctx`, never more than it was trained for; `None` when it sets none, since
+    /// then Ollama decides when it loads (its default depends on the server's memory).
+    async fn window(&self, client: &reqwest::Client, base: &str, model: &str, digest: &str) -> Option<u64> {
+        if let Some(known) = self.0.lock().unwrap().get(digest) {
+            return *known;
+        }
+        let root = base.strip_suffix("/v1").unwrap_or(base);
+        let shown = async { read(client.post(format!("{root}/api/show")).json(&serde_json::json!({ "model": model })).send().await.ok()?).await };
+        let shown = tokio::time::timeout(ASK_WITHIN, shown).await.ok().flatten()?;
+        let set = shown["parameters"].as_str().and_then(|parameters| {
+            parameters.lines().find_map(|line| line.trim().strip_prefix("num_ctx").and_then(|value| value.trim().parse::<u64>().ok()))
+        });
+        let trained = shown["model_info"].as_object().and_then(|info| info.iter().find(|(key, _)| key.ends_with(".context_length")).and_then(|(_, value)| value.as_u64()));
+        let window = set.map(|set| trained.map_or(set, |trained| set.min(trained)));
+        self.0.lock().unwrap().insert(digest.into(), window);
+        window
     }
-    let root = base.strip_suffix("/v1").unwrap_or(base);
-    let shown = async { read(client.post(format!("{root}/api/show")).json(&serde_json::json!({ "model": model })).send().await.ok()?).await };
-    let shown = tokio::time::timeout(ASK_WITHIN, shown).await.ok().flatten()?;
-    let set = shown["parameters"].as_str().and_then(|parameters| {
-        parameters.lines().find_map(|line| line.trim().strip_prefix("num_ctx").and_then(|value| value.trim().parse::<u64>().ok()))
-    });
-    let trained = shown["model_info"].as_object().and_then(|info| info.iter().find(|(key, _)| key.ends_with(".context_length")).and_then(|(_, value)| value.as_u64()));
-    let window = set.map(|set| trained.map_or(set, |trained| set.min(trained)));
-    OLLAMA_SET.lock().unwrap().insert(key, window);
-    window
 }
 
 /// LM Studio's own listing says each model's kind, context and tool support; other servers lack it.
@@ -156,11 +154,11 @@ mod tests {
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = crate::llm::http::client();
-        let models = discover(&client, "lmstudio", &base).await.unwrap();
+        let models = discover(&client, "lmstudio", &base, &Shown::default()).await.unwrap();
         let found: Vec<(&str, u64, bool)> = models.iter().map(|m| (m.id.as_str(), m.limit.context, m.attachment)).collect();
         assert_eq!(found, [("qwen3-coder", 65536, false), ("llava", 0, true)], "a loaded model's window; an unloaded one's is unknown; embeddings and tool-less models stay out");
         let stopped = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap();
-        assert!(discover(&client, "lmstudio", &format!("http://{stopped}/v1")).await.is_none());
+        assert!(discover(&client, "lmstudio", &format!("http://{stopped}/v1"), &Shown::default()).await.is_none());
     }
 
     #[tokio::test]
@@ -168,9 +166,18 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let shows = std::sync::Arc::new(AtomicUsize::new(0));
         let counted = shows.clone();
+        let build = std::sync::Arc::new(AtomicUsize::new(1));
+        let rebuilt = build.clone();
         let app = axum::Router::new()
             .route("/v1/models", axum::routing::get(|| async { axum::Json(json!({ "data": [{ "id": "loaded:latest" }, { "id": "set" }, { "id": "unset" }, { "id": "tiny" }] })) }))
             .route("/api/ps", axum::routing::get(|| async { axum::Json(json!({ "models": [{ "name": "loaded:latest", "model": "loaded:latest", "context_length": 262144 }] })) }))
+            .route(
+                "/api/tags",
+                axum::routing::get(move || {
+                    let build = rebuilt.load(Ordering::SeqCst);
+                    async move { axum::Json(json!({ "models": [{ "name": "set", "digest": format!("set-{build}") }, { "name": "unset", "digest": "u" }, { "name": "tiny", "digest": "t" }] })) }
+                }),
+            )
             .route(
                 "/api/show",
                 axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
@@ -190,10 +197,14 @@ mod tests {
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = crate::llm::http::client();
-        let models = discover(&client, "ollama", &base).await.unwrap();
+        let shown = Shown::default();
+        let models = discover(&client, "ollama", &base, &shown).await.unwrap();
         let windows: Vec<(&str, u64)> = models.iter().map(|m| (m.id.as_str(), m.limit.context)).collect();
         assert_eq!(windows, [("loaded:latest", 262144), ("set", 32768), ("unset", 0), ("tiny", 2048)], "loaded as allocated; else num_ctx within the trained length; else unknown");
-        discover(&client, "ollama", &base).await.unwrap();
+        discover(&client, "ollama", &base, &shown).await.unwrap();
         assert_eq!(shows.load(Ordering::SeqCst), 3, "each installed model is shown once, not every poll");
+        build.store(2, Ordering::SeqCst);
+        discover(&client, "ollama", &base, &shown).await.unwrap();
+        assert_eq!(shows.load(Ordering::SeqCst), 4, "a model re-created under its name has a new digest, so it is asked again");
     }
 }

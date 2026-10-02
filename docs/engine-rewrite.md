@@ -806,7 +806,8 @@ these async criteria are new pending M3 work.
   with, since both cut longer prompts: LM Studio's loaded length for a loaded model and unknown (0)
   for one it would load with its own default; for Ollama, a loaded model's allocated
   `context_length` from `/api/ps`, else the model's own `num_ctx` from `/api/show` (asked once per
-  model, again only after one leaves the list; never more than its trained length), else unknown,
+  installed build, keyed by its `/api/tags` digest on the engine, so a model re-created under its
+  name is asked again; never more than its trained length), else unknown,
   since Ollama's default depends on the server's memory (4K below 24 GB of VRAM, 32K to 48 GB,
   256K above, checked 2026-10 against docs.ollama.com) and Drift's environment says nothing about
   a server elsewhere. An unknown window becomes known within a poll of the model loading; until
