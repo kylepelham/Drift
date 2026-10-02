@@ -133,6 +133,7 @@ impl Tool for Bash {
                 }
             };
             cmd.current_dir(&ctx.workspace).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+            crate::platform::process::use_current_path(&mut cmd, &Default::default());
             #[cfg(windows)]
             cmd.creation_flags(0x0800_0000 | 0x0000_0004);
             crate::platform::process::prepare(&mut cmd);

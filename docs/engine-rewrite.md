@@ -1089,7 +1089,12 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   HTTP) or `sse`, the 2024 HTTP+SSE transport, which the spec has deprecated and rmcp no longer
   ships, so `mcp::sse` speaks it: a long-lived GET whose `endpoint` event names where to POST,
   replies arriving as `message` events. It stays for servers that still need it; nothing new should
-  use it. Any of them may set `timeoutSeconds`: a tool call that runs longer fails, saying it may or
+  use it. A stdio command is looked up on the PATH as it is now (`platform::process::current_path`):
+  Drift's own PATH, then directories Windows has saved for the user and the machine since Drift
+  started, so Docker, uv or Node installed while Drift runs are found without a restart. The
+  server, the shell tool, checks and formatters all start with that PATH unless their own
+  environment sets one; a command found nowhere fails as "<command> was not found on PATH".
+  Any of them may set `timeoutSeconds`: a tool call that runs longer fails, saying it may or
   may not have taken effect. Both fields are left out when unset, so older configs keep their hash.
   Each status carries `transport` (`stdio`, `streamable_http`, `sse`) and, once connected, the
   `protocol` version the server agreed to and its `era`; the MCP menu shows all three on each row

@@ -79,6 +79,7 @@ async fn run_one(check: &Check, file: Option<&PathBuf>, workspace: &Path) -> Ver
     let named = parts.next().unwrap_or_default();
     let Some(program) = process::which(&named) else { return Verdict::Unavailable(format!("{named} is not on PATH")) };
     let mut command = tokio::process::Command::new(program);
+    process::use_current_path(&mut command, &Default::default());
     command.args(parts).current_dir(workspace).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);

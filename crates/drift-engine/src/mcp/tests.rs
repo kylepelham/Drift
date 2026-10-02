@@ -170,7 +170,7 @@ async fn a_bad_command_reports_failed() {
     assert!(engine.mcp.connect("broken", &engine.store, &hub, Start::User).await.is_err());
     let status = engine.mcp.status_of(row);
     assert_eq!(status.state, State::Failed);
-    assert!(status.error.unwrap().contains("could not start"));
+    assert!(status.error.unwrap().contains("definitely-not-a-program was not found on PATH"));
 }
 
 #[tokio::test]

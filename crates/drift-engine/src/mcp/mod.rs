@@ -788,7 +788,10 @@ async fn within_for<T>(limit: Duration, what: &str, step: impl Future<Output = R
 async fn start(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>) -> Result<(Client, Option<Tree>), String> {
     match config {
         ServerConfig::Stdio { command, args, env, cwd, .. } => {
-            let mut cmd = tokio::process::Command::new(command);
+            // Found on the PATH as it is now, so a program installed while Drift runs is found without a restart.
+            let program = crate::platform::process::which(command).ok_or_else(|| format!("{command} was not found on PATH; install it, or give its full path"))?;
+            let mut cmd = tokio::process::Command::new(program);
+            crate::platform::process::use_current_path(&mut cmd, env);
             cmd.args(args).envs(env);
             if let Some(cwd) = cwd.as_deref().filter(|cwd| !cwd.trim().is_empty()) {
                 cmd.current_dir(cwd);

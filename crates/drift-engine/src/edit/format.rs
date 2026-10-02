@@ -68,6 +68,7 @@ pub async fn format(path: &Path, workspace: &Path, formatters: &[Formatter]) -> 
     let mut parts = formatter.command.iter().map(|part| part.replace("$FILE", &path.to_string_lossy()));
     let program = crate::platform::process::which(&parts.next()?)?;
     let mut command = tokio::process::Command::new(program);
+    crate::platform::process::use_current_path(&mut command, &Default::default());
     command.args(parts).current_dir(workspace).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
