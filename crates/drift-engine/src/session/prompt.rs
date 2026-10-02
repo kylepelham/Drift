@@ -23,7 +23,8 @@ pub struct Setting<'a> {
 pub fn system(setting: &Setting) -> String {
     let Setting { workspace, config, agent, delegates, model, servers } = *setting;
     let mut prompt = IDENTITY.trim().to_string();
-    if let Some(agent) = agent.filter(|a| !a.prompt.is_empty()) {
+    // A primary agent's prompt rides on its turns' prompts instead (`remind_agents`), so the system prompt stays the same across a switch.
+    if let Some(agent) = agent.filter(|a| !a.prompt.is_empty() && a.kind != AgentKind::Primary) {
         prompt.push_str(&format!("\n\n{}", agent.prompt));
     }
     prompt.push_str("\n\n# Environment\n\n");
@@ -54,23 +55,40 @@ pub fn system(setting: &Setting) -> String {
     }
     prompt
 }
-const LEFT_PLAN: &str = "<system-reminder>\nThe conversation has switched from the plan agent to the {agent} agent. Plan mode's read-only limits no longer apply: you may now change files and run commands with the tools you have. Carry out the plan agreed above.\n</system-reminder>";
+const LEFT_READ_ONLY: &str = "<system-reminder>\nThe conversation has switched from the {from} agent to the {agent} agent. The {from} agent's read-only limits no longer apply: you may now change files and run commands with the tools you have. Carry out the plan agreed above.\n</system-reminder>";
 
-/// In the request only: a prompt sent after the plan agent replied, to another agent, is told the
-/// earlier "change nothing" turns no longer bind it. Every step of that turn sees it; later turns follow
-/// a reply by the new agent, so they do not.
-pub(super) fn remind_left_plan(agent: &str, transcript: &mut [MessageWithParts]) {
-    if agent == "plan" {
-        return;
+/// In the request only: each prompt carries what the agent its turn ran as says (a primary agent's
+/// prompt), and a prompt after a read-only agent's reply, to one that writes, is told the earlier
+/// "change nothing" turns no longer bind it. Every prompt keeps its own reminder turn after turn, so
+/// the cached prefix stays the same; only a prompt's agent decides, never which agent runs now.
+pub(super) fn remind_agents(config: &Config, current: &str, transcript: &mut [MessageWithParts]) {
+    for index in 0..transcript.len() {
+        if transcript[index].info.role != Role::User {
+            continue;
+        }
+        let agent_of = |message: &MessageWithParts| message.info.agent.clone();
+        let reply = || transcript[index + 1..].iter().find(|m| m.info.role == Role::Assistant).and_then(agent_of);
+        let ran_as = agent_of(&transcript[index]).or_else(reply).unwrap_or_else(|| current.to_string());
+        let before = transcript[..index].iter().rev().find(|m| m.info.role == Role::Assistant).and_then(agent_of);
+        let reminders = reminders(config, &ran_as, before.as_deref());
+        let message = &mut transcript[index];
+        for (at, text) in reminders.into_iter().enumerate() {
+            message.parts.insert(at, PartRow { id: String::new(), message_id: message.info.id.clone(), session_id: message.info.session_id.clone(), part: Part::Text { text } });
+        }
     }
-    let Some(prompt) = transcript.iter().rposition(|m| m.info.role == Role::User) else { return };
-    let before = transcript[..prompt].iter().rev().find(|m| m.info.role == Role::Assistant);
-    if before.and_then(|m| m.info.agent.as_deref()) != Some("plan") {
-        return;
+}
+
+/// What a prompt run as `agent`, after a reply by `before`, is reminded of.
+fn reminders(config: &Config, agent: &str, before: Option<&str>) -> Vec<String> {
+    let mut out = Vec::new();
+    let read_only = |name: &str| config.agent(name).is_some_and(|found| found.read_only);
+    if let Some(from) = before.filter(|from| *from != agent && read_only(from) && !read_only(agent)) {
+        out.push(LEFT_READ_ONLY.replace("{from}", from).replace("{agent}", agent));
     }
-    let first = &mut transcript[prompt];
-    let text = LEFT_PLAN.replace("{agent}", agent);
-    first.parts.insert(0, PartRow { id: String::new(), message_id: first.info.id.clone(), session_id: first.info.session_id.clone(), part: Part::Text { text } });
+    if let Some(found) = config.agent(agent).filter(|found| found.kind == AgentKind::Primary && !found.prompt.is_empty()) {
+        out.push(format!("<system-reminder>\n{}\n</system-reminder>", found.prompt));
+    }
+    out
 }
 
 fn today() -> String {
@@ -112,7 +130,8 @@ mod tests {
         let setting = |agent: &str, delegates: bool| Setting { workspace: &workspace, config: &config, agent: config.agent(agent), delegates, model: "Claude Opus", servers: &servers };
         let prompt = system(&setting("plan", false));
         assert!(prompt.starts_with("You are Drift"));
-        assert!(prompt.contains("# Plan mode"));
+        assert!(!prompt.contains("# Plan mode"), "a primary agent's prompt rides on its prompts, not here");
+        assert_eq!(prompt, system(&setting("build", false)), "plan and build share one system prompt, so a switch keeps the cache");
         assert!(prompt.contains("Working directory: ") && prompt.contains("Git repository: no\n") && prompt.contains("Model: Claude Opus\n"));
         assert!(prompt.contains("# Instructions from the web-test MCP server\n\nStart a session first."));
         assert!(prompt.contains("# Instructions from AGENTS.md\n\nagent rules"));
@@ -124,6 +143,22 @@ mod tests {
         assert!(delegating.contains("# Subagents") && delegating.contains("- general: ") && delegating.contains("- explore: "));
         assert!(!delegating.contains("- title: "), "actions are not subagents");
         std::fs::remove_dir_all(workspace).ok();
+    }
+
+    #[test]
+    fn each_prompt_keeps_the_reminder_of_the_agent_its_turn_ran_as() {
+        use crate::session::types::{Message, MessageStatus, Usage};
+        let config = Config::load_with_home(&std::env::temp_dir().join("drift-prompt-none"), None);
+        let message = |role: Role, agent: Option<&str>| MessageWithParts {
+            info: Message { id: String::new(), session_id: String::new(), role, status: MessageStatus::Done, model: None, agent: agent.map(str::to_string), usage: Usage::default(), cost: 0.0, error: None, created_at: 0, finished_at: None, summary: false, ending: None },
+            parts: Vec::new(),
+        };
+        let texts = |message: &MessageWithParts| message.parts.iter().filter_map(|p| match &p.part { Part::Text { text } => Some(text.clone()), _ => None }).collect::<Vec<_>>().join("|");
+        let mut transcript = vec![message(Role::User, None), message(Role::Assistant, Some("plan")), message(Role::User, None), message(Role::Assistant, Some("build")), message(Role::User, None)];
+        remind_agents(&config, "build", &mut transcript);
+        assert!(texts(&transcript[0]).contains("# Plan mode"), "the planning turn's prompt keeps plan's reminder");
+        assert!(texts(&transcript[2]).contains("switched from the plan agent to the build agent") && !texts(&transcript[2]).contains("# Plan mode"));
+        assert!(texts(&transcript[4]).is_empty(), "build after build: nothing");
     }
 
     #[test]

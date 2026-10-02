@@ -1259,12 +1259,20 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   `Config.problems`, and every turn in that workspace refuses with 400 `config` until it is fixed,
   because running without its rules would drop its denies; the UI shows the problem when the
   workspace config loads.
-- **Agents.** `build` and `plan` are built in; `plan` gets only read-only tools and its
-  prompt. A project agent of the same name replaces a built-in. A session's `agent` is set
-  on create or `PATCH`; the agent's prompt is appended to the system prompt, its `tools`
-  list filters the registry, its `model` is the default when the session has none. The
-  filtered set is pinned for the run: a call to any tool outside it is refused before
-  permission, snapshot or dispatch, so plan mode cannot write even if the model asks.
+- **Agents.** `build` and `plan` are built in. A project agent of the same name replaces a
+  built-in. A session's `agent` is set on create or `PATCH`; its `tools` list filters the
+  registry and its `model` is the default when the session has none. The filtered set is pinned
+  for the run: a call to any tool outside it is refused before permission, snapshot or dispatch.
+  - A subagent's prompt goes in its system prompt. A primary agent's prompt goes, in the request
+    only, on the prompts of the turns it ran (`prompt::remind_agents`), each prompt keeping the
+    reminder of the agent its turn ran as, so plan and build send the same system prompt and
+    tools and a switch between them keeps the cached prefix.
+  - `read_only` (front matter `read_only: true`; `plan` and `explore` built in) offers the agent
+    its tools as usual but refuses, before any ask, every call that would change something
+    (`Tool::stays_read_only`): a writing tool, a shell line that is not only reads
+    (`command::reads_only`), a writing MCP tool, a `task` to a subagent that is not read-only.
+    So `plan` can read git history with `bash`, delegate to `explore` and load skills, and still
+    cannot write even if the model asks.
 - Settings overrides an agent with exactly what the engine applies (`AgentOverride`): `prompt`,
   `model` (`provider/model`, or empty to inherit), `steps` (its own step limit) and `tools` (the
   tool names it may use). The shell refuses to store any other field, naming it, and the editor
@@ -1478,10 +1486,10 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   directory, made when the engine opens), where reading, writing, editing and patching ask
   nothing (secret files still do), so temporary files stay out of the workspace. `task`'s text
   asks the model to say whether a subagent should change code or only report, how to check its
-  work, and not to redo work it has handed off. A prompt sent to another agent right after the
-  plan agent replied carries a reminder, in the request only, that plan's read-only limits no
-  longer apply (`prompt::remind_left_plan`); later turns follow a reply by the new agent, so they
-  do not. Each MCP server whose tools the turn offers adds its initialize `instructions`
+  work, and not to redo work it has handed off. A prompt sent to a writing agent right after a
+  read-only agent replied carries a reminder, in the request only, that the read-only limits no
+  longer apply (`prompt::remind_agents`); it stays on that prompt in later requests, so the
+  prefix is unchanged, and later prompts follow a reply by the new agent, so they get none. Each MCP server whose tools the turn offers adds its initialize `instructions`
   under "# Instructions from the <name> MCP server" (`prompt::Setting`). Settings shows the
   family prompts read-only under a notice saying they are not applied, offers no save, and keeps
   Reset only to clear an override stored before. The shell still records `family:*` for the

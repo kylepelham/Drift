@@ -314,6 +314,10 @@ pub trait Tool: Send + Sync {
     fn call_mutates(&self, _input: &Value) -> bool {
         self.mutates()
     }
+    /// Whether a read-only agent may make this call: nothing it does, or sets going, changes anything.
+    fn stays_read_only(&self, _ctx: &Context, input: &Value) -> bool {
+        !self.call_mutates(input)
+    }
     /// The files a writing call will change, when it can say up front. `None` means anything might
     /// change, so the workspace is compared before and after instead.
     fn touches(&self, _ctx: &Context, _input: &Value) -> Option<Vec<PathBuf>> {

@@ -133,7 +133,8 @@ pub enum CheckConfig {
 pub struct Agent {
     pub name: String,
     pub description: String,
-    /// Appended to the system prompt when this agent runs.
+    /// A subagent's goes in its system prompt; a primary agent's rides on the prompts of the turns it
+    /// runs, so switching agents mid-conversation keeps the cached prefix.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -150,6 +151,10 @@ pub struct Agent {
     /// Front matter `background: true|false`: how a `task` for this agent runs when the call does not say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<bool>,
+    /// Front matter `read_only: true`: it is offered its tools as usual, but any call that would change
+    /// something (a writing tool, a shell line that is not only reads, a task to a writing subagent) is refused.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub read_only: bool,
 }
 
 impl Agent {
@@ -445,6 +450,7 @@ impl Config {
                 kind: self.workspace_kind(&name, doc.field("mode").as_deref()),
                 steps: doc.field("steps").and_then(|s| s.trim().parse().ok()).filter(|s: &u32| *s > 0),
                 background: doc.field("background").and_then(|b| b.trim().parse().ok()),
+                read_only: doc.field("read_only").is_some_and(|value| value.trim() == "true"),
                 name: name.clone(),
             };
             self.agents.retain(|a| a.name != name);
@@ -555,12 +561,15 @@ fn builtin_agents() -> Vec<Agent> {
         kind,
         steps: None,
         background: None,
+        read_only: false,
     };
+    let read_only = |agent: Agent| Agent { read_only: true, ..agent };
     vec![
         agent("build", "Reads, edits and runs code.", "", &[], AgentKind::Primary),
-        agent("plan", "Explores and proposes; changes nothing.", include_str!("prompts/plan.txt"), &["read", "glob", "grep", "webfetch", "question", "todowrite"], AgentKind::Primary),
+        // Offered build's tools, so switching between them keeps the cache; what would change something is refused.
+        read_only(agent("plan", "Explores and proposes; changes nothing.", include_str!("prompts/plan.txt"), &[], AgentKind::Primary)),
         agent("general", "General-purpose subagent for multi-step work: researching, and making changes. The default for task.", include_str!("prompts/general.txt"), &[], AgentKind::Subagent),
-        agent("explore", "Fast read-only subagent for finding files and code and answering questions about a codebase.", include_str!("prompts/explore.txt"), &["read", "glob", "grep", "bash", "webfetch"], AgentKind::Subagent),
+        read_only(agent("explore", "Fast read-only subagent for finding files and code and answering questions about a codebase.", include_str!("prompts/explore.txt"), &["read", "glob", "grep", "bash", "webfetch", "skill"], AgentKind::Subagent)),
         agent("title", "Names new conversations. Default model: a small one from the conversation's provider.", include_str!("prompts/title.txt"), &[], AgentKind::Action),
         agent("compaction", "Summarises long conversations to free context. Default model: the conversation's.", include_str!("prompts/compaction.txt"), &[], AgentKind::Action),
     ]
@@ -689,7 +698,7 @@ mod tests {
             ]
         );
         assert!(!config.agent("explore").unwrap().tools.contains(&"edit".to_string()), "explore is read-only");
-        assert!(config.agent("plan").unwrap().tools.contains(&"read".to_string()));
+        assert!(config.agent("plan").unwrap().read_only && config.agent("explore").unwrap().read_only);
         assert!(config.commands.is_empty() && config.skills.is_empty() && config.instructions.is_empty());
         std::fs::remove_dir_all(ws).ok();
     }

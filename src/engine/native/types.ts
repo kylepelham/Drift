@@ -684,8 +684,16 @@ export interface components {
             kind?: components["schemas"]["AgentKind"];
             model?: components["schemas"]["ModelRef"] | null;
             name: string;
-            /** @description Appended to the system prompt when this agent runs. */
+            /**
+             * @description A subagent's goes in its system prompt; a primary agent's rides on the prompts of the turns it
+             *     runs, so switching agents mid-conversation keeps the cached prefix.
+             */
             prompt?: string;
+            /**
+             * @description Front matter `read_only: true`: it is offered its tools as usual, but any call that would change
+             *     something (a writing tool, a shell line that is not only reads, a task to a writing subagent) is refused.
+             */
+            readOnly?: boolean;
             /**
              * Format: int32
              * @description Front matter `steps:`: this agent's own step limit, in place of the workspace's.

@@ -1158,7 +1158,9 @@ async fn leaving_plan_tells_the_model_once_that_it_may_now_change_files() {
     h.engine.submit(&h.session.id, prompt("and more")).await.await_ok();
     until_idle(&h).await;
     let requests = h.provider.requests.lock().unwrap().clone();
-    assert_eq!(requests.iter().map(reminded).collect::<Vec<_>>(), [false, true, false], "only the turn that left plan");
+    assert_eq!(requests.iter().map(reminded).collect::<Vec<_>>(), [false, true, true], "from the turn that left plan on");
+    let last = format!("{:?}", requests[2].messages);
+    assert_eq!(last.matches("switched from the plan agent").count(), 1, "once, on the prompt that left plan, so the cached prefix stays the same");
     let stored = serde_json::to_string(&h.engine.store.transcript(&h.session.id).unwrap()).unwrap();
     assert!(!stored.contains("switched from the plan agent"), "never stored");
 }
@@ -1167,7 +1169,8 @@ async fn leaving_plan_tells_the_model_once_that_it_may_now_change_files() {
 async fn an_agent_or_level_named_mid_turn_applies_from_the_next_request() {
     let h = harness().await;
     let requests = switched_mid_turn(&h, Prompt { agent: Some("plan".into()), ..prompt("plan instead") }).await;
-    assert!(requests[0].tools.iter().any(|t| t.name == "write") && !requests[1].tools.iter().any(|t| t.name == "write"), "plan's tools from the next request");
+    let planning = |request: &crate::llm::Request| format!("{:?}", request.messages).contains("# Plan mode");
+    assert!(!planning(&requests[0]) && planning(&requests[1]), "plan's reminder from the next request");
     assert_eq!(h.engine.store.transcript(&h.session.id).unwrap().last().unwrap().info.agent.as_deref(), Some("plan"));
 
     let h = harness().await;
@@ -1212,8 +1215,8 @@ async fn a_prompt_that_picks_plan_runs_as_plan_and_every_message_says_so() {
     until_idle(&h).await;
     h.engine.submit(&h.session.id, prompt("and then")).await.await_ok();
     until_idle(&h).await;
-    let offered: Vec<Vec<String>> = h.provider.requests.lock().unwrap().iter().map(|r| r.tools.iter().map(|t| t.name.clone()).collect()).collect();
-    assert!(offered.iter().all(|tools| !tools.is_empty() && !tools.iter().any(|t| t == "write" || t == "edit")), "plan's restrictions hold on both turns: {offered:?}");
+    let reminded: Vec<usize> = h.provider.requests.lock().unwrap().iter().map(|r| format!("{:?}", r.messages).matches("# Plan mode").count()).collect();
+    assert_eq!(reminded, [1, 2], "each planning prompt carries plan's reminder, the earlier one kept as it was sent");
     assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().agent, "plan", "a prompt that names none keeps it");
     let agents: Vec<Option<String>> = h.engine.store.transcript(&h.session.id).unwrap().into_iter().map(|m| m.info.agent).collect();
     assert_eq!(agents, vec![Some("plan".to_string()); 4]);
@@ -1313,15 +1316,15 @@ async fn workspace_config_shapes_the_turn() {
     let system = h.provider.requests.lock().unwrap()[0].system.clone();
     assert!(system.contains("- tidy: Tidies"), "skills are listed in the system prompt");
 
-    // A plan session sees only read-only tools and the plan prompt.
+    // A plan session is offered build's tools and system prompt, so the cache holds; its prompt rides on the user's.
     h.engine.store.update_session(&h.session.id, None, None, Some("plan")).unwrap();
     h.provider.push(text("planned"));
     h.engine.submit(&h.session.id, prompt("plan it")).await.await_ok();
     until_idle(&h).await;
-    let request = h.provider.requests.lock().unwrap().last().unwrap().clone();
-    let names: Vec<&str> = request.tools.iter().map(|t| t.name.as_str()).collect();
-    assert!(!names.contains(&"write") && !names.contains(&"bash") && names.contains(&"read"), "{names:?}");
-    assert!(request.system.contains("# Plan mode"));
+    let requests = h.provider.requests.lock().unwrap().clone();
+    let (build, plan) = (&requests[0], requests.last().unwrap());
+    assert_eq!((&plan.system, &plan.tools), (&build.system, &build.tools));
+    assert!(format!("{:?}", plan.messages).contains("# Plan mode") && !plan.system.contains("# Plan mode"));
 }
 
 #[tokio::test]
@@ -1764,14 +1767,51 @@ async fn configured_checks_report_problems_with_the_write_and_stop_cuts_them_off
 }
 
 #[tokio::test]
-async fn a_call_to_a_tool_the_run_did_not_offer_is_refused_before_anything_happens() {
+async fn a_read_only_agent_is_refused_every_call_that_would_change_something() {
     let h = harness().await;
-    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    h.engine.permissions.set_policy(Policy {
+        rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }, Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }],
+    });
     h.engine.store.update_session(&h.session.id, None, None, Some("plan")).unwrap();
-    h.provider.push(tool_call("write", r#"{"path": "plan-mutated.txt", "content": "x\n"}"#)).push(text("noted"));
+    let call = |id: &str, name: &str, input: &str| vec![Chunk::ToolUseStart { id: id.into(), name: name.into() }, Chunk::ToolInputDelta(input.into()), Chunk::BlockStop];
+    h.provider
+        .push(
+            [
+                call("t1", "write", r#"{"path": "plan-mutated.txt", "content": "x\n"}"#),
+                call("t2", "bash", r#"{"command": "echo x > made.txt"}"#),
+                call("t3", "task", r#"{"description": "Change it", "prompt": "edit a file", "subagent_type": "general"}"#),
+                call("t4", "bash", r#"{"command": "git status"}"#),
+                vec![Chunk::Stop(StopReason::ToolUse)],
+            ]
+            .concat(),
+        )
+        .push(text("noted"));
     h.engine.submit(&h.session.id, prompt("write it anyway")).await.await_ok();
     until_idle(&h).await;
-    assert!(!h._dir.join("ws/plan-mutated.txt").exists(), "plan mode must not write");
+    assert!(!h._dir.join("ws/plan-mutated.txt").exists() && !h._dir.join("ws/made.txt").exists(), "plan mode must not write");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    for refused in &transcript[1].parts[..3] {
+        let Part::ToolCall { status, output, metadata, .. } = &refused.part else { panic!() };
+        assert_eq!(*status, ToolStatus::Error);
+        assert!(output.as_deref().unwrap().contains("only reads"), "{output:?}");
+        assert!(metadata.is_none(), "nothing was recorded for a call that never ran");
+    }
+    let Part::ToolCall { status, .. } = &transcript[1].parts[3].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Done, "a shell line that only reads runs, so plan can look at git history");
+    let sessions = h.engine.store.sessions(crate::store::SessionFilter { workspace_id: None, archived: false, before: None, limit: 10 }).unwrap();
+    assert_eq!(sessions.len(), 1, "no writing subagent was started");
+}
+
+#[tokio::test]
+async fn a_call_to_a_tool_the_run_did_not_offer_is_refused_before_anything_happens() {
+    let h = harness().await;
+    std::fs::create_dir_all(h._dir.join("ws/.drift/agents")).unwrap();
+    std::fs::write(h._dir.join("ws/.drift/agents/reader.md"), "---\ndescription: Reads\ntools: read\n---\nRead only.").unwrap();
+    h.engine.store.update_session(&h.session.id, None, None, Some("reader")).unwrap();
+    h.provider.push(tool_call("write", r#"{"path": "mutated.txt", "content": "x\n"}"#)).push(text("noted"));
+    h.engine.submit(&h.session.id, prompt("write it anyway")).await.await_ok();
+    until_idle(&h).await;
+    assert!(!h._dir.join("ws/mutated.txt").exists());
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let Part::ToolCall { status, output, metadata, .. } = &transcript[1].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Error);

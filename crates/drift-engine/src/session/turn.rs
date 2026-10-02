@@ -687,7 +687,7 @@ impl Engine {
             }
             let Some(mut transcript) = self.transcript_for_step(plan, abort).await else { break };
             super::branch::frame_spawned(&plan.session, &mut transcript);
-            prompt::remind_left_plan(&plan.session.agent, &mut transcript);
+            prompt::remind_agents(&plan.config, &plan.session.agent, &mut transcript);
             answered = transcript.iter().rev().find(|m| m.info.role == Role::User).map(|m| m.info.id.clone());
             let (max_tokens, reasoning) = budgets(&plan.model, plan.reasoning());
             let request = Request {
@@ -1140,6 +1140,13 @@ impl Engine {
         };
         if !input.is_object() {
             self.settle(&mut row, ToolStatus::Error, None, "call arguments were not valid JSON; the call did not run".into(), None);
+            return Outcome::Allowed;
+        }
+        // A read-only agent is offered the usual tools; whatever would change something is refused here, before any ask.
+        let agent = &scope.plan.session.agent;
+        if scope.plan.config.agent(agent).is_some_and(|found| found.read_only) && !tool.stays_read_only(&ctx, &input) {
+            let refusal = format!("The {agent} agent only reads, so this call was not run: it would change something. Use read-only commands and tools, or hand the work to a read-only subagent such as explore.");
+            self.settle(&mut row, ToolStatus::Error, None, refusal, None);
             return Outcome::Allowed;
         }
         for ask in tool.asks(&ctx, &input) {

@@ -42,6 +42,13 @@ impl Tool for Task {
         None
     }
 
+    /// From a read-only agent, only a read-only subagent may take the job (a resumed one as it was).
+    fn stays_read_only(&self, ctx: &Context, input: &Value) -> bool {
+        let resumed = input["task_id"].as_str().and_then(|id| ctx.engine.store.task(id).ok().flatten()).map(|task| task.agent);
+        let agent = resumed.unwrap_or_else(|| input["subagent_type"].as_str().unwrap_or("general").to_string());
+        ctx.config.agent(&agent).is_some_and(|agent| agent.read_only)
+    }
+
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let description = required_str(&input, "description")?;

@@ -101,6 +101,7 @@ mod tests {
         assert_eq!((general.steps, general.tools.clone()), (Some(7), vec!["read".to_string(), "grep".to_string()]));
         let plan = config.agent("plan").unwrap();
         assert_eq!(plan.steps, plan_before.steps, "zero is no limit to set");
-        assert!(!plan.tools.is_empty() && plan.tools == plan_before.tools, "an empty list never lifts plan's restriction to every tool");
+        assert_eq!(plan.tools, plan_before.tools, "an empty list changes nothing");
+        assert!(plan.read_only, "and plan still only reads");
     }
 }
