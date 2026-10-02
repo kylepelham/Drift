@@ -29,9 +29,11 @@ impl Tool for Edit {
         }
     }
 
+    /// Carries the change the edit would make, worked out as the edit itself would, for the user to review.
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
         let path = ctx.resolve(input["path"].as_str()?);
-        ctx.ask_to_write(&path, "Edit")
+        let ask = ctx.ask_to_write(&path, "Edit")?;
+        Some(ask.with_diff(proposed(&path, &display(&path, &ctx.workspace), input)))
     }
 
     fn mutates(&self) -> bool {
@@ -72,6 +74,16 @@ impl Tool for Edit {
             })
         })
     }
+}
+
+/// The diff the edit would make now, or `None` when it would not apply.
+fn proposed(path: &std::path::Path, name: &str, input: &Value) -> Option<String> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let ending = LineEnding::detect(&raw);
+    let content = ending.normalise(&raw);
+    let (old, new) = (input["old_string"].as_str()?, input["new_string"].as_str()?);
+    let (updated, _) = replace(&content, &ending.normalise(old), &ending.normalise(new), input["replace_all"].as_bool().unwrap_or(false)).ok()?;
+    Some(diff(name, &content, &updated))
 }
 
 /// The new content and how many places changed; both sides already share the file's line endings.
@@ -178,6 +190,17 @@ mod tests {
 
     async fn edit(sandbox: &Sandbox, input: Value) -> Result<Output, ToolError> {
         Edit.run(&sandbox.ctx, input).await
+    }
+
+    #[test]
+    fn the_approval_shows_the_change_the_edit_would_make() {
+        let sandbox = Sandbox::new("edit-ask");
+        sandbox.file("a.rs", "fn a() {}\nfn b() {}\n");
+        let ask = Edit.ask(&sandbox.ctx, &json!({ "path": "a.rs", "old_string": "fn b() {}", "new_string": "fn c() {}" })).unwrap();
+        let diff = ask.diff.unwrap();
+        assert!(diff.contains("-fn b() {}") && diff.contains("+fn c() {}"), "{diff}");
+        let miss = Edit.ask(&sandbox.ctx, &json!({ "path": "a.rs", "old_string": "nope", "new_string": "x" })).unwrap();
+        assert!(miss.diff.is_none(), "an edit that would not apply shows no change; running it says why");
     }
 
     #[tokio::test]

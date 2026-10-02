@@ -740,6 +740,11 @@ export interface components {
              *     hides what it runs, so only an exact approval of the whole line allows it.
              */
             commands?: string[] | null;
+            /**
+             * @description What the call would change, as a unified diff, for the user to review before allowing it;
+             *     never matched by rules or approvals.
+             */
+            diff?: string | null;
             /** @description `read`, `edit`, `bash`, ...: the rule namespace. */
             kind: string;
             /** @description The thing being touched: a path, a command. Rules match it with globs. */

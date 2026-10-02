@@ -39,7 +39,9 @@ impl Tool for ApplyPatch {
                 unique.push(path);
             }
         }
-        unique.into_iter().filter_map(|path| ctx.ask_to_write(&path, "Patch")).collect()
+        // The patch is itself the change, so each file's ask shows it whole.
+        let patch = input["patch"].as_str().map(str::to_string);
+        unique.into_iter().filter_map(|path| ctx.ask_to_write(&path, "Patch")).map(|ask| ask.with_diff(patch.clone())).collect()
     }
 
     fn mutates(&self) -> bool {

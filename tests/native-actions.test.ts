@@ -148,9 +148,13 @@ test("permission replies translate reject to deny and forget stale requests", as
   })
   await h.actions.replyPermission("ses_1", "perm_1", "reject")
   await h.actions.replyPermission("ses_1", "perm_2", "always")
+  await h.actions.replyPermission("ses_1", "perm_3", "reject", "  use the other file  ")
+  await h.actions.replyPermission("ses_1", "perm_4", "stop", " ")
   expect(replies).toEqual([
     ["perm_1", { reply: "deny" }],
     ["perm_2", { reply: "always" }],
+    ["perm_3", { reply: "deny", message: "use the other file" }],
+    ["perm_4", { reply: "stop" }],
   ])
   h.state.permissions.ses_1 = [{ id: "gone", type: "bash", sessionID: "ses_1", messageID: "m", title: "t", metadata: {}, time: { created: 0 } }]
   await h.actions.replyPermission("ses_1", "gone", "once")

@@ -246,6 +246,17 @@ impl<E: std::fmt::Display> From<E> for ToolError {
     }
 }
 
+/// The most of a proposed change an approval shows; the rest is said to be cut.
+pub const MAX_ASK_DIFF: usize = 64 * 1024;
+
+fn clip_diff(diff: &str) -> String {
+    if diff.len() <= MAX_ASK_DIFF {
+        return diff.to_string();
+    }
+    let cut = diff[..diff.floor_char_boundary(MAX_ASK_DIFF)].rfind('\n').unwrap_or(0);
+    format!("{}\n... (the rest of the change is not shown)", &diff[..cut])
+}
+
 /// What a call wants to do, for the permission service to judge before it runs.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -269,11 +280,21 @@ pub struct Ask {
     /// A path inside the workspace, relative with `/`, so a committed rule such as `src/**` matches it too.
     #[serde(skip)]
     pub relative: Option<String>,
+    /// What the call would change, as a unified diff, for the user to review before allowing it;
+    /// never matched by rules or approvals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>,
 }
 
 impl Ask {
     pub fn new(kind: &str, pattern: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None, writes: Vec::new(), canonical: Vec::new(), relative: None }
+        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None, writes: Vec::new(), canonical: Vec::new(), relative: None, diff: None }
+    }
+
+    /// The ask with the change it would make, cut to [`MAX_ASK_DIFF`] bytes at a line.
+    pub fn with_diff(mut self, diff: Option<String>) -> Self {
+        self.diff = diff.filter(|diff| !diff.is_empty()).map(|diff| clip_diff(&diff));
+        self
     }
 
     /// An ask about a file: the absolute path, and the workspace-relative one when it is inside.

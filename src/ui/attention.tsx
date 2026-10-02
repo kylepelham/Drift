@@ -15,6 +15,7 @@ import { selectedSession } from "../state/selection"
 import { t } from "../state/i18n"
 import { IconCheck } from "./icons"
 import { Chevron } from "./controls"
+import { DiffPanel, parseDiff } from "./parts"
 import { RevertDock } from "./revert-dock"
 import { TaskDock } from "./task-dock"
 
@@ -111,7 +112,11 @@ function ThreadAttribution(props: { thread?: ThreadLink }) {
 
 export function PermissionCard(props: { permission: Permission; thread?: ThreadLink }) {
   const engine = useEngine()
-  const reply = (response: PermissionResponse) => void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response)
+  const [note, setNote] = createSignal("")
+  const reply = (response: PermissionResponse) =>
+    void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response, response === "reject" || response === "stop" ? note() : undefined)
+  const diff = () => (props.permission.metadata as { diff?: unknown } | undefined)?.diff
+  const filename = () => [props.permission.pattern].flat()[0] ?? ""
   return (
     <div class="composer-layer-card fade-up rounded-lg border border-warn/40 bg-surface px-3 py-2.5">
       <div class="mb-2 flex items-start justify-between gap-3">
@@ -126,10 +131,34 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
         </div>
         <ThreadAttribution thread={props.thread} />
       </div>
-      <div class="flex gap-2">
+      <Show when={typeof diff() === "string" && (diff() as string)}>
+        {(change) => (
+          <div class="mb-2" aria-label={t("drift.permission.change")}>
+            <Show
+              when={parseDiff(change()).length}
+              fallback={<pre class="transcript-tool-output max-h-80 overflow-auto rounded-lg border border-edge p-2 font-mono text-xs whitespace-pre text-ink-muted">{change()}</pre>}
+            >
+              <DiffPanel diff={change()} filename={filename()} />
+            </Show>
+          </div>
+        )}
+      </Show>
+      <div class="flex flex-wrap items-center gap-2">
         <ActionButton label={t("settings.permissions.action.allow")} onClick={() => reply("once")} />
         <ActionButton label={t("command.permissions.autoaccept.enable")} onClick={() => reply("always")} />
         <ActionButton label={t("settings.permissions.action.deny")} danger onClick={() => reply("reject")} />
+        <ActionButton label={t("drift.permission.stop")} title={t("drift.permission.stopHint")} danger onClick={() => reply("stop")} />
+        <input
+          class="min-w-40 flex-1 rounded-md border border-edge bg-surface px-2 py-1 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-accent/70"
+          placeholder={t("drift.permission.note")}
+          aria-label={t("drift.permission.note")}
+          value={note()}
+          onInput={(event) => setNote(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            event.stopPropagation()
+            if (event.key === "Enter" && note().trim()) reply("reject")
+          }}
+        />
       </div>
     </div>
   )

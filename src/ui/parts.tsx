@@ -1142,7 +1142,7 @@ export function diffHighlightKey(
   return `${theme}\0${language.value}\0${code}`
 }
 
-function DiffPanel(props: { diff: string; filename: string; bare?: boolean }) {
+export function DiffPanel(props: { diff: string; filename: string; bare?: boolean }) {
   const rows = createMemo(() => parseDiff(props.diff))
   const code = createMemo(() => rows().map((row) => row.text).join("\n"))
   const [language, setLanguage] = createSignal<{ filename: string; value: string }>()

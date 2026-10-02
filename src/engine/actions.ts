@@ -38,7 +38,8 @@ export type PromptOptions = { model: ModelRef | null; agent: string; variant?: s
 export type PromptSendResult = { ok: true } | { ok: false; error: string }
 /** What became of an archived thread due for purging: gone, restored and kept, or not reached this time. */
 export type ArchivePurge = "deleted" | "kept" | "failed"
-export type PermissionResponse = "once" | "always" | "reject"
+/** `stop` refuses the call and ends the turn; `reject` refuses it and lets the turn go on. */
+export type PermissionResponse = "once" | "always" | "reject" | "stop"
 export type ProviderAuthResult = { ok: boolean; connected: boolean }
 export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
 
@@ -313,9 +314,11 @@ export function createActions(
     set(produce((draft) => void (draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter((q) => q.id !== requestID))))
   }
 
-  async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
+  /** `message`, on a refusal, is what the model is told about why. */
+  async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse, message?: string) {
+    const note = message?.trim()
     try {
-      await requireClient().replyPermission(permissionID, { reply: response === "reject" ? "deny" : response })
+      await requireClient().replyPermission(permissionID, { reply: response === "reject" ? "deny" : response, ...(note ? { message: note } : {}) })
     } catch (cause) {
       if (cause instanceof EngineError && cause.status === 404) {
         set(produce((draft) => void (draft.permissions[sessionID] = (draft.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID))))

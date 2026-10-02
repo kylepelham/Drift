@@ -149,7 +149,7 @@ export function adaptPermission(request: NativeRequest, directory: string): Perm
     messageID: request.messageId,
     callID: request.callId ?? undefined,
     title: request.title,
-    metadata: { directory, tool: request.tool },
+    metadata: { directory, tool: request.tool, ...(request.diff ? { diff: request.diff } : {}) },
     time: { created: request.createdAt },
   }
 }

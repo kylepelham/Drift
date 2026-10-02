@@ -22,9 +22,13 @@ impl Tool for Write {
         }
     }
 
+    /// Carries the change the write would make: from what the file holds now, or from nothing.
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
         let path = ctx.resolve(input["path"].as_str()?);
-        ctx.ask_to_write(&path, "Write")
+        let ask = ctx.ask_to_write(&path, "Write")?;
+        let before = std::fs::read(&path).map(|bytes| String::from_utf8_lossy(&bytes).replace("\r\n", "\n")).unwrap_or_default();
+        let proposed = input["content"].as_str().map(|content| diff(&display(&path, &ctx.workspace), &before, content));
+        Some(ask.with_diff(proposed))
     }
 
     fn mutates(&self) -> bool {

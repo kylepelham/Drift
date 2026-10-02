@@ -198,6 +198,7 @@ test("events translate to the legacy reducer's vocabulary", () => {
   const asked = adaptEvent({ type: "permission.asked", request }, workspaces)
   expect(asked?.type).toBe("permission.updated")
   expect(adaptPermission(request, "C:/repo")).toMatchObject({ id: "perm_1", type: "bash", pattern: ["cargo test"], callID: "t", metadata: { directory: "C:/repo", tool: "bash" } })
+  expect(adaptPermission({ ...request, diff: "@@ -1 +1 @@\n-a\n+b" }, "C:/repo").metadata, "the change to review travels with the request").toMatchObject({ diff: "@@ -1 +1 @@\n-a\n+b" })
   expect(adaptEvent({ type: "workspace.created", workspace: { id: "w", path: "p", name: "n", icon: "", lastUsed: 0 } }, workspaces)).toBeUndefined()
 })
 
