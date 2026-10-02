@@ -55,7 +55,10 @@ impl Tool for WebFetch {
                 return Err(ToolError(format!("{url} answered {status}")));
             }
             let content_type = response.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-            let bytes = response.bytes().await.map_err(|e| ToolError(format!("read failed: {e}")))?;
+            let bytes = tokio::select! {
+                read = read_capped(response, url) => read?,
+                () = ctx.abort.cancelled() => return Err(ToolError("aborted".into())),
+            };
             // An image or PDF, known by its bytes whatever the server calls it, comes back to look at.
             if let Some(mime) = image::sniff(&bytes).or(image::is_pdf(&bytes).then_some(image::PDF)) {
                 return fetched_file(url, mime, &bytes);
@@ -72,6 +75,24 @@ impl Tool for WebFetch {
             Ok(Output { title: url.into(), output: clip(text.trim()), metadata: json!({ "contentType": content_type, "bytes": bytes.len() }) })
         })
     }
+}
+
+/// The body, read a chunk at a time and given up on once it passes the largest size anything accepts
+/// (a PDF's), so a huge or endless response never fills memory.
+async fn read_capped(mut response: reqwest::Response, url: &str) -> Result<Vec<u8>, ToolError> {
+    let cap = MAX_BYTES.max(image::MAX_PDF_BYTES);
+    let too_large = |size: u64| ToolError(format!("{url} is over {} MB ({size} bytes or more); too large to fetch", cap / 1024 / 1024));
+    if let Some(size) = response.content_length().filter(|size| *size > cap as u64) {
+        return Err(too_large(size));
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| ToolError(format!("read failed: {e}")))? {
+        bytes.extend_from_slice(&chunk);
+        if bytes.len() > cap {
+            return Err(too_large(bytes.len() as u64));
+        }
+    }
+    Ok(bytes)
 }
 
 fn fetched_file(url: &str, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
@@ -145,7 +166,14 @@ mod tests {
         let app = Router::new()
             .route("/page", get(page))
             .route("/shot", get(|| async { ([("content-type", "application/octet-stream")], b"\x89PNG\r\n\x1a\nrest".to_vec()) }))
-            .route("/doc", get(|| async { ([("content-type", "application/pdf")], b"%PDF-1.7\n...".to_vec()) }));
+            .route("/doc", get(|| async { ([("content-type", "application/pdf")], b"%PDF-1.7\n...".to_vec()) }))
+            .route(
+                "/endless",
+                get(|| async {
+                    let chunk = bytes::Bytes::from(vec![b'x'; 64 * 1024]);
+                    axum::body::Body::from_stream(futures_util::stream::repeat_with(move || Ok::<_, std::io::Error>(chunk.clone())))
+                }),
+            );
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         url
     }
@@ -174,5 +202,13 @@ mod tests {
         let missing = WebFetch.run(&sandbox.ctx, json!({ "url": format!("{url}/nope") })).await.unwrap_err();
         assert!(missing.0.contains("404"));
         assert!(WebFetch.run(&sandbox.ctx, json!({ "url": "ftp://x" })).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_body_past_the_cap_is_given_up_on_while_it_streams() {
+        let sandbox = Sandbox::new("webfetch-endless");
+        let url = serve().await;
+        let refused = WebFetch.run(&sandbox.ctx, json!({ "url": format!("{url}/endless") })).await.unwrap_err();
+        assert!(refused.0.contains("too large to fetch"), "{}", refused.0);
     }
 }
