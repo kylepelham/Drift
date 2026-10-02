@@ -1382,9 +1382,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   covers asks nothing. Answers are per command line, and each command runs or not on its own line's
   answer: always is kept for the workspace (setting `trustedCommands:<workspace>`, the list of
   allowed lines), once allows those lines for the session, deny skips them for the session; refusing
-  the project's formatter never stops its checks, nor the reverse. A program's line carries a hash
-  of the file, so one replaced at the same path asks again (an npm shim stays the same across
-  package versions, so an upgrade through it does not). A refused project copy is skipped, never
+  the project's formatter never stops its checks, nor the reverse. A program's line carries its
+  package's version and a hash of the launcher with the package's `package.json`, so a program
+  replaced at the same path, or upgraded behind an unchanged npm launcher, asks again. A refused project copy is skipped, never
   replaced by one on PATH, which may be another version. Built-in formatters from PATH and the
   user's own commands always run. Subagents take the answer of the session that delegated
   to them, along the same lineage as permission approvals, so a delegated task does not ask again.

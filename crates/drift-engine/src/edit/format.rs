@@ -177,11 +177,18 @@ pub fn project_programs(files: &[PathBuf], workspace: &Path, formatters: &[Forma
     lines
 }
 
+/// The launcher and the package it starts (`node_modules/<name>/package.json`, which an install or
+/// upgrade rewrites while the launcher stays the same), hashed together; the version is shown too.
 fn program_line(formatter: &Formatter, program: &Path) -> String {
     use sha2::Digest;
-    let bytes = std::fs::read(program).unwrap_or_default();
-    let hash: String = sha2::Sha256::digest(&bytes).iter().take(4).map(|b| format!("{b:02x}")).collect();
-    format!("formatter {}: {} ({hash})", formatter.name, program.display())
+    let name = formatter.command.first().map(String::as_str).unwrap_or_default();
+    let manifest = program.parent().and_then(Path::parent).map(|modules| std::fs::read(modules.join(name).join("package.json")).unwrap_or_default()).unwrap_or_default();
+    let mut digest = sha2::Sha256::new();
+    digest.update(std::fs::read(program).unwrap_or_default());
+    digest.update(&manifest);
+    let hash: String = digest.finalize().iter().take(4).map(|b| format!("{b:02x}")).collect();
+    let version = serde_json::from_slice::<serde_json::Value>(&manifest).ok().and_then(|package| package["version"].as_str().map(|v| format!(" {v}"))).unwrap_or_default();
+    format!("formatter {}{version}: {} ({hash})", formatter.name, program.display())
 }
 
 /// A formatter's program: the project's own install first (`node_modules/.bin` from the file's
@@ -335,6 +342,12 @@ mod tests {
         assert_eq!(chosen(&file, &root, &formatters, &lines).map(|(_, program)| program), Some(bin.join(shim)));
         std::fs::write(bin.join(shim), "replaced").unwrap();
         assert!(chosen(&file, &root, &formatters, &lines).is_none(), "a program replaced at the same path needs allowing again");
+        std::fs::create_dir_all(root.join("node_modules/prettier")).unwrap();
+        std::fs::write(root.join("node_modules/prettier/package.json"), r#"{ "version": "3.1.0" }"#).unwrap();
+        let installed = project_programs(std::slice::from_ref(&file), &root, &formatters);
+        assert!(installed[0].starts_with("formatter prettier 3.1.0: "), "the version shows: {}", installed[0]);
+        std::fs::write(root.join("node_modules/prettier/package.json"), r#"{ "version": "3.2.0" }"#).unwrap();
+        assert!(chosen(&file, &root, &formatters, &installed).is_none(), "an upgrade behind the same launcher needs allowing again");
         assert!(project_programs(&[root.join("notes.txt")], &root, &formatters).is_empty());
         std::fs::remove_dir_all(root).ok();
     }
