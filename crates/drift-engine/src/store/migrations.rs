@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-const MIGRATIONS: [&str; 21] = [
+const MIGRATIONS: [&str; 22] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -130,6 +130,12 @@ const MIGRATIONS: [&str; 21] = [
         data BLOB NOT NULL,
         created_at INTEGER NOT NULL
     ) STRICT;",
+    "CREATE TABLE blob_ref(
+        hash TEXT NOT NULL,
+        message_id TEXT NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+        PRIMARY KEY(hash, message_id)
+    ) STRICT, WITHOUT ROWID;
+    CREATE INDEX idx_blob_ref_message ON blob_ref(message_id);",
 ];
 
 #[cfg(test)]

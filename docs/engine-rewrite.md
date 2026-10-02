@@ -964,8 +964,10 @@ Settled after the first external review of M1; each has a regression test.
   content is kept instead of becoming `[image png]`, if it is one of those four formats within
   5 MB (an SVG or BMP is named, never sent); text resources are inlined, binary ones named. The
   turn moves the bytes into the content-addressed `blob` table (migration 21) as the call settles,
-  so the part, its events and every transcript load carry only `images: [{mime, hash}]`;
-  maintenance drops blobs no part names after an hour. The request replays them after all of that
+  so the part, its events and every transcript load carry only `images: [{mime, hash}]`. Each blob's
+  messages are recorded in `blob_ref` (migration 22) in the same transaction; a fork copies its
+  messages' references and a deleted message takes them with it (cascade), so maintenance drops
+  unnamed blobs with an indexed lookup, never a scan of every part. The request replays them after all of that
   turn's call results ("The <tool> call (<id>) returned this:" then the image), since providers
   want results first. `llm::prepare_images` loads them when a request is built, sends only the
   newest 10 (`MAX_IMAGES_SENT`: providers cap a request's images, and a rejected request would

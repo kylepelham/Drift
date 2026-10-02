@@ -88,6 +88,8 @@ fn copy_message(conn: &Connection, source: &str, session_id: &str, copies: &mut 
     )?
     .execute(params![message_id, session_id, source])?;
     copies.insert(source.to_string(), message_id.clone());
+    // The copy names the same images, so they stay as long as either message does.
+    conn.prepare_cached("INSERT INTO blob_ref(hash, message_id) SELECT hash, ?1 FROM blob_ref WHERE message_id = ?2")?.execute(params![message_id, source])?;
     let parts: Vec<Part> = conn
         .prepare_cached("SELECT json FROM part WHERE message_id = ?1 ORDER BY id")?
         .query_map([source], |row| row.get::<_, String>(0))?

@@ -1049,7 +1049,7 @@ impl Engine {
             }
             Err(error) => (ToolStatus::Error, None, error.0, serde_json::Value::Null),
         };
-        let (mut meta, text) = self.keep_images(meta, text);
+        let (mut meta, text) = self.keep_images(&scope.message.id, meta, text);
         // Every result, MCP and tools yet to come included, reaches the model within one bound.
         let spill = self.data_dir.join("tool-output").join(&scope.plan.session.id).join(format!("{call_id}.result.log"));
         let (text, spilled) = crate::tool::spool::bound(text, spill);
@@ -1131,14 +1131,14 @@ impl Engine {
 
     /// Moves the images a call returned to the blob table, leaving `{mime, hash}` in its metadata; an
     /// image that cannot be kept is said in the result instead.
-    fn keep_images(&self, mut meta: serde_json::Value, mut text: String) -> (serde_json::Value, String) {
+    fn keep_images(&self, message_id: &str, mut meta: serde_json::Value, mut text: String) -> (serde_json::Value, String) {
         let returned = crate::tool::image::returned(&meta);
         if returned.is_empty() {
             return (meta, text);
         }
         let mut stored = Vec::new();
         for image in returned {
-            match image.bytes().map(|bytes| self.store.put_blob(&bytes)) {
+            match image.bytes().map(|bytes| self.store.put_blob(message_id, &bytes)) {
                 Some(Ok(hash)) => stored.push(crate::tool::image::Stored { mime: image.mime, hash }),
                 _ => text.push_str(&format!("\n\n[an image ({}) could not be kept, so it is not shown]", image.mime)),
             }
