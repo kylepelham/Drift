@@ -307,7 +307,7 @@ mod tests {
         assert_eq!(program("prettier", &file, &root, true), Some(bin.join(shim)), "a devDependency in node_modules/.bin");
         assert_ne!(program("prettier", &file, &root, false), Some(bin.join(shim)), "never the project's copy unless allowed");
         assert_eq!(program("definitely-not-installed-anywhere", &file, &root, true), None);
-        let lines = project_programs(&[file.clone()], &root, &resolve(&BTreeMap::new()));
+        let lines = project_programs(std::slice::from_ref(&file), &root, &resolve(&BTreeMap::new()));
         assert_eq!(lines, [format!("formatter prettier: {}", bin.join(shim).display())], "the project's binary goes on the approval card");
         assert!(project_programs(&[root.join("notes.txt")], &root, &resolve(&BTreeMap::new())).is_empty());
         std::fs::remove_dir_all(root).ok();
