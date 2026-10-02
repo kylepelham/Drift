@@ -40,7 +40,17 @@ pub enum ToolProfile {
 pub struct Limit {
     pub context: u64,
     pub output: u64,
+    /// The most prompt the provider takes, when it is less than the window (gpt-5.4: 922k of 1.05M); 0 when not given.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub input: u64,
 }
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
+/// Of the reply room, what is kept below an input cap; the UI's meter uses the same (`compactionReserveTokens`).
+const INPUT_RESERVE: u64 = 20_000;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Cost {
@@ -104,6 +114,16 @@ impl Model {
             (output, context) => output.min(context / 2),
         };
         room.min(MAX_REPLY_TOKENS)
+    }
+
+    /// How many tokens a conversation may use before it compacts: under the input cap when the provider
+    /// sets one below the window (keeping a margin for the next step), else the window less the reply room.
+    pub fn compaction_point(&self) -> u64 {
+        let room = self.reply_room();
+        match self.limit.input {
+            input if input > 0 && input < self.limit.context => input.saturating_sub(room.min(INPUT_RESERVE)),
+            _ => self.limit.context.saturating_sub(room),
+        }
     }
 }
 
@@ -260,7 +280,7 @@ fn user_model(id: &str, listed: &ProviderModel) -> Model {
         pdf: false,
         temperature: true,
         release_date: String::new(),
-        limit: Limit { context: listed.context, output: listed.output },
+        limit: Limit { context: listed.context, output: listed.output, input: 0 },
         cost: Cost::default(),
         profile: ToolProfile::Edit,
         variants: Vec::new(),

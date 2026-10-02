@@ -146,7 +146,7 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
         pdf: false,
         temperature: true,
         release_date: String::new(),
-        limit: Limit { context, output: 0 },
+        limit: Limit { context, output: 0, input: 0 },
         cost: Default::default(),
         profile: ToolProfile::Edit,
         variants: Vec::new(),

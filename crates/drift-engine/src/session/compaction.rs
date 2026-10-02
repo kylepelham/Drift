@@ -75,7 +75,7 @@ pub(super) fn overflowing(model: &Model, transcript: &[MessageWithParts]) -> boo
         return false;
     }
     let used = last_usage(transcript);
-    used > 0 && used >= model.limit.context.saturating_sub(model.reply_room())
+    used > 0 && used >= model.compaction_point()
 }
 
 /// Tokens the most recent finished reply used, counting only what came after the latest summary.

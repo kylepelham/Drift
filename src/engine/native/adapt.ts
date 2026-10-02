@@ -177,7 +177,7 @@ function adaptModel(providerID: string, model: NativeModel): ModelInfo {
       output: { text: true, audio: false, image: false, video: false, pdf: false },
     },
     cost: { input: cost.input ?? 0, output: cost.output ?? 0, cache: { read: cost.cache_read ?? 0, write: cost.cache_write ?? 0 } },
-    limit: { context: limit.context ?? 0, output: limit.output ?? 0 },
+    limit: { context: limit.context ?? 0, output: limit.output ?? 0, ...(limit.input ? { input: limit.input } : {}) },
     status: "active",
     options: {},
     headers: {},

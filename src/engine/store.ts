@@ -385,7 +385,9 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
   if (!context || !count) return null
   const maxOutput = replyRoom(limits.output ?? 0, context)
   const reserved = Math.min(compactionReserveTokens, maxOutput)
-  const usable = limits.input ? Math.max(0, limits.input - reserved) : Math.max(0, context - maxOutput)
+  // Mirrors `Model::compaction_point`: an input cap counts only when it is below the window.
+  const capped = !!limits.input && limits.input < context
+  const usable = capped ? Math.max(0, (limits.input ?? 0) - reserved) : Math.max(0, context - maxOutput)
   return {
     count,
     context,

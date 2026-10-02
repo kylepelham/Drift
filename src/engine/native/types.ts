@@ -956,6 +956,11 @@ export interface components {
         Limit: {
             /** Format: int64 */
             context: number;
+            /**
+             * Format: int64
+             * @description The most prompt the provider takes, when it is less than the window (gpt-5.4: 922k of 1.05M); 0 when not given.
+             */
+            input?: number;
             /** Format: int64 */
             output: number;
         };

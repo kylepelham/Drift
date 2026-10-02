@@ -64,7 +64,7 @@ fn a_small_window_compacts_only_when_it_is_actually_filling() {
     };
     let model = |context: u64, output: u64| {
         let mut model = crate::llm::catalog::Catalog::bundled().model("anthropic", "claude-sonnet-4-5").unwrap().clone();
-        model.limit = crate::llm::catalog::Limit { context, output };
+        model.limit = crate::llm::catalog::Limit { context, output, input: 0 };
         model
     };
     let used = |tokens: u64| vec![message_with_usage(tokens)];
@@ -76,6 +76,17 @@ fn a_small_window_compacts_only_when_it_is_actually_filling() {
     assert!(!overflowing(&model(32_768, 32_768), &used(8_000)), "an output limit as large as the window still leaves the prompt half");
     assert!(!overflowing(&model(16_000, 64_000), &used(4_000)));
     assert!(overflowing(&model(32_768, 32_768), &used(17_000)));
+    let capped = |input: u64| {
+        let mut capped = model(400_000, 128_000);
+        capped.limit.input = input;
+        capped
+    };
+    assert!(overflowing(&capped(272_000), &used(260_000)), "an input cap below the window is where it compacts, before the provider refuses");
+    assert!(!overflowing(&capped(272_000), &used(240_000)));
+    assert!(!overflowing(&capped(400_000), &used(260_000)), "a cap equal to the window changes nothing");
+    let bundled = crate::llm::catalog::Catalog::bundled();
+    let gpt = bundled.model("openai", "gpt-5.4").expect("bundled");
+    assert!(gpt.limit.input > 0 && gpt.limit.input < gpt.limit.context, "models.dev's input cap is read");
 }
 
 #[tokio::test]
