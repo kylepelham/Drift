@@ -1328,6 +1328,23 @@ async fn workspace_config_shapes_the_turn() {
 }
 
 #[tokio::test]
+async fn a_read_only_agent_never_calls_an_mcp_tool_even_one_its_server_calls_read_only() {
+    let h = harness().await;
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
+    let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default(), cwd: None, timeout_seconds: None };
+    h.engine.store.save_mcp_server("echo", &config).unwrap();
+    h.engine.connect_mcp("echo").await.unwrap();
+    h.engine.store.update_session(&h.session.id, None, None, Some("plan")).unwrap();
+    h.provider.push(tool_call("echo_echo", r#"{"text": "hi"}"#)).push(text("noted"));
+    h.engine.submit(&h.session.id, prompt("echo")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error);
+    assert!(output.as_deref().unwrap().contains("only reads"), "the server's read-only mark is its own claim: {output:?}");
+}
+
+#[tokio::test]
 async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_that_does_not() {
     use crate::llm::Block;
     let h = harness().await;

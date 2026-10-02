@@ -114,11 +114,17 @@ fn reader(command: &str) -> bool {
         return false;
     }
     match program {
-        "git" => words.get(1).is_some_and(|sub| GIT_READERS.contains(&sub.as_str())) && !words.iter().any(|w| w.starts_with("--output")),
+        "git" => words.get(1).is_some_and(|sub| GIT_READERS.contains(&sub.as_str())) && !words.iter().any(|w| w.starts_with("--output")) && !opens_pager(command),
         "find" => true,
         "sed" => printed_range(&words[1..]),
         _ => READERS.contains(&program),
     }
+}
+
+/// `git grep -O<cmd>` / `--open-files-in-pager=<cmd>` runs the program it names. Read as written, since
+/// `-O` and `-o` differ, short flags may be bundled (`-nOvim`) and git takes `--op` for the long form.
+fn opens_pager(command: &str) -> bool {
+    command.split_whitespace().skip(2).any(|word| word.starts_with("--op") || (word.starts_with('-') && !word.starts_with("--") && word.contains('O')))
 }
 
 /// `sed -n '<line>[,<line>]p' file...`: printing lines is all it does (no `-i`, no `w` script).
@@ -149,7 +155,8 @@ pub fn files_read(dialect: Dialect, line: &str) -> Vec<String> {
         if MOVES.contains(&program.as_str()) {
             return Vec::new();
         }
-        if !PRINTERS.contains(&program.as_str()) {
+        // Piped output reached the model only through the next command (`cat a | grep x`).
+        if !PRINTERS.contains(&program.as_str()) || segment.piped {
             continue;
         }
         // sed's first two words are `-n` and its script; anything else's flags start with `-`.
@@ -196,6 +203,8 @@ struct Segment {
     words: Vec<String>,
     redirects: Vec<String>,
     writes: Vec<String>,
+    /// Its output feeds the next command (`a | b`), so what it printed was never shown as it was.
+    piped: bool,
 }
 
 type Chars<'a> = std::iter::Peekable<std::str::Chars<'a>>;
@@ -309,9 +318,11 @@ impl Tokenizer {
         if self.pending.is_some() {
             return None;
         }
-        if matches!(chars.peek(), Some('&' | '|')) && c != ';' {
+        let doubled = matches!(chars.peek(), Some('&' | '|')) && c != ';';
+        if doubled {
             chars.next();
         }
+        self.segment().piped = c == '|' && !doubled;
         self.segments.push(Segment::default());
         Some(())
     }
@@ -491,7 +502,7 @@ mod tests {
         assert_eq!(files_read(Dialect::Bash, "cat src/a.rs"), ["src/a.rs"]);
         assert_eq!(files_read(Dialect::Bash, "sed -n '1,80p' src/a.rs"), ["src/a.rs"]);
         assert_eq!(files_read(Dialect::Bash, "head -n 20 a.rs && tail b.rs"), ["20", "a.rs", "b.rs"], "flag values are dropped by the caller, which keeps only files");
-        assert_eq!(files_read(Dialect::Bash, "cat \"my file.txt\" | grep x"), ["my file.txt"]);
+        assert_eq!(files_read(Dialect::Bash, "cat \"my file.txt\""), ["my file.txt"]);
         assert_eq!(files_read(Dialect::PowerShell, "Get-Content -Path a.rs; gc b.rs"), ["a.rs", "b.rs"]);
         assert!(files_read(Dialect::Bash, "cd src && cat a.rs").is_empty(), "paths after a move do not resolve from the workspace");
         assert!(files_read(Dialect::Bash, "sed -i 's/a/b/' a.rs").is_empty() && !reads_only(Dialect::Bash, "sed -i 's/a/b/' a.rs"));
@@ -499,6 +510,16 @@ mod tests {
         assert!(files_read(Dialect::Bash, "cat a.rs > b.rs").is_empty(), "a line that writes is not a read");
         assert!(files_read(Dialect::Bash, "grep fn a.rs").is_empty(), "matches are not the file");
         assert!(reads_only(Dialect::Bash, "sed -n 1,200p a.rs"));
+        assert!(files_read(Dialect::Bash, "cat a.rs | grep fn").is_empty(), "piped, the file was shown only through grep");
+        assert_eq!(files_read(Dialect::Bash, "grep -l fn *.rs | head -1; cat b.rs || cat c.rs"), ["b.rs", "c.rs"], "the end of a pipe reads stdin, not a file; either side of `||` prints as it is");
+    }
+
+    #[test]
+    fn git_grep_that_opens_a_pager_runs_a_program() {
+        assert!(reads_only(Dialect::Bash, "git grep -n fn") && reads_only(Dialect::Bash, "git grep -o fn"), "-o only prints matches");
+        for line in ["git grep -Ovim fn", "git grep -nO fn", "git grep --open-files-in-pager=sh fn", "git grep --op=sh fn"] {
+            assert!(!reads_only(Dialect::Bash, line), "{line}");
+        }
     }
 
     #[test]

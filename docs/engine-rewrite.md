@@ -875,8 +875,9 @@ these async criteria are new pending M3 work.
   mutating call records what it changed in its part's metadata. A shell line that only reads and
   exits 0 counts too for each file it printed (`cat`, `type`, `head`, `tail`, `Get-Content`, and
   `sed -n '<range>p'`, which now also counts as reading; `command::files_read`), since GPT and
-  Codex models habitually read that way before `apply_patch`. A line that moves directory first
-  counts nothing, its paths no longer resolving from the workspace. The record is in memory, so
+  Codex models habitually read that way before `apply_patch`. A printer whose output feeds a pipe
+  (`cat a.rs | grep fn`) counts nothing, the model having seen only what the pipe let through. A
+  line that moves directory first counts nothing, its paths no longer resolving from the workspace. The record is in memory, so
   after a restart a file must be read again before it is edited.
 - Ids are `prefix_<16 hex stamp><8 hex random>`; the stamp is milliseconds shifted left
   twelve bits plus a per-process counter, so rows made in the same millisecond still sort
@@ -1283,7 +1284,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   - `read_only` (front matter `read_only: true`; `plan` and `explore` built in) offers the agent
     its tools as usual but refuses, before any ask, every call that would change something
     (`Tool::stays_read_only`): a writing tool, a shell line that is not only reads
-    (`command::reads_only`), a writing MCP tool, a `task` to a subagent that is not read-only.
+    (`command::reads_only`; `git grep -O`/`--open-files-in-pager` runs a program, so it is not
+    one), any MCP tool (a server's read-only mark is its own claim: enough to skip an ask, not to
+    let a read-only agent act), a `task` to a subagent that is not read-only.
     So `plan` can read git history with `bash`, delegate to `explore` and load skills, and still
     cannot write even if the model asks.
 - Settings overrides an agent with exactly what the engine applies (`AgentOverride`): `prompt`,

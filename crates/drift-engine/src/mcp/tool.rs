@@ -105,6 +105,11 @@ impl Tool for McpTool {
         Some(&self.server)
     }
 
+    /// A server's read-only mark is its own claim, enough to skip an ask but not to let a read-only agent change things.
+    fn stays_read_only(&self, _ctx: &Context, _input: &Value) -> bool {
+        false
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: wire_name(&self.server, &self.tool.name),
