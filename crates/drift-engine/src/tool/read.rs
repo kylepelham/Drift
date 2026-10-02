@@ -82,9 +82,7 @@ impl Tool for Read {
     }
 }
 
-/// A page of a file too large to load whole (a log, generated output): read line by line from the
-/// start up to the page, so memory holds one page, and with no line count, which would mean reading
-/// it all; the note says whether more follows.
+/// Reads a bounded page from a large text file, without scanning the rest for a line count.
 async fn read_large(ctx: &Context, path: &std::path::Path, offset: usize, limit: usize) -> Result<Output, ToolError> {
     let name = display(path, &ctx.workspace);
     let reminders = reminders(ctx, path);

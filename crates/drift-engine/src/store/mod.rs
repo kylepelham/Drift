@@ -32,8 +32,7 @@ const WORKSPACE_COLUMNS: &str = "id, path, name, icon, last_used";
 
 pub struct Store {
     conn: Mutex<Connection>,
-    /// Text and reasoning parts still streaming, as far as their deltas have gone: every read of a
-    /// transcript shows them so, though the part itself is saved only as it closes and at checkpoints.
+    /// Open text and reasoning parts for transcript reads between disk checkpoints.
     streaming: Mutex<std::collections::HashMap<String, crate::session::types::PartRow>>,
 }
 

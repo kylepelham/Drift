@@ -219,6 +219,10 @@ impl Turns {
         self.finished.notify_waiters();
     }
 
+    pub(super) fn cancellation(&self, session_id: &str) -> CancellationToken {
+        self.active.lock().unwrap().get(session_id).cloned().unwrap_or_default()
+    }
+
     /// Runs `change` only if none of `ids` is claimed, holding claims off until it returns.
     pub(super) fn while_idle<T>(&self, ids: &[String], change: impl FnOnce() -> T) -> Option<T> {
         let active = self.active.lock().unwrap();
@@ -230,12 +234,12 @@ impl Turns {
         Some(result)
     }
 
-    /// The session's files, loaded with the reads its earlier runs kept the first time they are needed.
     /// The prompt the session's running turn began at, if a turn is running.
     pub(super) fn began(&self, session_id: &str) -> Option<String> {
         self.began.lock().unwrap().get(session_id).cloned()
     }
 
+    /// Loads the session's persisted read record on first access.
     pub(super) fn files_for(&self, store: &Arc<crate::store::Store>, session_id: &str) -> Arc<SessionFiles> {
         self.files.lock().unwrap().entry(session_id.into()).or_insert_with(|| Arc::new(SessionFiles::kept(store.clone(), session_id))).clone()
     }
@@ -1087,10 +1091,7 @@ impl Engine {
             Err(_) => futures_util::future::join_all(files.iter().map(tokio::fs::read)).await.into_iter().map(Result::ok).collect(),
         };
         // A Stop kills the checks, but what a fixer already rewrote is still recorded before the turn is let go.
-        let reports = tokio::select! {
-            reports = crate::edit::check::run(&files, &scope.plan.workspace, &checks, CHECK_BUDGET) => reports,
-            () = scope.abort.cancelled() => Vec::new(),
-        };
+        let reports = crate::edit::check::run(&files, &scope.plan.workspace, &checks, CHECK_BUDGET, scope.abort).await;
         let recorded = match capture {
             Ok(capture) => self.record_call(&scope.plan.workspace, capture).await.map(|recorded| attribute(recorded, &checks, &files, &scope.plan.workspace)),
             Err(error) => Err(self.unrecorded_rewrites(scope, &files, bytes, &error).await),
@@ -1292,7 +1293,7 @@ impl Engine {
     async fn wait_turn(&self, workspace: &Path, paths: Option<&[PathBuf]>, abort: &CancellationToken) -> Option<crate::tool::lock::Held> {
         let turn = async {
             match paths {
-                Some(paths) => crate::tool::lock::files(workspace, paths).await,
+                Some(paths) => crate::tool::lock::files(paths).await,
                 None => crate::tool::lock::workspace(workspace).await,
             }
         };

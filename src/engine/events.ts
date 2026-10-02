@@ -17,6 +17,7 @@ import {
   pruneSessionRevisions,
   putSession,
   recordLink,
+  removedPartKey,
   revisionAdvanced,
   sessionRevisionKey,
   spawnLink,
@@ -312,6 +313,7 @@ function upsertPart(set: SetEngineState, part: Part) {
   if (link) recordLink(link)
   set(
     produce((draft) => {
+      delete draft.revisions[removedPartKey(part.sessionID, part.messageID, part.id)]
       if (link) draft.links[link.child] = link.parent
       if (link && part.type === "tool") {
         const metadata = (("metadata" in part.state ? part.state.metadata : undefined) ?? part.metadata) as
@@ -367,6 +369,7 @@ function appendPartDelta(set: SetEngineState, ref: PartDeltaRef, reconcile?: (se
   let gap = false
   set(
     produce((draft) => {
+      if (draft.revisions[removedPartKey(ref.sessionID, ref.messageID, ref.partID)]) return
       const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
       const index = entry?.parts.findIndex((item) => item.id === ref.partID) ?? -1
       if (!entry) return
@@ -406,6 +409,7 @@ function trackActivity(draft: EngineState, part: Part & { type: "tool" }) {
 function dropPart(set: SetEngineState, ref: { sessionID: string; messageID: string; partID: string }) {
   set(
     produce((draft) => {
+      bumpRevision(draft, removedPartKey(ref.sessionID, ref.messageID, ref.partID))
       const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
       if (entry) {
         bumpRevision(draft, messageRevisionKey(ref.sessionID, ref.messageID))

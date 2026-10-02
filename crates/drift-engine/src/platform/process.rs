@@ -7,8 +7,8 @@ mod imp {
     use super::*;
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation, QueryInformationJobObject,
+        SetInformationJobObject, TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
     use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
@@ -52,6 +52,17 @@ mod imp {
                 TerminateJobObject(self.0, 1);
             }
         }
+
+        pub fn is_empty(&self) -> io::Result<bool> {
+            unsafe {
+                let mut info: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = std::mem::zeroed();
+                let size = std::mem::size_of_val(&info) as u32;
+                if QueryInformationJobObject(self.0, JobObjectBasicAccountingInformation, (&mut info as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(), size, std::ptr::null_mut()) == 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(info.ActiveProcesses == 0)
+            }
+        }
     }
 
     impl Drop for Tree {
@@ -63,6 +74,44 @@ mod imp {
     }
 
     pub fn prepare(_command: &mut tokio::process::Command) {}
+
+    pub fn suspend(command: &mut tokio::process::Command) {
+        command.creation_flags(0x0800_0000 | 0x0000_0004);
+    }
+
+    pub fn resume(child: &tokio::process::Child) -> io::Result<()> {
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD};
+        let pid = child.id().ok_or_else(|| io::Error::other("suspended child has no process ID"))?;
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+        if snapshot == INVALID_HANDLE_VALUE { return Err(io::Error::last_os_error()); }
+        let result = resume_thread(snapshot, pid);
+        unsafe { CloseHandle(snapshot); }
+        result
+    }
+
+    fn resume_thread(snapshot: HANDLE, pid: u32) -> io::Result<()> {
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{Thread32First, Thread32Next, THREADENTRY32};
+        use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+        unsafe {
+            let mut entry: THREADENTRY32 = std::mem::zeroed();
+            entry.dwSize = std::mem::size_of_val(&entry) as u32;
+            if Thread32First(snapshot, &mut entry) == 0 { return Err(io::Error::last_os_error()); }
+            loop {
+                if entry.th32OwnerProcessID == pid {
+                    let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
+                    if thread.is_null() { return Err(io::Error::last_os_error()); }
+                    let resumed = ResumeThread(thread);
+                    let error = io::Error::last_os_error();
+                    CloseHandle(thread);
+                    return if resumed == u32::MAX { Err(error) } else { Ok(()) };
+                }
+                if Thread32Next(snapshot, &mut entry) == 0 {
+                    return Err(io::Error::new(io::ErrorKind::NotFound, "suspended child thread not found"));
+                }
+            }
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -82,6 +131,18 @@ mod imp {
                 libc::kill(-self.0, libc::SIGKILL);
             }
         }
+
+        pub fn is_empty(&self) -> io::Result<bool> {
+            if unsafe { libc::kill(-self.0, 0) } == -1 {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::ESRCH) { return Ok(true); }
+                return Err(error);
+            }
+            #[cfg(target_os = "linux")]
+            return linux_group_empty(self.0);
+            #[cfg(not(target_os = "linux"))]
+            Ok(false)
+        }
     }
 
     impl Drop for Tree {
@@ -93,9 +154,82 @@ mod imp {
     pub fn prepare(command: &mut tokio::process::Command) {
         command.process_group(0);
     }
+
+    pub fn suspend(_command: &mut tokio::process::Command) {}
+
+    pub fn resume(_child: &tokio::process::Child) -> io::Result<()> { Ok(()) }
+
+    #[cfg(target_os = "linux")]
+    fn linux_group_empty(group: i32) -> io::Result<bool> {
+        for entry in std::fs::read_dir("/proc")? {
+            let entry = entry?;
+            if entry.file_name().to_string_lossy().parse::<u32>().is_err() { continue; }
+            let stat = match std::fs::read_to_string(entry.path().join("stat")) {
+                Ok(stat) => stat,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
+            if group_running(&stat, group) { return Ok(false); }
+        }
+        Ok(true)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn group_running(stat: &str, group: i32) -> bool {
+        let Some((_, tail)) = stat.rsplit_once(") ") else { return false };
+        let mut fields = tail.split_whitespace();
+        let state = fields.next();
+        fields.next();
+        let process_group = fields.next().and_then(|id| id.parse::<i32>().ok());
+        process_group == Some(group) && !matches!(state, Some("Z" | "X"))
+    }
 }
 
 pub use imp::{prepare, Tree};
+
+impl Tree {
+    /// Returns only after the owned tree has no remaining writers; failed queries never permit cleanup to proceed.
+    pub async fn stop(&self) {
+        let mut reported = false;
+        loop {
+            self.kill();
+            match self.is_empty() {
+                Ok(true) => return,
+                Err(error) if !reported => {
+                    eprintln!("could not confirm process-tree termination: {error}; retaining writer locks and retrying");
+                    reported = true;
+                }
+                _ => {}
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+}
+
+/// Starts a child only after establishing tree ownership; failures kill and reap the suspended child.
+pub async fn spawn_owned(command: &mut tokio::process::Command) -> io::Result<(tokio::process::Child, Tree)> {
+    spawn_with(command, Tree::adopt).await
+}
+
+async fn spawn_with(command: &mut tokio::process::Command, adopt: impl FnOnce(u32) -> io::Result<Tree>) -> io::Result<(tokio::process::Child, Tree)> {
+    command.kill_on_drop(true);
+    prepare(command);
+    imp::suspend(command);
+    let mut child = command.spawn()?;
+    let owned = child.id().ok_or_else(|| io::Error::other("child has no process ID")).and_then(adopt);
+    let tree = match owned {
+        Ok(tree) => tree,
+        Err(error) => { let _ = child.kill().await; return Err(error); }
+    };
+    if let Err(error) = imp::resume(&child) {
+        tree.kill();
+        let _ = child.kill().await;
+        drop(child);
+        tree.stop().await;
+        return Err(error);
+    }
+    Ok((child, tree))
+}
 
 /// Where a program named without a path is found on PATH, as a shell would, `.cmd` and `.bat` shims included on Windows.
 pub fn which(program: &str) -> Option<std::path::PathBuf> {
@@ -177,6 +311,45 @@ fn find_in(program: &str, dirs: impl Iterator<Item = std::path::PathBuf>) -> Opt
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn failed_ownership_never_resumes_the_child() {
+        let root = std::env::temp_dir().join(format!("drift-owned-fail-{}", crate::random_hex(4)));
+        std::fs::create_dir_all(&root).unwrap();
+        let marker = root.join("ran.txt");
+        let mut command = tokio::process::Command::new("cmd.exe");
+        command.args(["/c", "echo ran>ran.txt"]).current_dir(&root);
+        let failure = super::spawn_with(&mut command, |_| Err(std::io::Error::other("injected job adoption failure"))).await;
+        assert!(failure.is_err());
+        assert!(!marker.exists(), "no code ran before adoption failed");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn tree_cleanup_waits_for_a_descendant_after_its_parent_exits() {
+        use std::process::Stdio;
+        let root = std::env::temp_dir().join(format!("drift-owned-tree-{}", crate::random_hex(4)));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("parent.cmd"), "@echo off\r\nstart \"\" /b cmd.exe /c \"ping -n 30 127.0.0.1 > nul & echo late>late.txt\"\r\nexit /b 0\r\n").unwrap();
+        let mut command = tokio::process::Command::new("cmd.exe");
+        command.args(["/c", "parent.cmd"]).current_dir(&root).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        let (mut child, tree) = super::spawn_owned(&mut command).await.unwrap();
+        let status = tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await.unwrap().unwrap();
+        assert!(status.success());
+        drop(child);
+        assert!(!tree.is_empty().unwrap(), "the exited parent left a descendant in the job");
+        tokio::time::timeout(std::time::Duration::from_secs(5), tree.stop()).await.expect("all job members terminated");
+        assert!(tree.is_empty().unwrap());
+        assert!(!root.join("late.txt").exists());
+        drop(tree);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while let Err(error) = std::fs::remove_dir_all(&root) {
+            assert!(tokio::time::Instant::now() < deadline, "temporary directory cleanup failed: {error}");
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+
     #[test]
     fn a_program_is_found_where_a_shell_would_find_it() {
         let dir = std::env::temp_dir().join(format!("drift-which-{}", crate::random_hex(4)));

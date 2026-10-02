@@ -291,6 +291,10 @@ export function messageRevisionKey(sessionID: string, messageID: string) {
   return `message\0${sessionID}\0${messageID}`
 }
 
+export function removedPartKey(sessionID: string, messageID: string, partID: string) {
+  return `${messageRevisionKey(sessionID, messageID)}\0removed\0${partID}`
+}
+
 export function bumpRevision(draft: EngineState, key: string) {
   draft.revisions[key] = (draft.revisions[key] ?? 0) + 1
 }
@@ -322,7 +326,8 @@ export function mergeTranscriptSnapshot(
   const advanced = (messageID: string) => revisionAdvanced(revisions, captured, messageRevisionKey(sessionID, messageID))
   const liveById = new Map((live ?? []).map((entry) => [entry.info.id, entry]))
   const snapshotIds = new Set(snapshot.map((entry) => entry.info.id))
-  const merged = snapshot.flatMap((entry) => {
+  const merged = snapshot.flatMap((snapshotEntry) => {
+    const entry = withoutRemovedParts(snapshotEntry, sessionID, revisions)
     const current = liveById.get(entry.info.id)
     if (!advanced(entry.info.id)) {
       // Reuse the live object when the content is unchanged: transcript rows are referentially
@@ -330,14 +335,19 @@ export function mergeTranscriptSnapshot(
       // (a full-transcript flash on each reconnect hydration).
       return [current && JSON.stringify(current) === JSON.stringify(entry) ? current : entry]
     }
-    return current ? [withSnapshotPrefixes(current, entry)] : []
+    return current ? [withSnapshotParts(current, entry)] : []
   })
   for (const entry of live ?? []) if (advanced(entry.info.id) && !snapshotIds.has(entry.info.id)) merged.push(entry)
   return merged.sort(compareMessages)
 }
 
-// Live metadata wins, but a snapshot can repair a shorter compatible text prefix.
-function withSnapshotPrefixes(current: MessageEntry, snapshot: MessageEntry): MessageEntry {
+function withoutRemovedParts(entry: MessageEntry, sessionID: string, revisions: Record<string, number>): MessageEntry {
+  const parts = entry.parts.filter((part) => !revisions[removedPartKey(sessionID, entry.info.id, part.id)])
+  return parts.length === entry.parts.length ? entry : { ...entry, parts }
+}
+
+// Repair missing parts and shorter prefixes without replacing newer live metadata.
+function withSnapshotParts(current: MessageEntry, snapshot: MessageEntry): MessageEntry {
   const byId = new Map(snapshot.parts.map((part) => [part.id, part]))
   let changed = false
   const parts = current.parts.map((part) => {
@@ -347,7 +357,14 @@ function withSnapshotPrefixes(current: MessageEntry, snapshot: MessageEntry): Me
     changed = true
     return { ...part, text: incoming.text }
   })
-  return changed ? { ...current, parts } : current
+  const present = new Set(parts.map((part) => part.id))
+  for (const part of snapshot.parts) {
+    if (present.has(part.id)) continue
+    present.add(part.id)
+    parts.push(part)
+    changed = true
+  }
+  return changed ? { ...current, parts: parts.sort((a, b) => a.id.localeCompare(b.id)) } : current
 }
 
 export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo | undefined {

@@ -516,10 +516,7 @@ impl Config {
     }
 }
 
-/// Where skills are looked for, nearest first, so a nearer skill shadows a farther one of its name:
-/// the skill folders of the workspace and each parent up to the repository root, the `skillPaths`
-/// the config files list, then the user's own (`~/.config/drift/skills`, `~/.agents/skills`,
-/// `~/.claude/skills`), where Claude Code and other agents keep theirs.
+/// Skill folders in precedence order: project ancestors, configured paths, then home folders.
 fn skill_folders(workspace: &Path, home: Option<&Path>, listed: Vec<PathBuf>) -> Vec<PathBuf> {
     let project = ancestors_to_repo_root(workspace).into_iter().flat_map(|dir| SKILL_DIRS.map(|skills| dir.join(skills)));
     let user = home.into_iter().flat_map(|home| HOME_SKILL_DIRS.map(|skills| home.join(skills)));

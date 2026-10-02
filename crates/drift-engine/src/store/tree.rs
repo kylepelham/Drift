@@ -14,8 +14,7 @@ use crate::session::types::{Part, Session};
 const FORK_PAGE: usize = 100;
 
 impl Store {
-    /// A copy of the source's finished messages through `through`, page by page (see "Fork and move"
-    /// in docs/engine-rewrite.md); `None`, with nothing left behind, if one of them went meanwhile.
+    /// Copies finished history in pages; `None` means a selected message disappeared and the copy was removed.
     pub fn fork_session(&self, source_id: &str, new: NewSession, through: &str, cutoff: Option<&str>) -> rusqlite::Result<Option<Session>> {
         let session = session_from(new, cutoff);
         let messages: Vec<String> = transaction(&self.lock(), |conn| {
@@ -25,15 +24,22 @@ impl Store {
                 .query_map(params![source_id, through], |row| row.get(0))?
                 .collect()
         })?;
-        let copied = self.copy_pages(&messages, &session.id);
-        if !matches!(copied, Ok(true)) {
-            self.lock().prepare_cached("DELETE FROM session WHERE id = ?1")?.execute([&session.id])?;
-            return copied.map(|_| None);
+        let result = self.finish_fork(source_id, &session.id, through, &messages);
+        if matches!(&result, Ok(Some(_))) { return result; }
+        let cleanup = self.lock().prepare_cached("DELETE FROM session WHERE id = ?1").and_then(|mut statement| statement.execute([&session.id]));
+        if let Err(error) = cleanup {
+            if result.is_ok() { return Err(error); }
+            eprintln!("could not clean up failed fork {}: {error}", session.id);
         }
+        result
+    }
+
+    fn finish_fork(&self, source_id: &str, fork_id: &str, through: &str, messages: &[String]) -> rusqlite::Result<Option<Session>> {
+        if messages.last().is_none_or(|id| id != through) || !self.copy_pages(messages, fork_id)? { return Ok(None); }
         transaction(&self.lock(), |conn| {
-            super::reads::copy_reads(conn, source_id, &session.id, through)?;
-            conn.prepare_cached("UPDATE session SET archived_at = NULL WHERE id = ?1")?.execute([&session.id])?;
-            super::sessions::session_in(conn, &session.id)
+            super::reads::copy_reads(conn, source_id, fork_id, through)?;
+            conn.prepare_cached("UPDATE session SET archived_at = NULL WHERE id = ?1")?.execute([fork_id])?;
+            super::sessions::session_in(conn, fork_id)
         })
     }
 
@@ -179,5 +185,57 @@ mod tests {
         let kept = store.create_message(&source.id, Role::User, None).unwrap();
         assert!(!store.copy_pages(&[kept.id.clone(), "msg_gone".into()], &fork.id).unwrap(), "the fork would be missing history");
         assert!(store.copy_pages(&[kept.id], &fork.id).unwrap());
+    }
+
+    #[test]
+    fn a_fork_losing_a_selected_message_cleans_up_every_copied_page() {
+        let store = store();
+        let source = store.create_session(new("w")).unwrap();
+        let mut ids = Vec::new();
+        for _ in 0..super::FORK_PAGE + 2 {
+            ids.push(store.create_message(&source.id, Role::User, None).unwrap().id);
+        }
+        store.lock().execute_batch(&format!(
+            "CREATE TRIGGER delete_selected AFTER INSERT ON message WHEN NEW.session_id != '{}' BEGIN DELETE FROM message WHERE id = '{}'; END;",
+            source.id, ids[super::FORK_PAGE],
+        )).unwrap();
+        assert!(store.fork_session(&source.id, new("w"), ids.last().unwrap(), None).unwrap().is_none());
+        let conn = store.lock();
+        let sessions: i64 = conn.query_row("SELECT COUNT(*) FROM session", [], |row| row.get(0)).unwrap();
+        let orphaned: i64 = conn.query_row("SELECT COUNT(*) FROM message WHERE session_id != ?1", [&source.id], |row| row.get(0)).unwrap();
+        assert_eq!((sessions, orphaned), (1, 0), "no failed fork or copied messages remain");
+        drop(conn);
+        assert!(store.fork_session(&source.id, new("w"), "msg_gone", None).unwrap().is_none());
+    }
+
+    #[test]
+    fn finalization_failures_clean_up_and_cleanup_errors_do_not_hide_the_original() {
+        for fail_cleanup in [false, true] {
+            let store = store();
+            let source = store.create_session(new("w")).unwrap();
+            let message = store.create_message(&source.id, Role::User, None).unwrap();
+            store.mark_read(&source.id, "a.txt").unwrap();
+            store.lock().execute_batch(&format!(
+                "CREATE TRIGGER fail_finalize BEFORE INSERT ON read_file WHEN NEW.session_id != '{}' BEGIN SELECT RAISE(FAIL, 'injected finalization error'); END;",
+                source.id,
+            )).unwrap();
+            if fail_cleanup {
+                store.lock().execute_batch(&format!(
+                    "CREATE TRIGGER fail_cleanup BEFORE DELETE ON session WHEN OLD.id != '{}' BEGIN SELECT RAISE(FAIL, 'injected cleanup error'); END;",
+                    source.id,
+                )).unwrap();
+            }
+            let error = store.fork_session(&source.id, new("w"), &message.id, None).unwrap_err();
+            assert!(error.to_string().contains("injected finalization error"), "{error}");
+            let conn = store.lock();
+            let count: i64 = conn.query_row("SELECT COUNT(*) FROM session WHERE id != ?1", [&source.id], |row| row.get(0)).unwrap();
+            assert_eq!(count, i64::from(fail_cleanup));
+            if fail_cleanup {
+                conn.execute_batch("DROP TRIGGER fail_cleanup").unwrap();
+                conn.execute("DELETE FROM session WHERE id != ?1", [&source.id]).unwrap();
+            }
+            let copied: i64 = conn.query_row("SELECT COUNT(*) FROM message WHERE session_id != ?1", [&source.id], |row| row.get(0)).unwrap();
+            assert_eq!(copied, 0);
+        }
     }
 }

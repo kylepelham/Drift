@@ -85,6 +85,7 @@ impl From<RevertError> for ApiError {
             RevertError::NoSession => Self::not_found("session"),
             RevertError::NotAPrompt => Self::new(StatusCode::BAD_REQUEST, "not_a_prompt", "undo goes back to a prompt you sent"),
             RevertError::Busy => Self::new(StatusCode::CONFLICT, "busy", "the running turn did not stop in time; try again"),
+            RevertError::Stopped => Self::new(StatusCode::CONFLICT, "stopped", "undo was stopped while waiting for file writers; no files changed"),
             RevertError::Files(message) => Self::new(StatusCode::INTERNAL_SERVER_ERROR, "files", format!("the files could not be restored: {message}")),
             RevertError::Store(error) => error.into(),
         }

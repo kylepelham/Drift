@@ -112,7 +112,11 @@ holds a delta skips it and one cut short mid-delta completes it. An offset beyon
 prefix is a gap: the client leaves the text and revision unchanged and requests reconciliation.
 Reconciliation waits for an in-flight transcript reload and fetches a newer snapshot after it.
 Snapshot merging preserves newer live metadata but accepts a longer compatible text prefix
-from HTTP, so an unrelated message update cannot discard the missing prefix. A resume that needs no
+and snapshot-only parts from HTTP. Part-removal tombstones prevent stale snapshots from restoring
+explicitly deleted parts, even when no part was cached at removal time. A later authoritative part
+update clears its tombstone; purging the session clears the tombstones with its revision records.
+Deltas for a removed part are ignored, so they do not cause repeated reconciliation requests.
+A resume that needs no
 hydrate brings the client back online by itself (`resumed`).
 
 ## Data model
@@ -236,7 +240,11 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   fork stays archived, out of every list, until the last page lands, and one a crash cut short is
   purged with the other archived sessions. If a selected message is gone by the time its page is
   copied (a committed undo), the partial fork is deleted and the request fails with 409 `changed`,
-  never a fork with holes in it. Which messages count is decided from message rows
+  never a fork with holes in it. The selected cutoff must still exist when the copy starts.
+  Every failure after creation, including the final read-record copy or publication transaction,
+  attempts to delete the partial copy. If cleanup fails too, the original error is returned and
+  the cleanup failure is logged; the copy stays archived for later purging.
+  Which messages count is decided from message rows
   alone, without parts. Without `atMessage` it copies through the last stable message: if a turn
   is running, everything from the prompt it began at is left out (recorded when it starts, so a
   prompt steered in later does not move it). With `atMessage` it stops at that message, which must be
@@ -1050,18 +1058,25 @@ Settled after the first external review of M1; each has a regression test.
   reached first. Past 2000 matches it stops, so a broad pattern in a large tree returns at once,
   and says so: the 200 shown are then sorted from the files it reached, and earlier files may be
   missing. A Stop ends the walk and the file search in progress.
-- Writers of one file take turns across sessions and workers (`tool::lock`): a file tool's call
-  (`edit`, `write`, `apply_patch`) holds the files it names before computing the approval preview
-  and through the approval wait, its snapshot and its change
-  record, formatting included, and so do the step's checks over the files they run on. A check
-  without `$FILE` may touch anything, so it holds the whole workspace (a per-workspace lock every
-  file holder shares), waiting for every file writer there and making them wait. Undo takes the
-  turns of every file it may change, workspace by workspace, before changing any, and holds them
-  until its marker is saved or the files are put back, so a rollback never lands over another
-  writer. A Stop during checks kills them, but what a fixer already rewrote is recorded before the
-  turn is let go. So two edits never start from the same bytes, and a change is never attributed
-  to another writer's call. A Stop while waiting for a turn ends the call. Shell commands name no
-  files and take no turn.
+- Writers reserve canonical paths atomically across sessions and workers (`tool::lock`). File
+  reservations deduplicate their complete path set. Tree reservations conflict with overlapping
+  tree roots and every file beneath the root, regardless of the writer's workspace. A fixer in
+  `C:/repo` therefore excludes writes to `C:/repo/sub/a.rs` from either a nested workspace or an
+  approved outside-workspace write. Disjoint reservations can run concurrently; earlier conflicting
+  requests take priority, and dropping a queued acquisition removes it without retaining any paths.
+  File tools hold their reservation before computing the approval preview through approval,
+  execution, formatting and history recording. Whole-workspace checks reserve the tree. Undo
+  gathers all historical paths into one reservation, even across overlapping workspace owners,
+  and holds it through marker commit or rollback. Stop can cancel undo's acquisition before any
+  files change. Shell commands and external editors do not participate in these reservations.
+- Checks use `platform::process::spawn_owned`. On Windows the child starts suspended, is assigned
+  to its job and only then resumes. Adoption or resume failure kills and reaps the child instead
+  of allowing unowned execution. Stop, timeout and normal completion terminate lingering descendants
+  and wait for the whole tree to finish before history capture resumes. Windows cleanup polls the
+  job's active-process count after releasing the parent handle; an exited parent is not proof that
+  its descendants exited. A query failure retains the writer reservation, logs and retries rather
+  than recording while writers may remain. Fixer changes are then recorded or restored before
+  releasing the reservation.
 - A mutating call refuses to run if its snapshot cannot be taken or its start cannot be
   recorded, and says so in its result. A result whose save fails is published as an error,
   never as a success the store lacks; a message whose terminal save fails stops the turn.

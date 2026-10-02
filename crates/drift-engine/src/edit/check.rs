@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
+use tokio::io::AsyncReadExt;
+use tokio_util::sync::CancellationToken;
 
 use crate::config::CheckConfig;
 use crate::platform::process;
@@ -50,7 +52,7 @@ pub fn resolve(config: &BTreeMap<String, CheckConfig>) -> Vec<Check> {
 }
 
 /// Runs the checks that apply to a step's files (per file with `$FILE`, else once), a few at a time within `budget`, reported in config order.
-pub async fn run(files: &[PathBuf], workspace: &Path, checks: &[Check], budget: Duration) -> Vec<Report> {
+pub async fn run(files: &[PathBuf], workspace: &Path, checks: &[Check], budget: Duration, stop: &CancellationToken) -> Vec<Report> {
     use futures_util::StreamExt;
     let deadline = tokio::time::Instant::now() + budget;
     // Each run owns what it needs, so the runs can go side by side in a future the engine can move between threads.
@@ -68,10 +70,7 @@ pub async fn run(files: &[PathBuf], workspace: &Path, checks: &[Check], budget: 
         .collect();
     futures_util::stream::iter(runs)
         .map(|(check, file, workspace)| async move {
-            let verdict = match tokio::time::timeout_at(deadline, run_one(&check, file.as_ref(), &workspace)).await {
-                Ok(verdict) => verdict,
-                Err(_) => Verdict::Unavailable(format!("the step's time for checks ({budget:?}) ran out")),
-            };
+            let verdict = run_one(&check, file.as_ref(), &workspace, deadline, stop).await;
             Report { name: check.name, file, verdict }
         })
         .buffered(PARALLEL)
@@ -89,7 +88,10 @@ pub fn covers(checks: &[Check], file: &Path) -> bool {
     checks.iter().any(|check| applies(check, file))
 }
 
-async fn run_one(check: &Check, file: Option<&PathBuf>, workspace: &Path) -> Verdict {
+async fn run_one(check: &Check, file: Option<&PathBuf>, workspace: &Path, deadline: tokio::time::Instant, stop: &CancellationToken) -> Verdict {
+    if stop.is_cancelled() || tokio::time::Instant::now() >= deadline {
+        return Verdict::Unavailable("stopped or the step's time for checks ran out".into());
+    }
     let mut parts = check.command.iter().map(|part| match file {
         Some(file) => part.replace("$FILE", &file.to_string_lossy()),
         None => part.clone(),
@@ -101,19 +103,38 @@ async fn run_one(check: &Check, file: Option<&PathBuf>, workspace: &Path) -> Ver
     command.args(parts).current_dir(workspace).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
-    process::prepare(&mut command);
-    let child = match command.spawn() {
-        Ok(child) => child,
+    let (child, tree) = match process::spawn_owned(&mut command).await {
+        Ok(owned) => owned,
         Err(error) => return Verdict::Unavailable(format!("could not start {named}: {error}")),
     };
-    // Whatever stops the wait (time, or Stop dropping this future) takes the check's whole process tree with it.
-    let _tree = child.id().and_then(|pid| process::Tree::adopt(pid).ok());
-    match tokio::time::timeout(TIMEOUT, child.wait_with_output()).await {
-        Err(_) => Verdict::Unavailable(format!("took longer than {} s", TIMEOUT.as_secs())),
-        Ok(Err(error)) => Verdict::Unavailable(error.to_string()),
-        Ok(Ok(output)) if output.status.success() => Verdict::Passed,
-        Ok(Ok(output)) => Verdict::Problems(shown(&output.stdout, &output.stderr)),
+    wait_check(child, tree, deadline.min(tokio::time::Instant::now() + TIMEOUT), stop).await
+}
+
+// Stop and timeouts kill and reap the child before history capture can resume.
+async fn wait_check(mut child: tokio::process::Child, tree: process::Tree, deadline: tokio::time::Instant, stop: &CancellationToken) -> Verdict {
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let completed = tokio::select! {
+        result = async { tokio::try_join!(child.wait(), read_pipe(stdout), read_pipe(stderr)) } => Some(result),
+        () = stop.cancelled() => None,
+        () = tokio::time::sleep_until(deadline) => None,
+    };
+    tree.kill();
+    let _ = child.kill().await;
+    drop(child);
+    tree.stop().await;
+    match completed {
+        None => Verdict::Unavailable("stopped or the step's time for checks ran out".into()),
+        Some(Err(error)) => Verdict::Unavailable(error.to_string()),
+        Some(Ok((status, _, _))) if status.success() => Verdict::Passed,
+        Some(Ok((_, stdout, stderr))) => Verdict::Problems(shown(&stdout, &stderr)),
     }
+}
+
+async fn read_pipe(pipe: Option<impl tokio::io::AsyncRead + Unpin>) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    if let Some(mut pipe) = pipe { pipe.read_to_end(&mut bytes).await?; }
+    Ok(bytes)
 }
 
 fn shown(stdout: &[u8], stderr: &[u8]) -> String {
@@ -151,7 +172,7 @@ mod tests {
             Check { name: "gone".into(), command: vec!["definitely-missing-checker".into()], extensions: vec![".md".into()] },
             Check { name: "unrelated".into(), command: shell("exit 1"), extensions: vec![".rs".into()] },
         ];
-        let reports = run(&[a.clone(), b], &dir, &checks, Duration::from_secs(60)).await;
+        let reports = run(&[a.clone(), b], &dir, &checks, Duration::from_secs(60), &CancellationToken::new()).await;
         assert_eq!(reports.len(), 3, "{reports:?}");
         assert_eq!(reports[0].file.as_ref(), Some(&a), "a $FILE check runs per matching file only");
         let Verdict::Problems(said) = &reports[0].verdict else { panic!("{reports:?}") };
@@ -169,13 +190,13 @@ mod tests {
         let pause = if cfg!(windows) { "ping -n 2 127.0.0.1 > nul && echo $FILE" } else { "sleep 1; echo $FILE" };
         let slow = vec![Check { name: "slow".into(), command: shell(pause), extensions: vec![".ts".into()] }];
         let started = std::time::Instant::now();
-        let reports = run(&files, &dir, &slow, Duration::from_secs(30)).await;
+        let reports = run(&files, &dir, &slow, Duration::from_secs(30), &CancellationToken::new()).await;
         assert!(started.elapsed() < Duration::from_millis(2500), "four one-second runs side by side: {:?}", started.elapsed());
         assert_eq!(reports.iter().map(|r| r.file.clone().unwrap()).collect::<Vec<_>>(), files, "in order");
         let hang = if cfg!(windows) { "ping -n 30 127.0.0.1" } else { "sleep 30" };
         let stuck = vec![Check { name: "stuck".into(), command: shell(hang), extensions: vec![".ts".into()] }];
         let started = std::time::Instant::now();
-        let reports = run(&files[..1], &dir, &stuck, Duration::from_millis(500)).await;
+        let reports = run(&files[..1], &dir, &stuck, Duration::from_millis(500), &CancellationToken::new()).await;
         assert!(started.elapsed() < Duration::from_secs(5));
         assert!(matches!(&reports[0].verdict, Verdict::Unavailable(why) if why.contains("ran out")), "{reports:?}");
         std::fs::remove_dir_all(dir).ok();

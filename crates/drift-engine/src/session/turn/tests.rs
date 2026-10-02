@@ -186,9 +186,9 @@ async fn an_edit_holds_the_previewed_file_while_approval_is_pending() {
     h.engine.submit(&h.session.id, prompt("edit a")).await.await_ok();
     let ask = next_ask(&mut rx).await;
     assert!(ask.ask.diff.as_deref().is_some_and(|diff| diff.contains("+two")));
-    let (workspace, other_file) = (h._dir.join("ws"), file.clone());
+    let other_file = file.clone();
     let other = tokio::spawn(async move {
-        let _held = crate::tool::lock::files(&workspace, std::slice::from_ref(&other_file)).await;
+        let _held = crate::tool::lock::files(std::slice::from_ref(&other_file)).await;
         tokio::fs::read_to_string(other_file).await.unwrap()
     });
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -765,7 +765,7 @@ async fn an_edit_waits_while_another_writer_holds_the_file() {
     std::fs::write(&file, "one\ntwo\n").unwrap();
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
     h.provider.push(tool_call("read", r#"{"path": "a.txt"}"#)).push(tool_call("edit", r#"{"path": "a.txt", "old_string": "one", "new_string": "ONE"}"#)).push(text("done"));
-    let held = crate::tool::lock::files(&h._dir.join("ws"), std::slice::from_ref(&file)).await;
+    let held = crate::tool::lock::files(std::slice::from_ref(&file)).await;
     h.engine.submit(&h.session.id, prompt("edit a")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(300)).await;
     // Another session's writer, holding the file, changes another line meanwhile.

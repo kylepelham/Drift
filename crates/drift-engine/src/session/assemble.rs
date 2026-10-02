@@ -85,8 +85,7 @@ impl<'a> Assembler<'a> {
         Ok(())
     }
 
-    /// Appends to the open block where every read sees it before the delta is published, so a
-    /// snapshot taken after an event never lacks what that event carried.
+    /// Updates the readable prefix before publishing its delta.
     fn delta(&mut self, delta: &str) -> rusqlite::Result<()> {
         let Some(open) = &mut self.open else { return Ok(()) };
         match &mut open.row.part {

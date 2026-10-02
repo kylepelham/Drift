@@ -47,8 +47,7 @@ impl Engine {
         Ok(session)
     }
 
-    /// The ids of the source's finished messages, oldest first: not a turn still in flight, nor what
-    /// an undo hid. Read without parts, so a long history is never loaded to decide this.
+    /// Finished visible message IDs before the running turn, read without loading their parts.
     pub(super) fn finished(&self, source: &Session) -> rusqlite::Result<Vec<String>> {
         let messages = self.store.message_infos(&source.id)?;
         // A running turn is unstable from the prompt it began at, however many are steered in after it.

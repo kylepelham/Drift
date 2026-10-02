@@ -3,7 +3,7 @@ import { createActions } from "../src/engine/actions"
 import { reduce, withDelta } from "../src/engine/events"
 import { adaptEvent, adaptMessage, adaptPart, adaptSession } from "../src/engine/native/adapt"
 import type { Client, MessageWithParts } from "../src/engine/native/client"
-import { captureRevisions, createEngineState, mergeTranscriptSnapshot, messageRevisionKey } from "../src/engine/store"
+import { captureRevisions, createEngineState, mergeTranscriptSnapshot, messageRevisionKey, pruneSessionRevisions, removedPartKey } from "../src/engine/store"
 
 const workspaces = { path: () => "C:/repo", id: () => "w" }
 
@@ -66,4 +66,51 @@ test("a gap during an HTTP reload fetches a newer snapshot after that reload fin
   await reconciling
   expect(calls).toBe(2)
   expect(state.transcripts.s![0]!.parts[0]).toMatchObject({ text: "hello world" })
+})
+
+test("a snapshot restores an entire missed part after a live message revision advances", () => {
+  const [state, set] = createEngineState()
+  const cached = entry("")
+  cached.parts = []
+  set("loaded", "s", true)
+  set("transcripts", "s", [cached])
+  const captured = captureRevisions(state)
+  reduce(set, adaptEvent({ type: "message.updated", message: { ...message(""), status: "done" } }, workspaces)!, undefined, state)
+  let reconciled = 0
+  reduce(set, adaptEvent({ type: "part.delta", sessionId: "s", messageId: "m", partId: "p", delta: "world", offset: 6 }, workspaces)!, undefined, state, () => reconciled++)
+  expect(reconciled).toBe(1)
+  const merged = mergeTranscriptSnapshot(state.transcripts.s, [entry("hello world")], "s", captured, state.revisions)
+  expect(merged[0]!.parts).toHaveLength(1)
+  expect(merged[0]!.parts[0]).toMatchObject({ id: "p", text: "hello world" })
+  expect(merged[0]!.info).toMatchObject({ finish: "stop" })
+})
+
+test("explicit part removal survives both racing and later stale snapshots", () => {
+  const [state, set] = createEngineState()
+  set("loaded", "s", true)
+  set("transcripts", "s", [entry("hello world")])
+  const captured = captureRevisions(state)
+  reduce(set, { type: "message.part.removed", properties: { sessionID: "s", messageID: "m", partID: "p" } }, undefined, state)
+  expect(state.revisions[removedPartKey("s", "m", "p")]).toBe(1)
+  let reconciled = 0
+  reduce(set, adaptEvent({ type: "part.delta", sessionId: "s", messageId: "m", partId: "p", delta: "late", offset: 20 }, workspaces)!, undefined, state, () => reconciled++)
+  expect(reconciled).toBe(0)
+  let merged = mergeTranscriptSnapshot(state.transcripts.s, [entry("hello world")], "s", captured, state.revisions)
+  expect(merged[0]!.parts).toEqual([])
+  merged = mergeTranscriptSnapshot(merged, [entry("hello world")], "s", captureRevisions(state), state.revisions)
+  expect(merged[0]!.parts).toEqual([])
+  reduce(set, adaptEvent({ type: "part.updated", part: message("restored").parts[0]! }, workspaces)!, undefined, state)
+  expect(state.revisions[removedPartKey("s", "m", "p")]).toBeUndefined()
+  expect(state.transcripts.s![0]!.parts[0]).toMatchObject({ text: "restored" })
+  set("revisions", { [removedPartKey("s", "m", "p")]: 1 })
+  const draft = { ...state, revisions: { ...state.revisions } }
+  pruneSessionRevisions(draft, "s")
+  expect(draft.revisions).toEqual({})
+})
+
+test("a removal remembered without a cached part still prevents snapshot resurrection", () => {
+  const [state, set] = createEngineState()
+  reduce(set, { type: "message.part.removed", properties: { sessionID: "s", messageID: "m", partID: "p" } }, undefined, state)
+  const merged = mergeTranscriptSnapshot(undefined, [entry("hello world")], "s", captureRevisions(state), state.revisions)
+  expect(merged[0]!.parts).toEqual([])
 })

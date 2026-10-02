@@ -168,7 +168,7 @@ async fn an_undo_takes_every_files_turn_before_changing_any() {
     let h = harness().await;
     let (_, second) = two_writing_turns(&h).await;
     let ws = crate::tool::canonical(&h._dir.join("ws"));
-    let held = crate::tool::lock::files(&ws, &[ws.join("b.txt")]).await;
+    let held = crate::tool::lock::files(&[ws.join("b.txt")]).await;
     let (engine, id) = (h.engine.clone(), h.session.id.clone());
     let undo = tokio::spawn(async move { engine.revert(&id, &second).await.map(|_| ()) });
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -177,6 +177,64 @@ async fn an_undo_takes_every_files_turn_before_changing_any() {
     drop(held);
     tokio::time::timeout(Duration::from_secs(5), undo).await.unwrap().unwrap().unwrap();
     assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt")), (Some("one"), None));
+}
+
+#[tokio::test]
+async fn rollback_keeps_competing_writers_out_until_the_marker_failure_is_repaired() {
+    let h = harness().await;
+    let (_, second) = two_writing_turns(&h).await;
+    let session = h.engine.store.session(&h.session.id).unwrap().unwrap();
+    let shifted = h.engine.shift(&session, &second, None, Direction::Back).await.unwrap();
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("one"));
+    let workspace = h._dir.join("ws");
+    let competing = tokio::spawn(async move {
+        let file = workspace.join("a.txt");
+        let _held = crate::tool::lock::files(std::slice::from_ref(&file)).await;
+        tokio::fs::write(file, "another session").await.unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!competing.is_finished(), "undo still holds the files while its marker is uncommitted");
+    refuse_marker(&h);
+    let marker = Revert { message_id: second, kept: Vec::new() };
+    assert!(h.engine.mark_or_put_back(&h.session.id, Some(&marker), shifted).await.is_err());
+    tokio::time::timeout(Duration::from_secs(5), competing).await.unwrap().unwrap();
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("another session"), "rollback completed before the competing writer ran");
+    assert!(h.engine.store.session(&h.session.id).unwrap().unwrap().revert.is_none());
+}
+
+#[tokio::test]
+async fn undo_deduplicates_paths_across_overlapping_historical_workspaces() {
+    let h = harness().await;
+    let root = crate::tool::canonical(&h._dir.join("ws"));
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    let nested = h.engine.store.add_workspace(&root.join("sub").to_string_lossy(), "nested", "").unwrap();
+    let change = |owner: String, path: &str| Net {
+        owner,
+        change: FileChange { path: path.into(), before: None, after: None, observed: false },
+        broken: false,
+    };
+    let nets = [change(h.session.workspace_id.clone(), "sub/a.txt"), change(nested.id, "a.txt")];
+    let held = tokio::time::timeout(Duration::from_secs(1), h.engine.turns_for(&nets)).await.expect("one reservation for the same physical file");
+    assert!(tokio::time::timeout(Duration::from_millis(50), crate::tool::lock::files(&[root.join("sub/a.txt")])).await.is_err());
+    drop(held);
+}
+
+#[tokio::test]
+async fn stopping_an_undo_waiting_for_files_leaves_them_unchanged() {
+    let h = harness().await;
+    let (_, second) = two_writing_turns(&h).await;
+    let held = crate::tool::lock::files(&[h._dir.join("ws/a.txt")]).await;
+    let (engine, id) = (h.engine.clone(), h.session.id.clone());
+    let undo = tokio::spawn(async move { engine.revert(&id, &second).await });
+    for _ in 0..100 {
+        if h.engine.turns.is_running(&h.session.id) { break; }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(h.engine.abort(&h.session.id));
+    assert!(matches!(tokio::time::timeout(Duration::from_secs(2), undo).await.unwrap().unwrap(), Err(RevertError::Stopped)));
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("two"));
+    assert!(h.engine.store.session(&h.session.id).unwrap().unwrap().revert.is_none());
+    drop(held);
 }
 
 #[tokio::test]

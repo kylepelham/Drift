@@ -1,9 +1,4 @@
-//! Calls started while the reply still streams, so a read the model asks for first is done by the
-//! time the reply ends. Only the reply's leading run of calls to tools that only read
-//! (`Tool::starts_early`), whose arguments fit their schema and that every rule allows without
-//! asking: a read after any other call (a write, a command, a subagent) must see what that did. The step uses a result once the reply
-//! ends well and the call is admitted as usual; a reply that fails or is cut short drops them all.
-//! What an early read reads counts as read only when its result is used.
+//! Speculative leading reads; their ordering and cancellation contract is in docs/engine-rewrite.md.
 
 use std::collections::HashMap;
 use std::sync::Arc;

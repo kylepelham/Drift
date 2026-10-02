@@ -28,6 +28,7 @@ pub enum RevertError {
     NotAPrompt,
     /// A job that would not stop holds the session; its files and history are in motion.
     Busy,
+    Stopped,
     Files(String),
     Store(rusqlite::Error),
 }
@@ -63,7 +64,7 @@ struct Shifted {
     /// What the shift changed, oldest first, kept until the marker is saved so a failed save can put it back.
     applied: Vec<Applied>,
     /// The turns of every file the shift may change, held until the marker is saved or the files put back.
-    _turns: Vec<crate::tool::lock::Held>,
+    _turns: Option<crate::tool::lock::Held>,
 }
 
 /// A path a shift changed, and the content it had before, to restore if a later path fails.
@@ -144,7 +145,14 @@ impl Engine {
     /// change is applied where its owning workspace is now, whichever workspace the session is in.
     async fn shift(&self, session: &Session, from: &str, to: Option<&str>, direction: Direction) -> Result<Shifted, RevertError> {
         let nets = self.net_changes(session, from, to)?;
-        let mut shifted = Shifted { _turns: self.turns_for(&nets).await, ..Shifted::default() };
+        let abort = self.turns.cancellation(&session.id);
+        let turns = tokio::select! {
+            biased;
+            () = abort.cancelled() => return Err(RevertError::Stopped),
+            held = self.turns_for(&nets) => held,
+        };
+        if abort.is_cancelled() { return Err(RevertError::Stopped); }
+        let mut shifted = Shifted { _turns: Some(turns), ..Shifted::default() };
         for net in nets {
             match self.shift_one(net, &direction, &mut shifted).await {
                 Ok(Some(done)) => shifted.applied.push(done),
@@ -156,19 +164,15 @@ impl Engine {
         Ok(shifted)
     }
 
-    /// The turns of the files `nets` may change, workspace by workspace in one order, all taken before any is changed.
-    async fn turns_for(&self, nets: &[Net]) -> Vec<crate::tool::lock::Held> {
-        let mut by_workspace: std::collections::BTreeMap<PathBuf, Vec<PathBuf>> = std::collections::BTreeMap::new();
+    /// Reserves the complete canonical path set once, including files named by multiple historical workspaces.
+    async fn turns_for(&self, nets: &[Net]) -> crate::tool::lock::Held {
+        let mut paths = Vec::new();
         for net in nets.iter().filter(|net| !net.change.observed && !net.broken) {
             if let Some(workspace) = self.root_of(&net.owner) {
-                by_workspace.entry(workspace.clone()).or_default().push(workspace.join(&net.change.path));
+                paths.push(workspace.join(&net.change.path));
             }
         }
-        let mut held = Vec::new();
-        for (workspace, paths) in by_workspace {
-            held.push(crate::tool::lock::files(&workspace, &paths).await);
-        }
-        held
+        crate::tool::lock::files(&paths).await
     }
 
     /// Applies one path's change, or records why it is left alone; `Some` names what to put back if a later path fails.

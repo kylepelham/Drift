@@ -73,8 +73,7 @@ impl SessionFiles {
         self.read.lock().unwrap().contains(path)
     }
 
-    /// A copy an early call runs against: it knows what the session has read and been shown, and
-    /// what it reads stays here until [`Self::absorb`] takes it, once its result reaches the model.
+    /// Isolates speculative reads until their result is accepted via [`Self::absorb`].
     pub fn scratch(&self) -> Self {
         let read = self.read.lock().unwrap().clone();
         let shown = self.shown.lock().unwrap().clone();
@@ -295,8 +294,7 @@ pub struct Ask {
     /// A path inside the workspace, relative with `/`, so a committed rule such as `src/**` matches it too.
     #[serde(skip)]
     pub relative: Option<String>,
-    /// What the call would change, as a unified diff, for the user to review before allowing it;
-    /// never matched by rules or approvals.
+    /// Proposed diff for review, excluded from permission rule and approval matching.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diff: Option<String>,
 }
@@ -388,8 +386,7 @@ pub trait Tool: Send + Sync {
     fn stops_itself(&self) -> bool {
         false
     }
-    /// The call only reads, touches nothing outside the files it reads, and may start while the
-    /// reply still streams; its result is used only once the reply ends well.
+    /// May run speculatively while streaming; the ordering and result rules are in docs/engine-rewrite.md.
     fn starts_early(&self) -> bool {
         false
     }
