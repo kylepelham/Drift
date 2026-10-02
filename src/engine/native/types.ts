@@ -815,6 +815,11 @@ export interface components {
             /** Format: int64 */
             seq: number;
         };
+        /**
+         * @description Which generation of MCP a server speaks: 2026-07-28 and later, with no handshake and no session, or the `initialize` handshake before it.
+         * @enum {string}
+         */
+        Era: "stateless" | "legacy";
         ErrorBody: {
             code: string;
             message: string;
@@ -1295,10 +1300,11 @@ export interface components {
             url: string;
         };
         ServerStatus: components["schemas"]["ServerView"] & {
+            era?: components["schemas"]["Era"] | null;
             error?: string | null;
             /** @description The server refused to connect until the user signs in (`POST /mcp/{name}/signin`). */
             needsSignIn: boolean;
-            /** @description The MCP protocol version the server agreed to at initialize; absent until connected. */
+            /** @description The MCP protocol version the server agreed to; absent until connected. */
             protocol?: string | null;
             /** @description A sign-in is kept for it (`DELETE /mcp/{name}/signin` forgets it). */
             signedIn: boolean;

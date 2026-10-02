@@ -520,6 +520,7 @@ async fn oauth_mcp_server() -> String {
             Some("initialize") => json!({ "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "secure", "version": "0" } }),
             Some("tools/list") => json!({ "tools": [{ "name": "echo", "inputSchema": { "type": "object" }, "annotations": { "readOnlyHint": true } }] }),
             Some("tools/call") => json!({ "content": [{ "type": "text", "text": message["params"]["arguments"]["text"] }] }),
+            _ if message.get("id").is_some() => return axum::Json(json!({ "jsonrpc": "2.0", "id": message["id"], "error": { "code": -32601, "message": "method not found" } })).into_response(),
             _ => return StatusCode::ACCEPTED.into_response(),
         };
         axum::Json(json!({ "jsonrpc": "2.0", "id": message["id"], "result": result })).into_response()
@@ -535,6 +536,44 @@ async fn oauth_mcp_server() -> String {
         .with_state(base.clone());
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     base
+}
+
+/// The echo server in one era, logging every method it receives.
+fn era_echo(era: &str) -> (ServerConfig, std::path::PathBuf) {
+    let log = std::env::temp_dir().join(format!("drift-mcp-methods-{}.log", crate::random_hex(4)));
+    let ServerConfig::Stdio { command, args, .. } = echo_config() else { unreachable!() };
+    let env = [("ERA".to_string(), era.to_string()), ("METHOD_LOG".to_string(), log.to_string_lossy().to_string())].into_iter().collect();
+    (ServerConfig::Stdio { command, args, env, cwd: None, timeout_seconds: None }, log)
+}
+
+#[tokio::test]
+async fn a_v2_server_is_found_by_its_probe_and_spoken_to_without_a_handshake() {
+    let engine = engine();
+    let (config, log) = era_echo("v2");
+    let row = saved(&engine, "modern", &config).await;
+    engine.connect_mcp("modern").await.unwrap();
+    let status = engine.mcp.status_of(row);
+    assert_eq!((status.protocol.as_deref(), status.era), (Some("2026-07-28"), Some(Era::Stateless)));
+    assert!(engine.mcp.instructions().iter().any(|(server, text)| server == "modern" && text.contains("Echo repeats")), "instructions come with discovery");
+    // The fixture refuses any request without its protocol version in _meta, so a working call proves rmcp sends it.
+    assert_eq!(tool(&engine, "modern_echo").run(&context(&engine), json!({ "text": "hi" })).await.unwrap().output, "hi");
+    let methods = calls(&log);
+    assert_eq!(methods.first().map(String::as_str), Some("server/discover"));
+    assert!(!methods.iter().any(|m| m == "initialize" || m == "notifications/initialized"), "{methods:?}");
+}
+
+#[tokio::test]
+async fn an_older_server_refusing_the_probe_gets_the_handshake_instead() {
+    for era in ["legacy", "reject"] {
+        let engine = engine();
+        let (config, log) = era_echo(era);
+        let row = saved(&engine, "old", &config).await;
+        engine.connect_mcp("old").await.unwrap();
+        let status = engine.mcp.status_of(row);
+        assert_eq!((status.protocol.as_deref(), status.era), (Some("2025-06-18"), Some(Era::Legacy)), "{era}");
+        assert_eq!(tool(&engine, "old_shout").run(&context(&engine), json!({ "text": "hi" })).await.unwrap().output, "HI");
+        assert_eq!(calls(&log)[..2], ["server/discover", "initialize"], "{era}");
+    }
 }
 
 fn calls(log: &std::path::Path) -> Vec<String> {

@@ -1,4 +1,4 @@
-// The smallest MCP server that can be: one read-only `echo` tool and one `shout` tool, over stdio.
+// The smallest MCP server that can be: one read-only `echo` tool and one `shout` tool, over stdio, in either era.
 const fs = require("node:fs")
 const readline = require("node:readline")
 const rl = readline.createInterface({ input: process.stdin })
@@ -33,9 +33,24 @@ const resources = [{ uri: "note://readme", name: "readme", mimeType: "text/plain
 const contents = { "note://readme": [{ uri: "note://readme", mimeType: "text/plain", text: "remember the milk" }], "note://shot": [{ uri: "note://shot", mimeType: "image/png", blob: "iVBORw0KGgo=" }] }
 const prompt = { name: "review", description: "Review a file", arguments: [{ name: "file", required: true }, { name: "focus" }] }
 const filled = (args) => ({ messages: [{ role: "user", content: { type: "text", text: `Review ${args.file} for ${args.focus ?? "anything"}` } }] })
+const fail = (id, code, message) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }) + "\n")
+const instructions = "Echo repeats what it is given."
+// ERA: "v2" speaks 2026-07-28; legacy answers the server/discover probe "method not found", "reject" invalid-request, "ignore" never.
+const era = process.env.ERA ?? "legacy"
+const discovered = { resultType: "complete", supportedVersions: ["2026-07-28"], capabilities, instructions, ttlMs: 0, cacheScope: "public", _meta: { "io.modelcontextprotocol/serverInfo": { name: "echo", version: "0" } } }
+const probed = (message) => {
+  if (era === "v2") return reply(message.id, discovered)
+  if (era === "reject") return fail(message.id, -32600, "unknown request")
+  if (era !== "ignore") fail(message.id, -32601, "method not found")
+}
+// METHOD_LOG: every method received, one per line.
 rl.on("line", (line) => {
   const message = JSON.parse(line)
-  if (message.method === "initialize") return reply(message.id, { protocolVersion: "2025-06-18", capabilities, serverInfo: { name: "echo", version: "0" }, instructions: "Echo repeats what it is given." })
+  if (process.env.METHOD_LOG) fs.appendFileSync(process.env.METHOD_LOG, `${message.method}\n`)
+  if (message.method === "server/discover") return probed(message)
+  const stamped = message.params?._meta?.["io.modelcontextprotocol/protocolVersion"]
+  if (era === "v2" && message.id !== undefined && !stamped) return fail(message.id, -32602, "every request carries its protocol version in _meta")
+  if (message.method === "initialize") return reply(message.id, { protocolVersion: "2025-06-18", capabilities, serverInfo: { name: "echo", version: "0" }, instructions })
   if (message.method === "tools/list") return reply(message.id, { tools })
   if (message.method === "tools/call") return call(message)
   if (message.method === "resources/list") return reply(message.id, { resources })

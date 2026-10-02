@@ -12,11 +12,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
-use rmcp::model::{CallToolRequestParams, ContentBlock};
-use rmcp::service::{RunningService, ServiceError};
+use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientConfig, ContentBlock, Implementation, ProtocolVersion};
+use rmcp::service::{ClientLifecycleMode, ClientServiceExt, RunningService, ServiceError};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
-use rmcp::{RoleClient, ServiceExt};
+use rmcp::RoleClient;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
@@ -104,9 +104,12 @@ pub struct ServerStatus {
     pub tools: Vec<ToolInfo>,
     /// How the engine talks to it.
     pub transport: Transport,
-    /// The MCP protocol version the server agreed to at initialize; absent until connected.
+    /// The MCP protocol version the server agreed to; absent until connected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol: Option<String>,
+    /// Whether that version is stateless (2026-07-28 on) or the legacy handshake; absent until connected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub era: Option<Era>,
     /// The server refused to connect until the user signs in (`POST /mcp/{name}/signin`).
     pub needs_sign_in: bool,
     /// A sign-in is kept for it (`DELETE /mcp/{name}/signin` forgets it).
@@ -132,6 +135,40 @@ impl Transport {
     }
 }
 
+/// Which generation of MCP a server speaks: 2026-07-28 and later, with no handshake and no session, or the `initialize` handshake before it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Era {
+    Stateless,
+    Legacy,
+}
+
+impl Era {
+    fn of(version: &ProtocolVersion) -> Self {
+        if version.as_str() >= ProtocolVersion::V_2026_07_28.as_str() {
+            Self::Stateless
+        } else {
+            Self::Legacy
+        }
+    }
+}
+
+/// How a connect begins: a probe when the server's era is unknown, else straight to the one it speaks.
+fn lifecycle(known: Option<Era>) -> ClientLifecycleMode {
+    match known {
+        None => ClientLifecycleMode::Auto { preferred_versions: vec![ProtocolVersion::V_2026_07_28], legacy_version: Some(ProtocolVersion::V_2025_11_25) },
+        Some(Era::Stateless) => ClientLifecycleMode::Discover { preferred_versions: vec![ProtocolVersion::V_2026_07_28] },
+        Some(Era::Legacy) => ClientLifecycleMode::Initialize,
+    }
+}
+
+/// Drift as an MCP client: no sampling, elicitation or roots, so a server asking for them is declined; the handshake offers 2025-11-25.
+fn client_info() -> ClientConfig {
+    ClientConfig::new(ClientCapabilities::default(), Implementation::new("Drift", env!("CARGO_PKG_VERSION"))).with_protocol_version(ProtocolVersion::V_2025_11_25)
+}
+
+type Client = RunningService<RoleClient, ClientConfig>;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ToolInfo {
     pub name: String,
@@ -140,7 +177,9 @@ pub struct ToolInfo {
 }
 
 struct Live {
-    service: RunningService<RoleClient, ()>,
+    service: Client,
+    /// The era the server answered in.
+    era: Era,
     tools: Vec<rmcp::model::Tool>,
     /// What the server said at initialize about using it; goes in the system prompt beside its tools.
     instructions: Option<String>,
@@ -252,6 +291,8 @@ const STEP_LIMIT: Duration = Duration::from_millis(1500);
 const STABLE: Duration = Duration::from_secs(60);
 #[cfg(test)]
 const STABLE: Duration = Duration::from_millis(500);
+/// How long rmcp waits for a server to answer the `server/discover` probe before falling back to `initialize`; it is fixed there.
+const PROBE_WAIT: Duration = Duration::from_secs(10);
 /// How long a turn being planned waits for connects already under way, so its tools are not briefly missing.
 pub const READY_WAIT: Duration = Duration::from_secs(2);
 /// How long a read-only call cut off by a lost connection waits for the reconnect before giving up.
@@ -348,11 +389,12 @@ impl Servers {
             slots.transient.get(&row.name).cloned().unwrap_or((State::Disconnected, None))
         };
         let protocol = live.as_ref().and_then(|live| live.service.peer_info()).map(|info| info.protocol_version.to_string());
+        let era = live.as_ref().map(|live| live.era);
         let tools = live.map(|live| live.tools.iter().map(tool_info).collect()).unwrap_or_default();
         let remote = matches!(row.config, ServerConfig::Http { .. });
         let needs_sign_in = remote && state == State::Failed && error.as_deref().is_some_and(oauth::wants_sign_in);
         let signed_in = remote && self.sign_ins.as_ref().is_some_and(|store| oauth::has_sign_in(store, &row.name));
-        ServerStatus { transport: Transport::of(&row.config), protocol, needs_sign_in, signed_in, server: ServerView::of(&row), state, error, tools }
+        ServerStatus { transport: Transport::of(&row.config), protocol, era, needs_sign_in, signed_in, server: ServerView::of(&row), state, error, tools }
     }
 
     /// Connects `name` as its row stands now.
@@ -632,9 +674,13 @@ struct SignIn<'a> {
 }
 
 async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>) -> Result<Live, String> {
-    let (service, tree) = within("start", start(config, sign_in)).await?;
+    let known = None;
+    // A probe a server ignores costs rmcp's whole wait before the handshake can begin.
+    let limit = if known.is_none() { STEP_LIMIT + PROBE_WAIT } else { STEP_LIMIT };
+    let (service, tree) = within_for(limit, "start", start(config, sign_in, known)).await?;
     let tools = within("list its tools", async { service.list_all_tools().await.map_err(|e| format!("tools/list failed: {e}")) }).await?;
     let info = service.peer_info();
+    let era = info.as_ref().map_or(Era::Legacy, |info| Era::of(&info.protocol_version));
     let instructions = info.as_ref().and_then(|info| info.instructions.clone()).map(|text| text.trim().to_string()).filter(|text| !text.is_empty());
     let resources = info.as_ref().is_some_and(|info| info.capabilities.resources.is_some());
     // A server whose prompts cannot be listed still serves its tools; it simply offers no commands.
@@ -642,14 +688,19 @@ async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>) -> Resul
         true => within("list its prompts", async { service.list_all_prompts().await.map_err(|e| e.to_string()) }).await.unwrap_or_default(),
         false => Vec::new(),
     };
-    Ok(Live { service, tools, instructions, prompts, resources, timeout: config.timeout(), hash, since: Instant::now(), tree })
+    Ok(Live { service, era, tools, instructions, prompts, resources, timeout: config.timeout(), hash, since: Instant::now(), tree })
 }
 
 async fn within<T>(what: &str, step: impl Future<Output = Result<T, String>>) -> Result<T, String> {
-    tokio::time::timeout(STEP_LIMIT, step).await.unwrap_or_else(|_| Err(format!("the server did not {what} within {STEP_LIMIT:?}")))
+    within_for(STEP_LIMIT, what, step).await
 }
 
-async fn start(config: &ServerConfig, sign_in: SignIn<'_>) -> Result<(RunningService<RoleClient, ()>, Option<Tree>), String> {
+async fn within_for<T>(limit: Duration, what: &str, step: impl Future<Output = Result<T, String>>) -> Result<T, String> {
+    tokio::time::timeout(limit, step).await.unwrap_or_else(|_| Err(format!("the server did not {what} within {limit:?}")))
+}
+
+/// Opens the transport and begins the session in the server's era, probing for it when `known` is `None`; HTTP+SSE predates the probe.
+async fn start(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>) -> Result<(Client, Option<Tree>), String> {
     match config {
         ServerConfig::Stdio { command, args, env, cwd, .. } => {
             let mut cmd = tokio::process::Command::new(command);
@@ -663,7 +714,7 @@ async fn start(config: &ServerConfig, sign_in: SignIn<'_>) -> Result<(RunningSer
             let transport = TokioChildProcess::new(cmd).map_err(|e| format!("could not start {command}: {e}"))?;
             // Adopted before it answers, so a start cut short takes the server's children with it.
             let tree = transport.id().and_then(|pid| Tree::adopt(pid).ok());
-            let service = ().serve(transport).await.map_err(|e| e.to_string())?;
+            let service = client_info().serve_with_lifecycle(transport, lifecycle(known)).await.map_err(|e| e.to_string())?;
             Ok((service, tree))
         }
         ServerConfig::Http { url, headers, .. } => {
@@ -674,14 +725,14 @@ async fn start(config: &ServerConfig, sign_in: SignIn<'_>) -> Result<(RunningSer
                 None => None,
             };
             let service = match signed_in {
-                Some(client) => ().serve(StreamableHttpClientTransport::with_client(client, config)).await,
-                None => ().serve(StreamableHttpClientTransport::with_client(crate::llm::http::client(), config)).await,
+                Some(client) => client_info().serve_with_lifecycle(StreamableHttpClientTransport::with_client(client, config), lifecycle(known)).await,
+                None => client_info().serve_with_lifecycle(StreamableHttpClientTransport::with_client(crate::llm::http::client(), config), lifecycle(known)).await,
             };
             Ok((service.map_err(|e| e.to_string())?, None))
         }
         ServerConfig::Sse { url, headers, .. } => {
             let transport = sse::SseTransport::connect(crate::llm::http::client(), url, header_map(headers)).await?;
-            Ok((().serve(transport).await.map_err(|e| e.to_string())?, None))
+            Ok((client_info().serve_with_lifecycle(transport, ClientLifecycleMode::Initialize).await.map_err(|e| e.to_string())?, None))
         }
     }
 }

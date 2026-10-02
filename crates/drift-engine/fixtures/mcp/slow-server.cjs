@@ -11,8 +11,11 @@ if (process.env.PID_FILE) {
 }
 const rl = readline.createInterface({ input: process.stdin })
 const reply = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n")
+const unknown = (id) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32601, message: "method not found" } }) + "\n")
 rl.on("line", (line) => {
   const message = JSON.parse(line)
+  // A server from before 2026-07-28: the probe is a method it does not know.
+  if (message.method === "server/discover") return unknown(message.id)
   if (message.method === "initialize") return setTimeout(() => reply(message.id, { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "slow", version: "0" } }), delay)
   if (message.method === "tools/list") return setTimeout(() => reply(message.id, { tools: [{ name: tool, description: "x", inputSchema: { type: "object" } }] }), listDelay)
   if (message.id !== undefined) reply(message.id, {})
