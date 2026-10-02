@@ -165,9 +165,20 @@ pub struct Agent {
     pub permissions: Vec<Rule>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
+    /// Why this agent cannot run (a broken file or override); only its own turns, tasks and actions are refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem: Option<String>,
 }
 
 impl Agent {
+    /// The agent, unless its definition is broken.
+    pub fn usable(&self) -> Result<&Self, String> {
+        match &self.problem {
+            Some(problem) => Err(format!("agent {}: {problem}", self.name)),
+            None => Ok(self),
+        }
+    }
+
     /// Whether `tool` is one this agent may be offered. Names match in any case, as Claude-style files write them.
     pub fn allows_tool(&self, tool: &str) -> bool {
         let (taken, given): (Vec<&String>, Vec<&String>) = self.tools.iter().partition(|name| name.starts_with('!'));
@@ -651,6 +662,7 @@ fn builtin_agents() -> Vec<Agent> {
         read_only: false,
         permissions: Vec::new(),
         variant: None,
+        problem: None,
     };
     let read_only = |agent: Agent| Agent { read_only: true, ..agent };
     vec![
