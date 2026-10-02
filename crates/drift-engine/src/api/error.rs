@@ -72,6 +72,7 @@ impl From<BranchError> for ApiError {
             BranchError::NoSession => Self::not_found("session"),
             BranchError::FromSubagent => Self::new(StatusCode::BAD_REQUEST, "subagent", "subagents cannot spawn threads; spawn from the conversation instead"),
             BranchError::EmptyInstruction => Self::new(StatusCode::BAD_REQUEST, "instruction", "say what the new thread should do"),
+            BranchError::Changed => changed(),
             BranchError::Turn(error) => error.into(),
             BranchError::Store(error) => error.into(),
         }
@@ -98,7 +99,12 @@ impl From<TreeError> for ApiError {
             TreeError::Busy => Self::new(StatusCode::CONFLICT, "busy", "stop the running turn first; it keeps the workspace it started in"),
             TreeError::BadMessage => Self::new(StatusCode::BAD_REQUEST, "message", "fork from a finished message of this session"),
             TreeError::Empty => Self::new(StatusCode::BAD_REQUEST, "empty", "there is nothing finished to fork yet"),
+            TreeError::Changed => changed(),
             TreeError::Store(error) => error.into(),
         }
     }
+}
+
+fn changed() -> ApiError {
+    ApiError::new(StatusCode::CONFLICT, "changed", "the conversation changed while it was being copied; try again")
 }

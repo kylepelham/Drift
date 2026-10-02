@@ -8,17 +8,15 @@ use rusqlite::{params, Connection};
 use super::sessions::{insert_session, session_from, transaction, NewSession};
 use super::Store;
 use crate::id;
+use crate::session::types::{Part, Session};
 
 /// Messages copied per transaction when forking.
 const FORK_PAGE: usize = 100;
-use crate::session::types::{Part, Session};
 
 impl Store {
-    /// A new session holding copies of the source's finished messages up to and including `through`;
-    /// a spawn records it as its `cutoff`. The copy goes [`FORK_PAGE`] messages per transaction, so a
-    /// long history never holds the database for long; the fork stays archived, out of every list,
-    /// until the last page lands, and one a crash cut short is purged with the other archived sessions.
-    pub fn fork_session(&self, source_id: &str, new: NewSession, through: &str, cutoff: Option<&str>) -> rusqlite::Result<Session> {
+    /// A copy of the source's finished messages through `through`, page by page (see "Fork and move"
+    /// in docs/engine-rewrite.md); `None`, with nothing left behind, if one of them went meanwhile.
+    pub fn fork_session(&self, source_id: &str, new: NewSession, through: &str, cutoff: Option<&str>) -> rusqlite::Result<Option<Session>> {
         let session = session_from(new, cutoff);
         let messages: Vec<String> = transaction(&self.lock(), |conn| {
             insert_session(conn, &session)?;
@@ -27,16 +25,28 @@ impl Store {
                 .query_map(params![source_id, through], |row| row.get(0))?
                 .collect()
         })?;
-        let mut copies = HashMap::new();
-        for page in messages.chunks(FORK_PAGE) {
-            transaction(&self.lock(), |conn| page.iter().try_for_each(|message| copy_message(conn, message, &session.id, &mut copies)))?;
+        let copied = self.copy_pages(&messages, &session.id);
+        if !matches!(copied, Ok(true)) {
+            self.lock().prepare_cached("DELETE FROM session WHERE id = ?1")?.execute([&session.id])?;
+            return copied.map(|_| None);
         }
-        let session = transaction(&self.lock(), |conn| {
+        transaction(&self.lock(), |conn| {
             super::reads::copy_reads(conn, source_id, &session.id, through)?;
             conn.prepare_cached("UPDATE session SET archived_at = NULL WHERE id = ?1")?.execute([&session.id])?;
-            super::sessions::session_in(conn, &session.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
-        })?;
-        Ok(session)
+            super::sessions::session_in(conn, &session.id)
+        })
+    }
+
+    /// Copies `messages` into `fork_id`, [`FORK_PAGE`] per transaction; `false` once one is found gone.
+    fn copy_pages(&self, messages: &[String], fork_id: &str) -> rusqlite::Result<bool> {
+        let mut copies = HashMap::new();
+        for page in messages.chunks(FORK_PAGE) {
+            let whole = transaction(&self.lock(), |conn| page.iter().try_fold(true, |whole, message| Ok(whole && copy_message(conn, message, fork_id, &mut copies)?)))?;
+            if !whole {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
     /// The session and its subagents, at any depth. Branches are independent and stay behind.
     pub fn session_tree(&self, id: &str) -> rusqlite::Result<Vec<String>> {
@@ -87,10 +97,8 @@ impl Store {
     }
 }
 
-/// `copies` maps source message ids to their copies, so a compaction boundary keeps pointing at its
-/// own tail. Parts are copied inside SQLite; only a compaction boundary, which names a message, is
-/// read and rewritten. A message removed meanwhile is skipped.
-fn copy_message(conn: &Connection, source: &str, session_id: &str, copies: &mut HashMap<String, String>) -> rusqlite::Result<()> {
+/// Copies one message inside SQLite, its compaction boundary pointed at its copied tail through `copies`; `false` if it is gone.
+fn copy_message(conn: &Connection, source: &str, session_id: &str, copies: &mut HashMap<String, String>) -> rusqlite::Result<bool> {
     let message_id = id::new("msg");
     let copied = conn
         .prepare_cached(
@@ -99,7 +107,7 @@ fn copy_message(conn: &Connection, source: &str, session_id: &str, copies: &mut 
         )?
         .execute(params![message_id, session_id, source])?;
     if copied == 0 {
-        return Ok(());
+        return Ok(false);
     }
     copies.insert(source.to_string(), message_id.clone());
     // The copy names the same images, so they stay as long as either message does.
@@ -116,7 +124,7 @@ fn copy_message(conn: &Connection, source: &str, session_id: &str, copies: &mut 
         }
         conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json) SELECT ?1, ?2, ?3, json FROM part WHERE id = ?4")?.execute(params![copy, message_id, session_id, part])?;
     }
-    Ok(())
+    Ok(true)
 }
 
 /// A compaction boundary, pointed at the copy of the tail it kept.
@@ -154,12 +162,22 @@ mod tests {
         }
         let boundary = store.create_message(&source.id, Role::User, None).unwrap();
         store.add_part(&boundary.id, &source.id, Part::Compaction { auto: true, tail_from: Some(ids[3].clone()) }).unwrap();
-        let fork = store.fork_session(&source.id, new("w"), &boundary.id, None).unwrap();
+        let fork = store.fork_session(&source.id, new("w"), &boundary.id, None).unwrap().unwrap();
         assert!(fork.archived_at.is_none(), "listed once every page landed");
         let copied = store.transcript(&fork.id).unwrap();
         assert_eq!(copied.len(), ids.len() + 1);
         assert!(matches!(&copied[0].parts[0].part, Part::Text { text } if text == "m0"));
         let Part::Compaction { tail_from: Some(tail), .. } = &copied.last().unwrap().parts[0].part else { panic!("the boundary was copied") };
         assert_eq!(tail, &copied[3].info.id, "it points at the copy of its tail, pages earlier");
+    }
+
+    #[test]
+    fn a_message_gone_before_its_page_is_copied_is_noticed() {
+        let store = store();
+        let source = store.create_session(new("w")).unwrap();
+        let fork = store.create_session(new("w")).unwrap();
+        let kept = store.create_message(&source.id, Role::User, None).unwrap();
+        assert!(!store.copy_pages(&[kept.id.clone(), "msg_gone".into()], &fork.id).unwrap(), "the fork would be missing history");
+        assert!(store.copy_pages(&[kept.id], &fork.id).unwrap());
     }
 }

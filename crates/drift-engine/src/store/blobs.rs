@@ -91,7 +91,7 @@ mod tests {
         message.status = crate::session::types::MessageStatus::Done;
         store.save_message(&message).unwrap();
         let hash = store.put_blob(&message.id, b"screenshot").unwrap();
-        let fork = store.fork_session(&source.id, new("w"), &message.id, None).unwrap();
+        let fork = store.fork_session(&source.id, new("w"), &message.id, None).unwrap().unwrap();
         assert_eq!(store.transcript(&fork.id).unwrap().len(), 1, "the message was copied");
         store.lock().execute("DELETE FROM message WHERE session_id = ?1", [&source.id]).unwrap();
         store.prune_blobs().unwrap();

@@ -15,6 +15,8 @@ pub enum TreeError {
     BadMessage,
     /// Nothing finished to copy yet.
     Empty,
+    /// Part of the history went while it was being copied, as a committed undo does; nothing was made.
+    Changed,
     Store(rusqlite::Error),
 }
 
@@ -39,7 +41,8 @@ impl Engine {
             NewSession { workspace_id: &source.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: &title, agent: &source.agent, model: source.model.as_ref() },
             &through,
             None,
-        )?;
+        )?
+        .ok_or(TreeError::Changed)?;
         self.hub.publish(Event::SessionCreated { session: session.clone() });
         Ok(session)
     }

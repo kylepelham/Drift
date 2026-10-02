@@ -230,7 +230,9 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   messages per transaction, parts copied inside SQLite (only a compaction boundary is read, to
   remap it), so a long history is never loaded into memory nor holds the database for long; the
   fork stays archived, out of every list, until the last page lands, and one a crash cut short is
-  purged with the other archived sessions. Which messages count is decided from message rows
+  purged with the other archived sessions. If a selected message is gone by the time its page is
+  copied (a committed undo), the partial fork is deleted and the request fails with 409 `changed`,
+  never a fork with holes in it. Which messages count is decided from message rows
   alone, without parts. Without `atMessage` it copies through the last stable message: if a turn
   is running, everything from the prompt it began at is left out (recorded when it starts, so a
   prompt steered in later does not move it). With `atMessage` it stops at that message, which must be

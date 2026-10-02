@@ -18,6 +18,8 @@ pub enum BranchError {
     /// Subagents are workers on their parent's goal; only a conversation can spawn a thread.
     FromSubagent,
     EmptyInstruction,
+    /// Part of the history went while it was being copied; nothing was made.
+    Changed,
     Turn(TurnError),
     Store(rusqlite::Error),
 }
@@ -42,7 +44,7 @@ impl Engine {
         let title = instruction.split_whitespace().take(TITLE_WORDS).collect::<Vec<_>>().join(" ");
         let new = NewSession { workspace_id: &source.workspace_id, parent_id: Some(&source.id), visibility: Visibility::Sibling, title: &title, agent: &source.agent, model: source.model.as_ref() };
         let session = match self.finished(&source)?.pop() {
-            Some(through) => self.store.fork_session(&source.id, new, &through, Some(&through))?,
+            Some(through) => self.store.fork_session(&source.id, new, &through, Some(&through))?.ok_or(BranchError::Changed)?,
             None => self.store.create_branch(new, None)?,
         };
         self.hub.publish(Event::SessionCreated { session: session.clone() });
