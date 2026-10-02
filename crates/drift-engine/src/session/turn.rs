@@ -1191,13 +1191,18 @@ impl Engine {
             self.settle(&mut row, ToolStatus::Error, None, refusal, None);
             return Outcome::Allowed;
         }
+        let writes = tool.call_mutates(&input);
+        let touches = writes.then(|| tool.touches(&ctx, &input));
+        let _turn = match self.lock_call(scope, &mut row, touches.as_ref().and_then(|paths| paths.as_deref())).await {
+            Ok(turn) => turn,
+            Err(outcome) => return outcome,
+        };
         for ask in tool.asks(&ctx, &input) {
             if let Some(refused) = self.permit(scope, &mut row, &call_id, &name, ask).await {
                 return refused;
             }
         }
-        let writes = tool.call_mutates(&input);
-        let (_turn, capture) = match self.before_write(scope, &mut row, writes.then(|| tool.touches(&ctx, &input))).await {
+        let capture = match self.before_write(scope, &mut row, touches).await {
             Ok(ready) => ready,
             Err(outcome) => return outcome,
         };
@@ -1253,21 +1258,19 @@ impl Engine {
         if scope.abort.is_cancelled() { Outcome::Aborted } else { Outcome::Allowed }
     }
 
-    /// For a writing call (`touches` is `Some`): its files' turn, held from the snapshot through the
-    /// record so another session's writer of them waits, and the snapshot. A call that cannot have
-    /// both is settled here and does not run.
-    async fn before_write(&self, scope: &CallScope<'_>, row: &mut PartRow, touches: Option<Option<Vec<PathBuf>>>) -> Result<(Option<crate::tool::lock::Held>, Option<super::changes::Capture>), Outcome> {
-        let Some(touches) = touches else { return Ok((None, None)) };
-        let turn = match &touches {
-            Some(paths) => match self.wait_turn(&scope.plan.workspace, Some(paths), scope.abort).await {
-                Some(held) => Some(held),
-                None => {
-                    self.settle(row, ToolStatus::Error, None, "Aborted while waiting for another write to these files.".into(), None);
-                    return Err(Outcome::Aborted);
-                }
-            },
-            None => None,
-        };
+    /// Holds named files before preparing their approval preview, until the call is recorded.
+    async fn lock_call(&self, scope: &CallScope<'_>, row: &mut PartRow, paths: Option<&[PathBuf]>) -> Result<Option<crate::tool::lock::Held>, Outcome> {
+        let Some(paths) = paths else { return Ok(None) };
+        if let Some(held) = self.wait_turn(&scope.plan.workspace, Some(paths), scope.abort).await {
+            return Ok(Some(held));
+        }
+        self.settle(row, ToolStatus::Error, None, "Aborted while waiting for another write to these files.".into(), None);
+        Err(Outcome::Aborted)
+    }
+
+    /// Captures an approved writing call under its already-held file locks.
+    async fn before_write(&self, scope: &CallScope<'_>, row: &mut PartRow, touches: Option<Option<Vec<PathBuf>>>) -> Result<Option<super::changes::Capture>, Outcome> {
+        let Some(touches) = touches else { return Ok(None) };
         self.snapshots.bind(&scope.plan.session.workspace_id, &scope.plan.workspace);
         // A whole-tree call starts from the tree the step's last one ended on; a file tool's write in between ends the chain.
         let chained = scope.tree.lock().unwrap().take().filter(|_| touches.is_none());
@@ -1276,7 +1279,7 @@ impl Engine {
             None => self.capture_before(&scope.plan.workspace, touches).await,
         };
         match captured {
-            Ok(capture) => Ok((turn, Some(capture))),
+            Ok(capture) => Ok(Some(capture)),
             Err(error) => {
                 // Nothing recorded means no way back, so the write does not happen.
                 self.settle(row, ToolStatus::Error, None, format!("refused to write: could not record the files first ({error})"), None);

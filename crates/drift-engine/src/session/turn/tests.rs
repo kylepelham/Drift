@@ -174,6 +174,31 @@ async fn next_ask(rx: &mut tokio::sync::broadcast::Receiver<crate::event::Envelo
 }
 
 #[tokio::test]
+async fn an_edit_holds_the_previewed_file_while_approval_is_pending() {
+    let h = harness().await;
+    let file = h._dir.join("ws/a.txt");
+    std::fs::write(&file, "one\none\n").unwrap();
+    h.provider.push(tool_call("read", r#"{"path":"a.txt"}"#)).push(text("read"));
+    h.engine.submit(&h.session.id, prompt("read a")).await.await_ok();
+    until_idle(&h).await;
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider.push(tool_call("edit", r#"{"path":"a.txt","old_string":"one","new_string":"two","replace_all":true}"#)).push(text("done"));
+    h.engine.submit(&h.session.id, prompt("edit a")).await.await_ok();
+    let ask = next_ask(&mut rx).await;
+    assert!(ask.ask.diff.as_deref().is_some_and(|diff| diff.contains("+two")));
+    let (workspace, other_file) = (h._dir.join("ws"), file.clone());
+    let other = tokio::spawn(async move {
+        let _held = crate::tool::lock::files(&workspace, std::slice::from_ref(&other_file)).await;
+        tokio::fs::read_to_string(other_file).await.unwrap()
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!other.is_finished(), "a competing writer waits until the approved edit is recorded");
+    h.engine.permissions.reply(&h.engine.hub, &ask.id, ReplyBody { reply: Reply::Once, pattern: None, message: None }).unwrap();
+    until_idle(&h).await;
+    assert_eq!(other.await.unwrap(), "two\ntwo\n");
+}
+
+#[tokio::test]
 async fn a_refusal_tells_the_model_what_the_user_said_and_the_turn_goes_on() {
     let h = harness().await;
     let mut rx = h.engine.hub.attach(None).rx;

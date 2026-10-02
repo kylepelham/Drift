@@ -1047,7 +1047,8 @@ Settled after the first external review of M1; each has a regression test.
   and says so: the 200 shown are then sorted from the files it reached, and earlier files may be
   missing. A Stop ends the walk and the file search in progress.
 - Writers of one file take turns across sessions and workers (`tool::lock`): a file tool's call
-  (`edit`, `write`, `apply_patch`) holds the files it names from its snapshot through its change
+  (`edit`, `write`, `apply_patch`) holds the files it names before computing the approval preview
+  and through the approval wait, its snapshot and its change
   record, formatting included, and so do the step's checks over the files they run on. A check
   without `$FILE` may touch anything, so it holds the whole workspace (a per-workspace lock every
   file holder shares), waiting for every file writer there and making them wait. Undo takes the
@@ -1493,7 +1494,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   - A file tool's ask carries `diff`, the change it would make (`edit` worked out as the edit
     would, against the file as it is now; `write` from what the file holds or from nothing;
     `apply_patch` the patch itself), cut at 64 KB on a line. The card shows it, so the user
-    approves the change, not just a path. Rules and approvals never look at it. An edit that
+    approves the change, not just a path. The call holds the file locks while preparing the preview,
+    waiting for approval and writing, so another session cannot add matches during that wait.
+    External editors and shell commands do not participate in those locks.
+    Rules and approvals never look at it. An edit that
     would not apply carries none; running it says why.
   - A shell line is split into the simple commands it runs (`tool::command`, bash and PowerShell
     quoting, escapes and operators) and each is judged on its own: any denied command denies the
