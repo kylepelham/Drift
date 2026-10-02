@@ -113,6 +113,7 @@ impl Engine {
         store.abandon_streaming_messages()?;
         store.interrupt_unfinished_tasks()?;
         tool::stage::recover_leftovers(&store);
+        let _ = std::fs::create_dir_all(std::env::temp_dir().join("Drift"));
         let credentials = Credentials::open(data_dir, options.file_credentials);
         let catalog = with_user_providers(Catalog::load(data_dir), &credentials);
         Ok(Arc::new(Self {

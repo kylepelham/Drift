@@ -31,7 +31,7 @@ impl Tool for Edit {
 
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
         let path = ctx.resolve(input["path"].as_str()?);
-        Some(Ask::path("edit", &path, &ctx.workspace, format!("Edit {}", display(&path, &ctx.workspace))))
+        ctx.ask_to_write(&path, "Edit")
     }
 
     fn mutates(&self) -> bool {

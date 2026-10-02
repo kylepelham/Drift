@@ -1277,7 +1277,11 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
 - Model-family system prompts are not a native feature: the engine sends one Drift base prompt
   (`session/prompts/system.txt`) to every model, plus the agent's prompt. Its environment section
   gives the working directory, whether it is a git repository, platform, date and the model's
-  catalog name; each MCP server whose tools the turn offers adds its initialize `instructions`
+  catalog name, and the scratch directory (`tool::scratch_dir`: `Drift` in the system temp
+  directory, made when the engine opens), where reading, writing, editing and patching ask
+  nothing (secret files still do), so temporary files stay out of the workspace. `task`'s text
+  asks the model to say whether a subagent should change code or only report, how to check its
+  work, and not to redo work it has handed off. Each MCP server whose tools the turn offers adds its initialize `instructions`
   under "# Instructions from the <name> MCP server" (`prompt::Setting`). Settings shows the
   family prompts read-only under a notice saying they are not applied, offers no save, and keeps
   Reset only to clear an override stored before. The shell still records `family:*` for the

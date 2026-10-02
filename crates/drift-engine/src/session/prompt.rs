@@ -31,6 +31,7 @@ pub fn system(setting: &Setting) -> String {
     prompt.push_str(&format!("Platform: {}\n", std::env::consts::OS));
     prompt.push_str(&format!("Date: {}\n", today()));
     prompt.push_str(&format!("Model: {model}\n"));
+    prompt.push_str(&format!("Scratch directory: {} (read and write there without asking; put temporary files there, not in the workspace)\n", crate::tool::scratch_dir().display()));
     for (server, text) in servers {
         prompt.push_str(&format!("\n# Instructions from the {server} MCP server\n\n{text}\n"));
     }

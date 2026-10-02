@@ -104,21 +104,29 @@ impl Context {
         path.starts_with(&self.workspace)
     }
 
-    /// An ask for anything outside the workspace; reads inside it are free.
+    /// An ask for anything outside the workspace and the scratch directory; reads inside them are free.
     pub fn ask_if_outside(&self, kind: &str, path: &Path, verb: &str) -> Option<Ask> {
-        if self.inside_workspace(path) {
+        if self.inside_workspace(path) || in_scratch(path) {
             return None;
         }
         Some(Ask::new(kind, path.to_string_lossy(), format!("{verb} {}", path.display())))
     }
 
     /// Reading asks for anything outside the workspace and for any file likely to hold secrets, even
-    /// inside it. Everything else in the workspace is free to read.
+    /// inside it. Everything else in the workspace, and the scratch directory, is free to read.
     pub fn ask_to_read(&self, path: &Path, verb: &str) -> Option<Ask> {
-        if self.owns_output(path) {
+        if self.owns_output(path) || (in_scratch(path) && !sensitive::is_sensitive(path)) {
             return None;
         }
         read_ask(&self.workspace, path, verb)
+    }
+
+    /// Writing a file asks, by the user's rules, unless it is in the scratch directory.
+    pub fn ask_to_write(&self, path: &Path, verb: &str) -> Option<Ask> {
+        if in_scratch(path) {
+            return None;
+        }
+        Some(Ask::path("edit", path, &self.workspace, format!("{verb} {}", display(path, &self.workspace))))
     }
 
     /// Output this session's own calls spilled to disk, which their results name: reading it back asks
@@ -127,6 +135,17 @@ impl Context {
         let owned = canonical(&self.engine.data_dir.join("tool-output").join(&self.session_id));
         path.starts_with(&owned) && path != owned
     }
+}
+
+/// A directory the model may read and write in without asking, for scratch files kept out of the
+/// workspace: `Drift` in the system's temporary directory. It is made when the engine opens.
+pub fn scratch_dir() -> PathBuf {
+    canonical(&std::env::temp_dir().join("Drift"))
+}
+
+fn in_scratch(path: &Path) -> bool {
+    let scratch = scratch_dir();
+    path.starts_with(&scratch) && path != scratch
 }
 
 /// The read rule without a call around it, for reads the engine makes itself (@ mentions).
@@ -469,5 +488,16 @@ pub(crate) mod tests {
         }
         assert!(registry.get("read").is_some());
         assert!(registry.get("nope").is_none());
+    }
+
+    #[test]
+    fn the_scratch_directory_is_free_to_read_and_write_and_the_rest_of_temp_is_not() {
+        let sandbox = Sandbox::new("scratch");
+        let scratch = scratch_dir().join(format!("notes-{}.txt", crate::random_hex(4)));
+        let elsewhere = canonical(&std::env::temp_dir().join("not-drift").join("notes.txt"));
+        assert!(sandbox.ctx.ask_to_write(&scratch, "Write").is_none() && sandbox.ctx.ask_to_read(&scratch, "Read").is_none());
+        assert!(sandbox.ctx.ask_to_write(&elsewhere, "Write").is_some() && sandbox.ctx.ask_to_read(&elsewhere, "Read").is_some());
+        assert!(sandbox.ctx.ask_to_write(&scratch_dir(), "Write").is_some(), "the directory itself is not a file to write");
+        assert!(sandbox.ctx.ask_to_read(&scratch_dir().join(".env"), "Read").is_some(), "a secret is a secret even there");
     }
 }
