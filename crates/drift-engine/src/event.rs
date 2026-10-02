@@ -47,8 +47,10 @@ pub enum Event {
     #[serde(rename = "part.updated")]
     PartUpdated { part: PartRow },
     /// Streamed text appended to a `text` or `reasoning` part; the part itself is saved later.
+    /// `offset` is the length of its text before this delta, in UTF-16 units as JavaScript counts:
+    /// a client whose snapshot already holds that much skips what it has.
     #[serde(rename = "part.delta", rename_all = "camelCase")]
-    PartDelta { session_id: String, message_id: String, part_id: String, delta: String },
+    PartDelta { session_id: String, message_id: String, part_id: String, delta: String, offset: usize },
     #[serde(rename = "todo.updated", rename_all = "camelCase")]
     TodoUpdated { session_id: String, todos: Vec<Todo> },
     #[serde(rename = "permission.asked")]

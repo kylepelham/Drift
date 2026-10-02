@@ -30,7 +30,18 @@ const MMAP_SIZE_BYTES: i64 = 134_217_728;
 const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const WORKSPACE_COLUMNS: &str = "id, path, name, icon, last_used";
 
-pub struct Store(Mutex<Connection>);
+pub struct Store {
+    conn: Mutex<Connection>,
+    /// Text and reasoning parts still streaming, as far as their deltas have gone: every read of a
+    /// transcript shows them so, though the part itself is saved only as it closes and at checkpoints.
+    streaming: Mutex<std::collections::HashMap<String, crate::session::types::PartRow>>,
+}
+
+impl Store {
+    fn new(conn: Connection) -> Self {
+        Self { conn: Mutex::new(conn), streaming: Mutex::default() }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -55,13 +66,13 @@ pub fn open_file(file: &Path) -> rusqlite::Result<Store> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "mmap_size", MMAP_SIZE_BYTES)?;
     migrations::apply(&conn)?;
-    Ok(Store(Mutex::new(conn)))
+    Ok(Store::new(conn))
 }
 
 impl Store {
     /// The one connection. Hold the guard for the whole unit of work and no longer.
     pub fn lock(&self) -> MutexGuard<'_, Connection> {
-        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub fn workspace(&self, id: &str) -> rusqlite::Result<Option<Workspace>> {
@@ -139,7 +150,7 @@ pub(crate) mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.pragma_update(None, "foreign_keys", true).unwrap();
         migrations::apply(&conn).unwrap();
-        Store(Mutex::new(conn))
+        Store::new(conn)
     }
 
     #[test]

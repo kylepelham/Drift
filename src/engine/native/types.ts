@@ -913,6 +913,7 @@ export interface components {
         } | {
             delta: string;
             messageId: string;
+            offset: number;
             partId: string;
             sessionId: string;
             /** @enum {string} */

@@ -104,7 +104,12 @@ with `cursor` replays from a ring buffer; a cursor that has aged out, or that is
 head because it came from another process, returns `resync` and the client hydrates. A
 client that sees a different `instance` in `hello` hydrates as well. Events that arrive
 while a hydrate is in flight are held and applied after it, skipping any the snapshot
-already covered.
+already covered. A text or reasoning part still streaming is read as far as its deltas have
+gone (the store keeps it in memory, in step with what was published, and writes it to disk
+every 2 s and as it closes, so a crash loses at most that much), and each `part.delta` names
+its `offset`, the text's length before it in UTF-16 units, so a client whose snapshot already
+holds a delta skips it and one cut short mid-delta completes it. A resume that needs no
+hydrate brings the client back online by itself (`resumed`).
 
 ## Data model
 

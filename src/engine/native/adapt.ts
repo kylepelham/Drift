@@ -213,7 +213,7 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
     case "part.delta":
       return {
         type: "message.part.delta",
-        properties: { sessionID: event.sessionId, messageID: event.messageId, partID: event.partId, field: "text", delta: event.delta },
+        properties: { sessionID: event.sessionId, messageID: event.messageId, partID: event.partId, field: "text", delta: event.delta, offset: event.offset },
       } as unknown as Event
     case "permission.asked":
       return { type: "permission.updated", properties: adaptPermission(event.request, "") }

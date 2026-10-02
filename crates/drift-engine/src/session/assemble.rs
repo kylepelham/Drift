@@ -17,10 +17,16 @@ pub struct Assembler<'a> {
     pub calls: Vec<PartRow>,
 }
 
+/// How often a streaming part is written to disk as it stands, so a crash loses little of it.
+const CHECKPOINT: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// The block currently streaming; tool input arrives as JSON text and is parsed at stop.
 struct Open {
     row: PartRow,
     tool_json: String,
+    /// Its text's length in UTF-16 units, which each delta names as its offset.
+    length: usize,
+    saved: std::time::Instant,
 }
 
 impl<'a> Assembler<'a> {
@@ -75,22 +81,32 @@ impl<'a> Assembler<'a> {
         self.stop_block()?;
         let row = self.store.add_part(&self.message.id, &self.message.session_id, part)?;
         self.hub.publish(Event::PartCreated { part: row.clone() });
-        self.open = Some(Open { row, tool_json: String::new() });
+        self.open = Some(Open { row, tool_json: String::new(), length: 0, saved: std::time::Instant::now() });
         Ok(())
     }
 
+    /// Appends to the open block where every read sees it before the delta is published, so a
+    /// snapshot taken after an event never lacks what that event carried.
     fn delta(&mut self, delta: &str) -> rusqlite::Result<()> {
         let Some(open) = &mut self.open else { return Ok(()) };
         match &mut open.row.part {
             Part::Text { text } | Part::Reasoning { text, .. } => text.push_str(delta),
             _ => return Ok(()),
         }
+        self.store.stream_part(&open.row);
+        let offset = open.length;
+        open.length += delta.encode_utf16().count();
         self.hub.publish(Event::PartDelta {
             session_id: self.message.session_id.clone(),
             message_id: self.message.id.clone(),
             part_id: open.row.id.clone(),
             delta: delta.into(),
+            offset,
         });
+        if open.saved.elapsed() >= CHECKPOINT {
+            open.saved = std::time::Instant::now();
+            self.store.checkpoint_part(&open.row)?;
+        }
         Ok(())
     }
 
@@ -178,6 +194,32 @@ mod tests {
             });
         }
         assert_eq!(kinds, ["created", "delta", "updated", "created", "delta", "delta", "updated", "created", "updated"]);
+    }
+
+    #[test]
+    fn a_snapshot_mid_stream_holds_the_text_so_far_and_deltas_say_where_they_start() {
+        let store = store();
+        let hub = Hub::new(64);
+        let session = store
+            .create_session(NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None })
+            .unwrap();
+        let message = store.create_message(&session.id, Role::Assistant, None).unwrap();
+        let mut rx = hub.attach(None).rx;
+        let mut assembler = Assembler::new(&store, &hub, &message);
+        for chunk in [Chunk::TextStart, Chunk::TextDelta("héllo ".into()), Chunk::TextDelta("wörld".into())] {
+            assembler.apply(chunk).unwrap();
+        }
+        let parts = store.transcript(&session.id).unwrap().remove(0).parts;
+        assert_eq!(parts[0].part, Part::Text { text: "héllo wörld".into() }, "a reader mid-stream sees every published delta");
+        let offsets: Vec<usize> = std::iter::from_fn(|| rx.try_recv().ok()).filter_map(|envelope| match envelope.event {
+            Event::PartDelta { offset, .. } => Some(offset),
+            _ => None,
+        }).collect();
+        assert_eq!(offsets, [0, 6], "in UTF-16 units, as a browser counts");
+        assembler.apply(Chunk::BlockStop).unwrap();
+        store.lock().execute("UPDATE part SET json = '{\"type\":\"text\",\"text\":\"on disk\"}'", []).unwrap();
+        let parts = store.transcript(&session.id).unwrap().remove(0).parts;
+        assert_eq!(parts[0].part, Part::Text { text: "on disk".into() }, "a closed part is read from disk again");
     }
 
     #[test]

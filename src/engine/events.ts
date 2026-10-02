@@ -65,7 +65,7 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, st
       duration: typeof raw.properties.duration === "number" ? raw.properties.duration : 5000,
     })
   if (raw.type === "message.part.delta")
-    return appendPartDelta(set, raw.properties as { sessionID: string; messageID: string; partID: string; field: string; delta: string })
+    return appendPartDelta(set, raw.properties as PartDeltaRef)
   if (raw.type === "session.compacted") {
     const sessionID = raw.properties.sessionID as string
     clearError(set, sessionID)
@@ -352,10 +352,17 @@ function reconcilePart(existing: Part, incoming: Part) {
   return incoming
 }
 
-function appendPartDelta(
-  set: SetEngineState,
-  ref: { sessionID: string; messageID: string; partID: string; field: string; delta: string },
-) {
+/** `offset`, when the engine sends it, is where in the field the delta starts (UTF-16 units). */
+type PartDeltaRef = { sessionID: string; messageID: string; partID: string; field: string; delta: string; offset?: number }
+
+/** The field after a delta: a snapshot that already holds it is left alone, one cut short is completed. */
+export function withDelta(current: string, delta: string, offset?: number) {
+  if (offset === undefined || offset > current.length) return current + delta
+  if (current.length >= offset + delta.length) return current
+  return current.slice(0, offset) + delta
+}
+
+function appendPartDelta(set: SetEngineState, ref: PartDeltaRef) {
   set(
     produce((draft) => {
       const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
@@ -368,7 +375,8 @@ function appendPartDelta(
       if (typeof current === "string") {
         // AssistantFlow mirrors parts into a persistent secondary store. Replacing the part gives
         // that store a new source identity so streamed fields invalidate its Markdown consumer.
-        entry.parts[index] = { ...part, [ref.field]: current + ref.delta } as Part
+        const next = withDelta(current, ref.delta, ref.offset)
+        if (next !== current) entry.parts[index] = { ...part, [ref.field]: next } as Part
       }
     }),
   )

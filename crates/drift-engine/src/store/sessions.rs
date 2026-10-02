@@ -146,7 +146,7 @@ impl Store {
         let infos: Vec<Message> = stmt
             .query_map(params![session_id, before, limit as i64], map_message)?
             .collect::<Result<_, _>>()?;
-        with_parts_in(&conn, session_id, infos)
+        with_parts_in(self, &conn, session_id, infos)
     }
 
     /// A session's messages in order without their parts: for deciding about a long history without loading it.
@@ -169,7 +169,7 @@ impl Store {
             .prepare_cached(&format!("SELECT {MESSAGE_COLUMNS} FROM message WHERE session_id = ?1 AND id >= ?2 ORDER BY id"))?
             .query_map(params![session_id, from], map_message)?
             .collect::<Result<_, _>>()?;
-        with_parts_in(&conn, session_id, infos)
+        with_parts_in(self, &conn, session_id, infos)
     }
 
     /// Where the model's view of a compacted session starts: the kept tail of the latest finished
@@ -208,7 +208,7 @@ impl Store {
             .prepare_cached(&format!("SELECT {MESSAGE_COLUMNS} FROM message WHERE session_id = ?1 AND role = 'assistant' ORDER BY id DESC LIMIT 1"))?
             .query_row([session_id], map_message)
             .optional()?;
-        Ok(with_parts_in(&conn, session_id, info.into_iter().collect())?.pop())
+        Ok(with_parts_in(self, &conn, session_id, info.into_iter().collect())?.pop())
     }
 
     /// One message and its parts.
@@ -217,14 +217,27 @@ impl Store {
         let info = conn.prepare_cached(&format!("SELECT {MESSAGE_COLUMNS} FROM message WHERE id = ?1"))?.query_row([message_id], map_message).optional()?;
         let Some(info) = info else { return Ok(None) };
         let session_id = info.session_id.clone();
-        Ok(with_parts_in(&conn, &session_id, vec![info])?.pop())
+        Ok(with_parts_in(self, &conn, &session_id, vec![info])?.pop())
     }
 
     pub fn add_part(&self, message_id: &str, session_id: &str, part: Part) -> rusqlite::Result<PartRow> {
         insert_part(&self.lock(), message_id, session_id, part)
     }
 
+    /// Saves the part; one that was streaming is closed, so reads take it from here.
     pub fn save_part(&self, row: &PartRow) -> rusqlite::Result<()> {
+        save_part_in(&self.lock(), row)?;
+        self.streaming.lock().unwrap().remove(&row.id);
+        Ok(())
+    }
+
+    /// The part as far as it has streamed, for every read until it closes; not written to disk.
+    pub fn stream_part(&self, row: &PartRow) {
+        self.streaming.lock().unwrap().insert(row.id.clone(), row.clone());
+    }
+
+    /// Writes a still-streaming part as it stands, so a crash loses at most what came since.
+    pub fn checkpoint_part(&self, row: &PartRow) -> rusqlite::Result<()> {
         save_part_in(&self.lock(), row)
     }
 
@@ -292,7 +305,7 @@ fn map_message(row: &Row) -> rusqlite::Result<Message> {
 }
 
 /// Attaches parts to messages (in id order) with one query over their id range, not one per message.
-fn with_parts_in(conn: &Connection, session_id: &str, infos: Vec<Message>) -> rusqlite::Result<Vec<MessageWithParts>> {
+fn with_parts_in(store: &Store, conn: &Connection, session_id: &str, infos: Vec<Message>) -> rusqlite::Result<Vec<MessageWithParts>> {
     let (Some(first), Some(last)) = (infos.first(), infos.last()) else { return Ok(Vec::new()) };
     let mut by_message: HashMap<String, Vec<PartRow>> = HashMap::new();
     let mut stmt = conn.prepare_cached(
@@ -303,8 +316,10 @@ fn with_parts_in(conn: &Connection, session_id: &str, infos: Vec<Message>) -> ru
         let message_id: String = row.get(3)?;
         Ok((message_id.clone(), map_part(row, &message_id)?))
     })?;
+    let streaming = store.streaming.lock().unwrap();
     for row in rows {
         let (message_id, part) = row?;
+        let part = streaming.get(&part.id).cloned().unwrap_or(part);
         by_message.entry(message_id).or_default().push(part);
     }
     Ok(infos.into_iter().map(|info| MessageWithParts { parts: by_message.remove(&info.id).unwrap_or_default(), info }).collect())

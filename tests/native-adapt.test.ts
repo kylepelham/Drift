@@ -182,8 +182,8 @@ test("events translate to the legacy reducer's vocabulary", () => {
     type: "session.status",
     properties: { sessionID: "ses_1", status: { type: "busy" } },
   })
-  const delta = adaptEvent({ type: "part.delta", sessionId: "s", messageId: "m", partId: "p", delta: "hi" }, workspaces)
-  expect(delta).toEqual({ type: "message.part.delta", properties: { sessionID: "s", messageID: "m", partID: "p", field: "text", delta: "hi" } })
+  const delta = adaptEvent({ type: "part.delta", sessionId: "s", messageId: "m", partId: "p", delta: "hi", offset: 3 }, workspaces)
+  expect(delta).toEqual({ type: "message.part.delta", properties: { sessionID: "s", messageID: "m", partID: "p", field: "text", delta: "hi", offset: 3 } })
   const request: components["schemas"]["PermissionRequest"] = {
     id: "perm_1",
     sessionId: "ses_1",
@@ -209,4 +209,12 @@ test("a call that never started has no duration", () => {
   expect(state.time?.start).toBeUndefined()
   expect(state.time?.end).toBe(1_700_000_000_000)
   expect(toolElapsedMs(state as never, Date.now())).toBeUndefined()
+})
+
+test("a delta a snapshot already holds is skipped, and one it lacks is added where it starts", async () => {
+  const { withDelta } = await import("../src/engine/events")
+  expect(withDelta("hello world", "world", 6), "the snapshot already has it").toBe("hello world")
+  expect(withDelta("hello wo", "world", 6), "cut short mid-delta").toBe("hello world")
+  expect(withDelta("hello ", "world", 6)).toBe("hello world")
+  expect(withDelta("hello ", "world"), "an engine that sends no offset appends").toBe("hello world")
 })
