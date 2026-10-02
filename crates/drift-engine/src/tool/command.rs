@@ -89,8 +89,13 @@ const READERS: [&str; 34] = [
 ];
 /// Git subcommands that only read.
 const GIT_READERS: [&str; 9] = ["status", "diff", "log", "show", "rev-parse", "ls-files", "blame", "describe", "grep"];
-/// `find` actions that change or write files.
-const FIND_WRITERS: [&str; 6] = ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint"];
+/// Arguments that make an otherwise reading program change or write files, or run another program:
+/// `find`'s actions and file outputs (`-fprint`, `-fprint0`, `-fprintf`, `-fls`), `tree -o`, `rg --pre`.
+const WRITING_ARGS: [(&str, &[&str]); 3] = [
+    ("find", &["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fls"]),
+    ("tree", &["-o"]),
+    ("rg", &["--pre"]),
+];
 
 /// True only for a line that can be read, writes nothing by redirection, and runs nothing but
 /// known readers; unclear lines count as writing.
@@ -103,9 +108,14 @@ fn reader(command: &str) -> bool {
     let words: Vec<String> = command.split_whitespace().map(str::to_ascii_lowercase).collect();
     let Some(first) = words.first() else { return true };
     let program = first.rsplit(['/', '\\']).next().unwrap_or(first).trim_end_matches(".exe");
+    let writing = WRITING_ARGS.iter().find(|(name, _)| *name == program).map_or(&[][..], |(_, args)| *args);
+    // A prefix catches the variants and joined forms: `-fprint0`, `-fprintf`, `--pre=cmd`, `-ofile`.
+    if words.iter().skip(1).any(|word| writing.iter().any(|arg| word.starts_with(arg))) {
+        return false;
+    }
     match program {
         "git" => words.get(1).is_some_and(|sub| GIT_READERS.contains(&sub.as_str())) && !words.iter().any(|w| w.starts_with("--output")),
-        "find" => !words.iter().any(|w| FIND_WRITERS.contains(&w.as_str())),
+        "find" => true,
         _ => READERS.contains(&program),
     }
 }
@@ -429,7 +439,7 @@ mod tests {
         for line in ["git status", "git diff --stat && git log --oneline -5", "ls -la src | wc -l", "rg TODO src 2>/dev/null", "cd crates && cat Cargo.toml", "find . -name '*.rs'", "echo done"] {
             assert!(reads_only(Dialect::Bash, line), "{line}");
         }
-        for line in ["git commit -m x", "git status > out.txt", "cargo test", "find . -name x -delete", "rm a", "ls && touch b", "echo $(rm x)", "git diff --output=patch", "sed -i s/a/b/ f"] {
+        for line in ["git commit -m x", "git status > out.txt", "cargo test", "find . -name x -delete", "rm a", "ls && touch b", "echo $(rm x)", "git diff --output=patch", "sed -i s/a/b/ f", "find . -fprint0 out", "find . -fprintf out %p", "find . -fls out", "tree -o out.txt", "rg --pre ./script x", "rg --pre=./script x"] {
             assert!(!reads_only(Dialect::Bash, line), "{line}");
         }
         assert!(reads_only(Dialect::PowerShell, "Get-ChildItem src; Select-String -Path a.txt -Pattern x"));
