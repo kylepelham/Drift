@@ -66,9 +66,16 @@ struct Found {
     withheld: usize,
 }
 
-/// Binary files end their search at the first NUL; files that may hold secrets are skipped unless the
-/// search names one directly, which has already asked.
+/// One matching line: the file as shown, its line number, and the line.
+type Hit = (String, u64, String);
+
+/// Searches files on several threads, as ripgrep does, and lists matches by file then line. Binary
+/// files end their search at the first NUL; files that may hold secrets are skipped unless the
+/// search names one directly, which has already asked. Past [`MAX_MATCHES`] the walk stops, so which
+/// matches are listed then depends on which files were searched first.
 fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path) -> Result<Found, ToolError> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
     let matcher = RegexMatcherBuilder::new()
         .line_terminator(Some(b'\n'))
         .build(pattern)
@@ -77,36 +84,48 @@ fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path) -
         .map(|glob| GlobBuilder::new(glob).literal_separator(false).build().map(|g| g.compile_matcher()))
         .transpose()
         .map_err(|e| ToolError(format!("invalid include glob: {e}")))?;
-    let mut searcher = SearcherBuilder::new().line_number(true).binary_detection(BinaryDetection::quit(0)).build();
-    let mut lines = Vec::new();
-    let mut withheld = 0;
-    for entry in super::walk(root).flatten() {
-        if !entry.file_type().is_some_and(|t| t.is_file()) {
-            continue;
-        }
-        let relative = entry.path().strip_prefix(root).unwrap_or(entry.path());
-        if include.as_ref().is_some_and(|glob| !glob.is_match(relative) && !glob.is_match(entry.file_name())) {
-            continue;
-        }
-        if entry.path() != root && is_sensitive(entry.path()) {
-            withheld += 1;
-            continue;
-        }
-        let name = display(entry.path(), workspace);
-        let _ = searcher.search_path(
-            &matcher,
-            entry.path(),
-            UTF8(|line_number, line| {
-                lines.push(format!("{name}:{line_number}: {}", clip(line.trim_end())));
-                Ok(lines.len() <= MAX_MATCHES)
-            }),
-        );
-        if lines.len() > MAX_MATCHES {
-            lines.truncate(MAX_MATCHES);
-            return Ok(Found { lines, truncated: true, withheld });
-        }
-    }
-    Ok(Found { lines, truncated: false, withheld })
+    let hits: Mutex<Vec<Hit>> = Mutex::default();
+    let (count, withheld) = (AtomicUsize::new(0), AtomicUsize::new(0));
+    super::walker(root).build_parallel().run(|| {
+        let mut searcher = SearcherBuilder::new().line_number(true).binary_detection(BinaryDetection::quit(0)).build();
+        let (matcher, include, hits, count, withheld) = (&matcher, &include, &hits, &count, &withheld);
+        Box::new(move |entry| {
+            use ignore::WalkState;
+            let Ok(entry) = entry else { return WalkState::Continue };
+            if count.load(Ordering::Relaxed) > MAX_MATCHES {
+                return WalkState::Quit;
+            }
+            if !entry.file_type().is_some_and(|t| t.is_file()) {
+                return WalkState::Continue;
+            }
+            let relative = entry.path().strip_prefix(root).unwrap_or(entry.path());
+            if include.as_ref().is_some_and(|glob| !glob.is_match(relative) && !glob.is_match(entry.file_name())) {
+                return WalkState::Continue;
+            }
+            if entry.path() != root && is_sensitive(entry.path()) {
+                withheld.fetch_add(1, Ordering::Relaxed);
+                return WalkState::Continue;
+            }
+            let name = display(entry.path(), workspace);
+            let mut found = Vec::new();
+            let _ = searcher.search_path(
+                matcher,
+                entry.path(),
+                UTF8(|line_number, line| {
+                    found.push((name.clone(), line_number, clip(line.trim_end())));
+                    Ok(count.fetch_add(1, Ordering::Relaxed) < MAX_MATCHES)
+                }),
+            );
+            hits.lock().unwrap().extend(found);
+            WalkState::Continue
+        })
+    });
+    let mut hits = hits.into_inner().unwrap();
+    hits.sort();
+    let truncated = hits.len() > MAX_MATCHES;
+    hits.truncate(MAX_MATCHES);
+    let lines = hits.into_iter().map(|(name, line, text)| format!("{name}:{line}: {text}")).collect();
+    Ok(Found { lines, truncated, withheld: withheld.into_inner() })
 }
 
 fn clip(line: &str) -> String {
@@ -156,6 +175,25 @@ mod tests {
         assert!(Grep.ask(&sandbox.ctx, &named).is_some_and(|ask| ask.title.contains("may hold secrets")));
         let direct = Grep.run(&sandbox.ctx, named).await.unwrap();
         assert_eq!(direct.output, ".env:1: token = hunter2", "a secret named directly is searched once approved");
+    }
+
+    #[tokio::test]
+    async fn many_files_searched_together_list_in_order_and_stop_past_the_limit() {
+        let sandbox = Sandbox::new("grep-many");
+        for i in 0..60 {
+            sandbox.file(&format!("f{i:02}.txt"), "hit\nmiss\nhit\n");
+        }
+        let few = Grep.run(&sandbox.ctx, json!({ "pattern": "hit", "include": "f0*.txt" })).await.unwrap();
+        let lines: Vec<&str> = few.output.lines().collect();
+        assert_eq!(lines.len(), 20);
+        assert!(lines.windows(2).all(|pair| pair[0] < pair[1]) && lines[0] == "f00.txt:1: hit", "by file then line: {lines:?}");
+        let all = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
+        assert_eq!((all.metadata["count"].as_u64(), all.metadata["truncated"].as_bool()), (Some(120), Some(false)), "120 matches fit");
+        for i in 60..110 {
+            sandbox.file(&format!("g{i}.txt"), "hit\nhit\n");
+        }
+        let past = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
+        assert_eq!((past.metadata["count"].as_u64(), past.metadata["truncated"].as_bool()), (Some(MAX_MATCHES as u64), Some(true)));
     }
 
     #[tokio::test]

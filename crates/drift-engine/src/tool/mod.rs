@@ -165,11 +165,14 @@ const VCS_DIRS: [&str; 4] = [".git", ".hg", ".svn", ".jj"];
 /// Walks `root` as git would list it (ignore rules apply, hidden files included) without descending
 /// into version-control internals.
 pub fn walk(root: &Path) -> ignore::Walk {
-    ignore::WalkBuilder::new(root)
-        .hidden(false)
-        .require_git(false)
-        .filter_entry(|entry| !entry.file_name().to_str().is_some_and(|name| VCS_DIRS.contains(&name)))
-        .build()
+    walker(root).build()
+}
+
+/// [`walk`]'s settings, for a walk that runs on several threads.
+pub fn walker(root: &Path) -> ignore::WalkBuilder {
+    let mut builder = ignore::WalkBuilder::new(root);
+    builder.hidden(false).require_git(false).filter_entry(|entry| !entry.file_name().to_str().is_some_and(|name| VCS_DIRS.contains(&name)));
+    builder
 }
 
 /// Resolves through the deepest existing ancestor, so a file that does not exist yet still lands where it will.
