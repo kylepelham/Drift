@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
 use super::turn::{Prompt, TurnEnd, TurnError};
-use super::types::{MessageStatus, Part, PartRow, Role, ToolStatus};
+use super::types::{Ending, MessageStatus, Part, PartRow, Role, ToolStatus};
 use crate::event::Event;
 use crate::Engine;
 
@@ -344,6 +344,10 @@ impl Engine {
                 let text = format!("The subagent stopped at its output limit before finishing; this is not a complete answer. What it had written:\n\n{}", clip(&partial, RESULT_CHARS));
                 (TaskState::Failed, text, "incomplete")
             }
+            Attempt::Refused(partial) => {
+                let before = if partial.trim().is_empty() { String::new() } else { format!(" What it had written:\n\n{}", clip(&partial, RESULT_CHARS)) };
+                (TaskState::Failed, format!("The provider's safety filter ended the subagent's reply; this is not an answer.{before}"), "refused")
+            }
             Attempt::Failed(error) => (TaskState::Failed, format!("The subagent failed: {error}"), "failed"),
             Attempt::Stopped => (TaskState::Stopped, STOPPED.into(), "stopped"),
             Attempt::None => (TaskState::Failed, "The subagent finished without a reply.".into(), "failed"),
@@ -503,6 +507,8 @@ pub(crate) enum Attempt {
     Replied(String),
     /// It finished writing only because it hit the output limit; the text is partial.
     Incomplete(String),
+    /// The provider's safety filter ended it; the text is whatever came before.
+    Refused(String),
     Failed(String),
     Stopped,
     None,
@@ -517,7 +523,9 @@ pub(crate) fn last_attempt(store: &crate::store::Store, session_id: &str) -> Att
     };
     let text = || last.parts.iter().filter_map(|row| match &row.part { Part::Text { text } => Some(text.as_str()), _ => None }).collect::<Vec<_>>().join("\n");
     match last.info.status {
-        MessageStatus::Done if last.info.error.is_some() => Attempt::Incomplete(text()),
+        MessageStatus::Done if last.info.ending == Some(Ending::Refused) => Attempt::Refused(text()),
+        // Typed for new replies; one from before the field is known by its error alone.
+        MessageStatus::Done if last.info.ending == Some(Ending::Length) || last.info.error.is_some() => Attempt::Incomplete(text()),
         MessageStatus::Done => Attempt::Replied(text()),
         MessageStatus::Error | MessageStatus::Paused => Attempt::Failed(last.info.error.clone().unwrap_or_else(|| "unknown error".into())),
         MessageStatus::Aborted => Attempt::Stopped,

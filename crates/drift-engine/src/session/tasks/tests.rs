@@ -670,6 +670,24 @@ async fn a_worker_cut_off_at_its_output_limit_is_incomplete_not_an_answer() {
 }
 
 #[tokio::test]
+async fn a_worker_whose_reply_the_provider_refused_says_so_not_that_it_was_cut_off() {
+    let h = harness().await;
+    let refused = vec![Chunk::TextStart, Chunk::TextDelta("I can".into()), Chunk::BlockStop, Chunk::Stop(crate::llm::StopReason::Refused)];
+    h.provider
+        .push_for("PARENT", launches(&[json!({ "description": "Write it up", "prompt": "CHILD write it" })]))
+        .push_for("PARENT", text("it was refused"))
+        .push_for("CHILD write", refused);
+    h.engine.submit(&h.session.id, prompt("PARENT report")).await.unwrap();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, metadata, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, crate::session::types::ToolStatus::Error);
+    assert_eq!(metadata.as_ref().unwrap()["outcome"], "refused");
+    let output = output.as_deref().unwrap();
+    assert!(output.contains("safety filter") && !output.contains("output limit"), "{output}");
+}
+
+#[tokio::test]
 async fn with_background_turned_off_an_explicit_request_is_refused_and_foreground_still_waits() {
     let h = harness().await;
     h.engine.store.set_setting(BACKGROUND_TASKS_KEY, &false).unwrap();

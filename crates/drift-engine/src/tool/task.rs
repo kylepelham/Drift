@@ -314,6 +314,7 @@ impl Tool for ReadThread {
                 Attempt::Replied(reply) if !reply.is_empty() => lines.push(format!("Latest reply:\n{}", clip(&reply, SUMMARY_CHARS))),
                 Attempt::Failed(error) => lines.push(format!("Its last attempt failed: {error}")),
                 Attempt::Incomplete(partial) => lines.push(format!("Its latest reply stopped at the output limit, unfinished:\n{}", clip(&partial, SUMMARY_CHARS))),
+                Attempt::Refused(_) => lines.push("Its latest reply was ended by the provider's safety filter.".into()),
                 Attempt::Stopped => lines.push("Its last attempt was stopped.".into()),
                 Attempt::Replied(_) | Attempt::None => {}
             }

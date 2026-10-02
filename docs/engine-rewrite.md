@@ -188,8 +188,10 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   last attempt decides, skipping only *finished* compaction summaries. A reply (clipped at 20k
   chars) is the result; a failed or stopped turn fails the call, never falling back to an earlier
   reply or a summary. A reply that stopped at the output limit is `incomplete`: its partial text is
-  kept in the result, marked as not a complete answer, and the call and task fail. Either way the
-  call keeps `metadata.sessionId` and `metadata.outcome` (`replied`, `incomplete`, `failed`,
+  kept in the result, marked as not a complete answer, and the call and task fail. A reply the
+  provider's safety filter ended is `refused`, said as such, and fails the same way; which of the
+  two is read from the message's typed `ending`, never from its error text. Either way the call
+  keeps `metadata.sessionId` and `metadata.outcome` (`replied`, `incomplete`, `refused`, `failed`,
   `stopped`) for drill-down.
   Listings include subagent records for inspection; the sidebar shows only
   active/awaiting-attention workers. Background mode is described below.
