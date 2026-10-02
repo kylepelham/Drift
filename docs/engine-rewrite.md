@@ -1437,6 +1437,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     chain. A move that leaves the workspace or cannot be read (`~`, `-`, a variable, a glob, a flag)
     still asks, and so does every move after it. Nothing grants directory changes: the ask's
     pattern is still the whole line.
+  - `bash` takes `workdir`, a directory inside the workspace to run in (one outside is refused,
+    pointing at `cd`, which asks). Moves in the line are followed from it, and files a reading line
+    prints are found from it.
   - "Always" grants each command separately. Known subcommand tools (`git`, `cargo`, `npm run`,
     `docker compose`, `gh`, ...) widen to their subcommand with any arguments (`cargo test` covers
     `cargo test --release`, not `cargo publish`); anything else, and every non-shell target such as

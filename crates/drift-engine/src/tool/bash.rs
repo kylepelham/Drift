@@ -92,7 +92,8 @@ impl Tool for Bash {
                 "properties": {
                     "command": { "type": "string", "description": "The command to run." },
                     "timeout": { "type": "integer", "description": "Milliseconds before the command is stopped. Default: the user's setting. Max 86400000." },
-                    "description": { "type": "string", "description": "Five to ten words saying what the command does, shown to the user." }
+                    "description": { "type": "string", "description": "Five to ten words saying what the command does, shown to the user." },
+                    "workdir": { "type": "string", "description": "Directory to run in, inside the workspace, instead of `cd dir && ...`. Default: the workspace root." }
                 },
                 "required": ["command"]
             }),
@@ -102,7 +103,8 @@ impl Tool for Bash {
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
         let command = input["command"].as_str()?;
         let mut ask = Ask::shell(self.dialect(), command, input["description"].as_str().unwrap_or(command));
-        drop_moves_within(ctx, &mut ask);
+        // A workdir outside the workspace is refused when the call runs, so moves are judged from inside.
+        drop_moves_within(ctx, &workdir(ctx, input).unwrap_or_else(|_| ctx.workspace.clone()), &mut ask);
         Some(ask)
     }
 
@@ -119,6 +121,7 @@ impl Tool for Bash {
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let command = required_str(&input, "command")?;
+            let dir = workdir(ctx, &input)?;
             let limit = limit_for(ctx, &input);
             let mut cmd = match &self.shell {
                 Shell::Bash(bash) => {
@@ -132,7 +135,7 @@ impl Tool for Bash {
                     cmd
                 }
             };
-            cmd.current_dir(&ctx.workspace).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+            cmd.current_dir(&dir).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
             crate::platform::process::use_current_path(&mut cmd, &Default::default());
             #[cfg(windows)]
             cmd.creation_flags(0x0800_0000 | 0x0000_0004);
@@ -156,7 +159,7 @@ impl Tool for Bash {
             }
             // A file the line printed has been seen, as a `read` would have shown it, so it may be edited.
             if matches!(ended, Ended::Exited { code: 0, .. }) {
-                for file in command::files_read(self.dialect(), command).iter().map(|file| ctx.resolve(file)).filter(|file| file.is_file()) {
+                for file in command::files_read(self.dialect(), command).iter().map(|file| super::canonical(&dir.join(file))).filter(|file| file.is_file()) {
                     ctx.files.mark_read(&file);
                 }
             }
@@ -273,8 +276,21 @@ const MOVES: [&str; 6] = ["cd", "chdir", "set-location", "sl", "pushd", "push-lo
 /// approval of its own and `cd crates && cargo test` asks only about `cargo test`. The directory is
 /// followed along the chain; once a move leaves the workspace or cannot be read (`~`, `-`, a
 /// variable, a glob), it and every later move still ask.
-fn drop_moves_within(ctx: &Context, ask: &mut Ask) {
-    let mut here = Some(ctx.workspace.clone());
+/// Where a call runs: its `workdir`, which must be a directory inside the workspace, else the workspace.
+fn workdir(ctx: &Context, input: &Value) -> Result<PathBuf, ToolError> {
+    let Some(asked) = input["workdir"].as_str().filter(|dir| !dir.is_empty()) else { return Ok(ctx.workspace.clone()) };
+    let dir = ctx.resolve(asked);
+    if !ctx.inside_workspace(&dir) {
+        return Err(ToolError(format!("workdir {asked} is outside the workspace; use `cd` in the command instead, which asks")));
+    }
+    if !dir.is_dir() {
+        return Err(ToolError(format!("workdir {asked} is not a directory")));
+    }
+    Ok(dir)
+}
+
+fn drop_moves_within(ctx: &Context, start: &std::path::Path, ask: &mut Ask) {
+    let mut here = Some(start.to_path_buf());
     ask.retain_commands(|command| {
         let Some(from) = &here else { return true };
         match move_within(ctx, from, command) {
@@ -385,6 +401,24 @@ mod tests {
         assert!(out.output.ends_with("exit code 3"));
         assert_eq!(out.title, "list files");
         assert_eq!(out.metadata["exit"], 3);
+    }
+
+    #[tokio::test]
+    async fn a_workdir_inside_the_workspace_is_where_it_runs_and_one_outside_is_refused() {
+        let sandbox = Sandbox::new("bash-workdir");
+        let file = sandbox.file("sub/here.txt", "here\n");
+        let bash = Bash::detect();
+        let print = match bash.shell {
+            Shell::Bash(_) => "cat here.txt",
+            Shell::PowerShell(_) => "Get-Content here.txt",
+        };
+        let out = bash.run(&sandbox.ctx, json!({ "command": print, "workdir": "sub" })).await.unwrap();
+        assert!(out.output.contains("here"), "{}", out.output);
+        assert!(sandbox.ctx.files.was_read(&file), "a file it printed is found from the workdir");
+        let outside = bash.run(&sandbox.ctx, json!({ "command": print, "workdir": ".." })).await.unwrap_err();
+        assert!(outside.0.contains("outside the workspace"), "{}", outside.0);
+        let ask = bash.ask(&sandbox.ctx, &json!({ "command": "cd .. && cargo test", "workdir": "sub" })).unwrap();
+        assert_eq!(ask.commands.unwrap(), ["cargo test"], "a move from the workdir that stays inside asks nothing");
     }
 
     #[tokio::test]
