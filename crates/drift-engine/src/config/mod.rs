@@ -19,7 +19,11 @@ pub const FILE: &str = "drift.json";
 const DIR: &str = ".drift";
 const INSTRUCTION_FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 /// Skill roots looked up under the workspace and the home directory, in this order.
+/// Skill folders in a project directory, and (without the dot for Drift's own) in the home directory.
 const SKILL_DIRS: [&str; 3] = [".drift/skills", ".agents/skills", ".claude/skills"];
+const HOME_SKILL_DIRS: [&str; 3] = [".config/drift/skills", ".agents/skills", ".claude/skills"];
+/// How deep under a skill folder a `SKILL.md` is looked for; folders such as `node_modules` are never entered.
+const SKILL_DEPTH: usize = 6;
 const MAX_INSTRUCTION_CHARS: usize = 40_000;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -41,6 +45,8 @@ pub struct File {
     /// Providers added or re-pointed. Read from the user's own `~/.config/drift/drift.json` only: a
     /// project's file is committed by others and must never send your key somewhere else.
     pub providers: BTreeMap<String, ProviderConfig>,
+    /// More folders to find skills in (`SKILL.md` at any depth), relative to the file's directory or starting `~/`.
+    pub skill_paths: Vec<String>,
 }
 
 /// A provider the user adds (any OpenAI-compatible server) or re-points (a gateway, a remote LM Studio).
@@ -275,6 +281,9 @@ pub struct Config {
     /// Config files that could not be read; a turn refuses to start rather than run without their rules.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<String>,
+    /// The `skillPaths` the files list, resolved; read once the files are applied.
+    #[serde(skip)]
+    skill_paths: Vec<PathBuf>,
 }
 
 impl Config {
@@ -310,13 +319,11 @@ impl Config {
         }
         roots.push(workspace.to_path_buf());
         for root in &roots {
-            config.apply_file(root, root == workspace);
+            config.apply_file(root, root == workspace, home);
             config.apply_dir(&root.join(DIR));
         }
-        for root in roots.iter().rev() {
-            for dir in SKILL_DIRS {
-                config.add_skills(&root.join(dir));
-            }
+        for dir in skill_folders(workspace, home, std::mem::take(&mut config.skill_paths)) {
+            config.add_skills(&dir);
         }
         config.add_instructions(workspace, home);
         config
@@ -401,7 +408,7 @@ impl Config {
         (formatters, checks)
     }
 
-    fn apply_file(&mut self, root: &Path, project: bool) {
+    fn apply_file(&mut self, root: &Path, project: bool, home: Option<&Path>) {
         let path = root.join(FILE);
         let Ok(text) = std::fs::read_to_string(&path) else { return };
         let file = match serde_json::from_str::<File>(&jsonc::strip(&text)) {
@@ -433,6 +440,11 @@ impl Config {
                 self.instructions.push(Instruction { name: relative, text: clip(&text) });
             }
         }
+        let resolve = |listed: &String| match (listed.strip_prefix("~/"), home) {
+            (Some(rest), Some(home)) => home.join(rest),
+            _ => root.join(listed),
+        };
+        self.skill_paths.extend(file.skill_paths.iter().map(resolve));
     }
 
     /// A file named after an action customises that action; otherwise `mode` decides, then the agent it replaces.
@@ -467,18 +479,18 @@ impl Config {
         }
     }
 
+    /// Every `SKILL.md` under `dir`, at any depth up to [`SKILL_DEPTH`]; a name already found nearer wins.
     fn add_skills(&mut self, dir: &Path) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Ok(text) = std::fs::read_to_string(path.join("SKILL.md")) else { continue };
+        for path in skill_files(dir) {
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let folder = path.parent().unwrap_or(dir);
             let doc = frontmatter::parse(&text);
-            let name = doc.field("name").unwrap_or_else(|| entry.file_name().to_string_lossy().into_owned());
+            let name = doc.field("name").unwrap_or_else(|| folder.file_name().unwrap_or_default().to_string_lossy().into_owned());
             if self.skills.iter().any(|s| s.name == name) {
                 continue;
             }
             let instructions = body(&text);
-            self.skills.push(Skill { name, description: doc.field("description").unwrap_or_default(), path: path.to_string_lossy().into_owned(), instructions });
+            self.skills.push(Skill { name, description: doc.field("description").unwrap_or_default(), path: folder.to_string_lossy().into_owned(), instructions });
         }
     }
 
@@ -502,6 +514,36 @@ impl Config {
         found.append(&mut self.instructions);
         self.instructions = found;
     }
+}
+
+/// Where skills are looked for, nearest first, so a nearer skill shadows a farther one of its name:
+/// the skill folders of the workspace and each parent up to the repository root, the `skillPaths`
+/// the config files list, then the user's own (`~/.config/drift/skills`, `~/.agents/skills`,
+/// `~/.claude/skills`), where Claude Code and other agents keep theirs.
+fn skill_folders(workspace: &Path, home: Option<&Path>, listed: Vec<PathBuf>) -> Vec<PathBuf> {
+    let project = ancestors_to_repo_root(workspace).into_iter().flat_map(|dir| SKILL_DIRS.map(|skills| dir.join(skills)));
+    let user = home.into_iter().flat_map(|home| HOME_SKILL_DIRS.map(|skills| home.join(skills)));
+    project.chain(listed).chain(user).collect()
+}
+
+/// The `SKILL.md` files under `dir`, sorted, so the same tree always yields the same skills.
+fn skill_files(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut pending = vec![(dir.to_path_buf(), 0)];
+    while let Some((folder, depth)) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&folder) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let skipped = matches!(entry.file_name().to_str(), Some("node_modules" | ".git"));
+            if path.is_dir() && depth < SKILL_DEPTH && !skipped {
+                pending.push((path, depth + 1));
+            } else if entry.file_name() == "SKILL.md" {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
 }
 
 /// The workspace and its parents up to the repository root (the nearest holding `.git`), nearest
@@ -647,7 +689,10 @@ mod tests {
         let ws = root.join("ws");
         write(&home, ".config/drift/drift.json", r#"{ "model": { "provider": "anthropic", "model": "haiku" }, "permissions": [{ "kind": "bash", "pattern": "git *", "decision": "allow" }] }"#);
         write(&home, ".agents/skills/review/SKILL.md", "---\nname: review\ndescription: Reviews code\n---\nHow to review.");
-        write(&ws, "drift.json", r#"{ "permissions": [{ "kind": "bash", "pattern": "git push*", "decision": "deny" }], "instructions": ["docs/rules.md"] }"#);
+        write(&home, ".claude/skills/team/lint/SKILL.md", "---\nname: lint\ndescription: Lints\n---\nLint it.");
+        write(&home, ".agents/skills/notes/SKILL.md", "---\ndescription: Takes notes\n---\nWrite it down.");
+        write(&home, "shared/skills/release/SKILL.md", "---\ndescription: Releases\n---\nTag it.");
+        write(&ws, "drift.json", r#"{ "permissions": [{ "kind": "bash", "pattern": "git push*", "decision": "deny" }], "instructions": ["docs/rules.md"], "skillPaths": ["~/shared/skills"] }"#);
         write(&ws, "docs/rules.md", "Be careful.");
         write(&ws, "AGENTS.md", "Repo rules.");
         write(&ws, "CLAUDE.md", "ignored when AGENTS.md exists");
@@ -682,7 +727,11 @@ mod tests {
         assert!(config.commands[0].template.contains("$ARGUMENTS"));
 
         let skills: Vec<(&str, &str)> = config.skills.iter().map(|s| (s.name.as_str(), s.description.as_str())).collect();
-        assert_eq!(skills, [("review", "Project review"), ("deploy", "Deploys")], "project skills shadow home skills of the same name");
+        assert_eq!(
+            skills,
+            [("review", "Project review"), ("deploy", "Deploys"), ("release", "Releases"), ("notes", "Takes notes"), ("lint", "Lints")],
+            "project skills shadow home skills of the same name; home ones come from ~/.agents and ~/.claude at any depth, and listed paths are searched too"
+        );
 
         assert_eq!(config.instructions.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["AGENTS.md", "docs/rules.md"]);
         std::fs::remove_dir_all(root).ok();
