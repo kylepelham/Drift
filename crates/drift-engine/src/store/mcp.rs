@@ -1,4 +1,4 @@
-use rusqlite::{params, OptionalExtension, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use super::sessions::transaction;
 use super::Store;
@@ -24,18 +24,30 @@ impl Store {
         Ok(names)
     }
 
+    /// The servers this build can read; one it cannot ([`Self::unreadable_mcp_servers`]) never takes the others down.
     pub fn mcp_servers(&self) -> rusqlite::Result<Vec<ServerRow>> {
+        Ok(self.stored_servers()?.into_iter().filter_map(Stored::readable).collect())
+    }
+
+    /// Servers whose saved definition this build cannot read, most likely written by a newer Drift:
+    /// listed so the user can save them again or remove them.
+    pub fn unreadable_mcp_servers(&self) -> rusqlite::Result<Vec<String>> {
+        Ok(self.stored_servers()?.into_iter().filter_map(|stored| match stored {
+            Stored::Unreadable(name) => Some(name),
+            Stored::Row(_) => None,
+        }).collect())
+    }
+
+    fn stored_servers(&self) -> rusqlite::Result<Vec<Stored>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config ORDER BY name"))?;
-        let rows = stmt.query_map([], map_row)?;
+        let rows = stmt.query_map([], stored)?;
         rows.collect()
     }
 
+    /// The server, or `None` when there is none or its definition cannot be read.
     pub fn mcp_server(&self, name: &str) -> rusqlite::Result<Option<ServerRow>> {
-        self.lock()
-            .prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?
-            .query_row([name], map_row)
-            .optional()
+        server_in(&self.lock(), name)
     }
 
     pub fn save_mcp_server(&self, name: &str, config: &ServerConfig) -> rusqlite::Result<ServerRow> {
@@ -91,6 +103,9 @@ impl Store {
         if conn.prepare_cached("SELECT 1 FROM mcp_config WHERE name = ?1")?.exists([to])? {
             return Ok(Some(Renamed::Taken));
         }
+        if server_in(&conn, from)?.is_none() {
+            return Ok(None);
+        }
         if conn.prepare_cached("UPDATE mcp_config SET name = ?2, updated_at = ?3 WHERE name = ?1")?.execute(params![from, to, id::now_ms()])? == 0 {
             return Ok(None);
         }
@@ -111,6 +126,34 @@ pub enum Renamed {
 fn config_hash(config: &ServerConfig) -> String {
     use sha2::Digest;
     sha2::Sha256::digest(serde_json::to_string(config).unwrap().as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
+/// A saved server, or the name of one whose definition does not parse.
+enum Stored {
+    Row(ServerRow),
+    Unreadable(String),
+}
+
+impl Stored {
+    fn readable(self) -> Option<ServerRow> {
+        match self {
+            Self::Row(row) => Some(row),
+            Self::Unreadable(_) => None,
+        }
+    }
+}
+
+fn stored(row: &Row) -> rusqlite::Result<Stored> {
+    match map_row(row) {
+        Ok(server) => Ok(Stored::Row(server)),
+        Err(rusqlite::Error::FromSqlConversionFailure(1, ..)) => Ok(Stored::Unreadable(row.get(0)?)),
+        Err(error) => Err(error),
+    }
+}
+
+fn server_in(conn: &Connection, name: &str) -> rusqlite::Result<Option<ServerRow>> {
+    let found = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([name], stored).optional()?;
+    Ok(found.and_then(Stored::readable))
 }
 
 fn map_row(row: &Row) -> rusqlite::Result<ServerRow> {
@@ -163,6 +206,14 @@ mod tests {
         store.lock().execute("UPDATE mcp_config SET config_json = '{\"type\":\"future\"}' WHERE name = 'notes'", []).unwrap();
         let repaired = store.save_mcp_server("notes", &changed).unwrap();
         assert!(repaired.config == changed && !repaired.read_only_trusted, "a config that no longer parses is overwritten, and the trust goes with it");
+        store.save_mcp_server("good", &config).unwrap();
+        store.lock().execute("UPDATE mcp_config SET config_json = '{\"type\":\"future\"}' WHERE name = 'notes'", []).unwrap();
+        assert_eq!(store.mcp_servers().unwrap().iter().map(|row| row.name.as_str()).collect::<Vec<_>>(), ["good"], "one unreadable server does not hide the rest");
+        assert_eq!(store.unreadable_mcp_servers().unwrap(), ["notes"]);
+        assert!(store.mcp_server("notes").unwrap().is_none());
+        assert!(store.rename_mcp_server("notes", "other").unwrap().is_none(), "only a readable server is renamed");
+        store.save_mcp_server("notes", &changed).unwrap();
+        store.remove_mcp_server("good").unwrap();
         store.set_mcp_read_only_trusted("notes", true).unwrap();
         assert!(!store.save_mcp_server("notes", &config).unwrap().read_only_trusted, "another definition is not trusted");
         assert!(store.set_mcp_enabled("notes", false).unwrap());

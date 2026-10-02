@@ -102,6 +102,22 @@ impl ServerConfig {
     }
 }
 
+/// A server whose saved definition does not parse: shown empty and failed, so the editor can save a new one over it.
+fn unreadable(name: String) -> ServerStatus {
+    let config = view::ServerConfigView::Stdio { command: String::new(), args: Vec::new(), env: Vec::new(), cwd: None, timeout_seconds: None };
+    ServerStatus {
+        server: ServerView { name, config, enabled: false, read_only_trusted: false, updated_at: 0 },
+        state: State::Failed,
+        error: Some("Its saved definition could not be read, probably because a newer Drift wrote it. Edit and save it again, or remove it.".into()),
+        tools: Vec::new(),
+        transport: Transport::Stdio,
+        protocol: None,
+        era: None,
+        needs_sign_in: false,
+        signed_in: false,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerRow {
@@ -483,8 +499,12 @@ impl Servers {
         self.slots.lock().unwrap()
     }
 
+    /// Every saved server, those this build cannot read included, as failed rows to save again or remove.
     pub fn statuses(&self, store: &Store) -> rusqlite::Result<Vec<ServerStatus>> {
-        Ok(store.mcp_servers()?.into_iter().map(|row| self.status_of(row)).collect())
+        let mut statuses: Vec<ServerStatus> = store.mcp_servers()?.into_iter().map(|row| self.status_of(row)).collect();
+        statuses.extend(store.unreadable_mcp_servers()?.into_iter().map(unreadable));
+        statuses.sort_by(|a, b| a.server.name.cmp(&b.server.name));
+        Ok(statuses)
     }
 
     pub fn status_of(&self, row: ServerRow) -> ServerStatus {

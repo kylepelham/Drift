@@ -48,7 +48,8 @@ pub async fn save(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Q
         .mcp
         .change(&name, &engine.store, &engine.hub, |store| {
             let saved = store.mcp_server(&name)?;
-            if query.create && saved.is_some() {
+            // A row this build cannot read still holds the name: adding is refused, editing replaces it.
+            if query.create && (saved.is_some() || store.unreadable_mcp_servers()?.contains(&name)) {
                 return Err(taken(&name));
             }
             let config = input.resolve(saved.as_ref().map(|row| &row.config)).map_err(|why| ApiError::new(StatusCode::BAD_REQUEST, "secret", why))?;
