@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use super::types::{MessageWithParts, Part, PartRow, Role};
 use crate::config::{Agent, AgentKind, Config};
 
 const IDENTITY: &str = include_str!("prompts/system.txt");
@@ -53,6 +54,25 @@ pub fn system(setting: &Setting) -> String {
     }
     prompt
 }
+const LEFT_PLAN: &str = "<system-reminder>\nThe conversation has switched from the plan agent to the {agent} agent. Plan mode's read-only limits no longer apply: you may now change files and run commands with the tools you have. Carry out the plan agreed above.\n</system-reminder>";
+
+/// In the request only: a prompt sent after the plan agent replied, to another agent, is told the
+/// earlier "change nothing" turns no longer bind it. Every step of that turn sees it; later turns follow
+/// a reply by the new agent, so they do not.
+pub(super) fn remind_left_plan(agent: &str, transcript: &mut [MessageWithParts]) {
+    if agent == "plan" {
+        return;
+    }
+    let Some(prompt) = transcript.iter().rposition(|m| m.info.role == Role::User) else { return };
+    let before = transcript[..prompt].iter().rev().find(|m| m.info.role == Role::Assistant);
+    if before.and_then(|m| m.info.agent.as_deref()) != Some("plan") {
+        return;
+    }
+    let first = &mut transcript[prompt];
+    let text = LEFT_PLAN.replace("{agent}", agent);
+    first.parts.insert(0, PartRow { id: String::new(), message_id: first.info.id.clone(), session_id: first.info.session_id.clone(), part: Part::Text { text } });
+}
+
 fn today() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

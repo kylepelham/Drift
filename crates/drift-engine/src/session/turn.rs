@@ -662,6 +662,7 @@ impl Engine {
             }
             let Some(mut transcript) = self.transcript_for_step(plan, abort).await else { break };
             super::branch::frame_spawned(&plan.session, &mut transcript);
+            prompt::remind_left_plan(&plan.session.agent, &mut transcript);
             answered = transcript.iter().rev().find(|m| m.info.role == Role::User).map(|m| m.info.id.clone());
             let (max_tokens, reasoning) = budgets(&plan.model, plan.reasoning());
             let request = Request {

@@ -1281,7 +1281,10 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   directory, made when the engine opens), where reading, writing, editing and patching ask
   nothing (secret files still do), so temporary files stay out of the workspace. `task`'s text
   asks the model to say whether a subagent should change code or only report, how to check its
-  work, and not to redo work it has handed off. Each MCP server whose tools the turn offers adds its initialize `instructions`
+  work, and not to redo work it has handed off. A prompt sent to another agent right after the
+  plan agent replied carries a reminder, in the request only, that plan's read-only limits no
+  longer apply (`prompt::remind_left_plan`); later turns follow a reply by the new agent, so they
+  do not. Each MCP server whose tools the turn offers adds its initialize `instructions`
   under "# Instructions from the <name> MCP server" (`prompt::Setting`). Settings shows the
   family prompts read-only under a notice saying they are not applied, offers no save, and keeps
   Reset only to clear an override stored before. The shell still records `family:*` for the

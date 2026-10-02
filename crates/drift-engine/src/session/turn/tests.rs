@@ -1100,6 +1100,23 @@ async fn a_model_named_mid_turn_powers_its_next_request_and_the_conversation_car
 }
 
 #[tokio::test]
+async fn leaving_plan_tells_the_model_once_that_it_may_now_change_files() {
+    let h = harness().await;
+    let reminded = |request: &crate::llm::Request| format!("{:?}", request.messages).contains("switched from the plan agent to the build agent");
+    h.provider.push(text("the plan")).push(text("building")).push(text("more"));
+    h.engine.submit(&h.session.id, Prompt { agent: Some("plan".into()), ..prompt("plan it") }).await.await_ok();
+    until_idle(&h).await;
+    h.engine.submit(&h.session.id, Prompt { agent: Some("build".into()), ..prompt("go") }).await.await_ok();
+    until_idle(&h).await;
+    h.engine.submit(&h.session.id, prompt("and more")).await.await_ok();
+    until_idle(&h).await;
+    let requests = h.provider.requests.lock().unwrap().clone();
+    assert_eq!(requests.iter().map(reminded).collect::<Vec<_>>(), [false, true, false], "only the turn that left plan");
+    let stored = serde_json::to_string(&h.engine.store.transcript(&h.session.id).unwrap()).unwrap();
+    assert!(!stored.contains("switched from the plan agent"), "never stored");
+}
+
+#[tokio::test]
 async fn an_agent_or_level_named_mid_turn_applies_from_the_next_request() {
     let h = harness().await;
     let requests = switched_mid_turn(&h, Prompt { agent: Some("plan".into()), ..prompt("plan instead") }).await;
