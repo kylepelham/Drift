@@ -66,12 +66,12 @@ impl Store {
             return Ok(None);
         }
         let row = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([to], map_row)?;
-        Ok(Some(Renamed::To(row)))
+        Ok(Some(Renamed::To(Box::new(row))))
     }
 }
 
 pub enum Renamed {
-    To(ServerRow),
+    To(Box<ServerRow>),
     /// A server already has the new name; nothing changed.
     Taken,
 }

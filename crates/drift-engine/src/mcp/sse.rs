@@ -19,11 +19,12 @@ pub struct SseTransport {
 
 impl SseTransport {
     /// Opens the stream and waits for the server to say where messages go.
-    pub async fn connect(client: reqwest::Client, url: &str, headers: HeaderMap) -> Result<Self, String> {
+    pub async fn connect(client: reqwest::Client, url: &str, headers: HeaderMap) -> Result<Self, super::Failure> {
         let base = reqwest::Url::parse(url).map_err(|e| format!("{url} is not a URL: {e}"))?;
         let response = client.get(base.clone()).headers(headers.clone()).header("accept", "text/event-stream").send().await.map_err(|e| e.to_string())?;
         if !response.status().is_success() {
-            return Err(format!("{url} answered {}", response.status()));
+            let needs_sign_in = matches!(response.status(), reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN);
+            return Err(super::Failure { message: format!("{url} answered {}", response.status()), needs_sign_in });
         }
         let mut bytes = response.bytes_stream();
         let mut parser = Parser::default();

@@ -10,6 +10,13 @@ export type McpFormState = {
   cwd: string
   url: string
   headers: McpPair[]
+  /** A pre-registered app for servers that will not register Drift; an empty client id means none. */
+  clientId: string
+  /** Typed only to set or replace it; left empty, a saved one is kept for the same client id. */
+  clientSecret: string
+  secretSaved: boolean
+  /** Space-separated, as OAuth writes them. */
+  scopes: string
   /** Seconds, as typed; empty means no limit. */
   timeout: string
 }
@@ -19,8 +26,11 @@ export type McpFormResult = { config: McpServerConfig; issue?: never } | { confi
 
 export function mcpFormState(config?: McpServerConfigView): McpFormState {
   const timeout = config?.timeoutSeconds ? String(config.timeoutSeconds) : ""
+  const noApp = { clientId: "", clientSecret: "", secretSaved: false, scopes: "" }
   if (config?.type === "http" || config?.type === "sse") {
-    return { type: config.type, command: [""], environment: [], cwd: "", url: config.url, headers: savedPairs(config.headers), timeout }
+    const app = config.oauth
+    const oauth = app ? { clientId: app.clientId, clientSecret: "", secretSaved: app.hasSecret, scopes: app.scopes.join(" ") } : noApp
+    return { type: config.type, command: [""], environment: [], cwd: "", url: config.url, headers: savedPairs(config.headers), ...oauth, timeout }
   }
   return {
     type: "stdio",
@@ -29,8 +39,17 @@ export function mcpFormState(config?: McpServerConfigView): McpFormState {
     cwd: config?.cwd ?? "",
     url: "",
     headers: [],
+    ...noApp,
     timeout,
   }
+}
+
+/** The app as the engine takes it: `null` for the secret keeps a saved one. */
+function oauthFromForm(form: McpFormState) {
+  const clientId = form.clientId.trim()
+  if (!clientId) return null
+  const scopes = form.scopes.split(/\s+/).filter(Boolean)
+  return { clientId, clientSecret: form.clientSecret || null, scopes }
 }
 
 export function mcpConfigFromForm(form: McpFormState): McpFormResult {
@@ -48,7 +67,7 @@ export function mcpConfigFromForm(form: McpFormState): McpFormResult {
   if (!mcpRemoteUrlAllowed(form.url)) return { issue: "urlInvalid" }
   const headers = pairRecord(form.headers)
   if (!headers) return { issue: "pairInvalid" }
-  return { config: { type: form.type, url: form.url, headers, timeoutSeconds } }
+  return { config: { type: form.type, url: form.url, headers, oauth: oauthFromForm(form), timeoutSeconds } }
 }
 
 export function mcpRemoteUrlAllowed(value: string) {

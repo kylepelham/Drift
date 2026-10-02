@@ -416,7 +416,7 @@ async fn a_stdio_server_runs_where_it_is_told_and_a_call_past_its_timeout_fails(
 async fn a_server_on_the_older_sse_transport_connects_and_answers() {
     let base = legacy_sse_server().await;
     let engine = engine();
-    let row = saved(&engine, "legacy", &ServerConfig::Sse { url: format!("{base}/sse"), headers: Default::default(), timeout_seconds: None }).await;
+    let row = saved(&engine, "legacy", &ServerConfig::Sse { url: format!("{base}/sse"), headers: Default::default(), oauth: None, timeout_seconds: None }).await;
     engine.connect_mcp("legacy").await.unwrap();
     let out = tool(&engine, "legacy_echo").run(&context(&engine), json!({ "text": "over sse" })).await.unwrap();
     assert_eq!(out.output, "over sse");
@@ -426,8 +426,16 @@ async fn a_server_on_the_older_sse_transport_connects_and_answers() {
 /// A server speaking the 2024-11-05 HTTP+SSE transport: the GET stream names the POST endpoint, and
 /// replies to posted messages come back on the stream.
 async fn legacy_sse_server() -> String {
-    use axum::routing::{get, post};
     let _ = rustls::crypto::ring::default_provider().install_default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, legacy_sse_routes()).await.unwrap() });
+    base
+}
+
+/// The HTTP+SSE transport's two routes: `/sse` streams replies, `/messages` takes requests.
+fn legacy_sse_routes() -> axum::Router {
+    use axum::routing::{get, post};
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let rx = Arc::new(tokio::sync::Mutex::new(Some(rx)));
     let stream = get(move || {
@@ -454,17 +462,15 @@ async fn legacy_sse_server() -> String {
             axum::http::StatusCode::ACCEPTED
         }
     });
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
-    tokio::spawn(async move { axum::serve(listener, axum::Router::new().route("/sse", stream).route("/messages", messages)).await.unwrap() });
-    base
+    axum::Router::new().route("/sse", stream).route("/messages", messages)
 }
 
 #[tokio::test]
 async fn a_server_that_needs_a_sign_in_says_so_then_connects_once_signed_in() {
-    let base = oauth_mcp_server().await;
+    let (base, seen) = oauth_mcp_server(None).await;
     let engine = engine();
-    let row = saved(&engine, "secure", &ServerConfig::Http { url: format!("{base}/mcp"), headers: Default::default(), timeout_seconds: None }).await;
+    let row = saved(&engine, "secure", &ServerConfig::Http { url: format!("{base}/mcp"), headers: Default::default(), oauth: None, timeout_seconds: None }).await;
+    assert!(seen.lock().unwrap().is_empty());
     let _ = engine.connect_mcp("secure").await;
     let before = engine.mcp.status_of(row.clone());
     assert!(before.needs_sign_in && !before.signed_in, "{before:?}");
@@ -479,14 +485,66 @@ async fn a_server_that_needs_a_sign_in_says_so_then_connects_once_signed_in() {
     assert!(after.signed_in && !after.needs_sign_in);
     assert_eq!(tool(&engine, "secure_echo").run(&context(&engine), json!({ "text": "authorized" })).await.unwrap().output, "authorized");
 
+    assert_eq!(seen.lock().unwrap().first().map(String::as_str), Some("register"), "with no app configured Drift registers itself");
+
     engine.sign_out_mcp("secure").await.unwrap();
     assert!(!engine.mcp.status_of(row).signed_in, "signing out forgets the tokens");
+}
+
+/// What a browser does when the user signs in at once: follows the page, which sends it back to Drift.
+async fn browse(page: &str) {
+    let landed = crate::llm::http::client().get(page).send().await.unwrap();
+    assert!(landed.status().is_success(), "{}", landed.status());
+}
+
+#[tokio::test]
+async fn a_server_that_will_not_register_drift_signs_in_with_the_configured_app() {
+    let (base, seen) = oauth_mcp_server(Some("drift-team-app")).await;
+    let engine = engine();
+    let app = OAuthClient { client_id: "drift-team-app".into(), client_secret: Some("team-secret".into()), scopes: vec!["read".into(), "write".into()] };
+    let row = saved(&engine, "team", &ServerConfig::Http { url: format!("{base}/mcp"), headers: Default::default(), oauth: Some(app), timeout_seconds: None }).await;
+    let page = engine.sign_in_mcp("team").await.unwrap();
+    assert!(page.contains("client_id=drift-team-app") && page.contains("scope=read+write"), "{page}");
+    browse(&page).await;
+    until("it connects signed in", || engine.mcp.status_of(row.clone()).state == State::Connected).await;
+    let seen = seen.lock().unwrap().clone();
+    assert!(!seen.iter().any(|line| line == "register"), "{seen:?}");
+    let token = seen.iter().find(|line| line.starts_with("token ")).unwrap();
+    assert!(token.contains("client_secret=team-secret") || token.contains("Basic "), "the app's secret goes with the code: {token}");
+}
+
+#[tokio::test]
+async fn a_sign_in_the_user_refuses_says_why_and_still_asks_to_sign_in() {
+    let (base, _) = oauth_mcp_server(None).await;
+    let engine = engine();
+    let row = saved(&engine, "secure", &ServerConfig::Http { url: format!("{base}/mcp"), headers: Default::default(), oauth: None, timeout_seconds: None }).await;
+    let page = engine.sign_in_mcp("secure").await.unwrap();
+    let redirect = reqwest::Url::parse(&page).unwrap().query_pairs().find(|(key, _)| key == "redirect_uri").unwrap().1.to_string();
+    let refused = crate::llm::http::client().get(format!("{redirect}?error=access_denied&error_description=The+user+said+no")).send().await.unwrap();
+    assert_eq!(refused.status(), 400, "the browser hears it too");
+    until("the refusal is reported", || engine.mcp.status_of(row.clone()).error.is_some()).await;
+    let status = engine.mcp.status_of(row);
+    assert_eq!((status.state, status.needs_sign_in), (State::Failed, true));
+    assert_eq!(status.error.as_deref(), Some("Sign-in did not finish: access_denied: The user said no"));
+}
+
+#[tokio::test]
+async fn a_server_on_the_older_sse_transport_signs_in_and_sends_its_token() {
+    let (base, _) = oauth_mcp_server(None).await;
+    let engine = engine();
+    let row = saved(&engine, "legacy", &ServerConfig::Sse { url: format!("{base}/sse"), headers: Default::default(), oauth: None, timeout_seconds: None }).await;
+    let _ = engine.connect_mcp("legacy").await;
+    let before = engine.mcp.status_of(row.clone());
+    assert!(before.needs_sign_in, "a 401 on the stream asks for a sign-in: {before:?}");
+    browse(&engine.sign_in_mcp("legacy").await.unwrap()).await;
+    until("it connects signed in", || engine.mcp.status_of(row.clone()).state == State::Connected).await;
+    assert_eq!(tool(&engine, "legacy_echo").run(&context(&engine), json!({ "text": "over sse" })).await.unwrap().output, "over sse");
 }
 
 #[tokio::test]
 async fn a_sign_in_follows_a_rename_but_never_a_new_url() {
     let engine = engine();
-    let at = |url: &str| ServerConfig::Http { url: url.into(), headers: Default::default(), timeout_seconds: None };
+    let at = |url: &str| ServerConfig::Http { url: url.into(), headers: Default::default(), oauth: None, timeout_seconds: None };
     engine.credentials.set_secret("mcp:old", "{}").unwrap();
     crate::mcp::move_sign_in(&engine.credentials, "old", "new");
     assert!(engine.credentials.secret("mcp:old").is_none() && engine.credentials.secret("mcp:new").is_some());
@@ -496,21 +554,40 @@ async fn a_sign_in_follows_a_rename_but_never_a_new_url() {
     assert!(engine.credentials.secret("mcp:new").is_none(), "its tokens must not reach another host");
 }
 
-/// An MCP endpoint that answers only a bearer token, with the OAuth metadata, registration,
-/// authorization and token endpoints a client needs to get one.
-async fn oauth_mcp_server() -> String {
-    use axum::extract::{Query, State as Shared};
+/// What the fake authorization server saw, one line per request: `register`, `authorize <query>`, `token <body> <authorization>`.
+type AuthLog = Arc<std::sync::Mutex<Vec<String>>>;
+
+/// Lets a request through only with the token the fake authorization server issues.
+async fn bearer_only(request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if request.headers().get("authorization").and_then(|v| v.to_str().ok()) == Some("Bearer good-token") {
+        return next.run(request).await;
+    }
+    (axum::http::StatusCode::UNAUTHORIZED, [("www-authenticate", "Bearer")]).into_response()
+}
+
+/// An MCP server on `/mcp` (streamable HTTP) and `/sse` that wants a bearer token, with the OAuth endpoints to get one; registration only without `app`.
+async fn oauth_mcp_server(app: Option<&'static str>) -> (String, AuthLog) {
+    use axum::extract::{Path, Query, State as Shared};
     use axum::http::{HeaderMap, StatusCode};
     use axum::response::{IntoResponse, Redirect};
     use axum::routing::{get, post};
     let _ = rustls::crypto::ring::default_provider().install_default();
+    let seen: AuthLog = Arc::default();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
-    let resource = {
+    let resource = |path: &'static str| {
         let base = base.clone();
         move || {
             let base = base.clone();
-            async move { axum::Json(json!({ "resource": format!("{base}/mcp"), "authorization_servers": [base] })) }
+            async move { axum::Json(json!({ "resource": format!("{base}/{path}"), "authorization_servers": [base] })) }
+        }
+    };
+    let resource_at = {
+        let base = base.clone();
+        move |Path(path): Path<String>| {
+            let base = base.clone();
+            async move { axum::Json(json!({ "resource": format!("{base}/{path}"), "authorization_servers": [base] })) }
         }
     };
     let metadata = {
@@ -518,21 +595,40 @@ async fn oauth_mcp_server() -> String {
         move || {
             let base = base.clone();
             async move {
-                axum::Json(json!({
+                let mut metadata = json!({
                     "issuer": base, "authorization_endpoint": format!("{base}/authorize"), "token_endpoint": format!("{base}/token"),
-                    "registration_endpoint": format!("{base}/register"), "response_types_supported": ["code"], "code_challenge_methods_supported": ["S256"],
-                    "grant_types_supported": ["authorization_code", "refresh_token"], "token_endpoint_auth_methods_supported": ["none"]
-                }))
+                    "response_types_supported": ["code"], "code_challenge_methods_supported": ["S256"],
+                    "grant_types_supported": ["authorization_code", "refresh_token"], "token_endpoint_auth_methods_supported": ["none", "client_secret_post", "client_secret_basic"]
+                });
+                if app.is_none() {
+                    metadata["registration_endpoint"] = json!(format!("{base}/register"));
+                }
+                axum::Json(metadata)
             }
         }
     };
-    let register = post(|axum::Json(body): axum::Json<serde_json::Value>| async move {
-        (StatusCode::CREATED, axum::Json(json!({ "client_id": "drift-test-client", "redirect_uris": body["redirect_uris"], "token_endpoint_auth_method": "none" })))
-    });
-    let authorize = get(|Query(query): Query<std::collections::HashMap<String, String>>| async move {
-        Redirect::to(&format!("{}?code=granted&state={}", query["redirect_uri"], query["state"]))
-    });
-    let token = post(|| async { axum::Json(json!({ "access_token": "good-token", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "again" })) });
+    let register = {
+        let seen = seen.clone();
+        post(move |axum::Json(body): axum::Json<serde_json::Value>| async move {
+            seen.lock().unwrap().push("register".into());
+            (StatusCode::CREATED, axum::Json(json!({ "client_id": "drift-test-client", "redirect_uris": body["redirect_uris"], "token_endpoint_auth_method": "none" })))
+        })
+    };
+    let authorize = {
+        let seen = seen.clone();
+        get(move |axum::extract::RawQuery(raw): axum::extract::RawQuery, Query(query): Query<std::collections::HashMap<String, String>>| async move {
+            seen.lock().unwrap().push(format!("authorize {}", raw.unwrap_or_default()));
+            Redirect::to(&format!("{}?code=granted&state={}", query["redirect_uri"], query["state"]))
+        })
+    };
+    let token = {
+        let seen = seen.clone();
+        post(move |headers: HeaderMap, body: String| async move {
+            let authorization = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or_default().to_string();
+            seen.lock().unwrap().push(format!("token {body} {authorization}"));
+            axum::Json(json!({ "access_token": "good-token", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "again" }))
+        })
+    };
     let mcp = post(move |Shared(base): Shared<String>, headers: HeaderMap, axum::Json(message): axum::Json<serde_json::Value>| async move {
         if headers.get("authorization").and_then(|v| v.to_str().ok()) != Some("Bearer good-token") {
             let challenge = format!("Bearer resource_metadata=\"{base}/.well-known/oauth-protected-resource\"");
@@ -547,17 +643,18 @@ async fn oauth_mcp_server() -> String {
         };
         axum::Json(json!({ "jsonrpc": "2.0", "id": message["id"], "result": result })).into_response()
     });
-    let app = axum::Router::new()
-        .route("/.well-known/oauth-protected-resource", get(resource.clone()))
-        .route("/.well-known/oauth-protected-resource/mcp", get(resource))
+    let routes = axum::Router::new()
+        .route("/.well-known/oauth-protected-resource", get(resource("mcp")))
+        .route("/.well-known/oauth-protected-resource/{path}", get(resource_at))
         .route("/.well-known/oauth-authorization-server", get(metadata))
         .route("/register", register)
         .route("/authorize", authorize)
         .route("/token", token)
         .route("/mcp", mcp.get(|| async { StatusCode::METHOD_NOT_ALLOWED }).delete(|| async { StatusCode::ACCEPTED }))
-        .with_state(base.clone());
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    base
+        .with_state(base.clone())
+        .merge(legacy_sse_routes().route_layer(axum::middleware::from_fn(bearer_only)));
+    tokio::spawn(async move { axum::serve(listener, routes).await.unwrap() });
+    (base, seen)
 }
 
 /// The echo server in one era, logging every method it receives.
@@ -613,7 +710,7 @@ async fn a_slow_starting_v2_server_answers_the_probe_and_is_never_sent_the_hands
 #[test]
 fn stdio_probes_alone_then_starts_afresh_for_the_handshake() {
     let stdio = echo_config();
-    let http = ServerConfig::Http { url: "https://x.example/mcp".into(), headers: Default::default(), timeout_seconds: None };
+    let http = ServerConfig::Http { url: "https://x.example/mcp".into(), headers: Default::default(), oauth: None, timeout_seconds: None };
     assert_eq!(attempts(&stdio, None), (vec![Some(Era::Stateless), Some(Era::Legacy)], true), "even a probe that goes unanswered moves on");
     assert_eq!(attempts(&stdio, Some(Era::Legacy)), (vec![Some(Era::Legacy), Some(Era::Stateless)], false));
     assert_eq!(attempts(&http, None), (vec![None], false), "over HTTP a legacy server says so at once, so rmcp's own fallback serves");
@@ -727,7 +824,7 @@ async fn v2_http_server() -> (String, Arc<Mutex<Vec<Seen>>>) {
 async fn a_v2_server_over_http_gets_one_post_per_request_with_its_headers_and_no_session() {
     let engine = engine();
     let (url, seen) = v2_http_server().await;
-    let row = saved(&engine, "remote", &ServerConfig::Http { url, headers: Default::default(), timeout_seconds: None }).await;
+    let row = saved(&engine, "remote", &ServerConfig::Http { url, headers: Default::default(), oauth: None, timeout_seconds: None }).await;
     engine.connect_mcp("remote").await.unwrap();
     assert_eq!(engine.mcp.status_of(row).era, Some(Era::Stateless));
     let out = tool(&engine, "remote_echo").run(&context(&engine), json!({ "text": "hi", "region": "eu-west" })).await.unwrap();
@@ -744,7 +841,7 @@ async fn a_v2_server_over_http_gets_one_post_per_request_with_its_headers_and_no
 async fn a_failed_post_to_a_stateless_server_is_asked_again_only_when_read_only() {
     let engine = engine();
     let (url, _) = v2_http_server().await;
-    saved(&engine, "remote", &ServerConfig::Http { url, headers: Default::default(), timeout_seconds: None }).await;
+    saved(&engine, "remote", &ServerConfig::Http { url, headers: Default::default(), oauth: None, timeout_seconds: None }).await;
     engine.connect_mcp("remote").await.unwrap();
     let started = std::time::Instant::now();
     assert_eq!(tool(&engine, "remote_flaky").run(&context(&engine), json!({ "text": "again" })).await.unwrap().output, "flaky: again");
@@ -757,7 +854,7 @@ async fn a_failed_post_to_a_stateless_server_is_asked_again_only_when_read_only(
 async fn a_server_asking_for_input_is_declined_and_the_call_fails_rather_than_hangs() {
     let engine = engine();
     let (url, seen) = v2_http_server().await;
-    saved(&engine, "remote", &ServerConfig::Http { url, headers: Default::default(), timeout_seconds: None }).await;
+    saved(&engine, "remote", &ServerConfig::Http { url, headers: Default::default(), oauth: None, timeout_seconds: None }).await;
     engine.connect_mcp("remote").await.unwrap();
     let failed = tokio::time::timeout(std::time::Duration::from_secs(10), tool(&engine, "remote_echo").run(&context(&engine), json!({ "text": "ask" }))).await.expect("it ends").unwrap_err().0;
     assert!(failed.contains("kept asking for input"), "{failed}");

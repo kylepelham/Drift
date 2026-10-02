@@ -1075,16 +1075,31 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   covers the whole server. Every save, disable, disconnect and remove bumps the server's
   generation; a connect that began under an older generation closes what it opened and
   publishes nothing.
-- **MCP sign-in.** A streamable HTTP server that refuses to connect with "auth required" (a 401)
-  reports `needsSignIn`; `POST /mcp/{name}/signin` returns `{url}` for the browser. rmcp does the
-  OAuth work (protected-resource and authorization-server metadata, dynamic client registration as
-  "Drift", PKCE, token exchange and refresh); `mcp::oauth` serves the one-shot loopback callback on
-  `127.0.0.1:<random>/callback` (waiting up to 10 minutes) and keeps the tokens as a keychain secret
-  `mcp:<server>`, outside the provider list. Once the browser comes back the server connects, and
-  every later connect uses the stored tokens, refreshed as needed; the status then says `signedIn`.
-  `DELETE /mcp/{name}/signin` forgets them and reconnects signed out. A rename carries the sign-in to
-  the new name; a remove forgets it; a save that changes the URL forgets it, so tokens issued for
-  one host are never sent to another. Legacy SSE servers do not sign in.
+- **MCP sign-in.** A remote server whose connect is refused with a 401 or 403 reports
+  `needsSignIn`, judged from rmcp's typed error (`ClientInitializeError::is_authorization_required`)
+  or, for HTTP+SSE, the stream's status, never from the error's wording. `POST /mcp/{name}/signin`
+  returns `{url}` for the browser. rmcp does the OAuth work (protected-resource and
+  authorization-server metadata, PKCE, token exchange and refresh); `mcp::oauth` serves the one-shot
+  loopback callback on `127.0.0.1:<random>/callback` (waiting up to 10 minutes) and keeps the tokens
+  as a keychain secret `mcp:<server>`, outside the provider list. Once the browser comes back the
+  server connects, and every later connect uses the stored tokens, refreshed as needed; the status
+  then says `signedIn`. `DELETE /mcp/{name}/signin` forgets them and reconnects signed out.
+- Drift registers itself as "Drift" where the server allows dynamic client registration. A server
+  that does not takes a pre-registered app in its config, `oauth: { clientId, clientSecret?,
+  scopes? }` (upstream's shape): the sign-in uses that client id, sends the secret with the code
+  for a confidential app, and asks for the scopes given, else what the server's metadata names. The
+  store keeps the client id with the tokens but not the secret, so each connect sets the config's
+  secret again before a refresh. Clients see `oauth` as `{ clientId, hasSecret, scopes }`; a
+  `null` secret on save keeps the saved one for the same client id, an empty one clears it.
+- A sign-in that does not finish (the browser returns an OAuth error such as `access_denied`, the
+  token exchange fails, or ten minutes pass) is published as an `mcp.updated`: the server shows
+  "Sign-in did not finish: <reason>" and still asks to sign in. The browser tab says the same.
+- HTTP+SSE servers sign in too: rmcp's authorized client speaks only streamable HTTP, so a signed-in
+  SSE server gets its access token, refreshed when due, as an `Authorization` header on the stream
+  and on every message it posts.
+- A rename carries the sign-in to the new name; a remove forgets it; a save that changes the URL or
+  the app's client id forgets it, so tokens are never sent to another host or used by another app.
+  The callback only works on the engine's host (see Sign-in below).
 - **MCP transports and limits.** A server is `stdio` (with an optional `cwd`), `http` (streamable
   HTTP) or `sse`, the 2024 HTTP+SSE transport, which the spec has deprecated and rmcp no longer
   ships, so `mcp::sse` speaks it: a long-lived GET whose `endpoint` event names where to POST,
@@ -1323,6 +1338,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
 - **Sign-in.** Anthropic offers Claude Pro/Max and Console (paste-the-code flows); OpenAI
   offers ChatGPT through the Codex flow, where the engine listens on `localhost:1455` and
   the callback route completes on its own.
+  - Loopback callbacks (Codex, MCP sign-in) listen on the host running the engine. Signing in from
+    a remote device sends the browser back to that device's own localhost, where nothing listens,
+    so those sign-ins must be done on the host; the paste-the-code flows work from anywhere.
 
 ## Baselines
 
@@ -1420,7 +1438,9 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   connect) and the enabled toggle; Sign in opens the page in the browser and the row connects by
   itself once the user is back, its status reading "sign-in required" until then. The editor offers
   exactly what the engine's config holds (a command, its arguments, environment and working
-  directory, or a URL and headers, plus the transport and a call timeout); the sign-in is not a
+  directory, or a URL and headers, plus the transport and a call timeout). A remote server's
+  "Sign-in app (optional)" section, collapsed unless one is set, takes the client id, secret
+  (masked, kept when left empty) and scopes of a pre-registered app; the sign-in itself is not a
   field, because the server asks for it. Workspace `opencode.json` servers and the shell's
   `mcp_server` and `mcp_decision` tables are no longer read by the UI.
 - The MCP registry tab (`src/ui/mcp/registry.tsx`) lists GitHub's MCP registry

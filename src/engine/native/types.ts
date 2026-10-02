@@ -1046,6 +1046,12 @@ export interface components {
             /** @description The `state` from `startOAuth`; required for `auto` flows. */
             state?: string | null;
         };
+        /** @description A pre-registered app as a client sends it: a `null` secret keeps the saved one for the same client id, an empty one clears it. */
+        OAuthInput: {
+            clientId: string;
+            clientSecret?: string | null;
+            scopes?: string[];
+        };
         /** @enum {string} */
         OAuthMode: "max" | "console" | "chatgpt";
         OAuthStartBody: {
@@ -1057,6 +1063,12 @@ export interface components {
             state: string;
             /** @description Open this in a browser. */
             url: string;
+        };
+        /** @description A pre-registered app as clients see it: whether it has a secret, never the secret. */
+        OAuthView: {
+            clientId: string;
+            hasSecret: boolean;
+            scopes: string[];
         };
         Option_: {
             description?: string;
@@ -1257,6 +1269,7 @@ export interface components {
             headers?: {
                 [key: string]: string | null;
             };
+            oauth?: components["schemas"]["OAuthInput"] | null;
             /** Format: int64 */
             timeoutSeconds?: number | null;
             /** @enum {string} */
@@ -1266,6 +1279,7 @@ export interface components {
             headers?: {
                 [key: string]: string | null;
             };
+            oauth?: components["schemas"]["OAuthInput"] | null;
             /** Format: int64 */
             timeoutSeconds?: number | null;
             /** @enum {string} */
@@ -1285,6 +1299,7 @@ export interface components {
         } | {
             /** @description Names only. */
             headers: string[];
+            oauth?: components["schemas"]["OAuthView"] | null;
             /** Format: int64 */
             timeoutSeconds?: number | null;
             /** @enum {string} */
@@ -1293,6 +1308,7 @@ export interface components {
         } | {
             /** @description Names only. */
             headers: string[];
+            oauth?: components["schemas"]["OAuthView"] | null;
             /** Format: int64 */
             timeoutSeconds?: number | null;
             /** @enum {string} */

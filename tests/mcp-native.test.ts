@@ -38,11 +38,15 @@ test("the editor never holds a saved secret: untouched ones are kept by name, ty
   expect(mcpConfigFromForm({ ...typed, cwd: " C:/tools ", timeout: "90" }).config).toMatchObject({ cwd: "C:/tools", timeoutSeconds: 90 })
   expect(mcpConfigFromForm({ ...typed, timeout: "1.5" }).issue).toBe("timeoutInvalid")
   const legacy = mcpFormState({ type: "sse", url: "https://legacy.example/sse", headers: [], timeoutSeconds: 30 })
-  expect(mcpConfigFromForm(legacy).config).toEqual({ type: "sse", url: "https://legacy.example/sse", headers: {}, timeoutSeconds: 30 })
+  expect(mcpConfigFromForm(legacy).config).toEqual({ type: "sse", url: "https://legacy.example/sse", headers: {}, oauth: null, timeoutSeconds: 30 })
   const renamed = { ...form, environment: updatePair(form.environment, 0, { key: "API_TOKEN", value: "new" }) }
   expect(renamed.environment[0].saved).toBeFalse()
   const http = mcpFormState({ type: "http", url: "https://example.com/mcp", headers: ["Authorization"] })
-  expect(mcpConfigFromForm(http)).toEqual({ config: { type: "http", url: "https://example.com/mcp", headers: { Authorization: null }, timeoutSeconds: null } })
+  expect(mcpConfigFromForm(http)).toEqual({ config: { type: "http", url: "https://example.com/mcp", headers: { Authorization: null }, oauth: null, timeoutSeconds: null } })
+  const app = mcpFormState({ type: "http", url: "https://example.com/mcp", headers: [], oauth: { clientId: "team-app", hasSecret: true, scopes: ["read", "write"] } })
+  expect([app.clientId, app.clientSecret, app.secretSaved, app.scopes]).toEqual(["team-app", "", true, "read write"])
+  expect(mcpConfigFromForm(app).config).toMatchObject({ oauth: { clientId: "team-app", clientSecret: null, scopes: ["read", "write"] } })
+  expect(mcpConfigFromForm({ ...app, clientSecret: "new", scopes: " read  " }).config).toMatchObject({ oauth: { clientId: "team-app", clientSecret: "new", scopes: ["read"] } })
   expect(mcpConfigFromForm(mcpFormState())).toEqual({ issue: "commandRequired" })
 })
 

@@ -194,6 +194,7 @@ const pendingTranslation = new Set([
   ...pendingKeys("drift.mcp.transport", "stdio streamable_http sse"),
   ...pendingKeys("drift.mcp.era", "stateless legacy"),
   ...pendingKeys("drift.mcp.form", "transport cwd cwdDefault timeout timeoutNone timeoutInvalid"),
+  ...pendingKeys("drift.mcp.form", "app appHint clientId clientSecret clientSecretNone scopes scopesNone"),
   ...pendingKeys("drift.mcp", "signIn signOut signInOpened status.needsSignIn"),
   ...pendingKeys(
     "drift.code",

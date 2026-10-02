@@ -64,7 +64,7 @@ pub async fn rename(State(engine): State<Arc<Engine>>, Path(name): Path<String>,
     let row = engine
         .mcp
         .close(&name, &engine.store, &engine.hub, |store| match store.rename_mcp_server(&name, &body.to)? {
-            Some(Renamed::To(row)) => Ok(row),
+            Some(Renamed::To(row)) => Ok(*row),
             Some(Renamed::Taken) => Err(taken(&body.to)),
             None => Err(ApiError::not_found("mcp server")),
         })

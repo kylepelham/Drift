@@ -51,6 +51,8 @@ pub enum ServerConfig {
         #[serde(default)]
         headers: BTreeMap<String, String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        oauth: Option<OAuthClient>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         timeout_seconds: Option<u64>,
     },
     /// The older HTTP+SSE transport some servers still speak.
@@ -59,11 +61,39 @@ pub enum ServerConfig {
         #[serde(default)]
         headers: BTreeMap<String, String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        oauth: Option<OAuthClient>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         timeout_seconds: Option<u64>,
     },
 }
 
+/// An app registered with the server's authorization server beforehand, for servers that do not let Drift register itself.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthClient {
+    pub client_id: String,
+    /// A confidential app's secret; never sent to clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_secret: Option<String>,
+    /// Scopes to ask for; none lets the server's own metadata decide.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
+}
+
 impl ServerConfig {
+    /// Spoken to over HTTP, so a sign-in can apply.
+    pub fn is_remote(&self) -> bool {
+        !matches!(self, Self::Stdio { .. })
+    }
+
+    /// Where a remote server is, and the app it signs in as when it has one; `None` for stdio.
+    pub fn remote(&self) -> Option<(&str, Option<&OAuthClient>)> {
+        match self {
+            Self::Http { url, oauth, .. } | Self::Sse { url, oauth, .. } => Some((url, oauth.as_ref())),
+            Self::Stdio { .. } => None,
+        }
+    }
+
     /// How long one tool call may take before it fails; unset, it runs until done or stopped.
     pub fn timeout(&self) -> Option<Duration> {
         let (Self::Stdio { timeout_seconds, .. } | Self::Http { timeout_seconds, .. } | Self::Sse { timeout_seconds, .. }) = self;
@@ -230,6 +260,45 @@ impl Listing {
     }
 }
 
+/// Why a connect failed, and whether the server asked for a sign-in (a 401 or 403), as rmcp's typed error says.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Failure {
+    message: String,
+    needs_sign_in: bool,
+}
+
+impl From<String> for Failure {
+    fn from(message: String) -> Self {
+        Self { message, needs_sign_in: false }
+    }
+}
+
+impl From<&str> for Failure {
+    fn from(message: &str) -> Self {
+        Self::from(message.to_string())
+    }
+}
+
+impl From<rmcp::service::ClientInitializeError> for Failure {
+    fn from(error: rmcp::service::ClientInitializeError) -> Self {
+        Self { needs_sign_in: error.is_authorization_required(), message: error.to_string() }
+    }
+}
+
+/// What a server not connected is doing, as its status shows it.
+#[derive(Clone, Debug)]
+struct Transient {
+    state: State,
+    error: Option<String>,
+    needs_sign_in: bool,
+}
+
+impl Transient {
+    fn new(state: State, error: Option<String>) -> Self {
+        Self { state, error, needs_sign_in: false }
+    }
+}
+
 /// A call that never got an answer because the connection ended, as opposed to one the server refused.
 enum CallError {
     Lost,
@@ -348,7 +417,7 @@ struct Attempt {
 #[derive(Default)]
 struct Slots {
     servers: HashMap<String, Arc<Slot>>,
-    transient: HashMap<String, (State, Option<String>)>,
+    transient: HashMap<String, Transient>,
     /// Bumped by every save, disable, disconnect and remove; a connect from an older one publishes nothing.
     generation: HashMap<String, u64>,
     attempts: HashMap<String, Attempt>,
@@ -417,20 +486,32 @@ impl Servers {
     pub fn status_of(&self, row: ServerRow) -> ServerStatus {
         let slots = self.lock();
         let live = slots.live(&row.name);
-        let (state, error) = if !row.enabled {
-            (State::Disabled, None)
+        let Transient { state, error, needs_sign_in } = if !row.enabled {
+            Transient::new(State::Disabled, None)
         } else if live.is_some() {
-            (State::Connected, None)
+            Transient::new(State::Connected, None)
         } else {
-            slots.transient.get(&row.name).cloned().unwrap_or((State::Disconnected, None))
+            slots.transient.get(&row.name).cloned().unwrap_or(Transient::new(State::Disconnected, None))
         };
         let protocol = live.as_ref().and_then(|live| live.service.peer_info()).map(|info| info.protocol_version.to_string());
         let era = live.as_ref().map(|live| live.era);
         let tools = live.map(|live| live.tools().iter().map(tool_info).collect()).unwrap_or_default();
-        let remote = matches!(row.config, ServerConfig::Http { .. });
-        let needs_sign_in = remote && state == State::Failed && error.as_deref().is_some_and(oauth::wants_sign_in);
-        let signed_in = remote && self.sign_ins.as_ref().is_some_and(|store| oauth::has_sign_in(store, &row.name));
+        let needs_sign_in = needs_sign_in && state == State::Failed;
+        let signed_in = row.config.is_remote() && self.sign_ins.as_ref().is_some_and(|store| oauth::has_sign_in(store, &row.name));
         ServerStatus { transport: Transport::of(&row.config), protocol, era, needs_sign_in, signed_in, server: ServerView::of(&row), state, error, tools }
+    }
+
+    /// A sign-in that did not finish: the server, unless it connected meanwhile, shows why and still asks to sign in.
+    pub(super) fn sign_in_failed(&self, name: &str, store: &Store, hub: &Hub, why: &str) {
+        let mut slots = self.lock();
+        if slots.live(name).is_some() || slots.attempts.contains_key(name) {
+            return;
+        }
+        slots.transient.insert(name.into(), Transient { state: State::Failed, error: Some(format!("Sign-in did not finish: {why}")), needs_sign_in: true });
+        drop(slots);
+        if let Ok(Some(row)) = store.mcp_server(name) {
+            hub.publish(Event::McpUpdated { server: self.status_of(row) });
+        }
     }
 
     /// Connects `name` as its row stands now.
@@ -445,7 +526,7 @@ impl Servers {
         hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
         let opened = tokio::select! {
             opened = open(&row.config, row.hash.clone(), SignIn { server: &row.name, credentials: self.sign_ins.as_ref() }, row.era) => opened,
-            () = attempt.cancel.cancelled() => Err("server definition changed during connect".into()),
+            () = attempt.cancel.cancelled() => Err(Failure::from("server definition changed during connect".to_string())),
         };
         let finished = self.finish(&row, hub, &attempt, opened);
         remember_era(store, &row, finished.as_ref().ok().map(|live| live.era));
@@ -470,12 +551,12 @@ impl Servers {
         if let Some(earlier) = slots.attempts.insert(name.into(), attempt.clone()) {
             earlier.cancel.cancel();
         }
-        slots.transient.insert(name.into(), (State::Connecting, None));
+        slots.transient.insert(name.into(), Transient::new(State::Connecting, None));
         Ok((row, attempt))
     }
 
     /// Publishes what the attempt opened, unless it was overtaken; then what it opened is dropped, killing it.
-    fn finish(&self, row: &ServerRow, hub: &Hub, attempt: &Attempt, opened: Result<Live, String>) -> Result<Arc<Live>, String> {
+    fn finish(&self, row: &ServerRow, hub: &Hub, attempt: &Attempt, opened: Result<Live, Failure>) -> Result<Arc<Live>, String> {
         let mut slots = self.lock();
         if !slots.is_current(&row.name, attempt) {
             return Err("server definition changed during connect".into());
@@ -488,9 +569,9 @@ impl Servers {
                 slots.transient.remove(&row.name);
                 Ok(live)
             }
-            Err(error) => {
-                slots.transient.insert(row.name.clone(), (State::Failed, Some(error.clone())));
-                Err(error)
+            Err(Failure { message, needs_sign_in }) => {
+                slots.transient.insert(row.name.clone(), Transient { state: State::Failed, error: Some(message.clone()), needs_sign_in });
+                Err(message)
             }
         };
         drop(slots);
@@ -584,7 +665,7 @@ impl Servers {
             return Watch::Holding;
         }
         slot.take();
-        slots.transient.insert(name.into(), (State::Connecting, Some("the connection closed; reconnecting".into())));
+        slots.transient.insert(name.into(), Transient::new(State::Connecting, Some("the connection closed; reconnecting".into())));
         Watch::Lost { generation: slots.generation_of(name), lived: current.since.elapsed() }
     }
 
@@ -744,7 +825,7 @@ struct SignIn<'a> {
     credentials: Option<&'a Arc<crate::llm::credentials::Credentials>>,
 }
 
-async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>, known: Option<Era>) -> Result<Live, String> {
+async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>, known: Option<Era>) -> Result<Live, Failure> {
     let (service, tree) = begin(config, sign_in, known).await?;
     let (tools, ttl) = within("list its tools", list_tools(&service)).await?;
     let info = service.peer_info();
@@ -789,16 +870,16 @@ fn attempts(config: &ServerConfig, known: Option<Era>) -> (Vec<Option<Era>>, boo
 }
 
 /// Starts in each era `attempts` gives until one answers; the last failure is the one reported.
-async fn begin(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>) -> Result<(Client, Option<Tree>), String> {
+async fn begin(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>) -> Result<(Client, Option<Tree>), Failure> {
     let (tries, past_timeouts) = attempts(config, known);
-    let mut failed = String::new();
+    let mut failed = Failure::from(String::new());
     for era in tries {
         let limit = if era.is_none() { STEP_LIMIT + PROBE_WAIT } else { STEP_LIMIT };
         match tokio::time::timeout(limit, start(config, sign_in, era)).await {
             Ok(Ok(started)) => return Ok(started),
             Ok(Err(error)) => failed = error,
             Err(_) => {
-                failed = format!("the server did not start within {limit:?}");
+                failed = Failure::from(format!("the server did not start within {limit:?}"));
                 if !past_timeouts {
                     break;
                 }
@@ -817,7 +898,7 @@ async fn within_for<T>(limit: Duration, what: &str, step: impl Future<Output = R
 }
 
 /// Opens the transport and begins the session in the server's era, probing for it when `known` is `None`; HTTP+SSE predates the probe.
-async fn start(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>) -> Result<(Client, Option<Tree>), String> {
+async fn start(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>) -> Result<(Client, Option<Tree>), Failure> {
     match config {
         ServerConfig::Stdio { command, args, env, cwd, .. } => {
             // Found on the PATH as it is now, so a program installed while Drift runs is found without a restart.
@@ -834,25 +915,35 @@ async fn start(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>) -
             let transport = TokioChildProcess::new(cmd).map_err(|e| format!("could not start {command}: {e}"))?;
             // Adopted before it answers, so a start cut short takes the server's children with it.
             let tree = transport.id().and_then(|pid| Tree::adopt(pid).ok());
-            let service = client_info().serve_with_lifecycle(transport, lifecycle(known)).await.map_err(|e| e.to_string())?;
+            let service = client_info().serve_with_lifecycle(transport, lifecycle(known)).await?;
             Ok((service, tree))
         }
-        ServerConfig::Http { url, headers, .. } => {
+        ServerConfig::Http { url, headers, oauth: app, .. } => {
             let config = http_config(url, headers);
             // A server signed in to goes through rmcp's authorized client, which refreshes the token itself.
             let signed_in = match sign_in.credentials {
-                Some(credentials) => oauth::signed_in_client(credentials, sign_in.server, url).await,
+                Some(credentials) => oauth::signed_in_client(credentials, sign_in.server, url, app.as_ref()).await,
                 None => None,
             };
             let service = match signed_in {
                 Some(client) => client_info().serve_with_lifecycle(StreamableHttpClientTransport::with_client(client, config), lifecycle(known)).await,
                 None => client_info().serve_with_lifecycle(StreamableHttpClientTransport::with_client(crate::llm::http::client(), config), lifecycle(known)).await,
             };
-            Ok((service.map_err(|e| e.to_string())?, None))
+            Ok((service?, None))
         }
-        ServerConfig::Sse { url, headers, .. } => {
-            let transport = sse::SseTransport::connect(crate::llm::http::client(), url, header_map(headers)).await?;
-            Ok((client_info().serve_with_lifecycle(transport, ClientLifecycleMode::Initialize).await.map_err(|e| e.to_string())?, None))
+        ServerConfig::Sse { url, headers, oauth: app, .. } => {
+            let mut headers = header_map(headers);
+            // rmcp's authorized client speaks only streamable HTTP, so a signed-in SSE server gets its token, refreshed when due, as a header.
+            if let Some(token) = match sign_in.credentials {
+                Some(credentials) => oauth::signed_in_token(credentials, sign_in.server, url, app.as_ref()).await,
+                None => None,
+            } {
+                if let Ok(value) = format!("Bearer {token}").parse() {
+                    headers.insert(http::header::AUTHORIZATION, value);
+                }
+            }
+            let transport = sse::SseTransport::connect(crate::llm::http::client(), url, headers).await?;
+            Ok((client_info().serve_with_lifecycle(transport, ClientLifecycleMode::Initialize).await?, None))
         }
     }
 }

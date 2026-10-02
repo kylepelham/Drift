@@ -108,6 +108,39 @@ export function McpEditor(props: {
                 pairs={form().headers}
                 onChange={(headers) => setForm((value) => ({ ...value, headers }))}
               />
+              <details class="group rounded-md border border-edge/70 px-3 py-2" open={!!form().clientId}>
+                <summary class="cursor-pointer text-[0.78rem] font-medium text-ink">{t("drift.mcp.form.app")}</summary>
+                <div class="mt-2 space-y-3">
+                  <div class="text-[0.7rem] text-ink-faint">{t("drift.mcp.form.appHint")}</div>
+                  <Field label={t("drift.mcp.form.clientId")}>
+                    <TextInput
+                      value={form().clientId}
+                      onInput={(clientId) => setForm((value) => ({ ...value, clientId, secretSaved: value.secretSaved && clientId.trim() === value.clientId.trim() }))}
+                      label={t("drift.mcp.form.clientId")}
+                      mono
+                    />
+                  </Field>
+                  <Field label={t("drift.mcp.form.clientSecret")}>
+                    <TextInput
+                      type="password"
+                      value={form().clientSecret}
+                      onInput={(clientSecret) => setForm((value) => ({ ...value, clientSecret }))}
+                      label={t("drift.mcp.form.clientSecret")}
+                      placeholder={t(form().secretSaved ? "drift.mcp.form.savedValue" : "drift.mcp.form.clientSecretNone")}
+                      mono
+                    />
+                  </Field>
+                  <Field label={t("drift.mcp.form.scopes")}>
+                    <TextInput
+                      value={form().scopes}
+                      onInput={(scopes) => setForm((value) => ({ ...value, scopes }))}
+                      label={t("drift.mcp.form.scopes")}
+                      placeholder={t("drift.mcp.form.scopesNone")}
+                      mono
+                    />
+                  </Field>
+                </div>
+              </details>
             </Show>
             <Field label={t("drift.mcp.form.timeout")}>
               <TextInput

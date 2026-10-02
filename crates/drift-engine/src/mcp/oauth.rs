@@ -5,9 +5,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use rmcp::transport::auth::{AuthClient, AuthError, AuthorizationManager, AuthorizationRequest, CredentialStore, OAuthState, StoredCredentials};
+use rmcp::transport::auth::{AuthClient, AuthError, AuthorizationManager, AuthorizationRequest, CredentialStore, OAuthClientConfig, OAuthState, StoredCredentials};
 
-use super::ServerConfig;
+use super::{OAuthClient, ServerConfig};
 use crate::llm::credentials::Credentials;
 
 /// How long a sign-in waits for the browser before giving up.
@@ -49,13 +49,31 @@ impl CredentialStore for KeychainStore {
     }
 }
 
-/// A client for a server signed in before, refreshing its token as needed; `None` when it never was.
-pub async fn signed_in_client(credentials: &Arc<Credentials>, server: &str, url: &str) -> Option<AuthClient<reqwest::Client>> {
+/// The sign-in kept for a server, ready to refresh; `None` when it never signed in.
+async fn signed_in(credentials: &Arc<Credentials>, server: &str, url: &str, app: Option<&OAuthClient>) -> Option<AuthorizationManager> {
     credentials.secret(&key(server))?;
     let mut manager = AuthorizationManager::new(url).await.ok()?;
     manager.with_client(crate::llm::http::client()).ok()?;
     manager.set_credential_store(KeychainStore::new(credentials.clone(), server));
-    manager.initialize_from_store().await.ok()?.then(|| AuthClient::new(crate::llm::http::client(), manager))
+    if !manager.initialize_from_store().await.ok()? {
+        return None;
+    }
+    // The store keeps the app's id but not its secret, which a confidential app needs to refresh.
+    if let Some(OAuthClient { client_id, client_secret: Some(secret), scopes }) = app {
+        let config = OAuthClientConfig::new(client_id, "http://127.0.0.1/callback").with_client_secret(secret).with_scopes(scopes.clone());
+        manager.configure_client(config).ok()?;
+    }
+    Some(manager)
+}
+
+/// A client for a server signed in before, refreshing its token as needed; `None` when it never was.
+pub async fn signed_in_client(credentials: &Arc<Credentials>, server: &str, url: &str, app: Option<&OAuthClient>) -> Option<AuthClient<reqwest::Client>> {
+    signed_in(credentials, server, url, app).await.map(|manager| AuthClient::new(crate::llm::http::client(), manager))
+}
+
+/// A signed-in server's access token, refreshed first when it is due.
+pub async fn signed_in_token(credentials: &Arc<Credentials>, server: &str, url: &str, app: Option<&OAuthClient>) -> Option<String> {
+    signed_in(credentials, server, url, app).await?.get_access_token().await.ok()
 }
 
 pub fn has_sign_in(credentials: &Credentials, server: &str) -> bool {
@@ -76,21 +94,12 @@ pub fn move_sign_in(credentials: &Credentials, from: &str, to: &str) {
     }
 }
 
-/// Forgets a sign-in when a save points the server at another URL, so its tokens never reach a different host.
+/// Forgets a sign-in when a save points the server at another URL or app, so its tokens never reach a different host or client.
 pub fn forget_if_moved(credentials: &Credentials, server: &str, before: &ServerConfig, after: &ServerConfig) {
-    let url = |config: &ServerConfig| match config {
-        ServerConfig::Http { url, .. } => Some(url.clone()),
-        _ => None,
-    };
-    if url(before) != url(after) {
+    let identity = |config: &ServerConfig| config.remote().map(|(url, app)| (url.to_string(), app.map(|app| app.client_id.clone())));
+    if identity(before) != identity(after) {
         let _ = forget(credentials, server);
     }
-}
-
-/// Whether a connect failed because the server wants the user to sign in.
-pub fn wants_sign_in(error: &str) -> bool {
-    let error = error.to_ascii_lowercase();
-    ["auth required", "authorization required", "401", "unauthorized"].iter().any(|said| error.contains(said))
 }
 
 impl crate::Engine {
@@ -98,22 +107,23 @@ impl crate::Engine {
     /// comes back the tokens are stored and the server connects.
     pub async fn sign_in_mcp(self: &Arc<Self>, name: &str) -> Result<String, String> {
         let row = self.store.mcp_server(name).map_err(|e| e.to_string())?.ok_or_else(|| format!("no MCP server named {name}"))?;
-        let ServerConfig::Http { url, .. } = &row.config else { return Err("only servers on streamable HTTP sign in".into()) };
+        let Some((url, app)) = row.config.remote() else { return Err("a server on stdio has no sign-in".into()) };
         let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await.map_err(|e| e.to_string())?;
         let redirect = format!("http://127.0.0.1:{}/callback", listener.local_addr().map_err(|e| e.to_string())?.port());
-        let mut manager = AuthorizationManager::new(url.as_str()).await.map_err(|e| e.to_string())?;
+        let mut manager = AuthorizationManager::new(url).await.map_err(|e| e.to_string())?;
         manager.with_client(crate::llm::http::client()).map_err(|e| e.to_string())?;
         manager.set_credential_store(KeychainStore::new(self.credentials.clone(), name));
         let mut state = OAuthState::Unauthorized(manager);
-        state.start_authorization(AuthorizationRequest::new(redirect).with_client_name("Drift")).await.map_err(|e| format!("could not start signing in to {name}: {e}"))?;
+        state.start_authorization(request(redirect, app)).await.map_err(|e| format!("could not start signing in to {name}: {e}"))?;
         let page = state.get_authorization_url().await.map_err(|e| e.to_string())?;
         let engine = Arc::downgrade(self);
         let server = name.to_string();
         tokio::spawn(async move {
-            let finished = tokio::time::timeout(SIGN_IN_WAIT, finish(&listener, &mut state)).await;
+            let finished = tokio::time::timeout(SIGN_IN_WAIT, finish(&listener, &mut state)).await.unwrap_or_else(|_| Err(format!("no answer from the browser within {} minutes", SIGN_IN_WAIT.as_secs() / 60)));
             let Some(engine) = engine.upgrade() else { return };
-            if let Ok(Ok(())) = finished {
-                let _ = engine.connect_mcp(&server).await;
+            match finished {
+                Ok(()) => drop(engine.connect_mcp(&server).await),
+                Err(why) => engine.mcp.sign_in_failed(&server, &engine.store, &engine.hub, &why),
             }
         });
         Ok(page)
@@ -128,12 +138,29 @@ impl crate::Engine {
     }
 }
 
+/// The sign-in to ask for: Drift registering itself, or the app the config names.
+fn request(redirect: String, app: Option<&OAuthClient>) -> AuthorizationRequest {
+    let request = AuthorizationRequest::new(redirect).with_client_name("Drift");
+    let Some(app) = app else { return request };
+    let request = request.with_preregistered_client(&app.client_id).with_scopes(app.scopes.clone());
+    match &app.client_secret {
+        Some(secret) => request.with_client_secret(secret),
+        None => request,
+    }
+}
+
 /// Waits for the browser's return and trades its code for tokens, which the store keeps.
 async fn finish(listener: &tokio::net::TcpListener, state: &mut OAuthState) -> Result<(), String> {
     let (mut socket, params) = crate::llm::openai::oauth::next_callback(listener, "/callback").await?;
     let (Some(code), Some(csrf)) = (params.get("code"), params.get("state")) else {
-        crate::llm::openai::oauth::respond(&mut socket, 400, "Sign-in failed: the server sent no code.").await;
-        return Err("no code".into());
+        // The authorization server's own reason, when it gave one (`access_denied` and its description).
+        let why = match (params.get("error"), params.get("error_description")) {
+            (Some(error), Some(description)) => format!("{error}: {description}"),
+            (Some(error), None) => error.clone(),
+            _ => "the server sent no code".into(),
+        };
+        crate::llm::openai::oauth::respond(&mut socket, 400, &format!("Sign-in failed: {why}")).await;
+        return Err(why);
     };
     match state.handle_callback(code, csrf).await {
         Ok(()) => {
