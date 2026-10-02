@@ -90,6 +90,9 @@ fn body(request: &Request) -> Value {
             .iter()
             .map(|tool| json!({ "type": "function", "function": { "name": tool.name, "description": tool.description, "parameters": tool.input_schema } }))
             .collect();
+        if request.no_tool_calls {
+            body["tool_choice"] = json!("none");
+        }
     }
     if let Some(temperature) = request.temperature {
         body["temperature"] = json!(temperature);
@@ -357,6 +360,13 @@ mod tests {
         assert_eq!(sent[0]["content"][0]["file"]["file_data"], "data:application/pdf;base64,JVBERi0=");
     }
 
+    #[test]
+    fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
+        assert!(body(&request()).get("tool_choice").is_none());
+        let built = body(&Request { no_tool_calls: true, ..request() });
+        assert_eq!((built["tool_choice"].clone(), built["tools"].as_array().map(Vec::len).unwrap_or(0) > 0), (json!("none"), true));
+    }
+
     fn request() -> Request {
         Request {
             model: "grok-4.5".into(),
@@ -378,6 +388,7 @@ mod tests {
             reasoning: None,
             temperature: Some(0.2),
             cache_key: None,
+            no_tool_calls: false,
         }
     }
 

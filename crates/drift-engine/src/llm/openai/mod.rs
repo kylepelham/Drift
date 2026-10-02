@@ -104,7 +104,7 @@ fn body(request: &Request, subscription: bool) -> Value {
             .iter()
             .map(|tool| json!({ "type": "function", "name": tool.name, "description": tool.description, "parameters": tool.input_schema, "strict": false }))
             .collect();
-        body["tool_choice"] = json!("auto");
+        body["tool_choice"] = json!(if request.no_tool_calls { "none" } else { "auto" });
     }
     if let Some(Reasoning::Effort { level }) = &request.reasoning {
         body["reasoning"] = json!({ "effort": level, "summary": "auto" });
@@ -316,7 +316,14 @@ mod tests {
         assert_eq!(sent[0]["content"][0], json!({ "type": "input_file", "filename": "document.pdf", "file_data": "data:application/pdf;base64,JVBERi0=" }));
     }
 
-    fn request() -> Request {
+    #[test]
+fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
+    assert_eq!(body(&request(), false)["tool_choice"], "auto");
+    let built = body(&Request { no_tool_calls: true, ..request() }, true);
+    assert_eq!((built["tool_choice"].clone(), built["tools"].as_array().map(Vec::len).unwrap_or(0) > 0), (json!("none"), true));
+}
+
+fn request() -> Request {
         Request {
             model: "gpt-5.4".into(),
             system: "You are Drift.".into(),
@@ -337,6 +344,7 @@ mod tests {
             reasoning: Some(Reasoning::Effort { level: "medium".into() }),
             temperature: None,
             cache_key: Some("ses_1".into()),
+            no_tool_calls: false,
         }
     }
 

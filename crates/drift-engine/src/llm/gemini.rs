@@ -79,6 +79,9 @@ fn body(request: &Request) -> Value {
             .map(|tool| json!({ "name": tool.name, "description": tool.description, "parametersJsonSchema": tool.input_schema }))
             .collect();
         body["tools"] = json!([{ "functionDeclarations": declarations }]);
+        if request.no_tool_calls {
+            body["toolConfig"] = json!({ "functionCallingConfig": { "mode": "NONE" } });
+        }
     }
     match &request.reasoning {
         Some(Reasoning::Budget { tokens }) => body["generationConfig"]["thinkingConfig"] = json!({ "thinkingBudget": tokens, "includeThoughts": true }),
@@ -242,6 +245,14 @@ mod tests {
         assert_eq!(sent["parts"][0], json!({ "inlineData": { "mimeType": "application/pdf", "data": "JVBERi0=" } }));
     }
 
+    #[test]
+    fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
+        assert!(body(&request()).get("toolConfig").is_none());
+        let built = body(&Request { no_tool_calls: true, ..request() });
+        assert_eq!(built["toolConfig"], json!({ "functionCallingConfig": { "mode": "NONE" } }));
+        assert!(built["tools"][0]["functionDeclarations"].as_array().is_some_and(|tools| !tools.is_empty()));
+    }
+
     fn request() -> Request {
         Request {
             model: "gemini-2.5-pro".into(),
@@ -262,6 +273,7 @@ mod tests {
             reasoning: Some(Reasoning::Budget { tokens: 2048 }),
             temperature: None,
             cache_key: None,
+            no_tool_calls: false,
         }
     }
 
