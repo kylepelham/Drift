@@ -72,7 +72,7 @@ impl Engine {
         let request = Request {
             model: resolved.model_ref.model.clone(),
             system: shot.system,
-            messages: crate::llm::prepare_images(shot.messages, resolved.model.attachment, |hash| self.store.blob(hash).ok().flatten()),
+            messages: crate::llm::prepare_files(shot.messages, &resolved.model, |hash| self.store.blob(hash).ok().flatten()),
             tools: shot.tools,
             max_tokens: shot.max_tokens,
             reasoning: None,

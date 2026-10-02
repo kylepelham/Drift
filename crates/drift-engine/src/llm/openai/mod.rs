@@ -126,7 +126,8 @@ fn items(message: &ChatMessage) -> Vec<Value> {
                 flush(&mut content, &mut out);
                 out.push(json!({ "type": "reasoning", "summary": [{ "type": "summary_text", "text": text }], "encrypted_content": encrypted }));
             }
-            Block::Reasoning { .. } | Block::StoredImage { .. } => {}
+            Block::Pdf { base64 } => content.push(json!({ "type": "input_file", "filename": "document.pdf", "file_data": format!("data:application/pdf;base64,{base64}") })),
+            Block::Reasoning { .. } | Block::Stored { .. } => {}
             Block::ToolUse { id, name, input } => {
                 flush(&mut content, &mut out);
                 out.push(json!({ "type": "function_call", "call_id": id, "name": name, "arguments": input.to_string() }));
@@ -256,6 +257,12 @@ impl StreamState {
 mod tests {
     use super::*;
     use crate::llm::ToolSpec;
+
+    #[test]
+    fn a_pdf_is_an_input_file() {
+        let sent = items(&ChatMessage { role: Role::User, blocks: vec![Block::Pdf { base64: "JVBERi0=".into() }] });
+        assert_eq!(sent[0]["content"][0], json!({ "type": "input_file", "filename": "document.pdf", "file_data": "data:application/pdf;base64,JVBERi0=" }));
+    }
 
     fn request() -> Request {
         Request {

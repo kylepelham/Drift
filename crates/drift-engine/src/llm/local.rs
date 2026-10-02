@@ -143,6 +143,7 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
         family: String::new(),
         reasoning: false,
         attachment: kind == "vlm",
+        pdf: false,
         temperature: true,
         release_date: String::new(),
         limit: Limit { context, output: 0 },

@@ -3,5 +3,5 @@ Reads a file from the filesystem and returns its contents with line numbers (`N:
 - Returns up to 2000 lines starting at `offset`; the tail of the output says how to read the rest.
 - Long lines are cut at 2000 characters.
 - Given a directory it lists the entries instead.
-- Images (PNG, JPEG, GIF, WebP, up to 5 MB) come back for you to look at. Other binary files and files over 10 MB are refused.
+- Images (PNG, JPEG, GIF, WebP, up to 5 MB) and PDFs (up to 10 MB) come back for you to look at. Other binary files and files over 10 MB are refused.
 - Read several files in one turn by issuing several calls at once.

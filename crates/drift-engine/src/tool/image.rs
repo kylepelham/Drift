@@ -1,12 +1,22 @@
-//! Images a tool returns for the model to look at. A tool hands them over as `images: [{mime, data}]`
-//! in its metadata; the turn moves the bytes to the blob table and keeps `{mime, hash}`, and the
-//! request loads them again, only the newest few, and only for a model that reads images.
+//! Images and PDFs a tool returns for the model to look at. A tool hands them over as
+//! `images: [{mime, data}]` in its metadata (PDFs too, as `application/pdf`); the turn moves the bytes
+//! to the blob table and keeps `{mime, hash}`, and the request loads them again, only the newest few,
+//! and only for a model that reads that kind.
 
 use base64::Engine as _;
 use serde_json::{json, Value};
 
 /// Larger images are refused rather than sent: providers reject them (Anthropic's limit is 5 MB).
 pub const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+/// Larger PDFs are refused: providers cap the whole request, and a PDF counts against it whole.
+pub const MAX_PDF_BYTES: usize = 10 * 1024 * 1024;
+pub const PDF: &str = "application/pdf";
+
+/// Whether `bytes` are a PDF.
+pub fn is_pdf(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"%PDF-")
+}
+
 /// The formats every image-reading provider takes; anything else (SVG, BMP, ...) is named, not sent.
 pub const SENDABLE: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 

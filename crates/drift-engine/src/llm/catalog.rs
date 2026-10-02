@@ -64,6 +64,9 @@ pub struct Model {
     pub reasoning: bool,
     #[serde(default)]
     pub attachment: bool,
+    /// Whether it reads PDFs sent whole.
+    #[serde(default)]
+    pub pdf: bool,
     #[serde(default)]
     pub temperature: bool,
     #[serde(default)]
@@ -254,6 +257,7 @@ fn user_model(id: &str, listed: &ProviderModel) -> Model {
         family: String::new(),
         reasoning: false,
         attachment: listed.images,
+        pdf: false,
         temperature: true,
         release_date: String::new(),
         limit: Limit { context: listed.context, output: listed.output },
@@ -298,6 +302,11 @@ struct RawModel {
     reasoning: Option<bool>,
     #[serde(default)]
     attachment: Option<bool>,
+    /// Already derived, as a cached catalog stores it.
+    #[serde(default)]
+    pdf: Option<bool>,
+    #[serde(default)]
+    modalities: Option<Modalities>,
     #[serde(default)]
     temperature: Option<bool>,
     #[serde(default)]
@@ -320,6 +329,15 @@ struct RawModel {
     variants: Option<Vec<Variant>>,
 }
 
+#[derive(Deserialize)]
+struct Modalities {
+    #[serde(default)]
+    input: Vec<String>,
+}
+
+/// Routes whose wire carries a PDF whole, for a model models.dev says takes attachments but gives no modalities for.
+const PDF_ROUTES: [&str; 6] = ["anthropic", "openai", "google", "google-vertex", "google-vertex-anthropic", "amazon-bedrock"];
+
 impl RawProvider {
     fn into_info(self, provider_id: &str) -> ProviderInfo {
         let models = self
@@ -332,6 +350,9 @@ impl RawProvider {
                 let profile = model.profile.unwrap_or_else(|| profile_for(provider_id, &family));
                 let limit = model.limit.unwrap_or_default();
                 let reasoning = model.reasoning.unwrap_or(false);
+                let attachment = model.attachment.unwrap_or(false);
+                let listed_pdf = model.modalities.as_ref().map(|m| m.input.iter().any(|kind| kind == "pdf"));
+                let pdf = model.pdf.or(listed_pdf).unwrap_or(attachment && PDF_ROUTES.contains(&provider_id));
                 let variants = match model.variants {
                     Some(variants) => variants,
                     None if reasoning => variants_for(provider_id, &model.id, limit.output, model.reasoning_options.as_deref().unwrap_or_default()),
@@ -344,7 +365,8 @@ impl RawProvider {
                         name: model.name,
                         family,
                         reasoning,
-                        attachment: model.attachment.unwrap_or(false),
+                        attachment,
+                        pdf,
                         temperature: model.temperature.unwrap_or(false),
                         release_date: model.release_date.unwrap_or_default(),
                         limit,

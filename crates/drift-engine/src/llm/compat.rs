@@ -139,7 +139,8 @@ fn message(message: &ChatMessage) -> Vec<Value> {
             Block::Reasoning { text, .. } => reasoning = Some(text.clone()),
             Block::ToolUse { id, name, input } => tool_calls.push(json!({ "id": id, "type": "function", "function": { "name": name, "arguments": input.to_string() } })),
             Block::ToolResult { call_id, content, .. } => out.push(json!({ "role": "tool", "tool_call_id": call_id, "content": content })),
-            Block::StoredImage { .. } => {}
+            Block::Pdf { base64 } => content.push(json!({ "type": "file", "file": { "filename": "document.pdf", "file_data": format!("data:application/pdf;base64,{base64}") } })),
+            Block::Stored { .. } => {}
         }
     }
     if content.is_empty() && tool_calls.is_empty() {
@@ -313,6 +314,12 @@ fn usage_from(usage: &Value) -> Usage {
 mod tests {
     use super::*;
     use crate::llm::ToolSpec;
+
+    #[test]
+    fn a_pdf_is_a_file_part() {
+        let sent = message(&ChatMessage { role: Role::User, blocks: vec![Block::Pdf { base64: "JVBERi0=".into() }] });
+        assert_eq!(sent[0]["content"][0]["file"]["file_data"], "data:application/pdf;base64,JVBERi0=");
+    }
 
     fn request() -> Request {
         Request {

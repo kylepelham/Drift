@@ -668,7 +668,7 @@ impl Engine {
             let request = Request {
                 model: plan.model_ref.model.clone(),
                 system: plan.offer.system.clone(),
-                messages: llm::prepare_images(compaction::request_messages(&transcript, &plan.model_ref), plan.model.attachment, |hash| self.store.blob(hash).ok().flatten()),
+                messages: llm::prepare_files(compaction::request_messages(&transcript, &plan.model_ref), &plan.model, |hash| self.store.blob(hash).ok().flatten()),
                 tools: plan.offer.specs(),
                 max_tokens,
                 reasoning,

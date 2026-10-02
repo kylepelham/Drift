@@ -973,6 +973,8 @@ export interface components {
             id: string;
             limit?: components["schemas"]["Limit"];
             name: string;
+            /** @description Whether it reads PDFs sent whole. */
+            pdf?: boolean;
             profile?: components["schemas"]["ToolProfile"];
             reasoning?: boolean;
             release_date?: string;

@@ -150,7 +150,8 @@ fn content(message: &ChatMessage, names: &mut HashMap<String, String>) -> Value 
             Block::Text(text) => parts.push(json!({ "text": text })),
             Block::Image { mime, base64 } => parts.push(json!({ "inlineData": { "mimeType": mime, "data": base64 } })),
             Block::Reasoning { signature: Some(sig), .. } => signature = Some(sig.clone()),
-            Block::Reasoning { .. } | Block::StoredImage { .. } => {}
+            Block::Pdf { base64 } => parts.push(json!({ "inlineData": { "mimeType": "application/pdf", "data": base64 } })),
+            Block::Reasoning { .. } | Block::Stored { .. } => {}
             Block::ToolUse { id, name, input } => {
                 names.insert(id.clone(), name.clone());
                 parts.push(json!({ "functionCall": { "id": id, "name": name, "args": input } }));
@@ -272,6 +273,12 @@ impl StreamState {
 mod tests {
     use super::*;
     use crate::llm::ToolSpec;
+
+    #[test]
+    fn a_pdf_is_inline_data() {
+        let sent = content(&ChatMessage { role: Role::User, blocks: vec![Block::Pdf { base64: "JVBERi0=".into() }] }, &mut HashMap::new());
+        assert_eq!(sent["parts"][0], json!({ "inlineData": { "mimeType": "application/pdf", "data": "JVBERi0=" } }));
+    }
 
     fn request() -> Request {
         Request {

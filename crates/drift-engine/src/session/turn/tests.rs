@@ -1298,7 +1298,9 @@ async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_
     assert_eq!(images, ["image/png", "image/png"], "the MCP screenshot and the read image both reach the model");
     let stored = serde_json::to_string(&h.engine.store.transcript(&h.session.id).unwrap()).unwrap();
     assert!(stored.contains("\"hash\"") && !stored.contains("iVBORw0KGgo"), "the part names its images; their bytes live in the blob table");
-    let text_only = crate::llm::prepare_images(last.messages.clone(), false, |_| None);
+    let mut blind = model_with(0, false);
+    blind.attachment = false;
+    let text_only = crate::llm::prepare_files(last.messages.clone(), &blind, |_| None);
     assert!(text_only.iter().flat_map(|m| &m.blocks).all(|b| !matches!(b, Block::Image { .. })));
     assert!(format!("{text_only:?}").contains("this model cannot read images"));
 }
@@ -1306,17 +1308,26 @@ async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_
 #[test]
 fn only_the_newest_images_are_sent_and_a_lost_one_becomes_a_line() {
     use crate::llm::{Block, ChatMessage, Role as LlmRole, MAX_IMAGES_SENT};
-    let stored = |n: usize| Block::StoredImage { mime: "image/png".into(), hash: format!("h{n}") };
+    let mut seeing = model_with(0, false);
+    (seeing.attachment, seeing.pdf) = (true, true);
+    let stored = |n: usize| Block::Stored { mime: "image/png".into(), hash: format!("h{n}") };
     let blocks: Vec<Block> = (0..MAX_IMAGES_SENT + 5).map(stored).collect();
-    let prepared = crate::llm::prepare_images(vec![ChatMessage { role: LlmRole::User, blocks }], true, |hash| (hash != "h14").then(|| b"png".to_vec()));
+    let prepared = crate::llm::prepare_files(vec![ChatMessage { role: LlmRole::User, blocks }], &seeing, |hash| (hash != "h14").then(|| b"png".to_vec()));
     let kinds: Vec<&str> = prepared[0].blocks.iter().map(|b| match b { Block::Image { .. } => "image", Block::Text(t) if t.contains("earlier") => "older", _ => "lost" }).collect();
     assert_eq!(kinds, [vec!["older"; 4], vec!["image"; MAX_IMAGES_SENT], vec!["lost"]].concat(), "the newest are loaded; one no longer kept says so and takes no slot");
 
     let big = |n: usize| Block::Image { mime: "image/png".into(), base64: format!("{n}{}", "A".repeat(8 * 1024 * 1024)) };
-    let prepared = crate::llm::prepare_images(vec![ChatMessage { role: LlmRole::User, blocks: (0..4).map(big).collect() }], true, |_| None);
+    let prepared = crate::llm::prepare_files(vec![ChatMessage { role: LlmRole::User, blocks: (0..4).map(big).collect() }], &seeing, |_| None);
     let sent = prepared[0].blocks.iter().filter(|b| matches!(b, Block::Image { .. })).count();
     assert_eq!(sent, 2, "a few large images fill the data budget before the count");
     assert!(matches!(&prepared[0].blocks[3], Block::Image { base64, .. } if base64.starts_with('3')), "the newest are the ones kept");
+
+    let pdf = vec![ChatMessage { role: LlmRole::User, blocks: vec![Block::Stored { mime: "application/pdf".into(), hash: "p".into() }] }];
+    let loaded = crate::llm::prepare_files(pdf.clone(), &seeing, |_| Some(b"%PDF-1.7".to_vec()));
+    assert!(matches!(&loaded[0].blocks[0], Block::Pdf { .. }), "a stored PDF loads as a PDF");
+    seeing.pdf = false;
+    let refused = crate::llm::prepare_files(pdf, &seeing, |_| Some(b"%PDF-1.7".to_vec()));
+    assert!(matches!(&refused[0].blocks[0], Block::Text(t) if t.contains("cannot read PDFs")));
 }
 
 #[tokio::test]

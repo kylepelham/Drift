@@ -974,6 +974,13 @@ Settled after the first external review of M1; each has a regression test.
   `outputBytes` and `outputFile`. A timeout or Stop keeps what was printed; the shell tool handles
   Stop itself (`Tool::stops_itself`), so the turn awaits its result rather than dropping it, and the
   call ends `error` with `stopped` or `timedOut` in its metadata.
+- PDFs travel the same way: `read` returns one (up to 10 MB, known by `%PDF-`) instead of refusing
+  it, and `webfetch` returns an image or PDF URL as the file rather than as text, whatever its
+  content type. A catalog model reads PDFs (`Model::pdf`) when models.dev lists `pdf` among its
+  input modalities, or, without them, when it takes attachments on a route whose wire carries a
+  PDF whole (Anthropic, OpenAI, Google, Vertex, Bedrock). Each adapter sends its own shape
+  (Anthropic `document`, OpenAI `input_file`, Gemini `inlineData`, Chat Completions `file`); a
+  model that does not read PDFs gets a line instead. Files share the ten-file and 20 MB budget.
 - Images reach the model (`tool::image`). `read` returns a PNG, JPEG, GIF or WebP (up to 5 MB,
   known by its bytes) as an image rather than refusing it as binary, and an MCP result's image
   content is kept instead of becoming `[image png]`, if it is one of those four formats within

@@ -164,7 +164,7 @@ fn message(message: &ChatMessage) -> Value {
         Role::User => "user",
         Role::Assistant => "assistant",
     };
-    json!({ "role": role, "content": message.blocks.iter().filter(|b| !matches!(b, Block::StoredImage { .. })).map(block).collect::<Vec<_>>() })
+    json!({ "role": role, "content": message.blocks.iter().filter(|b| !matches!(b, Block::Stored { .. })).map(block).collect::<Vec<_>>() })
 }
 
 fn block(block: &Block) -> Value {
@@ -181,7 +181,8 @@ fn block(block: &Block) -> Value {
         Block::Image { mime, base64 } => {
             json!({ "type": "image", "source": { "type": "base64", "media_type": mime, "data": base64 } })
         }
-        Block::StoredImage { .. } => json!({ "type": "text", "text": "[image not loaded]" }),
+        Block::Pdf { base64 } => json!({ "type": "document", "source": { "type": "base64", "media_type": "application/pdf", "data": base64 } }),
+        Block::Stored { .. } => json!({ "type": "text", "text": "[file not loaded]" }),
     }
 }
 
@@ -263,6 +264,12 @@ fn usage(value: &Value) -> Usage {
 mod tests {
     use super::*;
     use crate::llm::ToolSpec;
+
+    #[test]
+    fn a_pdf_is_a_base64_document() {
+        let sent = block(&Block::Pdf { base64: "JVBERi0=".into() });
+        assert_eq!(sent, json!({ "type": "document", "source": { "type": "base64", "media_type": "application/pdf", "data": "JVBERi0=" } }));
+    }
 
     fn request() -> Request {
         Request {

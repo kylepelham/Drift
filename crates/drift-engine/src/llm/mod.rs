@@ -64,46 +64,54 @@ pub const MAX_IMAGES_SENT: usize = 10;
 /// 32 MB), and ten images of 5 MB each would pass the count yet fail the size.
 pub const MAX_IMAGE_DATA_SENT: usize = 20 * 1024 * 1024;
 
-/// Makes the request's images sendable: stored ones are loaded, and newest first they are kept until
-/// [`MAX_IMAGES_SENT`] or [`MAX_IMAGE_DATA_SENT`] is reached, older ones becoming a line; for a
-/// model that cannot read images each becomes a line.
-pub fn prepare_images(mut messages: Vec<ChatMessage>, reads_images: bool, load: impl Fn(&str) -> Option<Vec<u8>>) -> Vec<ChatMessage> {
-    let mut budget = ImageBudget { reads_images, sent: 0, data: 0 };
+/// Makes the request's images and PDFs sendable for `model`: stored ones are loaded, and newest
+/// first they are kept until [`MAX_IMAGES_SENT`] files or [`MAX_IMAGE_DATA_SENT`] of data is
+/// reached, older ones becoming a line; a kind the model cannot read becomes a line too.
+pub fn prepare_files(mut messages: Vec<ChatMessage>, model: &catalog::Model, load: impl Fn(&str) -> Option<Vec<u8>>) -> Vec<ChatMessage> {
+    let mut budget = FileBudget { reads_images: model.attachment, reads_pdfs: model.pdf, sent: 0, data: 0 };
     for block in messages.iter_mut().rev().flat_map(|message| message.blocks.iter_mut().rev()) {
-        if matches!(block, Block::Image { .. } | Block::StoredImage { .. }) {
-            let image = std::mem::replace(block, Block::Text(String::new()));
-            *block = budget.decide(image, &load);
+        if matches!(block, Block::Image { .. } | Block::Pdf { .. } | Block::Stored { .. }) {
+            let file = std::mem::replace(block, Block::Text(String::new()));
+            *block = budget.decide(file, &load);
         }
     }
     messages
 }
 
-/// What the request has room for, counted from the newest image back.
-struct ImageBudget {
+/// What the request has room for, counted from the newest file back.
+struct FileBudget {
     reads_images: bool,
+    reads_pdfs: bool,
     sent: usize,
     data: usize,
 }
 
-impl ImageBudget {
-    fn decide(&mut self, image: Block, load: &impl Fn(&str) -> Option<Vec<u8>>) -> Block {
+impl FileBudget {
+    fn decide(&mut self, file: Block, load: &impl Fn(&str) -> Option<Vec<u8>>) -> Block {
         let line = |text: &str| Block::Text(text.into());
-        if !self.reads_images {
+        let pdf = matches!(&file, Block::Pdf { .. }) || matches!(&file, Block::Stored { mime, .. } if mime == "application/pdf");
+        if pdf && !self.reads_pdfs {
+            return line("[A PDF was here, but this model cannot read PDFs.]");
+        }
+        if !pdf && !self.reads_images {
             return line("[An image was here, but this model cannot read images.]");
         }
-        let earlier = "[An earlier image was here; only the newest ones are sent.]";
+        let earlier = "[An earlier image or PDF was here; only the newest ones are sent.]";
         if self.sent >= MAX_IMAGES_SENT {
             return line(earlier);
         }
-        let image = match image {
-            Block::StoredImage { mime, hash } => match load(&hash) {
-                Some(bytes) => Block::Image { base64: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes), mime },
-                None => return line("[An image was here but is no longer kept.]"),
+        let file = match file {
+            Block::Stored { mime, hash } => match load(&hash) {
+                Some(bytes) => {
+                    let base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes);
+                    if pdf { Block::Pdf { base64 } } else { Block::Image { base64, mime } }
+                }
+                None => return line("[An image or PDF was here but is no longer kept.]"),
             },
             other => other,
         };
-        let size = match &image {
-            Block::Image { base64, .. } => base64.len(),
+        let size = match &file {
+            Block::Image { base64, .. } | Block::Pdf { base64 } => base64.len(),
             _ => 0,
         };
         if self.data + size > MAX_IMAGE_DATA_SENT {
@@ -111,7 +119,7 @@ impl ImageBudget {
         }
         self.sent += 1;
         self.data += size;
-        image
+        file
     }
 }
 
@@ -137,9 +145,11 @@ pub enum Block {
     ToolUse { id: String, name: String, input: Value },
     ToolResult { call_id: String, content: String, is_error: bool },
     Image { mime: String, base64: String },
-    /// An image a stored call returned, named by its blob; [`prepare_images`] loads it or replaces it
-    /// with a line before any adapter sees the request.
-    StoredImage { mime: String, hash: String },
+    /// A PDF sent whole, for a model that reads them.
+    Pdf { base64: String },
+    /// An image or PDF a stored call returned, named by its blob; [`prepare_files`] loads it or
+    /// replaces it with a line before any adapter sees the request.
+    Stored { mime: String, hash: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -49,9 +49,9 @@ impl Tool for Read {
                 return Err(ToolError(format!("{} is {} bytes; too large to read", display(&path, &ctx.workspace), meta.len())));
             }
             let bytes = tokio::fs::read(&path).await?;
-            if let Some(mime) = super::image::sniff(&bytes) {
+            if let Some(mime) = super::image::sniff(&bytes).or(super::image::is_pdf(&bytes).then_some(super::image::PDF)) {
                 ctx.files.mark_read(&path);
-                return image(ctx, &path, mime, &bytes);
+                return attached(ctx, &path, mime, &bytes);
             }
             if bytes.iter().take(8000).any(|b| *b == 0) {
                 return Err(ToolError(format!("{} is binary", display(&path, &ctx.workspace))));
@@ -77,17 +77,18 @@ impl Tool for Read {
     }
 }
 
-/// An image file comes back for the model to look at, not as text.
-fn image(ctx: &Context, path: &std::path::Path, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
+/// An image or PDF comes back for the model to look at, not as text.
+fn attached(ctx: &Context, path: &std::path::Path, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
     let name = display(path, &ctx.workspace);
-    if bytes.len() > super::image::MAX_IMAGE_BYTES {
-        return Err(ToolError(format!("{name} is an image of {} bytes; too large to look at (the limit is 5 MB)", bytes.len())));
+    let (kind, limit) = if mime == super::image::PDF { ("a PDF", super::image::MAX_PDF_BYTES) } else { ("an image", super::image::MAX_IMAGE_BYTES) };
+    if bytes.len() > limit {
+        return Err(ToolError(format!("{name} is {kind} of {} bytes; too large to look at (the limit is {} MB)", bytes.len(), limit / 1024 / 1024)));
     }
-    let image = super::image::Image::from_bytes(mime, bytes);
+    let file = super::image::Image::from_bytes(mime, bytes);
     Ok(Output {
         title: name.clone(),
-        output: format!("{name} is an image ({mime}, {} KB); it follows this result.", bytes.len().div_ceil(1024)),
-        metadata: json!({ "images": super::image::metadata(&[image]) }),
+        output: format!("{name} is {kind} ({mime}, {} KB); it follows this result.", bytes.len().div_ceil(1024)),
+        metadata: json!({ "images": super::image::metadata(&[file]) }),
     })
 }
 
@@ -233,6 +234,15 @@ mod tests {
         assert!(out.output.len() <= super::super::spool::MAX_RESULT_BYTES, "{}", out.output.len());
         assert!(out.output.ends_with("</system-reminder>"), "the reminder is whole, not cut in the middle");
         assert!(out.output.contains("read with offset"), "the page says where to go on");
+    }
+
+    #[tokio::test]
+    async fn a_pdf_comes_back_to_look_at() {
+        let sandbox = Sandbox::new("read-pdf");
+        sandbox.file("spec.pdf", "%PDF-1.7\n1 0 obj\n");
+        let out = Read.run(&sandbox.ctx, json!({ "path": "spec.pdf" })).await.unwrap();
+        assert_eq!(super::super::image::returned(&out.metadata)[0].mime, "application/pdf");
+        assert!(out.output.contains("is a PDF"));
     }
 
     #[tokio::test]

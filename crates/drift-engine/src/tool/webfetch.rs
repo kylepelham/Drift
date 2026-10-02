@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use super::{required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
+use super::{image, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -56,6 +56,10 @@ impl Tool for WebFetch {
             }
             let content_type = response.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
             let bytes = response.bytes().await.map_err(|e| ToolError(format!("read failed: {e}")))?;
+            // An image or PDF, known by its bytes whatever the server calls it, comes back to look at.
+            if let Some(mime) = image::sniff(&bytes).or(image::is_pdf(&bytes).then_some(image::PDF)) {
+                return fetched_file(url, mime, &bytes);
+            }
             if bytes.len() > MAX_BYTES {
                 return Err(ToolError(format!("{url} is {} bytes; too large to fetch", bytes.len())));
             }
@@ -68,6 +72,19 @@ impl Tool for WebFetch {
             Ok(Output { title: url.into(), output: clip(text.trim()), metadata: json!({ "contentType": content_type, "bytes": bytes.len() }) })
         })
     }
+}
+
+fn fetched_file(url: &str, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
+    let limit = if mime == image::PDF { image::MAX_PDF_BYTES } else { image::MAX_IMAGE_BYTES };
+    if bytes.len() > limit {
+        return Err(ToolError(format!("{url} is {mime} of {} bytes; too large to look at (the limit is {} MB)", bytes.len(), limit / 1024 / 1024)));
+    }
+    let file = image::Image::from_bytes(mime, bytes);
+    Ok(Output {
+        title: url.into(),
+        output: format!("{url} is {mime} ({} KB); it follows this result.", bytes.len().div_ceil(1024)),
+        metadata: json!({ "contentType": mime, "bytes": bytes.len(), "images": image::metadata(&[file]) }),
+    })
 }
 
 fn markdown(html: &str) -> String {
@@ -125,8 +142,23 @@ mod tests {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        tokio::spawn(async move { axum::serve(listener, Router::new().route("/page", get(page))).await.unwrap() });
+        let app = Router::new()
+            .route("/page", get(page))
+            .route("/shot", get(|| async { ([("content-type", "application/octet-stream")], b"\x89PNG\r\n\x1a\nrest".to_vec()) }))
+            .route("/doc", get(|| async { ([("content-type", "application/pdf")], b"%PDF-1.7\n...".to_vec()) }));
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         url
+    }
+
+    #[tokio::test]
+    async fn an_image_or_pdf_comes_back_to_look_at_not_as_text() {
+        let sandbox = Sandbox::new("webfetch-files");
+        let url = serve().await;
+        for (path, mime) in [("shot", "image/png"), ("doc", "application/pdf")] {
+            let out = WebFetch.run(&sandbox.ctx, json!({ "url": format!("{url}/{path}") })).await.unwrap();
+            assert_eq!(image::returned(&out.metadata)[0].mime, mime, "{path}");
+            assert!(out.output.contains("it follows this result"));
+        }
     }
 
     #[tokio::test]

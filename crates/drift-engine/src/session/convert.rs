@@ -96,7 +96,7 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
         let returned = crate::tool::image::stored(metadata.as_ref());
         if !returned.is_empty() {
             images.push(Block::Text(format!("The {name} call ({call_id}) returned this:")));
-            images.extend(returned.into_iter().map(|image| Block::StoredImage { mime: image.mime, hash: image.hash }));
+            images.extend(returned.into_iter().map(|image| Block::Stored { mime: image.mime, hash: image.hash }));
         }
     }
     results.extend(images);
@@ -193,7 +193,7 @@ mod tests {
             *call_id = "c2".into();
         }
         let out = messages(&[message(Role::Assistant, vec![with_image, second])], &target());
-        let kinds: Vec<&str> = out[1].blocks.iter().map(|b| match b { Block::ToolResult { .. } => "result", Block::Text(_) => "text", Block::StoredImage { .. } => "image", _ => "other" }).collect();
+        let kinds: Vec<&str> = out[1].blocks.iter().map(|b| match b { Block::ToolResult { .. } => "result", Block::Text(_) => "text", Block::Stored { .. } => "image", _ => "other" }).collect();
         assert_eq!(kinds, ["result", "result", "text", "image"]);
     }
 
