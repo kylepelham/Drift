@@ -272,10 +272,6 @@ fn report(title: String, spooled: Spooled, ended: Ended, limit: Option<Duration>
 
 const MOVES: [&str; 6] = ["cd", "chdir", "set-location", "sl", "pushd", "push-location"];
 
-/// Drops `cd` steps that stay inside the workspace: moving around it changes nothing, so it needs no
-/// approval of its own and `cd crates && cargo test` asks only about `cargo test`. The directory is
-/// followed along the chain; once a move leaves the workspace or cannot be read (`~`, `-`, a
-/// variable, a glob), it and every later move still ask.
 /// Where a call runs: its `workdir`, which must be a directory inside the workspace, else the workspace.
 fn workdir(ctx: &Context, input: &Value) -> Result<PathBuf, ToolError> {
     let Some(asked) = input["workdir"].as_str().filter(|dir| !dir.is_empty()) else { return Ok(ctx.workspace.clone()) };
@@ -289,6 +285,10 @@ fn workdir(ctx: &Context, input: &Value) -> Result<PathBuf, ToolError> {
     Ok(dir)
 }
 
+/// Drops `cd` steps that stay inside the workspace: moving around it changes nothing, so it needs no
+/// approval of its own and `cd crates && cargo test` asks only about `cargo test`. The directory is
+/// followed along the chain from `start`; once a move leaves the workspace or cannot be read (`~`,
+/// `-`, a variable, a glob), it and every later move still ask.
 fn drop_moves_within(ctx: &Context, start: &std::path::Path, ask: &mut Ask) {
     let mut here = Some(start.to_path_buf());
     ask.retain_commands(|command| {
