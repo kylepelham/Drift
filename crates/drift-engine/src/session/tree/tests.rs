@@ -124,8 +124,11 @@ async fn forking_a_running_session_leaves_the_turn_in_flight_out() {
     long_bash(&h);
     h.engine.submit(&h.session.id, prompt("wait")).await.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
+    // A prompt steered into the running turn moves the last prompt, not where the turn began.
+    h.engine.submit(&h.session.id, prompt("and also")).await.unwrap();
     let fork = h.engine.fork(&h.session.id, None).unwrap();
     assert_eq!(texts(&h, &fork.id), ["first", "one", "second", "two"]);
+    assert!(h.engine.store.session(&fork.id).unwrap().unwrap().archived_at.is_none(), "a finished fork is listed");
     let in_flight = h.engine.store.transcript(&h.session.id).unwrap().last().unwrap().info.id.clone();
     assert!(matches!(h.engine.fork(&h.session.id, Some(&in_flight)), Err(TreeError::BadMessage)));
     h.engine.abort(&h.session.id);

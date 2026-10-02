@@ -149,6 +149,14 @@ impl Store {
         with_parts_in(&conn, session_id, infos)
     }
 
+    /// A session's messages in order without their parts: for deciding about a long history without loading it.
+    pub fn message_infos(&self, session_id: &str) -> rusqlite::Result<Vec<Message>> {
+        self.lock()
+            .prepare_cached(&format!("SELECT {MESSAGE_COLUMNS} FROM message WHERE session_id = ?1 ORDER BY id"))?
+            .query_map([session_id], map_message)?
+            .collect()
+    }
+
     /// All messages of a session in order: what a turn sends back to the model.
     pub fn transcript(&self, session_id: &str) -> rusqlite::Result<Vec<MessageWithParts>> {
         self.messages(session_id, None, usize::MAX / 2)

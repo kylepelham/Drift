@@ -165,6 +165,8 @@ pub struct Turns {
     /// a turn deciding it is done both hold this lock, so no prompt lands after the turn stops looking.
     /// Each with what its turn is running as, which is what a steered prompt is judged against.
     steering: Mutex<HashMap<String, Steering>>,
+    /// The prompt each running turn began at: a fork stops before it, whatever is steered in later.
+    began: Mutex<HashMap<String, String>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
 }
@@ -229,6 +231,11 @@ impl Turns {
     }
 
     /// The session's files, loaded with the reads its earlier runs kept the first time they are needed.
+    /// The prompt the session's running turn began at, if a turn is running.
+    pub(super) fn began(&self, session_id: &str) -> Option<String> {
+        self.began.lock().unwrap().get(session_id).cloned()
+    }
+
     pub(super) fn files_for(&self, store: &Arc<crate::store::Store>, session_id: &str) -> Arc<SessionFiles> {
         self.files.lock().unwrap().entry(session_id.into()).or_insert_with(|| Arc::new(SessionFiles::kept(store.clone(), session_id))).clone()
     }
@@ -422,6 +429,7 @@ impl Engine {
             }
         };
         let receipt = self.announce(session_id, admitted);
+        self.turns.began.lock().unwrap().insert(session_id.into(), receipt.message.id.clone());
         self.turns.steering.lock().unwrap().insert(session_id.into(), Steering::of(&plan));
         let engine = self.clone();
         self.spawn_job(session_id, async move { engine.run(plan, abort).await });
@@ -553,6 +561,7 @@ impl Engine {
             }
             engine.turns.retry_waits.lock().unwrap().remove(&id);
             engine.turns.steering.lock().unwrap().remove(&id);
+            engine.turns.began.lock().unwrap().remove(&id);
             engine.turns.active.lock().unwrap().remove(&id);
             // A call that panicked never released what it was handing over.
             engine.release_claims_of(&id);

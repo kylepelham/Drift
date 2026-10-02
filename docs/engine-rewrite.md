@@ -221,9 +221,14 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
 #### Fork and move
 
 - `POST /sessions/{id}/fork {atMessage?}` copies the source's finished messages and their parts,
-  with fresh ids, into a new top-level conversation titled `<title> (fork)`, in one transaction.
-  Without `atMessage` it copies through the last stable message: if a turn is running, everything
-  from its user message on is left out. With `atMessage` it stops at that message, which must be
+  with fresh ids, into a new top-level conversation titled `<title> (fork)`. The copy goes 100
+  messages per transaction, parts copied inside SQLite (only a compaction boundary is read, to
+  remap it), so a long history is never loaded into memory nor holds the database for long; the
+  fork stays archived, out of every list, until the last page lands, and one a crash cut short is
+  purged with the other archived sessions. Which messages count is decided from message rows
+  alone, without parts. Without `atMessage` it copies through the last stable message: if a turn
+  is running, everything from the prompt it began at is left out (recorded when it starts, so a
+  prompt steered in later does not move it). With `atMessage` it stops at that message, which must be
   finished and outside a running turn. A fork has no parent link; it is a copy, not a worker or
   a branch. The copy keeps compaction markers, so the fork sees the same context as its source;
   `/fork active` and `/fork all` are one operation. Boundaries are remapped to the copied ids.

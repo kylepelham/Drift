@@ -44,17 +44,19 @@ impl Engine {
         Ok(session)
     }
 
-    /// The ids of the source's finished messages, oldest first: not a turn still in flight, nor what an undo hid.
+    /// The ids of the source's finished messages, oldest first: not a turn still in flight, nor what
+    /// an undo hid. Read without parts, so a long history is never loaded to decide this.
     pub(super) fn finished(&self, source: &Session) -> rusqlite::Result<Vec<String>> {
-        let transcript = self.store.transcript(&source.id)?;
-        // The in-flight turn starts at the last user message; nothing from there on is stable.
-        let stable = if self.turns.is_running(&source.id) {
-            transcript.iter().rposition(|m| m.info.role == Role::User).unwrap_or(0)
-        } else {
-            transcript.len()
+        let messages = self.store.message_infos(&source.id)?;
+        // A running turn is unstable from the prompt it began at, however many are steered in after it.
+        let stable = match self.turns.began(&source.id) {
+            Some(began) => messages.iter().position(|m| m.id >= began).unwrap_or(messages.len()),
+            // Another job, such as a compaction, is unstable from the last prompt.
+            None if self.turns.is_running(&source.id) => messages.iter().rposition(|m| m.role == Role::User).unwrap_or(0),
+            None => messages.len(),
         };
-        let visible = source.revert.as_ref().and_then(|r| transcript.iter().position(|m| m.info.id >= r.message_id)).unwrap_or(transcript.len());
-        Ok(transcript[..stable.min(visible)].iter().filter(|m| m.info.status != MessageStatus::Streaming).map(|m| m.info.id.clone()).collect())
+        let visible = source.revert.as_ref().and_then(|r| messages.iter().position(|m| m.id >= r.message_id)).unwrap_or(messages.len());
+        Ok(messages[..stable.min(visible)].iter().filter(|m| m.status != MessageStatus::Streaming).map(|m| m.id.clone()).collect())
     }
 
     /// Moves a session and its subagents to another workspace. Refused while any of them is running or
