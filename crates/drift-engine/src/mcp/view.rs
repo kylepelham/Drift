@@ -126,7 +126,7 @@ mod tests {
     use super::*;
 
     fn row(config: ServerConfig) -> ServerRow {
-        ServerRow { name: "docs".into(), config, enabled: true, hash: "0011223344556677".into(), updated_at: 1 }
+        ServerRow { name: "docs".into(), config, enabled: true, hash: "0011223344556677".into(), updated_at: 1, era: None }
     }
 
     #[test]

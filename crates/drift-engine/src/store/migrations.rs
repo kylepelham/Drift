@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-const MIGRATIONS: [&str; 23] = [
+const MIGRATIONS: [&str; 24] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -140,6 +140,7 @@ const MIGRATIONS: [&str; 23] = [
      SELECT json_extract(image.value, '$.hash'), part.message_id
      FROM part, json_each(part.json, '$.metadata.images') AS image
      WHERE json_extract(part.json, '$.type') = 'tool_call' AND json_extract(image.value, '$.hash') IS NOT NULL;",
+    "ALTER TABLE mcp_config ADD COLUMN era TEXT CHECK(era IN ('stateless', 'legacy'));",
 ];
 
 #[cfg(test)]

@@ -81,6 +81,9 @@ pub struct ServerRow {
     #[serde(skip)]
     pub hash: String,
     pub updated_at: i64,
+    /// The era it last answered in, so a reconnect skips the probe; a save forgets it.
+    #[serde(skip)]
+    pub era: Option<Era>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -150,6 +153,17 @@ impl Era {
         } else {
             Self::Legacy
         }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stateless => "stateless",
+            Self::Legacy => "legacy",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        [Self::Stateless, Self::Legacy].into_iter().find(|era| era.as_str() == text)
     }
 }
 
@@ -403,10 +417,12 @@ impl Servers {
         let _settle = Settle { servers: self, hub, row: &row, id: attempt.id };
         hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
         let opened = tokio::select! {
-            opened = open(&row.config, row.hash.clone(), SignIn { server: &row.name, credentials: self.sign_ins.as_ref() }) => opened,
+            opened = open(&row.config, row.hash.clone(), SignIn { server: &row.name, credentials: self.sign_ins.as_ref() }, row.era) => opened,
             () = attempt.cancel.cancelled() => Err("server definition changed during connect".into()),
         };
-        self.finish(&row, hub, &attempt, opened)
+        let finished = self.finish(&row, hub, &attempt, opened);
+        remember_era(store, &row, finished.as_ref().ok().map(|live| live.era));
+        finished
     }
 
     /// Reads the row and its generation together, so a save cannot slip between them.
@@ -643,6 +659,13 @@ impl Servers {
     }
 }
 
+/// Keeps the era a connect found; one that failed forgets the remembered era, so the next connect probes.
+fn remember_era(store: &Store, row: &ServerRow, found: Option<Era>) {
+    if found != row.era {
+        let _ = store.set_mcp_era(&row.name, &row.config, found);
+    }
+}
+
 /// However a connect ends, even dropped mid-flight, its record goes and waiters hear.
 struct Settle<'a> {
     servers: &'a Servers,
@@ -668,16 +691,14 @@ impl Drop for Settle<'_> {
 }
 
 /// The signed-in server a connect is for, when it has a sign-in to use.
+#[derive(Clone, Copy)]
 struct SignIn<'a> {
     server: &'a str,
     credentials: Option<&'a Arc<crate::llm::credentials::Credentials>>,
 }
 
-async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>) -> Result<Live, String> {
-    let known = None;
-    // A probe a server ignores costs rmcp's whole wait before the handshake can begin.
-    let limit = if known.is_none() { STEP_LIMIT + PROBE_WAIT } else { STEP_LIMIT };
-    let (service, tree) = within_for(limit, "start", start(config, sign_in, known)).await?;
+async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>, known: Option<Era>) -> Result<Live, String> {
+    let (service, tree) = begin(config, sign_in, known).await?;
     let tools = within("list its tools", async { service.list_all_tools().await.map_err(|e| format!("tools/list failed: {e}")) }).await?;
     let info = service.peer_info();
     let era = info.as_ref().map_or(Era::Legacy, |info| Era::of(&info.protocol_version));
@@ -689,6 +710,18 @@ async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>) -> Resul
         false => Vec::new(),
     };
     Ok(Live { service, era, tools, instructions, prompts, resources, timeout: config.timeout(), hash, since: Instant::now(), tree })
+}
+
+/// Starts in the remembered era; one the server refuses is probed afresh, but a server too slow to answer is not asked twice.
+async fn begin(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>) -> Result<(Client, Option<Tree>), String> {
+    // A probe a server ignores costs rmcp's whole wait before the handshake can begin.
+    let limit = |known: Option<Era>| if known.is_none() { STEP_LIMIT + PROBE_WAIT } else { STEP_LIMIT };
+    match tokio::time::timeout(limit(known), start(config, sign_in, known)).await {
+        Ok(Ok(started)) => Ok(started),
+        Ok(Err(_)) if known.is_some() => within_for(limit(None), "start", start(config, sign_in, None)).await,
+        Ok(Err(error)) => Err(error),
+        Err(_) => Err(format!("the server did not start within {:?}", limit(known))),
+    }
 }
 
 async fn within<T>(what: &str, step: impl Future<Output = Result<T, String>>) -> Result<T, String> {

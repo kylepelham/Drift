@@ -235,7 +235,10 @@ async fn all_dead(pids: &[u32]) {
 async fn a_server_that_never_finishes_starting_times_out_and_its_process_tree_dies() {
     let engine = engine();
     let (config, file) = traced(&[("SLOW_MS", "600000")]);
-    let row = saved(&engine, "mute", &config).await;
+    saved(&engine, "mute", &config).await;
+    // Known from before, so the wait is the start limit alone, and a server too slow to answer is not probed again.
+    engine.store.set_mcp_era("mute", &config, Some(Era::Legacy)).unwrap();
+    let row = engine.store.mcp_server("mute").unwrap().unwrap();
     let connecting = tokio::spawn({
         let engine = engine.clone();
         async move { engine.connect_mcp("mute").await }
@@ -574,6 +577,32 @@ async fn an_older_server_refusing_the_probe_gets_the_handshake_instead() {
         assert_eq!(tool(&engine, "old_shout").run(&context(&engine), json!({ "text": "hi" })).await.unwrap().output, "HI");
         assert_eq!(calls(&log)[..2], ["server/discover", "initialize"], "{era}");
     }
+}
+
+#[tokio::test]
+async fn the_era_found_is_kept_so_a_reconnect_skips_the_probe_until_a_save() {
+    let engine = engine();
+    let (config, log) = era_echo("ignore");
+    let row = saved(&engine, "quiet", &config).await;
+    engine.connect_mcp("quiet").await.unwrap();
+    assert_eq!(engine.store.mcp_server("quiet").unwrap().unwrap().era, Some(Era::Legacy), "found after the probe went unanswered");
+    engine.mcp.disconnect("quiet", &engine.store, &engine.hub).await;
+    let again = std::time::Instant::now();
+    engine.connect_mcp("quiet").await.unwrap();
+    assert!(again.elapsed() < PROBE_WAIT / 2, "the reconnect did not wait on a probe: {:?}", again.elapsed());
+    assert_eq!(calls(&log).iter().filter(|m| *m == "server/discover").count(), 1);
+    assert_eq!(engine.store.save_mcp_server("quiet", &row.config).unwrap().era, None, "a save forgets it");
+}
+
+#[tokio::test]
+async fn a_kept_era_the_server_no_longer_speaks_is_probed_again() {
+    let engine = engine();
+    let (config, log) = era_echo("v2");
+    saved(&engine, "moved", &config).await;
+    engine.store.set_mcp_era("moved", &config, Some(Era::Legacy)).unwrap();
+    engine.connect_mcp("moved").await.unwrap();
+    assert_eq!(calls(&log)[..2], ["initialize", "server/discover"], "the kept era first, then the probe");
+    assert_eq!(engine.store.mcp_server("moved").unwrap().unwrap().era, Some(Era::Stateless));
 }
 
 fn calls(log: &std::path::Path) -> Vec<String> {

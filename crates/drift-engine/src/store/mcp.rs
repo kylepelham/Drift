@@ -2,9 +2,9 @@ use rusqlite::{params, OptionalExtension, Row};
 
 use super::Store;
 use crate::id;
-use crate::mcp::{ServerConfig, ServerRow};
+use crate::mcp::{Era, ServerConfig, ServerRow};
 
-const COLUMNS: &str = "name, config_json, enabled, updated_at";
+const COLUMNS: &str = "name, config_json, enabled, updated_at, era";
 
 impl Store {
     pub fn mcp_servers(&self) -> rusqlite::Result<Vec<ServerRow>> {
@@ -26,11 +26,21 @@ impl Store {
         let conn = self.lock();
         conn.prepare_cached(
             "INSERT INTO mcp_config(name, config_json, enabled, updated_at) VALUES(?1, ?2, 1, ?3)
-             ON CONFLICT(name) DO UPDATE SET config_json = ?2, updated_at = ?3",
+             ON CONFLICT(name) DO UPDATE SET config_json = ?2, updated_at = ?3, era = NULL",
         )?
         .execute(params![name, json, id::now_ms()])?;
         let row = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([name], map_row)?;
         Ok(row)
+    }
+
+    /// Remembers the era a server answered in, only while it still has the config it answered under.
+    pub fn set_mcp_era(&self, name: &str, config: &ServerConfig, era: Option<Era>) -> rusqlite::Result<bool> {
+        let json = serde_json::to_string(config).unwrap();
+        let changed = self
+            .lock()
+            .prepare_cached("UPDATE mcp_config SET era = ?3 WHERE name = ?1 AND config_json = ?2")?
+            .execute(params![name, json, era.map(Era::as_str)])?;
+        Ok(changed > 0)
     }
 
     pub fn set_mcp_enabled(&self, name: &str, enabled: bool) -> rusqlite::Result<bool> {
@@ -76,7 +86,8 @@ fn map_row(row: &Row) -> rusqlite::Result<ServerRow> {
     let json: String = row.get(1)?;
     let config = serde_json::from_str(&json).map_err(|e| rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e)))?;
     let hash = config_hash(&config);
-    Ok(ServerRow { name: row.get(0)?, config, enabled: row.get(2)?, hash, updated_at: row.get(3)? })
+    let era = row.get::<_, Option<String>>(4)?.as_deref().and_then(Era::parse);
+    Ok(ServerRow { name: row.get(0)?, config, enabled: row.get(2)?, hash, updated_at: row.get(3)?, era })
 }
 
 #[cfg(test)]
@@ -93,6 +104,10 @@ mod tests {
         let changed = ServerConfig::Stdio { command: "npx".into(), args: vec!["other".into()], env: Default::default(), cwd: None, timeout_seconds: None };
         assert_ne!(store.save_mcp_server("docs", &changed).unwrap().hash, row.hash, "a changed definition is a different connection");
         assert!(matches!(store.rename_mcp_server("docs", "notes").unwrap(), Some(Renamed::To(renamed)) if renamed.config == changed));
+        assert!(store.set_mcp_era("notes", &changed, Some(Era::Stateless)).unwrap());
+        assert!(!store.set_mcp_era("notes", &config, Some(Era::Legacy)).unwrap(), "an era found under an older config is not kept");
+        assert_eq!(store.mcp_server("notes").unwrap().unwrap().era, Some(Era::Stateless));
+        assert_eq!(store.save_mcp_server("notes", &changed).unwrap().era, None, "a save forgets it");
         assert!(store.set_mcp_enabled("notes", false).unwrap());
         assert!(!store.mcp_servers().unwrap()[0].enabled);
         assert!(store.remove_mcp_server("notes").unwrap());
