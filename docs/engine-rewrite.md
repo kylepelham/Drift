@@ -969,10 +969,11 @@ Settled after the first external review of M1; each has a regression test.
   messages' references and a deleted message takes them with it (cascade), so maintenance drops
   unnamed blobs with an indexed lookup, never a scan of every part. The request replays them after all of that
   turn's call results ("The <tool> call (<id>) returned this:" then the image), since providers
-  want results first. `llm::prepare_images` loads them when a request is built, sends only the
-  newest 10 (`MAX_IMAGES_SENT`: providers cap a request's images, and a rejected request would
-  replay the same images forever), turns older ones into a line, and gives a model whose catalog
-  entry does not take images a line for each, on turns and engine requests alike.
+  want results first. `llm::prepare_images` loads them when a request is built and, newest first,
+  keeps them until 10 (`MAX_IMAGES_SENT`) or 20 MB of image data (`MAX_IMAGE_DATA_SENT`) is
+  reached, since providers cap both a request's images and its size (Anthropic: 100 images, 32 MB)
+  and a rejected request would replay the same images forever; older ones become a line. A model
+  whose catalog entry does not take images gets a line for each, on turns and engine requests alike.
 - While a command runs, every 500 ms that it has printed more, its part is republished with
   `metadata.output` = the last 4 KB so far (`Spool::recent`), through the call's `tool::Progress`.
   That is shown, never stored: the saved part is the result, and the UI shows the result once the

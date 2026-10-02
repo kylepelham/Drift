@@ -60,31 +60,59 @@ impl Credential {
 /// shrink limits past 20), and a long screenshot session must never grow past what they accept.
 pub const MAX_IMAGES_SENT: usize = 10;
 
-/// Makes the request's images sendable: stored ones are loaded, only the newest
-/// [`MAX_IMAGES_SENT`] stay, and for a model that cannot read images each becomes a line.
-pub fn prepare_images(messages: Vec<ChatMessage>, reads_images: bool, load: impl Fn(&str) -> Option<Vec<u8>>) -> Vec<ChatMessage> {
-    let total = messages.iter().flat_map(|m| &m.blocks).filter(|b| matches!(b, Block::Image { .. } | Block::StoredImage { .. })).count();
-    let mut seen = 0;
-    let mut image = |block: Block| {
-        if !matches!(block, Block::Image { .. } | Block::StoredImage { .. }) {
-            return block;
+/// Image data a request carries at most, as base64: providers cap the whole request (Anthropic at
+/// 32 MB), and ten images of 5 MB each would pass the count yet fail the size.
+pub const MAX_IMAGE_DATA_SENT: usize = 20 * 1024 * 1024;
+
+/// Makes the request's images sendable: stored ones are loaded, and newest first they are kept until
+/// [`MAX_IMAGES_SENT`] or [`MAX_IMAGE_DATA_SENT`] is reached, older ones becoming a line; for a
+/// model that cannot read images each becomes a line.
+pub fn prepare_images(mut messages: Vec<ChatMessage>, reads_images: bool, load: impl Fn(&str) -> Option<Vec<u8>>) -> Vec<ChatMessage> {
+    let mut budget = ImageBudget { reads_images, sent: 0, data: 0 };
+    for block in messages.iter_mut().rev().flat_map(|message| message.blocks.iter_mut().rev()) {
+        if matches!(block, Block::Image { .. } | Block::StoredImage { .. }) {
+            let image = std::mem::replace(block, Block::Text(String::new()));
+            *block = budget.decide(image, &load);
         }
-        seen += 1;
-        if !reads_images {
-            return Block::Text("[An image was here, but this model cannot read images.]".into());
+    }
+    messages
+}
+
+/// What the request has room for, counted from the newest image back.
+struct ImageBudget {
+    reads_images: bool,
+    sent: usize,
+    data: usize,
+}
+
+impl ImageBudget {
+    fn decide(&mut self, image: Block, load: &impl Fn(&str) -> Option<Vec<u8>>) -> Block {
+        let line = |text: &str| Block::Text(text.into());
+        if !self.reads_images {
+            return line("[An image was here, but this model cannot read images.]");
         }
-        if total - seen >= MAX_IMAGES_SENT {
-            return Block::Text("[An earlier image was here; only the newest ones are sent.]".into());
+        let earlier = "[An earlier image was here; only the newest ones are sent.]";
+        if self.sent >= MAX_IMAGES_SENT {
+            return line(earlier);
         }
-        match block {
+        let image = match image {
             Block::StoredImage { mime, hash } => match load(&hash) {
                 Some(bytes) => Block::Image { base64: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes), mime },
-                None => Block::Text("[An image was here but is no longer kept.]".into()),
+                None => return line("[An image was here but is no longer kept.]"),
             },
             other => other,
+        };
+        let size = match &image {
+            Block::Image { base64, .. } => base64.len(),
+            _ => 0,
+        };
+        if self.data + size > MAX_IMAGE_DATA_SENT {
+            return line(earlier);
         }
-    };
-    messages.into_iter().map(|message| ChatMessage { blocks: message.blocks.into_iter().map(&mut image).collect(), ..message }).collect()
+        self.sent += 1;
+        self.data += size;
+        image
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -1289,8 +1289,13 @@ fn only_the_newest_images_are_sent_and_a_lost_one_becomes_a_line() {
     let blocks: Vec<Block> = (0..MAX_IMAGES_SENT + 5).map(stored).collect();
     let prepared = crate::llm::prepare_images(vec![ChatMessage { role: LlmRole::User, blocks }], true, |hash| (hash != "h14").then(|| b"png".to_vec()));
     let kinds: Vec<&str> = prepared[0].blocks.iter().map(|b| match b { Block::Image { .. } => "image", Block::Text(t) if t.contains("earlier") => "older", _ => "lost" }).collect();
-    assert_eq!(kinds.iter().filter(|k| **k == "older").count(), 5, "the oldest beyond the limit become lines");
-    assert_eq!(&kinds[5..], [vec!["image"; MAX_IMAGES_SENT - 1], vec!["lost"]].concat(), "the newest are loaded; one no longer kept says so");
+    assert_eq!(kinds, [vec!["older"; 4], vec!["image"; MAX_IMAGES_SENT], vec!["lost"]].concat(), "the newest are loaded; one no longer kept says so and takes no slot");
+
+    let big = |n: usize| Block::Image { mime: "image/png".into(), base64: format!("{n}{}", "A".repeat(8 * 1024 * 1024)) };
+    let prepared = crate::llm::prepare_images(vec![ChatMessage { role: LlmRole::User, blocks: (0..4).map(big).collect() }], true, |_| None);
+    let sent = prepared[0].blocks.iter().filter(|b| matches!(b, Block::Image { .. })).count();
+    assert_eq!(sent, 2, "a few large images fill the data budget before the count");
+    assert!(matches!(&prepared[0].blocks[3], Block::Image { base64, .. } if base64.starts_with('3')), "the newest are the ones kept");
 }
 
 #[tokio::test]
