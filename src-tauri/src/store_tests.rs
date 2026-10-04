@@ -58,7 +58,7 @@ fn store_roundtrip() {
         .expired_removed_workspaces(now() - 1000)
         .unwrap()
         .is_empty());
-    assert!(store.forget_workspace(&expired[0].id).unwrap(), "the row went, so the engine is told");
+    assert!(store.forget_workspace(&expired[0].id).unwrap(), "the row went");
     assert!(!store.forget_workspace(&expired[0].id).unwrap(), "already forgotten");
     assert!(store.workspaces().unwrap().is_empty());
     assert!(store.removed_workspaces().unwrap().is_empty());

@@ -109,12 +109,16 @@ pub(crate) fn store_expired_removed_workspaces(
         .map_err(|e| e.to_string())
 }
 
-/// The shell's records of the workspace, then the engine's (its kept permission grants and trusted commands).
+/// The engine's records of a removed workspace (its kept permission grants and trusted commands),
+/// then the shell's. Engine first, so a failure in between leaves the row to retry from.
 #[tauri::command]
 pub(crate) fn store_forget_workspace(store: State<Store>, native: State<crate::native::Native>, id: String) -> Result<(), String> {
-    if store.forget_workspace(&id).map_err(|e| e.to_string())? {
-        native.engine().forget_workspace(&id).map_err(|e| e.to_string())?;
+    let removed = store.removed_workspaces().map_err(|e| e.to_string())?.iter().any(|workspace| workspace.id == id);
+    if !removed {
+        return Ok(());
     }
+    native.engine().forget_workspace(&id).map_err(|e| e.to_string())?;
+    store.forget_workspace(&id).map_err(|e| e.to_string())?;
     Ok(())
 }
 

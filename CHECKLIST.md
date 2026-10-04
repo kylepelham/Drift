@@ -173,7 +173,7 @@ change the plan there when a decision changes.
 
 #### Retained features still on the OpenCode database (pending native UI work)
 
-- [ ] Removed-workspace purge: `actions.removeAllSessions` is a stub that reports nothing deleted, so the seven-day cleanup of a removed workspace never completes (its tombstone and sessions stay)
+- [ ] Removed-workspace purge: `actions.removeAllSessions` is a stub that reports nothing deleted, so the seven-day cleanup of a removed workspace never completes (its tombstone, sessions, kept permission grants and trusted commands stay; `store_forget_workspace` already clears the engine's records once the purge reaches it)
 - [ ] Transcript search (`session_search`) reads OpenCode's database and schema, so native transcripts are never matched
 - [ ] Settings > Storage (stats, analyze, prune, compact) reads and prunes OpenCode's database, not `drift.db`
 

@@ -550,9 +550,8 @@ impl Store {
         rows.collect()
     }
 
-    /// Drops an expired removed workspace; true when its row went, so the engine forgets its own
-    /// records of it too. Only call after its engine sessions are gone, or the startup import
-    /// resurrects the row from the leftovers.
+    /// Drops an expired removed workspace; true when its row went. Only call after its engine
+    /// sessions are gone, or the startup import resurrects the row from the leftovers.
     pub fn forget_workspace(&self, id: &str) -> rusqlite::Result<bool> {
         let conn = self.0.lock();
         conn.prepare_cached("DELETE FROM session_meta WHERE workspace_id = ?1")?
