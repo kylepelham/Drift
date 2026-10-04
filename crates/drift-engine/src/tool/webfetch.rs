@@ -94,8 +94,11 @@ fn client() -> reqwest::Client {
     CLIENT.get_or_init(|| reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).redirect(policy).build().unwrap_or_default()).clone()
 }
 
+/// The same host, on the same scheme and port, or moved from http to https (the usual upgrade).
 fn same_origin(a: &reqwest::Url, b: &reqwest::Url) -> bool {
-    a.scheme() == b.scheme() && a.host_str() == b.host_str() && a.port_or_known_default() == b.port_or_known_default()
+    let upgrade = a.scheme() == "http" && b.scheme() == "https" && a.port().is_none() && b.port().is_none();
+    let same = a.scheme() == b.scheme() && a.port_or_known_default() == b.port_or_known_default();
+    a.host_str() == b.host_str() && (same || upgrade)
 }
 
 async fn fetch(ctx: &Context, url: &str, agent: &str) -> Result<reqwest::Response, ToolError> {
@@ -253,6 +256,16 @@ mod tests {
         let missing = WebFetch.run(&sandbox.ctx, json!({ "url": format!("{url}/nope") })).await.unwrap_err();
         assert!(missing.0.contains("404"));
         assert!(WebFetch.run(&sandbox.ctx, json!({ "url": "ftp://x" })).await.is_err());
+    }
+
+    #[test]
+    fn an_upgrade_to_https_on_the_same_host_is_followed_and_nothing_else_off_origin() {
+        let url = |text: &str| reqwest::Url::parse(text).unwrap();
+        assert!(same_origin(&url("http://site.dev/a"), &url("https://site.dev/b")));
+        assert!(same_origin(&url("https://site.dev/a"), &url("https://site.dev/b")));
+        assert!(!same_origin(&url("https://site.dev/a"), &url("http://site.dev/b")), "never down to http");
+        assert!(!same_origin(&url("https://site.dev/a"), &url("https://other.dev/a")));
+        assert!(!same_origin(&url("https://site.dev/a"), &url("https://site.dev:8443/a")));
     }
 
     #[tokio::test]

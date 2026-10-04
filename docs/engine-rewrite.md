@@ -1179,7 +1179,8 @@ Settled after the first external review of M1; each has a regression test.
   once when `Content-Length` says so), so a huge or endless response never fills memory. It asks
   as a browser does (user agent and `Accept-Language`), since many sites refuse unknown agents, and
   when Cloudflare answers 403 with `cf-mitigated: challenge` asks once more as Drift, which often
-  passes. Its own client follows redirects only within the URL's origin (scheme, host and port):
+  passes. Its own client follows redirects only within the URL's origin (scheme, host and port,
+  plus the usual move from http to https on the same host):
   the user approved that URL, so a redirect elsewhere is returned as text naming the target
   ("fetch it to follow it") and its own call asks for that host. A catalog model reads PDFs (`Model::pdf`) when models.dev lists `pdf` among its
   input modalities, or, without them, when it takes attachments on a route whose wire carries a
