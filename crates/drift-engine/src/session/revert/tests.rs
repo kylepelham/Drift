@@ -328,14 +328,13 @@ fn old_output(h: &Harness, name: &str) -> std::path::PathBuf {
     path
 }
 
+/// Bounded by the wall clock: the paused clock races ahead while the prune waits on its git child.
 async fn until_gone(path: &std::path::Path) {
-    for _ in 0..500 {
-        if !path.exists() {
-            return;
-        }
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while path.exists() {
+        assert!(std::time::Instant::now() < deadline, "{} was never pruned", path.display());
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    panic!("{} was never pruned", path.display());
 }
 
 #[tokio::test]
