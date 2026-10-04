@@ -901,6 +901,25 @@ legacy sidecar's start) and tells the UI with `workspaces-changed`.
   Before paging, the same import peaked at 2 GB and held reads up to 4.5 s.
 - **Archived.** A conversation archived in opencode or in Drift (`session_meta`) arrives archived
   as of the import, so the seven-day purge gives it a full week to be restored.
+- **Settings** (`drift_migrate::import_settings`, run first each time). Each item comes in once,
+  recorded in the setting `opencodeImported`, so a sign-in the user removes or a server they delete
+  stays gone; the last run's report is `opencodeImportReport`, and the shell logs it.
+  - `auth.json`: an API key goes in for a provider Drift has (a local server's placeholder is
+    ignored); an Anthropic or OpenAI sign-in goes in with its refresh token and expiry, since Drift
+    renews those itself. Other sign-ins (xAI) and unknown providers are reported. A provider already
+    signed in to Drift keeps its own.
+  - MCP servers, from the shell's `mcp_server` table (Drift's old manager) and then opencode's
+    `mcp`: `local` becomes stdio (command split from its arguments), `remote` streamable HTTP with
+    its headers and any pre-registered OAuth app. `{env:NAME}` and `{file:path}` are read at import;
+    one that cannot be read refuses the server rather than save a blank secret. A server is left on
+    only when it was enabled in opencode and approved in Drift's old approval step (its exact
+    fingerprint, `mcp_external::fingerprint`), so nothing the user never allowed starts by itself.
+    A name Drift already has, or one with characters a server name cannot hold, is reported.
+  - opencode's global config: `model` (`provider/model`), `instructions` (made absolute) and
+    `permission` (`read`, `edit`, `bash`, `webfetch`, a decision or a pattern map) become
+    `~/.config/drift/drift.json`, written only when it does not exist yet. Everything else
+    (`tools`, `plugin`, `agent`, `provider`, ...) is named in the report; plugins are JavaScript and
+    Drift runs none. Project-level opencode files are not read.
 - **Prompt cache.** The first message sent in an imported conversation misses the provider's cache
   (Drift's system prompt and tools differ from opencode's), a one-time write for that history;
   turns after it cache as usual.

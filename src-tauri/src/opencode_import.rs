@@ -1,11 +1,14 @@
-//! Brings opencode's workspaces and conversations in on a background thread: at startup, and again
-//! whenever a workspace is added, since its directory may hold conversations an earlier run skipped.
+//! Brings opencode's sign-ins, MCP servers, config, workspaces and conversations in on a background
+//! thread: at startup, and again whenever a workspace is added, since its directory may hold
+//! conversations an earlier run skipped. Each item comes in once (see `drift-migrate`).
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 
 use drift_engine::event::Event;
+use drift_engine::Engine;
+use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::native::Native;
@@ -38,6 +41,7 @@ fn run(app: &AppHandle) {
     let Ok(dir) = crate::engine_db::opencode_data_dir() else { return };
     let store = app.state::<Store>();
     let engine = app.state::<Native>().engine().clone();
+    import_settings(&engine, &store, &dir);
     for source in sources(&dir) {
         match store.import_opencode_workspaces(&source) {
             Ok(0) => {}
@@ -65,6 +69,48 @@ fn run(app: &AppHandle) {
             Err(error) => eprintln!("opencode import from {}: {error}", source.display()),
         }
     }
+}
+
+/// opencode's sign-ins, MCP servers (its own and those Drift's old manager kept) and global config.
+fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) {
+    let read = |path: PathBuf| std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str::<Value>(&drift_engine::config::jsonc::strip(&text)).ok());
+    let config_dir = opencode_config_dir();
+    let config = config_dir.as_ref().and_then(|dir| read(dir.join("opencode.json")).or_else(|| read(dir.join("opencode.jsonc"))));
+    let state = store.mcp_state().ok();
+    let approved: HashSet<String> = state.iter().flat_map(|state| &state.decisions).filter(|decision| decision.decision == "approved").map(|decision| decision.fingerprint.clone()).collect();
+    let server = |name: &str, definition: &Value| drift_migrate::OcServer {
+        name: name.into(),
+        definition: definition.clone(),
+        approved: crate::mcp_external::fingerprint(name, definition).is_some_and(|fingerprint| approved.contains(&fingerprint)),
+    };
+    let mut servers: Vec<drift_migrate::OcServer> = state.iter().flat_map(|state| &state.servers).map(|row| server(&row.name, &row.config)).collect();
+    servers.extend(config.as_ref().and_then(|config| config["mcp"].as_object()).into_iter().flatten().map(|(name, definition)| server(name, definition)));
+    let settings = drift_migrate::Settings { auth: read(data_dir.join("auth.json")), config, config_dir: config_dir.unwrap_or_default(), servers };
+    let providers: Vec<String> = engine.catalog.read().unwrap().providers.keys().cloned().collect();
+    let Some(home) = drift_engine::config::home() else { return };
+    match drift_migrate::import_settings(&engine.store, &engine.credentials, &providers, &home, &settings) {
+        Ok(report) => {
+            if !report.credentials.is_empty() {
+                engine.hub.publish(Event::CatalogUpdated {});
+            }
+            if !report.servers.is_empty() {
+                let engine = engine.clone();
+                tauri::async_runtime::spawn(async move { engine.connect_all_mcp() });
+            }
+            if !report.credentials.is_empty() || !report.servers.is_empty() || !report.skipped.is_empty() {
+                eprintln!("opencode import: sign-ins {:?}, MCP servers {:?} (off: {:?}), config {:?}", report.credentials, report.servers, report.disabled_servers, report.config_written);
+                for line in &report.skipped {
+                    eprintln!("opencode import: left out {line}");
+                }
+            }
+        }
+        Err(error) => eprintln!("opencode import: settings: {error}"),
+    }
+}
+
+/// Where opencode keeps its global config, as opencode looks for it.
+fn opencode_config_dir() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME").map(|root| PathBuf::from(root).join("opencode")).or_else(|| drift_engine::config::home().map(|home| home.join(".config").join("opencode")))
 }
 
 /// The shared database first, then any channel database an older build wrote apart from it.

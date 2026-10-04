@@ -3,8 +3,11 @@
 //! and listed only once its last page is in. Recent edits get undo records (`undo`).
 
 mod map;
+mod settings;
 mod source;
 mod undo;
+
+pub use settings::{import_settings, mcp_config, OcServer, Settings, SettingsReport, REPORT};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};

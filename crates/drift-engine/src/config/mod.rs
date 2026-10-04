@@ -1,7 +1,7 @@
 //! What a workspace tells the engine: drift.json, agents, commands, skills and instruction files.
 
 mod frontmatter;
-mod jsonc;
+pub mod jsonc;
 mod overrides;
 
 pub use overrides::{AgentOverride, ModelPin};
@@ -765,7 +765,7 @@ fn clip(text: &str) -> String {
     format!("{}\n\n(truncated)", text.chars().take(MAX_INSTRUCTION_CHARS).collect::<String>())
 }
 
-fn home() -> Option<PathBuf> {
+pub fn home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from)
 }
 
