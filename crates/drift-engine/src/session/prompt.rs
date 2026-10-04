@@ -171,6 +171,23 @@ mod tests {
     }
 
     #[test]
+    fn bundled_prompts_hold_only_their_own_text() {
+        assert!(IDENTITY.trim_end().ends_with("Do not paste large files you wrote; name their paths."), "the base prompt ends with its Output section");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut checked = 0;
+        for dir in ["session/prompts", "tool/prompts", "config/prompts"] {
+            for entry in std::fs::read_dir(root.join(dir)).unwrap().flatten() {
+                let text = std::fs::read_to_string(entry.path()).unwrap();
+                for stray in ["<invoke", "</invoke>", "<parameter", "</parameter>", "</content>", "antml:"] {
+                    assert!(!text.contains(stray), "{} holds `{stray}`, which is not prompt text", entry.path().display());
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > 10, "every prompt directory was read");
+    }
+
+    #[test]
     fn each_prompt_keeps_the_reminder_of_the_agent_its_turn_ran_as() {
         use crate::session::types::{Message, MessageStatus, Usage};
         let config = Config::load_with_home(&std::env::temp_dir().join("drift-prompt-none"), None);

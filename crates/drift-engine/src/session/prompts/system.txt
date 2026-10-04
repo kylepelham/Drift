@@ -28,7 +28,3 @@ You are Drift, a coding agent working inside the user's repository through the t
 - Keep responses proportional to the task: a one-line answer for a one-line question, an outcome first for a finished change.
 - After a change, lead with what changed and why, then anything the user must do or check. Mention a natural next step only when there is one.
 - Use short lists only when they help; no nested bullets, no headings for short answers. Do not paste large files you wrote; name their paths.
-</content>
-</invoke>
-<invoke name="mcp_Bash">
-<parameter name="command">cargo test -p drift-engine --lib -- session::prompt 2>&1 | Select-String -Pattern "test result|FAILED|panicked"
