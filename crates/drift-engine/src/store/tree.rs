@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 
-use rusqlite::types::Type;
 use rusqlite::{params, Connection};
 
 use super::sessions::{insert_session, session_from, transaction, NewSession};
@@ -136,11 +135,11 @@ fn copy_message(conn: &Connection, source: &str, session_id: &str, copies: &mut 
 /// A compaction boundary, pointed at the copy of the tail it kept.
 fn copy_boundary(conn: &Connection, part: &str, copy: &str, message_id: &str, session_id: &str, copies: &HashMap<String, String>) -> rusqlite::Result<()> {
     let json: String = conn.prepare_cached("SELECT json FROM part WHERE id = ?1")?.query_row([part], |row| row.get(0))?;
-    let mut parsed: Part = serde_json::from_str(&json).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(e)))?;
+    let mut parsed = Part::from_stored(&json);
     if let Part::Compaction { tail_from, .. } = &mut parsed {
         *tail_from = tail_from.as_ref().and_then(|tail| copies.get(tail).cloned());
     }
-    conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json) VALUES(?1, ?2, ?3, ?4)")?.execute(params![copy, message_id, session_id, serde_json::to_string(&parsed).unwrap()])?;
+    conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json) VALUES(?1, ?2, ?3, ?4)")?.execute(params![copy, message_id, session_id, parsed.stored()])?;
     Ok(())
 }
 
@@ -175,6 +174,20 @@ mod tests {
         assert!(matches!(&copied[0].parts[0].part, Part::Text { text } if text == "m0"));
         let Part::Compaction { tail_from: Some(tail), .. } = &copied.last().unwrap().parts[0].part else { panic!("the boundary was copied") };
         assert_eq!(tail, &copied[3].info.id, "it points at the copy of its tail, pages earlier");
+    }
+
+    #[test]
+    fn a_fork_copies_parts_this_build_cannot_read_byte_for_byte() {
+        let store = store();
+        let source = store.create_session(new("w")).unwrap();
+        let message = store.create_message(&source.id, Role::User, None).unwrap();
+        let stored = [r#"{"type":"subtask","prompt":"go"}"#, r#"{"type":"compaction","auto":"not a bool"}"#];
+        for (n, json) in stored.iter().enumerate() {
+            store.lock().execute("INSERT INTO part(id, message_id, session_id, json) VALUES(?1, ?2, ?3, ?4)", rusqlite::params![format!("prt_z{n}"), message.id, source.id, json]).unwrap();
+        }
+        let fork = store.fork_session(&source.id, new("w"), &message.id, None).unwrap().unwrap();
+        let copied: Vec<String> = store.transcript(&fork.id).unwrap()[0].parts.iter().map(|row| row.part.stored()).collect();
+        assert_eq!(copied, stored, "a broken compaction boundary too, which the fork reads to repoint");
     }
 
     #[test]

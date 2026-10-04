@@ -121,6 +121,14 @@ test("a delivered background result is engine text, not the user's words", () =>
   expect(part).toMatchObject({ type: "text", synthetic: true, sessionID: "ses_1", text: 'Background task "Survey" replied:\n\nthree things' })
 })
 
+test("a part the engine could not read is not drawn or reused, and keeps its stored text", async () => {
+  const { partVisible } = await import("../src/ui/parts")
+  const raw = '{"type":"snapshot","snapshot":"abc"}'
+  const part = adaptPart({ id: "prt_u", messageId: "msg_u", sessionId: "ses_1", type: "unknown", raw })
+  expect(part).toMatchObject({ type: "text", text: "", synthetic: true, ignored: true, metadata: { driftUnknownPart: raw } })
+  expect(partVisible(part)).toBeFalse()
+})
+
 test("an async answer becomes the Answered row the transcript already draws", async () => {
   const { clarificationAnswer } = await import("../src/ui/clarification-answer")
   const part = adaptPart({ id: "prt_a", messageId: "msg_a", sessionId: "ses_1", type: "clarification", requestId: "q_1", items: [{ header: "Deploy", question: "Deploy?", answers: ["yes"] }] })

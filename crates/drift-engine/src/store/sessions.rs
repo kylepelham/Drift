@@ -276,7 +276,7 @@ impl Store {
 }
 
 pub(super) fn save_part_in(conn: &Connection, row: &PartRow) -> rusqlite::Result<()> {
-    conn.prepare_cached("UPDATE part SET json = ?2, provider_signature = ?3 WHERE id = ?1")?.execute(params![row.id, serde_json::to_string(&row.part).unwrap(), row.provider_signature])?;
+    conn.prepare_cached("UPDATE part SET json = ?2, provider_signature = ?3 WHERE id = ?1")?.execute(params![row.id, row.part.stored(), row.provider_signature])?;
     Ok(())
 }
 
@@ -351,16 +351,12 @@ fn with_parts_in(store: &Store, conn: &Connection, session_id: &str, infos: Vec<
 }
 
 fn map_part(row: &Row, message_id: &str) -> rusqlite::Result<PartRow> {
-    let json: String = row.get(2)?;
-    let part = serde_json::from_str(&json).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
-    })?;
     Ok(PartRow {
         id: row.get(0)?,
         message_id: message_id.into(),
         session_id: row.get(1)?,
         provider_signature: row.get(4)?,
-        part,
+        part: Part::from_stored(&row.get::<_, String>(2)?),
     })
 }
 
@@ -474,6 +470,29 @@ mod tests {
         assert_eq!(older.iter().map(|m| &m.info.id).collect::<Vec<_>>(), [&ids[1], &ids[2]]);
         assert_eq!(older[0].parts[0].part, Part::Text { text: "m1".into() });
         assert_eq!(store.transcript(&session.id).unwrap().len(), 5);
+    }
+
+    #[test]
+    fn a_part_this_build_cannot_read_loads_as_unknown_and_is_saved_back_unchanged() {
+        let store = store();
+        let session = store.create_session(new("w")).unwrap();
+        let message = store.create_message(&session.id, Role::User, None).unwrap();
+        store.add_part(&message.id, &session.id, Part::Text { text: "kept".into() }).unwrap();
+        let stored = [r#"{"type":"patch","hash":"abc","files":["a.rs"]}"#, r#"{"type":"unknown","raw":"x"}"#, r#"{"type":"text"}"#];
+        for (n, json) in stored.iter().enumerate() {
+            store.lock().execute("INSERT INTO part(id, message_id, session_id, json) VALUES(?1, ?2, ?3, ?4)", params![format!("prt_z{n}"), message.id, session.id, json]).unwrap();
+        }
+        let parts = store.transcript(&session.id).unwrap().remove(0).parts;
+        assert_eq!(parts[0].part, Part::Text { text: "kept".into() }, "the rest of the conversation still loads");
+        let raws: Vec<&str> = parts[1..].iter().map(|row| match &row.part { Part::Unknown { raw } => raw.as_str(), other => panic!("{other:?}") }).collect();
+        assert_eq!(raws, stored, "each kept as stored, even one that names the unknown type itself");
+        for row in &parts[1..] {
+            store.save_part(row).unwrap();
+        }
+        let on_disk: Vec<String> = store.lock().prepare("SELECT json FROM part WHERE id LIKE 'prt_z%' ORDER BY id").unwrap().query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
+        assert_eq!(on_disk, stored, "saving one back writes the same bytes");
+        let shown = serde_json::to_value(&parts[1]).unwrap();
+        assert_eq!((shown["type"].as_str(), shown["raw"].as_str()), (Some("unknown"), Some(stored[0])), "a client sees the type and the raw text");
     }
 
     #[test]
@@ -801,7 +820,7 @@ fn insert_message(conn: &Connection, session_id: &str, role: Role, model: Option
 fn insert_part(conn: &Connection, message_id: &str, session_id: &str, part: Part) -> rusqlite::Result<PartRow> {
     let row = PartRow { id: id::new("prt"), message_id: message_id.into(), session_id: session_id.into(), provider_signature: None, part };
     conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json) VALUES(?1, ?2, ?3, ?4)")?
-        .execute(params![row.id, row.message_id, row.session_id, serde_json::to_string(&row.part).unwrap()])?;
+        .execute(params![row.id, row.message_id, row.session_id, row.part.stored()])?;
     Ok(row)
 }
 

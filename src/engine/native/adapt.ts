@@ -118,6 +118,9 @@ export function adaptPart(row: NativePartRow): Part {
       const text = items.map((item) => `${item.question}\nAnswer: ${item.answers.join(", ")}`).join("\n\n")
       return { ...base, type: "text", text, metadata: { driftClarification: { version: 1, requestID: row.requestId, items } } }
     }
+    // Saved by another build or imported: not shown, but its stored text rides along for export.
+    case "unknown":
+      return { ...base, type: "text", text: "", synthetic: true, ignored: true, metadata: { driftUnknownPart: row.raw } }
   }
 }
 

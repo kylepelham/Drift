@@ -522,6 +522,12 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   answer. Deleting a session drops its async questions.
 - A prompt sent through the API carries text and files only: `task_result`, `clarification`, tool and
   other engine parts are refused with 400, so a client cannot forge a worker result or an answer.
+- A stored part this build cannot parse (imported by `drift-migrate`, or written by a newer Drift)
+  loads as `unknown` with its stored JSON in `raw` (`Part::from_stored`), instead of failing the
+  whole conversation's read. It is never sent to a model, counts nothing toward compaction, and is
+  written back and copied into forks byte for byte (`Part::stored`). The UI keeps it out of the
+  transcript and the composer history, carrying `raw` as `metadata.driftUnknownPart` for export.
+  Stored parts are always JSON: the `callId` index reads every row with `json_extract`.
 
 #### Undo and redo
 

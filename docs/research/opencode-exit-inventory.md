@@ -155,7 +155,7 @@ named. **Gap**: open, and listed under M4 in `CHECKLIST.md`.
 | `zz-lm-studio-code-mode` | Retired | `execute` is dropped. Rendering imported `execute` calls is a `drift-migrate` fixture (gap). |
 | `zz-prompt-context-bounds` | Carried | `session::compaction::tests::a_step_loads_from_the_kept_tail_and_sends_what_the_whole_transcript_would` |
 | `zz-provider-plugin-init` | Retired | No plugin loader exists. |
-| `zz-prompt-row-scan` | Gap | Tail loading is carried (above), but a stored part that does not parse fails the whole read (`store::sessions` maps it to `FromSqlConversionFailure`), so one bad or unknown row breaks the conversation. |
+| `zz-prompt-row-scan` | Carried | Tail loading as above; a stored part that does not parse loads as `unknown` and is never sent (`store::sessions::tests::a_part_this_build_cannot_read_loads_as_unknown_and_is_saved_back_unchanged`, `session::turn::tests::a_conversation_holding_parts_this_build_cannot_read_still_runs_and_never_sends_them`). Closed after the audit. |
 | `zz-retry-model-switch` | Carried | `session::turn::tests::a_turn_waiting_to_retry_can_be_moved_to_another_model_and_keeps_it`, `stop_ends_a_retry_wait_at_once`, `a_retry_wait_is_announced_and_ends_with_running_again` |
 | `zz-session-tree-admission` | Carried | `session::tree::tests::a_move_is_refused_while_a_turn_is_still_planning` |
 | `zz-shell-metadata-throttle` | Carried, untested | `tool::bash` shows output at most every `SHOW_EVERY` (500 ms) and only when it grew; no test pins the bound (gap). |
@@ -175,7 +175,7 @@ named. **Gap**: open, and listed under M4 in `CHECKLIST.md`.
 | --- | --- | --- |
 | Listing, selection, search | Gap: search | Paging carried (`store::sessions::paging_tests::equal_timestamps_do_not_skip_sessions_across_pages`); transcript search still reads OpenCode's database |
 | Durable admission and retry | Carried | `session::turn::tests::submission_ids_survive_a_restart_and_reject_a_different_payload`, `store::sessions::admission_tests::a_reused_submission_id_is_settled_inside_the_admission` |
-| Part order, deltas, unknown parts | Gap: unknown parts | Same as `zz-prompt-row-scan` |
+| Part order, deltas, unknown parts | Carried | Unknown parts as `zz-prompt-row-scan`, closed after the audit |
 | Cancellation everywhere | Carried | Shell tree tests, `mcp::tests::disabling_ends_calls_under_way_and_refuses_captured_tools_until_reenabled`, `session::tasks::tests::stopping_one_worker_leaves_the_others_running` |
 | Permissions at execution | Carried | `GET /permissions` lists pending asks after a reconnect; one reply protocol over HTTP or the socket (`api::tests::a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket`) |
 | Async questions | Carried | `session::clarify::tests` |

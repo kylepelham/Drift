@@ -1231,6 +1231,10 @@ export interface components {
             tailFrom?: string | null;
             /** @enum {string} */
             type: "compaction";
+        } | {
+            raw: string;
+            /** @enum {string} */
+            type: "unknown";
         };
         PartRow: components["schemas"]["Part"] & {
             id: string;

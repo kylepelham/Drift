@@ -180,7 +180,7 @@ change the plan there when a decision changes.
 ## M4: cutover
 
 - [x] Every legacy capability in `docs/research/opencode-exit-inventory.md` checked off or explicitly dropped (audit at 016f239cc; the gaps it found follow)
-- [ ] A stored part that does not parse loads as a raw unknown part instead of failing the conversation's read, kept byte for byte for export (imported history, newer builds)
+- [x] A stored part that does not parse loads as a raw unknown part instead of failing the conversation's read, kept byte for byte for export (imported history, newer builds)
 - [ ] Commands carry a skill's `argument-hint` and its subcommands, so the slash menu offers presets again
 - [ ] Tests for two carried bounds: a socket that lags catches up from the ring or resyncs; a noisy shell command shows progress at most every `SHOW_EVERY`
 - [ ] `drift-migrate`: sessions, messages, parts, todos, credentials, config, MCP servers from the shell's `mcp_server` table (unapproved)

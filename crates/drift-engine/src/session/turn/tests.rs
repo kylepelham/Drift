@@ -1063,6 +1063,26 @@ async fn any_tool_result_past_the_bound_is_cut_to_its_ends_with_the_whole_on_dis
     assert!(result <= crate::tool::spool::MAX_RESULT_BYTES, "the model got the bounded text");
 }
 
+#[tokio::test]
+async fn a_conversation_holding_parts_this_build_cannot_read_still_runs_and_never_sends_them() {
+    let h = harness().await;
+    h.provider.push(text("first answer")).push(text("second answer"));
+    h.engine.submit(&h.session.id, prompt("first")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    for (n, message) in transcript.iter().enumerate() {
+        h.engine.store.lock().execute(
+            "INSERT INTO part(id, message_id, session_id, json) VALUES(?1, ?2, ?3, ?4)",
+            rusqlite::params![format!("prt_z{n}"), message.info.id, h.session.id, r#"{"type":"snapshot","snapshot":"SECRET_HASH"}"#],
+        ).unwrap();
+    }
+    h.engine.submit(&h.session.id, prompt("second")).await.await_ok();
+    until_idle(&h).await;
+    let sent = texts_sent(&h.provider.requests.lock().unwrap()[1]);
+    assert_eq!(sent, ["first", "first answer", "second"], "the rest of the history goes as before");
+    assert_eq!(h.engine.store.transcript(&h.session.id).unwrap().len(), 4);
+}
+
 fn texts_sent(request: &llm::Request) -> Vec<String> {
     request.messages.iter().flat_map(|m| &m.blocks).filter_map(|b| match b { llm::Block::Text(t) => Some(t.clone()), _ => None }).collect()
 }

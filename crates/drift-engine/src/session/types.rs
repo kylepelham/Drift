@@ -229,6 +229,10 @@ pub enum Part {
         #[serde(skip_serializing_if = "Option::is_none")]
         tail_from: Option<String>,
     },
+    /// A stored part this build cannot read (imported, or written by a newer Drift), kept exactly as stored.
+    Unknown {
+        raw: String,
+    },
 }
 
 /// One answered question: what was asked and what the user chose or typed.
@@ -243,6 +247,22 @@ impl Part {
     /// Parts only the engine writes: a prompt sent through the API may carry text and files, nothing else.
     pub fn is_engine_origin(&self) -> bool {
         !matches!(self, Self::Text { .. } | Self::File { .. })
+    }
+
+    /// The part a stored row holds; one that does not parse is kept as [`Part::Unknown`], never an error.
+    pub fn from_stored(json: &str) -> Self {
+        match serde_json::from_str(json) {
+            Ok(Self::Unknown { .. }) | Err(_) => Self::Unknown { raw: json.into() },
+            Ok(part) => part,
+        }
+    }
+
+    /// The text to store: an unknown part goes back byte for byte.
+    pub fn stored(&self) -> String {
+        match self {
+            Self::Unknown { raw } => raw.clone(),
+            part => serde_json::to_string(part).unwrap(),
+        }
     }
 }
 
