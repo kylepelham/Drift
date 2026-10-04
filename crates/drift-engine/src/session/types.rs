@@ -131,6 +131,8 @@ pub enum Ending {
     Length,
     /// The provider's safety filter ended it.
     Refused,
+    /// The turn's step or repeat limit stopped it; the reply is a write-up with tools off.
+    Limit,
 }
 
 impl Ending {
@@ -138,6 +140,7 @@ impl Ending {
         match self {
             Self::Length => "length",
             Self::Refused => "refused",
+            Self::Limit => "limit",
         }
     }
 
@@ -145,6 +148,7 @@ impl Ending {
         match text {
             "length" => Some(Self::Length),
             "refused" => Some(Self::Refused),
+            "limit" => Some(Self::Limit),
             _ => None,
         }
     }

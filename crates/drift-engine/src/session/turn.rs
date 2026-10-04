@@ -1081,6 +1081,8 @@ impl Engine {
         message.ending = match streamed.stop {
             StopReason::MaxTokens => Some(super::types::Ending::Length),
             StopReason::Refused => Some(super::types::Ending::Refused),
+            // Only a wrap-up turns tools off within a turn.
+            _ if request.no_tool_calls => Some(super::types::Ending::Limit),
             _ => None,
         };
         if self.finish(&mut message).is_err() {
@@ -1091,6 +1093,11 @@ impl Engine {
             return if streamed.stop == StopReason::ContextFull { Step::Overflow } else { Step::Done };
         }
         if streamed.calls.is_empty() {
+            return Step::Done;
+        }
+        // A server that ignores `tool_choice: none` still gets nothing run.
+        if request.no_tool_calls {
+            self.settle_unrun(&message, "tools were off for this reply, so this call was not run.");
             return Step::Done;
         }
         match self.run_calls(plan, &message, streamed.calls, streamed.early, abort).await {
@@ -1139,8 +1146,8 @@ impl Engine {
         let files = self.turns.files_for(&self.store, &plan.session.id);
         let mut early = super::early::Early::new(abort);
         loop {
-            // Each call that closed since the last chunk may start now, in the order the model wrote them.
-            for row in &assembler.calls[early.seen()..] {
+            // Each call that closed since the last chunk may start now, in the order the model wrote them; none when tools are off.
+            for row in assembler.calls[early.seen()..].iter().filter(|_| !request.no_tool_calls) {
                 early.consider(self, plan, message, &files, row);
             }
             let next = tokio::select! {

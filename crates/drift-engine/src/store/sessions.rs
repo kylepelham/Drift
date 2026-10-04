@@ -510,6 +510,11 @@ mod tests {
         message.finished_at = Some(1);
         store.save_message(&message).unwrap();
         assert_eq!(store.message(&message.id).unwrap().unwrap(), message);
+        for ending in [crate::session::types::Ending::Length, crate::session::types::Ending::Refused, crate::session::types::Ending::Limit] {
+            message.ending = Some(ending);
+            store.save_message(&message).unwrap();
+            assert_eq!(store.message(&message.id).unwrap().unwrap().ending, Some(ending), "every ending is stored");
+        }
     }
 
     #[test]

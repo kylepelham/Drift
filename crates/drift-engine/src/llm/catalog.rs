@@ -439,6 +439,9 @@ pub struct Sampling {
     pub top_k: Option<u32>,
 }
 
+/// Gemini 2.5's first release; earlier Gemini models are tuned differently.
+const GEMINI_TUNED_SINCE: &str = "2025-03";
+
 pub fn sampling(model: &Model) -> Sampling {
     let family = model.family.as_str();
     let tuned = |temperature, top_p, top_k| Sampling { temperature: Some(temperature), top_p, top_k };
@@ -448,7 +451,8 @@ pub fn sampling(model: &Model) -> Sampling {
         f if f.starts_with("kimi") => tuned(0.6, None, None),
         f if f.starts_with("glm") => tuned(1.0, None, None),
         f if f.starts_with("minimax") => tuned(1.0, Some(0.95), Some(40)),
-        f if f.starts_with("gemini") && !f.contains("lite") => tuned(1.0, Some(0.95), Some(64)),
+        // From the 2.5 generation on, as opencode lists them; 1.5 and 2.0 keep their own defaults.
+        f if f.starts_with("gemini") && !f.contains("lite") && model.release_date.as_str() >= GEMINI_TUNED_SINCE => tuned(1.0, Some(0.95), Some(64)),
         _ => Sampling::default(),
     }
 }
@@ -540,6 +544,9 @@ mod tests {
         assert_eq!(sampling(&model("zai", "glm-4.6")).temperature, Some(1.0));
         assert_eq!(sampling(&model("google", "gemini-3.5-flash")), Sampling { temperature: Some(1.0), top_p: Some(0.95), top_k: Some(64) });
         assert_eq!(sampling(&model("google", "gemini-3.5-flash-lite")), Sampling::default());
+        assert_eq!(sampling(&model("google", "gemini-2.5-pro")).top_k, Some(64));
+        let older = Model { release_date: "2024-12-11".into(), ..model("google", "gemini-2.5-flash") };
+        assert_eq!(sampling(&older), Sampling::default(), "1.5 and 2.0 keep their own");
         assert_eq!(sampling(&model("anthropic", "claude-sonnet-4-5")), Sampling::default());
     }
 

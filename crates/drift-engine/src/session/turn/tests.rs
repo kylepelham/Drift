@@ -1317,8 +1317,27 @@ async fn a_subagent_at_its_step_limit_hands_back_what_it_found() {
     h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
     until_idle(&h).await;
     let task = &h.engine.store.tasks_of(&h.session.id).unwrap()[0];
-    assert_eq!(task.state, crate::session::tasks::TaskState::Replied, "{task:?}");
-    assert!(format!("{:?}", h.provider.requests.lock().unwrap().last().unwrap().messages).contains("FINDINGS"), "the parent gets the write-up");
+    assert_eq!(task.state, crate::session::tasks::TaskState::Failed, "a write-up is not a finished answer: {task:?}");
+    let parent = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { metadata, .. } = &parent[1].parts[0].part else { panic!() };
+    assert_eq!(metadata.as_ref().unwrap()["outcome"], "incomplete");
+    let last = format!("{:?}", h.provider.requests.lock().unwrap().last().unwrap().messages);
+    assert!(last.contains("FINDINGS") && last.contains("reached its step or repeat limit"), "the parent gets the write-up, marked partial");
+}
+
+#[tokio::test]
+async fn a_wrap_up_that_calls_a_tool_anyway_runs_nothing() {
+    let h = harness().await;
+    limits(&h, r#"{ "steps": 1 }"#);
+    std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
+    h.provider.push(read_a());
+    h.engine.submit(&h.session.id, prompt("work")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!("{:?}", transcript[1].parts) };
+    assert_eq!(*status, ToolStatus::Error, "{transcript:#?}");
+    assert!(output.as_deref().unwrap().contains("tools were off"), "{output:?}");
+    assert!(!h.engine.store.read_files(&h.session.id).unwrap_or_default().iter().any(|path| path.ends_with("a.txt")), "not even an early read ran");
 }
 
 #[tokio::test]

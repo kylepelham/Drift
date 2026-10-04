@@ -50,7 +50,11 @@ impl Engine {
         let chosen = match (plan.config.agent_model(action), fallback) {
             (Some(pinned), _) => pinned,
             (None, Fallback::Conversation) => plan.model_ref.clone(),
-            (None, Fallback::Small) => plan.catalog.small_model(&plan.model_ref).unwrap_or_else(|| plan.model_ref.clone()),
+            (None, Fallback::Small) => plan
+                .catalog
+                .small_model(&plan.model_ref)
+                .or_else(|| crate::llm::openai::codex::small_model(&plan.catalog, &plan.model_ref, &plan.credential))
+                .unwrap_or_else(|| plan.model_ref.clone()),
         };
         let resolved = if chosen == plan.model_ref {
             Resolved { model_ref: plan.model_ref, model: plan.model, provider: plan.provider, credential: plan.credential }

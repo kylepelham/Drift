@@ -185,9 +185,10 @@ fn missing(ctx: &Context, path: &std::path::Path) -> ToolError {
         .into_iter()
         .flatten()
         .flatten()
+        // Both names at least three characters, so `a` or `.c` is not suggested for every miss.
         .filter(|entry| {
             let name = entry.file_name().to_string_lossy().to_lowercase();
-            !wanted.is_empty() && (name.contains(&wanted) || wanted.contains(&name))
+            wanted.len() >= 3 && name.len() >= 3 && (name.contains(&wanted) || wanted.contains(&name))
         })
         .map(|entry| display(&entry.path(), &ctx.workspace))
         .collect();
@@ -300,6 +301,9 @@ mod tests {
         assert_eq!(err.0, "nope.txt does not exist");
         let near = Read.run(&sandbox.ctx, json!({ "path": "src/main" })).await.unwrap_err();
         assert_eq!(near.0, "src/main does not exist. Did you mean one of these?\nsrc/main.rs");
+        sandbox.file("a", "");
+        let short = Read.run(&sandbox.ctx, json!({ "path": "banana.txt" })).await.unwrap_err();
+        assert_eq!(short.0, "banana.txt does not exist", "a one-letter name is not a suggestion");
         let cased = Read.run(&sandbox.ctx, json!({ "path": "readme.MD" })).await;
         assert!(cased.is_ok() || cased.unwrap_err().0.ends_with("README.md"), "a name in another case is suggested where the file system is case-sensitive");
     }

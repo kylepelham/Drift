@@ -11,14 +11,46 @@ fn replayable(message: &MessageWithParts) -> bool {
 /// Converts `transcript` onto `out`, merging with what is already there. `target` is the model the
 /// messages are for: reasoning signatures only validate with the model that made them.
 pub fn append<'a>(out: &mut Vec<ChatMessage>, transcript: impl IntoIterator<Item = &'a MessageWithParts>, target: &ModelRef) {
+    let mut used = std::collections::HashSet::new();
     for message in transcript.into_iter().filter(|m| replayable(m)) {
         match message.info.role {
             Role::User => push(out, LlmRole::User, user_blocks(message)),
             Role::Assistant => {
-                push(out, LlmRole::Assistant, assistant_blocks(message, message.info.model.as_ref() == Some(target)));
-                push(out, LlmRole::User, result_blocks(message));
+                let mut calls = assistant_blocks(message, message.info.model.as_ref() == Some(target));
+                let mut results = result_blocks(message);
+                unique_ids(&mut used, &mut calls, &mut results);
+                push(out, LlmRole::Assistant, calls);
+                push(out, LlmRole::User, results);
             }
         }
+    }
+}
+
+/// Sessions stored before ids were made unique can hold one id twice (Gemini's `call_1` in every
+/// step), which Anthropic refuses; a repeat goes out suffixed, on its call and its result alike.
+fn unique_ids(used: &mut std::collections::HashSet<String>, calls: &mut [Block], results: &mut [Block]) {
+    let mut renamed: Vec<(String, String)> = Vec::new();
+    for block in calls.iter_mut() {
+        let Block::ToolUse { id, .. } = unsigned_mut(block) else { continue };
+        if used.insert(id.clone()) {
+            continue;
+        }
+        let fresh = (2..).map(|n| format!("{id}_{n}")).find(|candidate| !used.contains(candidate)).unwrap_or_default();
+        used.insert(fresh.clone());
+        renamed.push((std::mem::replace(id, fresh.clone()), fresh));
+    }
+    for block in results.iter_mut() {
+        let Block::ToolResult { call_id, .. } = block else { continue };
+        if let Some(at) = renamed.iter().position(|(old, _)| old == call_id) {
+            *call_id = renamed.remove(at).1;
+        }
+    }
+}
+
+fn unsigned_mut(block: &mut Block) -> &mut Block {
+    match block {
+        Block::Signed { part, .. } => unsigned_mut(part),
+        other => other,
     }
 }
 
@@ -189,6 +221,18 @@ mod tests {
 
     fn message(role: Role, parts: Vec<Part>) -> MessageWithParts {
         message_with(role, MessageStatus::Done, parts)
+    }
+
+    #[test]
+    fn a_call_id_stored_twice_by_an_older_session_goes_out_unique_with_its_result() {
+        let step = || message(Role::Assistant, vec![call(ToolStatus::Done, Some("ok"))]);
+        let transcript = [message(Role::User, vec![Part::Text { text: "q".into() }]), step(), step(), step()];
+        let sent = messages(&transcript, &target());
+        let flat: Vec<&Block> = sent.iter().flat_map(|m| &m.blocks).collect();
+        let uses: Vec<&str> = flat.iter().filter_map(|b| match b { Block::ToolUse { id, .. } => Some(id.as_str()), _ => None }).collect();
+        let answers: Vec<&str> = flat.iter().filter_map(|b| match b { Block::ToolResult { call_id, .. } => Some(call_id.as_str()), _ => None }).collect();
+        assert_eq!(uses, ["c1", "c1_2", "c1_3"]);
+        assert_eq!(answers, uses, "each result answers its own renamed call");
     }
 
     #[test]

@@ -398,8 +398,12 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   - `steps` (default 200): model steps that ran tools in one turn. The last allowed step, like the
     step after `repeats` trips, is a wrap-up (`WrapUp`): tools are off for it (`no_tool_calls`) and a
     reminder asks the model to say the turn stops, summarise what it found and did, and list what
-    is undone, as opencode's max-steps prompt does. A conversation then pauses with the reason; a
-    subagent ends on that reply, so its parent gets the findings as a result instead of a failure.
+    is undone, as opencode's max-steps prompt does. Early reads do not start on that reply, and a
+    call the model makes anyway (a local server may ignore `tool_choice: none`) is closed unrun.
+    The reply ends `limit` (`Ending::Limit`; migration 32 swaps the `ending` column to widen its
+    CHECK, keeping every stored value). A conversation then pauses with the reason; a subagent
+    ends on that reply, and its parent gets the write-up as an `incomplete` result (the task
+    fails, saying it reached its limit), never as a finished answer.
   - `repeats` (default 3): steps in a row whose calls, inputs and results are all identical. A
     different result is progress, so a poll whose answer changes never counts.
   - `polls` (default 30): the same for repeated steps whose shell commands wait on purpose
@@ -879,8 +883,9 @@ these async criteria are new pending M3 work.
   5.4 plus the ones Codex names (`gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`, ...), never a
   `-pro` model or bare `gpt-5.6`, all at no per-token cost, and the 5.5 and 5.6 lines with a 400k
   window and a 272k prompt cap, so compaction runs before the backend's own limit. Signing in or
-  out publishes `catalog.updated` so the picker reloads. Every model then costs nothing, so a
-  title runs on the conversation's own model rather than an API-only small one.
+  out publishes `catalog.updated` so the picker reloads. Nothing is priced to choose a small
+  model by, so titles run on `gpt-5.4-mini` when the backend offers it (`codex::small_model`),
+  never an API-only model.
 - One-shot requests (titles, summaries) on a reasoning model run at its weakest level with
   4096 tokens of thinking room on top of the answer's own (a budget level adds its budget),
   within the model's output limit; a budget that cannot fit is dropped.
@@ -1070,7 +1075,7 @@ Settled after the first external review of M1; each has a regression test.
   than Codex get `text.verbosity: low`; Gemini reasoning models get `thinkingConfig.includeThoughts`.
   Sampling the makers tune for is sent on models that take it, read from the catalog family:
   Kimi (1.0 and top_p 0.95 when thinking, else 0.6), GLM (1.0), MiniMax (1.0, top_p 0.95,
-  top_k 40) and Gemini but not Lite (1.0, 0.95, 64). Chat Completions has no `top_k`, so it is
+  top_k 40) and Gemini from 2.5 on (by release date) but not Lite (1.0, 0.95, 64). Chat Completions has no `top_k`, so it is
   not sent there. Claude gets none.
 - Only valid completed blocks are replayed. An aborted message keeps its finished text; its
   unsigned reasoning and any call cut off mid-stream are dropped, along with the results those
@@ -1083,7 +1088,9 @@ Settled after the first external review of M1; each has a regression test.
   from one in every stream, Kimi repeats `functions.read:0`), looked up through an index on the
   part's call id (migration 31). Tasks, spilled output and recovery all find a call by that id. The
   Anthropic wire (Bedrock and Vertex Claude too) maps any character outside `[a-zA-Z0-9_-]` to `_`
-  on both the call and its result, so history from another provider replays there.
+  on both the call and its result, so history from another provider replays there. Sessions
+  stored before this can hold one id twice; replay (`convert::unique_ids`) suffixes a repeat
+  (`call_1_2`) on its call and its result alike, so such a session still switches to Claude.
 - Paths are resolved before anything looks at them: `..` folded, symlinks followed through
   the deepest existing ancestor, verbatim prefixes stripped. Permission asks and the
   read-before-write ledger see the real target. `read`, `glob` and `grep` inside the
@@ -1166,7 +1173,8 @@ Settled after the first external review of M1; each has a regression test.
   in it: `&&` in bash and PowerShell 7, `;` with an explicit `$LASTEXITCODE` check in 5.1, which
   has no `&&`.
 - `read` on a path that does not exist names up to three entries beside it whose names contain,
-  or are contained in, the one asked for ("Did you mean one of these?"), as opencode does.
+  or are contained in, the one asked for ("Did you mean one of these?"), as opencode does; both
+  names must be three characters or more, so a file named `a` is not offered for every miss.
 - Shell output is captured in bounded memory (`tool::spool`): stdout and stderr in arrival order,
   whole while under 32 KB, then only the first and last 16 KB in memory with everything (up to
   64 MB) in `<data>/tool-output/<session>/<call>.log`. The result names that file and carries
@@ -1181,8 +1189,8 @@ Settled after the first external review of M1; each has a regression test.
   when Cloudflare answers 403 with `cf-mitigated: challenge` asks once more as Drift, which often
   passes. Its own client follows redirects only within the URL's origin (scheme, host and port,
   plus the usual move from http to https on the same host):
-  the user approved that URL, so a redirect elsewhere is returned as text naming the target
-  ("fetch it to follow it") and its own call asks for that host. A catalog model reads PDFs (`Model::pdf`) when models.dev lists `pdf` among its
+  the user approved that URL, so a redirect elsewhere (another host or port, or down to plain
+  http) is returned as text naming the target ("fetch it to follow it") and its own call asks. A catalog model reads PDFs (`Model::pdf`) when models.dev lists `pdf` among its
   input modalities, or, without them, when it takes attachments on a route whose wire carries a
   PDF whole (Anthropic, OpenAI, Google, Vertex, Bedrock). Each adapter sends its own shape
   (Anthropic `document`, OpenAI `input_file`, Gemini `inlineData`, Chat Completions `file`); a

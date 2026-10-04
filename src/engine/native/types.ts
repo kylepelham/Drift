@@ -850,7 +850,7 @@ export interface components {
          * @description A finished reply that did not end by itself.
          * @enum {string}
          */
-        Ending: "length" | "refused";
+        Ending: "length" | "refused" | "limit";
         /** @description Engine-wide preferences the user changes in Settings. */
         EngineSettings: {
             /** @description Compact a conversation automatically when it nears its model's context window. */

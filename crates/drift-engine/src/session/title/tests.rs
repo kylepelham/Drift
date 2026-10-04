@@ -52,12 +52,19 @@ async fn a_new_conversation_is_named_by_a_small_model_from_its_provider() {
 }
 
 #[test]
-fn a_chatgpt_sign_in_titles_on_the_conversations_model_not_an_api_only_one() {
+fn a_chatgpt_sign_in_titles_on_the_backends_mini_model_never_an_api_only_one() {
+    use crate::llm::openai::codex;
+    use crate::session::types::ModelRef;
     let mut catalog = crate::llm::catalog::Catalog::bundled();
-    let openai = catalog.providers.get_mut("openai").unwrap();
-    crate::llm::openai::codex::shape(openai);
-    let model = openai.models.keys().next().unwrap().clone();
-    assert_eq!(catalog.small_model(&crate::session::types::ModelRef { provider: "openai".into(), model }), None, "nothing is priced, so the conversation's own model names it");
+    codex::shape(catalog.providers.get_mut("openai").unwrap());
+    let like = ModelRef { provider: "openai".into(), model: "gpt-5.5".into() };
+    assert_eq!(catalog.small_model(&like), None, "nothing is priced to choose by");
+    let signed_in = crate::llm::Credential::OAuth { access: "a".into(), refresh: "r".into(), expires_at: 0, account: None };
+    let chosen = codex::small_model(&catalog, &like, &signed_in).expect("the mini model the backend takes");
+    assert_eq!(chosen.model, "gpt-5.4-mini");
+    assert!(catalog.model("openai", &chosen.model).is_some(), "offered by the Codex view");
+    let key = crate::llm::Credential::ApiKey { key: "k".into() };
+    assert_eq!(codex::small_model(&catalog, &like, &key), None, "an API key chooses by price as before");
 }
 
 #[tokio::test]

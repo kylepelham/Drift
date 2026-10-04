@@ -18,6 +18,16 @@ pub fn shape(provider: &mut ProviderInfo) {
     }
 }
 
+/// The model small jobs (titles) use under a ChatGPT sign-in, where nothing is priced to choose by: it spends least of the plan.
+const SMALL: &str = "gpt-5.4-mini";
+
+/// `SMALL` when the conversation runs on an OpenAI model through a ChatGPT sign-in and the backend offers it.
+pub fn small_model(catalog: &crate::llm::catalog::Catalog, like: &crate::session::types::ModelRef, credential: &crate::llm::Credential) -> Option<crate::session::types::ModelRef> {
+    let signed_in = like.provider == "openai" && matches!(credential, crate::llm::Credential::OAuth { .. });
+    let offered = catalog.model("openai", SMALL).is_some() && like.model != SMALL;
+    (signed_in && offered).then(|| crate::session::types::ModelRef { provider: "openai".into(), model: SMALL.into() })
+}
+
 fn accepted(id: &str) -> bool {
     if id.ends_with("-pro") || REFUSED.contains(&id) {
         return false;

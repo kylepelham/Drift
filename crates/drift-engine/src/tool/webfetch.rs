@@ -45,7 +45,7 @@ impl Tool for WebFetch {
                 response = fetch(ctx, url, HONEST).await?;
             }
             if let Some(target) = elsewhere(&response) {
-                let output = format!("{url} redirects to {target}, on another host, which was not fetched. Fetch {target} to follow it.");
+                let output = format!("{url} redirects to {target}, outside the site that was approved (another host or port, or down to plain http), which was not fetched. Fetch {target} to follow it.");
                 return Ok(Output { title: url.into(), output, metadata: json!({ "redirect": target }) });
             }
             let status = response.status();
@@ -280,7 +280,7 @@ mod tests {
         let origin = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let stopped = WebFetch.run(&sandbox.ctx, json!({ "url": format!("{origin}/away") })).await.unwrap();
-        assert!(stopped.output.contains("on another host, which was not fetched") && !stopped.output.contains("# Title"), "{}", stopped.output);
+        assert!(stopped.output.contains("outside the site that was approved") && !stopped.output.contains("# Title"), "{}", stopped.output);
         assert!(stopped.metadata["redirect"].as_str().unwrap().starts_with("http://localhost:"));
         let passed = WebFetch.run(&sandbox.ctx, json!({ "url": format!("{url}/challenged") })).await.unwrap();
         assert!(passed.output.contains("passed"), "{}", passed.output);

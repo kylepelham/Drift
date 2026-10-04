@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 31] = [
+pub(super) const MIGRATIONS: [&str; 32] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -163,6 +163,11 @@ pub(super) const MIGRATIONS: [&str; 31] = [
     "ALTER TABLE part ADD COLUMN provider_signature TEXT;",
     // Tool call ids by session, so a provider repeating one (`call_1`, `functions.read:0`) is renamed before it is stored.
     "CREATE INDEX idx_part_call ON part(session_id, json_extract(json, '$.callId')) WHERE json_extract(json, '$.type') = 'tool_call';",
+    // A reply written up at a step or repeat limit ends `limit`; the column is swapped, since SQLite cannot widen a CHECK in place.
+    "ALTER TABLE message ADD COLUMN ended TEXT CHECK(ended IN ('length', 'refused', 'limit'));
+    UPDATE message SET ended = ending;
+    ALTER TABLE message DROP COLUMN ending;
+    ALTER TABLE message RENAME COLUMN ended TO ending;",
 ];
 
 #[cfg(test)]

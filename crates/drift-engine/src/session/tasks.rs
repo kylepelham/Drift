@@ -344,6 +344,10 @@ impl Engine {
                 let text = format!("The subagent stopped at its output limit before finishing; this is not a complete answer. What it had written:\n\n{}", clip(&partial, RESULT_CHARS));
                 (TaskState::Failed, text, "incomplete")
             }
+            Attempt::Limited(write_up) => {
+                let text = format!("The subagent reached its step or repeat limit before finishing; this is its account of where it got to, not a complete answer:\n\n{}", clip(&write_up, RESULT_CHARS));
+                (TaskState::Failed, text, "incomplete")
+            }
             Attempt::Refused(partial) => {
                 let before = if partial.trim().is_empty() { String::new() } else { format!(" What it had written:\n\n{}", clip(&partial, RESULT_CHARS)) };
                 (TaskState::Failed, format!("The provider's safety filter ended the subagent's reply; this is not an answer.{before}"), "refused")
@@ -507,6 +511,8 @@ pub(crate) enum Attempt {
     Replied(String),
     /// It finished writing only because it hit the output limit; the text is partial.
     Incomplete(String),
+    /// The turn's step or repeat limit stopped it; the text is its write-up of unfinished work.
+    Limited(String),
     /// The provider's safety filter ended it; the text is whatever came before.
     Refused(String),
     Failed(String),
@@ -524,6 +530,7 @@ pub(crate) fn last_attempt(store: &crate::store::Store, session_id: &str) -> Att
     let text = || last.parts.iter().filter_map(|row| match &row.part { Part::Text { text } => Some(text.as_str()), _ => None }).collect::<Vec<_>>().join("\n");
     match last.info.status {
         MessageStatus::Done if last.info.ending == Some(Ending::Refused) => Attempt::Refused(text()),
+        MessageStatus::Done if last.info.ending == Some(Ending::Limit) => Attempt::Limited(text()),
         // Typed for new replies; one from before the field is known by its error alone.
         MessageStatus::Done if last.info.ending == Some(Ending::Length) || last.info.error.is_some() => Attempt::Incomplete(text()),
         MessageStatus::Done => Attempt::Replied(text()),

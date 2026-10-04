@@ -178,4 +178,18 @@ pub(crate) mod tests {
         let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
         assert_eq!(version, migrations::LATEST);
     }
+
+    #[test]
+    fn widening_the_ending_check_keeps_the_endings_already_stored() {
+        let conn = Connection::open_in_memory().unwrap();
+        for (index, sql) in migrations::MIGRATIONS.iter().take(migrations::MIGRATIONS.len() - 1).enumerate() {
+            conn.execute_batch(&format!("BEGIN; {sql} PRAGMA user_version = {}; COMMIT;", index + 1)).unwrap();
+        }
+        conn.execute_batch("PRAGMA foreign_keys = OFF; INSERT INTO message(id, session_id, role, status, usage_json, cost, created_at, summary, ending) VALUES('m', 's', 'assistant', 'done', '{}', 0, 0, 0, 'length');").unwrap();
+        migrations::apply(&conn).unwrap();
+        let kept: String = conn.query_row("SELECT ending FROM message WHERE id = 'm'", [], |row| row.get(0)).unwrap();
+        assert_eq!(kept, "length");
+        conn.execute_batch("UPDATE message SET ending = 'limit' WHERE id = 'm';").unwrap();
+        assert!(conn.execute_batch("UPDATE message SET ending = 'other' WHERE id = 'm';").is_err(), "the check still holds");
+    }
 }
