@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 
 use drift_engine::session::types::{Ending, Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, Todo, TodoStatus, ToolStatus, Usage, Visibility};
-use drift_engine::store::ImportedSession;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -13,25 +12,15 @@ use crate::source::{OcMessage, OcPart, OcSession, OcTodo};
 /// name a shadow repository this engine never reads.
 const DROPPED: [&str; 3] = ["step-start", "step-finish", "snapshot"];
 
-/// Where the conversation lands and how it is listed.
-pub struct Placement<'a> {
-    pub workspace_id: &'a str,
-    /// Archived in either store; it is then archived from `now`, so the purge waits its full week.
-    pub archived: bool,
-    pub now: i64,
-}
+/// Undo records built for imported calls (`crate::undo`), by opencode part id.
+pub type Records = HashMap<String, Value>;
 
-pub fn conversation(session: &OcSession, messages: &[OcMessage], todos: &[OcTodo], placement: &Placement) -> ImportedSession {
-    let ids = message_ids(messages);
-    let messages = messages.iter().map(|message| self::message(message, &session.id, &ids)).collect();
-    ImportedSession { session: native_session(session, placement), messages, todos: todos.iter().filter_map(todo).collect() }
-}
-
-fn native_session(session: &OcSession, placement: &Placement) -> Session {
+/// The conversation as listed; it stays hidden until its last page is written.
+pub fn session(session: &OcSession, workspace_id: &str) -> Session {
     let model: Value = session.model.as_deref().and_then(|json| serde_json::from_str(json).ok()).unwrap_or(Value::Null);
     Session {
         id: session.id.clone(),
-        workspace_id: placement.workspace_id.into(),
+        workspace_id: workspace_id.into(),
         parent_id: session.parent_id.clone(),
         visibility: if session.parent_id.is_some() { Visibility::Hidden } else { Visibility::Sibling },
         title: session.title.clone(),
@@ -40,23 +29,28 @@ fn native_session(session: &OcSession, placement: &Placement) -> Session {
         variant: model["variant"].as_str().map(String::from),
         created_at: session.created,
         updated_at: session.updated,
-        archived_at: placement.archived.then_some(placement.now),
+        archived_at: None,
         branch_cutoff: None,
         revert: None,
         running: false,
     }
 }
 
-/// New ids in this engine's form, ordered as opencode wrote the messages, so later turns sort after them.
-fn message_ids(messages: &[OcMessage]) -> HashMap<String, (String, i64)> {
-    let mut last = 0;
-    messages
-        .iter()
-        .map(|message| {
-            last = (message.created << 12).max(last + 1);
-            (message.id.clone(), (native_id("msg", last, &message.id), last))
-        })
-        .collect()
+/// New message ids in this engine's form, minted as messages arrive in opencode's written order, so
+/// later turns sort after them; earlier ones stay known for compaction boundaries that point back.
+#[derive(Default)]
+pub struct Ids {
+    last: i64,
+    minted: HashMap<String, String>,
+}
+
+impl Ids {
+    fn mint(&mut self, old: &str, created: i64) -> (String, i64) {
+        self.last = (created << 12).max(self.last + 1);
+        let id = native_id("msg", self.last, old);
+        self.minted.insert(old.to_string(), id.clone());
+        (id, self.last)
+    }
 }
 
 /// Deterministic, so importing the same row twice mints the same id.
@@ -65,17 +59,28 @@ fn native_id(prefix: &str, stamp: i64, old: &str) -> String {
     format!("{prefix}_{stamp:016x}{:02x}{:02x}{:02x}{:02x}", hash[0], hash[1], hash[2], hash[3])
 }
 
-fn message(message: &OcMessage, session_id: &str, ids: &HashMap<String, (String, i64)>) -> MessageWithParts {
-    let (id, stamp) = ids[&message.id].clone();
+pub fn message(message: &OcMessage, parts: &[OcPart], session_id: &str, ids: &mut Ids, records: &Records) -> MessageWithParts {
+    let (id, stamp) = ids.mint(&message.id, message.created);
     let data: Value = serde_json::from_str(&message.data).unwrap_or(Value::Null);
-    let parts = message
-        .parts
+    let anthropic = data["providerID"] == "anthropic";
+    let parts = parts
         .iter()
-        .filter_map(|part| part_of(part, ids))
+        .filter_map(|part| part_of(part, &ids.minted, anthropic))
         .enumerate()
-        .map(|(at, (old, part))| PartRow { id: native_id("prt", stamp + at as i64, old), message_id: id.clone(), session_id: session_id.into(), provider_signature: None, part })
+        .map(|(at, (old, part))| PartRow { id: native_id("prt", stamp + at as i64, old), message_id: id.clone(), session_id: session_id.into(), provider_signature: None, part: with_record(part, records.get(old), &id) })
         .collect();
     MessageWithParts { info: info(&data, id, session_id, message.created), parts }
+}
+
+/// A call's undo record goes in its metadata as a native call's does, stamped with its message.
+fn with_record(part: Part, record: Option<&Value>, message_id: &str) -> Part {
+    let (Part::ToolCall { call_id, name, input, status, title, output, metadata, started_at, finished_at }, Some(record)) = (part.clone(), record) else { return part };
+    let mut metadata = metadata.unwrap_or_else(|| Value::Object(Default::default()));
+    for (key, value) in record.as_object().into_iter().flatten() {
+        metadata[key] = value.clone();
+    }
+    metadata["at"] = Value::String(message_id.into());
+    Part::ToolCall { call_id, name, input, status, title, output, metadata: Some(metadata), started_at, finished_at }
 }
 
 fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
@@ -123,7 +128,7 @@ pub fn kept(data: &str) -> Part {
 }
 
 /// The part as this engine stores it, `None` for bookkeeping.
-fn part_of<'a>(part: &'a OcPart, ids: &HashMap<String, (String, i64)>) -> Option<(&'a str, Part)> {
+fn part_of<'a>(part: &'a OcPart, minted: &HashMap<String, String>, anthropic: bool) -> Option<(&'a str, Part)> {
     let unknown = || Some((part.id.as_str(), kept(&part.data)));
     let Ok(data) = serde_json::from_str::<Value>(&part.data) else { return unknown() };
     let kind = data["type"].as_str().unwrap_or_default();
@@ -132,16 +137,25 @@ fn part_of<'a>(part: &'a OcPart, ids: &HashMap<String, (String, i64)>) -> Option
     }
     let mapped = match kind {
         "text" if data["synthetic"] != true => data["text"].as_str().map(|text| Part::Text { text: text.into() }),
-        "reasoning" => data["text"].as_str().map(|text| Part::Reasoning { text: text.into(), signature: None, redacted: None }),
+        "reasoning" => reasoning(&data, anthropic),
         "tool" => tool_call(&data),
         "file" => file(&data),
-        "compaction" => Some(Part::Compaction { auto: data["auto"] == true, tail_from: data["tail_start_id"].as_str().and_then(|old| ids.get(old)).map(|(id, _)| id.clone()) }),
+        "compaction" => Some(Part::Compaction { auto: data["auto"] == true, tail_from: data["tail_start_id"].as_str().and_then(|old| minted.get(old)).cloned() }),
         _ => None,
     };
     match mapped {
         Some(mapped) => Some((part.id.as_str(), mapped)),
         None => unknown(),
     }
+}
+
+/// Claude's signed thinking keeps its signature, so the same model reads its own reasoning back;
+/// replay already sends a signature only to the model that wrote it.
+fn reasoning(data: &Value, anthropic: bool) -> Option<Part> {
+    let text = data["text"].as_str()?.to_string();
+    let signed = &data["metadata"]["anthropic"];
+    let field = |key: &str| signed[key].as_str().filter(|value| anthropic && !value.is_empty()).map(String::from);
+    Some(Part::Reasoning { text, signature: field("signature"), redacted: field("redactedData") })
 }
 
 fn tool_call(data: &Value) -> Option<Part> {
@@ -210,7 +224,7 @@ fn file(data: &Value) -> Option<Part> {
     Some(Part::File { mime: data["mime"].as_str()?.into(), name: data["filename"].as_str().unwrap_or_default().into(), url: data["url"].as_str()?.into(), path })
 }
 
-fn todo(todo: &OcTodo) -> Option<Todo> {
+pub fn todo(todo: &OcTodo) -> Option<Todo> {
     let status = serde_json::from_value::<TodoStatus>(Value::String(todo.status.clone())).ok()?;
     Some(Todo { content: todo.content.clone(), status, priority: todo.priority.clone() })
 }

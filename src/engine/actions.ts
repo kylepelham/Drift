@@ -423,14 +423,16 @@ export function createActions(
     return applyUndo(id, () => requireClient().unrevertSession(id))
   }
 
-  async function applyUndo(id: string, call: () => Promise<{ session: NativeSession; kept: string[]; unattributed: string[] }>) {
+  async function applyUndo(id: string, call: () => Promise<{ session: NativeSession; kept: string[]; unattributed: string[]; unrecorded: string[] }>) {
     try {
-      const { session, kept, unattributed } = await call()
+      const { session, kept, unattributed, unrecorded } = await call()
       putSession(set, adaptSession(session, workspaces()))
       // Files the user changed after the session did are never overwritten; say which.
       if (kept.length) notice({ id: `revert-kept-${id}`, title: "Kept your changes", message: `Left as you changed them: ${kept.join(", ")}`, variant: "info", duration: 10_000 })
       // A command's run shows what changed, not who changed it, so those files are never undone.
       if (unattributed.length) notice({ id: `revert-unattributed-${id}`, title: "Left files changed during commands", message: `Changed while a command ran, so not undone: ${unattributed.join(", ")}`, variant: "info", duration: 10_000 })
+      // Imported from opencode without the versions undo needs (older edits, or files changed since).
+      if (unrecorded.length) notice({ id: `revert-unrecorded-${id}`, title: "Some imported edits were not undone", message: `No undo record, left as they are: ${unrecorded.join(", ")}`, variant: "info", duration: 10_000 })
       return true
     } catch (cause) {
       notice({ id: `revert-${id}`, title: "Couldn't undo", message: errorMessage(cause), variant: "error", duration: 10_000 })

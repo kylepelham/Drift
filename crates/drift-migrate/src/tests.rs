@@ -8,6 +8,19 @@ use serde_json::json;
 
 use super::*;
 
+/// Versions kept by their content's hash, so a test can read back what a record names.
+#[derive(Default)]
+struct Kept(HashMap<String, String>);
+
+impl Blobs for Kept {
+    fn store(&mut self, _owner: &str, _root: &Path, bytes: &[u8]) -> Option<String> {
+        use sha2::Digest;
+        let id = format!("{:x}", sha2::Sha256::digest(bytes));
+        self.0.insert(id.clone(), String::from_utf8(bytes.to_vec()).unwrap());
+        Some(id)
+    }
+}
+
 struct Dir(PathBuf);
 
 impl Drop for Dir {
@@ -87,7 +100,7 @@ fn a_conversation_arrives_in_its_workspace_with_every_part_in_this_engines_shape
     drop(conn);
     let store = store_with(&d.0, &["c:\\users\\kyle\\repo\\"]);
 
-    let report = import_sessions(&store, &source, &HashSet::new(), &mut |_| {}).unwrap();
+    let report = import_sessions(&store, &source, &HashSet::new(), &mut Kept::default(), &mut |_| {}).unwrap();
     assert_eq!((report.imported, report.known, report.failed.len()), (1, 0, 0), "{report:?}");
     let session = store.session("ses_a").unwrap().unwrap();
     assert_eq!(session.workspace_id, store.workspaces().unwrap()[0].id, "the same directory, spelled differently");
@@ -111,7 +124,7 @@ fn a_conversation_arrives_in_its_workspace_with_every_part_in_this_engines_shape
     assert_eq!((reply.info.usage.input, reply.info.usage.output, reply.info.usage.cache_read, reply.info.usage.cache_write), (10, 25, 100, 7));
     let kinds: Vec<&Part> = reply.parts.iter().map(|row| &row.part).collect();
     assert_eq!(kinds.len(), 5, "step bookkeeping is dropped: {kinds:?}");
-    assert_eq!(kinds[0], &Part::Reasoning { text: "think".into(), signature: None, redacted: None }, "a signature is never replayed to another model");
+    assert_eq!(kinds[0], &Part::Reasoning { text: "think".into(), signature: Some("sig".into()), redacted: None }, "Claude's signature stays; replay sends it only to the model that wrote it");
     let Part::ToolCall { call_id, name, input, status, output, metadata, title, started_at, finished_at } = kinds[1] else { panic!() };
     assert_eq!((call_id.as_str(), name.as_str(), *status, output.as_deref(), title.as_deref()), ("toolu_1", "edit", ToolStatus::Done, Some("Edit applied successfully."), Some("a.rs")));
     assert_eq!((input["filePath"].as_str(), metadata.as_ref().unwrap()["diff"].as_str(), *started_at, *finished_at), (Some("a.rs"), Some("-a\n+b"), Some(2010), Some(2020)));
@@ -146,7 +159,7 @@ fn subagents_follow_their_parent_and_a_rerun_brings_in_only_what_is_new() {
 
     let before = drift_engine::id::now_ms();
     let mut announced = Vec::new();
-    let first = import_sessions(&store, &source, &HashSet::from(["ses_hidden".to_string()]), &mut |session| announced.push(session.id.clone())).unwrap();
+    let first = import_sessions(&store, &source, &HashSet::from(["ses_hidden".to_string()]), &mut Kept::default(), &mut |session| announced.push(session.id.clone())).unwrap();
     assert_eq!((first.imported, first.unmatched.get("E:/other")), (5, Some(&1)), "{first:?}");
     assert_eq!((announced.len(), announced.last().map(String::as_str)), (5, Some("ses_child")), "each announced as it lands, a subagent after its parent");
     assert_eq!(store.session("ses_sub").unwrap().unwrap().workspace_id, store.workspaces().unwrap()[0].id, "run inside the repository the workspace holds");
@@ -159,7 +172,7 @@ fn subagents_follow_their_parent_and_a_rerun_brings_in_only_what_is_new() {
 
     store.lock().execute("DELETE FROM session WHERE id = 'ses_parent'", []).unwrap();
     store.add_workspace("e:\\other", "other", "").unwrap();
-    let second = import_sessions(&store, &source, &HashSet::new(), &mut |_| {}).unwrap();
+    let second = import_sessions(&store, &source, &HashSet::new(), &mut Kept::default(), &mut |_| {}).unwrap();
     assert_eq!((second.imported, second.known, second.unmatched.len()), (1, 5, 0), "{second:?}");
     assert!(store.session("ses_away").unwrap().is_some(), "a workspace added since brings its conversations in");
     assert!(store.session("ses_parent").unwrap().is_none(), "a deleted import stays deleted");
@@ -177,7 +190,7 @@ fn display_copies_no_view_reads_are_left_behind_and_a_patched_files_diff_becomes
     message(&conn, "ses_a", "msg_1", 2000, assistant(2000, json!({})), &[patch, read]);
     drop(conn);
     let store = store_with(&d.0, &["C:/repo"]);
-    import_sessions(&store, &source, &HashSet::new(), &mut |_| {}).unwrap();
+    import_sessions(&store, &source, &HashSet::new(), &mut Kept::default(), &mut |_| {}).unwrap();
     let parts = store.transcript("ses_a").unwrap().remove(0).parts;
     let Part::ToolCall { metadata: Some(patched), .. } = &parts[0].part else { panic!() };
     assert_eq!(patched, &json!({ "diff": "whole", "files": [{ "filePath": "C:/repo/a.rs", "relativePath": "a.rs", "type": "update", "additions": 1, "deletions": 1, "patch": "@@ -1 +1 @@\n-a\n+b" }] }));
@@ -197,9 +210,144 @@ fn a_diff_too_big_for_any_panel_is_dropped_and_the_call_keeps_its_output() {
     message(&conn, "ses_a", "msg_1", 2000, assistant(2000, json!({})), &[patch]);
     drop(conn);
     let store = store_with(&d.0, &["C:/repo"]);
-    import_sessions(&store, &source, &HashSet::new(), &mut |_| {}).unwrap();
+    import_sessions(&store, &source, &HashSet::new(), &mut Kept::default(), &mut |_| {}).unwrap();
     let Part::ToolCall { metadata: Some(metadata), output, .. } = &store.transcript("ses_a").unwrap()[0].parts[0].part else { panic!() };
     assert_eq!((metadata, output.as_deref()), (&json!({ "files": [{ "filePath": "gen.rs", "additions": 400000, "deletions": 0 }] }), Some("Success.")));
+}
+
+#[test]
+fn a_tool_call_stored_past_the_size_limit_keeps_its_name_input_and_output_and_nothing_else() {
+    let d = dir();
+    let source = d.0.join("opencode.db");
+    let conn = opencode(&source);
+    session(&conn, "ses_a", None, "C:/repo", None);
+    let huge = "x".repeat(9_000_000);
+    let patch = json!({ "type": "tool", "tool": "apply_patch", "callID": "c1", "state": { "status": "completed", "input": { "patchText": "*** Begin Patch" }, "output": "Success.", "title": "gen.rs", "metadata": { "diff": huge, "files": [{ "filePath": "gen.rs", "before": huge }] }, "time": { "start": 5, "end": 6 } } });
+    let image = json!({ "type": "file", "mime": "image/png", "filename": "big.png", "url": format!("data:image/png;base64,{huge}") });
+    message(&conn, "ses_a", "msg_1", 2000, assistant(2000, json!({})), &[patch, image]);
+    drop(conn);
+    let store = store_with(&d.0, &["C:/repo"]);
+    import_sessions(&store, &source, &HashSet::new(), &mut Kept::default(), &mut |_| {}).unwrap();
+    let parts = store.transcript("ses_a").unwrap().remove(0).parts;
+    let Part::ToolCall { call_id, name, input, status, output, title, metadata, started_at, finished_at } = &parts[0].part else { panic!("{:?}", parts[0].part) };
+    assert_eq!((call_id.as_str(), name.as_str(), *status, output.as_deref(), title.as_deref()), ("c1", "apply_patch", ToolStatus::Done, Some("Success."), Some("gen.rs")));
+    assert_eq!((input, metadata, *started_at, *finished_at), (&json!({ "patchText": "*** Begin Patch" }), &None, Some(5), Some(6)));
+    assert!(matches!(&parts[1].part, Part::File { url, .. } if url.len() > 9_000_000), "anything else that large is read whole");
+}
+
+fn edit(path: &Path, diff: &str) -> serde_json::Value {
+    json!({ "type": "tool", "tool": "edit", "callID": format!("e{}", path.display()), "state": { "status": "completed", "input": { "filePath": path, "oldString": "x", "newString": "y" }, "output": "Edit applied successfully.", "metadata": { "filediff": { "file": path, "patch": diff } } } })
+}
+
+/// Each recorded change of the conversation's calls, by path, with the content its versions hold.
+fn recorded(store: &Store, session: &str, kept: &Kept) -> Vec<(String, Option<String>, Option<String>)> {
+    let content = |blob: &serde_json::Value| blob.as_str().map(|id| kept.0[id].clone());
+    let mut changes = Vec::new();
+    for message in store.transcript(session).unwrap() {
+        for row in message.parts {
+            let Part::ToolCall { metadata: Some(metadata), .. } = row.part else { continue };
+            assert!(metadata.get("changes").is_none() || metadata["at"] == message.info.id.as_str(), "stamped with its own message");
+            for change in metadata["changes"].as_array().into_iter().flatten() {
+                changes.push((change["path"].as_str().unwrap().to_string(), content(&change["before"]), content(&change["after"])));
+            }
+        }
+    }
+    changes.sort();
+    changes
+}
+
+#[test]
+fn recent_edits_are_rebuilt_from_todays_files_and_anything_that_no_longer_matches_is_left_out() {
+    let d = dir();
+    let ws = d.0.join("ws");
+    std::fs::create_dir_all(&ws).unwrap();
+    let file = |name: &str, content: &str| std::fs::write(ws.join(name), content).unwrap();
+    file("a.rs", "one\nTWO\nthree\n");
+    file("new.rs", "fresh\n");
+    file("moved.rs", "y\n");
+    file("chain.rs", "c\n");
+    file("touched.rs", "4\n");
+    file("old.rs", "late\n");
+    let source = d.0.join("opencode.db");
+    let conn = opencode(&source);
+    session(&conn, "ses_a", None, &ws.to_string_lossy(), None);
+    let now = drift_engine::id::now_ms();
+    let hour = 3_600_000;
+    let write_new = json!({ "type": "tool", "tool": "write", "callID": "w1", "state": { "status": "completed", "input": { "filePath": ws.join("new.rs"), "content": "fresh\n" }, "output": "Wrote.", "metadata": { "exists": false } } });
+    let patch = json!({ "type": "tool", "tool": "apply_patch", "callID": "p1", "state": { "status": "completed", "input": {}, "output": "Success.", "metadata": { "files": [
+        { "filePath": ws.join("gone.rs"), "type": "delete", "patch": "@@ -1 +0,0 @@\n-bye\n", "additions": 0, "deletions": 1 },
+        { "filePath": ws.join("was.rs"), "movePath": ws.join("moved.rs"), "type": "move", "patch": "@@ -1 +1 @@\n-x\n+y\n", "additions": 1, "deletions": 1 },
+    ] } } });
+    message(&conn, "ses_a", "msg_0", now - 9 * 24 * hour, assistant(now - 9 * 24 * hour, json!({})), &[edit(&ws.join("old.rs"), "@@ -1 +1 @@\n-early\n+late\n")]);
+    message(&conn, "ses_a", "msg_1", now - 3 * hour, assistant(now - 3 * hour, json!({})), &[edit(&ws.join("chain.rs"), "@@ -1 +1 @@\n-a\n+b\n"), edit(&ws.join("touched.rs"), "@@ -1 +1 @@\n-1\n+2\n")]);
+    message(&conn, "ses_a", "msg_2", now - 2 * hour, assistant(now - 2 * hour, json!({})), &[edit(&ws.join("chain.rs"), "@@ -1 +1 @@\n-b\n+c\n"), edit(&ws.join("touched.rs"), "@@ -1 +1 @@\n-2\n+3\n")]);
+    message(&conn, "ses_a", "msg_3", now - hour, assistant(now - hour, json!({})), &[edit(&ws.join("a.rs"), "@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n"), write_new, patch]);
+    drop(conn);
+    let store = store_with(&d.0, &[&ws.to_string_lossy()]);
+    let mut kept = Kept::default();
+    let report = import_sessions(&store, &source, &HashSet::new(), &mut kept, &mut |_| {}).unwrap();
+    assert_eq!(report.undoable, 5, "{report:?}");
+    let some = |text: &str| Some(text.to_string());
+    assert_eq!(recorded(&store, "ses_a", &kept), vec![
+        ("a.rs".into(), some("one\ntwo\nthree\n"), some("one\nTWO\nthree\n")),
+        ("chain.rs".into(), some("a\n"), some("b\n")),
+        ("chain.rs".into(), some("b\n"), some("c\n")),
+        ("gone.rs".into(), some("bye\n"), None),
+        ("moved.rs".into(), None, some("y\n")),
+        ("new.rs".into(), None, some("fresh\n")),
+        ("was.rs".into(), some("x\n"), None),
+    ], "touched.rs changed since, so neither of its edits is recorded; old.rs is over a week old");
+}
+
+#[test]
+fn only_a_conversations_newest_thirty_messages_get_undo_records() {
+    let d = dir();
+    let ws = d.0.join("ws");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::write(ws.join("a.rs"), "b\n").unwrap();
+    let source = d.0.join("opencode.db");
+    let conn = opencode(&source);
+    session(&conn, "ses_a", None, &ws.to_string_lossy(), None);
+    let now = drift_engine::id::now_ms();
+    message(&conn, "ses_a", "msg_000", now - 1000, assistant(now - 1000, json!({})), &[edit(&ws.join("a.rs"), "@@ -1 +1 @@\n-a\n+b\n")]);
+    for n in 1..=30 {
+        message(&conn, "ses_a", &format!("msg_{n:03}"), now - 1000 + n, user(now - 1000 + n), &[json!({ "type": "text", "text": "more" })]);
+    }
+    drop(conn);
+    let store = store_with(&d.0, &[&ws.to_string_lossy()]);
+    let report = import_sessions(&store, &source, &HashSet::new(), &mut Kept::default(), &mut |_| {}).unwrap();
+    assert_eq!((report.imported, report.undoable), (1, 0));
+}
+
+#[test]
+fn an_imported_edit_undoes_and_redoes_through_the_engine_and_the_rest_are_named() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let d = dir();
+    let ws = d.0.join("ws");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::write(ws.join("a.rs"), "after\n").unwrap();
+    std::fs::write(ws.join("z.rs"), "someone else's\n").unwrap();
+    let source = d.0.join("opencode.db");
+    let conn = opencode(&source);
+    session(&conn, "ses_a", None, &ws.to_string_lossy(), None);
+    let now = drift_engine::id::now_ms();
+    message(&conn, "ses_a", "msg_1", now - 2000, user(now - 2000), &[json!({ "type": "text", "text": "fix" })]);
+    message(&conn, "ses_a", "msg_2", now - 1000, assistant(now - 1000, json!({})), &[edit(&ws.join("a.rs"), "@@ -1 +1 @@\n-before\n+after\n"), edit(&ws.join("z.rs"), "@@ -1 +1 @@\n-z\n+zz\n")]);
+    drop(conn);
+    let engine = drift_engine::Engine::open_with(&d.0.join("data"), drift_engine::Options { file_credentials: true, ..Default::default() }).unwrap();
+    engine.store.add_workspace(&ws.to_string_lossy(), "ws", "").unwrap();
+    let mut history = History::new(&engine.snapshots).unwrap();
+    let report = import_sessions(&engine.store, &source, &HashSet::new(), &mut history, &mut |_| {}).unwrap();
+    drop(history);
+    assert_eq!((report.imported, report.undoable), (1, 1), "{report:?}");
+    let prompt = engine.store.transcript("ses_a").unwrap()[0].info.id.clone();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let undone = runtime.block_on(engine.revert("ses_a", &prompt)).unwrap();
+    assert_eq!(std::fs::read_to_string(ws.join("a.rs")).unwrap(), "before\n");
+    assert_eq!(std::fs::read_to_string(ws.join("z.rs")).unwrap(), "someone else's\n", "a file whose diff no longer matches is left alone");
+    assert_eq!(undone.unrecorded, [ws.join("z.rs").to_string_lossy()], "and named");
+    runtime.block_on(engine.unrevert("ses_a")).unwrap();
+    assert_eq!(std::fs::read_to_string(ws.join("a.rs")).unwrap(), "after\n", "redo puts the edit back");
 }
 
 #[test]

@@ -12,7 +12,7 @@ pub(crate) mod tasks;
 mod todos;
 mod tree;
 
-pub use import::ImportedSession;
+pub use import::ImportCheckpoints;
 pub use mcp::Renamed;
 pub use sessions::{Admit, Admitted, Handover, NewSession, Pick, Purge, SessionFilter};
 pub use staged::StagedReplacement;

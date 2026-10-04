@@ -545,6 +545,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   recorded with `observed: true`, and undo and redo never apply them; they are listed as
   `unattributed` and shown in their own notice. A path whose recorded history includes any observed
   change is left alone as a whole. A call whose files cannot be recorded does not run.
+- A finished `edit`, `write` or `apply_patch` call with no `changes` at all (only imported
+  conversations have those; a native call always records, even an empty list) cannot be undone.
+  Undo and redo name its files in `unrecorded`, shown in their own notice, rather than pass over
+  them silently (`revert::written_without_record`).
 - A record that fails after the call (`record_call`) is never dropped. For a file tool the named
   files go back to their recorded before state, the call fails, and its result says so; any file
   that could not be put back is listed in `metadata.unrecorded` with the reason in
@@ -846,29 +850,60 @@ legacy sidecar's start) and tells the UI with `workspaces-changed`.
   a trailing slash. A subagent goes with its parent and is listed `hidden`. A conversation with no
   workspace is counted in the report by directory and skipped, so adding that workspace imports it
   on the next run. Removed workspaces are not targets.
-- **Once only.** `imported_session` (migration 33) records every import, and
-  `Store::import_session` writes a conversation and its record in one transaction or not at all.
-  A conversation already present or recorded is skipped, so one the user deletes after import
-  never comes back. One that fails is reported and tried again next run.
+- **Once only, in pages.** `imported_session` (migrations 33 and 34) records every import.
+  `Store::begin_import` writes the session archived (out of the list) with an unfinished record,
+  `import_page` writes at most 100 messages or about 2 MB per transaction, and `finish_import`
+  lists it and completes the record. A run that stops midway leaves an unfinished record; the next
+  one deletes that copy and starts the conversation over, and a failure inside a run discards it at
+  once (`discard_import`). A conversation already present or completely recorded is skipped, so one
+  the user deletes after import never comes back. A subagent whose parent failed waits for the next
+  run with it.
+- **Bounded.** opencode is read 200 messages at a time and each message's parts on their own
+  (`source::messages_after`, `parts`), never a whole conversation (one here holds 47,269 messages
+  and 2.3 GB of parts). A part stored past 8 MB is streamed off disk through SQLite's blob reader:
+  a tool call keeps its name, id, state, input (up to 64 KB) and the first 64 KB of its output, the
+  rest skipped as it is read; any other part that large is read whole. While an import runs, the
+  shared connection's automatic checkpoint is off and a connection of its own checkpoints after
+  each page (`ImportCheckpoints`), since a checkpoint inside a commit held the connection for up to
+  300 ms each time.
 - **Ids.** Session ids stay, so subagent links, task results and Drift's archive records still
   join. Message and part ids are minted in this engine's form from their timestamps, in opencode's
   written order, with a short hash of the opencode id: opencode ids sort above native ones, so
   without this a new turn would sort before the history. The same row always gets the same id.
-- **Mapping.** Text, reasoning (without its provider signature, which only the model that wrote
-  it accepts), tool calls, files, compaction boundaries (pointed at the new id of the message they
-  kept) and todos map to native parts. A tool call that never finished becomes an error with no
-  output. opencode's per-step bookkeeping (`step-start`, `step-finish`, `snapshot`) is dropped:
-  its tokens are already on the message and its snapshots name a shadow repository this engine
-  never reads, so imported turns cannot be undone. Anything else (`patch`, `agent`, `subtask`,
-  synthetic nudges, a call missing its id) is kept as an unknown part inside
+- **Mapping.** Text, reasoning, tool calls, files, compaction boundaries (pointed at the new id of
+  the message they kept) and todos map to native parts. An Anthropic reply's thinking keeps its
+  signature (`metadata.anthropic.signature`, `redactedData`), so continuing on the same Claude
+  model sends it its own reasoning back; replay already sends a signature only to the model that
+  wrote it. A tool call that never finished becomes an error with no output. opencode's per-step
+  bookkeeping (`step-start`, `step-finish`, `snapshot`) is dropped: its tokens are already on the
+  message and its snapshots name a shadow repository keyed by the old path. Anything else (`patch`,
+  `agent`, `subtask`, synthetic nudges, a call missing its id) is kept as an unknown part inside
   `{"type":"opencode","data":"<original JSON>"}`, which no native type matches: opencode's raw
   synthetic `text` would otherwise read back as a native text part.
+- **Undo.** Edits in a conversation's newest 30 messages that are also under a week old get native
+  undo records (`undo::records`). opencode kept only a diff per file (whole versions only in older
+  builds), so each version is rebuilt from today's file by applying the diffs backwards, newest
+  edit first across every conversation imported in the run: an edit, a new file `write`, and a
+  patch's adds, updates, deletes and moves. A diff must match exactly where it says (line endings
+  aside); one that does not, a `write` over an existing file, or a part past 8 MB ends the rebuild
+  for that call's files, so neither it nor any older call on them gets a record. Versions go into
+  the workspace's undo history (`Snapshots::store_bytes`) and the record carries `owner` and `at`
+  as a native one does, so undo, redo and the kept-file check work unchanged. Every other imported
+  writing call is named by undo as `unrecorded`. On this machine 46 of the imported calls got
+  records; the window is the user's choice, since older edits almost never still match.
 - **Size.** Tool metadata no view reads is left behind: a patched file's whole before and after
   (its diff becomes the `patch` its panel draws), a read's `display` and `preview` copies, and any
   diff over 1 MB (one patch to a generated file kept 331 MB). On a 19 GB opencode database with
-  1,479 matching conversations this cut the import from 4.5 GB to 2.8 GB; it took 85 s.
+  1,479 matching conversations the import is 2.8 GB (4.5 GB before trimming).
+- **Cost, measured** on that database (release build, Windows): the first run takes about 62 s on
+  its background thread at a peak of 91 MB; a store read made every 20 ms meanwhile waited at most
+  123 ms, and 3 of 2,905 waited over 50 ms. Every later start finds everything imported in 20 ms.
+  Before paging, the same import peaked at 2 GB and held reads up to 4.5 s.
 - **Archived.** A conversation archived in opencode or in Drift (`session_meta`) arrives archived
   as of the import, so the seven-day purge gives it a full week to be restored.
+- **Prompt cache.** The first message sent in an imported conversation misses the provider's cache
+  (Drift's system prompt and tools differ from opencode's), a one-time write for that history;
+  turns after it cache as usual.
 
 ### M5: hook seam
 

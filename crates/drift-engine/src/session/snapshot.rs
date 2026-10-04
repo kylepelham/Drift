@@ -252,6 +252,14 @@ impl Snapshots {
         self.hash(workspace, path, true).await
     }
 
+    /// Stores `bytes` as a blob of the workspace's history, for content that is not on disk now
+    /// (an imported edit's earlier version).
+    pub async fn store_bytes(&self, workspace: &Path, bytes: &[u8]) -> Result<String, Error> {
+        self.ensure(workspace).await?;
+        let blob = self.run(workspace, &["hash-object", "-w", "--no-filters", "--stdin"], Some(bytes)).await?;
+        Ok(String::from_utf8_lossy(&blob).trim().to_string())
+    }
+
     /// `path`'s blob id now without storing it, to compare against a recorded one.
     pub async fn current(&self, workspace: &Path, path: &str) -> Result<Option<String>, Error> {
         self.hash(workspace, path, false).await

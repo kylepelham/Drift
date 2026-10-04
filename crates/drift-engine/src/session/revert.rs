@@ -47,6 +47,8 @@ pub struct Undone {
     pub kept: Vec<String>,
     /// Seen changing while a command ran, which does not show who changed them.
     pub unattributed: Vec<String>,
+    /// Written by a call with no undo record (an imported conversation's older or unmatched edits); left as they are.
+    pub unrecorded: Vec<String>,
 }
 
 /// A physical file's chronological change chain, with independent snapshot owners for its endpoints.
@@ -96,6 +98,7 @@ impl Net {
 struct Shifted {
     kept: Vec<String>,
     unattributed: Vec<String>,
+    unrecorded: Vec<String>,
     /// What the shift changed, oldest first, kept until the marker is saved so a failed save can put it back.
     applied: Vec<Applied>,
     /// The turns of every file the shift may change, held until the marker is saved or the files put back.
@@ -161,7 +164,7 @@ impl Engine {
 
     async fn unrevert_claimed(&self, session_id: &str) -> Result<Undone, RevertError> {
         let session = self.store.session(session_id)?.ok_or(RevertError::NoSession)?;
-        let Some(revert) = &session.revert else { return Ok(Undone { session, kept: Vec::new(), unattributed: Vec::new() }) };
+        let Some(revert) = &session.revert else { return Ok(Undone { session, kept: Vec::new(), unattributed: Vec::new(), unrecorded: Vec::new() }) };
         let shifted = self.shift(&session, &revert.message_id, None, Direction::Forward).await?;
         self.mark_or_put_back(session_id, None, shifted).await
     }
@@ -169,7 +172,7 @@ impl Engine {
     /// Saves the marker that matches the files just shifted; if it cannot be saved, the files go back too, so both sides still agree.
     async fn mark_or_put_back(&self, session_id: &str, revert: Option<&Revert>, shifted: Shifted) -> Result<Undone, RevertError> {
         match self.mark(session_id, revert) {
-            Ok(session) => Ok(Undone { session, kept: shifted.kept, unattributed: shifted.unattributed }),
+            Ok(session) => Ok(Undone { session, kept: shifted.kept, unattributed: shifted.unattributed, unrecorded: shifted.unrecorded }),
             Err(error) => Err(self.put_back(shifted.applied, format!("could not save the conversation's undo point ({error})")).await),
         }
     }
@@ -179,7 +182,7 @@ impl Engine {
     /// change only observed while a command ran is never applied: it may not be the session's. Each
     /// change is applied where its owning workspace is now, whichever workspace the session is in.
     async fn shift(&self, session: &Session, from: &str, to: Option<&str>, direction: Direction) -> Result<Shifted, RevertError> {
-        let nets = self.net_changes(session, from, to)?;
+        let (nets, unrecorded) = self.net_changes(session, from, to)?;
         let abort = self.turns.cancellation(&session.id);
         let turns = tokio::select! {
             biased;
@@ -187,7 +190,7 @@ impl Engine {
             held = self.turns_for(&nets) => held,
         };
         if abort.is_cancelled() { return Err(RevertError::Stopped); }
-        let mut shifted = Shifted { _turns: Some(turns), ..Shifted::default() };
+        let mut shifted = Shifted { unrecorded, _turns: Some(turns), ..Shifted::default() };
         for net in nets {
             match self.shift_one(net, &direction, &mut shifted).await {
                 Ok(Some(done)) => shifted.applied.push(done),
@@ -245,9 +248,11 @@ impl Engine {
         RevertError::Files(format!("{error}; {state}"))
     }
 
-    /// Groups chronological changes by canonical physical path, retaining each endpoint's snapshot owner.
-    fn net_changes(&self, session: &Session, from: &str, to: Option<&str>) -> Result<Vec<Net>, RevertError> {
+    /// Groups chronological changes by canonical physical path, retaining each endpoint's snapshot
+    /// owner; also names the files finished writing calls changed without leaving a record.
+    fn net_changes(&self, session: &Session, from: &str, to: Option<&str>) -> Result<(Vec<Net>, Vec<String>), RevertError> {
         let mut calls: Vec<(String, String, String, Vec<FileChange>)> = Vec::new();
+        let mut unrecorded: Vec<String> = Vec::new();
         for member in self.store.session_tree(&session.id)? {
             for message in self.store.transcript(&member)?.iter().filter(|m| m.info.id.as_str() >= from && to.is_none_or(|to| m.info.id.as_str() < to)) {
                 for row in &message.parts {
@@ -256,6 +261,8 @@ impl Engine {
                         let owner = record.owner.unwrap_or_else(|| session.workspace_id.clone());
                         let at = record.at.unwrap_or_else(|| message.info.id.clone());
                         calls.push((stamp(&at).to_string(), row.id.clone(), owner, record.changes));
+                    } else {
+                        unrecorded.extend(written_without_record(&row.part).into_iter().filter(|path| !unrecorded.contains(path)).collect::<Vec<_>>());
                     }
                 }
             }
@@ -271,7 +278,8 @@ impl Engine {
             }
         }
         net.retain(|n| n.broken || n.before.blob != n.after.blob);
-        Ok(net)
+        unrecorded.dedup();
+        Ok((net, unrecorded))
     }
 
     fn mark(&self, session_id: &str, revert: Option<&Revert>) -> Result<Session, String> {
@@ -307,6 +315,21 @@ fn recorded_changes(part: &Part) -> Option<Record> {
     let changes = serde_json::from_value(metadata.get("changes")?.clone()).ok()?;
     let text = |key: &str| metadata[key].as_str().map(str::to_string);
     Some(Record { owner: text("owner"), at: text("at"), changes })
+}
+
+/// The files a finished `edit`, `write` or `apply_patch` call wrote when it left no undo record: the
+/// paths it was given and, for a patch, every file opencode listed it touching.
+fn written_without_record(part: &Part) -> Vec<String> {
+    let Part::ToolCall { name, input, status: super::types::ToolStatus::Done, metadata, .. } = part else { return Vec::new() };
+    if !matches!(name.as_str(), "edit" | "write" | "apply_patch") {
+        return Vec::new();
+    }
+    let mut paths: Vec<String> = ["filePath", "path"].iter().filter_map(|key| input[*key].as_str().map(str::to_string)).collect();
+    for file in metadata.as_ref().and_then(|m| m["files"].as_array()).into_iter().flatten() {
+        paths.extend(["filePath", "movePath"].iter().filter_map(|key| file[*key].as_str().map(str::to_string)));
+    }
+    paths.dedup();
+    paths
 }
 
 /// An id's time-ordered part without its prefix, so a change stamp and a message id compare by time.

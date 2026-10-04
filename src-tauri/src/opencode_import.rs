@@ -50,9 +50,13 @@ fn run(app: &AppHandle) {
         let mut announce = |session: &drift_engine::session::types::Session| {
             engine.hub.publish(Event::SessionCreated { session: session.clone() });
         };
-        match drift_migrate::import_sessions(&engine.store, &source, &archived, &mut announce) {
+        let mut history = match drift_migrate::History::new(&engine.snapshots) {
+            Ok(history) => history,
+            Err(error) => return eprintln!("opencode import: {error}"),
+        };
+        match drift_migrate::import_sessions(&engine.store, &source, &archived, &mut history, &mut announce) {
             Ok(report) if report.imported > 0 || !report.failed.is_empty() => {
-                eprintln!("opencode import from {}: {} imported, {} failed", source.display(), report.imported, report.failed.len());
+                eprintln!("opencode import from {}: {} imported ({} edits can be undone), {} failed", source.display(), report.imported, report.undoable, report.failed.len());
                 for (id, error) in &report.failed {
                     eprintln!("opencode import: {id}: {error}");
                 }

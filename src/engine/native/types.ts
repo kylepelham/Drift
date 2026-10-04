@@ -1551,6 +1551,8 @@ export interface components {
             session: components["schemas"]["Session"];
             /** @description Seen changing while a command ran, which does not show who changed them. */
             unattributed: string[];
+            /** @description Written by a call with no undo record (an imported conversation's older or unmatched edits); left as they are. */
+            unrecorded: string[];
         };
         Usage: {
             /** Format: int64 */
