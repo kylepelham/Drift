@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use super::edit::diff;
+use super::edit::Change;
 use super::text::TextFormat;
 use super::patch::{self, Op};
 use super::{display, required_str, stage, Ask, Context, Output, RunFuture, Tool, ToolError};
@@ -81,7 +81,12 @@ impl Tool for ApplyPatch {
                 ctx.files.mark_read(&step.path);
             }
             let files: Vec<String> = plan.steps.iter().filter(|s| s.after.is_some()).map(|s| s.path.to_string_lossy().into_owned()).collect();
-            Ok(Output { title: plan.touched.join(", "), output: plan.diffs.join("\n"), metadata: json!({ "files": files }) })
+            // A line per file, as opencode answers; the diffs are in the metadata for the UI.
+            let letter = |kind: &str| match kind { "add" => "A", "delete" => "D", "move" => "R", _ => "M" };
+            let listed: Vec<String> = plan.changes.iter().map(|change| format!("{} {}", letter(change.kind), change.summary())).collect();
+            let output = format!("Patched {} file{}:\n{}", listed.len(), if listed.len() == 1 { "" } else { "s" }, listed.join("\n"));
+            let changes: Vec<Value> = plan.changes.iter().map(Change::json).collect();
+            Ok(Output { title: plan.touched.join(", "), output, metadata: json!({ "files": files, "changes": changes }) })
         })
     }
 }
@@ -96,7 +101,7 @@ struct Step {
 #[derive(Default)]
 struct Plan {
     steps: Vec<Step>,
-    diffs: Vec<String>,
+    changes: Vec<Change>,
     touched: Vec<String>,
 }
 
@@ -111,12 +116,13 @@ impl Plan {
                 let existing = existing(ctx, path).await?;
                 let before_text = existing.as_ref().map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default();
                 let format = TextFormat::detect(&before_text);
-                self.diffs.push(diff(&display(path, &ctx.workspace), &format.normalise(&before_text), &format.normalise(content)));
+                let kind = if existing.is_some() { "update" } else { "add" };
+                self.changes.push(Change::new(path, &display(path, &ctx.workspace), kind, &format.normalise(&before_text), &format.normalise(content)));
                 self.steps.push(Step { path: path.to_path_buf(), before: existing, after: Some(format.apply(content).into_bytes()) });
             }
             Op::Delete { .. } => {
                 let before = existing(ctx, path).await?.ok_or(ToolError("does not exist".into()))?;
-                self.diffs.push(diff(&display(path, &ctx.workspace), &String::from_utf8_lossy(&before), ""));
+                self.changes.push(Change::new(path, &display(path, &ctx.workspace), "delete", &String::from_utf8_lossy(&before), ""));
                 self.steps.push(Step { path: path.to_path_buf(), before: Some(before), after: None });
             }
             Op::Update { move_to, chunks, .. } => {
@@ -127,7 +133,8 @@ impl Plan {
                 let before = ending.normalise(&text);
                 let after = patch::apply_chunks(&before, chunks)?;
                 let target: PathBuf = move_to.as_ref().map_or(path.to_path_buf(), |to| ctx.resolve(to));
-                self.diffs.push(diff(&display(&target, &ctx.workspace), &before, &after));
+                let kind = if target == path { "update" } else { "move" };
+                self.changes.push(Change::new(&target, &display(&target, &ctx.workspace), kind, &before, &after));
                 let written = ending.apply(&after).into_bytes();
                 if target == path {
                     self.steps.push(Step { path: target, before: Some(raw), after: Some(written) });
@@ -225,7 +232,10 @@ mod tests {
         assert_eq!(std::fs::read(sandbox.ctx.workspace.join("b.txt")).unwrap(), b"one\r\nTWO\r\n");
         assert!(!sandbox.ctx.workspace.join("a.txt").exists());
         assert!(!sandbox.ctx.workspace.join("gone.txt").exists());
-        assert!(out.output.contains("+TWO"));
+        assert_eq!(out.output, "Patched 3 files:\nA dir/new.txt (+1 -0)\nR b.txt (+1 -1)\nD gone.txt (+0 -1)", "one line per file, as opencode answers");
+        let kinds: Vec<&str> = out.metadata["changes"].as_array().unwrap().iter().map(|change| change["type"].as_str().unwrap()).collect();
+        assert_eq!(kinds, ["add", "move", "delete"]);
+        assert!(out.metadata["changes"][1]["patch"].as_str().unwrap().contains("+TWO"), "the diff is in the metadata");
         let titles: Vec<String> = ApplyPatch.asks(&sandbox.ctx, &json!({ "patch": patch })).into_iter().map(|a| a.title).collect();
         assert_eq!(titles, ["Patch dir/new.txt", "Patch a.txt", "Patch b.txt", "Patch gone.txt"], "each path, the move destination included, asked on its own");
     }

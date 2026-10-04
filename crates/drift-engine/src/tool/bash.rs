@@ -42,33 +42,47 @@ impl Bash {
     }
 }
 
-/// Git's bash is checked before PATH because Windows ships a WSL stub named bash.exe in System32.
+/// `DRIFT_SHELL` names the shell outright. Otherwise Git's bash is checked before PATH, because
+/// Windows ships a WSL stub named bash.exe in System32; PATH is read as it is now, not at startup.
 fn detect_shell() -> Shell {
+    if let Some(chosen) = std::env::var_os("DRIFT_SHELL").map(PathBuf::from).filter(|path| path.is_file()) {
+        return shell_for(chosen);
+    }
+    let which = crate::platform::process::which;
     let real = |path: PathBuf| (!path.to_string_lossy().to_ascii_lowercase().contains("system32")).then_some(path);
-    if let Some(bash) = git_bash().or_else(|| find_on_path("bash").and_then(real)) {
+    if let Some(bash) = git_bash().or_else(|| which("bash").and_then(real)) {
         return Shell::Bash(bash);
     }
-    let pwsh = find_on_path("pwsh").or_else(|| find_on_path("powershell")).unwrap_or_else(|| "pwsh".into());
+    let pwsh = which("pwsh").or_else(|| which("powershell")).unwrap_or_else(|| "pwsh".into());
     Shell::PowerShell(pwsh)
 }
 
-fn find_on_path(name: &str) -> Option<PathBuf> {
-    let exe = if cfg!(windows) { format!("{name}.exe") } else { name.to_string() };
-    std::env::var_os("PATH")?
-        .to_str()?
-        .split(if cfg!(windows) { ';' } else { ':' })
-        .map(|dir| PathBuf::from(dir).join(&exe))
-        .find(|candidate| candidate.is_file())
+/// A shell named by path: anything called bash, sh or zsh speaks bash; anything else is taken for PowerShell.
+fn shell_for(path: PathBuf) -> Shell {
+    let stem = path.file_stem().map(|stem| stem.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    if matches!(stem.as_str(), "bash" | "sh" | "zsh") { Shell::Bash(path) } else { Shell::PowerShell(path) }
 }
 
+/// Git for Windows wherever it is installed: beside the `git` on PATH (Git puts only `cmd` there),
+/// then the machine-wide, per-user and Scoop locations.
 fn git_bash() -> Option<PathBuf> {
     if !cfg!(windows) {
         return None;
     }
-    ["C:/Program Files/Git/bin/bash.exe", "C:/Program Files (x86)/Git/bin/bash.exe"]
-        .into_iter()
-        .map(PathBuf::from)
-        .find(|candidate| candidate.is_file())
+    let env = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    let scoop = env("SCOOP").or_else(|| env("USERPROFILE").map(|home| home.join("scoop")));
+    let known = [
+        Some(PathBuf::from("C:/Program Files/Git/bin/bash.exe")),
+        Some(PathBuf::from("C:/Program Files (x86)/Git/bin/bash.exe")),
+        env("LOCALAPPDATA").map(|local| local.join("Programs/Git/bin/bash.exe")),
+        scoop.map(|scoop| scoop.join("apps/git/current/bin/bash.exe")),
+    ];
+    crate::platform::process::which("git").and_then(|git| bash_beside(&git)).or_else(|| known.into_iter().flatten().find(|candidate| candidate.is_file()))
+}
+
+/// `git.exe` sits in `<root>/cmd`, `<root>/bin` or `<root>/mingw64/bin`; its bash is `<root>/bin/bash.exe`.
+fn bash_beside(git: &std::path::Path) -> Option<PathBuf> {
+    git.ancestors().skip(1).take(3).map(|dir| dir.join("bin").join("bash.exe")).find(|candidate| candidate.is_file())
 }
 
 /// What the model must know about the shell, which differs most on Windows: Git's bash there is still Unix bash.
@@ -483,6 +497,23 @@ mod tests {
         };
         let unlimited = bash.run(&sandbox.ctx, json!({ "command": quick })).await.unwrap();
         assert!(!bash.failed(&unlimited) && unlimited.metadata["shellTimeoutMs"].is_null(), "no limit lets it finish");
+    }
+
+    #[test]
+    fn git_bash_is_found_beside_any_git_and_a_named_shell_is_taken_at_its_word() {
+        let root = std::env::temp_dir().join(format!("drift-git-{}", crate::random_hex(4)));
+        for dir in ["cmd", "bin", "mingw64/bin"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        std::fs::write(root.join("bin/bash.exe"), "").unwrap();
+        for git in ["cmd/git.exe", "bin/git.exe", "mingw64/bin/git.exe"] {
+            assert_eq!(bash_beside(&root.join(git)), Some(root.join("bin").join("bash.exe")), "{git}");
+        }
+        assert_eq!(bash_beside(&std::env::temp_dir().join("elsewhere/git.exe")), None);
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(matches!(shell_for("D:/tools/Git/bin/bash.exe".into()), Shell::Bash(_)));
+        assert!(matches!(shell_for("/usr/bin/zsh".into()), Shell::Bash(_)));
+        assert!(matches!(shell_for("C:/Program Files/PowerShell/7/pwsh.exe".into()), Shell::PowerShell(_)));
     }
 
     #[test]

@@ -151,13 +151,13 @@ test("tool call statuses become legacy tool states", () => {
   const done = adaptPart({ ...base, status: "done", output: "1: a", title: "a", startedAt: 1, finishedAt: 2 })
   if (done.type !== "tool") throw new Error("expected tool")
   expect(done.tool).toBe("read")
-  expect(done.state).toEqual({ status: "completed", input: { path: "a" }, output: "1: a", title: "a", metadata: {}, time: { start: 1, end: 2 } })
+  expect(done.state).toEqual({ status: "completed", input: { path: "a", filePath: "a" }, output: "1: a", title: "a", metadata: {}, time: { start: 1, end: 2 } })
   const denied = adaptPart({ ...base, status: "denied", output: "Permission denied by the user." })
   if (denied.type !== "tool") throw new Error("expected tool")
   expect(denied.state.status).toBe("error")
   const pending = adaptPart({ ...base, status: "pending" })
   if (pending.type !== "tool") throw new Error("expected tool")
-  expect(pending.state).toEqual({ status: "pending", input: { path: "a" }, raw: "" })
+  expect(pending.state).toEqual({ status: "pending", input: { path: "a", filePath: "a" }, raw: "" })
 })
 
 test("an undo marker and a removed message reach the reducer in its vocabulary", () => {
@@ -218,4 +218,23 @@ test("a delta a snapshot already holds is skipped, and one it lacks is added whe
   expect(withDelta("hello wo", "world", 6), "cut short mid-delta").toBe("hello world")
   expect(withDelta("hello ", "world", 6)).toBe("hello world")
   expect(withDelta("hello ", "world"), "an engine that sends no offset appends").toBe("hello world")
+})
+
+test("native file tools reach the UI's rows, file actions and citations under the names they read", async () => {
+  const { builtinFileTargets } = await import("../src/tool-actions")
+  const { patchFiles, toolInfo } = await import("../src/ui/parts")
+  const diff = "--- a/src/a.rs\n+++ b/src/a.rs\n@@ -3,3 +3,3 @@\n x\n-old\n+new\n y\n"
+  const tool = (name: string, input: object, metadata: object) =>
+    adaptPart({ id: `prt_${name}`, messageId: "msg_1", sessionId: "ses_1", type: "tool_call", callId: `c_${name}`, name, input, metadata, status: "done", output: "Edited", startedAt: 1, finishedAt: 2 } as never) as never
+  const edit = tool("edit", { path: "src/a.rs", old_string: "old", new_string: "new" }, { files: ["C:/repo/src/a.rs"], diff, changes: [{ filePath: "C:/repo/src/a.rs", relativePath: "src/a.rs", type: "update", patch: diff, additions: 1, deletions: 1 }] })
+  expect(toolInfo(edit).subtitle).toBe("a.rs")
+  expect(builtinFileTargets(edit, "C:/repo")).toEqual([{ path: "C:/repo/src/a.rs", label: "C:/repo/src/a.rs", line: 4 }])
+  const read = tool("read", { path: "README.md" }, {})
+  expect(toolInfo(read).subtitle?.startsWith("README.md")).toBe(true)
+  const patch = "*** Begin Patch\n*** Add File: b.txt\n+b\n*** End Patch\n"
+  const patched = tool("apply_patch", { patch }, { files: ["C:/repo/b.txt"], changes: [{ filePath: "C:/repo/b.txt", relativePath: "b.txt", type: "add", patch: "@@ -0,0 +1 @@\n+b\n", additions: 1, deletions: 0 }] })
+  expect(patchFiles(patched).map((file: { relativePath?: string; additions: number }) => [file.relativePath, file.additions])).toEqual([["b.txt", 1]])
+  expect(toolInfo(patched).subtitle).toBe("b.txt")
+  expect(builtinFileTargets(patched, "C:/repo").map((target) => target.path)).toEqual(["C:/repo/b.txt"])
+  expect((patched as { state: { input: { patchText?: string } } }).state.input.patchText).toBe(patch)
 })

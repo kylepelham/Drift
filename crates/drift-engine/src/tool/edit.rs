@@ -68,10 +68,12 @@ impl Tool for Edit {
             let written = ending.apply(&updated);
             super::fits_history(&name, written.len())?;
             super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
+            let change = Change::new(&path, &name, "update", &content, &updated);
+            let plural = if replacements == 1 { "" } else { "s" };
             Ok(Output {
                 title: name.clone(),
-                output: diff(&name, &content, &updated),
-                metadata: json!({ "replacements": replacements, "files": [path.to_string_lossy()] }),
+                output: format!("Edited {}: {replacements} replacement{plural}.", change.summary()),
+                metadata: json!({ "replacements": replacements, "files": [path.to_string_lossy()], "diff": change.patch, "changes": [change.json()] }),
             })
         })
     }
@@ -156,6 +158,34 @@ pub fn diff(name: &str, before: &str, after: &str) -> String {
         .to_string()
 }
 
+/// One file a call changed, as its metadata carries it for the UI: the diff stays out of what the model reads.
+pub struct Change {
+    pub path: String,
+    pub name: String,
+    pub kind: &'static str,
+    pub patch: String,
+    pub additions: usize,
+    pub deletions: usize,
+}
+
+impl Change {
+    pub fn new(path: &std::path::Path, name: &str, kind: &'static str, before: &str, after: &str) -> Self {
+        let lines = TextDiff::from_lines(before, after);
+        let count = |tag| lines.iter_all_changes().filter(|change| change.tag() == tag).count();
+        let (additions, deletions) = (count(similar::ChangeTag::Insert), count(similar::ChangeTag::Delete));
+        Self { path: path.to_string_lossy().into_owned(), name: name.into(), kind, patch: diff(name, before, after), additions, deletions }
+    }
+
+    pub fn json(&self) -> Value {
+        json!({ "filePath": self.path, "relativePath": self.name, "type": self.kind, "patch": self.patch, "additions": self.additions, "deletions": self.deletions })
+    }
+
+    /// The line the model reads instead of the diff.
+    pub fn summary(&self) -> String {
+        format!("{} (+{} -{})", self.name, self.additions, self.deletions)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::tests::Sandbox;
@@ -183,7 +213,9 @@ mod tests {
         sandbox.ctx.files.mark_read(&path);
         let out = edit(&sandbox, json!({ "path": "a.rs", "old_string": "fn b() {}", "new_string": "fn c() {}" })).await.unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "fn a() {}\nfn c() {}\n");
-        assert!(out.output.contains("-fn b() {}\n+fn c() {}"));
+        assert_eq!(out.output, "Edited a.rs (+1 -1): 1 replacement.", "the model reads one line, not the diff");
+        assert!(out.metadata["diff"].as_str().unwrap().contains("-fn b() {}\n+fn c() {}"), "the UI's diff is in the metadata");
+        assert_eq!((out.metadata["changes"][0]["additions"].as_u64(), out.metadata["changes"][0]["relativePath"].as_str()), (Some(1), Some("a.rs")));
     }
 
     #[tokio::test]

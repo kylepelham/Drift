@@ -121,9 +121,24 @@ export function adaptPart(row: NativePartRow): Part {
   }
 }
 
+/** Native tool names for files and patches, as the UI's tool rows, file actions and citations read them. */
+export function adaptToolFields(tool: string, rawInput: Record<string, unknown>, rawMetadata: Record<string, unknown>) {
+  const input = { ...rawInput }
+  const metadata = { ...rawMetadata }
+  const changes = Array.isArray(rawMetadata.changes) ? rawMetadata.changes : []
+  const written = Array.isArray(rawMetadata.files) ? rawMetadata.files.find((file): file is string => typeof file === "string") : undefined
+  if (typeof input.path === "string" && input.filePath === undefined) input.filePath = written ?? input.path
+  if (tool === "apply_patch") {
+    if (typeof input.patch === "string" && input.patchText === undefined) input.patchText = input.patch
+    // The engine keeps `files` as the paths it wrote; the rows want one change record per file.
+    if (changes.length) metadata.files = changes
+  }
+  return { input, metadata }
+}
+
 function toolState(row: Extract<NativePartRow, { type: "tool_call" }>): ToolPart["state"] {
-  const input = (row.input && typeof row.input === "object" ? row.input : { value: row.input }) as Record<string, unknown>
-  const metadata = (row.metadata ?? {}) as Record<string, unknown>
+  const rawInput = (row.input && typeof row.input === "object" ? row.input : { value: row.input }) as Record<string, unknown>
+  const { input, metadata } = adaptToolFields(row.name, rawInput, (row.metadata ?? {}) as Record<string, unknown>)
   // A call denied or refused before it ran has no start; 0 would read as a run since 1970.
   const start = (row.startedAt ?? undefined) as number
   const end = row.finishedAt ?? start

@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 
-use super::edit::diff;
+use super::edit::{diff, Change};
 use super::text::TextFormat;
 use super::{display, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
@@ -62,10 +62,13 @@ impl Tool for Write {
             ctx.files.mark_read(&path);
             let created = existing.is_none();
             let before = existing.unwrap_or_default();
+            let change = Change::new(&path, &name, if created { "add" } else { "update" }, &ending.normalise(&before), &ending.normalise(content));
+            let lines = |count: usize| if count == 1 { "1 line".to_string() } else { format!("{count} lines") };
+            let output = if created { format!("Created {name} ({}).", lines(change.additions)) } else { format!("Wrote {}.", change.summary()) };
             Ok(Output {
                 title: name.clone(),
-                output: diff(&name, &ending.normalise(&before), &ending.normalise(content)),
-                metadata: json!({ "created": created, "files": [path.to_string_lossy()] }),
+                output,
+                metadata: json!({ "created": created, "files": [path.to_string_lossy()], "diff": change.patch, "changes": [change.json()] }),
             })
         })
     }
@@ -81,8 +84,9 @@ mod tests {
         let sandbox = Sandbox::new("write");
         let out = Write.run(&sandbox.ctx, json!({ "path": "a/b/c.txt", "content": "hello\n" })).await.unwrap();
         assert_eq!(std::fs::read_to_string(sandbox.ctx.workspace.join("a/b/c.txt")).unwrap(), "hello\n");
-        assert!(out.output.contains("+hello"));
-        assert_eq!(out.metadata["created"], true);
+        assert_eq!(out.output, "Created a/b/c.txt (1 line).", "a new file is not echoed back to the model");
+        assert!(out.metadata["diff"].as_str().unwrap().contains("+hello"));
+        assert_eq!((out.metadata["created"].as_bool(), out.metadata["changes"][0]["type"].as_str()), (Some(true), Some("add")));
     }
 
     #[tokio::test]
