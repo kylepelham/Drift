@@ -319,7 +319,7 @@ pub(crate) mod tests {
         assert!(status.success());
         let raw = std::fs::read(&saved).unwrap();
         let _ = std::fs::remove_file(&saved);
-        let units: Vec<u16> = raw.chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect();
+        let units: Vec<u16> = raw.as_chunks::<2>().0.iter().map(|pair| u16::from_le_bytes(*pair)).collect();
         String::from_utf16_lossy(&units).lines().nth(1).unwrap_or_default().to_string()
     }
 

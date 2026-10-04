@@ -137,6 +137,9 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
     // A model LM Studio has not loaded gets its own default window when it loads, not its maximum: unknown.
     let context = details.filter(|d| d["state"] == "loaded").and_then(|d| d["loaded_context_length"].as_u64()).unwrap_or(0);
     let capabilities = details.map(|d| d["capabilities"].as_array().cloned().unwrap_or_default()).unwrap_or_default();
+    if details.is_some() && !capabilities.is_empty() && !capabilities.iter().any(|c| c == "tool_use") {
+        return None;
+    }
     Some(Model {
         id: id.into(),
         name: id.into(),
@@ -151,7 +154,6 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
         profile: ToolProfile::Edit,
         variants: Vec::new(),
     })
-    .filter(|_| details.is_none() || capabilities.is_empty() || capabilities.iter().any(|c| c == "tool_use"))
 }
 
 #[cfg(test)]
