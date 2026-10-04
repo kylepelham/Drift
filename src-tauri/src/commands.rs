@@ -109,9 +109,13 @@ pub(crate) fn store_expired_removed_workspaces(
         .map_err(|e| e.to_string())
 }
 
+/// The shell's records of the workspace, then the engine's (its kept permission grants and trusted commands).
 #[tauri::command]
-pub(crate) fn store_forget_workspace(store: State<Store>, id: String) -> Result<(), String> {
-    store.forget_workspace(&id).map_err(|e| e.to_string())
+pub(crate) fn store_forget_workspace(store: State<Store>, native: State<crate::native::Native>, id: String) -> Result<(), String> {
+    if store.forget_workspace(&id).map_err(|e| e.to_string())? {
+        native.engine().forget_workspace(&id).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

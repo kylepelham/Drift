@@ -23,4 +23,9 @@ impl Store {
             .execute(params![key, serde_json::to_string(value).unwrap()])?;
         Ok(())
     }
+
+    pub fn remove_setting(&self, key: &str) -> rusqlite::Result<()> {
+        self.lock().prepare_cached("DELETE FROM setting WHERE key = ?1")?.execute([key])?;
+        Ok(())
+    }
 }

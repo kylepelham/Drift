@@ -77,6 +77,12 @@ pub(crate) fn push_shell_timeout(app: &AppHandle, timeout_ms: Option<u64>) {
     app.state::<Native>().engine.set_shell_timeout(timeout_ms.map(std::time::Duration::from_millis));
 }
 
+impl Native {
+    pub(crate) fn engine(&self) -> &Arc<Engine> {
+        &self.engine
+    }
+}
+
 pub(crate) fn stop(app: &AppHandle) {
     let native = app.state::<Native>();
     let mut state = native.state.lock().unwrap();

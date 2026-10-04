@@ -11,26 +11,34 @@ use crate::Engine;
 /// The workspace's "always" grants, newest last.
 #[utoipa::path(get, path = "/workspaces/{id}/permission-grants", operation_id = "listPermissionGrants", responses((status = 200, body = Vec<Grant>), (status = 404)))]
 pub async fn grants(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Vec<Grant>>, ApiError> {
-    if engine.store.workspace(&id)?.is_none() {
-        return Err(ApiError::not_found("workspace"));
-    }
+    known(&engine, &id)?;
     Ok(Json(engine.permission_grants(&id)))
 }
 
 /// Takes back every "always" grant of the workspace; calls ask again from the next one.
-#[utoipa::path(delete, path = "/workspaces/{id}/permission-grants", operation_id = "revokePermissionGrants", responses((status = 204)))]
-pub async fn revoke_all(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> StatusCode {
+#[utoipa::path(delete, path = "/workspaces/{id}/permission-grants", operation_id = "revokePermissionGrants", responses((status = 204), (status = 404)))]
+pub async fn revoke_all(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
+    known(&engine, &id)?;
     engine.revoke_permission_grant(&id, None);
-    StatusCode::NO_CONTENT
+    Ok(StatusCode::NO_CONTENT)
 }
 
-/// Takes back one "always" grant, as listed; 404 when the workspace holds no such grant.
+/// Takes back one "always" grant, as listed; 404 when the workspace is unknown or holds no such grant.
 #[utoipa::path(post, path = "/workspaces/{id}/permission-grants/revoke", operation_id = "revokePermissionGrant", request_body = Grant, responses((status = 204), (status = 404)))]
 pub async fn revoke(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(grant): Json<Grant>) -> Result<StatusCode, ApiError> {
+    known(&engine, &id)?;
     if !engine.revoke_permission_grant(&id, Some(&grant)) {
         return Err(ApiError::not_found("permission grant"));
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// 404 for a workspace the engine does not have, before anything is loaded or cached for it.
+fn known(engine: &Engine, id: &str) -> Result<(), ApiError> {
+    match engine.store.workspace(id)? {
+        Some(_) => Ok(()),
+        None => Err(ApiError::not_found("workspace")),
+    }
 }
 
 /// Everything still waiting on the user; clients read this when they hydrate.

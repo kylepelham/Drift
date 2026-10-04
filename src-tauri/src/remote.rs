@@ -906,7 +906,7 @@ remote_commands! {
             commands::store_expired_removed_workspaces(store(), arg(args, "before")?)?,
         ),
         "store_forget_workspace" => {
-            value(commands::store_forget_workspace(store(), arg(args, "id")?)?)
+            value(commands::store_forget_workspace(store(), app.state(), arg(args, "id")?)?)
         },
         "store_archived" => value(commands::store_archived(store())?),
         "store_archive_session" => value(commands::store_archive_session(

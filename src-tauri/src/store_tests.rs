@@ -58,13 +58,8 @@ fn store_roundtrip() {
         .expired_removed_workspaces(now() - 1000)
         .unwrap()
         .is_empty());
-    {
-        let conn = store.0.lock();
-        conn.execute_batch("INSERT INTO setting(key, value_json) VALUES('permissionGrants:w1', '[]'), ('trustedCommands:w1', '[]'), ('permissionGrants:other', '[]')").unwrap();
-    }
-    store.forget_workspace(&expired[0].id).unwrap();
-    let kept: Vec<String> = store.0.lock().prepare("SELECT key FROM setting WHERE key LIKE 'permissionGrants:%' OR key LIKE 'trustedCommands:%'").unwrap().query_map([], |row| row.get(0)).unwrap().flatten().collect();
-    assert_eq!(kept, ["permissionGrants:other"], "the forgotten workspace's grants and trusted commands go with it");
+    assert!(store.forget_workspace(&expired[0].id).unwrap(), "the row went, so the engine is told");
+    assert!(!store.forget_workspace(&expired[0].id).unwrap(), "already forgotten");
     assert!(store.workspaces().unwrap().is_empty());
     assert!(store.removed_workspaces().unwrap().is_empty());
     assert!(

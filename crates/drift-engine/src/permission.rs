@@ -433,6 +433,12 @@ impl Permissions {
         self.pending.lock().unwrap().iter().map(|(request, _, _)| request.clone()).collect()
     }
 
+    /// A forgotten workspace's cached grants and its sessions' ties to it.
+    pub fn forget_workspace(&self, workspace_id: &str) {
+        self.workspace_rules.lock().unwrap().remove(workspace_id);
+        self.workspaces.lock().unwrap().retain(|_, workspace| workspace != workspace_id);
+    }
+
     pub fn forget_session(&self, session_id: &str) {
         self.session_rules.lock().unwrap().remove(session_id);
         self.workspaces.lock().unwrap().remove(session_id);

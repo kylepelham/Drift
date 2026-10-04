@@ -716,7 +716,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Takes back one "always" grant, as listed; 404 when the workspace holds no such grant. */
+        /** Takes back one "always" grant, as listed; 404 when the workspace is unknown or holds no such grant. */
         post: operations["revokePermissionGrant"];
         delete?: never;
         options?: never;
@@ -3000,6 +3000,12 @@ export interface operations {
         requestBody?: never;
         responses: {
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

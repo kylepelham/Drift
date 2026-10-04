@@ -45,7 +45,7 @@ fn a_subagent_takes_its_parents_answer_and_a_new_command_is_asked_about() {
 }
 
 /// Where a workspace keeps the project commands the user said always to run, line by line.
-fn key(workspace_id: &str) -> String {
+pub(crate) fn key(workspace_id: &str) -> String {
     format!("trustedCommands:{workspace_id}")
 }
 

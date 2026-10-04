@@ -1709,8 +1709,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     allow in this workspace". `GET /workspaces/{id}/permission-grants` lists them (each tagged
     `grant`: `exact`, `subcommand` or `pattern`); `POST .../permission-grants/revoke` with one as
     listed takes it back (404 if it is not held), `DELETE .../permission-grants` takes back all,
-    and the stored list is rewritten each time. Forgetting a removed workspace
-    (`store_forget_workspace`) drops its grants and trusted project commands with it.
+    and the stored list is rewritten each time. All three answer 404 for a workspace the engine
+    does not have, before anything is loaded for it. When the shell forgets a removed workspace
+    (`store_forget_workspace`), it calls `Engine::forget_workspace`, which drops the workspace's
+    stored and cached grants and its trusted project commands; the shell never names those keys.
     Searches also evaluate their `grep`/`glob` rules. An approved search covers the files under its
     path, outside the workspace and in the scratch directory too, unless an explicit rule says
     otherwise: a file a rule denies is skipped, and one a rule asks about is skipped unless the

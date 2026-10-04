@@ -179,6 +179,15 @@ impl Engine {
         self.permissions.grants(workspace_id, || self.stored_grants(workspace_id))
     }
 
+    /// Drops what the engine keeps for a workspace the shell has forgotten: its "always" grants
+    /// (stored and cached) and the project commands it trusts.
+    pub fn forget_workspace(&self, workspace_id: &str) -> rusqlite::Result<()> {
+        self.store.remove_setting(&grants_key(workspace_id))?;
+        self.store.remove_setting(&session::trust::key(workspace_id))?;
+        self.permissions.forget_workspace(workspace_id);
+        Ok(())
+    }
+
     /// One grant, or all of them with `None`; the stored list is rewritten.
     pub fn revoke_permission_grant(&self, workspace_id: &str, grant: Option<&permission::Grant>) -> bool {
         self.permissions.revoke(workspace_id, grant, || self.stored_grants(workspace_id))

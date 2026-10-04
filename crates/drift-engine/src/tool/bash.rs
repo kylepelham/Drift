@@ -547,16 +547,18 @@ mod tests {
         for line in ["cat .env", "ls ..", "cat /etc/passwd", "grep -r token .", "rg token", "ls *", "git show HEAD:.env", "echo $HOME", "cargo test", "cd .. && ls", "ls > out.txt", "cat ~/.ssh/config"] {
             assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
         }
-        let outside = sandbox.ctx.workspace.parent().unwrap().join("outside-notes.txt");
-        std::fs::write(&outside, "private").unwrap();
+        let outside = sandbox.ctx.workspace.parent().unwrap().join("outside-dir");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("private.txt"), "private").unwrap();
+        let link = sandbox.ctx.workspace.join("linkdir");
+        // A directory junction needs no elevation on Windows, unlike a symlink, so this always runs there.
         #[cfg(windows)]
-        let linked = std::os::windows::fs::symlink_file(&outside, sandbox.ctx.workspace.join("notes"));
+        let made = std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(&link).arg(&outside).output().unwrap().status.success();
         #[cfg(unix)]
-        let linked = std::os::unix::fs::symlink(&outside, sandbox.ctx.workspace.join("notes"));
-        // Creating a symlink needs Developer Mode or elevation on Windows; without it there is nothing to check.
-        if linked.is_ok() {
-            assert_eq!(decide("cat notes"), crate::permission::Decision::Ask, "a bare name linking outside the workspace asks");
-        }
+        let made = std::os::unix::fs::symlink(&outside, &link).is_ok();
+        assert!(made, "the link could not be made");
+        assert_eq!(decide("ls linkdir"), crate::permission::Decision::Ask, "a bare name linking outside the workspace asks");
+        assert_eq!(decide("cat linkdir/private.txt"), crate::permission::Decision::Ask);
         sandbox.ctx.engine.permissions.set_policy(crate::permission::Policy { rules: vec![crate::permission::Rule { kind: "bash".into(), pattern: "git log*".into(), decision: crate::permission::Decision::Ask }] });
         assert_eq!(decide("git log --oneline"), crate::permission::Decision::Ask, "a rule still decides first");
     }

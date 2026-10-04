@@ -550,20 +550,16 @@ impl Store {
         rows.collect()
     }
 
-    /// Drops an expired removed workspace. Only call after its engine sessions are gone, or the
-    /// startup import resurrects the row from the leftovers.
-    pub fn forget_workspace(&self, id: &str) -> rusqlite::Result<()> {
+    /// Drops an expired removed workspace; true when its row went, so the engine forgets its own
+    /// records of it too. Only call after its engine sessions are gone, or the startup import
+    /// resurrects the row from the leftovers.
+    pub fn forget_workspace(&self, id: &str) -> rusqlite::Result<bool> {
         let conn = self.0.lock();
         conn.prepare_cached("DELETE FROM session_meta WHERE workspace_id = ?1")?
             .execute([id])?;
         let removed = conn.prepare_cached("DELETE FROM workspace WHERE id = ?1 AND removed_at IS NOT NULL")?
             .execute([id])?;
-        // What the engine kept for it: "always" permission grants and trusted project commands.
-        if removed > 0 {
-            conn.prepare_cached("DELETE FROM setting WHERE key IN ('permissionGrants:' || ?1, 'trustedCommands:' || ?1)")?
-                .execute([id])?;
-        }
-        Ok(())
+        Ok(removed > 0)
     }
 
     pub fn archived(&self) -> rusqlite::Result<Vec<ArchivedSession>> {

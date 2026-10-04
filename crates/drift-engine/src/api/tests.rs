@@ -465,6 +465,19 @@ async fn a_workspaces_kept_grants_are_listed_and_revoked() {
     assert_eq!(h.post(&format!("/workspaces/{ws_id}/permission-grants/revoke")).json(&listed[0]).send().await.unwrap().status(), 404);
     assert_eq!(h.delete(&format!("/workspaces/{ws_id}/permission-grants")).send().await.unwrap().status(), 204);
     assert_eq!(h.get("/workspaces/nope/permission-grants").send().await.unwrap().status(), 404);
+    assert_eq!(h.delete("/workspaces/nope/permission-grants").send().await.unwrap().status(), 404, "the same for every route");
+    assert_eq!(h.post("/workspaces/nope/permission-grants/revoke").json(&listed[0]).send().await.unwrap().status(), 404);
+
+    let grant = crate::permission::Grant::Subcommand { prefix: "cargo test".into() };
+    h.engine.store.set_setting(&format!("permissionGrants:{ws_id}"), &vec![grant.clone()]).unwrap();
+    h.engine.store.set_setting(&format!("trustedCommands:{ws_id}"), &vec!["check lint: eslint".to_string()]).unwrap();
+    assert!(h.engine.permission_grants(&ws_id).is_empty(), "the cache still holds the emptied list");
+    h.engine.permissions.forget_workspace(&ws_id);
+    assert_eq!(h.engine.permission_grants(&ws_id), [grant], "dropped from the cache, the stored list is read again");
+    h.engine.forget_workspace(&ws_id).unwrap();
+    assert!(h.engine.store.setting::<Vec<crate::permission::Grant>>(&format!("permissionGrants:{ws_id}")).unwrap().is_none());
+    assert!(h.engine.store.setting::<Vec<String>>(&format!("trustedCommands:{ws_id}")).unwrap().is_none());
+    assert!(h.engine.permission_grants(&ws_id).is_empty(), "nothing is left in the cache either");
 }
 
 #[tokio::test]
