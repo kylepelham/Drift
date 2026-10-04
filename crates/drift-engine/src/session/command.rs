@@ -13,6 +13,8 @@ pub(crate) struct Bootstrap {
     pub tool: String,
     pub input: Value,
     pub command: String,
+    /// The command's model for a delegated task; carried in the call's metadata, never in its input.
+    pub model: Option<ModelRef>,
 }
 
 #[cfg(test)]
@@ -22,18 +24,42 @@ mod tests {
     use crate::session::types::ToolStatus;
 
     #[tokio::test]
-    async fn commands_select_agents_models_and_expand_arguments() {
+    async fn a_commands_agent_and_model_run_that_turn_only() {
         let h = harness().await;
+        h.engine.store.update_session(&h.session.id, None, Some(&model()), None).unwrap();
         std::fs::create_dir_all(h._dir.join("ws/.drift/commands")).unwrap();
         std::fs::write(h._dir.join("ws/.drift/commands/check.md"), "---\nagent: plan\nmodel: anthropic/claude-haiku-4-5\nsubtask: false\n---\nReview $1 and $2.").unwrap();
-        h.provider.push(text("reviewed"));
+        h.provider.push(text("reviewed")).push(text("next"));
         h.engine.execute_command(&h.session.id, "check", "src tests", None).await.unwrap();
         until_idle(&h).await;
         let session = h.engine.store.session(&h.session.id).unwrap().unwrap();
-        assert_eq!(session.agent, "plan");
-        assert_eq!(session.model.unwrap().model, "claude-haiku-4-5");
+        assert_eq!((session.agent.as_str(), session.model.as_ref().map(|m| m.model.as_str())), ("build", Some(model().model.as_str())), "the session keeps its own");
+        let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+        assert_eq!(transcript[1].info.agent.as_deref(), Some("plan"), "the command's reply ran as its agent");
+        h.engine.submit(&h.session.id, crate::session::turn::tests::prompt("carry on")).await.unwrap();
+        until_idle(&h).await;
         let requests = h.provider.requests.lock().unwrap();
+        assert_eq!(requests[0].model, "claude-haiku-4-5");
         assert!(format!("{:?}", requests[0].messages).contains("Review src and tests."));
+        assert_eq!(requests[1].model, model().model, "the next prompt is back on the session's model");
+    }
+
+    #[tokio::test]
+    async fn a_command_naming_a_subagent_always_delegates_and_broken_agents_are_refused_alone() {
+        let h = harness().await;
+        h.engine.store.update_session(&h.session.id, None, Some(&model()), None).unwrap();
+        std::fs::create_dir_all(h._dir.join("ws/.drift/commands")).unwrap();
+        std::fs::create_dir_all(h._dir.join("ws/.drift/agents")).unwrap();
+        std::fs::write(h._dir.join("ws/.drift/commands/look.md"), "---\nagent: explore\nsubtask: false\n---\nLook at $ARGUMENTS.").unwrap();
+        std::fs::write(h._dir.join("ws/.drift/agents/hot.md"), "---\nmode: subagent\ntemperature: 0.9\n---\nRuns hot.").unwrap();
+        std::fs::write(h._dir.join("ws/.drift/commands/heat.md"), "---\nagent: hot\n---\nHeat $ARGUMENTS.").unwrap();
+        h.provider.push(text("found")).push(text("done"));
+        h.engine.execute_command(&h.session.id, "look", "src", None).await.unwrap();
+        until_idle(&h).await;
+        assert_eq!(h.engine.store.tasks_of(&h.session.id).unwrap()[0].agent, "explore");
+        assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().agent, "build");
+        let refused = h.engine.execute_command(&h.session.id, "heat", "src", None).await.unwrap_err();
+        assert!(matches!(&refused, CommandError::Turn(TurnError::Config(reason)) if reason.contains("agent hot") && reason.contains("temperature")), "{refused:?}");
     }
 
     #[tokio::test]
@@ -51,7 +77,9 @@ mod tests {
         assert_eq!(tasks[0].mode, crate::session::tasks::Mode::Foreground);
         let requests = h.provider.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
-        assert_eq!(requests[0].model, "claude-haiku-4-5");
+        assert_eq!(requests[0].model, "claude-haiku-4-5", "the command's model reaches the worker through metadata");
+        assert!(requests[0].tools.iter().chain(&requests[1].tools).filter(|tool| tool.name == "task").all(|tool| tool.input_schema["properties"].get("model").is_none()), "the model cannot pick one");
+        assert_eq!(requests[1].model, model().model);
         assert!(requests[1].messages.iter().flat_map(|message| &message.blocks).all(|block| !matches!(block, crate::llm::Block::ToolUse { .. } | crate::llm::Block::ToolResult { .. })));
         assert!(format!("{:?}", requests[1].messages).contains("worker answer"));
     }
@@ -100,8 +128,10 @@ impl Engine {
         let agent = command.agent.as_deref().unwrap_or(&session.agent);
         let definition = config.agent(agent).ok_or(TurnError::UnknownAgent)?;
         if definition.kind == AgentKind::Action { return Err(CommandError::Invalid("commands cannot select engine-only action agents".into())); }
+        definition.usable().map_err(TurnError::Config)?;
         let model = model.or_else(|| command.model.clone());
-        let delegated = command.subtask.unwrap_or(command.agent.is_some() && definition.kind == AgentKind::Subagent);
+        // A subagent never holds the conversation, so a command naming one always delegates.
+        let delegated = command.subtask == Some(true) || definition.kind == AgentKind::Subagent;
         let text = match &command.server {
             Some(server) => {
                 let prompt = command.name.split_once(':').map_or(command.name.as_str(), |(_, name)| name);
@@ -110,19 +140,23 @@ impl Engine {
             None => command.expand(arguments),
         };
         let bootstrap = if let Some(skill) = &command.skill {
-            Some(Bootstrap { tool: "skill".into(), input: json!({"name":skill,"arguments":arguments}), command:name.into() })
+            Some(Bootstrap { tool: "skill".into(), input: json!({ "name": skill, "arguments": arguments }), command: name.into(), model: None })
         } else if delegated {
-            let mut input = json!({"description":name,"prompt":text,"subagent_type":agent,"run_in_background":false});
-            if let Some(model) = &model { input["model"] = json!(format!("{}/{}", model.provider, model.model)); }
-            Some(Bootstrap { tool:"task".into(), input, command:name.into() })
-        } else { None };
+            let input = json!({ "description": name, "prompt": text, "subagent_type": agent, "run_in_background": false });
+            Some(Bootstrap { tool: "task".into(), input, command: name.into(), model: model.clone() })
+        } else {
+            None
+        };
+        // Its own agent and model run this turn only; a delegated or skill command runs on the session's.
+        let chosen = bootstrap.is_none() && (command.agent.is_some() || model.is_some());
         let prompt = Prompt {
             parts: vec![Part::Text { text: if bootstrap.is_some() { format!("/{name} {arguments}").trim_end().into() } else { text } }],
-            model: if delegated { session.model.clone().or_else(|| model.clone()).or_else(|| definition.model.clone()) } else { model.or_else(|| definition.model.clone()) },
+            model: if chosen { model.or_else(|| definition.model.clone()) } else { None },
             variant: None,
-            agent: (!delegated).then(|| agent.to_string()),
+            agent: (chosen && command.agent.is_some()).then(|| agent.to_string()),
             submission_id: None,
         };
-        self.admit(id, prompt, Admission { bootstrap: bootstrap.as_ref(), command_agent: true, config: Some(&config), ..Admission::default() }).await.map_err(CommandError::Turn)
+        let how = Admission { bootstrap: bootstrap.as_ref(), turn_only: chosen, config: Some(&config), ..Admission::default() };
+        self.admit(id, prompt, how).await.map_err(CommandError::Turn)
     }
 }

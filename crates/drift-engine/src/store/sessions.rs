@@ -574,13 +574,17 @@ fn held_parts(conn: &Connection, session_id: &str, held: Vec<(String, Part)>) ->
 }
 
 fn admit_in(conn: &Connection, session_id: &str, pick: Pick, parts: Vec<Part>, submission: Option<(&str, &str)>) -> rusqlite::Result<Admitted> {
-    let Pick { model, variant, agent } = pick;
+    let Pick { model, variant, agent, sticky } = pick;
     let discarded = discard_reverted(conn, session_id)?;
-    conn.prepare_cached(
-        "UPDATE session SET model_provider = ?2, model_id = ?3, updated_at = ?4,
-            variant = CASE WHEN ?5 THEN ?6 ELSE variant END, agent = COALESCE(?7, agent) WHERE id = ?1",
-    )?
-    .execute(params![session_id, model.provider, model.model, id::now_ms(), variant.is_some(), variant.flatten(), agent])?;
+    if sticky {
+        conn.prepare_cached(
+            "UPDATE session SET model_provider = ?2, model_id = ?3, updated_at = ?4,
+                variant = CASE WHEN ?5 THEN ?6 ELSE variant END, agent = COALESCE(?7, agent) WHERE id = ?1",
+        )?
+        .execute(params![session_id, model.provider, model.model, id::now_ms(), variant.is_some(), variant.flatten(), agent])?;
+    } else {
+        conn.prepare_cached("UPDATE session SET updated_at = ?2 WHERE id = ?1")?.execute(params![session_id, id::now_ms()])?;
+    }
     let message = insert_message(conn, session_id, Role::User, Some(model), None, false)?;
     if let Some((id, hash)) = submission {
         conn.prepare_cached("INSERT INTO submission(id, session_id, message_id, payload_hash, created_at) VALUES(?1, ?2, ?3, ?4, ?5)")?
@@ -598,11 +602,13 @@ pub struct Pick<'a> {
     /// `None` keeps the session's; `Some(None)` clears it.
     pub variant: Option<Option<&'a str>>,
     pub agent: Option<&'a str>,
+    /// False for a command's own agent or model: they run that turn only and the session keeps its choices.
+    pub sticky: bool,
 }
 
 impl<'a> Pick<'a> {
     pub fn model(model: &'a ModelRef) -> Self {
-        Self { model, variant: None, agent: None }
+        Self { model, variant: None, agent: None, sticky: true }
     }
 }
 

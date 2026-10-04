@@ -33,6 +33,8 @@ export type AgentInfo = {
   steps?: number
   permissions?: import("./native/client").PermissionRule[]
   variant?: string
+  /** Why the engine refuses to run it (a broken file or override); other agents are unaffected. */
+  problem?: string
 }
 export type CommandInfo = Command & {
   usage?: string

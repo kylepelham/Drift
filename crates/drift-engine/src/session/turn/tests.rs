@@ -1600,7 +1600,7 @@ async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_
     let requests = h.provider.requests.lock().unwrap().clone();
     let last = requests.last().unwrap();
     let images: Vec<&str> = last.messages.iter().flat_map(|m| &m.blocks).filter_map(|b| match b { Block::Image { mime, .. } => Some(mime.as_str()), _ => None }).collect();
-    assert_eq!(images, ["image/png", "image/png"], "the MCP screenshot and the scaled read image reach the model; the broken one does not");
+    assert_eq!(images, ["image/png", "image/jpeg"], "the MCP screenshot and the scaled (opaque, so JPEG) read image reach the model; the broken one does not");
     let said = format!("{:?}", last.messages);
     assert!(said.contains("was scaled from 2600x20 to 2000x15 to fit the model's limits"));
     assert!(said.contains("[an image (image/png) is not shown: it could not be read"));

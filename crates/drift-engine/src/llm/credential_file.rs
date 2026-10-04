@@ -29,7 +29,6 @@ impl ProtectedFile {
             Err(_) => return Err("DRIFT_CREDENTIALS_KEY is not valid Unicode".into()),
         };
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        crate::platform::private_file::restrict(dir).map_err(|e| e.to_string())?;
         let file = Self { path: dir.join("credentials.enc"), protection };
         let legacy = dir.join("credentials.json");
         if legacy.exists() {

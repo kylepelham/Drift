@@ -27,12 +27,13 @@ impl Document {
         Some(inner.split(',').filter_map(entry).collect())
     }
 
+    /// Rules in the order opencode reads them: the last matching entry wins, so they come back reversed for a first-match policy.
     pub fn permissions(&self) -> Result<Vec<crate::permission::Rule>, String> {
         let key = if self.fields.contains_key("permissions") { "permissions" } else { "permission" };
-        if let Some(value) = self.field(key) {
-            if value.starts_with('[') { return serde_json::from_str(&value).map_err(|_| "permissions must be an array of kind/pattern/decision rules".into()); }
-            if value.starts_with('{') { return map_permissions(serde_json::from_str(&value).map_err(|_| "permission maps must be valid JSON")?); }
-            return Ok(vec![rule("*", "*", &value)?]);
+        if let Some(value) = self.fields.get(key).map(|value| value.trim()).filter(|value| !value.is_empty()) {
+            if value.starts_with('[') { return serde_json::from_str(value).map_err(|_| "permissions must be an array of kind/pattern/decision rules".into()); }
+            if value.starts_with('{') { return map_permissions(&Flow::parse(value)?); }
+            return Ok(vec![rule("*", "*", unquote(value))?]);
         }
         let Some(lines) = self.nested.get(key) else { return Ok(Vec::new()) };
         let base = lines.iter().map(|line| line.len() - line.trim_start().len()).min().unwrap_or(0);
@@ -49,9 +50,70 @@ impl Document {
                 rules.push(rule(parent.ok_or("permission pattern has no tool namespace")?, name, value)?);
             }
         }
-        prioritise(&mut rules);
+        rules.reverse();
         Ok(rules)
     }
+}
+
+/// A YAML flow value (`{ edit: deny, bash: { "git *": allow } }`, JSON included), keys in the order written.
+#[derive(Debug, PartialEq)]
+enum Flow {
+    Text(String),
+    Map(Vec<(String, Flow)>),
+}
+
+impl Flow {
+    fn parse(text: &str) -> Result<Self, String> {
+        let mut chars = text.chars().peekable();
+        let value = Self::value(&mut chars)?;
+        skip_space(&mut chars);
+        match chars.next() {
+            None => Ok(value),
+            Some(c) => Err(format!("unexpected `{c}` after the permission map")),
+        }
+    }
+
+    fn value(chars: &mut std::iter::Peekable<std::str::Chars>) -> Result<Self, String> {
+        skip_space(chars);
+        if chars.peek() != Some(&'{') {
+            return scalar(chars, &[',', '}']).map(Flow::Text);
+        }
+        chars.next();
+        let mut entries = Vec::new();
+        loop {
+            skip_space(chars);
+            if chars.peek() == Some(&'}') { chars.next(); return Ok(Flow::Map(entries)); }
+            let key = scalar(chars, &[':'])?;
+            if chars.next() != Some(':') { return Err(format!("permission entry {key} needs a `:`")); }
+            entries.push((key, Self::value(chars)?));
+            skip_space(chars);
+            match chars.next() {
+                Some(',') => {}
+                Some('}') => return Ok(Flow::Map(entries)),
+                _ => return Err("a permission map must close with `}`".into()),
+            }
+        }
+    }
+}
+
+fn skip_space(chars: &mut std::iter::Peekable<std::str::Chars>) {
+    while chars.next_if(|c| c.is_whitespace()).is_some() {}
+}
+
+/// A quoted string, or bare text up to one of `ends`.
+fn scalar(chars: &mut std::iter::Peekable<std::str::Chars>, ends: &[char]) -> Result<String, String> {
+    skip_space(chars);
+    if let Some(quote) = chars.next_if(|c| *c == '"' || *c == '\'') {
+        let text: String = chars.by_ref().take_while(|c| *c != quote).collect();
+        skip_space(chars);
+        return Ok(text);
+    }
+    let mut text = String::new();
+    while let Some(c) = chars.next_if(|c| !ends.contains(c) && *c != '}') {
+        text.push(c);
+    }
+    let text = text.trim().to_string();
+    if text.is_empty() { Err("a permission map has an empty entry".into()) } else { Ok(text) }
 }
 
 fn rule(kind: &str, pattern: &str, value: &str) -> Result<crate::permission::Rule, String> {
@@ -59,20 +121,22 @@ fn rule(kind: &str, pattern: &str, value: &str) -> Result<crate::permission::Rul
     Ok(crate::permission::Rule { kind: kind.into(), pattern: pattern.into(), decision })
 }
 
-fn map_permissions(value: serde_json::Value) -> Result<Vec<crate::permission::Rule>, String> {
+fn map_permissions(value: &Flow) -> Result<Vec<crate::permission::Rule>, String> {
+    let Flow::Map(kinds) = value else { return Err("permission must be a tool map".into()) };
     let mut rules = Vec::new();
-    for (kind, value) in value.as_object().ok_or("permission must be a tool map")? {
-        if let Some(value) = value.as_str() { rules.push(rule(kind, "*", value)?); continue; }
-        for (pattern, decision) in value.as_object().ok_or("permission patterns must be a map")? {
-            rules.push(rule(kind, pattern, decision.as_str().ok_or("permission decisions must be strings")?)?);
+    for (kind, value) in kinds {
+        match value {
+            Flow::Text(decision) => rules.push(rule(kind, "*", decision)?),
+            Flow::Map(patterns) => {
+                for (pattern, decision) in patterns {
+                    let Flow::Text(decision) = decision else { return Err("permission decisions must be allow, ask or deny".into()) };
+                    rules.push(rule(kind, pattern, decision)?);
+                }
+            }
         }
     }
-    prioritise(&mut rules);
+    rules.reverse();
     Ok(rules)
-}
-
-fn prioritise(rules: &mut [crate::permission::Rule]) {
-    rules.sort_by_key(|rule| (rule.kind == "*", rule.pattern == "*", std::cmp::Reverse(rule.pattern.len())));
 }
 
 pub fn parse(text: &str) -> Document {
@@ -155,5 +219,23 @@ mod tests {
         assert_eq!(policy.explicit(&crate::tool::Ask::new("bash", "git status", "")), Some(crate::permission::Decision::Ask));
         assert_eq!(doc.field("variant").as_deref(), Some("high"));
         assert!(parse("---\npermission: {\"read\":\"invalid\"}\n---\n").permissions().is_err());
+    }
+
+    #[test]
+    fn yaml_flow_maps_are_read_and_the_last_matching_entry_wins() {
+        use crate::permission::Decision;
+        let decide = |head: &str, kind: &str, target: &str| {
+            let rules = parse(&format!("---\n{head}\n---\n")).permissions().unwrap();
+            crate::permission::Policy { rules }.explicit(&crate::tool::Ask::new(kind, target, ""))
+        };
+        let flow = "permission: { edit: deny, bash: { \"*\": ask, 'git *': allow } }";
+        assert_eq!(decide(flow, "edit", "a.rs"), Some(Decision::Deny));
+        assert_eq!(decide(flow, "bash", "git status"), Some(Decision::Allow), "written after `*`, so it wins");
+        assert_eq!(decide(flow, "bash", "rm -rf x"), Some(Decision::Ask));
+        let reversed = "permission: { bash: { 'git *': allow, \"*\": ask } }";
+        assert_eq!(decide(reversed, "bash", "git status"), Some(Decision::Ask), "as in opencode, a later `*` overrides");
+        assert_eq!(decide("permission: {\"bash\": {\"*\": \"deny\"}}", "bash", "ls"), Some(Decision::Deny), "JSON is a flow map too");
+        assert_eq!(decide("permission:\n  \"*\": ask\n  read: allow", "read", "a"), Some(Decision::Allow));
+        assert!(parse("---\npermission: { edit: deny\n---\n").permissions().is_err());
     }
 }

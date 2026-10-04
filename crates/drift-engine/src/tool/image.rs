@@ -78,15 +78,26 @@ fn sizes(width: u32, height: u32) -> impl Iterator<Item = (u32, u32)> {
     std::iter::successors(Some(first), |&(w, h)| (w > 1 || h > 1).then(|| ((w * 3 / 4).max(1), (h * 3 / 4).max(1)))).take(32)
 }
 
+/// Opaque pictures as JPEG first (photos stay small), transparent ones as PNG first so the transparency survives.
 fn encoded(picture: &image::DynamicImage) -> Option<Image> {
+    let transparent = picture.color().has_alpha() && picture.to_rgba8().pixels().any(|pixel| pixel[3] < u8::MAX);
+    if transparent { png(picture).or_else(|| jpeg(picture)) } else { jpeg(picture).or_else(|| png(picture)) }
+}
+
+fn png(picture: &image::DynamicImage) -> Option<Image> {
     let mut png = Vec::new();
-    if picture.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).is_ok() {
-        let image = Image::from_bytes("image/png", &png);
-        if image.base64.len() <= MAX_IMAGE_BYTES {
-            return Some(image);
-        }
-    }
-    let rgb = picture.to_rgb8();
+    picture.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+    Some(Image::from_bytes("image/png", &png)).filter(|image| image.base64.len() <= MAX_IMAGE_BYTES)
+}
+
+/// Transparent areas become white, not black, since JPEG has no alpha.
+fn jpeg(picture: &image::DynamicImage) -> Option<Image> {
+    let rgba = picture.to_rgba8();
+    let rgb = image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
+        let [r, g, b, a] = rgba.get_pixel(x, y).0;
+        let over_white = |channel: u8| ((channel as u16 * a as u16 + 255 * (255 - a as u16)) / 255) as u8;
+        image::Rgb([over_white(r), over_white(g), over_white(b)])
+    });
     JPEG_QUALITIES.iter().find_map(|&quality| {
         let mut jpeg = Vec::new();
         let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality);
@@ -188,6 +199,20 @@ mod tests {
         let (image, note) = normalize(large).unwrap();
         assert!(image.base64.len() <= MAX_IMAGE_BYTES);
         assert!(note.unwrap().starts_with("scaled from 1600x1600"));
+    }
+
+    #[test]
+    fn opaque_pictures_become_jpeg_and_transparent_ones_stay_png() {
+        let (photo, _) = normalize(png(2400, 1200, |x, y| [(x % 256) as u8, (y % 256) as u8, 90])).unwrap();
+        assert_eq!(photo.mime, "image/jpeg");
+        let picture = image::RgbaImage::from_fn(2400, 100, |x, _| image::Rgba([200, 10, 10, if x < 1200 { 0 } else { 255 }]));
+        let mut bytes = Vec::new();
+        picture.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
+        let (cutout, _) = normalize(Image::from_bytes("image/png", &bytes)).unwrap();
+        assert_eq!(cutout.mime, "image/png", "transparency survives");
+        let flattened = jpeg(&image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(8, 8, image::Rgba([0, 0, 0, 0])))).unwrap();
+        let decoded = image::load_from_memory(&flattened.bytes().unwrap()).unwrap().to_rgb8();
+        assert!(decoded.get_pixel(4, 4).0.iter().all(|channel| *channel > 240), "transparent areas turn white, not black");
     }
 
     #[test]

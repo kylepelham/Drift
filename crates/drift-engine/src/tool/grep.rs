@@ -56,8 +56,9 @@ impl Tool for Grep {
             let (workspace, stop) = (ctx.workspace.clone(), ctx.abort.clone());
             let (engine, session, policy, read_root) = (ctx.engine.clone(), ctx.session_id.clone(), ctx.config.policy(), workspace.clone());
             let agent_policy = ctx.config.agent_policy(&ctx.agent);
+            let rules = engine.permissions.compiled(&policy, &agent_policy);
             let allowed = move |path: &Path| {
-                super::read_ask(&read_root, path, "Search").is_none_or(|ask| engine.permissions.covered_by_approval(&session, &policy, &agent_policy, &ask))
+                super::read_ask(&read_root, path, "Search").is_none_or(|ask| engine.permissions.covered_by_approval(&session, &rules, &policy, &agent_policy, &ask))
             };
             let found = tokio::task::spawn_blocking(move || search(&root, &pattern, include.as_deref(), &workspace, &stop, &allowed))
                 .await

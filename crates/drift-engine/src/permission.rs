@@ -86,6 +86,26 @@ impl Policy {
     }
 }
 
+/// Rules with their globs compiled, for checking many targets against the same policy; the first match wins.
+pub struct Compiled(Vec<(Rule, Option<globset::GlobMatcher>)>);
+
+impl Compiled {
+    fn new(rules: impl IntoIterator<Item = Rule>) -> Self {
+        Self(rules.into_iter().map(|rule| {
+            let glob = GlobBuilder::new(&rule.pattern).literal_separator(false).build().ok().map(|glob| glob.compile_matcher());
+            (rule, glob)
+        }).collect())
+    }
+
+    pub fn explicit(&self, ask: &Ask) -> Option<Decision> {
+        let targets = ask.targets();
+        self.0
+            .iter()
+            .find(|(rule, glob)| (rule.kind == ask.kind || rule.kind == "*") && glob.as_ref().is_some_and(|glob| targets.iter().any(|target| glob.is_match(target))))
+            .map(|(rule, _)| rule.decision)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[schema(as = PermissionRequest)]
@@ -238,10 +258,15 @@ impl Permissions {
         self.decide(session_id, &Policy { rules }, ask)
     }
 
+    /// The agent's, workspace's and global rules in that order, compiled once for checking many files.
+    pub fn compiled(&self, workspace: &Policy, agent: &Policy) -> Compiled {
+        let global = self.policy.lock().unwrap().rules.clone();
+        Compiled::new(agent.rules.iter().chain(&workspace.rules).cloned().chain(global))
+    }
+
     /// A file inside a search already approved: only an explicit rule can exclude it, and an ask rule yields to a session grant.
-    pub fn covered_by_approval(&self, session_id: &str, workspace: &Policy, agent: &Policy, ask: &Ask) -> bool {
-        let global = self.policy.lock().unwrap().clone();
-        match agent.explicit(ask).or_else(|| workspace.explicit(ask)).or_else(|| global.explicit(ask)) {
+    pub fn covered_by_approval(&self, session_id: &str, rules: &Compiled, workspace: &Policy, agent: &Policy, ask: &Ask) -> bool {
+        match rules.explicit(ask) {
             None | Some(Decision::Allow) => true,
             Some(Decision::Deny) => false,
             Some(Decision::Ask) => self.decide_under(session_id, workspace, agent, ask) == Decision::Allow,

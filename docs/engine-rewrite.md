@@ -828,8 +828,9 @@ these async criteria are new pending M3 work.
   secrets in `credentials.enc`. Windows defaults to user-scoped DPAPI. Headless hosts without a
   keychain must provide `DRIFT_CREDENTIALS_KEY`, a base64-encoded 32-byte key, for AES-256-GCM; the
   key is not saved beside the file. Missing keys disable persistence rather than falling back to
-  plaintext. Files use mode 0600 and private directories 0700 on Unix; Windows installs a protected
-  DACL granting the current user and SYSTEM access. Saves use private temporary files, flush and
+  plaintext. The file uses mode 0600 on Unix; on Windows it gets a protected DACL granting the
+  current user and SYSTEM access. Only the file is restricted: the data directory around it keeps
+  the access it inherits, so administrators and backup tools still reach `drift.db`. Saves use private temporary files, flush and
   atomic replacement. An existing plaintext fallback is migrated, verified and removed only after
   encrypted persistence succeeds. Corrupt or wrongly keyed stores cannot be overwritten silently.
   Plain `credentials.json` storage exists only in Rust's test build. Conformance binaries use
@@ -987,6 +988,8 @@ Settled after the first external review of M1; each has a regression test.
   `PartSignature` updates the open part's `provider_signature`, persisted on `part` by migration 30
   and copied into forks. Replay wraps that block with its opaque signature only for the model that
   produced it, and Gemini places it on the original part, never on the first part or earlier thought.
+  Gemini often ends a reply with an empty text part that carries only a signature; that part is
+  replayed only to Gemini, since Anthropic, Bedrock and Vertex Claude refuse an empty text block.
   Other provider adapters unwrap the content without sending Gemini's signature.
 - One-shot titles and compaction summaries require a normal `EndTurn` and no attempted tool calls.
   Length-limited, refused, context-exhausted, unknown and unterminated replies fail instead of
@@ -1132,7 +1135,9 @@ Settled after the first external review of M1; each has a regression test.
   Before it is stored, every returned image is checked against what providers accept
   (`image::normalize`, on a blocking thread): one within 2000 px a side and 5 MB of base64 passes
   unchanged; a larger one is decoded (at most 16384 px a side) and scaled to fit, then down by a
-  quarter at a time, each size tried as PNG and then JPEG at falling quality until one fits. The
+  quarter at a time, each size tried until one fits: an opaque picture as JPEG at falling quality,
+  then PNG; one with transparency as PNG, then JPEG flattened onto white. webfetch still stops
+  downloading at 10 MB, so its images never reach the 32 MB source limit. The
   result says so ("was scaled from 4000x3000 to 2000x1500"). An image that cannot be read,
   decoded or brought under the limit is dropped with a line saying why, as opencode does, since
   a provider rejects the whole request over one bad image. PDFs pass through. The
@@ -1424,12 +1429,17 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     subagent that is not read-only.
     So `plan` can read git history with `bash`, delegate to `explore` and load skills, and still
     cannot write even if the model asks.
-- An agent's front matter may set `permissions` (a map such as `{ bash: { "git *": allow },
-  edit: deny }`, JSON, or nested, with `*` as any kind) and a default reasoning `variant`. Its
-  rules are checked before the session's grants, so an agent's deny beats an "always" answer
+- An agent's front matter may set `permissions` (a YAML flow map such as `{ bash: { "git *": allow },
+  edit: deny }`, JSON, or nested lines, with `*` as any kind) and a default reasoning `variant`.
+  As in opencode, the last entry that matches wins, in the order written, so `{ "*": ask, "git *":
+  allow }` allows `git status` and `{ "git *": allow, "*": ask }` asks. Its rules are checked
+  before the session's grants, so an agent's deny beats an "always" answer
   (`Permissions::decide_under`), and the variant applies when the prompt names none.
-  `temperature`, `top_p` and provider `options` are not supported: an agent naming them is a
-  config problem, not a silent no-op.
+  `temperature`, `top_p` and provider `options` are not supported. An agent naming them, with
+  rules that do not parse, or with an invalid Settings override, is marked with `problem`: its own
+  turns, tasks, commands and actions are refused with that reason, every other agent runs, and
+  the UI names it once when the config loads. A broken global agent or override never stops
+  other agents or workspaces.
 - Settings overrides an agent with exactly what the engine applies (`AgentOverride`): `prompt`,
   `model` (`provider/model`, or empty to inherit), `steps` (its own step limit), `tools` (the
   tool names it may use), `permissions` and `variant`. The shell refuses to store any other field, naming it, and the editor
@@ -1454,12 +1464,18 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   taking the rest, and a template with neither gets the arguments appended rather than dropped.
   Command front matter may name an `agent`, a `model` (`provider/model`) and `subtask`. The
   command is validated against the running config generation, the one its turn is then admitted
-  with. An action agent is refused. Without `subtask`, the turn runs as the named agent (written to
-  the session as a prompt naming it would be) on the named model. With `subtask: true`, or by
-  default when the agent is a subagent, the session keeps its agent and the turn opens with an
-  engine-made `task` call (`Bootstrap`) carrying the expanded prompt, the agent and the model, so
-  the worker is a foreground task owned, stopped and recovered like any other, and its answer
-  reaches the parent as text. MCP prompts (`server:prompt`) still fill from the server.
+  with. An action agent is refused. As in opencode, a command's agent and model apply to its own
+  turn only: the turn runs as them (its reply records the agent), but they are not written to the
+  session (`Pick::sticky` false) and the turn does not follow the session's choices meanwhile, so
+  the next prompt runs as before. Such a command needs the session idle (409 while a turn runs),
+  because steering it in would switch the running turn. With `subtask: true`, or whenever the
+  agent is a subagent (a subagent never holds the conversation, whatever `subtask` says), the turn
+  opens with an engine-made `task` call (`Bootstrap`) carrying the expanded prompt and the agent,
+  so the worker is a foreground task owned, stopped and recovered like any other, and its answer
+  reaches the parent as text. The command's model rides in that call's metadata
+  (`commandModel`), read into `Context::command_model`; `task` has no model parameter, so the
+  model can never send a worker to a provider of its choosing. MCP prompts (`server:prompt`)
+  still fill from the server.
 - **Skills** are listed in the system prompt by name and description; the `skill` tool
   returns SKILL.md's body and its directory, and takes optional `arguments` that fill the body as
   a command template does. Every skill is also a command (`Command::skill`) unless a command of
@@ -1554,8 +1570,11 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   - Policy evaluation is separate from an approval dialog. Ordinary workspace reads, scratch
     access, searches, skills, delegation and read-only MCP calls carry an allow-by-default policy
     request. Explicit deny/ask rules still apply; an unmatched default request produces no dialog.
-    Searches also evaluate their `grep`/`glob` rules. Grep excludes files denied by read policy or
-    still requiring read approval, so approving a directory search cannot bypass file restrictions.
+    Searches also evaluate their `grep`/`glob` rules. An approved search covers the files under its
+    path, outside the workspace and in the scratch directory too, unless an explicit rule says
+    otherwise: a file a rule denies is skipped, and one a rule asks about is skipped unless the
+    session already granted it, so approving a directory search cannot bypass file restrictions.
+    The rules are compiled once per search (`permission::Compiled`), not per file.
   - File asks (read, edit, write, apply_patch) carry the absolute path and, inside the workspace,
     the relative one (`Ask::path`); rules and approvals match either, so a committed `src/**`
     or `src/generated/**` rule works on every machine.

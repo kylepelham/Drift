@@ -317,6 +317,8 @@ pub(crate) struct Plan {
     mcp_servers: Vec<(String, String)>,
     mcp_commands: Vec<crate::config::Command>,
     bootstrap: Option<super::command::Bootstrap>,
+    /// Its agent and model are a command's, for this turn only: it does not follow the session's.
+    turn_only: bool,
 }
 
 impl Plan {
@@ -341,7 +343,8 @@ pub(super) struct Admission<'a> {
     /// Only into a turn already running; it never starts one.
     pub(super) steer_only: bool,
     pub(super) bootstrap: Option<&'a super::command::Bootstrap>,
-    pub(super) command_agent: bool,
+    /// The prompt's agent and model run this turn only; the session keeps its own, so it never steers.
+    pub(super) turn_only: bool,
     pub(super) config: Option<&'a Config>,
 }
 
@@ -377,7 +380,7 @@ impl Engine {
             return Err(TurnError::Stopped);
         }
         if !self.turns.claim(session_id, &abort) {
-            if how.bootstrap.is_some() { return Err(TurnError::Busy); }
+            if how.bootstrap.is_some() || how.turn_only { return Err(TurnError::Busy); }
             return self.steer_or_wait(session_id, prompt, how, &payload_hash).await;
         }
         if how.steer_only {
@@ -385,7 +388,7 @@ impl Engine {
             return Err(TurnError::Stopped);
         }
         let planned = tokio::select! {
-            planned = self.plan_for(session_id, &prompt, how.command_agent, how.config) => planned,
+            planned = self.plan_for(session_id, &prompt, how.turn_only, how.config) => planned,
             () = abort.cancelled() => Err(TurnError::Stopped),
         };
         match planned {
@@ -441,7 +444,7 @@ impl Engine {
     fn start(self: &Arc<Self>, session_id: &str, prompt: Prompt, plan: Plan, abort: CancellationToken, payload_hash: &str, how: Admission) -> Result<Receipt, TurnError> {
         let attach = Attach { engine: self, session_id, workspace: &plan.workspace, policy: &plan.config.policy(), agent_policy: &plan.config.agent_policy(&plan.session.agent), model: &plan.model };
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
-        let pick = Pick { model: &plan.model_ref, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
+        let pick = Pick { model: &plan.model_ref, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref(), sticky: !plan.turn_only };
         let admitted = attach.prepare(prompt.parts).and_then(|prepared| {
             let admitted = self.admit_fenced(session_id, pick, prepared.parts, submission, Some(&abort), how.delivery)?;
             self.count_as_read(session_id, &prepared.read);
@@ -543,7 +546,7 @@ impl Engine {
         let workspace = &running.workspace;
         let config = &running.config;
         if let Some(agent) = &prompt.agent {
-            pickable_command(config, agent, how.command_agent)?;
+            pickable(config, agent)?;
         }
         let policy = config.policy();
         let agent_policy = config.agent_policy(prompt.agent.as_deref().unwrap_or(&running.agent));
@@ -560,7 +563,7 @@ impl Engine {
         }
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
         // Written to the session as it lands; the turn reads the session before its next request and follows it.
-        let pick = Pick { model: &target, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref() };
+        let pick = Pick { model: &target, variant: prompt.variant.as_ref().map(Option::as_deref), agent: prompt.agent.as_deref(), sticky: true };
         let admitted = self.admit_fenced(session_id, pick, prepared.parts, submission, how.parent, how.delivery)?;
         drop(steering);
         self.count_as_read(session_id, &prepared.read);
@@ -622,7 +625,7 @@ impl Engine {
         self.plan_for(session_id, prompt, false, None).await
     }
 
-    async fn plan_for(&self, session_id: &str, prompt: &Prompt, command_agent: bool, config: Option<&Config>) -> Result<Plan, TurnError> {
+    async fn plan_for(&self, session_id: &str, prompt: &Prompt, turn_only: bool, config: Option<&Config>) -> Result<Plan, TurnError> {
         let mut session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         let workspace_path = crate::tool::canonical(Path::new(&workspace.path));
@@ -631,7 +634,7 @@ impl Engine {
             return Err(TurnError::Config(problem.clone()));
         }
         if let Some(agent) = &prompt.agent {
-            pickable_command(&config, agent, command_agent)?;
+            pickable(&config, agent)?;
             session.agent = agent.clone();
         }
         if let Some(agent) = config.agent(&session.agent) {
@@ -658,6 +661,7 @@ impl Engine {
             mcp_servers: Vec::new(),
             mcp_commands: Vec::new(),
             bootstrap: None,
+            turn_only,
         };
         // A server connecting right now would otherwise be missing from this turn's tools.
         self.mcp.wait_ready(crate::mcp::READY_WAIT).await;
@@ -846,6 +850,9 @@ impl Engine {
     /// Before each request: a model, agent or level a prompt chose since the last one, written on the
     /// session as it landed, becomes the turn's, so the conversation carries on as that choice.
     async fn follow_session(&self, plan: &mut Plan) -> Result<(), String> {
+        if plan.turn_only {
+            return Ok(());
+        }
         let Ok(Some(session)) = self.store.session(&plan.session.id) else { return Ok(()) };
         let model = session.model.clone().filter(|model| *model != plan.model_ref);
         let variant = session.variant.clone().or_else(|| plan.config.agent(&session.agent).and_then(|agent| agent.variant.clone()));
@@ -853,7 +860,7 @@ impl Engine {
             return Ok(());
         }
         if session.agent != plan.session.agent {
-            pickable_command(&plan.config, &session.agent, true).map_err(|error| error.to_string())?;
+            pickable(&plan.config, &session.agent).map_err(|error| error.to_string())?;
         }
         if let Some(model) = model {
             let resolved = self.resolve_from(&model, &plan.catalog).await.map_err(|error| format!("Could not switch to {}: {error}. Send a message to carry on.", model.model))?;
@@ -1756,11 +1763,6 @@ fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
         Some(found) if found.kind == crate::config::AgentKind::Primary => Ok(()),
         _ => Err(TurnError::UnknownAgent),
     }
-}
-
-fn pickable_command(config: &Config, agent: &str, command: bool) -> Result<(), TurnError> {
-    if command && config.agent(agent).is_some_and(|agent| agent.kind != crate::config::AgentKind::Action) { return Ok(()); }
-    pickable(config, agent)
 }
 
 /// Identity of a prompt for replay checks: the same id must carry the same parts and model.

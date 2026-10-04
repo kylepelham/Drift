@@ -1,11 +1,11 @@
-//! Owner-restricted atomic persistence for credential files.
+//! Owner-restricted atomic persistence for credential files; only the file is restricted, never the data directory around it.
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| io::Error::other("file has no parent directory"))?;
-    if !parent.exists() { std::fs::create_dir_all(parent)?; restrict(parent)?; }
+    std::fs::create_dir_all(parent)?;
     let temporary = Temporary(parent.join(format!(".credentials-{}.tmp", crate::random_hex(16))));
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
@@ -49,7 +49,7 @@ fn replace(from: &Path, to: &Path) -> io::Result<()> {
 #[cfg(unix)]
 pub fn restrict(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(if path.is_dir() { 0o700 } else { 0o600 }))
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
 }
 
 #[cfg(windows)]
@@ -58,8 +58,7 @@ pub fn restrict(path: &Path) -> io::Result<()> {
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
     use windows_sys::Win32::Security::{SetFileSecurityW, DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION};
-    let inheritance = if path.is_dir() { "OICI" } else { "" };
-    let descriptor = format!("D:P(A;{inheritance};FA;;;{})(A;{inheritance};FA;;;SY)", user_sid()?);
+    let descriptor = format!("D:P(A;;FA;;;{})(A;;FA;;;SY)", user_sid()?);
     let descriptor: Vec<u16> = descriptor.encode_utf16().chain([0]).collect();
     let name: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
     let mut security = std::ptr::null_mut();
@@ -128,8 +127,10 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("drift-private-mode-{}", crate::random_hex(4)));
         write(&dir.join("secret"), b"secret").unwrap();
+        let before = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        write(&dir.join("secret"), b"again").unwrap();
         assert_eq!(std::fs::metadata(dir.join("secret")).unwrap().permissions().mode() & 0o777, 0o600);
-        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, before, "the directory is left as it was");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -155,6 +156,15 @@ mod tests {
             let (mut control, mut revision) = (0, 0);
             assert_ne!(GetSecurityDescriptorControl(descriptor, &mut control, &mut revision), 0);
             assert_ne!(control & SE_DACL_PROTECTED, 0);
+            let folder: Vec<u16> = dir.as_os_str().encode_wide().chain([0]).collect();
+            let mut length = 0;
+            GetFileSecurityW(folder.as_ptr(), DACL_SECURITY_INFORMATION, std::ptr::null_mut(), 0, &mut length);
+            let mut bytes = vec![0usize; (length as usize).div_ceil(std::mem::size_of::<usize>())];
+            let descriptor = bytes.as_mut_ptr().cast();
+            assert_ne!(GetFileSecurityW(folder.as_ptr(), DACL_SECURITY_INFORMATION, descriptor, length, &mut length), 0);
+            let (mut control, mut revision) = (0, 0);
+            assert_ne!(GetSecurityDescriptorControl(descriptor, &mut control, &mut revision), 0);
+            assert_eq!(control & SE_DACL_PROTECTED, 0, "the directory keeps its inherited access");
         }
         std::fs::remove_dir_all(dir).unwrap();
     }

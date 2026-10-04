@@ -705,6 +705,8 @@ export interface components {
             model?: components["schemas"]["ModelRef"] | null;
             name: string;
             permissions?: components["schemas"]["Rule"][];
+            /** @description Why this agent cannot run (a broken file or override); only its own turns, tasks and actions are refused. */
+            problem?: string | null;
             /**
              * @description A subagent's goes in its system prompt; a primary agent's rides on the prompts of the turns it
              *     runs, so switching agents mid-conversation keeps the cached prefix.
