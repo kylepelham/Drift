@@ -128,3 +128,64 @@ Complexity above is relative engineering scope, **not** a time estimate. The big
 4. **Existing share links and custom plugins:** historical `share_url` may be hosted by OpenCode, while the canonical plan drops sharing (`docs/engine-rewrite.md:30-32`). Preserve the historical field for export and report links that cannot be migrated. Report `.opencode` JS plugins as unsupported; import supported data-only configuration/skills/commands where mapped, never execute arbitrary JS via Rust Hook or a compatibility loader.
 5. **Cutover concurrency:** native watcher, maintenance commands and remote clients can write while import runs. A single host-level quiescence barrier must cover old process, HTTP/SSE requests, source DB WAL, policy publication and importer marker before enabling linked-library HTTP/WS admission and single `drift.db` writer.
 6. **Evidence gaps and document status:** the legacy code inventory was static, not an installed-app replay. `docs/engine.md:69-85` describes newer snapshot semantics than `docs/mcp.md:55-71`'s earlier eager-close narrative; the runtime snapshot overlay refines earlier MCP reload behavior. `AGENTS.md` sets the **new** architecture, `docs/engine-rewrite.md` records its decisions and `CHECKLIST.md` records all engine milestones as pending in the current checkout. `docs/engine.md:254-345` is legacy upstream-update history, not a competing plan. Do not infer completed Rust implementation from any of these documents.
+
+## Exit audit at 016f239cc (2026-10-04)
+
+Each overlay and parity item above checked against `crates/drift-engine` at `016f239cc`. Evidence is a test
+name (module path under `crates/drift-engine/src`) or the code that carries the behaviour. **Carried**: the
+native engine does it and a test pins it. **Retired** or **dropped**: removed on purpose, with the decision
+named. **Gap**: open, and listed under M4 in `CHECKLIST.md`.
+
+### Overlays
+
+| Patch | Status | Evidence |
+| --- | --- | --- |
+| `active-fork` | Carried | `session::tree::tests::forking_a_running_session_leaves_the_turn_in_flight_out`, `session::compaction::tests::a_fork_of_a_compacted_conversation_sees_the_same_history`, `session::branch::tests::a_fork_is_not_framed_as_a_spawned_thread` |
+| `bounded-fork` | Carried | `store::tree::tests::a_long_history_is_copied_page_by_page_with_its_compaction_boundary_rewritten`, `a_fork_losing_a_selected_message_cleans_up_every_copied_page`, `a_message_gone_before_its_page_is_copied_is_noticed` |
+| `compaction-recovery` | Carried | `session::compaction::tests::a_request_the_provider_rejects_as_too_long_is_compacted_and_retried_once`, `a_summary_that_cannot_be_stored_never_replaces_the_history` |
+| `lm-studio` | Carried | `llm::local::tests::a_running_server_lists_its_chat_models_and_a_stopped_one_lists_nothing` (loaded context from `loaded_context_length`), `session::turn::tests::a_local_servers_installed_models_appear_and_run_without_a_key_while_it_answers` |
+| `mcp-approval-guard` | Dropped | No approval step by decision (`docs/engine-rewrite.md`, "M2 behaviour", migration 20). Servers come only from the user's saved `mcp_config`; `drift.json` cannot add one. The API token lives in the linked engine's memory, so no child process inherits it. |
+| `mcp-reconnect` | Carried | `mcp::tests::a_server_that_exits_by_itself_is_reconnected_and_its_tools_come_back`, `reconnect_backoff_resets_only_after_a_connection_that_held`, `a_deliberate_disconnect_ends_reconnecting`, `an_ordinary_tool_failure_is_not_a_lost_connection` |
+| `mcp-restoration-wait` | Carried | `mcp::tests::a_turn_waits_briefly_for_a_server_still_connecting`, `a_newer_connect_supersedes_one_in_flight` |
+| `move-busy-guard` | Carried | `session::tree::tests::a_move_takes_subagents_but_not_branches_and_waits_for_idle` |
+| `provider-refresh` | Carried | `CatalogUpdated` on every credential change (`api::providers::credentials_changed`); `llm::credentials::tests::concurrent_logins_and_refreshes_never_resurrect_a_replaced_credential`, `session::turn::tests::concurrent_turns_refresh_an_expired_token_once` |
+| `session-move` | Carried | `POST /sessions/{id}/move`; `session::revert::tests::undo_after_a_move_changes_the_files_where_they_were_written`, `undo_and_redo_merge_one_files_history_across_nested_workspace_moves` |
+| `shell-timeout` | Carried | `tool::bash::tests::times_out_and_aborts` (Settings default, explicit override, none), `session::turn::tests::a_shell_call_shows_its_limit_while_running_and_fails_when_it_expires` |
+| `zz-codex-context-limits` | Retired, test carried | `llm::openai::codex::tests::only_models_the_backend_takes_are_offered_with_its_limits`; `Model::compaction_point` honours `limit.input` |
+| `zz-lm-studio-code-mode` | Retired | `execute` is dropped. Rendering imported `execute` calls is a `drift-migrate` fixture (gap). |
+| `zz-prompt-context-bounds` | Carried | `session::compaction::tests::a_step_loads_from_the_kept_tail_and_sends_what_the_whole_transcript_would` |
+| `zz-provider-plugin-init` | Retired | No plugin loader exists. |
+| `zz-prompt-row-scan` | Gap | Tail loading is carried (above), but a stored part that does not parse fails the whole read (`store::sessions` maps it to `FromSqlConversionFailure`), so one bad or unknown row breaks the conversation. |
+| `zz-retry-model-switch` | Carried | `session::turn::tests::a_turn_waiting_to_retry_can_be_moved_to_another_model_and_keeps_it`, `stop_ends_a_retry_wait_at_once`, `a_retry_wait_is_announced_and_ends_with_running_again` |
+| `zz-session-tree-admission` | Carried | `session::tree::tests::a_move_is_refused_while_a_turn_is_still_planning` |
+| `zz-shell-metadata-throttle` | Carried, untested | `tool::bash` shows output at most every `SHOW_EVERY` (500 ms) and only when it grew; no test pins the bound (gap). |
+| `zz-shell-timeout-cleanup` | Carried | `tool::bash::tests::a_background_process_holding_the_output_does_not_keep_the_call_waiting`, `tree_tests::aborting_the_shell_stops_its_descendants`, `dropping_the_run_future_also_stops_descendants` |
+| `zz-skill-command-arguments` | Gap | Placeholders are carried (`config::tests::command_arguments_fill_placeholders_or_follow_the_template`). `argument-hint` and subcommands are not parsed, so the slash menu's presets (`src/ui/slash.tsx`) are empty for native commands. |
+| `zz-sse-subscriber-bounds` | Carried, lag untested | The hub is a bounded broadcast ring; a socket that lags re-attaches at its last `seq` and replays or resyncs (`api/events.rs`, `RecvError::Lagged`). `stale_cursor_gets_resync` and `event::tests::cursor_older_than_ring_is_stale` cover cursors, not the lag path (gap). |
+| `zz-v2-mcp-compat` | Retired | Moves to the `drift-migrate` config import (`enabled`, mixed OAuth keys). |
+| `zzz-mcp-reload` | Carried | `mcp::tests::a_save_leaves_running_turns_on_the_client_they_were_given`, `a_config_change_during_connect_discards_the_late_connection` |
+| `zzzz-async-question` | Carried | `session::clarify::tests` (13 tests), e.g. `identical_answers_racing_save_once_and_both_succeed`, `an_answer_and_a_dismissal_racing_never_both_go_through`, `a_subagent_always_waits_for_its_answer` |
+| `zzzzz-runtime-config-snapshots` | Carried | Config is read into each turn's plan; MCP clients are held per turn (`mcp::tests::a_save_leaves_running_turns_on_the_client_they_were_given`, `a_variant_switch_keeps_the_turns_admitted_mcp_catalog`) |
+| `zzzzzz-agent-model-reload-test` | Retired, test carried | `session::turn::tests::a_subagent_runs_on_its_agents_pinned_model_and_actions_are_not_agents`, `session::tasks::tests::a_worker_thinks_at_its_parents_reasoning_level` |
+| `zzzzzzz-jev-tool-routing` | Dropped | No routing layer exists, so nothing can shrink the permitted tool list. |
+
+### Parity checklist
+
+| Item | Status | Evidence or gap |
+| --- | --- | --- |
+| Listing, selection, search | Gap: search | Paging carried (`store::sessions::paging_tests::equal_timestamps_do_not_skip_sessions_across_pages`); transcript search still reads OpenCode's database |
+| Durable admission and retry | Carried | `session::turn::tests::submission_ids_survive_a_restart_and_reject_a_different_payload`, `store::sessions::admission_tests::a_reused_submission_id_is_settled_inside_the_admission` |
+| Part order, deltas, unknown parts | Gap: unknown parts | Same as `zz-prompt-row-scan` |
+| Cancellation everywhere | Carried | Shell tree tests, `mcp::tests::disabling_ends_calls_under_way_and_refuses_captured_tools_until_reenabled`, `session::tasks::tests::stopping_one_worker_leaves_the_others_running` |
+| Permissions at execution | Carried | `GET /permissions` lists pending asks after a reconnect; one reply protocol over HTTP or the socket (`api::tests::a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket`) |
+| Async questions | Carried | `session::clarify::tests` |
+| Runtime config reload | Carried | As `zzzzz-runtime-config-snapshots` |
+| MCP approval | Dropped | As `mcp-approval-guard` |
+| Provider picker, refresh, local context | Carried | Catalog drops models without `tool_call`; refresh tests above; the context meter uses `Model::compaction_point` |
+| Fork, revert, move | Carried | `session::tree::tests`, `session::revert::tests` |
+| Archives and purge | Gap | Native purge carried (`api::tests::the_archive_purge_never_deletes_a_session_that_was_restored`); the shell's removed-workspace purge is a stub and Drift's `session_meta` tombstones are not imported yet |
+| Startup, remote, slow consumers | Gap | Remote gateway still proxies; lag path untested |
+| Release without OpenCode | Gap | `engine/*` deletion, M4 |
+
+Open questions 1, 2, 3 and 5 belong to `drift-migrate` and stay open there. Question 4: sharing is dropped;
+the importer keeps `share_url` as history and reports `.opencode` JS plugins as unsupported.

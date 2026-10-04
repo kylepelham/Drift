@@ -806,6 +806,9 @@ these async criteria are new pending M3 work.
 
 ### M4: cutover
 
+- The exit audit (end of `docs/research/opencode-exit-inventory.md`, at `016f239cc`) names, for each
+  overlay and parity item, the test that carries it or the decision that dropped it; its gaps are
+  M4 lines in `CHECKLIST.md`.
 - `drift-migrate`: sessions, messages, parts, todos, credentials to keyring,
   `opencode.json` to `drift.json` with a report of unmapped keys.
 - Model-family base prompts. One Drift prompt for every model leaves Codex-family models off the
