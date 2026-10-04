@@ -1,6 +1,7 @@
 //! One SQLite database, one connection, one writer. Schema changes are numbered migrations.
 
 mod blobs;
+mod import;
 mod migrations;
 mod mcp;
 mod reads;
@@ -11,6 +12,7 @@ pub(crate) mod tasks;
 mod todos;
 mod tree;
 
+pub use import::ImportedSession;
 pub use mcp::Renamed;
 pub use sessions::{Admit, Admitted, Handover, NewSession, Pick, Purge, SessionFilter};
 pub use staged::StagedReplacement;
@@ -182,7 +184,8 @@ pub(crate) mod tests {
     #[test]
     fn widening_the_ending_check_keeps_the_endings_already_stored() {
         let conn = Connection::open_in_memory().unwrap();
-        for (index, sql) in migrations::MIGRATIONS.iter().take(migrations::MIGRATIONS.len() - 1).enumerate() {
+        let widening = migrations::MIGRATIONS.iter().position(|sql| sql.contains("RENAME COLUMN ended TO ending")).unwrap();
+        for (index, sql) in migrations::MIGRATIONS.iter().take(widening).enumerate() {
             conn.execute_batch(&format!("BEGIN; {sql} PRAGMA user_version = {}; COMMIT;", index + 1)).unwrap();
         }
         conn.execute_batch("PRAGMA foreign_keys = OFF; INSERT INTO message(id, session_id, role, status, usage_json, cost, created_at, summary, ending) VALUES('m', 's', 'assistant', 'done', '{}', 0, 0, 0, 'length');").unwrap();

@@ -884,6 +884,7 @@ remote_commands! {
         },
         "store_add_workspace" => value(commands::store_add_workspace(
             store(),
+            app.state(),
             arg(args, "id")?,
             arg(args, "path")?,
             arg(args, "name")?,

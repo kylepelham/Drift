@@ -360,21 +360,21 @@ fn map_part(row: &Row, message_id: &str) -> rusqlite::Result<PartRow> {
     })
 }
 
-fn visibility_str(visibility: Visibility) -> &'static str {
+pub(super) fn visibility_str(visibility: Visibility) -> &'static str {
     match visibility {
         Visibility::Hidden => "hidden",
         Visibility::Sibling => "sibling",
     }
 }
 
-fn role_str(role: Role) -> &'static str {
+pub(super) fn role_str(role: Role) -> &'static str {
     match role {
         Role::User => "user",
         Role::Assistant => "assistant",
     }
 }
 
-fn status_str(status: MessageStatus) -> &'static str {
+pub(super) fn status_str(status: MessageStatus) -> &'static str {
     match status {
         MessageStatus::Streaming => "streaming",
         MessageStatus::Done => "done",

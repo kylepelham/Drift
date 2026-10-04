@@ -1,0 +1,11 @@
+[package]
+name = "drift-migrate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+drift-engine = { path = "../drift-engine" }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+# Imported ids carry a short hash of the opencode id, so a rerun mints the same ones; already in the tree.
+sha2 = "0.10"

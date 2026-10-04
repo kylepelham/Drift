@@ -10,6 +10,7 @@ mod file_preview;
 mod mcp;
 mod mcp_external;
 mod native;
+mod opencode_import;
 mod permissions;
 mod remote;
 mod remote_auth;
@@ -207,6 +208,7 @@ fn main() {
             app.manage(shell_timeout);
             app.manage(mcp_runtime);
             app.manage(watcher::SkillWatchRoots::default());
+            app.manage(opencode_import::start(app.handle()));
             #[cfg(windows)]
             permissions::install(app)?;
             let remote_access = remote::RemoteAccess::load(&app.state::<store::Store>(), &data_dir)

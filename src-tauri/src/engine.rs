@@ -1,7 +1,7 @@
 //! Supervising the embedded opencode engine process.
 
 use crate::engine_db;
-use crate::{startup, store::Store};
+use crate::startup;
 #[cfg(windows)]
 use crate::CREATE_NO_WINDOW;
 use serde::Serialize;
@@ -211,12 +211,6 @@ fn spawn_engine(app: tauri::AppHandle, database_mode: DatabaseMode, config_dir: 
                 if app.state::<Engine>().generation.load(Ordering::SeqCst) != generation {
                     return;
                 }
-                if let Ok(database) = engine_db::database_path(shared) {
-                    if let Err(error) = app.state::<Store>().import_opencode_workspaces(&database) {
-                        eprintln!("failed to import OpenCode workspaces: {error}");
-                    }
-                }
-                startup::mark("workspace-import-complete");
                 shared
             }
         };

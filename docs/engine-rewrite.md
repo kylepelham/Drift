@@ -527,7 +527,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   whole conversation's read. It is never sent to a model, counts nothing toward compaction, and is
   written back and copied into forks byte for byte (`Part::stored`). The UI keeps it out of the
   transcript and the composer history, carrying `raw` as `metadata.driftUnknownPart` for export.
-  Stored parts are always JSON: the `callId` index reads every row with `json_extract`.
+  Stored parts are always JSON: the `callId` index reads every row with `json_extract`. A row
+  that happens to parse as a native part is that part, so an importer wraps what it keeps raw (see
+  "Importing opencode conversations").
 
 #### Undo and redo
 
@@ -828,6 +830,45 @@ these async criteria are new pending M3 work.
 - Rename env vars and paths. Delete `engine/*`, `@opencode-ai/sdk`, overlays, build scripts.
 - Remote gateway collapses into the engine router; device auth and TLS stay in `src-tauri`.
 - Docs rewritten. Perf numbers against the M0 baseline published in release notes.
+
+#### Importing opencode conversations
+
+`crates/drift-migrate` (`import_sessions`) brings opencode's conversations into `drift.db`. The
+shell runs it on a background thread (`src-tauri/src/opencode_import.rs`) at startup and again
+after a workspace is added. Each run reads every `opencode*.db` in opencode's data directory,
+`opencode.db` first. It never writes them, and reads each inside one read transaction, so a
+running opencode does not tear a conversation. Before the conversations it adds workspace rows for
+opencode projects that had sessions (`Store::import_opencode_workspaces`, moved here from the
+legacy sidecar's start) and tells the UI with `workspaces-changed`.
+
+- **Which conversations.** One lands in the workspace whose directory it ran in, else in the one
+  holding its opencode project's repository root; directories compare without case, slash style or
+  a trailing slash. A subagent goes with its parent and is listed `hidden`. A conversation with no
+  workspace is counted in the report by directory and skipped, so adding that workspace imports it
+  on the next run. Removed workspaces are not targets.
+- **Once only.** `imported_session` (migration 33) records every import, and
+  `Store::import_session` writes a conversation and its record in one transaction or not at all.
+  A conversation already present or recorded is skipped, so one the user deletes after import
+  never comes back. One that fails is reported and tried again next run.
+- **Ids.** Session ids stay, so subagent links, task results and Drift's archive records still
+  join. Message and part ids are minted in this engine's form from their timestamps, in opencode's
+  written order, with a short hash of the opencode id: opencode ids sort above native ones, so
+  without this a new turn would sort before the history. The same row always gets the same id.
+- **Mapping.** Text, reasoning (without its provider signature, which only the model that wrote
+  it accepts), tool calls, files, compaction boundaries (pointed at the new id of the message they
+  kept) and todos map to native parts. A tool call that never finished becomes an error with no
+  output. opencode's per-step bookkeeping (`step-start`, `step-finish`, `snapshot`) is dropped:
+  its tokens are already on the message and its snapshots name a shadow repository this engine
+  never reads, so imported turns cannot be undone. Anything else (`patch`, `agent`, `subtask`,
+  synthetic nudges, a call missing its id) is kept as an unknown part inside
+  `{"type":"opencode","data":"<original JSON>"}`, which no native type matches: opencode's raw
+  synthetic `text` would otherwise read back as a native text part.
+- **Size.** Tool metadata no view reads is left behind: a patched file's whole before and after
+  (its diff becomes the `patch` its panel draws), a read's `display` and `preview` copies, and any
+  diff over 1 MB (one patch to a generated file kept 331 MB). On a 19 GB opencode database with
+  1,479 matching conversations this cut the import from 4.5 GB to 2.8 GB; it took 85 s.
+- **Archived.** A conversation archived in opencode or in Drift (`session_meta`) arrives archived
+  as of the import, so the seven-day purge gives it a full week to be restored.
 
 ### M5: hook seam
 

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/drift-engine", "crates/drift-engined", "src-tauri"]
+members = ["crates/drift-engine", "crates/drift-engined", "crates/drift-migrate", "src-tauri"]
 
 [workspace.dependencies]
 axum = "0.8"

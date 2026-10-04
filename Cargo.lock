@@ -1191,6 +1191,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "drift-engine",
+ "drift-migrate",
  "futures-util",
  "getrandom 0.3.4",
  "hyper",
@@ -1270,6 +1271,16 @@ dependencies = [
  "drift-engine",
  "rustls",
  "tokio",
+]
+
+[[package]]
+name = "drift-migrate"
+version = "0.1.0"
+dependencies = [
+ "drift-engine",
+ "rusqlite",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

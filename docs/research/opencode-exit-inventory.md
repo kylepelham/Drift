@@ -187,5 +187,10 @@ named. **Gap**: open, and listed under M4 in `CHECKLIST.md`.
 | Startup, remote, slow consumers | Gap | Remote gateway still proxies; lag path untested |
 | Release without OpenCode | Gap | `engine/*` deletion, M4 |
 
-Open questions 1, 2, 3 and 5 belong to `drift-migrate` and stay open there. Question 4: sharing is dropped;
-the importer keeps `share_url` as history and reports `.opencode` JS plugins as unsupported.
+Open questions 1, 2, 3 and 5 belong to `drift-migrate`. Question 4: sharing is dropped; the importer
+reports `.opencode` JS plugins as unsupported. After the conversation import landed (see "Importing
+opencode conversations" in `docs/engine-rewrite.md`): 1 is answered (attachments are data URLs inside
+`file` parts and come along; snapshots are not imported, so imported turns have no undo); 3 is answered
+for history (only visible messages are imported, never `session_input` rows); 5 is answered by a read
+transaction per source and an import that records each conversation, so a running opencode or a
+rerun cannot tear or duplicate one. 2 (credentials) stays open.

@@ -66,14 +66,17 @@ pub(crate) fn store_removed_workspaces(store: State<Store>) -> Result<Vec<Worksp
 #[tauri::command]
 pub(crate) fn store_add_workspace(
     store: State<Store>,
+    importer: State<crate::opencode_import::Importer>,
     id: String,
     path: String,
     name: String,
     icon: String,
 ) -> Result<Workspace, String> {
-    store
+    let workspace = store
         .add_workspace(&id, &path, &name, &icon)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    importer.request();
+    Ok(workspace)
 }
 
 #[tauri::command]

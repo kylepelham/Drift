@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js"
 import { isRemoteRuntime } from "../runtime"
+import { shellEvents } from "../shell"
 import { parseNavigationHash, pushRemoteSelection } from "./navigation"
 import { applyMirroredSession } from "./selection"
 import { persisted } from "./persist"
@@ -67,6 +68,8 @@ export function initWorkspaces() {
 }
 
 async function loadWorkspaces() {
+  // The opencode import can add workspaces after this first load.
+  void shellEvents()?.listen("workspaces-changed", () => void refreshWorkspaces())
   try {
     await refreshWorkspaces(true)
   } finally {

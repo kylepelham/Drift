@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 32] = [
+pub(super) const MIGRATIONS: [&str; 33] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -168,6 +168,11 @@ pub(super) const MIGRATIONS: [&str; 32] = [
     UPDATE message SET ended = ending;
     ALTER TABLE message DROP COLUMN ending;
     ALTER TABLE message RENAME COLUMN ended TO ending;",
+    // Conversations brought in from opencode, kept after a delete so a later import never brings one back.
+    "CREATE TABLE imported_session(
+        id TEXT PRIMARY KEY,
+        imported_at INTEGER NOT NULL
+    ) STRICT, WITHOUT ROWID;",
 ];
 
 #[cfg(test)]

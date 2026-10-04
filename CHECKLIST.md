@@ -183,12 +183,10 @@ change the plan there when a decision changes.
 - [x] A stored part that does not parse loads as a raw unknown part instead of failing the conversation's read, kept byte for byte for export (imported history, newer builds)
 - [ ] Commands carry a skill's `argument-hint` and its subcommands, so the slash menu offers presets again
 - [ ] Tests for two carried bounds: a socket that lags catches up from the ring or resyncs; a noisy shell command shows progress at most every `SHOW_EVERY`
-- [ ] `drift-migrate`: sessions, messages, parts, todos, credentials, config, MCP servers from the shell's `mcp_server` table (unapproved)
-  - Reads shared and channel databases from WAL-consistent copies, with the legacy app stopped; imports through the one writer, idempotent on a rerun
-  - Legacy part types (`execute`, `patch`, `snapshot`, `subtask`, ...) map to native parts or the raw unknown part; imported turns are history only (no undo: OpenCode snapshots are keyed by the old path and not imported)
-  - Drift's `session_meta` tombstones and engine `time_archived` stay distinct; `share_url` kept as history
+- [x] `drift-migrate` conversations: shared and channel databases read in one read transaction each, at startup and after a workspace is added; each conversation whole or not at all through the one writer, once (`imported_session`), in its workspace or its repository's; ids re-minted in order; unmapped parts kept raw in an `opencode` envelope; step bookkeeping and unread display copies dropped (no undo for imported turns); archived ones get a week from the import
+- [ ] `drift-migrate`: credentials, config and MCP servers from the shell's `mcp_server` table
   - OpenCode `auth.json` into the encrypted credential store; `opencode.json` into `drift.json` with a report of unmapped keys (`enabled`, mixed OAuth keys) and of `.opencode` JS plugins as unsupported
-  - V2 `session_input` rows: decide per session whether pending work exists before importing; never invent pending inputs
+  - V2 `session_input` rows: none are imported (only visible messages are); confirm no live install has pending V2 work before cutover
 - [ ] LSP diagnostics after edits (replaces what upstream's `edit`, `write` and `apply_patch` reported; the plan's "Dropped" and "Post-edit" rows already say so):
   - Language servers from a built-in table (rust-analyzer, typescript-language-server, pyright, gopls, ...) used only when on PATH; `drift.json` can add, replace or disable one, as with formatters
   - Started lazily per workspace on the first edit of a matching file, adopted into a process tree, shut down when the workspace goes idle or the engine stops
