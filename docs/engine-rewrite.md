@@ -304,8 +304,13 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   published, and the error returns to the caller (counted against automatic compaction).
 - **Tail**: whole turns from the end, at most 2 turns and about 15k estimated tokens (4 chars a
   token), starting at a user message so tool calls stay with their results, and never reaching the
-  first message: there is always something to summarise. When even the last turn is over budget,
-  everything is summarised.
+  first message: there is always something to summarise. When even the last turn is over budget
+  (one prompt and hundreds of calls, the usual agent run), its newest steps are kept from a reply
+  onwards (`split_turn`), as opencode does, and the rest of that turn is summarised. The turn's
+  prompt then rides verbatim beside the summary in the opening user turn ("The request still being
+  worked on, as the user wrote it"), so the user's words never survive only as the summary retells
+  them. The request window loads that one prompt beside the tail (`Store::prompt_before`), not the
+  turn between them, and a later compaction carries it into the next summary's input.
 - **Summary request**: the `compaction` agent's model and prompt (per-action models above), the
   previous summary and the history before the tail, one text-only request. If the provider says it
   is too long, the oldest fifth of its turns is dropped with a note, up to three times.
@@ -390,7 +395,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   table.)
 - Turn limits (`config::Limits`, drift.json `limits: { steps, repeats, polls }`, later files
   override field by field; an agent's front matter `steps:` replaces `steps` for its turns):
-  - `steps` (default 200): model steps that ran tools in one turn. Reaching it pauses the turn.
+  - `steps` (default 200): model steps that ran tools in one turn. The last allowed step, like the
+    step after `repeats` trips, is a wrap-up (`WrapUp`): tools are off for it (`no_tool_calls`) and a
+    reminder asks the model to say the turn stops, summarise what it found and did, and list what
+    is undone, as opencode's max-steps prompt does. A conversation then pauses with the reason; a
+    subagent ends on that reply, so its parent gets the findings as a result instead of a failure.
   - `repeats` (default 3): steps in a row whose calls, inputs and results are all identical. A
     different result is progress, so a poll whose answer changes never counts.
   - `polls` (default 30): the same for repeated steps whose shell commands wait on purpose
@@ -865,6 +874,16 @@ these async criteria are new pending M3 work.
   conversation's requests together) and, when the access token's claims bind the account to a
   region (`chatgpt_compute_residency` other than `no_constraint`), `x-openai-internal-codex-residency`,
   as upstream's Codex plugin sends them. The websocket transport is not used.
+- A ChatGPT sign-in sees the catalog as the Codex backend takes it (`Engine::catalog_view`,
+  `openai::codex::shape`), in the picker, planning, steering and retries alike: GPT models after
+  5.4 plus the ones Codex names (`gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`, ...), never a
+  `-pro` model or bare `gpt-5.6`, all at no per-token cost, and the 5.5 and 5.6 lines with a 400k
+  window and a 272k prompt cap, so compaction runs before the backend's own limit. Signing in or
+  out publishes `catalog.updated` so the picker reloads. Every model then costs nothing, so a
+  title runs on the conversation's own model rather than an API-only small one.
+- One-shot requests (titles, summaries) on a reasoning model run at its weakest level with
+  4096 tokens of thinking room on top of the answer's own (a budget level adds its budget),
+  within the model's output limit; a budget that cannot fit is dropped.
 - OpenAI caching is automatic, keyed by routing: every request of a conversation carries
   `prompt_cache_key` = the session id (API key and Codex routes alike, as Codex itself does), so
   its steps and turns stay on one cache. Title and compaction requests carry none.
@@ -1043,9 +1062,28 @@ Settled after the first external review of M1; each has a regression test.
   - OpenAI: `reasoning.effort` with an automatic summary.
   - OpenRouter: `reasoning: {effort}` or `reasoning: {max_tokens}`. xAI, Z.ai, LM Studio and
     Ollama: `reasoning_effort`; a budget has no field there, and those routes are never given one.
+    Z.ai also always gets `thinking: {type: enabled, clear_thinking: false}`, so a turn's earlier
+    reasoning is kept, as opencode sends it.
+- With no level picked, the catalog decides what a request still asks for (`catalog::default_reasoning`,
+  `verbosity`, `shows_thinking`, `sampling`), as opencode does: an OpenAI reasoning model that
+  offers `medium` runs at it (its own default), so summaries come back; GPT reasoning models other
+  than Codex get `text.verbosity: low`; Gemini reasoning models get `thinkingConfig.includeThoughts`.
+  Sampling the makers tune for is sent on models that take it, read from the catalog family:
+  Kimi (1.0 and top_p 0.95 when thinking, else 0.6), GLM (1.0), MiniMax (1.0, top_p 0.95,
+  top_k 40) and Gemini but not Lite (1.0, 0.95, 64). Chat Completions has no `top_k`, so it is
+  not sent there. Claude gets none.
 - Only valid completed blocks are replayed. An aborted message keeps its finished text; its
-  unsigned reasoning and any call with unparsed arguments are dropped, along with the
-  results those calls would have needed.
+  unsigned reasoning and any call cut off mid-stream are dropped, along with the results those
+  calls would have needed. A call whose arguments never parsed is answered with the parser's own
+  complaint and the start of what was sent, then replayed as the same call with `{}` and that
+  error, so the next request differs and the model can fix the call instead of repeating it. A
+  tool named in another case (`Read`) runs as the one offered tool of that name.
+- Call ids are unique within a session: `Store::add_part` gives a tool call an engine id when the
+  provider sent none or one the session already used (Gemini and compatible servers number calls
+  from one in every stream, Kimi repeats `functions.read:0`), looked up through an index on the
+  part's call id (migration 31). Tasks, spilled output and recovery all find a call by that id. The
+  Anthropic wire (Bedrock and Vertex Claude too) maps any character outside `[a-zA-Z0-9_-]` to `_`
+  on both the call and its result, so history from another provider replays there.
 - Paths are resolved before anything looks at them: `..` folded, symlinks followed through
   the deepest existing ancestor, verbatim prefixes stripped. Permission asks and the
   read-before-write ledger see the real target. `read`, `glob` and `grep` inside the
@@ -1123,6 +1161,12 @@ Settled after the first external review of M1; each has a regression test.
   never as a success the store lacks; a message whose terminal save fails stops the turn.
 - Stopping a shell stops its descendants: a Windows job object with kill-on-close, a unix
   process group. Dropping the run future has the same effect as an explicit abort.
+- The shell is Git's bash on Windows when installed, else PowerShell 7 (`pwsh`), else Windows
+  PowerShell 5.1 (`powershell.exe`). The tool text names the one it runs, and how to chain steps
+  in it: `&&` in bash and PowerShell 7, `;` with an explicit `$LASTEXITCODE` check in 5.1, which
+  has no `&&`.
+- `read` on a path that does not exist names up to three entries beside it whose names contain,
+  or are contained in, the one asked for ("Did you mean one of these?"), as opencode does.
 - Shell output is captured in bounded memory (`tool::spool`): stdout and stderr in arrival order,
   whole while under 32 KB, then only the first and last 16 KB in memory with everything (up to
   64 MB) in `<data>/tool-output/<session>/<call>.log`. The result names that file and carries
@@ -1132,7 +1176,12 @@ Settled after the first external review of M1; each has a regression test.
 - PDFs travel the same way: `read` returns one (up to 10 MB, known by `%PDF-`) instead of refusing
   it, and `webfetch` returns an image or PDF URL as the file rather than as text, whatever its
   content type. `webfetch` reads a body a chunk at a time and gives up once it passes 10 MB (or at
-  once when `Content-Length` says so), so a huge or endless response never fills memory. A catalog model reads PDFs (`Model::pdf`) when models.dev lists `pdf` among its
+  once when `Content-Length` says so), so a huge or endless response never fills memory. It asks
+  as a browser does (user agent and `Accept-Language`), since many sites refuse unknown agents, and
+  when Cloudflare answers 403 with `cf-mitigated: challenge` asks once more as Drift, which often
+  passes. Its own client follows redirects only within the URL's origin (scheme, host and port):
+  the user approved that URL, so a redirect elsewhere is returned as text naming the target
+  ("fetch it to follow it") and its own call asks for that host. A catalog model reads PDFs (`Model::pdf`) when models.dev lists `pdf` among its
   input modalities, or, without them, when it takes attachments on a route whose wire carries a
   PDF whole (Anthropic, OpenAI, Google, Vertex, Bedrock). Each adapter sends its own shape
   (Anthropic `document`, OpenAI `input_file`, Gemini `inlineData`, Chat Completions `file`); a
@@ -1447,7 +1496,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   wrote. drift.json and global rules are still first-match. Its rules are checked
   before the session's grants, so an agent's deny beats an "always" answer
   (`Permissions::decide_under`), and the variant applies when the prompt names none.
-  `temperature`, `top_p` and provider `options` are not supported. An agent naming them, with
+  `temperature`, `top_p` and provider `options` are ignored, so agents ported from opencode run:
+  each is named once in the config's `warnings` (the UI shows it as a warning notice) and the
+  model's own tuned sampling is used (`catalog::sampling`). An agent with
   rules that do not parse, or with an invalid Settings override, is marked with `problem`: its own
   turns, tasks, commands and actions are refused with that reason, every other agent runs, and
   the UI names it once when the config loads. A prompt cannot switch to it, mid-turn included
@@ -1494,7 +1545,8 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   model can never send a worker to a provider of its choosing. MCP prompts (`server:prompt`)
   still fill from the server.
 - **Skills** are listed in the system prompt by name and description; the `skill` tool
-  returns SKILL.md's body and its directory, and takes optional `arguments` that fill the body as
+  returns SKILL.md's body, its directory and up to ten of the files beside it (walked as git lists
+  them), and takes optional `arguments` that fill the body as
   a command template does. Every skill is also a command (`Command::skill`) unless a command of
   that name exists. Running one opens the turn with an engine-made `skill` call that passes
   through the same permission check as the model's own, so a denied skill never reaches the model.

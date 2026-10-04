@@ -525,6 +525,7 @@ export function createActions(
     }))
     // A config file that cannot be read stops every turn here until it is fixed; say so before the first send.
     for (const problem of config.problems ?? []) notice({ id: `config-${workspace}`, title: "Couldn't read the workspace config", message: problem, variant: "error", duration: 15_000 })
+    for (const warning of config.warnings ?? []) notice({ id: `config-warning-${workspace}-${warning}`, title: "Part of the workspace config is ignored", message: warning, variant: "warning", duration: 10_000 })
     // A broken agent refuses only its own turns; name it so the first refusal is no surprise.
     for (const agent of agents.filter((agent) => agent.problem)) notice({ id: `agent-${workspace}-${agent.name}`, title: `The ${agent.name} agent can't run`, message: agent.problem!, variant: "warning", duration: 15_000 })
     set("agents", agents)

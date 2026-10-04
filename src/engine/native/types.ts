@@ -809,6 +809,8 @@ export interface components {
             timeouts: {
                 [key: string]: components["schemas"]["RouteTimeouts"];
             };
+            /** @description Settings read but not applied (an agent's sampling fields); nothing is refused for them. */
+            warnings?: string[];
         };
         Control: {
             instance: string;

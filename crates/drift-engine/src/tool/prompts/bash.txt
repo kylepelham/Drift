@@ -1,7 +1,7 @@
 Runs a command in {shell} from the workspace root and returns its combined output.
 
 - Use it for builds, tests, git and package managers. Use `read`, `glob` and `grep` for looking at files; they are faster and need no permission.
-- Quote paths that contain spaces. Chain dependent steps with `&&`; run independent commands as separate calls.
+- Quote paths that contain spaces. In one command, {chain}; run independent commands as separate calls.
 - To run in a subdirectory, pass `workdir` rather than starting with `cd`.
 - Commands and their child processes are stopped after the user's time limit, or after `timeout` milliseconds when you pass one. Pass a larger `timeout` for a build or test run you expect to be long. Never start long-lived servers or watchers here.
 - Output over 32 KB keeps only its first and last 16 KB; the result then names a file holding all of it, which you can `read` or `grep`.

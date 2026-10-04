@@ -796,15 +796,15 @@ impl Engine {
         let mut steps = 0;
         let mut repeats = Repeats::default();
         let mut answered = None;
+        let mut wrapping = None;
         loop {
             if let Err(reason) = self.follow_session(plan).await {
                 self.pause(plan, reason);
                 break;
             }
             let limits = plan.config.limits_for(&plan.session.agent);
-            if steps >= limits.steps {
-                self.pause(plan, format!("Paused after {steps} steps, this turn's limit. Send a message to carry on."));
-                break;
+            if wrapping.is_none() && steps + 1 >= limits.steps {
+                wrapping = Some(WrapUp::Steps(limits.steps));
             }
             let Some(mut transcript) = self.transcript_for_step(plan, abort).await else { break };
             super::branch::frame_spawned(&plan.session, &mut transcript);
@@ -814,16 +814,20 @@ impl Engine {
             let provider = plan.model_ref.provider.as_str();
             let (max_tokens, reasoning) = budgets(&plan.model, plan.reasoning().or_else(|| catalog::default_reasoning(provider, &plan.model)));
             let sampling = catalog::sampling(&plan.model);
+            let mut messages = compaction::request_messages(&transcript, &plan.model_ref, &lead);
+            if let Some(wrap_up) = wrapping {
+                super::convert::push(&mut messages, llm::Role::User, vec![llm::Block::Text(wrap_up.instruction())]);
+            }
             let request = Request {
                 model: plan.model_ref.model.clone(),
                 system: plan.offer.system.clone(),
-                messages: llm::prepare_files(compaction::request_messages(&transcript, &plan.model_ref, &lead), &plan.model, |hash| self.store.blob(hash).ok().flatten()),
+                messages: llm::prepare_files(messages, &plan.model, |hash| self.store.blob(hash).ok().flatten()),
                 tools: plan.offer.specs(),
                 max_tokens,
                 reasoning,
                 temperature: sampling.temperature,
                 cache_key: Some(plan.session.id.clone()),
-                no_tool_calls: false,
+                no_tool_calls: wrapping.is_some(),
                 verbosity: catalog::verbosity(provider, &plan.model),
                 show_thinking: catalog::shows_thinking(provider, &plan.model),
                 top_p: sampling.top_p,
@@ -832,15 +836,16 @@ impl Engine {
             let Ok(message) = self.store.create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });
             match self.step(plan, message, &request, abort).await {
+                Step::Done | Step::Continue if wrapping.is_some() => {
+                    self.end_wrap_up(plan, wrapping);
+                    break;
+                }
                 Step::Done => break,
                 Step::Continue => {
                     attempts = 0;
                     steps += 1;
-                    if let Some(times) = repeats.record(self.last_calls(&plan.session.id), &limits) {
-                        let reason = format!("Paused: the last {times} steps made the same calls and got the same results. Send a message to carry on or change course.");
-                        self.pause(plan, reason);
-                        break;
-                    }
+                    // One more request, without tools, so what the turn found is written up rather than lost.
+                    wrapping = repeats.record(self.last_calls(&plan.session.id), &limits).map(WrapUp::Repeats);
                 }
                 Step::Retry(retry) if retry.allowed(attempts) => {
                     attempts += 1;
@@ -1570,6 +1575,13 @@ impl Engine {
     }
 
     /// Ends the turn by itself, visibly: a reply-less message whose `error` is the reason.
+    /// After the wrap-up reply a conversation pauses with the reason; a subagent's reply is its result.
+    fn end_wrap_up(&self, plan: &Plan, wrapping: Option<WrapUp>) {
+        if let Some(wrap_up) = wrapping.filter(|_| plan.session.visibility != Visibility::Hidden) {
+            self.pause(plan, wrap_up.pause_reason());
+        }
+    }
+
     fn pause(&self, plan: &Plan, reason: String) {
         let Ok(mut message) = self.store.create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent) else { return };
         self.hub.publish(Event::MessageCreated { message: message.clone() });
@@ -1654,6 +1666,32 @@ struct CallTrace {
     name: String,
     input: String,
     output: String,
+}
+
+/// Why a turn makes one last request with tools off before it stops, as opencode does at its step limit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum WrapUp {
+    Steps(u32),
+    Repeats(u32),
+}
+
+impl WrapUp {
+    fn instruction(self) -> String {
+        let why = match self {
+            WrapUp::Steps(_) => "This is the last step this turn allows".to_string(),
+            WrapUp::Repeats(times) => format!("Your last {times} steps made the same calls and got the same results"),
+        };
+        format!(
+            "<system-reminder>\n{why}, so tools are off for this reply. Answer with text only, no tool calls: say that the turn stops here, summarise what you found and did, list what is still undone, and say what should happen next.\n</system-reminder>"
+        )
+    }
+
+    fn pause_reason(self) -> String {
+        match self {
+            WrapUp::Steps(steps) => format!("Paused after {steps} steps, this turn's limit. Send a message to carry on."),
+            WrapUp::Repeats(times) => format!("Paused: the last {times} steps made the same calls and got the same results. Send a message to carry on or change course."),
+        }
+    }
 }
 
 /// Words that mark a shell command as waiting on purpose, the way polling does.

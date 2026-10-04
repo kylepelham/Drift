@@ -39,17 +39,15 @@ impl Tool for WebFetch {
                 return Err(ToolError("url must start with http:// or https://".into()));
             }
             let format = input["format"].as_str().unwrap_or("markdown");
-            let request = ctx
-                .engine
-                .http
-                .get(url)
-                .timeout(TIMEOUT)
-                .header("user-agent", "Drift/1.0 (+https://driftagent.dev)")
-                .header("accept", "text/html, text/markdown, text/plain, application/json;q=0.9, */*;q=0.5");
-            let response = tokio::select! {
-                response = request.send() => response.map_err(|e| ToolError(format!("request failed: {e}")))?,
-                () = ctx.abort.cancelled() => return Err(ToolError("aborted".into())),
-            };
+            let mut response = fetch(ctx, url, BROWSER).await?;
+            // Cloudflare challenges a browser agent whose TLS does not look like a browser's; an honest one often passes.
+            if response.status() == reqwest::StatusCode::FORBIDDEN && response.headers().get("cf-mitigated").is_some_and(|value| value == "challenge") {
+                response = fetch(ctx, url, HONEST).await?;
+            }
+            if let Some(target) = elsewhere(&response) {
+                let output = format!("{url} redirects to {target}, on another host, which was not fetched. Fetch {target} to follow it.");
+                return Ok(Output { title: url.into(), output, metadata: json!({ "redirect": target }) });
+            }
             let status = response.status();
             if !status.is_success() {
                 return Err(ToolError(format!("{url} answered {status}")));
@@ -75,6 +73,51 @@ impl Tool for WebFetch {
             Ok(Output { title: url.into(), output: clip(text.trim()), metadata: json!({ "contentType": content_type, "bytes": bytes.len() }) })
         })
     }
+}
+
+/// Pages are asked for as a browser would; sites that refuse unknown agents are the common case.
+const BROWSER: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
+const HONEST: &str = "Drift/1.0 (+https://driftagent.dev)";
+const MAX_REDIRECTS: usize = 10;
+
+/// Follows redirects only within the URL's own origin: the user approved that URL, not wherever it points.
+fn client() -> reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    let policy = reqwest::redirect::Policy::custom(|attempt| {
+        let same = attempt.previous().first().is_some_and(|first| same_origin(first, attempt.url()));
+        match attempt.previous().len() {
+            hops if hops > MAX_REDIRECTS => attempt.error("too many redirects"),
+            _ if same => attempt.follow(),
+            _ => attempt.stop(),
+        }
+    });
+    CLIENT.get_or_init(|| reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).redirect(policy).build().unwrap_or_default()).clone()
+}
+
+fn same_origin(a: &reqwest::Url, b: &reqwest::Url) -> bool {
+    a.scheme() == b.scheme() && a.host_str() == b.host_str() && a.port_or_known_default() == b.port_or_known_default()
+}
+
+async fn fetch(ctx: &Context, url: &str, agent: &str) -> Result<reqwest::Response, ToolError> {
+    let request = client()
+        .get(url)
+        .timeout(TIMEOUT)
+        .header("user-agent", agent)
+        .header("accept", "text/html, text/markdown, text/plain, application/json;q=0.9, */*;q=0.5")
+        .header("accept-language", "en-US,en;q=0.9");
+    tokio::select! {
+        response = request.send() => response.map_err(|e| ToolError(format!("request failed: {e}"))),
+        () = ctx.abort.cancelled() => Err(ToolError("aborted".into())),
+    }
+}
+
+/// Where a redirect the client would not follow points, resolved against the page that sent it.
+fn elsewhere(response: &reqwest::Response) -> Option<String> {
+    if !response.status().is_redirection() {
+        return None;
+    }
+    let location = response.headers().get("location")?.to_str().ok()?;
+    response.url().join(location).ok().map(String::from)
 }
 
 /// The body, read a chunk at a time and given up on once it passes the largest size anything accepts
@@ -167,6 +210,14 @@ mod tests {
             .route("/page", get(page))
             .route("/shot", get(|| async { ([("content-type", "application/octet-stream")], b"\x89PNG\r\n\x1a\nrest".to_vec()) }))
             .route("/doc", get(|| async { ([("content-type", "application/pdf")], b"%PDF-1.7\n...".to_vec()) }))
+            .route("/hop", get(|| async { axum::response::Redirect::temporary("/page") }))
+            .route(
+                "/challenged",
+                get(|headers: axum::http::HeaderMap| async move {
+                    let honest = headers.get("user-agent").is_some_and(|agent| agent.to_str().unwrap_or_default().starts_with("Drift/"));
+                    if honest { (axum::http::StatusCode::OK, [("cf-mitigated", "")], "<p>passed</p>") } else { (axum::http::StatusCode::FORBIDDEN, [("cf-mitigated", "challenge")], "challenge") }
+                }),
+            )
             .route(
                 "/endless",
                 get(|| async {
@@ -202,6 +253,24 @@ mod tests {
         let missing = WebFetch.run(&sandbox.ctx, json!({ "url": format!("{url}/nope") })).await.unwrap_err();
         assert!(missing.0.contains("404"));
         assert!(WebFetch.run(&sandbox.ctx, json!({ "url": "ftp://x" })).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn redirects_are_followed_only_within_the_origin_and_a_challenge_is_retried_honestly() {
+        let sandbox = Sandbox::new("webfetch-redirect");
+        let url = serve().await;
+        let followed = WebFetch.run(&sandbox.ctx, json!({ "url": format!("{url}/hop") })).await.unwrap();
+        assert!(followed.output.contains("# Title"), "same origin is followed: {}", followed.output);
+        let away = url.replace("127.0.0.1", "localhost");
+        let app = Router::new().route("/away", get(move || { let target = format!("{away}/page"); async move { axum::response::Redirect::temporary(&target) } }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let stopped = WebFetch.run(&sandbox.ctx, json!({ "url": format!("{origin}/away") })).await.unwrap();
+        assert!(stopped.output.contains("on another host, which was not fetched") && !stopped.output.contains("# Title"), "{}", stopped.output);
+        assert!(stopped.metadata["redirect"].as_str().unwrap().starts_with("http://localhost:"));
+        let passed = WebFetch.run(&sandbox.ctx, json!({ "url": format!("{url}/challenged") })).await.unwrap();
+        assert!(passed.output.contains("passed"), "{}", passed.output);
     }
 
     #[tokio::test]

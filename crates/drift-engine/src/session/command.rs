@@ -71,14 +71,18 @@ mod tests {
         use std::time::Duration;
         let h = harness().await;
         std::fs::create_dir_all(h._dir.join("ws/.drift/agents")).unwrap();
-        std::fs::write(h._dir.join("ws/.drift/agents/hot.md"), "---\nmode: primary\ntop_p: 0.5\n---\nRuns hot.").unwrap();
+        std::fs::write(h._dir.join("ws/.drift/agents/hot.md"), "---\nmode: primary\npermission: { bash: often }\n---\nRuns hot.").unwrap();
+        std::fs::write(h._dir.join("ws/.drift/agents/warm.md"), "---\nmode: primary\ntop_p: 0.5\ntemperature: 0.9\n---\nRuns warm.").unwrap();
+        let config = h.engine.workspace_config(&h._dir.join("ws"));
+        assert!(config.agent("warm").unwrap().usable().is_ok(), "sampling fields are ignored, not refused");
+        assert!(config.warnings.iter().any(|w| w.contains("agent warm") && w.contains("top_p") && w.contains("temperature")), "{:?}", config.warnings);
         h.provider.push_slow(Duration::from_millis(600), text("busy")).push(text("never"));
         h.engine.submit(&h.session.id, crate::session::turn::tests::prompt("start")).await.unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
         let mut switch = crate::session::turn::tests::prompt("as hot");
         switch.agent = Some("hot".into());
         let refused = h.engine.submit(&h.session.id, switch).await.unwrap_err();
-        assert!(matches!(&refused, TurnError::Config(reason) if reason.contains("agent hot") && reason.contains("top_p")), "{refused:?}");
+        assert!(matches!(&refused, TurnError::Config(reason) if reason.contains("agent hot") && reason.contains("allow, ask or deny")), "{refused:?}");
         until_idle(&h).await;
         assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().agent, "build");
     }
@@ -90,7 +94,7 @@ mod tests {
         std::fs::create_dir_all(h._dir.join("ws/.drift/commands")).unwrap();
         std::fs::create_dir_all(h._dir.join("ws/.drift/agents")).unwrap();
         std::fs::write(h._dir.join("ws/.drift/commands/look.md"), "---\nagent: explore\nsubtask: false\n---\nLook at $ARGUMENTS.").unwrap();
-        std::fs::write(h._dir.join("ws/.drift/agents/hot.md"), "---\nmode: subagent\ntemperature: 0.9\n---\nRuns hot.").unwrap();
+        std::fs::write(h._dir.join("ws/.drift/agents/hot.md"), "---\nmode: subagent\npermission: { read: sometimes }\n---\nRuns hot.").unwrap();
         std::fs::write(h._dir.join("ws/.drift/commands/heat.md"), "---\nagent: hot\n---\nHeat $ARGUMENTS.").unwrap();
         h.provider.push(text("found")).push(text("done"));
         h.engine.execute_command(&h.session.id, "look", "src", None).await.unwrap();
@@ -98,7 +102,7 @@ mod tests {
         assert_eq!(h.engine.store.tasks_of(&h.session.id).unwrap()[0].agent, "explore");
         assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().agent, "build");
         let refused = h.engine.execute_command(&h.session.id, "heat", "src", None).await.unwrap_err();
-        assert!(matches!(&refused, CommandError::Turn(TurnError::Config(reason)) if reason.contains("agent hot") && reason.contains("temperature")), "{refused:?}");
+        assert!(matches!(&refused, CommandError::Turn(TurnError::Config(reason)) if reason.contains("agent hot") && reason.contains("allow, ask or deny")), "{refused:?}");
     }
 
     #[tokio::test]

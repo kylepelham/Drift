@@ -46,7 +46,7 @@ impl Tool for Read {
             let path = ctx.resolve(required_str(&input, "path")?);
             let offset = input["offset"].as_u64().unwrap_or(1).max(1) as usize;
             let limit = input["limit"].as_u64().map_or(MAX_LINES, |l| l as usize).clamp(1, MAX_LINES);
-            let meta = tokio::fs::metadata(&path).await.map_err(|_| ToolError(format!("{} does not exist", display(&path, &ctx.workspace))))?;
+            let meta = tokio::fs::metadata(&path).await.map_err(|_| missing(ctx, &path))?;
             if meta.is_dir() {
                 return list_dir(ctx, &path).await;
             }
@@ -175,6 +175,30 @@ impl Page {
         true
     }
 }
+/// A path that does not exist, with up to three names beside it that it may have meant.
+fn missing(ctx: &Context, path: &std::path::Path) -> ToolError {
+    let shown = display(path, &ctx.workspace);
+    let wanted = path.file_name().map(|name| name.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let mut close: Vec<String> = path
+        .parent()
+        .and_then(|dir| std::fs::read_dir(dir).ok())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            !wanted.is_empty() && (name.contains(&wanted) || wanted.contains(&name))
+        })
+        .map(|entry| display(&entry.path(), &ctx.workspace))
+        .collect();
+    close.sort();
+    close.truncate(3);
+    match close.is_empty() {
+        true => ToolError(format!("{shown} does not exist")),
+        false => ToolError(format!("{shown} does not exist. Did you mean one of these?\n{}", close.join("\n"))),
+    }
+}
+
 /// An image or PDF comes back for the model to look at, not as text.
 fn attached(ctx: &Context, path: &std::path::Path, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
     let name = display(path, &ctx.workspace);
@@ -274,6 +298,10 @@ mod tests {
         assert_eq!(out.output, "README.md\nsrc/");
         let err = Read.run(&sandbox.ctx, json!({ "path": "nope.txt" })).await.unwrap_err();
         assert_eq!(err.0, "nope.txt does not exist");
+        let near = Read.run(&sandbox.ctx, json!({ "path": "src/main" })).await.unwrap_err();
+        assert_eq!(near.0, "src/main does not exist. Did you mean one of these?\nsrc/main.rs");
+        let cased = Read.run(&sandbox.ctx, json!({ "path": "readme.MD" })).await;
+        assert!(cased.is_ok() || cased.unwrap_err().0.ends_with("README.md"), "a name in another case is suggested where the file system is case-sensitive");
     }
 
     #[test]

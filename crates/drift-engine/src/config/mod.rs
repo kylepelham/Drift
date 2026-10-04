@@ -307,6 +307,9 @@ pub struct Config {
     /// Config files that could not be read; a turn refuses to start rather than run without their rules.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<String>,
+    /// Settings read but not applied (an agent's sampling fields); nothing is refused for them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
     /// The `skillPaths` the files list, resolved; read once the files are applied.
     #[serde(skip)]
     skill_paths: Vec<PathBuf>,
@@ -495,15 +498,14 @@ impl Config {
 
     fn apply_dir(&mut self, dir: &Path) {
         for (name, doc) in markdown_files(&dir.join("agents")) {
-            let unsupported: Vec<&str> = ["temperature", "top_p", "topP", "options", "provider_options"].into_iter().filter(|key| doc.fields.contains_key(*key)).collect();
-            let (permissions, broken_rules) = match doc.permissions() {
+            let ignored: Vec<&str> = ["temperature", "top_p", "topP", "options", "provider_options"].into_iter().filter(|key| doc.fields.contains_key(*key)).collect();
+            // Agents ported from opencode run; the fields they set are named once and the model's own sampling used.
+            if !ignored.is_empty() {
+                self.warnings.push(format!("agent {name}: {} ignored; Drift uses the model's own sampling", ignored.join(", ")));
+            }
+            let (permissions, problem) = match doc.permissions() {
                 Ok(rules) => (rules, None),
                 Err(error) => (Vec::new(), Some(error)),
-            };
-            let problem = if unsupported.is_empty() {
-                broken_rules
-            } else {
-                Some(format!("uses unsupported controls ({}); native agents keep permissions and variant but not sampling or provider options", unsupported.join(", ")))
             };
             let agent = Agent {
                 description: doc.field("description").unwrap_or_default(),

@@ -1265,12 +1265,19 @@ async fn a_turn_pauses_at_its_step_limit_and_a_message_carries_on() {
     limits(&h, r#"{ "steps": 2 }"#);
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
     std::fs::write(h._dir.join("ws/b.txt"), "b\n").unwrap();
-    h.provider.push(read_a()).push(tool_call("read", r#"{"path": "b.txt"}"#)).push(read_a()).push(text("finished"));
+    h.provider.push(read_a()).push(text("WRAPPED: read a, b still to do")).push(tool_call("read", r#"{"path": "b.txt"}"#)).push(text("finished"));
     h.engine.submit(&h.session.id, prompt("work")).await.await_ok();
     until_idle(&h).await;
-    let last = h.engine.store.transcript(&h.session.id).unwrap().pop().unwrap();
+    let mut transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let last = transcript.pop().unwrap();
     assert_eq!(last.info.status, MessageStatus::Paused);
     assert!(last.info.error.as_deref().unwrap().starts_with("Paused after 2 steps"), "{:?}", last.info.error);
+    assert!(format!("{:?}", transcript.last().unwrap().parts).contains("WRAPPED"), "the last allowed step writes up what was done");
+    {
+        let requests = h.provider.requests.lock().unwrap();
+        assert!(!requests[0].no_tool_calls && requests[1].no_tool_calls, "the last allowed step has tools off");
+        assert!(format!("{:?}", requests[1].messages.last()).contains("last step this turn allows"));
+    }
     assert_eq!(h.provider.responses_left(), 2, "no request after the limit");
     h.engine.submit(&h.session.id, prompt("carry on")).await.await_ok();
     until_idle(&h).await;
@@ -1283,13 +1290,35 @@ async fn a_turn_pauses_at_its_step_limit_and_a_message_carries_on() {
 async fn the_same_calls_with_the_same_results_pause_the_turn() {
     let h = harness().await;
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
-    h.provider.push(read_a()).push(read_a()).push(read_a()).push(text("never"));
+    h.provider.push(read_a()).push(read_a()).push(read_a()).push(text("WRAPPED: stuck on a.txt")).push(text("never"));
     h.engine.submit(&h.session.id, prompt("loop")).await.await_ok();
     until_idle(&h).await;
-    let last = h.engine.store.transcript(&h.session.id).unwrap().pop().unwrap();
+    let mut transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let last = transcript.pop().unwrap();
     assert_eq!(last.info.status, MessageStatus::Paused);
     assert!(last.info.error.as_deref().unwrap().contains("same calls and got the same results"), "{:?}", last.info.error);
+    assert!(format!("{:?}", transcript.last().unwrap().parts).contains("WRAPPED"));
+    assert!(h.provider.requests.lock().unwrap()[3].no_tool_calls);
     assert_eq!(h.provider.responses_left(), 1);
+}
+
+#[tokio::test]
+async fn a_subagent_at_its_step_limit_hands_back_what_it_found() {
+    let h = harness().await;
+    h.engine.store.update_session(&h.session.id, None, Some(&model()), None).unwrap();
+    std::fs::create_dir_all(h._dir.join("ws/.drift/agents")).unwrap();
+    std::fs::write(h._dir.join("ws/.drift/agents/scout.md"), "---\nmode: subagent\nsteps: 2\n---\nScout.").unwrap();
+    std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
+    h.provider
+        .push(tool_call("task", r#"{"description": "scout", "prompt": "look around", "subagent_type": "scout"}"#))
+        .push(read_a())
+        .push(text("FINDINGS: a.txt holds a"))
+        .push(text("thanks"));
+    h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
+    until_idle(&h).await;
+    let task = &h.engine.store.tasks_of(&h.session.id).unwrap()[0];
+    assert_eq!(task.state, crate::session::tasks::TaskState::Replied, "{task:?}");
+    assert!(format!("{:?}", h.provider.requests.lock().unwrap().last().unwrap().messages).contains("FINDINGS"), "the parent gets the write-up");
 }
 
 #[tokio::test]

@@ -78,22 +78,38 @@ fn shell_note(shell: &Shell, windows: bool) -> &'static str {
             "Git Bash on Windows. It is Unix bash, not cmd: discard output with `/dev/null`, never `NUL`; change directory with `cd`, never `cd /d`; write paths as `C:/dir/file` or `/c/dir/file`"
         }
         Shell::Bash(_) => "bash",
+        Shell::PowerShell(path) if windows_powershell(path) => "Windows PowerShell 5.1 (powershell.exe, not PowerShell 7); use PowerShell 5.1 syntax, not bash",
         Shell::PowerShell(_) => "PowerShell 7 (pwsh); use PowerShell syntax, not bash",
     }
+}
+
+/// How dependent steps are chained: Windows PowerShell 5.1 has no `&&`.
+fn chain_note(shell: &Shell) -> &'static str {
+    match shell {
+        Shell::PowerShell(path) if windows_powershell(path) => {
+            "separate dependent steps with `;` and stop on failure yourself (`if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`), since `&&` does not exist in this shell"
+        }
+        _ => "chain dependent steps with `&&`",
+    }
+}
+
+/// `powershell.exe` is Windows PowerShell 5.1; PowerShell 7 is `pwsh`.
+fn windows_powershell(path: &std::path::Path) -> bool {
+    path.file_stem().is_some_and(|stem| stem.eq_ignore_ascii_case("powershell"))
 }
 
 impl Tool for Bash {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "bash".into(),
-            description: include_str!("prompts/bash.txt").trim().replace("{shell}", shell_note(&self.shell, cfg!(windows))),
+            description: include_str!("prompts/bash.txt").trim().replace("{shell}", shell_note(&self.shell, cfg!(windows))).replace("{chain}", chain_note(&self.shell)),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "command": { "type": "string", "description": "The command to run." },
                     "timeout": { "type": "integer", "description": "Milliseconds before the command is stopped. Default: the user's setting. Max 86400000." },
                     "description": { "type": "string", "description": "Five to ten words saying what the command does, shown to the user." },
-                    "workdir": { "type": "string", "description": "Directory to run in, inside the workspace, instead of `cd dir && ...`. Default: the workspace root." }
+                    "workdir": { "type": "string", "description": "Directory to run in, inside the workspace, instead of changing directory first. Default: the workspace root." }
                 },
                 "required": ["command"]
             }),
@@ -476,8 +492,14 @@ mod tests {
         assert!(windows.contains("Unix bash") && windows.contains("/dev/null") && windows.contains("never `NUL`") && windows.contains("never `cd /d`"), "{windows}");
         assert_eq!(shell_note(&bash, false), "bash");
         assert!(shell_note(&Shell::PowerShell("pwsh".into()), true).starts_with("PowerShell 7"));
+        let legacy = Shell::PowerShell("C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe".into());
+        assert!(shell_note(&legacy, true).starts_with("Windows PowerShell 5.1"));
+        let legacy_spec = Bash::with(legacy).spec().description;
+        assert!(legacy_spec.contains("`&&` does not exist") && !legacy_spec.contains("chain dependent steps with `&&`"), "{legacy_spec}");
+        assert!(Bash::with(Shell::PowerShell("pwsh".into())).spec().description.contains("chain dependent steps with `&&`"));
         let spec = Bash::with(bash).spec();
         assert!(spec.description.contains("/dev/null") == cfg!(windows), "{}", spec.description);
+        assert!(!spec.description.contains('{'), "every placeholder is filled: {}", spec.description);
     }
 
     #[test]
