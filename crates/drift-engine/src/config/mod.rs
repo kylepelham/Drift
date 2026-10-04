@@ -365,8 +365,9 @@ impl Config {
         Policy { rules: self.permissions.clone() }
     }
 
+    /// An agent's rules, from its file or Settings, are kept as written and resolve as in opencode: the last match wins.
     pub fn agent_policy(&self, agent: &str) -> Policy {
-        Policy { rules: self.agent(agent).map(|agent| agent.permissions.clone()).unwrap_or_default() }
+        Policy { rules: self.agent(agent).map(|agent| agent.permissions.iter().rev().cloned().collect()).unwrap_or_default() }
     }
 
     pub fn agent(&self, name: &str) -> Option<&Agent> {

@@ -831,8 +831,9 @@ these async criteria are new pending M3 work.
   plaintext. The file uses mode 0600 on Unix; on Windows it gets a protected DACL granting the
   current user and SYSTEM access. Only the file is restricted: the data directory around it keeps
   the access it inherits, so administrators and backup tools still reach `drift.db`. Saves use private temporary files, flush and
-  atomic replacement. An existing plaintext fallback is migrated, verified and removed only after
-  encrypted persistence succeeds. Corrupt or wrongly keyed stores cannot be overwritten silently.
+  atomic replacement. An existing plaintext fallback is merged into the encrypted store (which wins
+  where both hold a provider), read back, and removed only after that succeeds; one that cannot be
+  parsed is kept. Corrupt or wrongly keyed stores cannot be overwritten silently.
   Plain `credentials.json` storage exists only in Rust's test build. Conformance binaries use
   encrypted storage with a fixture key retained across restarts, avoiding the real keychain.
   `DRIFT_ANTHROPIC_BASE_URL` points the Anthropic adapter at a fake for recorded runs.
@@ -1432,13 +1433,18 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
 - An agent's front matter may set `permissions` (a YAML flow map such as `{ bash: { "git *": allow },
   edit: deny }`, JSON, or nested lines, with `*` as any kind) and a default reasoning `variant`.
   As in opencode, the last entry that matches wins, in the order written, so `{ "*": ask, "git *":
-  allow }` allows `git status` and `{ "git *": allow, "*": ask }` asks. Its rules are checked
+  allow }` allows `git status` and `{ "git *": allow, "*": ask }` asks. Rules from a Settings
+  override resolve the same way. Both are kept as written (`Agent::permissions`) and reversed once
+  in `Config::agent_policy`, so the Settings editor shows and saves them in the order the user
+  wrote. drift.json and global rules are still first-match. Its rules are checked
   before the session's grants, so an agent's deny beats an "always" answer
   (`Permissions::decide_under`), and the variant applies when the prompt names none.
   `temperature`, `top_p` and provider `options` are not supported. An agent naming them, with
   rules that do not parse, or with an invalid Settings override, is marked with `problem`: its own
   turns, tasks, commands and actions are refused with that reason, every other agent runs, and
-  the UI names it once when the config loads. A broken global agent or override never stops
+  the UI names it once when the config loads. A prompt cannot switch to it, mid-turn included
+  (`pickable` checks `Agent::usable`), and a broken subagent is left out of the system prompt's
+  subagent list, so the model is never offered it. A broken global agent or override never stops
   other agents or workspaces.
 - Settings overrides an agent with exactly what the engine applies (`AgentOverride`): `prompt`,
   `model` (`provider/model`, or empty to inherit), `steps` (its own step limit), `tools` (the
@@ -1468,7 +1474,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   turn only: the turn runs as them (its reply records the agent), but they are not written to the
   session (`Pick::sticky` false) and the turn does not follow the session's choices meanwhile, so
   the next prompt runs as before. Such a command needs the session idle (409 while a turn runs),
-  because steering it in would switch the running turn. With `subtask: true`, or whenever the
+  because steering it in would switch the running turn. A prompt the user steers into a command's
+  turn is the session's, not the command's: its files are judged against the session's model and
+  agent, and from the next request (the newest prompt is no longer the one the turn began at) the
+  turn follows the session again, so "now edit it" is not answered by a read-only command agent. With `subtask: true`, or whenever the
   agent is a subagent (a subagent never holds the conversation, whatever `subtask` says), the turn
   opens with an engine-made `task` call (`Bootstrap`) carrying the expanded prompt and the agent,
   so the worker is a foreground task owned, stopped and recovered like any other, and its answer

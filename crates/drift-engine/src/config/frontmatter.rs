@@ -27,7 +27,7 @@ impl Document {
         Some(inner.split(',').filter_map(entry).collect())
     }
 
-    /// Rules in the order opencode reads them: the last matching entry wins, so they come back reversed for a first-match policy.
+    /// Rules in the order written; `Config::agent_policy` makes the last match win.
     pub fn permissions(&self) -> Result<Vec<crate::permission::Rule>, String> {
         let key = if self.fields.contains_key("permissions") { "permissions" } else { "permission" };
         if let Some(value) = self.fields.get(key).map(|value| value.trim()).filter(|value| !value.is_empty()) {
@@ -50,7 +50,6 @@ impl Document {
                 rules.push(rule(parent.ok_or("permission pattern has no tool namespace")?, name, value)?);
             }
         }
-        rules.reverse();
         Ok(rules)
     }
 }
@@ -135,7 +134,6 @@ fn map_permissions(value: &Flow) -> Result<Vec<crate::permission::Rule>, String>
             }
         }
     }
-    rules.reverse();
     Ok(rules)
 }
 
@@ -212,7 +210,7 @@ mod tests {
     #[test]
     fn permission_maps_keep_namespaces_and_specific_pattern_overrides() {
         let doc = parse("---\npermission:\n  read:\n    \"*\": allow\n    \"private*\": deny\n  bash: ask\nvariant: high\n---\nbody");
-        let rules = doc.permissions().unwrap();
+        let rules = doc.permissions().unwrap().into_iter().rev().collect();
         let policy = crate::permission::Policy { rules };
         assert_eq!(policy.explicit(&crate::tool::Ask::new("read", "private.txt", "")), Some(crate::permission::Decision::Deny));
         assert_eq!(policy.explicit(&crate::tool::Ask::new("read", "other.txt", "")), Some(crate::permission::Decision::Allow));
@@ -225,7 +223,7 @@ mod tests {
     fn yaml_flow_maps_are_read_and_the_last_matching_entry_wins() {
         use crate::permission::Decision;
         let decide = |head: &str, kind: &str, target: &str| {
-            let rules = parse(&format!("---\n{head}\n---\n")).permissions().unwrap();
+            let rules = parse(&format!("---\n{head}\n---\n")).permissions().unwrap().into_iter().rev().collect();
             crate::permission::Policy { rules }.explicit(&crate::tool::Ask::new(kind, target, ""))
         };
         let flow = "permission: { edit: deny, bash: { \"*\": ask, 'git *': allow } }";

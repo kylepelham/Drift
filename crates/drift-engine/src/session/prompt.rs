@@ -43,7 +43,8 @@ pub fn system(setting: &Setting) -> String {
             prompt.push_str(&format!("- {}: {}\n", skill.name, skill.description));
         }
     }
-    let subagents: Vec<&Agent> = config.agents.iter().filter(|a| a.kind == AgentKind::Subagent).collect();
+    // A broken subagent would only fail when picked, so it is not offered.
+    let subagents: Vec<&Agent> = config.agents.iter().filter(|a| a.kind == AgentKind::Subagent && a.problem.is_none()).collect();
     if delegates && !subagents.is_empty() {
         prompt.push_str("\n# Subagents\n\nPass one as `subagent_type` to the `task` tool.\n\n");
         for subagent in subagents {
@@ -162,6 +163,10 @@ mod tests {
         let delegating = system(&setting("build", true));
         assert!(delegating.contains("# Subagents") && delegating.contains("- general: ") && delegating.contains("- explore: "));
         assert!(!delegating.contains("- title: "), "actions are not subagents");
+        let mut broken = config.clone();
+        broken.agents.iter_mut().find(|a| a.name == "explore").unwrap().problem = Some("uses unsupported controls (temperature)".into());
+        let offered = system(&Setting { config: &broken, agent: broken.agent("build"), ..setting("build", true) });
+        assert!(offered.contains("- general: ") && !offered.contains("- explore: "), "a broken subagent is not offered");
         std::fs::remove_dir_all(workspace).ok();
     }
 

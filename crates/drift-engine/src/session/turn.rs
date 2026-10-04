@@ -180,11 +180,21 @@ struct Steering {
     workspace: PathBuf,
     catalog: Arc<crate::llm::catalog::Catalog>,
     mcp_commands: Vec<crate::config::Command>,
+    /// A command's turn: a prompt steered in is the session's, not the command's.
+    turn_only: bool,
 }
 
 impl Steering {
     fn of(plan: &Plan) -> Self {
-        Self { model: plan.model_ref.clone(), agent: plan.session.agent.clone(), config: plan.config.clone(), workspace: plan.workspace.clone(), catalog: plan.catalog.clone(), mcp_commands: plan.mcp_commands.clone() }
+        Self { model: plan.model_ref.clone(), agent: plan.session.agent.clone(), config: plan.config.clone(), workspace: plan.workspace.clone(), catalog: plan.catalog.clone(), mcp_commands: plan.mcp_commands.clone(), turn_only: plan.turn_only }
+    }
+
+    /// The model and agent a steered prompt runs as when it names neither: the session's own during a command's turn.
+    fn defaults(&self, session: Option<&Session>) -> (ModelRef, String) {
+        match session.filter(|_| self.turn_only) {
+            Some(session) => (session.model.clone().unwrap_or_else(|| self.model.clone()), session.agent.clone()),
+            None => (self.model.clone(), self.agent.clone()),
+        }
     }
 }
 
@@ -380,7 +390,9 @@ impl Engine {
             return Err(TurnError::Stopped);
         }
         if !self.turns.claim(session_id, &abort) {
-            if how.bootstrap.is_some() || how.turn_only { return Err(TurnError::Busy); }
+            if how.bootstrap.is_some() || how.turn_only {
+                return Err(TurnError::Busy);
+            }
             return self.steer_or_wait(session_id, prompt, how, &payload_hash).await;
         }
         if how.steer_only {
@@ -541,7 +553,9 @@ impl Engine {
     /// prompt names, or the one the turn is on.
     fn steer(&self, session_id: &str, prompt: &Prompt, payload_hash: &str, how: Admission<'_>) -> Result<Option<Receipt>, TurnError> {
         let Some(running) = self.turns.steering.lock().unwrap().get(session_id).cloned() else { return Ok(None) };
-        let target = prompt.model.clone().unwrap_or_else(|| running.model.clone());
+        let session = if running.turn_only { self.store.session(session_id)? } else { None };
+        let (own_model, own_agent) = running.defaults(session.as_ref());
+        let target = prompt.model.clone().unwrap_or(own_model);
         let model = running.catalog.providers.get(&target.provider).and_then(|p| p.models.get(&target.model)).cloned().ok_or(TurnError::UnknownModel)?;
         let workspace = &running.workspace;
         let config = &running.config;
@@ -549,7 +563,7 @@ impl Engine {
             pickable(config, agent)?;
         }
         let policy = config.policy();
-        let agent_policy = config.agent_policy(prompt.agent.as_deref().unwrap_or(&running.agent));
+        let agent_policy = config.agent_policy(prompt.agent.as_deref().unwrap_or(&own_agent));
         let prepared = Attach { engine: self, session_id, workspace, policy: &policy, agent_policy: &agent_policy, model: &model }.prepare(prompt.parts.clone())?;
         let steering = self.turns.steering.lock().unwrap();
         match steering.get(session_id) {
@@ -850,8 +864,16 @@ impl Engine {
     /// Before each request: a model, agent or level a prompt chose since the last one, written on the
     /// session as it landed, becomes the turn's, so the conversation carries on as that choice.
     async fn follow_session(&self, plan: &mut Plan) -> Result<(), String> {
+        // A command's agent and model last until the user steers in a prompt of their own; from then on the turn is the session's.
         if plan.turn_only {
-            return Ok(());
+            let newest = self.store.newest_prompt(&plan.session.id).ok().flatten();
+            if newest.is_none() || newest == self.turns.began(&plan.session.id) {
+                return Ok(());
+            }
+            plan.turn_only = false;
+            if let Some(running) = self.turns.steering.lock().unwrap().get_mut(&plan.session.id) {
+                running.turn_only = false;
+            }
         }
         let Ok(Some(session)) = self.store.session(&plan.session.id) else { return Ok(()) };
         let model = session.model.clone().filter(|model| *model != plan.model_ref);
@@ -1757,10 +1779,10 @@ fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
     }
 }
 
-/// Whether a prompt may switch its session to `agent`: only a primary agent of the workspace runs a conversation.
+/// Whether a prompt may switch its session to `agent`: only a usable primary agent of the workspace runs a conversation.
 fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
     match config.agent(agent) {
-        Some(found) if found.kind == crate::config::AgentKind::Primary => Ok(()),
+        Some(found) if found.kind == crate::config::AgentKind::Primary => found.usable().map(|_| ()).map_err(TurnError::Config),
         _ => Err(TurnError::UnknownAgent),
     }
 }

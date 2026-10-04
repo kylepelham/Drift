@@ -45,6 +45,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_prompt_steered_into_a_command_turn_is_answered_as_the_session_not_the_command() {
+        use std::time::Duration;
+        let h = harness().await;
+        h.engine.store.update_session(&h.session.id, None, Some(&model()), None).unwrap();
+        std::fs::create_dir_all(h._dir.join("ws/.drift/commands")).unwrap();
+        std::fs::write(h._dir.join("ws/.drift/commands/check.md"), "---\nagent: plan\nmodel: anthropic/claude-haiku-4-5\n---\nReview it.").unwrap();
+        h.provider.push_slow(Duration::from_millis(600), text("reviewed")).push(text("edited"));
+        h.engine.execute_command(&h.session.id, "check", "", None).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let mut steered = crate::session::turn::tests::prompt("now edit it");
+        steered.model = None;
+        h.engine.submit(&h.session.id, steered).await.unwrap();
+        until_idle(&h).await;
+        let requests = h.provider.requests.lock().unwrap().clone();
+        assert_eq!((requests[0].model.as_str(), requests[1].model.as_str()), ("claude-haiku-4-5", model().model.as_str()), "the steered prompt runs on the session's model");
+        let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+        assert_eq!(transcript.last().unwrap().info.agent.as_deref(), Some("build"), "and as the session's agent, not the command's read-only one");
+        let session = h.engine.store.session(&h.session.id).unwrap().unwrap();
+        assert_eq!((session.agent.as_str(), session.model.unwrap().model), ("build", model().model));
+    }
+
+    #[tokio::test]
+    async fn a_broken_primary_agent_cannot_be_picked_mid_turn() {
+        use std::time::Duration;
+        let h = harness().await;
+        std::fs::create_dir_all(h._dir.join("ws/.drift/agents")).unwrap();
+        std::fs::write(h._dir.join("ws/.drift/agents/hot.md"), "---\nmode: primary\ntop_p: 0.5\n---\nRuns hot.").unwrap();
+        h.provider.push_slow(Duration::from_millis(600), text("busy")).push(text("never"));
+        h.engine.submit(&h.session.id, crate::session::turn::tests::prompt("start")).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let mut switch = crate::session::turn::tests::prompt("as hot");
+        switch.agent = Some("hot".into());
+        let refused = h.engine.submit(&h.session.id, switch).await.unwrap_err();
+        assert!(matches!(&refused, TurnError::Config(reason) if reason.contains("agent hot") && reason.contains("top_p")), "{refused:?}");
+        until_idle(&h).await;
+        assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().agent, "build");
+    }
+
+    #[tokio::test]
     async fn a_command_naming_a_subagent_always_delegates_and_broken_agents_are_refused_alone() {
         let h = harness().await;
         h.engine.store.update_session(&h.session.id, None, Some(&model()), None).unwrap();

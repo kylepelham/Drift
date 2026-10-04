@@ -33,14 +33,24 @@ impl ProtectedFile {
         let legacy = dir.join("credentials.json");
         if legacy.exists() {
             crate::platform::private_file::restrict(&legacy).map_err(|e| e.to_string())?;
-            if !file.path.exists() {
-                let map: Map<String, Value> = serde_json::from_slice(&std::fs::read(&legacy).map_err(|e| e.to_string())?).map_err(|_| "legacy credential file could not be parsed")?;
-                file.save(&map)?;
-            }
-            file.read()?;
-            std::fs::remove_file(legacy).map_err(|e| format!("could not remove migrated plaintext credentials: {e}"))?;
+            file.migrate(&legacy)?;
         }
         Ok(file)
+    }
+
+    /// Merges the plaintext store into the encrypted one, which wins where both hold a key, and removes it only once every key is readable back.
+    fn migrate(&self, legacy: &Path) -> Result<(), String> {
+        let old: Map<String, Value> = serde_json::from_slice(&std::fs::read(legacy).map_err(|e| e.to_string())?).map_err(|_| "legacy credential file could not be parsed")?;
+        let mut merged = self.read()?;
+        let missing: Vec<String> = old.keys().filter(|key| !merged.contains_key(*key)).cloned().collect();
+        if !missing.is_empty() {
+            merged.extend(old.into_iter().filter(|(key, _)| missing.contains(key)));
+            self.save(&merged)?;
+        }
+        if self.read()? != merged {
+            return Err("migrated credentials did not read back; the plaintext file was kept".into());
+        }
+        std::fs::remove_file(legacy).map_err(|e| format!("could not remove migrated plaintext credentials: {e}"))
     }
 
     pub(super) fn read(&self) -> Result<Map<String, Value>, String> {
@@ -152,6 +162,22 @@ mod tests {
         assert_eq!(file.read().unwrap(), map);
         assert!(!dir.join("credentials.json").exists());
         assert!(!String::from_utf8_lossy(&std::fs::read(&file.path).unwrap()).contains("legacy-private-key"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_keys_merge_into_an_existing_encrypted_store_which_wins_on_conflict() {
+        let dir = std::env::temp_dir().join(format!("drift-merge-secret-{}", crate::random_hex(4)));
+        let file = ProtectedFile { path: dir.join("credentials.enc"), protection: Protection::Aes(aes_key(&[7u8; 32]).unwrap()) };
+        file.save(&Map::from_iter([("anthropic".into(), Value::String("newer".into()))])).unwrap();
+        let legacy = dir.join("credentials.json");
+        std::fs::write(&legacy, r#"{"anthropic":"older","openai":"only-in-legacy"}"#).unwrap();
+        file.migrate(&legacy).unwrap();
+        let merged = file.read().unwrap();
+        assert_eq!((merged["anthropic"].as_str(), merged["openai"].as_str()), (Some("newer"), Some("only-in-legacy")));
+        assert!(!legacy.exists());
+        std::fs::write(&legacy, "not json").unwrap();
+        assert!(file.migrate(&legacy).is_err() && legacy.exists(), "an unreadable legacy file is kept, never deleted");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

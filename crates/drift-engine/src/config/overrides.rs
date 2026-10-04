@@ -106,6 +106,18 @@ mod tests {
     }
 
     #[test]
+    fn settings_rules_resolve_like_file_rules_and_keep_their_written_order() {
+        use crate::permission::Decision;
+        let mut config = Config::load(&std::env::temp_dir().join("drift-no-such-workspace"));
+        let written = json!([{ "kind": "bash", "pattern": "*", "decision": "ask" }, { "kind": "bash", "pattern": "git *", "decision": "allow" }]);
+        config.apply_overrides(&HashMap::from([("build".to_string(), AgentOverride::from_json(&json!({ "permissions": written })))]));
+        let policy = config.agent_policy("build");
+        assert_eq!(policy.explicit(&crate::tool::Ask::new("bash", "git status", "")), Some(Decision::Allow), "the later rule wins");
+        assert_eq!(policy.explicit(&crate::tool::Ask::new("bash", "rm x", "")), Some(Decision::Ask));
+        assert_eq!(serde_json::to_value(&config.agent("build").unwrap().permissions).unwrap(), written, "shown back as written, so a save round-trips");
+    }
+
+    #[test]
     fn settings_set_an_agents_step_limit_and_tools() {
         let mut config = Config::load(&std::env::temp_dir().join("drift-no-such-workspace"));
         let overrides = HashMap::from([
