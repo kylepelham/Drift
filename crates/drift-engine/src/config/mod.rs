@@ -239,7 +239,7 @@ impl Command {
     }
     /// `arguments` split for this command's named arguments: one word each, the last taking the rest.
     pub fn named_arguments(&self, arguments: &str) -> serde_json::Map<String, serde_json::Value> {
-        let words: Vec<&str> = arguments.split_whitespace().collect();
+        let words = split_arguments(arguments);
         let last = self.arguments.len().saturating_sub(1);
         self.arguments
             .iter()
@@ -251,15 +251,17 @@ impl Command {
             .collect()
     }
 
-    /// The prompt for `arguments`: `$ARGUMENTS` is all of them, `$1`..`$n` one word each with the highest
-    /// taking the rest, and a template that names none gets them appended so nothing typed is lost.
+    /// The prompt for `arguments`: `$ARGUMENTS` is all of them, `$1`, `$2`, ... one argument each (quotes
+    /// keep spaces, as in a shell) with the highest taking the rest, and a template that names none gets
+    /// them appended so nothing typed is lost.
     pub fn expand(&self, arguments: &str) -> String {
         let arguments = arguments.trim();
-        let words: Vec<&str> = arguments.split_whitespace().collect();
-        let highest = (1..=9).rev().find(|n| self.template.contains(&format!("${n}"))).unwrap_or(0);
+        let words = split_arguments(arguments);
+        let highest = highest_placeholder(&self.template);
         let mut text = self.template.replace("$ARGUMENTS", arguments);
+        // Highest first, so `$1` never eats the start of `$10`.
         for n in (1..=highest).rev() {
-            let word = if n == highest { words.get(n - 1..).map(|rest| rest.join(" ")).unwrap_or_default() } else { words.get(n - 1).copied().unwrap_or_default().to_string() };
+            let word = if n == highest { words.get(n - 1..).map(|rest| rest.join(" ")).unwrap_or_default() } else { words.get(n - 1).cloned().unwrap_or_default() };
             text = text.replace(&format!("${n}"), &word);
         }
         if highest == 0 && !self.template.contains("$ARGUMENTS") && !arguments.is_empty() {
@@ -267,6 +269,62 @@ impl Command {
         }
         text
     }
+}
+
+/// The most files one `instructions` glob brings in, so `**/*.md` in a large repository stays bounded.
+const MAX_INSTRUCTION_MATCHES: usize = 50;
+
+/// The files an `instructions` entry names, with the name each is shown under: the entry itself for a
+/// plain path (relative to its drift.json, absolute, or `~/`), each match for a glob, walked from the
+/// part of the path before its first wildcard as git lists files, in name order.
+fn instruction_files(listed: &str, resolved: &Path) -> Vec<(String, PathBuf)> {
+    let text = resolved.to_string_lossy().replace('\\', "/");
+    let Some(wild) = text.find(['*', '?', '[', '{']) else { return vec![(listed.to_string(), resolved.to_path_buf())] };
+    let base = PathBuf::from(&text[..text[..wild].rfind('/').unwrap_or(0)]);
+    let Ok(glob) = globset::GlobBuilder::new(&text).literal_separator(true).build().map(|glob| glob.compile_matcher()) else { return Vec::new() };
+    let mut found: Vec<PathBuf> = crate::tool::walk(&base)
+        .flatten()
+        .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
+        .map(|entry| entry.into_path())
+        .filter(|path| glob.is_match(path.to_string_lossy().replace('\\', "/")))
+        .take(MAX_INSTRUCTION_MATCHES * 4)
+        .collect();
+    found.sort();
+    found.truncate(MAX_INSTRUCTION_MATCHES);
+    found.into_iter().map(|path| (path.strip_prefix(&base).map_or_else(|_| path.display().to_string(), |rest| rest.to_string_lossy().replace('\\', "/")), path)).collect()
+}
+
+/// The highest `$N` a template names, 0 when it names none.
+pub fn highest_placeholder(template: &str) -> usize {
+    template.split('$').skip(1).filter_map(|rest| rest.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()).max().unwrap_or(0)
+}
+
+/// What follows a command, split as a shell splits words: quotes (single or double) keep spaces and are dropped.
+pub fn split_arguments(text: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let (mut quote, mut started) = (None, false);
+    for c in text.chars() {
+        match quote {
+            Some(open) if c == open => quote = None,
+            Some(_) => current.push(c),
+            None if c == '"' || c == '\'' => (quote, started) = (Some(c), true),
+            None if c.is_whitespace() => {
+                if started {
+                    words.push(std::mem::take(&mut current));
+                }
+                started = false;
+            }
+            None => {
+                current.push(c);
+                started = true;
+            }
+        }
+    }
+    if started {
+        words.push(current);
+    }
+    words
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -475,15 +533,17 @@ impl Config {
         self.limits.steps = limits.steps.unwrap_or(self.limits.steps).max(1);
         self.limits.repeats = limits.repeats.unwrap_or(self.limits.repeats).max(2);
         self.limits.polls = limits.polls.unwrap_or(self.limits.polls).max(2);
-        for relative in file.instructions {
-            if let Ok(text) = std::fs::read_to_string(root.join(&relative)) {
-                self.instructions.push(Instruction { name: relative, text: clip(&text) });
-            }
-        }
         let resolve = |listed: &String| match (listed.strip_prefix("~/"), home) {
             (Some(rest), Some(home)) => home.join(rest),
             _ => root.join(listed),
         };
+        for listed in &file.instructions {
+            for (name, path) in instruction_files(listed, &resolve(listed)) {
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    self.instructions.push(Instruction { name, text: clip(&text) });
+                }
+            }
+        }
         self.skill_paths.extend(file.skill_paths.iter().map(resolve));
     }
 
@@ -531,7 +591,7 @@ impl Config {
             command.agent = doc.field("agent");
             command.model = doc.field("model").and_then(|model| parse_model(&model));
             command.subtask = doc.field("subtask").and_then(|value| value.parse().ok());
-            command.arguments = (1..=9).filter(|n| command.template.contains(&format!("${n}"))).map(|n| format!("arg{n}")).collect();
+            command.arguments = (1..=highest_placeholder(&command.template)).filter(|n| command.template.contains(&format!("${n}"))).map(|n| format!("arg{n}")).collect();
             self.commands.push(command);
         }
     }
@@ -848,6 +908,11 @@ mod tests {
         assert_eq!(command("Only $1").expand(""), "Only ");
         assert_eq!(command("Review the diff.\n").expand("focus on errors"), "Review the diff.\n\nfocus on errors", "not dropped");
         assert_eq!(command("Review the diff.").expand(""), "Review the diff.");
+        assert_eq!(command("Commit as $1 with $2").expand(r#""Kyle P" 'fix the "parser" bug'"#), r#"Commit as Kyle P with fix the "parser" bug"#, "quotes keep spaces, as in a shell");
+        let ten = command("$1|$2|$3|$4|$5|$6|$7|$8|$9|$10|$11");
+        assert_eq!(ten.expand("a b c d e f g h i j k l"), "a|b|c|d|e|f|g|h|i|j|k l", "past $9, and $1 never eats the start of $10");
+        assert_eq!(split_arguments(r#"one "two three"  '' four"#), ["one", "two three", "", "four"], "an empty quoted argument is still one");
+        assert_eq!(highest_placeholder("cost $5 and $12, not $ARGUMENTS"), 12);
     }
 
     #[test]
@@ -869,6 +934,23 @@ mod tests {
         std::fs::remove_file(home.join(".config/drift/AGENTS.md")).unwrap();
         let fallback = Config::load_with_home(&ws, Some(&home));
         assert_eq!(fallback.instructions[0].name, "~/.claude/CLAUDE.md");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn listed_instructions_take_globs_absolute_paths_and_home() {
+        let root = std::env::temp_dir().join(format!("drift-config-listed-{}", crate::random_hex(4)));
+        let (home, ws, elsewhere) = (root.join("home"), root.join("ws"), root.join("shared"));
+        write(&home, "notes/style.md", "home style");
+        write(&ws, "docs/rules/a.md", "rule a");
+        write(&ws, "docs/rules/deep/b.md", "rule b");
+        write(&ws, "docs/rules/skip.txt", "not markdown");
+        write(&elsewhere, "team.md", "team rules");
+        let absolute = elsewhere.join("team.md").to_string_lossy().replace('\\', "/");
+        write(&ws, "drift.json", &format!(r#"{{ "instructions": ["docs/rules/**/*.md", "~/notes/style.md", "{absolute}", "missing.md"] }}"#));
+        let config = Config::load_with_home(&ws, Some(&home));
+        let listed: Vec<(&str, &str)> = config.instructions.iter().filter(|i| !i.name.ends_with("AGENTS.md")).map(|i| (i.name.as_str(), i.text.as_str())).collect();
+        assert_eq!(listed, [("a.md", "rule a"), ("deep/b.md", "rule b"), ("~/notes/style.md", "home style"), (absolute.as_str(), "team rules")]);
         std::fs::remove_dir_all(root).ok();
     }
 

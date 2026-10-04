@@ -326,7 +326,7 @@ pub(crate) struct Plan {
     mcp_tools: Vec<(llm::ToolSpec, Arc<dyn crate::tool::Tool>)>,
     mcp_servers: Vec<(String, String)>,
     mcp_commands: Vec<crate::config::Command>,
-    bootstrap: Option<super::command::Bootstrap>,
+    bootstrap: Vec<super::command::Bootstrap>,
     /// Its agent and model are a command's, for this turn only: it does not follow the session's.
     turn_only: bool,
 }
@@ -352,7 +352,7 @@ pub(super) struct Admission<'a> {
     pub(super) delivery: Option<&'a str>,
     /// Only into a turn already running; it never starts one.
     pub(super) steer_only: bool,
-    pub(super) bootstrap: Option<&'a super::command::Bootstrap>,
+    pub(super) bootstrap: &'a [super::command::Bootstrap],
     /// The prompt's agent and model run this turn only; the session keeps its own, so it never steers.
     pub(super) turn_only: bool,
     pub(super) config: Option<&'a Config>,
@@ -390,7 +390,7 @@ impl Engine {
             return Err(TurnError::Stopped);
         }
         if !self.turns.claim(session_id, &abort) {
-            if how.bootstrap.is_some() || how.turn_only {
+            if !how.bootstrap.is_empty() || how.turn_only {
                 return Err(TurnError::Busy);
             }
             return self.steer_or_wait(session_id, prompt, how, &payload_hash).await;
@@ -405,7 +405,7 @@ impl Engine {
         };
         match planned {
             Ok(mut plan) => {
-                plan.bootstrap = how.bootstrap.cloned();
+                plan.bootstrap = how.bootstrap.to_vec();
                 self.start(session_id, prompt, plan, abort, &payload_hash, how)
             }
             Err(error) => {
@@ -675,7 +675,7 @@ impl Engine {
             mcp_tools: Vec::new(),
             mcp_servers: Vec::new(),
             mcp_commands: Vec::new(),
-            bootstrap: None,
+            bootstrap: Vec::new(),
             turn_only,
         };
         // A server connecting right now would otherwise be missing from this turn's tools.
@@ -745,27 +745,36 @@ impl Engine {
         self.record_end(&plan.session, &abort);
     }
 
+    /// The calls a command makes before the model answers (a skill, a delegated task, its shell lines),
+    /// in one message, each through the permission check as the model's own calls are.
     async fn run_bootstrap(self: &Arc<Self>, plan: &mut Plan, abort: &CancellationToken) -> bool {
-        let Some(bootstrap) = plan.bootstrap.take() else { return true };
+        let bootstraps = std::mem::take(&mut plan.bootstrap);
+        if bootstraps.is_empty() {
+            return true;
+        }
         let prepared = (|| -> rusqlite::Result<_> {
             let mut message = self.store.create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent)?;
             self.hub.publish(Event::MessageCreated { message: message.clone() });
-            let mut metadata = json!({ "engineCommand": bootstrap.command });
-            if let Some(model) = &bootstrap.model {
-                metadata["commandModel"] = json!(format!("{}/{}", model.provider, model.model));
+            let mut rows = Vec::new();
+            for bootstrap in bootstraps {
+                let mut metadata = json!({ "engineCommand": bootstrap.command });
+                if let Some(model) = &bootstrap.model {
+                    metadata["commandModel"] = json!(format!("{}/{}", model.provider, model.model));
+                }
+                let part = Part::ToolCall { call_id: id::new("call"), name: bootstrap.tool, input: bootstrap.input, status: ToolStatus::Pending, title: None, output: None, metadata: Some(metadata), started_at: None, finished_at: None };
+                let row = self.store.add_part(&message.id, &plan.session.id, part)?;
+                self.hub.publish(Event::PartCreated { part: row.clone() });
+                rows.push(row);
             }
-            let part = Part::ToolCall { call_id: id::new("call"), name: bootstrap.tool, input: bootstrap.input, status: ToolStatus::Pending, title: None, output: None, metadata: Some(metadata), started_at: None, finished_at: None };
-            let row = self.store.add_part(&message.id, &plan.session.id, part)?;
-            self.hub.publish(Event::PartCreated { part: row.clone() });
             message.status = MessageStatus::Done;
             self.finish(&mut message)?;
-            Ok((message, row))
+            Ok((message, rows))
         })();
-        let (message, row) = match prepared {
+        let (message, rows) = match prepared {
             Ok(prepared) => prepared,
             Err(error) => { self.pause(plan, format!("could not record command execution: {error}")); return false; }
         };
-        self.run_calls(plan, &message, vec![row], super::early::Early::new(abort), abort).await != Outcome::Aborted
+        self.run_calls(plan, &message, rows, super::early::Early::new(abort), abort).await != Outcome::Aborted
     }
 
     pub(crate) fn command_config(&self, session_id: &str, workspace: &Path) -> Config {

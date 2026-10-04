@@ -80,6 +80,8 @@ test("a stream that ends without a stop reason fails the message and runs nothin
 }, 30_000)
 
 test("a denied permission reaches the model as an error result and never touches the disk", async () => {
+  // Workspace writes run without asking by default; the project's own rule asks for this one.
+  writeFileSync(path.join(engine.workspace, "drift.json"), JSON.stringify({ permissions: [{ kind: "edit", pattern: "denied.txt", decision: "ask" }] }))
   const session = await engine.setup()
   const events = engine.events()
   await events.opened
@@ -126,6 +128,8 @@ test("abort during a slow stream marks the message aborted and frees the session
   fake.push({ body: fixture("text"), delayMs: 3_000 })
   await submit(session, "slow")
   await events.until((f) => f.type === "session.status" && f.status === "running")
+  // `running` can come before the request reaches the fake; stop only once the slow stream is open.
+  for (let tries = 0; tries < 500 && fake.seen.length === 0; tries++) await Bun.sleep(10)
   // A prompt sent while the turn runs is steered into it; Stop still ends the turn.
   const steered = await submit(session, "again")
   expect(steered.status).toBe(202)

@@ -45,6 +45,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shell_lines_run_as_checked_calls_and_at_files_are_mentioned() {
+        let h = harness().await;
+        h.engine.store.update_session(&h.session.id, None, Some(&model()), None).unwrap();
+        std::fs::create_dir_all(h._dir.join("ws/.drift/commands")).unwrap();
+        std::fs::write(h._dir.join("ws/NOTES.md"), "NOTE BODY").unwrap();
+        std::fs::write(h._dir.join("ws/.drift/commands/brief.md"), "Read @NOTES.md, then look at !`echo SHELL OUTPUT` and !`cargo publish`.").unwrap();
+        h.provider.push(text("briefed"));
+        let mut rx = h.engine.hub.attach(None).rx;
+        h.engine.execute_command(&h.session.id, "brief", "", None).await.unwrap();
+        let ask = loop {
+            let envelope = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await.unwrap().unwrap();
+            if let crate::event::Event::PermissionAsked { request } = envelope.event {
+                break request;
+            }
+        };
+        assert_eq!(ask.ask.pattern, "cargo publish", "a writing line asks; the reading one ran without asking");
+        h.engine.permissions.reply(&h.engine.hub, &ask.id, crate::permission::ReplyBody { reply: crate::permission::Reply::Deny, pattern: None, message: None }).unwrap();
+        until_idle(&h).await;
+        let sent = format!("{:?}", h.provider.requests.lock().unwrap()[0].messages);
+        assert!(sent.contains("`echo SHELL OUTPUT` (its output follows)") && sent.contains("ran `echo SHELL OUTPUT`, which returned:\\nSHELL OUTPUT"), "{sent}");
+        assert!(sent.contains("ran `cargo publish`, which failed"), "a refused line says so: {sent}");
+        assert!(sent.contains("NOTE BODY"), "@NOTES.md was read in as a mention");
+        std::fs::write(h._dir.join("ws/.drift/commands/away.md"), "---\nsubtask: true\n---\nCheck !`git status`.").unwrap();
+        assert!(matches!(h.engine.execute_command(&h.session.id, "away", "", None).await, Err(CommandError::Invalid(_))));
+    }
+
+    #[tokio::test]
     async fn a_prompt_steered_into_a_command_turn_is_answered_as_the_session_not_the_command() {
         use std::time::Duration;
         let h = harness().await;
@@ -182,24 +209,76 @@ impl Engine {
             }
             None => command.expand(arguments),
         };
-        let bootstrap = if let Some(skill) = &command.skill {
-            Some(Bootstrap { tool: "skill".into(), input: json!({ "name": skill, "arguments": arguments }), command: name.into(), model: None })
+        let (text, lines) = if command.server.is_none() && command.skill.is_none() { shell_lines(&text) } else { (text, Vec::new()) };
+        if delegated && !lines.is_empty() {
+            return Err(CommandError::Invalid("shell lines (!`...`) run in the conversation, so a command that delegates cannot use them".into()));
+        }
+        let routed = command.skill.is_some() || delegated;
+        let bootstraps: Vec<Bootstrap> = if let Some(skill) = &command.skill {
+            vec![Bootstrap { tool: "skill".into(), input: json!({ "name": skill, "arguments": arguments }), command: name.into(), model: None }]
         } else if delegated {
             let input = json!({ "description": name, "prompt": text, "subagent_type": agent, "run_in_background": false });
-            Some(Bootstrap { tool: "task".into(), input, command: name.into(), model: model.clone() })
+            vec![Bootstrap { tool: "task".into(), input, command: name.into(), model: model.clone() }]
         } else {
-            None
+            lines.into_iter().map(|line| Bootstrap { tool: "bash".into(), input: json!({ "command": line, "description": format!("/{name}") }), command: name.into(), model: None }).collect()
         };
         // Its own agent and model run this turn only; a delegated or skill command runs on the session's.
-        let chosen = bootstrap.is_none() && (command.agent.is_some() || model.is_some());
+        let chosen = !routed && (command.agent.is_some() || model.is_some());
+        let shown = if routed { format!("/{name} {arguments}").trim_end().to_string() } else { text };
+        let mentioned = if routed { Vec::new() } else { mentions(std::path::Path::new(&workspace.path), &shown) };
         let prompt = Prompt {
-            parts: vec![Part::Text { text: if bootstrap.is_some() { format!("/{name} {arguments}").trim_end().into() } else { text } }],
+            parts: std::iter::once(Part::Text { text: shown }).chain(mentioned).collect(),
             model: if chosen { model.or_else(|| definition.model.clone()) } else { None },
             variant: None,
             agent: (chosen && command.agent.is_some()).then(|| agent.to_string()),
             submission_id: None,
         };
-        let how = Admission { bootstrap: bootstrap.as_ref(), turn_only: chosen, config: Some(&config), ..Admission::default() };
+        let how = Admission { bootstrap: &bootstraps, turn_only: chosen, config: Some(&config), ..Admission::default() };
         self.admit(id, prompt, how).await.map_err(CommandError::Turn)
     }
+}
+
+/// A template's `` !`line` `` shell lines, each named in the text where it stood; they run as the
+/// turn's first calls, through the bash permission check, and their output follows the prompt.
+fn shell_lines(text: &str) -> (String, Vec<String>) {
+    let mut lines = Vec::new();
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("!`") {
+        let Some(len) = rest[start + 2..].find('`') else { break };
+        let line = rest[start + 2..start + 2 + len].trim();
+        out.push_str(&rest[..start]);
+        if line.is_empty() {
+            out.push_str("!``");
+        } else {
+            out.push_str(&format!("`{line}` (its output follows)"));
+            lines.push(line.to_string());
+        }
+        rest = &rest[start + 3 + len..];
+    }
+    out.push_str(rest);
+    (out, lines)
+}
+
+/// A template's `@path` references to files or directories in the workspace, as @ mentions: read in
+/// under the same rules as one the user typed. Anything not found there stays plain text.
+fn mentions(workspace: &std::path::Path, text: &str) -> Vec<Part> {
+    let mut seen = std::collections::HashSet::new();
+    text.split_whitespace()
+        .filter_map(|word| word.strip_prefix('@'))
+        .map(|name| name.trim_end_matches(['.', ',', ';', ':', ')', '!', '?']))
+        .filter(|name| !name.is_empty() && seen.insert(name.to_string()))
+        .filter_map(|name| {
+            let path = crate::tool::canonical(&workspace.join(name));
+            (path.starts_with(crate::tool::canonical(workspace)) && path.exists()).then(|| Part::File { mime: "text/plain".into(), name: name.into(), url: file_url(&path), path: None })
+        })
+        .collect()
+}
+
+/// A `file:` URL for `path`, as the UI sends for an @ mention.
+fn file_url(path: &std::path::Path) -> String {
+    const PATH: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS.add(b' ').add(b'#').add(b'%').add(b'?');
+    let raw = path.to_string_lossy().replace('\\', "/");
+    let encoded = percent_encoding::utf8_percent_encode(&raw, PATH).to_string();
+    if encoded.starts_with('/') { format!("file://{encoded}") } else { format!("file:///{encoded}") }
 }

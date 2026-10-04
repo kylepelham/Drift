@@ -34,7 +34,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Snapshot and revert | Kept. Shell out to `git` with a shadow git dir per worktree. Snapshot before every writing tool. Revert restores a snapshot; diffs are computed between snapshots. |
 | MCP | Native `rmcp` (stdio, streamable HTTP, deprecated HTTP+SSE, OAuth), 2026-07-28 stateless servers found by probing with the handshake as fallback. Reconnect and reload designed in rather than patched on; no approval step. |
 | Storage | One `drift.db`, one writer, WAL, strict tables. Engine tables live beside the existing shell tables. |
-| Config | `drift.json` at the project root, `.drift/{agents,commands,skills}/`, `~/.config/drift/`. Instructions from `AGENTS.md` and `CLAUDE.md`: global (`~/.config/drift/AGENTS.md`), every directory up to the repository root, and subdirectories as their files are read. Skills from `.drift/skills`, `.agents/skills` and `.claude/skills` up to the repository root, `skillPaths`, and `~/.config/drift/skills`, `~/.agents/skills`, `~/.claude/skills`. No runtime `opencode.json` fallback. |
+| Config | `drift.json` at the project root, `.drift/{agents,commands,skills}/`, `~/.config/drift/`. Instructions from `AGENTS.md` and `CLAUDE.md`: global (`~/.config/drift/AGENTS.md`), every directory up to the repository root, and subdirectories as their files are read. `drift.json` `instructions` lists more files: a path relative to that file, absolute or `~/`, or a glob (`docs/rules/**/*.md`, walked as git lists files, at most 50 matches in name order); URLs are not fetched. Skills from `.drift/skills`, `.agents/skills` and `.claude/skills` up to the repository root, `skillPaths`, and `~/.config/drift/skills`, `~/.agents/skills`, `~/.claude/skills`. No runtime `opencode.json` fallback. |
 | Identity | `DRIFT_*` env vars, `~/.local/share/drift` data dir. A one-time migrator runs on first launch. MIT attribution for opencode stays in `licenses/`. |
 | Permissions | Upstream semantics (allow, deny, ask; path globs; session-scoped always; agent overrides) reimplemented once, with a single protocol. |
 | Session tree | Shared session storage, distinct ownership: `task` creates a hidden worker in foreground or background; the user spawns an independent sibling conversation with `/spawn <instruction>`. A conversation's parent link is provenance, not worker cancellation ownership. See "Subagents and branches" and "Background-worker implementation". |
@@ -775,9 +775,11 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   running worker's current tool, Stop (`POST /tasks/{id}/abort`) and a link to its transcript.
   Foreground workers are not listed there; their row in the transcript already waits for them.
 
-Initial async mode is selected at launch. Foreground-to-background promotion,
-agent teams, arbitrary cross-agent messaging and automatic post-crash execution
-resume are not required for the first implementation. `/spawn` stays a user-only,
+Initial async mode is selected at launch. Foreground-to-background promotion and
+adding to a running background task (opencode's `waitForPromotion` and
+`background.extend`, experimental there) are planned for M5. Agent teams, arbitrary
+cross-agent messaging and automatic post-crash execution resume are not required
+for the first implementation. `/spawn` stays a user-only,
 one-call spawn with an independent session lifetime.
 
 #### Async worker acceptance gates
@@ -822,6 +824,20 @@ these async criteria are new pending M3 work.
 
 - `Hook` trait finalised with serde types.
 - Prompt overrides implemented as an internal hook to prove the seam.
+- Background task controls: a foreground task the user moves to the background keeps running under
+  its owner's scope and delivers like any background task; `task_output` (or a sibling call) can add
+  a follow-up to a background task still running, which it reads at its next step. Both keep the
+  worker's ownership, Stop fencing and one-delivery rules.
+
+### Trade-offs kept on purpose
+
+- Undo restores only what Drift's own file tools wrote; changes made by shell commands (`sed -i`,
+  `rm`, codegen) are named, not reverted. In return undo never overwrites an edit the user made at
+  the same time.
+- `edit` matches exactly (line endings aside); opencode tries nine fuzzy fallbacks. Weaker and local
+  models will miss more; the closest-region message is the remedy. Measure the miss rate before
+  adding any fallback.
+- Delegation is one level deep; opencode makes the depth configurable (`subagent_depth`).
 
 ## Working on it
 
@@ -1168,10 +1184,23 @@ Settled after the first external review of M1; each has a regression test.
   never as a success the store lacks; a message whose terminal save fails stops the turn.
 - Stopping a shell stops its descendants: a Windows job object with kill-on-close, a unix
   process group. Dropping the run future has the same effect as an explicit abort.
-- The shell is Git's bash on Windows when installed, else PowerShell 7 (`pwsh`), else Windows
-  PowerShell 5.1 (`powershell.exe`). The tool text names the one it runs, and how to chain steps
-  in it: `&&` in bash and PowerShell 7, `;` with an explicit `$LASTEXITCODE` check in 5.1, which
-  has no `&&`.
+- The shell is `DRIFT_SHELL` when it names a file (bash, sh or zsh by name, else PowerShell);
+  else Git's bash on Windows, found beside the `git` on PATH (`<root>/cmd`, `bin` or
+  `mingw64/bin` lead to `<root>/bin/bash.exe`, since Git puts only `cmd` on PATH), then in Program
+  Files, the per-user install (`%LOCALAPPDATA%\Programs\Git`) and Scoop (`%SCOOP%` or
+  `~/scoop/apps/git/current`); else PowerShell 7 (`pwsh`), else Windows PowerShell 5.1
+  (`powershell.exe`). PATH is read as it is now (`platform::process::which`), so a Git installed
+  after Drift started is found. The tool text names the one it runs, and how to chain steps in it:
+  `&&` in bash and PowerShell 7, `;` with an explicit `$LASTEXITCODE` check in 5.1, which has no
+  `&&`.
+- `edit`, `write` and `apply_patch` answer the model in one line, as opencode does ("Edited
+  src/a.rs (+3 -1): 1 replacement.", "Created notes.md (40 lines).", "Patched 2 files:" then
+  `A`/`M`/`D`/`R` and each file's counts), so a new 1,500-line file is not echoed back. The diff
+  goes in the call's metadata for the UI: `diff` (edit and write) and `changes`, one record per
+  file (`filePath`, `relativePath`, `type` of add, update, delete or move, `patch`, `additions`,
+  `deletions`); `files` stays the list of paths written, which formatters, checks and undo read.
+  The UI's adapter (`adaptToolFields`) maps native `path` and `patch` to the names its rows,
+  file actions and citations read, and `changes` to apply_patch's per-file records.
 - `read` on a path that does not exist names up to three entries beside it whose names contain,
   or are contained in, the one asked for ("Did you mean one of these?"), as opencode does; both
   names must be three characters or more, so a file named `a` is not offered for every miss.
@@ -1534,8 +1563,16 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   one run as it until a prompt names another. Each message records the agent it was written
   under (a turn's replies the agent that turn runs as), so history keeps it after a switch.
 - **Commands.** `POST /sessions/{id}/command` (`Engine::execute_command`) expands the template
-  (`Command::expand`): `$ARGUMENTS` is everything typed, `$1`..`$9` one word each with the highest
-  taking the rest, and a template with neither gets the arguments appended rather than dropped.
+  (`Command::expand`): `$ARGUMENTS` is everything typed, `$1`, `$2`, ... (any number) one argument
+  each with the highest taking the rest, and a template with neither gets the arguments appended
+  rather than dropped. Arguments split as a shell splits words (`config::split_arguments`): single
+  or double quotes keep spaces. A template's `` !`line` `` becomes `` `line` (its output follows) ``
+  in the prompt and runs as the turn's first call (`bash`, one engine-made call per line, in the
+  same message as any other), through the bash permission check like the model's own: a reading
+  line runs, `cargo publish` asks, and its output (or the refusal) follows the prompt as "The /name
+  command ran `line`, which returned: ...". A delegating command cannot use them (400), since they
+  run in the conversation. A template's `@path` naming a workspace file or directory is attached
+  as an @ mention, read in under the same rules as one the user typed.
   Command front matter may name an `agent`, a `model` (`provider/model`) and `subtask`. The
   command is validated against the running config generation, the one its turn is then admitted
   with. An action agent is refused. As in opencode, a command's agent and model apply to its own
@@ -1643,11 +1680,28 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   user's own commands always run. Subagents take the answer of the session that delegated
   to them, along the same lineage as permission approvals, so a delegated task does not ask again.
   A permission rule of that kind (pattern `*`) allows them without asking.
-- **Permissions** resolve in order: session "always" answers, the workspace's `drift.json`
-  rules, then the global policy.
+- **Permissions** resolve in order: "always" answers, the workspace's `drift.json` rules, then the
+  global policy.
   - Policy evaluation is separate from an approval dialog. Ordinary workspace reads, scratch
     access, searches, skills, delegation and read-only MCP calls carry an allow-by-default policy
     request. Explicit deny/ask rules still apply; an unmatched default request produces no dialog.
+  - Workspace edits (edit, write, apply_patch) allow by default too, since undo can put them back,
+    except for files that would widen what the agent may do or hold secrets: `drift.json` anywhere,
+    anything under `.drift/`, version-control internals (`.git`, `.hg`, `.svn`, `.jj`) and files
+    likely to hold secrets (`tool::guarded`). Writes outside the workspace still ask.
+  - A shell line runs without asking when it only reads (`command::reads_only`), no move out of
+    the workspace is left in it, it uses no content searcher over a directory (`grep`, `rg`,
+    `git grep`, `Select-String`, which would read `.env` too; the `grep` tool skips such files),
+    and every word stays inside the workspace and names no secret file: no glob, variable or `~`,
+    no path resolving outside, with `--flag=value` and `rev:path` judged by their path parts
+    (`bash::reads_inside`). So `git status`, `git log`, `ls src` and `cat README.md` run, while
+    `cat .env`, `ls ..`, `git show HEAD:.env` and `cargo test` ask. A rule still decides first.
+  - "Always" holds for the workspace, in every session and across restarts (`Permissions::bind`
+    ties each planned session to its workspace; grants are kept in the `permissionGrants:<id>`
+    setting), as opencode keeps it for the project. A session with no workspace keeps its grants
+    in memory. Answering "always" also answers "once" for every other waiting ask that the new
+    grant now covers, under the policy each was asked under. The card's button reads "Always
+    allow in this workspace".
     Searches also evaluate their `grep`/`glob` rules. An approved search covers the files under its
     path, outside the workspace and in the scratch directory too, unless an explicit rule says
     otherwise: a file a rule denies is skipped, and one a rule asks about is skipped unless the
@@ -1656,9 +1710,8 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   - File asks (read, edit, write, apply_patch) carry the absolute path and, inside the workspace,
     the relative one (`Ask::path`); rules and approvals match either, so a committed `src/**`
     or `src/generated/**` rule works on every machine.
-  - A subagent inherits its parent's session approvals (`Permissions::inherit`, registered when
-    `task` creates it). One way only: an approval given inside the worker stays with the worker,
-    and branches inherit nothing.
+  - A subagent inherits its parent's approvals (`Permissions::inherit`, registered when `task`
+    creates it); it shares the workspace, so it has the workspace's grants as well.
   - Replies are `once`, `always`, `deny` and `stop`, with an optional `message`. `deny` refuses
     the call and the turn goes on; the model's result reads "The user denied permission for this
     call. They said: ..." when there is a message. `stop` refuses it and ends the turn that asked,

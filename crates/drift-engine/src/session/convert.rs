@@ -158,7 +158,8 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
             _ => ("This call was interrupted before it produced a result.".into(), true),
         };
         if let Some(command) = metadata.as_ref().and_then(|metadata| metadata["engineCommand"].as_str()) {
-            results.push(Block::Text(format!("The /{command} command {}:\n{content}", if is_error { "failed" } else { "returned" })));
+            let ran = input["command"].as_str().filter(|_| name == "bash").map(|line| format!(" ran `{line}`, which")).unwrap_or_default();
+            results.push(Block::Text(format!("The /{command} command{ran} {}:\n{content}", if is_error { "failed" } else { "returned" })));
         } else {
             results.push(Block::ToolResult { call_id: call_id.clone(), content, is_error });
         }
