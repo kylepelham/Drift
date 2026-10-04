@@ -12,7 +12,7 @@ use crate::Engine;
 const PLACEHOLDER_CHARS: usize = 80;
 const TITLE_CHARS: usize = 60;
 const INPUT_CHARS: usize = 4_000;
-// Reasoning models spend output tokens thinking before the few words of a title.
+// The title itself; a reasoning model gets thinking room on top (`Engine::complete`).
 const TITLE_MAX_TOKENS: u32 = 1_024;
 const TITLE_TIMEOUT: Duration = Duration::from_secs(30);
 

@@ -39,6 +39,8 @@ pub(super) enum Trigger {
 /// What the model sees: the latest finished summary, then the messages it kept and everything after.
 pub(super) struct View<'a> {
     pub summary: Option<String>,
+    /// When the tail starts inside a turn, that turn's prompt, verbatim, so the request is not only as the summary retells it.
+    pub request: Option<String>,
     pub messages: Vec<&'a MessageWithParts>,
 }
 
@@ -46,16 +48,20 @@ pub(super) fn view(transcript: &[MessageWithParts]) -> View<'_> {
     // A summary without text replaces nothing; the view before it stands.
     let latest = transcript.iter().rposition(|m| m.info.summary && m.info.status == MessageStatus::Done && !text_of(m).trim().is_empty());
     let Some(index) = latest else {
-        return View { summary: None, messages: transcript.iter().filter(|m| !is_marker(m)).collect() };
+        return View { summary: None, request: None, messages: transcript.iter().filter(|m| !is_marker(m)).collect() };
     };
     let tail_from = transcript[..index].iter().rev().find_map(boundary).flatten();
-    let messages = transcript
+    let messages: Vec<&MessageWithParts> = transcript
         .iter()
         .enumerate()
         .filter(|(i, m)| !is_marker(m) && tail_from.as_ref().map_or(*i > index, |tail| m.info.id >= *tail))
         .map(|(_, m)| m)
         .collect();
-    View { summary: Some(text_of(&transcript[index])), messages }
+    let request = messages.first().filter(|first| first.info.role == Role::Assistant).and_then(|first| {
+        let prompt = transcript.iter().rev().find(|m| m.info.id < first.info.id && m.info.role == Role::User && !is_marker(m))?;
+        Some(text_of(prompt)).filter(|text| !text.trim().is_empty())
+    });
+    View { summary: Some(text_of(&transcript[index])), request, messages }
 }
 
 /// The request history for `target`: the summary as the opening user turn (with `lead`, reminders for
@@ -64,7 +70,8 @@ pub(super) fn request_messages(transcript: &[MessageWithParts], target: &ModelRe
     let view = view(transcript);
     let mut out = Vec::new();
     if let Some(summary) = &view.summary {
-        let blocks = std::iter::once(wrap(summary)).chain(lead.iter().cloned()).map(Block::Text).collect();
+        let request = view.request.as_ref().map(|text| format!("The request still being worked on, as the user wrote it:\n\n{text}"));
+        let blocks = std::iter::once(wrap(summary)).chain(request).chain(lead.iter().cloned()).map(Block::Text).collect();
         convert::push(&mut out, llm::Role::User, blocks);
     }
     convert::append(&mut out, view.messages, target);
@@ -167,8 +174,13 @@ impl Engine {
         }
         let tail_from = tail.map(|i| view.messages[i].info.id.clone());
         let mut summary = self.open_compaction(session_id, &resolved.model_ref, trigger, tail_from).map_err(|e| e.to_string())?;
+        // The prompt a split turn kept verbatim rides with the previous summary, so a second compaction does not lose it.
+        let previous = view.summary.as_ref().map(|summary| match &view.request {
+            Some(request) => format!("{summary}\n\nThe request still being worked on, as the user wrote it:\n\n{request}"),
+            None => summary.clone(),
+        });
         let outcome = tokio::select! {
-            outcome = self.summarise(&resolved, &instructions, view.summary.as_deref(), head) => outcome,
+            outcome = self.summarise(&resolved, &instructions, previous.as_deref(), head) => outcome,
             () = abort.cancelled() => Err("aborted".to_string()),
         };
         self.close_compaction(&mut summary, outcome, abort.is_cancelled())
@@ -264,14 +276,32 @@ fn turn_starts(messages: &[&MessageWithParts]) -> Vec<usize> {
 }
 
 /// Where the verbatim tail begins: whole turns from the end, within both limits, always leaving
-/// something before it to summarise. `None` summarises everything.
+/// something before it to summarise. When not even the last turn fits (one prompt and hundreds of
+/// calls), its newest steps are kept from a reply onwards. `None` summarises everything.
 fn tail_start(messages: &[&MessageWithParts]) -> Option<usize> {
+    let starts = turn_starts(messages);
     let mut chosen = None;
-    for start in turn_starts(messages).into_iter().rev().take(TAIL_TURNS) {
+    for &start in starts.iter().rev().take(TAIL_TURNS) {
         if start == 0 || estimate(&messages[start..]) > TAIL_TOKENS {
             break;
         }
         chosen = Some(start);
+    }
+    chosen.or_else(|| split_turn(messages, starts.last().copied().unwrap_or(0)))
+}
+
+/// The earliest reply of the turn starting at `turn` from which the rest fits the tail budget.
+fn split_turn(messages: &[&MessageWithParts], turn: usize) -> Option<usize> {
+    let mut size = 0;
+    let mut chosen = None;
+    for index in (turn + 1..messages.len()).rev() {
+        size += estimate(&messages[index..=index]);
+        if size > TAIL_TOKENS {
+            break;
+        }
+        if messages[index].info.role == Role::Assistant {
+            chosen = Some(index);
+        }
     }
     chosen
 }

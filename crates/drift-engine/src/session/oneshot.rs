@@ -29,6 +29,9 @@ pub(crate) struct OneShot {
     pub timeout: Duration,
 }
 
+/// Thinking room a reasoning model without a token budget gets on top of a one-shot answer.
+const ONE_SHOT_THINKING: u32 = 4_096;
+
 /// What an action uses when the user has not pinned a model for it.
 pub(crate) enum Fallback {
     Conversation,
@@ -47,7 +50,7 @@ impl Engine {
         let chosen = match (plan.config.agent_model(action), fallback) {
             (Some(pinned), _) => pinned,
             (None, Fallback::Conversation) => plan.model_ref.clone(),
-            (None, Fallback::Small) => self.catalog.read().unwrap().small_model(&plan.model_ref).unwrap_or_else(|| plan.model_ref.clone()),
+            (None, Fallback::Small) => plan.catalog.small_model(&plan.model_ref).unwrap_or_else(|| plan.model_ref.clone()),
         };
         let resolved = if chosen == plan.model_ref {
             Resolved { model_ref: plan.model_ref, model: plan.model, provider: plan.provider, credential: plan.credential }
@@ -58,8 +61,7 @@ impl Engine {
     }
     /// Everything needed to call `model_ref`, with an expired subscription token refreshed.
     pub(crate) async fn resolve(&self, model_ref: &ModelRef) -> Result<Resolved, TurnError> {
-        let catalog = self.catalog.read().unwrap().clone();
-        self.resolve_from(model_ref, &catalog).await
+        self.resolve_from(model_ref, &self.catalog_view()).await
     }
 
     pub(super) async fn resolve_from(&self, model_ref: &ModelRef, catalog: &crate::llm::catalog::Catalog) -> Result<Resolved, TurnError> {
@@ -75,17 +77,35 @@ impl Engine {
     }
 
     /// The reply's text. The request forbids tool calls; a reply that makes one anyway is refused, never run.
+    /// A reasoning model runs at its weakest level, with room to think on top of the answer's own.
     pub(crate) async fn complete(&self, resolved: &Resolved, shot: OneShot) -> Result<String, String> {
+        let mut reasoning = resolved.model.variants.first().map(|variant| variant.reasoning.clone());
+        let thinking = match &reasoning {
+            Some(crate::llm::catalog::Reasoning::Budget { tokens }) => *tokens,
+            _ if resolved.model.reasoning => ONE_SHOT_THINKING,
+            _ => 0,
+        };
+        let limit = u32::try_from(resolved.model.limit.output).ok().filter(|limit| *limit > 0).unwrap_or(u32::MAX);
+        let mut max_tokens = shot.max_tokens.saturating_add(thinking).min(limit);
+        // A budget the model's output limit cannot hold beside the answer is dropped rather than refused by the provider.
+        if matches!(reasoning, Some(crate::llm::catalog::Reasoning::Budget { tokens }) if tokens >= max_tokens) {
+            reasoning = None;
+            max_tokens = shot.max_tokens.min(limit);
+        }
         let request = Request {
             model: resolved.model_ref.model.clone(),
             system: shot.system,
             messages: crate::llm::prepare_files(shot.messages, &resolved.model, |hash| self.store.blob(hash).ok().flatten()),
             tools: shot.tools,
-            max_tokens: shot.max_tokens,
-            reasoning: None,
+            max_tokens,
+            reasoning,
             temperature: None,
             cache_key: None,
             no_tool_calls: true,
+            verbosity: None,
+            show_thinking: false,
+            top_p: None,
+            top_k: None,
         };
         tokio::time::timeout(shot.timeout, collect_text(&resolved.provider, &request, &resolved.credential))
             .await

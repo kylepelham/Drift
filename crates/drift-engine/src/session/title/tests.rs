@@ -44,6 +44,20 @@ async fn a_new_conversation_is_named_by_a_small_model_from_its_provider() {
     let price = |id: &str| models[id].cost.input + models[id].cost.output;
     assert!(price(&request.model) < price("claude-sonnet-4-5"), "{} is not smaller", request.model);
     assert!(request.tools.is_empty());
+    let small = &models[&request.model];
+    if let Some(weakest) = small.variants.first().filter(|_| small.reasoning) {
+        assert_eq!(request.reasoning.as_ref(), Some(&weakest.reasoning), "a reasoning model titles at its weakest level");
+        assert!(request.max_tokens > 1_024, "with room to think as well as answer: {}", request.max_tokens);
+    }
+}
+
+#[test]
+fn a_chatgpt_sign_in_titles_on_the_conversations_model_not_an_api_only_one() {
+    let mut catalog = crate::llm::catalog::Catalog::bundled();
+    let openai = catalog.providers.get_mut("openai").unwrap();
+    crate::llm::openai::codex::shape(openai);
+    let model = openai.models.keys().next().unwrap().clone();
+    assert_eq!(catalog.small_model(&crate::session::types::ModelRef { provider: "openai".into(), model }), None, "nothing is priced, so the conversation's own model names it");
 }
 
 #[tokio::test]

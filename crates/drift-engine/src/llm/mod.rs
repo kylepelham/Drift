@@ -180,6 +180,13 @@ pub struct Request {
     pub cache_key: Option<String>,
     /// Tools stay defined so history with calls is valid, but the model may not call one.
     pub no_tool_calls: bool,
+    /// OpenAI `text.verbosity`, from `catalog::verbosity`.
+    pub verbosity: Option<&'static str>,
+    /// Ask to see the model's thinking even with no level set (`catalog::shows_thinking`).
+    pub show_thinking: bool,
+    /// Sampling the model is tuned for (`catalog::sampling`), beside `temperature`.
+    pub top_p: Option<f64>,
+    pub top_k: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -489,7 +496,7 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
         "openai" => Provider::OpenAi(override_url.as_deref().map_or_else(openai::OpenAi::default, openai::OpenAi::new)),
         "google" => Provider::Gemini(override_url.as_deref().map_or_else(gemini::Gemini::default, gemini::Gemini::new)),
         "xai" => Provider::Compat(compat::Compat::new(&base("https://api.x.ai/v1"))),
-        "zai" => Provider::Compat(compat::Compat::new(&base("https://api.z.ai/api/paas/v4"))),
+        "zai" => Provider::Compat(compat::Compat::zai(&base("https://api.z.ai/api/paas/v4"))),
         "openrouter" => Provider::Compat(compat::Compat::openrouter(&base("https://openrouter.ai/api/v1"))),
         "lmstudio" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:1234/v1"))),
         "ollama" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:11434/v1"))),

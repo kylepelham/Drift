@@ -19,6 +19,8 @@ pub struct Compat {
     claude_breakpoints: bool,
     /// Reasoning goes as OpenRouter's `reasoning` object, which takes a budget too, rather than `reasoning_effort`.
     reasoning_object: bool,
+    /// Z.ai drops earlier reasoning unless told `clear_thinking: false`, as opencode sends.
+    keep_thinking: bool,
 }
 
 impl Compat {
@@ -29,6 +31,7 @@ impl Compat {
             timeouts: super::http::Timeouts::default(),
             claude_breakpoints: false,
             reasoning_object: false,
+            keep_thinking: false,
         }
     }
 
@@ -37,17 +40,31 @@ impl Compat {
         Self { claude_breakpoints: true, reasoning_object: true, ..Self::new(base_url) }
     }
 
+    /// Z.ai: thinking on, with the reasoning of the turn's earlier steps kept.
+    pub fn zai(base_url: &str) -> Self {
+        Self { keep_thinking: true, ..Self::new(base_url) }
+    }
+
+    /// The request body as this route takes it.
+    fn shaped(&self, request: &Request) -> Value {
+        let mut body = body(request);
+        reason(&mut body, request.reasoning.as_ref(), self.reasoning_object);
+        if self.keep_thinking {
+            body["thinking"] = json!({ "type": "enabled", "clear_thinking": false });
+        }
+        if self.claude_breakpoints && is_claude(&request.model) {
+            mark_breakpoints(&mut body);
+        }
+        body
+    }
+
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
         let key = match credential {
             Credential::ApiKey { key } => key.clone(),
             Credential::OAuth { access, .. } => access.clone(),
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
-        let mut body = body(request);
-        reason(&mut body, request.reasoning.as_ref(), self.reasoning_object);
-        if self.claude_breakpoints && is_claude(&request.model) {
-            mark_breakpoints(&mut body);
-        }
+        let body = self.shaped(request);
         let sending = self.client.post(format!("{}/chat/completions", self.base_url)).bearer_auth(key).header("accept", "text/event-stream").json(&body);
         let response = super::http::send(sending, &self.timeouts).await?;
         let status = response.status();
@@ -96,6 +113,9 @@ fn body(request: &Request) -> Value {
     }
     if let Some(temperature) = request.temperature {
         body["temperature"] = json!(temperature);
+    }
+    if let Some(top_p) = request.top_p {
+        body["top_p"] = json!(top_p);
     }
     body
 }
@@ -321,8 +341,8 @@ impl StreamState {
         }
         let calls = std::mem::take(&mut self.calls);
         let called = !calls.is_empty();
-        for (index, call) in calls {
-            let id = if call.id.is_empty() { format!("call_{index}") } else { call.id };
+        for (_, call) in calls {
+            let id = if call.id.is_empty() { crate::id::new("call") } else { call.id };
             out.push(Chunk::ToolUseStart { id, name: call.name });
             if !call.arguments.is_empty() {
                 out.push(Chunk::ToolInputDelta(call.arguments));
@@ -361,6 +381,16 @@ mod tests {
     }
 
     #[test]
+    fn zai_keeps_thinking_and_tuned_sampling_is_sent() {
+        let tuned = Request { temperature: Some(1.0), top_p: Some(0.95), top_k: Some(40), ..request() };
+        let zai = Compat::zai("https://z.example").shaped(&tuned);
+        assert_eq!(zai["thinking"], json!({ "type": "enabled", "clear_thinking": false }));
+        assert_eq!((zai["temperature"].as_f64(), zai["top_p"].as_f64()), (Some(1.0), Some(0.95)));
+        assert!(zai.get("top_k").is_none(), "not a Chat Completions field");
+        assert!(Compat::new("https://other.example").shaped(&tuned).get("thinking").is_none());
+    }
+
+    #[test]
     fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
         assert!(body(&request()).get("tool_choice").is_none());
         let built = body(&Request { no_tool_calls: true, ..request() });
@@ -389,6 +419,10 @@ mod tests {
             temperature: Some(0.2),
             cache_key: None,
             no_tool_calls: false,
+            verbosity: None,
+            show_thinking: false,
+            top_p: None,
+            top_k: None,
         }
     }
 

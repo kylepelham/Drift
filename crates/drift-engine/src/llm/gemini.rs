@@ -83,13 +83,17 @@ fn body(request: &Request) -> Value {
             body["toolConfig"] = json!({ "functionCallingConfig": { "mode": "NONE" } });
         }
     }
+    let config = &mut body["generationConfig"];
     match &request.reasoning {
-        Some(Reasoning::Budget { tokens }) => body["generationConfig"]["thinkingConfig"] = json!({ "thinkingBudget": tokens, "includeThoughts": true }),
-        Some(Reasoning::Effort { level }) => body["generationConfig"]["thinkingConfig"] = json!({ "thinkingLevel": level, "includeThoughts": true }),
-        None => {
-            if let Some(temperature) = request.temperature {
-                body["generationConfig"]["temperature"] = json!(temperature);
-            }
+        Some(Reasoning::Budget { tokens }) => config["thinkingConfig"] = json!({ "thinkingBudget": tokens, "includeThoughts": true }),
+        Some(Reasoning::Effort { level }) => config["thinkingConfig"] = json!({ "thinkingLevel": level, "includeThoughts": true }),
+        None if request.show_thinking => config["thinkingConfig"] = json!({ "includeThoughts": true }),
+        None => {}
+    }
+    let sampling = [("temperature", request.temperature.map(Value::from)), ("topP", request.top_p.map(Value::from)), ("topK", request.top_k.map(Value::from))];
+    for (key, value) in sampling {
+        if let Some(value) = value {
+            config[key] = value;
         }
     }
     body
@@ -145,7 +149,6 @@ fn api_error(status: u16, text: &str) -> Error {
 #[derive(Default)]
 struct StreamState {
     open: Option<Open>,
-    calls: u32,
     called_tools: bool,
 }
 
@@ -194,9 +197,8 @@ impl StreamState {
         let signature = part["thoughtSignature"].as_str();
         if let Some(call) = part.get("functionCall") {
             out.extend(self.close());
-            self.calls += 1;
             self.called_tools = true;
-            let id = call["id"].as_str().map(str::to_string).unwrap_or_else(|| format!("call_{}", self.calls));
+            let id = call["id"].as_str().filter(|id| !id.is_empty()).map_or_else(|| crate::id::new("call"), str::to_string);
             out.push(Chunk::ToolUseStart { id, name: call["name"].as_str().unwrap_or_default().into() });
             out.push(Chunk::ToolInputDelta(call.get("args").cloned().unwrap_or_else(|| json!({})).to_string()));
             if let Some(signature) = signature { out.push(Chunk::PartSignature(signature.into())); }
@@ -246,6 +248,15 @@ mod tests {
     }
 
     #[test]
+    fn thoughts_are_asked_for_at_the_default_level_and_sampling_is_sent() {
+        assert!(body(&Request { reasoning: None, ..request() }).pointer("/generationConfig/thinkingConfig").is_none());
+        let built = body(&Request { reasoning: None, show_thinking: true, temperature: Some(1.0), top_p: Some(0.95), top_k: Some(64), ..request() });
+        let config = &built["generationConfig"];
+        assert_eq!(config["thinkingConfig"], json!({ "includeThoughts": true }));
+        assert_eq!((config["temperature"].as_f64(), config["topP"].as_f64(), config["topK"].as_u64()), (Some(1.0), Some(0.95), Some(64)));
+    }
+
+    #[test]
     fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
         assert!(body(&request()).get("toolConfig").is_none());
         let built = body(&Request { no_tool_calls: true, ..request() });
@@ -274,6 +285,10 @@ mod tests {
             temperature: None,
             cache_key: None,
             no_tool_calls: false,
+            verbosity: None,
+            show_thinking: false,
+            top_p: None,
+            top_k: None,
         }
     }
 
@@ -326,7 +341,10 @@ mod tests {
         let mut state = StreamState::default();
         let feed = |state: &mut StreamState, json: &str| state.chunks(json).unwrap();
         assert_eq!(feed(&mut state, r#"{"candidates":[{"content":{"parts":[{"text":"th","thought":true}]}}]}"#), vec![Chunk::ReasoningStart, Chunk::ReasoningDelta("th".into())]);
-        let call = feed(&mut state, r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","args":{"path":"a"}},"thoughtSignature":"sig"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":3,"thoughtsTokenCount":4}}"#);
+        let mut call = feed(&mut state, r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","args":{"path":"a"}},"thoughtSignature":"sig"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":3,"thoughtsTokenCount":4}}"#);
+        let Chunk::ToolUseStart { id, .. } = &mut call[1] else { panic!("{call:?}") };
+        assert!(id.starts_with("call_") && id.len() > "call_1".len(), "a missing id is an engine id, unique across streams: {id}");
+        *id = "call_1".into();
         assert_eq!(
             call,
             vec![

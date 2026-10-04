@@ -1,5 +1,6 @@
 //! OpenAI Responses API over SSE, for API keys and for ChatGPT subscriptions through the Codex backend.
 
+pub mod codex;
 pub mod oauth;
 
 use std::collections::HashSet;
@@ -108,6 +109,9 @@ fn body(request: &Request, subscription: bool) -> Value {
     }
     if let Some(Reasoning::Effort { level }) = &request.reasoning {
         body["reasoning"] = json!({ "effort": level, "summary": "auto" });
+    }
+    if let Some(verbosity) = request.verbosity {
+        body["text"] = json!({ "verbosity": verbosity });
     }
     // One key per conversation, as Codex itself sends, so its requests share a cache.
     if let Some(key) = &request.cache_key {
@@ -317,13 +321,19 @@ mod tests {
     }
 
     #[test]
-fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
-    assert_eq!(body(&request(), false)["tool_choice"], "auto");
-    let built = body(&Request { no_tool_calls: true, ..request() }, true);
-    assert_eq!((built["tool_choice"].clone(), built["tools"].as_array().map(Vec::len).unwrap_or(0) > 0), (json!("none"), true));
-}
+    fn verbosity_rides_in_text() {
+        assert!(body(&request(), false).get("text").is_none());
+        assert_eq!(body(&Request { verbosity: Some("low"), ..request() }, true)["text"], json!({ "verbosity": "low" }));
+    }
 
-fn request() -> Request {
+    #[test]
+    fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
+        assert_eq!(body(&request(), false)["tool_choice"], "auto");
+        let built = body(&Request { no_tool_calls: true, ..request() }, true);
+        assert_eq!((built["tool_choice"].clone(), built["tools"].as_array().map(Vec::len).unwrap_or(0) > 0), (json!("none"), true));
+    }
+
+    fn request() -> Request {
         Request {
             model: "gpt-5.4".into(),
             system: "You are Drift.".into(),
@@ -345,6 +355,10 @@ fn request() -> Request {
             temperature: None,
             cache_key: Some("ses_1".into()),
             no_tool_calls: false,
+            verbosity: None,
+            show_thinking: false,
+            top_p: None,
+            top_k: None,
         }
     }
 

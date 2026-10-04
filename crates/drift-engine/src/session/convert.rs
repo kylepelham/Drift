@@ -85,8 +85,8 @@ fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> 
                 Some(Block::Reasoning { text: text.clone(), signature: signature.clone(), redacted: redacted.clone() })
             }
             Part::ToolCall { metadata: Some(metadata), .. } if metadata["engineCommand"].is_string() => None,
-            Part::ToolCall { call_id, name, input, .. } if input.is_object() => {
-                Some(Block::ToolUse { id: call_id.clone(), name: name.clone(), input: input.clone() })
+            Part::ToolCall { call_id, name, input, status, output, .. } => {
+                replayed_input(input, *status, output.as_deref()).map(|input| Block::ToolUse { id: call_id.clone(), name: name.clone(), input })
             }
             _ => None,
             }?;
@@ -98,6 +98,16 @@ fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> 
         .collect()
 }
 
+/// A call's input as replayed. One whose arguments never parsed goes back as `{}` once the engine has
+/// answered it with the parse error, so the model reads why; one cut off mid-stream is left out.
+fn replayed_input(input: &serde_json::Value, status: ToolStatus, output: Option<&str>) -> Option<serde_json::Value> {
+    match input {
+        serde_json::Value::Object(_) => Some(input.clone()),
+        _ if status == ToolStatus::Error && output.is_some() => Some(serde_json::json!({})),
+        _ => None,
+    }
+}
+
 /// Every replayed call needs a result or the provider rejects the transcript; unfinished ones say so.
 /// Calls whose arguments never parsed were not replayed, so they get no result either. Images a
 /// call returned follow all the results, since providers want results first in the turn.
@@ -106,7 +116,7 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
     let mut images = Vec::new();
     for row in &message.parts {
         let Part::ToolCall { call_id, name, status, output, input, metadata, .. } = &row.part else { continue };
-        if !input.is_object() {
+        if replayed_input(input, *status, output.as_deref()).is_none() {
             continue;
         }
         let (content, is_error) = match (status, output) {
@@ -340,5 +350,23 @@ mod incomplete_block_tests {
         let out = messages(&transcript, &target());
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].blocks, vec![Block::Text("partial".into())]);
+    }
+
+    #[test]
+    fn a_settled_call_with_broken_arguments_goes_back_with_its_parse_error() {
+        let refused = Part::ToolCall {
+            call_id: "c_bad".into(),
+            name: "read".into(),
+            input: serde_json::Value::String("{\"path".into()),
+            status: ToolStatus::Error,
+            title: None,
+            output: Some("The arguments were not valid JSON (EOF while parsing)".into()),
+            metadata: None,
+            started_at: None,
+            finished_at: None,
+        };
+        let out = messages(&[message_with(Role::Assistant, MessageStatus::Done, vec![refused])], &target());
+        assert_eq!(out[0].blocks, vec![Block::ToolUse { id: "c_bad".into(), name: "read".into(), input: serde_json::json!({}) }]);
+        assert!(matches!(&out[1].blocks[0], Block::ToolResult { call_id, content, is_error: true } if call_id == "c_bad" && content.contains("not valid JSON")));
     }
 }

@@ -417,6 +417,47 @@ fn variants_for(provider: &str, model: &str, output: u64, options: &[serde_json:
     }
 }
 
+/// What a turn asks for when the user picked no level, as opencode does: OpenAI reasoning models
+/// think at `medium` (their own default) so summaries come back; models without that level ask nothing.
+pub fn default_reasoning(provider: &str, model: &Model) -> Option<Reasoning> {
+    let medium = model.variants.iter().find(|variant| variant.name == "medium")?;
+    (provider == "openai" && model.reasoning).then(|| medium.reasoning.clone())
+}
+
+/// OpenAI's GPT reasoning models answer tersely when asked (`text.verbosity`); Codex models are left as they are.
+pub fn verbosity(provider: &str, model: &Model) -> Option<&'static str> {
+    let gpt = model.family.starts_with("gpt") && !model.family.contains("codex") && !model.family.contains("pro");
+    (provider == "openai" && model.reasoning && gpt).then_some("low")
+}
+
+/// Sampling a model's makers tune it for, sent when the user set none, as opencode does: Kimi,
+/// GLM, MiniMax and Gemini (not Lite). Read from the catalog's family and reasoning flag.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Sampling {
+    pub temperature: Option<f64>,
+    pub top_p: Option<f64>,
+    pub top_k: Option<u32>,
+}
+
+pub fn sampling(model: &Model) -> Sampling {
+    let family = model.family.as_str();
+    let tuned = |temperature, top_p, top_k| Sampling { temperature: Some(temperature), top_p, top_k };
+    match family {
+        _ if !model.temperature => Sampling::default(),
+        f if f.starts_with("kimi") && model.reasoning => tuned(1.0, Some(0.95), None),
+        f if f.starts_with("kimi") => tuned(0.6, None, None),
+        f if f.starts_with("glm") => tuned(1.0, None, None),
+        f if f.starts_with("minimax") => tuned(1.0, Some(0.95), Some(40)),
+        f if f.starts_with("gemini") && !f.contains("lite") => tuned(1.0, Some(0.95), Some(64)),
+        _ => Sampling::default(),
+    }
+}
+
+/// Gemini keeps its thinking to itself unless asked, even at its default level.
+pub fn shows_thinking(provider: &str, model: &Model) -> bool {
+    matches!(provider, "google" | "google-vertex") && model.reasoning && !speaks_claude(provider, &model.id)
+}
+
 fn effort_variant(level: &serde_json::Value) -> Variant {
     let level = level.as_str().unwrap_or("none").to_string();
     Variant { name: level.clone(), reasoning: Reasoning::Effort { level } }
@@ -482,6 +523,24 @@ mod tests {
         let raw = r#"{"openrouter":{"id":"openrouter","name":"OpenRouter","env":["OPENROUTER_API_KEY"],"api":"https://openrouter.ai/api/v1","models":{"anthropic/claude-sonnet-4.5":{"id":"anthropic/claude-sonnet-4.5","name":"Claude Sonnet 4.5","tool_call":true}}}}"#;
         let parsed = Catalog::parse(raw).unwrap();
         assert!(parsed.model("openrouter", "anthropic/claude-sonnet-4.5").is_some(), "selectable once the catalog lists it");
+    }
+
+    #[test]
+    fn unpicked_levels_verbosity_thinking_and_sampling_follow_the_catalog() {
+        let catalog = Catalog::bundled();
+        let model = |provider: &str, id: &str| catalog.model(provider, id).unwrap().clone();
+        let medium = Some(Reasoning::Effort { level: "medium".into() });
+        assert_eq!(default_reasoning("openai", &model("openai", "gpt-5.5")), medium);
+        assert_eq!(default_reasoning("openai", &model("openai", "gpt-5-pro")), None, "pro offers only high");
+        assert_eq!(default_reasoning("anthropic", &model("anthropic", "claude-sonnet-4-5")), None);
+        assert_eq!(verbosity("openai", &model("openai", "gpt-5.5")), Some("low"));
+        assert_eq!(verbosity("openai", &model("openai", "gpt-5.3-codex")), None, "Codex models are left as they are");
+        assert!(shows_thinking("google", &model("google", "gemini-2.5-pro")));
+        assert!(!shows_thinking("anthropic", &model("anthropic", "claude-sonnet-4-5")));
+        assert_eq!(sampling(&model("zai", "glm-4.6")).temperature, Some(1.0));
+        assert_eq!(sampling(&model("google", "gemini-3.5-flash")), Sampling { temperature: Some(1.0), top_p: Some(0.95), top_k: Some(64) });
+        assert_eq!(sampling(&model("google", "gemini-3.5-flash-lite")), Sampling::default());
+        assert_eq!(sampling(&model("anthropic", "claude-sonnet-4-5")), Sampling::default());
     }
 
     #[test]

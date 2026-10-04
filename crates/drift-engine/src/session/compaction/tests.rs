@@ -112,6 +112,33 @@ async fn a_step_loads_from_the_kept_tail_and_sends_what_the_whole_transcript_wou
 }
 
 #[tokio::test]
+async fn a_single_long_turn_keeps_its_newest_steps_and_its_prompt_verbatim() {
+    let h = harness().await;
+    for i in 0..6 {
+        std::fs::write(h._dir.join(format!("ws/big{i}.txt")), (0..1_500).map(|n| format!("BODY{i} line {n}\n")).collect::<String>()).unwrap();
+        h.provider.push(crate::session::turn::tests::tool_call("read", &format!(r#"{{"path": "big{i}.txt"}}"#)));
+    }
+    h.provider.push(text("all read"));
+    turn(&h, "PLEASE AUDIT EVERY FILE").await;
+    h.provider.push(text("SUMMARY of the audit"));
+    h.engine.start_compaction(&h.session.id).unwrap();
+    until_idle(&h).await;
+    let full = h.engine.store.transcript(&h.session.id).unwrap();
+    let Some(Part::Compaction { tail_from: Some(tail), .. }) = full.iter().flat_map(|m| &m.parts).map(|row| &row.part).find(|part| matches!(part, Part::Compaction { .. })) else { panic!("a tail inside the turn") };
+    let kept = full.iter().find(|m| &m.info.id == tail).unwrap();
+    assert_eq!(kept.info.role, Role::Assistant, "the tail starts at a reply inside the one turn");
+    let window = h.engine.request_window(&h.session.id).unwrap();
+    let target = crate::session::turn::tests::model();
+    let sent = request_messages(&window, &target, &[]);
+    assert_eq!(sent, request_messages(&full, &target, &[]), "the loaded window sends what the whole transcript would");
+    let opening = match &sent[0].blocks[..] { [Block::Text(summary), Block::Text(request), ..] => (summary.clone(), request.clone()), other => panic!("{other:?}") };
+    assert!(opening.0.contains("SUMMARY of the audit") && opening.1.contains("PLEASE AUDIT EVERY FILE"), "{opening:?}");
+    let shown = format!("{sent:?}");
+    assert!(shown.contains("BODY5"), "the newest steps stay verbatim");
+    assert!(!shown.contains("BODY0 "), "the oldest are summarised");
+}
+
+#[tokio::test]
 async fn a_summary_that_cannot_be_stored_never_replaces_the_history() {
     for (name, fault) in STORAGE_FAULTS {
         let h = harness().await;

@@ -211,6 +211,19 @@ impl Store {
         Ok(with_parts_in(self, &conn, session_id, info.into_iter().collect())?.pop())
     }
 
+    /// The user's prompt the turn holding `message_id` answers: the newest user message before it that is not a compaction boundary.
+    pub fn prompt_before(&self, session_id: &str, message_id: &str) -> rusqlite::Result<Option<MessageWithParts>> {
+        let conn = self.lock();
+        let info = conn
+            .prepare_cached(&format!(
+                "SELECT {MESSAGE_COLUMNS} FROM message m WHERE session_id = ?1 AND id < ?2 AND role = 'user' AND summary = 0
+                 AND NOT EXISTS (SELECT 1 FROM part p WHERE p.message_id = m.id AND json_extract(p.json, '$.type') = 'compaction') ORDER BY id DESC LIMIT 1"
+            ))?
+            .query_row(params![session_id, message_id], map_message)
+            .optional()?;
+        Ok(with_parts_in(self, &conn, session_id, info.into_iter().collect())?.pop())
+    }
+
     /// One message and its parts.
     pub fn with_parts(&self, message_id: &str) -> rusqlite::Result<Option<MessageWithParts>> {
         let conn = self.lock();
@@ -220,8 +233,20 @@ impl Store {
         Ok(with_parts_in(self, &conn, &session_id, vec![info])?.pop())
     }
 
-    pub fn add_part(&self, message_id: &str, session_id: &str, part: Part) -> rusqlite::Result<PartRow> {
-        insert_part(&self.lock(), message_id, session_id, part)
+    /// A tool call whose id is empty or already used in the session gets an engine id: tasks, spilled
+    /// output and recovery all find a call by its id.
+    pub fn add_part(&self, message_id: &str, session_id: &str, mut part: Part) -> rusqlite::Result<PartRow> {
+        let conn = self.lock();
+        if let Part::ToolCall { call_id, .. } = &mut part {
+            let taken = call_id.is_empty()
+                || conn
+                    .prepare_cached("SELECT 1 FROM part WHERE session_id = ?1 AND json_extract(json, '$.callId') = ?2 AND json_extract(json, '$.type') = 'tool_call'")?
+                    .exists(params![session_id, call_id.as_str()])?;
+            if taken {
+                *call_id = id::new("call");
+            }
+        }
+        insert_part(&conn, message_id, session_id, part)
     }
 
     /// Saves the part; one that was streaming is closed, so reads take it from here.

@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 30] = [
+pub(super) const MIGRATIONS: [&str; 31] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -161,6 +161,8 @@ pub(super) const MIGRATIONS: [&str; 30] = [
     // Whether read-only agents may use a server's read-only tools; a changed definition clears it.
     "ALTER TABLE mcp_config ADD COLUMN read_only_trusted INTEGER NOT NULL DEFAULT 0;",
     "ALTER TABLE part ADD COLUMN provider_signature TEXT;",
+    // Tool call ids by session, so a provider repeating one (`call_1`, `functions.read:0`) is renamed before it is stored.
+    "CREATE INDEX idx_part_call ON part(session_id, json_extract(json, '$.callId')) WHERE json_extract(json, '$.type') = 'tool_call';",
 ];
 
 #[cfg(test)]

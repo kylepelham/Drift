@@ -35,7 +35,7 @@ pub struct ApiKeyBody {
 
 #[utoipa::path(get, path = "/providers", operation_id = "listProviders", responses((status = 200, body = Vec<ProviderStatus>)))]
 pub async fn list(State(engine): State<Arc<Engine>>) -> Json<Vec<ProviderStatus>> {
-    let catalog = engine.catalog.read().unwrap();
+    let catalog = engine.catalog_view();
     let stored = engine.credentials.providers();
     let statuses = catalog.providers.values().map(|info| status(&engine, info, &stored)).collect();
     Json(statuses)
@@ -65,13 +65,14 @@ pub async fn set_key(State(engine): State<Arc<Engine>>, Path(id): Path<String>, 
         .credentials
         .set(&id, &Credential::ApiKey { key: key.into() })
         .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e))?;
-    engine.retry_deliveries(None);
+    credentials_changed(&engine);
     Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(delete, path = "/providers/{id}/credentials", operation_id = "removeProviderCredentials", responses((status = 204)))]
 pub async fn remove(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
     engine.credentials.remove(&id).map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e))?;
+    engine.hub.publish(crate::event::Event::CatalogUpdated {});
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -144,6 +145,12 @@ pub async fn oauth_finish(State(engine): State<Arc<Engine>>, Path(id): Path<Stri
     };
     let credential = credential.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e))?;
     engine.credentials.set(&id, &credential).map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e))?;
-    engine.retry_deliveries(None);
+    credentials_changed(&engine);
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// A sign-in changes which models a provider offers (a ChatGPT one only what Codex takes), so the picker reloads.
+fn credentials_changed(engine: &Arc<Engine>) {
+    engine.retry_deliveries(None);
+    engine.hub.publish(crate::event::Event::CatalogUpdated {});
 }

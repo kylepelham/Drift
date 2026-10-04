@@ -916,6 +916,18 @@ async fn a_call_that_cannot_be_recorded_does_not_run() {
 }
 
 #[tokio::test]
+async fn a_tool_named_in_the_wrong_case_runs_as_the_offered_tool() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "alpha\n").unwrap();
+    h.provider.push(tool_call("Read", r#"{"path": "a.txt"}"#)).push(text("ok"));
+    h.engine.submit(&h.session.id, prompt("read")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { name, status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!((name.as_str(), *status), ("read", ToolStatus::Done), "{output:?}");
+}
+
+#[tokio::test]
 async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
     let h = harness().await;
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
@@ -927,7 +939,10 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Error);
-    assert!(output.as_deref().unwrap().contains("not valid JSON"));
+    assert!(output.as_deref().unwrap().contains("not valid JSON (EOF while parsing"), "the parser's complaint is quoted: {output:?}");
+    let next = h.provider.requests.lock().unwrap()[1].clone();
+    let replayed: Vec<&crate::llm::Block> = next.messages.iter().flat_map(|m| &m.blocks).filter(|b| matches!(b, crate::llm::Block::ToolUse { .. } | crate::llm::Block::ToolResult { .. })).collect();
+    assert!(matches!(replayed[..], [crate::llm::Block::ToolUse { input, .. }, crate::llm::Block::ToolResult { is_error: true, .. }] if *input == serde_json::json!({})), "the model sees its broken call and why: {replayed:?}");
 
     h.provider.push(vec![Chunk::ToolUseStart { id: "t2".into(), name: "read".into() }, Chunk::ToolInputDelta(r#"{"path": "a.txt"}"#.into()), Chunk::BlockStop, Chunk::Stop(StopReason::MaxTokens)]);
     h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
@@ -1216,6 +1231,24 @@ async fn a_steered_image_is_judged_against_the_model_the_next_request_runs_on() 
     h.engine.submit(&h.session.id, elsewhere).await.expect("the model it switches to reads images");
     until_idle(&h).await;
     assert_eq!(h.provider.requests.lock().unwrap().last().unwrap().model, other, "answered on the model it named");
+}
+
+#[tokio::test]
+async fn a_call_id_the_provider_repeats_is_renamed_so_every_call_keeps_its_own() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
+    std::fs::write(h._dir.join("ws/b.txt"), "b\n").unwrap();
+    let call = |path: &str| vec![Chunk::ToolUseStart { id: "functions.read:0".into(), name: "read".into() }, Chunk::ToolInputDelta(format!(r#"{{"path": "{path}"}}"#)), Chunk::BlockStop, Chunk::Stop(StopReason::ToolUse)];
+    h.provider.push(call("a.txt")).push(call("b.txt")).push(text("done"));
+    h.engine.submit(&h.session.id, prompt("read both")).await.await_ok();
+    until_idle(&h).await;
+    let ids: Vec<String> = h.engine.store.transcript(&h.session.id).unwrap().iter().flat_map(|m| &m.parts).filter_map(|row| match &row.part { Part::ToolCall { call_id, .. } => Some(call_id.clone()), _ => None }).collect();
+    assert_eq!(ids.len(), 2);
+    assert_eq!(ids[0], "functions.read:0", "a fresh id is kept as the provider sent it");
+    assert!(ids[1] != ids[0] && ids[1].starts_with("call_"), "{ids:?}");
+    let last = h.provider.requests.lock().unwrap().last().unwrap().clone();
+    let results: Vec<&str> = last.messages.iter().flat_map(|m| &m.blocks).filter_map(|b| match b { crate::llm::Block::ToolResult { call_id, .. } => Some(call_id.as_str()), _ => None }).collect();
+    assert_eq!(results, [ids[0].as_str(), ids[1].as_str()], "each result answers its own call");
 }
 
 fn limits(h: &Harness, json: &str) {

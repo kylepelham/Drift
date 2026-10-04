@@ -184,6 +184,12 @@ fn sendable(block: &Block) -> bool {
     !matches!(block.unsigned(), Block::Stored { .. } | Block::Reasoning { signature: None, redacted: None, .. })
 }
 
+/// A call id as Anthropic accepts it (`[a-zA-Z0-9_-]+`); ids from other providers (`functions.read:0`) are mapped the same way on both sides.
+fn wire_id(id: &str) -> String {
+    let id: String = id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
+    if id.is_empty() { "call".into() } else { id }
+}
+
 fn block(block: &Block) -> Value {
     match block {
         Block::Signed { part, .. } => self::block(part),
@@ -192,9 +198,9 @@ fn block(block: &Block) -> Value {
         Block::Reasoning { text, signature, .. } => {
             json!({ "type": "thinking", "thinking": text, "signature": signature.clone().unwrap_or_default() })
         }
-        Block::ToolUse { id, name, input } => json!({ "type": "tool_use", "id": id, "name": name, "input": input }),
+        Block::ToolUse { id, name, input } => json!({ "type": "tool_use", "id": wire_id(id), "name": name, "input": input }),
         Block::ToolResult { call_id, content, is_error } => {
-            json!({ "type": "tool_result", "tool_use_id": call_id, "content": content, "is_error": is_error })
+            json!({ "type": "tool_result", "tool_use_id": wire_id(call_id), "content": content, "is_error": is_error })
         }
         Block::Image { mime, base64 } => {
             json!({ "type": "image", "source": { "type": "base64", "media_type": mime, "data": base64 } })
@@ -292,13 +298,27 @@ mod tests {
     }
 
     #[test]
-fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
-    assert!(body(&request()).get("tool_choice").is_none());
-    let built = body(&Request { no_tool_calls: true, ..request() });
-    assert_eq!((built["tool_choice"].clone(), built["tools"].as_array().map(Vec::len).unwrap_or(0) > 0), (json!({ "type": "none" }), true));
-}
+    fn call_ids_from_other_providers_are_made_acceptable_on_both_sides() {
+        let request = Request {
+            messages: vec![
+                ChatMessage { role: Role::Assistant, blocks: vec![Block::ToolUse { id: "functions.read:0".into(), name: "read".into(), input: json!({}) }] },
+                ChatMessage { role: Role::User, blocks: vec![Block::ToolResult { call_id: "functions.read:0".into(), content: "ok".into(), is_error: false }] },
+            ],
+            ..request()
+        };
+        let built = body(&request);
+        let (used, answered) = (&built["messages"][0]["content"][0]["id"], &built["messages"][1]["content"][0]["tool_use_id"]);
+        assert_eq!((used.as_str(), answered.as_str()), (Some("functions_read_0"), Some("functions_read_0")));
+    }
 
-fn request() -> Request {
+    #[test]
+    fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
+        assert!(body(&request()).get("tool_choice").is_none());
+        let built = body(&Request { no_tool_calls: true, ..request() });
+        assert_eq!((built["tool_choice"].clone(), built["tools"].as_array().map(Vec::len).unwrap_or(0) > 0), (json!({ "type": "none" }), true));
+    }
+
+    fn request() -> Request {
         Request {
             model: "claude-sonnet-4-5".into(),
             system: "You are Drift.".into(),
@@ -322,6 +342,10 @@ fn request() -> Request {
             temperature: Some(0.5),
             cache_key: None,
             no_tool_calls: false,
+            verbosity: None,
+            show_thinking: false,
+            top_p: None,
+            top_k: None,
         }
     }
 

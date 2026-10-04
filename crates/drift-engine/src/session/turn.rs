@@ -19,7 +19,7 @@ use super::prompt;
 use crate::config::Config;
 use crate::event::{Event, SessionStatus};
 use crate::id;
-use crate::llm::catalog::{Model, Reasoning, Variant};
+use crate::llm::catalog::{self, Model, Reasoning, Variant};
 use crate::llm::{self, Credential, Provider, Request, StopReason};
 use crate::permission::{self, Outcome};
 use crate::session::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, ToolStatus, Usage, Visibility};
@@ -656,7 +656,7 @@ impl Engine {
         }
         let agent_model = config.agent(&session.agent).and_then(|a| a.model.clone());
         let model_ref = prompt.model.clone().or_else(|| session.model.clone()).or(agent_model).or_else(|| config.model.clone()).ok_or(TurnError::NoModel)?;
-        let catalog = Arc::new(self.catalog.read().unwrap().clone());
+        let catalog = Arc::new(self.catalog_view());
         let resolved = self.resolve_from(&model_ref, &catalog).await?;
         let provider = resolved.provider.with_timeouts(config.route_timeouts(&resolved.model_ref.provider));
         let variant = prompt.variant.clone().unwrap_or_else(|| session.variant.clone()).or_else(|| config.agent(&session.agent).and_then(|agent| agent.variant.clone()));
@@ -811,7 +811,9 @@ impl Engine {
             let lead = prompt::remind_agents(&plan.config, &plan.session.agent, &mut transcript);
             super::convert::drop_earlier_reasoning(&mut transcript, started);
             answered = transcript.iter().rev().find(|m| m.info.role == Role::User).map(|m| m.info.id.clone());
-            let (max_tokens, reasoning) = budgets(&plan.model, plan.reasoning());
+            let provider = plan.model_ref.provider.as_str();
+            let (max_tokens, reasoning) = budgets(&plan.model, plan.reasoning().or_else(|| catalog::default_reasoning(provider, &plan.model)));
+            let sampling = catalog::sampling(&plan.model);
             let request = Request {
                 model: plan.model_ref.model.clone(),
                 system: plan.offer.system.clone(),
@@ -819,9 +821,13 @@ impl Engine {
                 tools: plan.offer.specs(),
                 max_tokens,
                 reasoning,
-                temperature: None,
+                temperature: sampling.temperature,
                 cache_key: Some(plan.session.id.clone()),
                 no_tool_calls: false,
+                verbosity: catalog::verbosity(provider, &plan.model),
+                show_thinking: catalog::shows_thinking(provider, &plan.model),
+                top_p: sampling.top_p,
+                top_k: sampling.top_k,
             };
             let Ok(message) = self.store.create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });
@@ -1015,10 +1021,16 @@ impl Engine {
     /// of it before any compaction. History already summarised is never loaded.
     pub(super) fn request_window(&self, session_id: &str) -> Option<Vec<MessageWithParts>> {
         let Some(start) = self.store.view_start(session_id).ok()? else { return self.store.transcript(session_id).ok() };
-        let window = self.store.messages_from(session_id, &start).ok()?;
+        let mut window = self.store.messages_from(session_id, &start).ok()?;
         // A summary with no text stands for nothing, so the view reaches back past it.
         if compaction::view(&window).summary.is_none() {
             return self.store.transcript(session_id).ok();
+        }
+        // A tail kept from inside a turn brings that turn's prompt along, alone, for the view to quote.
+        if window.first().is_some_and(|first| first.info.role == Role::Assistant) {
+            if let Ok(Some(prompt)) = self.store.prompt_before(session_id, &start) {
+                window.insert(0, prompt);
+            }
         }
         Some(window)
     }
@@ -1281,13 +1293,16 @@ impl Engine {
             progress: Default::default(),
             command_model,
         };
-        // Only what this turn was offered runs, as it was when offered.
-        let Some(tool) = scope.plan.offer.tool(&name) else {
+        // Only what this turn was offered runs, as it was when offered; `Read` for `read` is the same tool.
+        let Some((name, tool)) = scope.plan.offer.tool_named(&name) else {
             self.settle(&mut row, ToolStatus::Error, None, format!("`{name}` is not available in this session; use only the tools you were given"), None);
             return Outcome::Allowed;
         };
+        if let Part::ToolCall { name: stored, .. } = &mut row.part {
+            stored.clone_from(&name);
+        }
         if !input.is_object() {
-            self.settle(&mut row, ToolStatus::Error, None, "call arguments were not valid JSON; the call did not run".into(), None);
+            self.settle(&mut row, ToolStatus::Error, None, unparsed(&input), None);
             return Outcome::Allowed;
         }
         let problems = crate::tool::schema::problems(&tool.spec().input_schema, &input);
@@ -1737,6 +1752,26 @@ impl Offer {
     fn tool(&self, name: &str) -> Option<Arc<dyn crate::tool::Tool>> {
         self.tools.iter().find(|(spec, _)| spec.name == name).map(|(_, tool)| tool.clone())
     }
+
+    /// The tool by its exact name, else the one offered tool whose name differs only in case.
+    fn tool_named(&self, name: &str) -> Option<(String, Arc<dyn crate::tool::Tool>)> {
+        if let Some(tool) = self.tool(name) {
+            return Some((name.to_string(), tool));
+        }
+        let mut close = self.tools.iter().filter(|(spec, _)| spec.name.eq_ignore_ascii_case(name));
+        match (close.next(), close.next()) {
+            (Some((spec, tool)), None) => Some((spec.name.clone(), tool.clone())),
+            _ => None,
+        }
+    }
+}
+
+/// What the model hears for arguments that never parsed: the parser's own complaint, so it can fix the call.
+fn unparsed(input: &serde_json::Value) -> String {
+    let raw = input.as_str().unwrap_or_default();
+    let reason = serde_json::from_str::<serde_json::Value>(raw).err().map_or_else(|| "they are not a JSON object".to_string(), |error| error.to_string());
+    let shown: String = raw.chars().take(200).collect();
+    format!("The call did not run: its arguments were not valid JSON ({reason}). They began: {shown}\nSend it again with one JSON object that fits the tool's schema.")
 }
 
 struct CallScope<'a> {
@@ -1774,7 +1809,7 @@ enum StreamError {
 
 fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
     match &row.part {
-        Part::ToolCall { name, input, .. } => plan.offer.tool(name).is_some_and(|tool| tool.call_mutates(input)),
+        Part::ToolCall { name, input, .. } => plan.offer.tool_named(name).is_some_and(|(_, tool)| tool.call_mutates(input)),
         _ => false,
     }
 }
