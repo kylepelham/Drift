@@ -689,6 +689,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspaces/{id}/permission-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The workspace's "always" grants, newest last. */
+        get: operations["listPermissionGrants"];
+        put?: never;
+        post?: never;
+        /** Takes back every "always" grant of the workspace; calls ask again from the next one. */
+        delete: operations["revokePermissionGrants"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/permission-grants/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Takes back one "always" grant, as listed; 404 when the workspace holds no such grant. */
+        post: operations["revokePermissionGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -980,6 +1015,20 @@ export interface components {
         };
         /** @description Everything the server writes to the socket. */
         Frame: components["schemas"]["Control"] | components["schemas"]["Envelope"];
+        /** @description What the user approved with "always": kept for the workspace, across sessions and restarts. */
+        Grant: {
+            /** @enum {string} */
+            grant: "exact";
+            kind: string;
+            target: string;
+        } | {
+            /** @enum {string} */
+            grant: "subcommand";
+            prefix: string;
+        } | (components["schemas"]["Rule"] & {
+            /** @enum {string} */
+            grant: "pattern";
+        });
         Health: {
             version: string;
         };
@@ -2903,6 +2952,81 @@ export interface operations {
                 content: {
                     "application/json": string[];
                 };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listPermissionGrants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Grant"][];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    revokePermissionGrants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    revokePermissionGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Grant"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             404: {
                 headers: {

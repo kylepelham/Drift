@@ -57,6 +57,8 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(providers::oauth_finish))
         .routes(routes!(permissions::list))
         .routes(routes!(permissions::reply))
+        .routes(routes!(permissions::grants, permissions::revoke_all))
+        .routes(routes!(permissions::revoke))
         .routes(routes!(questions::list))
         .routes(routes!(questions::reply))
         .routes(routes!(questions::reject))

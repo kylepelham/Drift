@@ -371,6 +371,22 @@ async fn a_reply_that_fills_the_context_window_compacts_and_asks_again() {
 }
 
 #[tokio::test]
+async fn a_patch_in_a_real_turn_keeps_its_display_diff_beside_undos_record() {
+    let h = harness().await;
+    h.engine.catalog.write().unwrap().providers.get_mut("anthropic").unwrap().models.get_mut("claude-sonnet-4-5").unwrap().profile = crate::llm::catalog::ToolProfile::ApplyPatch;
+    let patch = json!({ "patch": "*** Begin Patch\n*** Add File: new.txt\n+fresh\n*** End Patch\n" }).to_string();
+    h.provider.push(tool_call("apply_patch", &patch)).push(text("patched"));
+    h.engine.submit(&h.session.id, prompt("add new.txt")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, metadata: Some(metadata), output, .. } = &transcript[1].parts[0].part else { panic!("{:?}", transcript[1].parts) };
+    assert_eq!(*status, ToolStatus::Done, "{output:?}");
+    assert!(metadata["changes"][0]["path"].is_string(), "undo's record: {metadata}");
+    assert_eq!(metadata["fileChanges"][0]["relativePath"], "new.txt", "the display record survives undo's merge: {metadata}");
+    assert!(metadata["fileChanges"][0]["patch"].as_str().unwrap().contains("+fresh"));
+}
+
+#[tokio::test]
 async fn always_holds_for_the_workspace_across_sessions_and_restarts_and_settles_asks_it_covers() {
     let h = harness().await;
     let mut rx = h.engine.hub.attach(None).rx;
@@ -397,6 +413,15 @@ async fn always_holds_for_the_workspace_across_sessions_and_restarts_and_settles
     assert_eq!(reopened.permissions.decide_now("ses_later", &Policy::default(), &ask), Decision::Allow, "kept for the workspace across a restart");
     reopened.bind_permissions("ses_elsewhere", "another-workspace");
     assert_eq!(reopened.permissions.decide_now("ses_elsewhere", &Policy::default(), &ask), Decision::Ask, "and only for that workspace");
+    let deny = Policy { rules: vec![Rule { kind: "bash".into(), pattern: "cargo *".into(), decision: Decision::Deny }] };
+    assert_eq!(reopened.permissions.decide_now("ses_later", &deny, &ask), Decision::Deny, "a deny rule added later beats the kept grant");
+    let grants = reopened.permission_grants(&h.session.workspace_id);
+    assert_eq!(grants.len(), 1, "{grants:?}");
+    assert!(reopened.revoke_permission_grant(&h.session.workspace_id, Some(&grants[0])));
+    assert!(!reopened.revoke_permission_grant(&h.session.workspace_id, Some(&grants[0])), "already gone");
+    assert_eq!(reopened.permissions.decide_now("ses_later", &Policy::default(), &ask), Decision::Ask, "revoked, it asks again");
+    let after_restart = Engine::open_with(&h._dir.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
+    assert!(after_restart.permission_grants(&h.session.workspace_id).is_empty(), "the revoke was stored");
 }
 
 #[tokio::test]

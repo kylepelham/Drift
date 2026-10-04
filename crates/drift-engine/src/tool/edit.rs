@@ -73,7 +73,7 @@ impl Tool for Edit {
             Ok(Output {
                 title: name.clone(),
                 output: format!("Edited {}: {replacements} replacement{plural}.", change.summary()),
-                metadata: json!({ "replacements": replacements, "files": [path.to_string_lossy()], "diff": change.patch, "changes": [change.json()] }),
+                metadata: json!({ "replacements": replacements, "files": [path.to_string_lossy()], "diff": change.patch, "fileChanges": [change.json()] }),
             })
         })
     }
@@ -158,7 +158,8 @@ pub fn diff(name: &str, before: &str, after: &str) -> String {
         .to_string()
 }
 
-/// One file a call changed, as its metadata carries it for the UI: the diff stays out of what the model reads.
+/// One file a call changed, as its metadata carries it for the UI under `fileChanges` (`changes` is undo's
+/// own record of the same write): the diff stays out of what the model reads.
 pub struct Change {
     pub path: String,
     pub name: String,
@@ -215,7 +216,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "fn a() {}\nfn c() {}\n");
         assert_eq!(out.output, "Edited a.rs (+1 -1): 1 replacement.", "the model reads one line, not the diff");
         assert!(out.metadata["diff"].as_str().unwrap().contains("-fn b() {}\n+fn c() {}"), "the UI's diff is in the metadata");
-        assert_eq!((out.metadata["changes"][0]["additions"].as_u64(), out.metadata["changes"][0]["relativePath"].as_str()), (Some(1), Some("a.rs")));
+        assert_eq!((out.metadata["fileChanges"][0]["additions"].as_u64(), out.metadata["fileChanges"][0]["relativePath"].as_str()), (Some(1), Some("a.rs")));
     }
 
     #[tokio::test]

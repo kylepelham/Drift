@@ -556,8 +556,13 @@ impl Store {
         let conn = self.0.lock();
         conn.prepare_cached("DELETE FROM session_meta WHERE workspace_id = ?1")?
             .execute([id])?;
-        conn.prepare_cached("DELETE FROM workspace WHERE id = ?1 AND removed_at IS NOT NULL")?
+        let removed = conn.prepare_cached("DELETE FROM workspace WHERE id = ?1 AND removed_at IS NOT NULL")?
             .execute([id])?;
+        // What the engine kept for it: "always" permission grants and trusted project commands.
+        if removed > 0 {
+            conn.prepare_cached("DELETE FROM setting WHERE key IN ('permissionGrants:' || ?1, 'trustedCommands:' || ?1)")?
+                .execute([id])?;
+        }
         Ok(())
     }
 

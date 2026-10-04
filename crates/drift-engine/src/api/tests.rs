@@ -449,6 +449,25 @@ async fn mcp_secrets_go_in_but_never_out_and_no_save_or_rename_replaces_another_
 }
 
 #[tokio::test]
+async fn a_workspaces_kept_grants_are_listed_and_revoked() {
+    let h = harness().await;
+    let (ws_id, session_id) = session_with_model(&h).await;
+    h.engine.bind_permissions(&session_id, &ws_id);
+    let request = crate::permission::new_request(&session_id, "m", "c", "bash", crate::tool::Ask::shell(crate::tool::command::Dialect::Bash, "cargo build", "cargo build"));
+    let asking = { let engine = h.engine.clone(); tokio::spawn(async move { engine.permissions.check(&engine.hub, &crate::permission::Policy::default(), request, &Default::default()).await }) };
+    while h.engine.permissions.pending().is_empty() { tokio::time::sleep(std::time::Duration::from_millis(5)).await; }
+    let id = h.engine.permissions.pending()[0].id.clone();
+    h.post(&format!("/permissions/{id}/reply")).json(&json!({ "reply": "always" })).send().await.unwrap();
+    assert_eq!(asking.await.unwrap(), crate::permission::Outcome::Allowed);
+    let listed: Value = h.get(&format!("/workspaces/{ws_id}/permission-grants")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(listed, json!([{ "grant": "subcommand", "prefix": "cargo build" }]));
+    assert_eq!(h.post(&format!("/workspaces/{ws_id}/permission-grants/revoke")).json(&listed[0]).send().await.unwrap().status(), 204);
+    assert_eq!(h.post(&format!("/workspaces/{ws_id}/permission-grants/revoke")).json(&listed[0]).send().await.unwrap().status(), 404);
+    assert_eq!(h.delete(&format!("/workspaces/{ws_id}/permission-grants")).send().await.unwrap().status(), 204);
+    assert_eq!(h.get("/workspaces/nope/permission-grants").send().await.unwrap().status(), 404);
+}
+
+#[tokio::test]
 async fn workspace_config_and_commands_are_served() {
     use crate::llm::scripted::Scripted;
     use crate::llm::{Chunk, Provider, StopReason};

@@ -68,7 +68,7 @@ impl Tool for Write {
             Ok(Output {
                 title: name.clone(),
                 output,
-                metadata: json!({ "created": created, "files": [path.to_string_lossy()], "diff": change.patch, "changes": [change.json()] }),
+                metadata: json!({ "created": created, "files": [path.to_string_lossy()], "diff": change.patch, "fileChanges": [change.json()] }),
             })
         })
     }
@@ -86,7 +86,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(sandbox.ctx.workspace.join("a/b/c.txt")).unwrap(), "hello\n");
         assert_eq!(out.output, "Created a/b/c.txt (1 line).", "a new file is not echoed back to the model");
         assert!(out.metadata["diff"].as_str().unwrap().contains("+hello"));
-        assert_eq!((out.metadata["created"].as_bool(), out.metadata["changes"][0]["type"].as_str()), (Some(true), Some("add")));
+        assert_eq!((out.metadata["created"].as_bool(), out.metadata["fileChanges"][0]["type"].as_str()), (Some(true), Some("add")));
     }
 
     #[tokio::test]

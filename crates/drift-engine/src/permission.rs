@@ -50,7 +50,7 @@ impl Rule {
 }
 
 /// What the user approved with "always": kept for the workspace, across sessions and restarts.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "grant", rename_all = "snake_case")]
 pub enum Grant {
     /// This path, command or target, taken literally: `[id].tsx` is a file name, not a glob.
@@ -202,6 +202,29 @@ impl Permissions {
         }
     }
 
+    /// A workspace's "always" grants, loading them with `load` if no session of it was bound yet.
+    pub fn grants(&self, workspace_id: &str, load: impl FnOnce() -> Vec<Grant>) -> Vec<Grant> {
+        self.workspace_rules.lock().unwrap().entry(workspace_id.into()).or_insert_with(load).clone()
+    }
+
+    /// Takes back one grant, or every grant of the workspace when `grant` is `None`; returns whether anything went.
+    pub fn revoke(&self, workspace_id: &str, grant: Option<&Grant>, load: impl FnOnce() -> Vec<Grant>) -> bool {
+        let mut rules = self.workspace_rules.lock().unwrap();
+        let kept = rules.entry(workspace_id.into()).or_insert_with(load);
+        let before = kept.len();
+        match grant {
+            Some(grant) => kept.retain(|held| held != grant),
+            None => kept.clear(),
+        }
+        let removed = kept.len() != before;
+        if removed {
+            if let Some(saver) = self.saver.get() {
+                saver(workspace_id, kept);
+            }
+        }
+        removed
+    }
+
     fn workspace_of(&self, session_id: &str) -> Option<String> {
         self.workspaces.lock().unwrap().get(session_id).cloned()
     }
@@ -284,9 +307,14 @@ impl Permissions {
         if denied { Decision::Deny } else { written }
     }
 
-    /// Session approvals first (a subagent's parents' included), then the workspace's drift.json,
-    /// then the global policy.
+    /// A deny rule first, so an "always" kept for the workspace never outlasts a rule added after it;
+    /// then "always" answers (a subagent's parents' included); then the workspace's drift.json and the global policy.
     fn decide_target(&self, session_id: &str, workspace: &Policy, kind: &str, targets: &[&str], wildcards: bool, default: Decision) -> Decision {
+        let global = self.policy.lock().unwrap().rules.clone();
+        let rule = workspace.rules.iter().chain(global.iter()).find(|rule| targets.iter().any(|target| rule.matches_target(kind, target))).cloned();
+        if rule.as_ref().is_some_and(|rule| rule.decision == Decision::Deny) {
+            return Decision::Deny;
+        }
         let lineage = self.lineage(session_id);
         let covers = |grant: &Grant| (wildcards || matches!(grant, Grant::Exact { .. })) && targets.iter().any(|target| grant.allows(kind, target));
         let by_session = lineage.iter().filter_map(|id| self.session_rules.lock().unwrap().get(id).map(|grants| grants.iter().any(covers))).any(|found| found);
@@ -295,8 +323,7 @@ impl Permissions {
         if by_session || by_workspace {
             return Decision::Allow;
         }
-        let global = self.policy.lock().unwrap().rules.clone();
-        match workspace.rules.iter().chain(global.iter()).find(|rule| targets.iter().any(|target| rule.matches_target(kind, target))) {
+        match rule {
             Some(rule) if rule.decision == Decision::Allow && !wildcards && rule.has_wildcards() => Decision::Ask,
             Some(rule) => rule.decision,
             None => default,

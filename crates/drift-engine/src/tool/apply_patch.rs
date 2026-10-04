@@ -86,7 +86,7 @@ impl Tool for ApplyPatch {
             let listed: Vec<String> = plan.changes.iter().map(|change| format!("{} {}", letter(change.kind), change.summary())).collect();
             let output = format!("Patched {} file{}:\n{}", listed.len(), if listed.len() == 1 { "" } else { "s" }, listed.join("\n"));
             let changes: Vec<Value> = plan.changes.iter().map(Change::json).collect();
-            Ok(Output { title: plan.touched.join(", "), output, metadata: json!({ "files": files, "changes": changes }) })
+            Ok(Output { title: plan.touched.join(", "), output, metadata: json!({ "files": files, "fileChanges": changes }) })
         })
     }
 }
@@ -233,9 +233,9 @@ mod tests {
         assert!(!sandbox.ctx.workspace.join("a.txt").exists());
         assert!(!sandbox.ctx.workspace.join("gone.txt").exists());
         assert_eq!(out.output, "Patched 3 files:\nA dir/new.txt (+1 -0)\nR b.txt (+1 -1)\nD gone.txt (+0 -1)", "one line per file, as opencode answers");
-        let kinds: Vec<&str> = out.metadata["changes"].as_array().unwrap().iter().map(|change| change["type"].as_str().unwrap()).collect();
+        let kinds: Vec<&str> = out.metadata["fileChanges"].as_array().unwrap().iter().map(|change| change["type"].as_str().unwrap()).collect();
         assert_eq!(kinds, ["add", "move", "delete"]);
-        assert!(out.metadata["changes"][1]["patch"].as_str().unwrap().contains("+TWO"), "the diff is in the metadata");
+        assert!(out.metadata["fileChanges"][1]["patch"].as_str().unwrap().contains("+TWO"), "the diff is in the metadata");
         let titles: Vec<String> = ApplyPatch.asks(&sandbox.ctx, &json!({ "patch": patch })).into_iter().map(|a| a.title).collect();
         assert_eq!(titles, ["Patch dir/new.txt", "Patch a.txt", "Patch b.txt", "Patch gone.txt"], "each path, the move destination included, asked on its own");
     }

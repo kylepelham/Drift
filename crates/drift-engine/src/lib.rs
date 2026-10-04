@@ -168,7 +168,20 @@ impl Engine {
 
     /// Ties a session's permission checks to its workspace's "always" grants, loading them on first use.
     pub(crate) fn bind_permissions(&self, session_id: &str, workspace_id: &str) {
-        self.permissions.bind(session_id, workspace_id, || self.store.setting(&grants_key(workspace_id)).ok().flatten().unwrap_or_default());
+        self.permissions.bind(session_id, workspace_id, || self.stored_grants(workspace_id));
+    }
+
+    fn stored_grants(&self, workspace_id: &str) -> Vec<permission::Grant> {
+        self.store.setting(&grants_key(workspace_id)).ok().flatten().unwrap_or_default()
+    }
+
+    pub fn permission_grants(&self, workspace_id: &str) -> Vec<permission::Grant> {
+        self.permissions.grants(workspace_id, || self.stored_grants(workspace_id))
+    }
+
+    /// One grant, or all of them with `None`; the stored list is rewritten.
+    pub fn revoke_permission_grant(&self, workspace_id: &str, grant: Option<&permission::Grant>) -> bool {
+        self.permissions.revoke(workspace_id, grant, || self.stored_grants(workspace_id))
     }
 
     /// The workspace's agents, commands and skills with the user's Settings overrides applied.

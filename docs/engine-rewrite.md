@@ -36,7 +36,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Storage | One `drift.db`, one writer, WAL, strict tables. Engine tables live beside the existing shell tables. |
 | Config | `drift.json` at the project root, `.drift/{agents,commands,skills}/`, `~/.config/drift/`. Instructions from `AGENTS.md` and `CLAUDE.md`: global (`~/.config/drift/AGENTS.md`), every directory up to the repository root, and subdirectories as their files are read. `drift.json` `instructions` lists more files: a path relative to that file, absolute or `~/`, or a glob (`docs/rules/**/*.md`, walked as git lists files, at most 50 matches in name order); URLs are not fetched. Skills from `.drift/skills`, `.agents/skills` and `.claude/skills` up to the repository root, `skillPaths`, and `~/.config/drift/skills`, `~/.agents/skills`, `~/.claude/skills`. No runtime `opencode.json` fallback. |
 | Identity | `DRIFT_*` env vars, `~/.local/share/drift` data dir. A one-time migrator runs on first launch. MIT attribution for opencode stays in `licenses/`. |
-| Permissions | Upstream semantics (allow, deny, ask; path globs; session-scoped always; agent overrides) reimplemented once, with a single protocol. |
+| Permissions | Upstream semantics (allow, deny, ask; path globs; "always" kept for the workspace; agent overrides) reimplemented once, with a single protocol. A deny rule is checked before any kept "always". |
 | Session tree | Shared session storage, distinct ownership: `task` creates a hidden worker in foreground or background; the user spawns an independent sibling conversation with `/spawn <instruction>`. A conversation's parent link is provenance, not worker cancellation ownership. See "Subagents and branches" and "Background-worker implementation". |
 | Platforms | Windows first. CI builds Windows, macOS and Linux. OS specifics live in one `platform` module. |
 
@@ -1196,11 +1196,13 @@ Settled after the first external review of M1; each has a regression test.
 - `edit`, `write` and `apply_patch` answer the model in one line, as opencode does ("Edited
   src/a.rs (+3 -1): 1 replacement.", "Created notes.md (40 lines).", "Patched 2 files:" then
   `A`/`M`/`D`/`R` and each file's counts), so a new 1,500-line file is not echoed back. The diff
-  goes in the call's metadata for the UI: `diff` (edit and write) and `changes`, one record per
+  goes in the call's metadata for the UI: `diff` (edit and write) and `fileChanges`, one record per
   file (`filePath`, `relativePath`, `type` of add, update, delete or move, `patch`, `additions`,
-  `deletions`); `files` stays the list of paths written, which formatters, checks and undo read.
-  The UI's adapter (`adaptToolFields`) maps native `path` and `patch` to the names its rows,
-  file actions and citations read, and `changes` to apply_patch's per-file records.
+  `deletions`); `files` stays the list of paths written, which formatters, checks and undo read,
+  and `changes` is undo's own record of the write, merged in after the tool returns. The UI's
+  adapter (`adaptToolFields`) maps native `path` (for read, edit and write only, never an MCP
+  tool's argument) and `patch` to the names its rows, file actions and citations read, and
+  `fileChanges` to apply_patch's per-file records, with a one-file patch's diff as its `diff`.
 - `read` on a path that does not exist names up to three entries beside it whose names contain,
   or are contained in, the one asked for ("Did you mean one of these?"), as opencode does; both
   names must be three characters or more, so a file named `a` is not offered for every miss.
@@ -1680,8 +1682,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   user's own commands always run. Subagents take the answer of the session that delegated
   to them, along the same lineage as permission approvals, so a delegated task does not ask again.
   A permission rule of that kind (pattern `*`) allows them without asking.
-- **Permissions** resolve in order: "always" answers, the workspace's `drift.json` rules, then the
-  global policy.
+- **Permissions** resolve in order: a deny rule (the workspace's `drift.json`, then the global
+  policy), then "always" answers, then the other rules, then the operation's default. A deny comes
+  first because "always" is kept for the workspace with no end: a `git push*` deny added after an
+  "always" for `git push` still holds.
   - Policy evaluation is separate from an approval dialog. Ordinary workspace reads, scratch
     access, searches, skills, delegation and read-only MCP calls carry an allow-by-default policy
     request. Explicit deny/ask rules still apply; an unmatched default request produces no dialog.
@@ -1694,14 +1698,19 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     `git grep`, `Select-String`, which would read `.env` too; the `grep` tool skips such files),
     and every word stays inside the workspace and names no secret file: no glob, variable or `~`,
     no path resolving outside, with `--flag=value` and `rev:path` judged by their path parts
-    (`bash::reads_inside`). So `git status`, `git log`, `ls src` and `cat README.md` run, while
+    (`bash::reads_inside`). Any word that names something on disk is judged where it resolves, so
+    `cat notes`, with `notes` a link out of the workspace, asks. So `git status`, `git log`, `ls src` and `cat README.md` run, while
     `cat .env`, `ls ..`, `git show HEAD:.env` and `cargo test` ask. A rule still decides first.
   - "Always" holds for the workspace, in every session and across restarts (`Permissions::bind`
     ties each planned session to its workspace; grants are kept in the `permissionGrants:<id>`
     setting), as opencode keeps it for the project. A session with no workspace keeps its grants
     in memory. Answering "always" also answers "once" for every other waiting ask that the new
     grant now covers, under the policy each was asked under. The card's button reads "Always
-    allow in this workspace".
+    allow in this workspace". `GET /workspaces/{id}/permission-grants` lists them (each tagged
+    `grant`: `exact`, `subcommand` or `pattern`); `POST .../permission-grants/revoke` with one as
+    listed takes it back (404 if it is not held), `DELETE .../permission-grants` takes back all,
+    and the stored list is rewritten each time. Forgetting a removed workspace
+    (`store_forget_workspace`) drops its grants and trusted project commands with it.
     Searches also evaluate their `grep`/`glob` rules. An approved search covers the files under its
     path, outside the workspace and in the scratch directory too, unless an explicit rule says
     otherwise: a file a rule denies is skipped, and one a rule asks about is skipped unless the

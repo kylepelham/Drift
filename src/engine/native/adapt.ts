@@ -121,17 +121,23 @@ export function adaptPart(row: NativePartRow): Part {
   }
 }
 
+/** The native file tools, whose `path` input the UI reads as `filePath`. */
+const FILE_TOOLS = new Set(["read", "edit", "write"])
+
 /** Native tool names for files and patches, as the UI's tool rows, file actions and citations read them. */
 export function adaptToolFields(tool: string, rawInput: Record<string, unknown>, rawMetadata: Record<string, unknown>) {
   const input = { ...rawInput }
   const metadata = { ...rawMetadata }
-  const changes = Array.isArray(rawMetadata.changes) ? rawMetadata.changes : []
+  // `changes` is undo's record; `fileChanges` is the tool's per-file diff for display.
+  const changes = Array.isArray(rawMetadata.fileChanges) ? rawMetadata.fileChanges : []
   const written = Array.isArray(rawMetadata.files) ? rawMetadata.files.find((file): file is string => typeof file === "string") : undefined
-  if (typeof input.path === "string" && input.filePath === undefined) input.filePath = written ?? input.path
+  if (FILE_TOOLS.has(tool) && typeof input.path === "string" && input.filePath === undefined) input.filePath = written ?? input.path
   if (tool === "apply_patch") {
     if (typeof input.patch === "string" && input.patchText === undefined) input.patchText = input.patch
-    // The engine keeps `files` as the paths it wrote; the rows want one change record per file.
+    // The engine keeps `files` as the paths it wrote; the rows want one change record per file, and one diff for a single file.
     if (changes.length) metadata.files = changes
+    const only = changes.length === 1 ? (changes[0] as { patch?: unknown }).patch : undefined
+    if (typeof only === "string" && metadata.diff === undefined) metadata.diff = only
   }
   return { input, metadata }
 }

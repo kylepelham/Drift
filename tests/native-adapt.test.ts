@@ -226,15 +226,20 @@ test("native file tools reach the UI's rows, file actions and citations under th
   const diff = "--- a/src/a.rs\n+++ b/src/a.rs\n@@ -3,3 +3,3 @@\n x\n-old\n+new\n y\n"
   const tool = (name: string, input: object, metadata: object) =>
     adaptPart({ id: `prt_${name}`, messageId: "msg_1", sessionId: "ses_1", type: "tool_call", callId: `c_${name}`, name, input, metadata, status: "done", output: "Edited", startedAt: 1, finishedAt: 2 } as never) as never
-  const edit = tool("edit", { path: "src/a.rs", old_string: "old", new_string: "new" }, { files: ["C:/repo/src/a.rs"], diff, changes: [{ filePath: "C:/repo/src/a.rs", relativePath: "src/a.rs", type: "update", patch: diff, additions: 1, deletions: 1 }] })
+  const edit = tool("edit", { path: "src/a.rs", old_string: "old", new_string: "new" }, { files: ["C:/repo/src/a.rs"], diff, changes: [{ path: "src/a.rs", before: "h1", after: "h2" }], fileChanges: [{ filePath: "C:/repo/src/a.rs", relativePath: "src/a.rs", type: "update", patch: diff, additions: 1, deletions: 1 }] })
   expect(toolInfo(edit).subtitle).toBe("a.rs")
   expect(builtinFileTargets(edit, "C:/repo")).toEqual([{ path: "C:/repo/src/a.rs", label: "C:/repo/src/a.rs", line: 4 }])
   const read = tool("read", { path: "README.md" }, {})
   expect(toolInfo(read).subtitle?.startsWith("README.md")).toBe(true)
   const patch = "*** Begin Patch\n*** Add File: b.txt\n+b\n*** End Patch\n"
-  const patched = tool("apply_patch", { patch }, { files: ["C:/repo/b.txt"], changes: [{ filePath: "C:/repo/b.txt", relativePath: "b.txt", type: "add", patch: "@@ -0,0 +1 @@\n+b\n", additions: 1, deletions: 0 }] })
+  const patched = tool("apply_patch", { patch }, { files: ["C:/repo/b.txt"], changes: [{ path: "b.txt", before: null, after: "h3" }], fileChanges: [{ filePath: "C:/repo/b.txt", relativePath: "b.txt", type: "add", patch: "@@ -0,0 +1 @@\n+b\n", additions: 1, deletions: 0 }] })
   expect(patchFiles(patched).map((file: { relativePath?: string; additions: number }) => [file.relativePath, file.additions])).toEqual([["b.txt", 1]])
   expect(toolInfo(patched).subtitle).toBe("b.txt")
   expect(builtinFileTargets(patched, "C:/repo").map((target) => target.path)).toEqual(["C:/repo/b.txt"])
   expect((patched as { state: { input: { patchText?: string } } }).state.input.patchText).toBe(patch)
+  const metadata = (patched as { state: { metadata: { diff?: string; changes?: unknown } } }).state.metadata
+  expect(metadata.diff, "a one-file patch shows its diff").toBe("@@ -0,0 +1 @@\n+b\n")
+  expect(metadata.changes, "undo's own record is left as it is").toEqual([{ path: "b.txt", before: null, after: "h3" }])
+  const mcp = tool("docs_lookup", { path: "/api/users" }, {})
+  expect((mcp as { state: { input: Record<string, unknown> } }).state.input, "an MCP tool's arguments are shown as it sent them").toEqual({ path: "/api/users" })
 })
