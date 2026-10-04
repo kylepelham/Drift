@@ -151,10 +151,11 @@ impl Context {
         read_ask(&self.workspace, path, verb)
     }
 
-    /// Writing evaluates policy; scratch writes default to allow.
+    /// Writing evaluates policy. Scratch and workspace files default to allow (undo can put them back),
+    /// except files that would widen what the agent may do or hold secrets.
     pub fn ask_to_write(&self, path: &Path, verb: &str) -> Option<Ask> {
         let mut ask = Ask::path("edit", path, &self.workspace, format!("{verb} {}", display(path, &self.workspace)));
-        ask.default_allow = in_scratch(path);
+        ask.default_allow = in_scratch(path) || (self.inside_workspace(path) && !guarded(path, &self.workspace));
         Some(ask)
     }
 
@@ -175,6 +176,14 @@ pub fn scratch_dir() -> PathBuf {
 fn in_scratch(path: &Path) -> bool {
     let scratch = scratch_dir();
     path.starts_with(&scratch) && path != scratch
+}
+
+/// A workspace file an edit always asks about: Drift's own config (`drift.json`, `.drift/`), which holds
+/// permission rules and agents, version-control internals, and files likely to hold secrets.
+fn guarded(path: &Path, workspace: &Path) -> bool {
+    let relative = path.strip_prefix(workspace).unwrap_or(path);
+    let named = |name: &str| relative.components().any(|part| part.as_os_str().eq_ignore_ascii_case(name));
+    sensitive::is_sensitive(path) || named(crate::config::FILE) || named(".drift") || VCS_DIRS.iter().any(|dir| named(dir))
 }
 
 /// The read rule without a call around it, for reads the engine makes itself (@ mentions).
@@ -575,5 +584,18 @@ pub(crate) mod tests {
         assert!(sandbox.ctx.ask_to_write(&elsewhere, "Write").is_some() && sandbox.ctx.ask_to_read(&elsewhere, "Read").is_some());
         assert!(sandbox.ctx.ask_to_write(&scratch_dir(), "Write").is_some(), "the directory itself is not a file to write");
         assert!(sandbox.ctx.ask_to_read(&scratch_dir().join(".env"), "Read").is_some(), "a secret is a secret even there");
+    }
+
+    #[test]
+    fn workspace_edits_run_by_default_except_drifts_own_config_vcs_internals_and_secrets() {
+        let sandbox = Sandbox::new("edit-defaults");
+        let ws = &sandbox.ctx.workspace;
+        let allowed = |relative: &str| sandbox.ctx.ask_to_write(&ws.join(relative), "Edit").unwrap().default_allow;
+        assert!(allowed("src/main.rs") && allowed("README.md"));
+        for guarded in ["drift.json", "sub/drift.json", ".drift/agents/build.md", ".git/config", ".env", "secrets/id_rsa"] {
+            assert!(!allowed(guarded), "{guarded}");
+        }
+        let outside = canonical(&ws.parent().unwrap().join("elsewhere.txt"));
+        assert!(!sandbox.ctx.ask_to_write(&outside, "Edit").unwrap().default_allow);
     }
 }

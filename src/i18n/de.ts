@@ -1220,6 +1220,7 @@ export const drift = {
   "drift.markdown.copyCode": "Code kopieren",
   "drift.mcp.remove": "Entfernen",
   "drift.mcp.confirmRemove": "Entfernen?",
+  "drift.permission.always": "In diesem Arbeitsbereich immer erlauben",
   "drift.mcp.enable": "{{name}} aktivieren",
   "drift.permission.change": "Vorgeschlagene Änderung",
   "drift.permission.stop": "Ablehnen und stoppen",

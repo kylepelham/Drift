@@ -145,7 +145,7 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
       </Show>
       <div class="flex flex-wrap items-center gap-2">
         <ActionButton label={t("settings.permissions.action.allow")} onClick={() => reply("once")} />
-        <ActionButton label={t("command.permissions.autoaccept.enable")} onClick={() => reply("always")} />
+        <ActionButton label={t("drift.permission.always")} onClick={() => reply("always")} />
         <ActionButton label={t("settings.permissions.action.deny")} danger onClick={() => reply("reject")} />
         <ActionButton label={t("drift.permission.stop")} title={t("drift.permission.stopHint")} danger onClick={() => reply("stop")} />
         <input

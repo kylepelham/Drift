@@ -168,6 +168,7 @@ async fn stopping_one_worker_leaves_the_others_running() {
 #[tokio::test]
 async fn a_workers_permission_wait_blocks_only_that_worker() {
     let h = harness().await;
+    crate::session::turn::tests::asks_for(&h, "bash");
     let mut rx = h.engine.hub.attach(None).rx;
     h.provider
         .push_for("PARENT", launches(&[background("Build", "CHILD build it")]))

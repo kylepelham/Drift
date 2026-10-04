@@ -561,6 +561,7 @@ export const drift = {
   "drift.markdown.codeCopied": "Code copied",
   "drift.markdown.copied": "Copied",
   "drift.markdown.copyCode": "Copy code",
+  "drift.permission.always": "Always allow in this workspace",
   "drift.mcp.enable": "Enable {{name}}",
   "drift.permission.change": "Proposed change",
   "drift.permission.stop": "Deny and stop",

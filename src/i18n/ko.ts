@@ -1202,6 +1202,7 @@ export const drift = {
   "drift.markdown.copyCode": "코드 복사",
   "drift.mcp.remove": "제거",
   "drift.mcp.confirmRemove": "제거할까요?",
+  "drift.permission.always": "이 작업 공간에서 항상 허용",
   "drift.mcp.enable": "{{name}} 활성화",
   "drift.permission.change": "제안된 변경",
   "drift.permission.stop": "거부 후 중지",

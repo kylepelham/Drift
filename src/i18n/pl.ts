@@ -1213,6 +1213,7 @@ export const drift = {
   "drift.markdown.copyCode": "Kopiuj kod",
   "drift.mcp.remove": "Usuń",
   "drift.mcp.confirmRemove": "Usunąć?",
+  "drift.permission.always": "Zawsze zezwalaj w tym obszarze roboczym",
   "drift.mcp.enable": "Włącz {{name}}",
   "drift.permission.change": "Proponowana zmiana",
   "drift.permission.stop": "Odmów i zatrzymaj",

@@ -103,6 +103,11 @@ pub struct Engine {
     local_shown: llm::local::Shown,
 }
 
+/// Where a workspace's "always" permission grants are kept.
+fn grants_key(workspace_id: &str) -> String {
+    format!("permissionGrants:{workspace_id}")
+}
+
 impl Engine {
     pub fn open(data_dir: &Path) -> Result<Arc<Self>, Error> {
         Self::open_with(data_dir, Options::default())
@@ -116,12 +121,17 @@ impl Engine {
         let _ = std::fs::create_dir_all(std::env::temp_dir().join("Drift"));
         let credentials = Arc::new(Credentials::open(data_dir, options.file_credentials));
         let catalog = with_user_providers(Catalog::load(data_dir), &credentials);
+        let permissions = Permissions::new(Policy::default());
+        let saving = store.clone();
+        permissions.save_grants_with(Box::new(move |workspace, grants| {
+            let _ = saving.set_setting(&grants_key(workspace), &grants);
+        }));
         Ok(Arc::new(Self {
             data_dir: data_dir.to_path_buf(),
             store,
             hub: Hub::new(options.event_history),
             token: random_hex(32),
-            permissions: Permissions::new(Policy::default()),
+            permissions,
             questions: question::Questions::default(),
             tools: Registry::builtin(),
             mcp: mcp::Servers::new(credentials.clone()),
@@ -154,6 +164,11 @@ impl Engine {
     /// How long a shell command may run when the model does not say.
     pub fn shell_timeout(&self) -> Option<std::time::Duration> {
         self.shell_timeout.read().unwrap().unwrap_or(Some(tool::bash::DEFAULT_TIMEOUT))
+    }
+
+    /// Ties a session's permission checks to its workspace's "always" grants, loading them on first use.
+    pub(crate) fn bind_permissions(&self, session_id: &str, workspace_id: &str) {
+        self.permissions.bind(session_id, workspace_id, || self.store.setting(&grants_key(workspace_id)).ok().flatten().unwrap_or_default());
     }
 
     /// The workspace's agents, commands and skills with the user's Settings overrides applied.

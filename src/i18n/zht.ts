@@ -1257,6 +1257,7 @@ export const drift = {
   "drift.markdown.copyCode": "複製程式碼",
   "drift.mcp.remove": "移除",
   "drift.mcp.confirmRemove": "確認移除？",
+  "drift.permission.always": "在此工作區中始終允許",
   "drift.mcp.enable": "啟用 {{name}}",
   "drift.permission.change": "建議的變更",
   "drift.permission.stop": "拒絕並停止",

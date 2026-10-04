@@ -642,6 +642,7 @@ impl Engine {
     async fn plan_for(&self, session_id: &str, prompt: &Prompt, turn_only: bool, config: Option<&Config>) -> Result<Plan, TurnError> {
         let mut session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
+        self.bind_permissions(&session.id, &session.workspace_id);
         let workspace_path = crate::tool::canonical(Path::new(&workspace.path));
         let config = config.cloned().unwrap_or_else(|| self.workspace_config(&workspace_path));
         if let Some(problem) = config.problems.first() {

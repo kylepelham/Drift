@@ -1287,6 +1287,7 @@ export const drift = {
   "drift.markdown.copyCode": "Kopiraj kod",
   "drift.mcp.remove": "Ukloni",
   "drift.mcp.confirmRemove": "Ukloniti?",
+  "drift.permission.always": "Uvijek dozvoli u ovom radnom prostoru",
   "drift.mcp.enable": "Omogući {{name}}",
   "drift.permission.change": "Predložena izmjena",
   "drift.permission.stop": "Odbij i zaustavi",

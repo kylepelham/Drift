@@ -1204,6 +1204,7 @@ export const drift = {
   "drift.markdown.copyCode": "コードをコピー",
   "drift.mcp.remove": "削除",
   "drift.mcp.confirmRemove": "削除しますか？",
+  "drift.permission.always": "このワークスペースで常に許可",
   "drift.mcp.enable": "{{name}}を有効化",
   "drift.permission.change": "提案された変更",
   "drift.permission.stop": "拒否して停止",

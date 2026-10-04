@@ -1289,6 +1289,7 @@ export const drift = {
   "drift.markdown.copyCode": "Kodu kopyala",
   "drift.mcp.remove": "Kaldır",
   "drift.mcp.confirmRemove": "Kaldırılsın mı?",
+  "drift.permission.always": "Bu çalışma alanında her zaman izin ver",
   "drift.mcp.enable": "{{name}} etkinleştir",
   "drift.permission.change": "Önerilen değişiklik",
   "drift.permission.stop": "Reddet ve durdur",

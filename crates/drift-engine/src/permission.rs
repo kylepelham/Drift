@@ -49,9 +49,10 @@ impl Rule {
     }
 }
 
-/// What the user approved for the rest of a session with "always".
-#[derive(Clone, Debug)]
-enum Grant {
+/// What the user approved with "always": kept for the workspace, across sessions and restarts.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "grant", rename_all = "snake_case")]
+pub enum Grant {
     /// This path, command or target, taken literally: `[id].tsx` is a file name, not a glob.
     Exact { kind: String, target: String },
     /// A known subcommand with any arguments: `cargo test` covers `cargo test --release`, not `cargo publish`.
@@ -124,7 +125,7 @@ pub struct Request {
 #[serde(rename_all = "snake_case")]
 pub enum Reply {
     Once,
-    /// Allow this and matching calls for the rest of the session; `pattern` widens the match.
+    /// Allow this and matching calls in this workspace from now on, in every session; `pattern` widens the match.
     Always,
     /// Refuse this call; the turn goes on, and the model hears `message` if there is one.
     Deny,
@@ -142,13 +143,23 @@ pub struct ReplyBody {
     pub message: Option<String>,
 }
 
+/// Writes a workspace's "always" grants, all of them, when one is added.
+pub type GrantSaver = Box<dyn Fn(&str, &[Grant]) + Send + Sync>;
+
 pub struct Permissions {
     /// Rules that apply everywhere, set by the shell; workspace rules from drift.json are passed per check.
     policy: Mutex<Policy>,
+    /// Grants of a session not bound to a workspace (tests, engine-made sessions); kept in memory only.
     session_rules: Mutex<HashMap<String, Vec<Grant>>>,
+    /// "Always" grants by workspace id, loaded when a session of that workspace is bound.
+    workspace_rules: Mutex<HashMap<String, Vec<Grant>>>,
+    /// Each bound session's workspace.
+    workspaces: Mutex<HashMap<String, String>>,
+    saver: std::sync::OnceLock<GrantSaver>,
     /// A subagent's parent, whose session approvals it also has. One way: its own never reach the parent.
     parents: Mutex<HashMap<String, String>>,
-    pending: Mutex<Vec<(Request, oneshot::Sender<ReplyBody>)>>,
+    /// Each waiting ask with the workspace policy it was asked under, so a later "always" can settle it.
+    pending: Mutex<Vec<(Request, Policy, oneshot::Sender<ReplyBody>)>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -166,7 +177,53 @@ const MAX_LINEAGE: usize = 4;
 
 impl Permissions {
     pub fn new(policy: Policy) -> Self {
-        Self { policy: Mutex::new(policy), session_rules: Mutex::default(), parents: Mutex::default(), pending: Mutex::default() }
+        Self {
+            policy: Mutex::new(policy),
+            session_rules: Mutex::default(),
+            workspace_rules: Mutex::default(),
+            workspaces: Mutex::default(),
+            saver: std::sync::OnceLock::new(),
+            parents: Mutex::default(),
+            pending: Mutex::default(),
+        }
+    }
+
+    /// Where "always" grants are written; set once, when the engine opens.
+    pub fn save_grants_with(&self, saver: GrantSaver) {
+        let _ = self.saver.set(saver);
+    }
+
+    /// Ties `session_id` to its workspace, loading that workspace's stored grants the first time with `load`.
+    pub fn bind(&self, session_id: &str, workspace_id: &str, load: impl FnOnce() -> Vec<Grant>) {
+        self.workspaces.lock().unwrap().insert(session_id.into(), workspace_id.into());
+        let mut rules = self.workspace_rules.lock().unwrap();
+        if !rules.contains_key(workspace_id) {
+            rules.insert(workspace_id.into(), load());
+        }
+    }
+
+    fn workspace_of(&self, session_id: &str) -> Option<String> {
+        self.workspaces.lock().unwrap().get(session_id).cloned()
+    }
+
+    /// Keeps `grants`: for the session's workspace (written through the saver), or the session alone when it has none.
+    fn remember(&self, session_id: &str, grants: Vec<Grant>) {
+        let Some(workspace) = self.workspace_of(session_id) else {
+            let mut rules = self.session_rules.lock().unwrap();
+            let kept = rules.entry(session_id.into()).or_default();
+            kept.extend(grants.into_iter().filter(|grant| !kept.contains(grant)).collect::<Vec<_>>());
+            return;
+        };
+        let mut rules = self.workspace_rules.lock().unwrap();
+        let kept = rules.entry(workspace.clone()).or_default();
+        let fresh: Vec<Grant> = grants.into_iter().filter(|grant| !kept.contains(grant)).collect();
+        if fresh.is_empty() {
+            return;
+        }
+        kept.extend(fresh);
+        if let Some(saver) = self.saver.get() {
+            saver(&workspace, kept);
+        }
     }
 
     /// `child` (a subagent) also runs under `parent`'s session approvals.
@@ -202,7 +259,9 @@ impl Permissions {
         let Some(commands) = &ask.commands else {
             return self.decide_target(session_id, workspace, "bash", &[&ask.pattern], false, Decision::Ask);
         };
-        let decisions: Vec<Decision> = commands.iter().enumerate().map(|(index, command)| self.decide_command(session_id, workspace, command, ask.canonical.get(index))).collect();
+        // A line `Bash::ask` judged to only read inside the workspace runs unless a rule or grant says otherwise.
+        let default = fallback(ask.default_allow);
+        let decisions: Vec<Decision> = commands.iter().enumerate().map(|(index, command)| self.decide_command(session_id, workspace, command, ask.canonical.get(index), default)).collect();
         if decisions.contains(&Decision::Deny) {
             Decision::Deny
         } else if !ask.writes.is_empty() {
@@ -217,8 +276,8 @@ impl Permissions {
 
     /// One command as written; and, for deny rules only, as it actually runs (`FOO=1 git push` is a
     /// `git push`, PowerShell's `rm` is `Remove-Item`). Approvals and allow rules see only what was written.
-    fn decide_command(&self, session_id: &str, workspace: &Policy, command: &str, canonical: Option<&String>) -> Decision {
-        let written = self.decide_target(session_id, workspace, "bash", &[command], true, Decision::Ask);
+    fn decide_command(&self, session_id: &str, workspace: &Policy, command: &str, canonical: Option<&String>, default: Decision) -> Decision {
+        let written = self.decide_target(session_id, workspace, "bash", &[command], true, default);
         let Some(canonical) = canonical.filter(|c| !c.is_empty() && c.as_str() != command) else { return written };
         let global = self.policy.lock().unwrap().rules.clone();
         let denied = workspace.rules.iter().chain(global.iter()).find(|rule| rule.matches_target("bash", canonical)).is_some_and(|rule| rule.decision == Decision::Deny);
@@ -229,14 +288,11 @@ impl Permissions {
     /// then the global policy.
     fn decide_target(&self, session_id: &str, workspace: &Policy, kind: &str, targets: &[&str], wildcards: bool, default: Decision) -> Decision {
         let lineage = self.lineage(session_id);
-        let rules = self.session_rules.lock().unwrap();
-        let granted = lineage
-            .iter()
-            .filter_map(|id| rules.get(id))
-            .flatten()
-            .any(|grant| (wildcards || matches!(grant, Grant::Exact { .. })) && targets.iter().any(|target| grant.allows(kind, target)));
-        drop(rules);
-        if granted {
+        let covers = |grant: &Grant| (wildcards || matches!(grant, Grant::Exact { .. })) && targets.iter().any(|target| grant.allows(kind, target));
+        let by_session = lineage.iter().filter_map(|id| self.session_rules.lock().unwrap().get(id).map(|grants| grants.iter().any(covers))).any(|found| found);
+        let workspaces: Vec<String> = lineage.iter().filter_map(|id| self.workspace_of(id)).collect();
+        let by_workspace = workspaces.iter().any(|workspace| self.workspace_rules.lock().unwrap().get(workspace).is_some_and(|grants| grants.iter().any(covers)));
+        if by_session || by_workspace {
             return Decision::Allow;
         }
         let global = self.policy.lock().unwrap().rules.clone();
@@ -287,14 +343,14 @@ impl Permissions {
             Decision::Ask => {}
         }
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().unwrap().push((request.clone(), tx));
+        self.pending.lock().unwrap().push((request.clone(), workspace.clone(), tx));
         hub.publish(Event::PermissionAsked { request: request.clone() });
         let reply = tokio::select! {
             reply = rx => reply.ok(),
             () = abort.cancelled() => None,
         };
         let Some(reply) = reply else {
-            self.pending.lock().unwrap().retain(|(pending, _)| pending.id != request.id);
+            self.pending.lock().unwrap().retain(|(pending, _, _)| pending.id != request.id);
             return Outcome::Aborted;
         };
         self.apply(&request, &reply)
@@ -307,37 +363,61 @@ impl Permissions {
             Reply::Deny => Outcome::Denied { feedback, stop: false },
             Reply::Stop => Outcome::Denied { feedback, stop: true },
             Reply::Always => {
-                let grants = match &reply.pattern {
-                    Some(pattern) => vec![Grant::Pattern(Rule { kind: request.ask.kind.clone(), pattern: pattern.clone(), decision: Decision::Allow })],
-                    None => always_grants(&request.ask),
-                };
-                self.session_rules.lock().unwrap().entry(request.session_id.clone()).or_default().extend(grants);
+                self.remember(&request.session_id, grants_for(request, reply));
                 Outcome::Allowed
             }
         }
     }
 
+    /// Answers a waiting ask. "Always" is kept before the asker hears it, and every other waiting ask
+    /// the new grant now covers is answered with it, as opencode settles them.
     pub fn reply(&self, hub: &Hub, request_id: &str, body: ReplyBody) -> Result<(), NotPending> {
         let mut pending = self.pending.lock().unwrap();
-        let index = pending.iter().position(|(request, _)| request.id == request_id).ok_or(NotPending)?;
-        let (request, tx) = pending.remove(index);
+        let index = pending.iter().position(|(request, _, _)| request.id == request_id).ok_or(NotPending)?;
+        let (request, _, tx) = pending.remove(index);
         drop(pending);
         let decision = match body.reply {
             Reply::Deny | Reply::Stop => Decision::Deny,
             _ => Decision::Allow,
         };
+        let always = body.reply == Reply::Always;
+        if always {
+            self.remember(&request.session_id, grants_for(&request, &body));
+        }
         let _ = tx.send(body);
         hub.publish(Event::PermissionReplied { request_id: request.id, session_id: request.session_id, decision });
+        if always {
+            self.settle_covered(hub);
+        }
         Ok(())
     }
 
+    /// Answers "once" for each waiting ask the rules and grants now allow.
+    fn settle_covered(&self, hub: &Hub) {
+        let waiting: Vec<(String, String, Policy, Ask)> = self.pending.lock().unwrap().iter().map(|(request, policy, _)| (request.id.clone(), request.session_id.clone(), policy.clone(), request.ask.clone())).collect();
+        for (id, session_id, policy, ask) in waiting {
+            if self.decide(&session_id, &policy, &ask) == Decision::Allow {
+                let _ = self.reply(hub, &id, ReplyBody { reply: Reply::Once, pattern: None, message: None });
+            }
+        }
+    }
+
     pub fn pending(&self) -> Vec<Request> {
-        self.pending.lock().unwrap().iter().map(|(request, _)| request.clone()).collect()
+        self.pending.lock().unwrap().iter().map(|(request, _, _)| request.clone()).collect()
     }
 
     pub fn forget_session(&self, session_id: &str) {
         self.session_rules.lock().unwrap().remove(session_id);
+        self.workspaces.lock().unwrap().remove(session_id);
         self.parents.lock().unwrap().remove(session_id);
+    }
+}
+
+/// What an "always" answer grants: the pattern the client named, or what `always_grants` reads from the ask.
+fn grants_for(request: &Request, reply: &ReplyBody) -> Vec<Grant> {
+    match &reply.pattern {
+        Some(pattern) => vec![Grant::Pattern(Rule { kind: request.ask.kind.clone(), pattern: pattern.clone(), decision: Decision::Allow })],
+        None => always_grants(&request.ask),
     }
 }
 

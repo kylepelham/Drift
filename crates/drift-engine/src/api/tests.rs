@@ -263,6 +263,8 @@ async fn a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket() {
         ])
         .push(vec![Chunk::TextStart, Chunk::TextDelta("Wrote it".into()), Chunk::BlockStop, Chunk::Stop(StopReason::EndTurn)]);
     *h.engine.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(provider));
+    // Workspace writes run by default; this test is about the ask, so a rule asks for it.
+    h.engine.permissions.set_policy(crate::permission::Policy { rules: vec![crate::permission::Rule { kind: "edit".into(), pattern: "*".into(), decision: crate::permission::Decision::Ask }] });
     let status = h.put("/providers/anthropic/key").json(&json!({ "key": "sk-test" })).send().await.unwrap().status();
     assert_eq!(status, 204);
     let providers: Value = h.get("/providers").send().await.unwrap().json().await.unwrap();

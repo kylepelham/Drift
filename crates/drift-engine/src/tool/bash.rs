@@ -134,7 +134,9 @@ impl Tool for Bash {
         let command = input["command"].as_str()?;
         let mut ask = Ask::shell(self.dialect(), command, input["description"].as_str().unwrap_or(command));
         // A workdir outside the workspace is refused when the call runs, so moves are judged from inside.
-        drop_moves_within(ctx, &workdir(ctx, input).unwrap_or_else(|_| ctx.workspace.clone()), &mut ask);
+        let dir = workdir(ctx, input).unwrap_or_else(|_| ctx.workspace.clone());
+        drop_moves_within(ctx, &dir, &mut ask);
+        ask.default_allow = command::reads_only(self.dialect(), command) && reads_inside(ctx, &dir, &ask);
         Some(ask)
     }
 
@@ -301,6 +303,38 @@ fn report(title: String, spooled: Spooled, ended: Ended, limit: Option<Duration>
 }
 
 const MOVES: [&str; 6] = ["cd", "chdir", "set-location", "sl", "pushd", "push-location"];
+
+/// Readers of file contents under a whole directory: they would read `.env` and its kin too, which the
+/// `grep` tool skips, so a line using one always asks.
+const SEARCHERS: [&str; 3] = ["grep", "rg", "select-string"];
+
+/// Whether a line already known to only read stays inside the workspace and names no file that may
+/// hold secrets: no move is left (one leaving the workspace, or one that cannot be read, stays in the
+/// ask), no recursive content search, no glob, no variable, and every argument that names a path
+/// resolves inside the workspace. `--flag=value` and `rev:path` are judged by their path parts too.
+fn reads_inside(ctx: &Context, dir: &std::path::Path, ask: &Ask) -> bool {
+    let Some(commands) = &ask.commands else { return false };
+    commands.iter().all(|command| {
+        let words: Vec<&str> = command.split(' ').collect();
+        let program = words[0].rsplit(['/', '\\']).next().unwrap_or(words[0]).trim_end_matches(".exe").to_ascii_lowercase();
+        let searches = SEARCHERS.contains(&program.as_str()) || (program == "git" && words.get(1) == Some(&"grep"));
+        !MOVES.contains(&program.as_str()) && !searches && words[1..].iter().all(|word| word_inside(ctx, dir, word))
+    })
+}
+
+fn word_inside(ctx: &Context, dir: &std::path::Path, word: &str) -> bool {
+    let word = word.trim_matches(['\'', '"']);
+    if word.starts_with('~') || word.contains(['$', '%', '*', '?', '[', '`']) {
+        return false;
+    }
+    let value = word.split_once('=').map_or(word, |(_, value)| value);
+    let parts = [word, value, value.rsplit_once(':').map_or(value, |(_, path)| path)];
+    parts.iter().filter(|part| !part.is_empty()).all(|part| {
+        let path = super::canonical(&dir.join(part));
+        let names_path = part.contains(['/', '\\']) || part.starts_with('.') || std::path::Path::new(part).is_absolute();
+        !super::sensitive::is_sensitive(&path) && (!names_path || ctx.inside_workspace(&path))
+    })
+}
 
 /// Where a call runs: its `workdir`, which must be a directory inside the workspace, else the workspace.
 fn workdir(ctx: &Context, input: &Value) -> Result<PathBuf, ToolError> {
@@ -497,6 +531,22 @@ mod tests {
         };
         let unlimited = bash.run(&sandbox.ctx, json!({ "command": quick })).await.unwrap();
         assert!(!bash.failed(&unlimited) && unlimited.metadata["shellTimeoutMs"].is_null(), "no limit lets it finish");
+    }
+
+    #[test]
+    fn reading_lines_inside_the_workspace_run_without_asking_and_anything_else_asks() {
+        let sandbox = Sandbox::new("bash-reads");
+        std::fs::create_dir_all(sandbox.ctx.workspace.join("src")).unwrap();
+        let bash = Bash::with(Shell::Bash("bash".into()));
+        let decide = |line: &str| sandbox.ctx.engine.permissions.decide_now("ses_test", &crate::permission::Policy::default(), &bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap());
+        for line in ["git status", "git log --oneline -10", "ls src", "cat README.md", "cd src && ls", "git diff HEAD~1..HEAD -- src/a.rs", "wc -l src/a.rs"] {
+            assert_eq!(decide(line), crate::permission::Decision::Allow, "{line}");
+        }
+        for line in ["cat .env", "ls ..", "cat /etc/passwd", "grep -r token .", "rg token", "ls *", "git show HEAD:.env", "echo $HOME", "cargo test", "cd .. && ls", "ls > out.txt", "cat ~/.ssh/config"] {
+            assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
+        }
+        sandbox.ctx.engine.permissions.set_policy(crate::permission::Policy { rules: vec![crate::permission::Rule { kind: "bash".into(), pattern: "git log*".into(), decision: crate::permission::Decision::Ask }] });
+        assert_eq!(decide("git log --oneline"), crate::permission::Decision::Ask, "a rule still decides first");
     }
 
     #[test]

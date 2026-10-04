@@ -1296,6 +1296,7 @@ export const drift = {
   "drift.markdown.copyCode": "Kopier kode",
   "drift.mcp.remove": "Fjern",
   "drift.mcp.confirmRemove": "Fjern?",
+  "drift.permission.always": "Tillat alltid i dette arbeidsområdet",
   "drift.mcp.enable": "Aktiver {{name}}",
   "drift.permission.change": "Foreslått endring",
   "drift.permission.stop": "Avslå og stopp",

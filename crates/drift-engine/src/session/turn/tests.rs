@@ -186,6 +186,11 @@ async fn permission_denial_is_reported_to_the_model() {
     assert!(matches!(&requests[1].messages[2].blocks[0], llm::Block::ToolResult { is_error: true, content, .. } if content == "A permission rule forbids this call."), "a rule, not the user");
 }
 
+/// Workspace edits and reading shell lines run without asking by default; tests of the asking itself say so.
+pub(crate) fn asks_for(h: &Harness, kind: &str) {
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: kind.into(), pattern: "*".into(), decision: Decision::Ask }] });
+}
+
 async fn next_ask(rx: &mut tokio::sync::broadcast::Receiver<crate::event::Envelope>) -> crate::permission::Request {
     loop {
         let envelope = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.expect("an ask").unwrap();
@@ -198,6 +203,7 @@ async fn next_ask(rx: &mut tokio::sync::broadcast::Receiver<crate::event::Envelo
 #[tokio::test]
 async fn an_edit_holds_the_previewed_file_while_approval_is_pending() {
     let h = harness().await;
+    asks_for(&h, "edit");
     let file = h._dir.join("ws/a.txt");
     std::fs::write(&file, "one\none\n").unwrap();
     h.provider.push(tool_call("read", r#"{"path":"a.txt"}"#)).push(text("read"));
@@ -365,6 +371,35 @@ async fn a_reply_that_fills_the_context_window_compacts_and_asks_again() {
 }
 
 #[tokio::test]
+async fn always_holds_for_the_workspace_across_sessions_and_restarts_and_settles_asks_it_covers() {
+    let h = harness().await;
+    let mut rx = h.engine.hub.attach(None).rx;
+    let other = h.engine.store.create_session(NewSession { workspace_id: &h.session.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: "Other", agent: "build", model: None }).unwrap();
+    h.provider.push(tool_call("bash", r#"{"command": "cargo --version"}"#)).push(tool_call("bash", r#"{"command": "cargo --version"}"#)).push(text("one")).push(text("two"));
+    h.engine.submit(&h.session.id, prompt("first")).await.await_ok();
+    let first = next_ask(&mut rx).await;
+    h.engine.submit(&other.id, prompt("second")).await.await_ok();
+    let second = next_ask(&mut rx).await;
+    assert_ne!(first.session_id, second.session_id);
+    h.engine.permissions.reply(&h.engine.hub, &first.id, ReplyBody { reply: Reply::Always, pattern: None, message: None }).unwrap();
+    until_idle(&h).await;
+    for _ in 0..300 {
+        if !h.engine.turns.is_running(&other.id) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(h.engine.permissions.pending().is_empty(), "the other session's waiting ask was answered by the same grant");
+    assert_eq!(h.provider.responses_left(), 0);
+    let reopened = Engine::open_with(&h._dir.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
+    reopened.bind_permissions("ses_later", &h.session.workspace_id);
+    let ask = crate::tool::Ask::shell(crate::tool::command::Dialect::Bash, "cargo --version", "");
+    assert_eq!(reopened.permissions.decide_now("ses_later", &Policy::default(), &ask), Decision::Allow, "kept for the workspace across a restart");
+    reopened.bind_permissions("ses_elsewhere", "another-workspace");
+    assert_eq!(reopened.permissions.decide_now("ses_elsewhere", &Policy::default(), &ask), Decision::Ask, "and only for that workspace");
+}
+
+#[tokio::test]
 async fn a_subagent_runs_under_its_parents_approvals() {
     let h = harness().await;
     let mut rx = h.engine.hub.attach(None).rx;
@@ -385,6 +420,7 @@ async fn a_subagent_runs_under_its_parents_approvals() {
 #[tokio::test]
 async fn asks_wait_for_a_reply_and_mutations_snapshot_first() {
     let h = harness().await;
+    asks_for(&h, "edit");
     let mut rx = h.engine.hub.attach(None).rx;
     h.provider.push(tool_call("write", r#"{"path": "new.txt", "content": "hi\n"}"#)).push(text("Written"));
     h.engine.submit(&h.session.id, prompt("make new.txt")).await.await_ok();

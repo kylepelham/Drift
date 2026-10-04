@@ -1274,6 +1274,7 @@ export const drift = {
   "drift.markdown.copyCode": "คัดลอกโค้ด",
   "drift.mcp.remove": "ลบ",
   "drift.mcp.confirmRemove": "ลบหรือไม่?",
+  "drift.permission.always": "อนุญาตเสมอในพื้นที่ทำงานนี้",
   "drift.mcp.enable": "เปิดใช้ {{name}}",
   "drift.permission.change": "การเปลี่ยนแปลงที่เสนอ",
   "drift.permission.stop": "ปฏิเสธและหยุด",
