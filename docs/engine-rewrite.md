@@ -1415,7 +1415,9 @@ Settled after the first external review of M1; each has a regression test.
 - Images reach the model (`tool::image`). `read` returns a PNG, JPEG, GIF or WebP (up to 32 MB,
   known by its bytes) as an image rather than refusing it as binary, and an MCP result's image
   content is kept instead of becoming `[image png]`, if it is one of those four formats within
-  32 MB (an SVG or BMP is named, never sent); text resources are inlined, binary ones named.
+  32 MB (an SVG or BMP is named, never sent); text resources are inlined. A resource blob that is
+  one of those images or a PDF is attached, whether the server returns it from a read or embeds
+  it in a call's result (`mcp::take_resource`), as opencode does; other binaries are named.
   Before it is stored, every returned image is checked against what providers accept
   (`image::normalize`, on a blocking thread): one within 2000 px a side and 5 MB of base64 passes
   unchanged; a larger one is decoded (at most 16384 px a side) and scaled to fit, then down by a

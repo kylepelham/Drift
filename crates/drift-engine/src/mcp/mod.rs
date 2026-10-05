@@ -778,12 +778,7 @@ impl Servers {
         let mut answer = Answer { text: String::new(), is_error: false, images: Vec::new() };
         let mut lines = Vec::new();
         for content in &read.contents {
-            match content {
-                rmcp::model::ResourceContents::BlobResourceContents { mime_type: Some(mime), blob, .. } if sendable(mime, blob).is_ok() || mime == crate::tool::image::PDF => {
-                    answer.images.push(Image { mime: mime.clone(), base64: blob.clone() });
-                }
-                other => lines.push(resource_text(other)),
-            }
+            take_resource(content, &mut answer.images, &mut lines);
         }
         answer.text = lines.join("\n");
         Ok(answer)
@@ -1153,7 +1148,7 @@ impl Live {
                     Ok(()) => answer.images.push(Image { mime: image.mime_type.clone(), base64: image.data.clone() }),
                     Err(why) => lines.push(format!("[an image ({}) not shown: {why}]", image.mime_type)),
                 },
-                ContentBlock::Resource(resource) => lines.push(resource_text(&resource.resource)),
+                ContentBlock::Resource(resource) => take_resource(&resource.resource, &mut answer.images, &mut lines),
                 other => lines.push(serde_json::to_string(other).unwrap_or_default()),
             }
         }
@@ -1179,6 +1174,19 @@ fn only_png_jpeg_gif_and_webp_within_the_limit_are_sent() {
     assert!(sendable("image/png", &"A".repeat(44 * 1024 * 1024)).unwrap_err().contains("32 MB"));
 }
 
+#[cfg(test)]
+#[test]
+fn an_embedded_image_or_pdf_is_attached_and_anything_else_is_text() {
+    let resource = |json: serde_json::Value| serde_json::from_value::<rmcp::model::ResourceContents>(json).unwrap();
+    let (mut images, mut lines) = (Vec::new(), Vec::new());
+    take_resource(&resource(serde_json::json!({ "uri": "shot://1", "mimeType": "image/png", "blob": "AAAA" })), &mut images, &mut lines);
+    take_resource(&resource(serde_json::json!({ "uri": "doc://1", "mimeType": "application/pdf", "blob": "JVBE" })), &mut images, &mut lines);
+    take_resource(&resource(serde_json::json!({ "uri": "zip://1", "mimeType": "application/zip", "blob": "UEsD" })), &mut images, &mut lines);
+    take_resource(&resource(serde_json::json!({ "uri": "note://1", "text": "hello" })), &mut images, &mut lines);
+    assert_eq!(images.iter().map(|image| image.mime.as_str()).collect::<Vec<_>>(), ["image/png", "application/pdf"]);
+    assert!(lines[0].starts_with("[binary resource zip://1") && lines[1].contains("hello"), "{lines:?}");
+}
+
 /// Whether an MCP image can go to a model: a format every provider takes, within the size limit.
 fn sendable(mime: &str, base64: &str) -> Result<(), &'static str> {
     if !crate::tool::image::SENDABLE.contains(&mime) {
@@ -1188,6 +1196,17 @@ fn sendable(mime: &str, base64: &str) -> Result<(), &'static str> {
         return Err("larger than 32 MB");
     }
     Ok(())
+}
+
+/// A resource, read or embedded in a call's result, as opencode passes it on: an image or PDF the
+/// model can take is attached, anything else becomes text.
+fn take_resource(resource: &rmcp::model::ResourceContents, images: &mut Vec<Image>, lines: &mut Vec<String>) {
+    match resource {
+        rmcp::model::ResourceContents::BlobResourceContents { mime_type: Some(mime), blob, .. } if sendable(mime, blob).is_ok() || mime == crate::tool::image::PDF => {
+            images.push(Image { mime: mime.clone(), base64: blob.clone() });
+        }
+        other => lines.push(resource_text(other)),
+    }
 }
 
 /// An embedded resource as the model reads it: its text, or a line naming a binary one.
