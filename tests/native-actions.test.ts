@@ -350,6 +350,23 @@ test("/compact asks the engine to compact and reports a refusal; the auto settin
   expect(await h.actions.setAutoCompact(false)).toEqual({ autoCompact: false })
 })
 
+test("a removed workspace's purge completes only once the engine holds none of its conversations", async () => {
+  const calls: string[] = []
+  const h = harness({
+    purgeWorkspace: (id: string) => {
+      calls.push(id)
+      if (id === "busy") return Promise.reject(new EngineError(409, `/workspaces/${id}/purge`, "busy", "running"))
+      if (id === "gone") return Promise.reject(new EngineError(404, `/workspaces/${id}/purge`, "not_found", "workspace"))
+      return Promise.resolve({ deleted: 3 })
+    },
+  } as Partial<Client>)
+  expect(await h.actions.removeAllSessions("ws_1", () => true)).toBeTrue()
+  expect(await h.actions.removeAllSessions("busy", () => true)).toBeFalse()
+  expect(await h.actions.removeAllSessions("gone", () => true)).toBeTrue()
+  expect(await h.actions.removeAllSessions("restored", () => false)).toBeFalse()
+  expect(calls).toEqual(["ws_1", "busy", "gone"])
+})
+
 test("undo and redo apply the engine's session and report refusals", async () => {
   const h = harness({
     revertSession: (id: string, messageId: string) =>

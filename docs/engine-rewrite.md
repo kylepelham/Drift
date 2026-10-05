@@ -1819,8 +1819,7 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     `Engine::forget_workspace`, which drops the workspace's stored and cached grants and its
     trusted project commands, then deletes its own row, so a failure in between can be retried;
     the shell never names those keys. That runs from the seven-day purge of removed workspaces,
-    which does not run yet (CHECKLIST, `removeAllSessions`), so until then grants of removed
-    workspaces stay.
+    once `POST /workspaces/{id}/purge` has deleted their conversations.
     Searches also evaluate their `grep`/`glob` rules. An approved search covers the files under its
     path, outside the workspace and in the scratch directory too, unless an explicit rule says
     otherwise: a file a rule denies is skipped, and one a rule asks about is skipped unless the
@@ -1935,10 +1934,25 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   the components were written against. That keeps the whole UI working on the new engine
   without touching a component. At M4 the store adopts the generated types, the adapter
   goes, and `@opencode-ai/sdk` leaves `package.json`.
-- Retained features not yet moved to the engine, tracked in `CHECKLIST.md` and not to be read as
-  native: the removed-workspace purge (its session removal is a stub that reports nothing
-  deleted, so the purge retries forever), transcript search, and Settings > Storage, both of which
-  still read OpenCode's database and schema and never see `drift.db`.
+- The three features that read OpenCode's database now read `drift.db`:
+  - The removed-workspace purge: seven days after a workspace is removed, the UI's sweep calls
+    `POST /workspaces/{id}/purge` (`Engine::purge_removed_workspace`), which deletes every
+    conversation of the workspace in one write (archived ones and subagents too), their shell
+    output and the workspace's undo history, and announces each deletion. It refuses with 409
+    while the workspace is on the sidebar again (`in_use`) or one of its conversations runs
+    (`busy`), so the sweep keeps the record and tries again; 404 means nothing is left. Only then
+    does the shell forget the workspace (`store_forget_workspace`).
+  - Transcript search (`session_search.rs`) reads `drift.db` on a read-only connection of its own,
+    so a scan never holds the engine's writer: the 500 newest conversations (spawned threads
+    included, subagents not) of workspaces on the sidebar, through the message and part indexes,
+    matching only text and reasoning.
+  - Settings > Storage (`storage.rs`) sizes the database (transcripts and images, sampled) and the
+    engine's undo history and shell output folders, and counts conversations. The opencode screen's
+    event-log rules have no native counterpart: the engine already drops unreferenced undo
+    history, week-old shell output and unreferenced images every six hours (`Engine::clean_up`),
+    so "Clean up now" runs that same housekeeping at once and reports what it freed. Compact runs
+    `VACUUM` on its own connection, refused while any conversation runs, and folds the log back
+    so the file shrinks. The screen's strings stay English for now, like the rest of it.
 - Settings has no Jev tool routing: the native engine routes no tools, so the toggle and its
   status polling are gone. The shell's `tool_routing.rs` remains only for the frozen opencode
   plugin and goes at M4 with the rest of the shell engine glue.

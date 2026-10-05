@@ -1,17 +1,15 @@
-//! Content search across engine transcripts.
+//! Content search across engine transcripts in `drift.db`.
 //!
 //! Session titles are already in the frontend, so those are matched there. Message bodies are not:
-//! they live in the engine database, and a workspace can hold far more of them than the transcript
-//! cache ever loads. Searching them in the frontend would mean pulling every transcript first, so
-//! the query runs here instead, against the same read-only connection the storage tab uses.
+//! a workspace can hold far more of them than the transcript cache ever loads, so the query runs
+//! here, on a read-only connection of its own. A scan never holds the engine's one writer.
 //!
-//! The scan is bounded rather than exhaustive. `part` holds one row per streamed snapshot and grows
-//! to millions of rows, so an unbounded `LIKE` would read the whole table for a query that matches
-//! nothing. Restricting to the newest sessions in the workspace keeps the work proportional to what
-//! a person plausibly wants to find again, and `part_session_idx` makes that restriction cheap.
+//! The scan is bounded rather than exhaustive: only the newest conversations are read, through the
+//! message and part indexes, so a query matching nothing still returns promptly.
 
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
+use std::path::Path;
 use std::time::Duration;
 
 /// The engine may hold a write lock while streaming; wait rather than fail immediately.
@@ -39,12 +37,8 @@ pub struct SessionMatch {
     pub excerpt: String,
 }
 
-fn database_path() -> Result<std::path::PathBuf, String> {
-    crate::engine_db::database_path(true)
-}
-
-fn open() -> Result<Connection, String> {
-    let conn = Connection::open_with_flags(database_path()?, OpenFlags::SQLITE_OPEN_READ_ONLY)
+fn open(database: &Path) -> Result<Connection, String> {
+    let conn = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|error| error.to_string())?;
     conn.busy_timeout(BUSY_TIMEOUT)
         .map_err(|error| error.to_string())?;
@@ -106,12 +100,12 @@ pub(crate) fn excerpt(text: &str, query: &str) -> String {
     window
 }
 
-/// Sessions in `directory` whose transcript contains `query`, newest first.
+/// Conversations in `directory` whose transcript contains `query`, newest first.
 ///
-/// An empty `directory` searches every workspace. Subagent sessions are excluded: their work is
-/// reachable from the parent thread, and listing both would return the same conversation twice.
-pub fn search(query: &str, directory: &str) -> Result<Vec<SessionMatch>, String> {
-    search_in(&open()?, query, directory)
+/// An empty `directory` searches every workspace on the sidebar. Subagent sessions are excluded:
+/// their work is reachable from the parent thread, and listing both would return it twice.
+pub fn search(database: &Path, query: &str, directory: &str) -> Result<Vec<SessionMatch>, String> {
+    search_in(&open(database)?, query, directory)
 }
 
 pub(crate) fn search_in(
@@ -130,19 +124,20 @@ pub(crate) fn search_in(
     let mut statement = conn
         .prepare(
             "WITH recent AS (
-                SELECT id, title, directory, time_updated
-                FROM session
-                WHERE parent_id IS NULL
-                  AND (?1 = '' OR REPLACE(LOWER(directory), '\\', '/') = ?1)
-                ORDER BY time_updated DESC
+                SELECT session.id, session.title, workspace.path AS directory, session.updated_at
+                FROM session JOIN workspace ON workspace.id = session.workspace_id
+                WHERE session.visibility = 'sibling' AND workspace.removed_at IS NULL
+                  AND (?1 = '' OR RTRIM(REPLACE(LOWER(workspace.path), '\\', '/'), '/') = ?1)
+                ORDER BY session.updated_at DESC
                 LIMIT ?2
             )
             SELECT recent.id, part.message_id, recent.title, recent.directory,
-                   recent.time_updated, part.data
+                   recent.updated_at, part.json
             FROM recent
-            JOIN part ON part.session_id = recent.id
-            WHERE part.data LIKE ?3 ESCAPE '\\'
-            ORDER BY recent.time_updated DESC, part.time_created ASC
+            JOIN message ON message.session_id = recent.id
+            JOIN part ON part.message_id = message.id
+            WHERE part.json LIKE ?3 ESCAPE '\\'
+            ORDER BY recent.updated_at DESC, part.id ASC
             LIMIT ?4",
         )
         .map_err(|error| error.to_string())?;

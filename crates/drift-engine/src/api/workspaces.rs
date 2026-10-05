@@ -72,6 +72,25 @@ pub async fn files(
     Ok(Json(found))
 }
 
+#[derive(Serialize, ToSchema)]
+pub struct Purged {
+    /// Conversations deleted, subagents and archived ones included.
+    pub deleted: usize,
+}
+
+/// Deletes every conversation of a workspace the user removed: the seven-day purge's last step,
+/// after which the shell forgets the workspace. 409 while it is in use again or one of them runs.
+#[utoipa::path(post, path = "/workspaces/{id}/purge", operation_id = "purgeWorkspace", responses((status = 200, body = Purged), (status = 404), (status = 409)))]
+pub async fn purge(State(engine): State<Arc<Engine>>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<Json<Purged>, crate::api::error::ApiError> {
+    use crate::api::error::ApiError;
+    match engine.purge_removed_workspace(&id)? {
+        crate::WorkspacePurge::Purged(deleted) => Ok(Json(Purged { deleted })),
+        crate::WorkspacePurge::InUse => Err(ApiError::new(StatusCode::CONFLICT, "in_use", "the workspace is in use; nothing was deleted")),
+        crate::WorkspacePurge::Busy => Err(ApiError::new(StatusCode::CONFLICT, "busy", "one of its conversations is running")),
+        crate::WorkspacePurge::Missing => Err(ApiError::not_found("workspace")),
+    }
+}
+
 #[utoipa::path(get, path = "/workspaces/{id}/config", operation_id = "workspaceConfig", responses((status = 200, body = crate::config::Config), (status = 404)))]
 pub async fn config(State(engine): State<Arc<Engine>>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<Json<crate::config::Config>, StatusCode> {
     let workspace = engine.store.workspace(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;

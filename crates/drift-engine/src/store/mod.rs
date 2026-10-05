@@ -125,6 +125,30 @@ impl Store {
     }
 }
 
+impl Store {
+    /// The workspace's conversations, archived and subagents included; `None` when it is not a removed workspace.
+    pub fn removed_workspace_sessions(&self, id: &str) -> rusqlite::Result<Option<Vec<String>>> {
+        let conn = self.lock();
+        let removed: Option<bool> = conn.prepare_cached("SELECT removed_at IS NOT NULL FROM workspace WHERE id = ?1")?.query_row([id], |row| row.get(0)).optional()?;
+        if removed != Some(true) {
+            return Ok(None);
+        }
+        let ids = conn.prepare_cached("SELECT id FROM session WHERE workspace_id = ?1")?.query_map([id], |row| row.get(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(Some(ids))
+    }
+
+    /// Deletes every conversation of a removed workspace in one write; `None`, deleting nothing, once it is in use again.
+    pub fn purge_removed_workspace(&self, id: &str) -> rusqlite::Result<Option<usize>> {
+        sessions::transaction(&self.lock(), |conn| {
+            let removed: Option<bool> = conn.prepare_cached("SELECT removed_at IS NOT NULL FROM workspace WHERE id = ?1")?.query_row([id], |row| row.get(0)).optional()?;
+            if removed != Some(true) {
+                return Ok(None);
+            }
+            Ok(Some(conn.prepare_cached("DELETE FROM session WHERE workspace_id = ?1")?.execute([id])?))
+        })
+    }
+}
+
 fn map_workspace(row: &rusqlite::Row) -> rusqlite::Result<Workspace> {
     Ok(Workspace {
         id: row.get(0)?,

@@ -383,6 +383,29 @@ async fn the_archive_purge_never_deletes_a_session_that_was_restored() {
 }
 
 #[tokio::test]
+async fn a_removed_workspaces_purge_deletes_its_conversations_and_history_and_nothing_in_use() {
+    let h = harness().await;
+    let (ws_id, session_id) = session_with_model(&h).await;
+    let archived = h.engine.store.create_session(crate::store::NewSession { workspace_id: &ws_id, parent_id: None, visibility: crate::session::types::Visibility::Sibling, title: "old", agent: "build", model: None }).unwrap();
+    h.engine.store.set_session_archived(&archived.id, true).unwrap();
+    let history = h._dir.0.join("snapshots").join(format!("ws-{ws_id}"));
+    std::fs::create_dir_all(&history).unwrap();
+    let purge = || h.post(&format!("/workspaces/{ws_id}/purge")).send();
+    let refused: Value = purge().await.unwrap().json().await.unwrap();
+    assert_eq!(refused["code"], "in_use", "a workspace on the sidebar keeps everything");
+    assert!(h.engine.store.session(&session_id).unwrap().is_some());
+    h.engine.store.lock().execute("UPDATE workspace SET removed_at = 1 WHERE id = ?1", [&ws_id]).unwrap();
+    let mut socket = h.ws("").await;
+    let purged: Value = purge().await.unwrap().json().await.unwrap();
+    assert_eq!(purged["deleted"], 2, "archived ones too");
+    assert!(h.engine.store.session(&session_id).unwrap().is_none() && h.engine.store.session(&archived.id).unwrap().is_none());
+    assert!(!history.exists(), "its undo history goes with them");
+    assert!(until(&mut socket, "session.deleted").await["sessionId"].as_str().is_some(), "the sidebar hears each one go");
+    assert_eq!(purge().await.unwrap().status(), 200, "a repeat finds nothing left and still succeeds");
+    assert_eq!(h.post("/workspaces/nobody/purge").send().await.unwrap().status(), 404);
+}
+
+#[tokio::test]
 async fn deleting_a_session_removes_it_and_its_messages() {
     let h = harness().await;
     let (_, session_id) = session_with_model(&h).await;

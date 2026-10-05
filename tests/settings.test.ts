@@ -272,14 +272,11 @@ const pendingTranslation = new Set([
   ...pendingKeys(
     "drift.storage",
     `
-      actions analyze analyze.action analyze.description analyzing auto auto.description cleanup compact
-      compact.action compact.description compacting estimated free prune prune.action prune.available
+      actions compact compact.action compact.description compacting estimated free prune prune.action
       prune.description pruning refresh subtitle
-      rule.archived rule.archived.description rule.orphan rule.orphan.description rule.subagent
-      rule.subagent.description rule.superseded rule.superseded.description
       sessions sessions.archived sessions.archived.description sessions.subagent
       sessions.subagent.description sessions.total sessions.total.description
-      table.event table.event.hint table.message table.message.hint table.part table.part.hint
+      table.part table.part.hint table.blob table.blob.hint table.undo table.undo.hint table.output table.output.hint
     `,
   ),
   "drift.storage",

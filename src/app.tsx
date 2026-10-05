@@ -3,7 +3,6 @@ import { EngineProvider, useEngine } from "./engine"
 import { messageText, savedChoice } from "./engine/store"
 import { PluginHost } from "./plugins"
 import { bindCodePreferences } from "./state/code"
-import { runScheduledCleanup } from "./state/storage"
 import { initKeybinds } from "./state/keybinds"
 import { t } from "./state/i18n"
 import { bindLanguage } from "./state/language"
@@ -273,8 +272,5 @@ function WorkspaceBinding() {
       // reconnect or hourly tick instead of waiting out the daily interval.
       if (!complete) lastPurge = 0
     })
-    // Storage cleanup rides the same daily timer and keeps its own last-run stamp, so it stays off
-    // the startup path where a large event log would block the first paint.
-    void runScheduledCleanup().catch(() => undefined)
   }
 }

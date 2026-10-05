@@ -173,7 +173,7 @@ named. **Gap**: open, and listed under M4 in `CHECKLIST.md`.
 
 | Item | Status | Evidence or gap |
 | --- | --- | --- |
-| Listing, selection, search | Gap: search | Paging carried (`store::sessions::paging_tests::equal_timestamps_do_not_skip_sessions_across_pages`); transcript search still reads OpenCode's database |
+| Listing, selection, search | Carried | Paging (`store::sessions::paging_tests::equal_timestamps_do_not_skip_sessions_across_pages`); transcript search on `drift.db` (`src-tauri/src/session_search_tests.rs`), closed after the audit |
 | Durable admission and retry | Carried | `session::turn::tests::submission_ids_survive_a_restart_and_reject_a_different_payload`, `store::sessions::admission_tests::a_reused_submission_id_is_settled_inside_the_admission` |
 | Part order, deltas, unknown parts | Carried | Unknown parts as `zz-prompt-row-scan`, closed after the audit |
 | Cancellation everywhere | Carried | Shell tree tests, `mcp::tests::disabling_ends_calls_under_way_and_refuses_captured_tools_until_reenabled`, `session::tasks::tests::stopping_one_worker_leaves_the_others_running` |
@@ -183,7 +183,7 @@ named. **Gap**: open, and listed under M4 in `CHECKLIST.md`.
 | MCP approval | Dropped | As `mcp-approval-guard` |
 | Provider picker, refresh, local context | Carried | Catalog drops models without `tool_call`; refresh tests above; the context meter uses `Model::compaction_point` |
 | Fork, revert, move | Carried | `session::tree::tests`, `session::revert::tests` |
-| Archives and purge | Gap | Native purge carried (`api::tests::the_archive_purge_never_deletes_a_session_that_was_restored`); the shell's removed-workspace purge is a stub and Drift's `session_meta` tombstones are not imported yet |
+| Archives and purge | Carried | Archive purge (`api::tests::the_archive_purge_never_deletes_a_session_that_was_restored`), removed-workspace purge (`api::tests::a_removed_workspaces_purge_deletes_its_conversations_and_history_and_nothing_in_use`), Drift's `session_meta` archive honoured by the import; closed after the audit |
 | Startup, remote, slow consumers | Gap | Remote gateway still proxies; lag path untested |
 | Release without OpenCode | Gap | `engine/*` deletion, M4 |
 

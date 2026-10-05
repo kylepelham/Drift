@@ -173,9 +173,9 @@ change the plan there when a decision changes.
 
 #### Retained features still on the OpenCode database (pending native UI work)
 
-- [ ] Removed-workspace purge: `actions.removeAllSessions` is a stub that reports nothing deleted, so the seven-day cleanup of a removed workspace never completes (its tombstone, sessions, kept permission grants and trusted commands stay; `store_forget_workspace` already clears the engine's records once the purge reaches it)
-- [ ] Transcript search (`session_search`) reads OpenCode's database and schema, so native transcripts are never matched
-- [ ] Settings > Storage (stats, analyze, prune, compact) reads and prunes OpenCode's database, not `drift.db`
+- [x] Removed-workspace purge: `POST /workspaces/{id}/purge` deletes a removed workspace's conversations, shell output and undo history (409 while it is back on the sidebar or one runs); then the shell forgets it, grants and trusted commands included
+- [x] Transcript search reads `drift.db` on its own read-only connection (workspaces on the sidebar, spawned threads included)
+- [x] Settings > Storage sizes `drift.db` and the engine's folders; "Clean up now" runs the engine's housekeeping; compact is refused while a conversation runs; the event-log rules, analyze and the daily cleanup timer are gone (the engine cleans every six hours)
 
 ## M4: cutover
 

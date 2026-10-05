@@ -285,6 +285,11 @@ impl Turns {
         self.active.lock().unwrap().contains_key(session_id)
     }
 
+    /// Whether any session has a job running.
+    pub fn any_running(&self) -> bool {
+        !self.active.lock().unwrap().is_empty()
+    }
+
     /// Cancels whatever holds the session, if anything does.
     pub(super) fn cancel(&self, session_id: &str) -> bool {
         self.active.lock().unwrap().get(session_id).inspect(|token| token.cancel()).is_some()

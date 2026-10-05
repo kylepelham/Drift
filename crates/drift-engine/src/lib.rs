@@ -209,10 +209,36 @@ impl Engine {
         loop {
             every.tick().await;
             let Some(engine) = engine.upgrade() else { return };
-            engine.prune_snapshots().await;
-            engine.prune_tool_output(TOOL_OUTPUT_RETENTION);
-            let _ = engine.store.prune_blobs();
+            engine.clean_up().await;
         }
+    }
+
+    /// One round of housekeeping now (Settings > Storage asks for it); the number of images dropped.
+    pub async fn clean_up(&self) -> usize {
+        self.prune_snapshots().await;
+        self.prune_tool_output(TOOL_OUTPUT_RETENTION);
+        self.store.prune_blobs().unwrap_or(0)
+    }
+
+    /// Deletes every conversation of a workspace the user removed, with their undo history and shell
+    /// output. Refused while the workspace is in use again or one of its conversations is running.
+    pub fn purge_removed_workspace(&self, id: &str) -> Result<WorkspacePurge, rusqlite::Error> {
+        if self.store.workspace(id)?.is_none() {
+            return Ok(WorkspacePurge::Missing);
+        }
+        let Some(sessions) = self.store.removed_workspace_sessions(id)? else { return Ok(WorkspacePurge::InUse) };
+        if sessions.iter().any(|session| self.turns.is_running(session)) {
+            return Ok(WorkspacePurge::Busy);
+        }
+        let Some(deleted) = self.store.purge_removed_workspace(id)? else { return Ok(WorkspacePurge::InUse) };
+        for session in &sessions {
+            self.permissions.forget_session(session);
+            self.questions.forget_session(session);
+            let _ = std::fs::remove_dir_all(self.data_dir.join("tool-output").join(session));
+            self.hub.publish(event::Event::SessionDeleted { session_id: session.clone() });
+        }
+        self.snapshots.forget(id);
+        Ok(WorkspacePurge::Purged(deleted))
     }
 
     /// Deletes spooled shell output older than `age`; a call's result still says what it printed.
@@ -306,6 +332,18 @@ impl Engine {
             self.hub.publish(event::Event::CatalogUpdated {});
         }
     }
+}
+
+/// How a removed workspace's purge went.
+#[derive(Debug, PartialEq)]
+pub enum WorkspacePurge {
+    /// Its conversations are gone, this many.
+    Purged(usize),
+    /// Not removed, or restored since: nothing was deleted.
+    InUse,
+    /// One of its conversations is running; try again later.
+    Busy,
+    Missing,
 }
 
 /// How often local servers are asked what they have.

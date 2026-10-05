@@ -220,7 +220,7 @@ export function purgeArchived(removeSession: (sessionId: string) => Promise<Arch
 }
 
 export async function purgeRemovedWorkspaces(
-  removeSessions: (directory: string, eligible: () => boolean) => Promise<boolean>,
+  removeSessions: (workspaceId: string, eligible: () => boolean) => Promise<boolean>,
 ) {
   const expired = await driftStore.expiredRemovedWorkspaces(Date.now() - purgeAge)
   const canonical = (path: string) => path.replaceAll("\\", "/").toLowerCase()
@@ -232,7 +232,7 @@ export async function purgeRemovedWorkspaces(
       !removedWorkspaces().some(
         (current) => current.id === workspace.id && (current.removedAt ?? 0) > (workspace.removedAt ?? 0),
       )
-    if (!(await removeSessions(workspace.path, eligible))) {
+    if (!(await removeSessions(workspace.id, eligible))) {
       complete = false
       continue
     }
@@ -245,7 +245,7 @@ export async function purgeRemovedWorkspaces(
 
 export async function purgeAll(engine: {
   purgeArchivedSession: (sessionId: string) => Promise<ArchivePurge>
-  removeAllSessions: (directory: string, eligible: () => boolean) => Promise<boolean>
+  removeAllSessions: (workspaceId: string, eligible: () => boolean) => Promise<boolean>
 }) {
   const [archived, removed] = await Promise.all([
     purgeArchived(engine.purgeArchivedSession).catch(() => false),

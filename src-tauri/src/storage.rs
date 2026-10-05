@@ -1,40 +1,34 @@
-//! Reports and reclaims space in the OpenCode session database.
+//! What Drift keeps on disk, and room to give some back.
 //!
-//! The engine is event sourced: `event` is an append-only log and `message` / `part` are projections
-//! derived from it. Nothing trims the log, and `message.part.updated` / `message.updated` events
-//! each store a *full* JSON snapshot rather than a delta, so one streamed reply leaves behind an
-//! ever-larger copy per update. The log therefore grows to several times the size of the data it
-//! describes.
+//! The engine stores transcripts in `drift.db` beside two folders: its undo history (a shadow git
+//! repository per workspace) and spooled shell output. It already cleans all three every few hours
+//! (`Engine::clean_up`), so this screen reports sizes, runs that cleanup on request, and compacts.
 //!
-//! Transcripts are read from the projections, not by replaying the log, so superseded snapshots can
-//! be removed without changing anything the user can see.
-//!
-//! Two cost tiers matter here. Row counts and file size are instant, but summing payload lengths
-//! over a million-row table takes the better part of a minute. `stats` therefore *estimates* bytes
-//! from a stratified sample so the settings tab opens immediately, and `analyze` does the exact
-//! (slow) accounting only when the user asks for it.
+//! Row counts and file sizes are instant, but summing payload lengths over a large `part` table is
+//! not, so table sizes are estimated from a stratified sample.
 
 use crate::store::Store;
 use rusqlite::{Connection, OpenFlags};
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use serde::Serialize;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// The engine may hold a write lock while streaming; wait rather than fail immediately.
+/// A scan waits this long for the engine's writer rather than failing at once.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 /// Rows read per sampling stratum, and how many strata to spread across the table.
 const SAMPLE_ROWS_PER_STRATUM: i64 = 200;
 const SAMPLE_STRATA: i64 = 12;
-
-/// Tables whose `data` column holds the bulk of the database.
-const PAYLOAD_TABLES: [(&str, &str); 3] = [("event", "data"), ("part", "data"), ("message", "data")];
+/// Tables whose payload column holds the bulk of the database: transcripts and pasted images.
+const PAYLOAD_TABLES: [(&str, &str); 2] = [("part", "json"), ("blob", "data")];
+/// The engine's folders beside the database, by the name the UI shows them under.
+const FOLDERS: [(&str, &str); 2] = [("undo", "snapshots"), ("output", "tool-output")];
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableUsage {
     pub table: String,
     pub rows: i64,
-    /// Estimated payload bytes: exact row count multiplied by a sampled mean row size.
+    /// Estimated for a table (row count times a sampled mean row size), exact for a folder.
     pub bytes: i64,
 }
 
@@ -51,66 +45,64 @@ pub struct SessionCounts {
 #[serde(rename_all = "camelCase")]
 pub struct StorageStats {
     pub path: String,
-    /// Size of the database file on disk.
+    /// The database with its log, and the engine's folders.
     pub total_bytes: i64,
-    /// Pages already free inside the file. Reclaimed by compacting, not by pruning.
+    /// Pages already free inside the database file. Reclaimed by compacting.
     pub free_bytes: i64,
     pub tables: Vec<TableUsage>,
     pub sessions: SessionCounts,
-    /// True when byte figures come from sampling rather than a full scan.
+    /// True when table figures come from sampling rather than a full scan.
     pub estimated: bool,
-}
-
-/// Exact reclaimable bytes per rule. Rules overlap, so these are upper bounds, not a sum.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuleEstimate {
-    pub rule: String,
-    pub rows: i64,
-    pub bytes: i64,
-}
-
-/// Which prune rules to apply. Each maps to one rule in `rules_for`.
-#[derive(Deserialize, Default, Clone, Copy)]
-#[serde(rename_all = "camelCase")]
-pub struct PruneRules {
-    /// Remove all but the newest snapshot per part and per message.
-    pub superseded_snapshots: bool,
-    /// Remove the event log of subagent (child) sessions; their summary lives in the parent.
-    pub subagent_events: bool,
-    /// Remove the event log of archived sessions.
-    pub archived_events: bool,
-    /// Remove events whose session no longer exists.
-    pub orphan_events: bool,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PruneResult {
+    /// Images nothing referred to any more.
     pub removed_rows: i64,
-    /// Change in file size. Zero unless the database was also compacted, because deleted pages stay
-    /// in the file as free space until then.
+    /// How much smaller the database and the engine's folders are now.
     pub freed_bytes: i64,
-    /// Free space now available for reuse inside the file.
+    /// Free space now available for reuse inside the database file.
     pub free_bytes: i64,
 }
 
-fn database_path() -> Result<PathBuf, String> {
-    crate::engine_db::database_path(true)
+/// Where the engine keeps its database and folders.
+pub struct Location {
+    pub data_dir: PathBuf,
 }
 
-fn open(read_only: bool) -> Result<Connection, String> {
-    let path = database_path()?;
-    let flags = if read_only {
-        OpenFlags::SQLITE_OPEN_READ_ONLY
-    } else {
-        OpenFlags::SQLITE_OPEN_READ_WRITE
-    };
-    let conn = Connection::open_with_flags(&path, flags).map_err(|error| error.to_string())?;
-    conn.busy_timeout(BUSY_TIMEOUT)
-        .map_err(|error| error.to_string())?;
-    conn.pragma_update(None, "foreign_keys", true)
-        .map_err(|error| error.to_string())?;
+impl Location {
+    fn database(&self) -> PathBuf {
+        self.data_dir.join("drift.db")
+    }
+
+    /// The database, its write-ahead log and the engine's folders.
+    fn total_bytes(&self) -> i64 {
+        let database = self.database();
+        let log = PathBuf::from(format!("{}-wal", database.display()));
+        file_bytes(&database) + file_bytes(&log) + FOLDERS.iter().map(|(_, folder)| folder_bytes(&self.data_dir.join(folder))).sum::<i64>()
+    }
+}
+
+fn file_bytes(path: &Path) -> i64 {
+    std::fs::metadata(path).map(|meta| meta.len() as i64).unwrap_or(0)
+}
+
+fn folder_bytes(path: &Path) -> i64 {
+    let Ok(entries) = std::fs::read_dir(path) else { return 0 };
+    entries
+        .flatten()
+        .map(|entry| match entry.file_type() {
+            Ok(kind) if kind.is_dir() => folder_bytes(&entry.path()),
+            _ => entry.metadata().map(|meta| meta.len() as i64).unwrap_or(0),
+        })
+        .sum()
+}
+
+fn open(database: &Path, read_only: bool) -> Result<Connection, String> {
+    let flags = if read_only { OpenFlags::SQLITE_OPEN_READ_ONLY } else { OpenFlags::SQLITE_OPEN_READ_WRITE };
+    let conn = Connection::open_with_flags(database, flags).map_err(|error| error.to_string())?;
+    conn.busy_timeout(BUSY_TIMEOUT).map_err(|error| error.to_string())?;
     Ok(conn)
 }
 
@@ -120,21 +112,11 @@ fn scalar(conn: &Connection, sql: &str) -> Result<i64, String> {
         .map_err(|error| error.to_string())
 }
 
-/// Moves the write-ahead log back into the database and releases the log file.
-///
-/// A large delete grows the WAL to hold every modified page, and SQLite then reuses that space
-/// rather than shrinking the file. Without this a caller who just freed several gigabytes is left
-/// with a multi-gigabyte `-wal` beside the database and no apparent saving. Checkpointing is
-/// best effort: another reader can hold the log open, in which case it is released later.
-fn checkpoint(conn: &Connection) {
-    let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+fn free_bytes(conn: &Connection) -> Result<i64, String> {
+    Ok(scalar(conn, "PRAGMA freelist_count")? * scalar(conn, "PRAGMA page_size")?)
 }
 
-/// Mean payload size for a column, sampled from evenly spaced windows.
-///
-/// A full `SUM(LENGTH(...))` costs a minute on the `event` table. Reading a few hundred rows from
-/// each of a dozen positions costs milliseconds and is close enough to size a bar chart, while
-/// avoiding the bias of sampling only the newest or oldest rows.
+/// Mean payload size for a column, sampled from evenly spaced windows of the table.
 fn sampled_mean_bytes(conn: &Connection, table: &str, column: &str) -> Result<f64, String> {
     let max_rowid = scalar(conn, &format!("SELECT MAX(rowid) FROM \"{table}\""))?;
     if max_rowid == 0 {
@@ -144,52 +126,33 @@ fn sampled_mean_bytes(conn: &Connection, table: &str, column: &str) -> Result<f6
     let mut total = 0i64;
     let mut rows = 0i64;
     for stratum in 0..SAMPLE_STRATA {
-        let start = stratum * stride;
         let sql = format!(
             "SELECT COALESCE(SUM(LENGTH(CAST(\"{column}\" AS BLOB))), 0), COUNT(*) FROM (
                  SELECT \"{column}\" FROM \"{table}\" WHERE rowid >= ?1 LIMIT ?2
              )"
         );
         let (bytes, counted): (i64, i64) = conn
-            .query_row(&sql, (start, SAMPLE_ROWS_PER_STRATUM), |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })
+            .query_row(&sql, (stratum * stride, SAMPLE_ROWS_PER_STRATUM), |row| Ok((row.get(0)?, row.get(1)?)))
             .map_err(|error| error.to_string())?;
         total += bytes;
         rows += counted;
     }
-    Ok(if rows == 0 {
-        0.0
-    } else {
-        total as f64 / rows as f64
-    })
+    Ok(if rows == 0 { 0.0 } else { total as f64 / rows as f64 })
 }
 
+/// A conversation counts as archived when the engine marks it or Drift's archive list names it.
 fn session_counts(conn: &Connection, archived: &[String]) -> Result<SessionCounts, String> {
-    // A session counts as archived if either archive marks it: the engine's own `time_archived`, or
-    // Drift's separate archive list in drift.db. The two overlap but are not the same set.
-    let engine_archived = scalar(conn, "SELECT COUNT(*) FROM session WHERE time_archived IS NOT NULL")?;
-    let archived_total = if archived.is_empty() {
-        engine_archived
-    } else {
-        let list = quote_list(archived);
-        scalar(
-            conn,
-            &format!(
-                "SELECT COUNT(*) FROM session WHERE time_archived IS NOT NULL OR id IN ({list})"
-            ),
-        )?
-    };
+    let listed = quote_list(archived);
+    let extra = if listed.is_empty() { String::new() } else { format!(" OR id IN ({listed})") };
     Ok(SessionCounts {
         total: scalar(conn, "SELECT COUNT(*) FROM session")?,
-        top_level: scalar(conn, "SELECT COUNT(*) FROM session WHERE parent_id IS NULL")?,
-        subagent: scalar(conn, "SELECT COUNT(*) FROM session WHERE parent_id IS NOT NULL")?,
-        archived: archived_total,
+        top_level: scalar(conn, "SELECT COUNT(*) FROM session WHERE visibility = 'sibling'")?,
+        subagent: scalar(conn, "SELECT COUNT(*) FROM session WHERE visibility = 'hidden'")?,
+        archived: scalar(conn, &format!("SELECT COUNT(*) FROM session WHERE archived_at IS NOT NULL{extra}"))?,
     })
 }
 
-/// Renders ids as a SQL list. Session ids are engine-generated and validated below, so this cannot
-/// carry an injected fragment.
+/// Renders ids as a SQL list; anything that is not a plain identifier is dropped, so nothing can be injected.
 fn quote_list(ids: &[String]) -> String {
     ids.iter()
         .filter(|id| id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
@@ -198,172 +161,51 @@ fn quote_list(ids: &[String]) -> String {
         .join(",")
 }
 
-pub fn stats(archived: &[String]) -> Result<StorageStats, String> {
-    let path = database_path()?;
-    let total_bytes = std::fs::metadata(&path)
-        .map(|meta| meta.len() as i64)
-        .unwrap_or(0);
-    let conn = open(true)?;
-    let page_size = scalar(&conn, "PRAGMA page_size")?;
-    let free_bytes = scalar(&conn, "PRAGMA freelist_count")? * page_size;
-
+pub fn stats(location: &Location, archived: &[String]) -> Result<StorageStats, String> {
+    let conn = open(&location.database(), true)?;
     let mut tables = Vec::new();
     for (table, column) in PAYLOAD_TABLES {
         let rows = scalar(&conn, &format!("SELECT COUNT(*) FROM \"{table}\""))?;
         let mean = sampled_mean_bytes(&conn, table, column)?;
-        tables.push(TableUsage {
-            table: table.to_string(),
-            rows,
-            bytes: (rows as f64 * mean) as i64,
-        });
+        tables.push(TableUsage { table: table.into(), rows, bytes: (rows as f64 * mean) as i64 });
     }
-
+    for (name, folder) in FOLDERS {
+        tables.push(TableUsage { table: name.into(), rows: 0, bytes: folder_bytes(&location.data_dir.join(folder)) });
+    }
     Ok(StorageStats {
-        path: path.to_string_lossy().to_string(),
-        total_bytes,
-        free_bytes,
+        path: location.database().to_string_lossy().into_owned(),
+        total_bytes: location.total_bytes(),
+        free_bytes: free_bytes(&conn)?,
         tables,
         sessions: session_counts(&conn, archived)?,
         estimated: true,
     })
 }
 
-/// SQL selecting the rowids each rule would delete, paired with the rule name.
-fn rules_for(rules: PruneRules, archived: &[String]) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    if rules.superseded_snapshots {
-        for (event_type, id_path) in [
-            ("message.part.updated.1", "$.part.id"),
-            ("message.updated.1", "$.info.id"),
-        ] {
-            out.push((
-                format!("superseded:{event_type}"),
-                format!(
-                    "SELECT rowid FROM (
-                         SELECT rowid, ROW_NUMBER() OVER (
-                             PARTITION BY json_extract(data, '{id_path}') ORDER BY seq DESC
-                         ) AS rank
-                         FROM event WHERE type = '{event_type}'
-                             AND json_extract(data, '{id_path}') IS NOT NULL
-                     ) WHERE rank > 1"
-                ),
-            ));
-        }
-    }
-    if rules.subagent_events {
-        out.push((
-            "subagent-events".into(),
-            "SELECT rowid FROM event WHERE aggregate_id IN
-                 (SELECT id FROM session WHERE parent_id IS NOT NULL)"
-                .into(),
-        ));
-    }
-    if rules.archived_events {
-        let extra = if archived.is_empty() {
-            String::new()
-        } else {
-            format!(" OR id IN ({})", quote_list(archived))
-        };
-        out.push((
-            "archived-events".into(),
-            format!(
-                "SELECT rowid FROM event WHERE aggregate_id IN
-                     (SELECT id FROM session WHERE time_archived IS NOT NULL{extra})"
-            ),
-        ));
-    }
-    if rules.orphan_events {
-        out.push((
-            "orphan-events".into(),
-            "SELECT rowid FROM event WHERE aggregate_id NOT IN (SELECT id FROM session)".into(),
-        ));
-    }
-    out
+/// What a cleanup took away, measured around it.
+pub fn cleaned(location: &Location, before: i64, images: usize) -> Result<PruneResult, String> {
+    let conn = open(&location.database(), true)?;
+    Ok(PruneResult { removed_rows: images as i64, freed_bytes: (before - location.total_bytes()).max(0), free_bytes: free_bytes(&conn)? })
 }
 
-/// Exact reclaimable rows and bytes per rule. Scans the event table, so this is slow by design.
-pub fn analyze(archived: &[String]) -> Result<Vec<RuleEstimate>, String> {
-    let conn = open(true)?;
-    let all = PruneRules {
-        superseded_snapshots: true,
-        subagent_events: true,
-        archived_events: true,
-        orphan_events: true,
-    };
-    rules_for(all, archived)
-        .into_iter()
-        .map(|(rule, selector)| {
-            let sql = format!(
-                "SELECT COUNT(*), COALESCE(SUM(LENGTH(CAST(data AS BLOB))), 0)
-                 FROM event WHERE rowid IN ({selector})"
-            );
-            let (rows, bytes): (i64, i64) = conn
-                .query_row(&sql, [], |row| Ok((row.get(0)?, row.get(1)?)))
-                .map_err(|error| error.to_string())?;
-            Ok(RuleEstimate { rule, rows, bytes })
-        })
-        .collect()
+pub fn total_bytes(location: &Location) -> i64 {
+    location.total_bytes()
 }
 
-pub fn prune(rules: PruneRules, archived: &[String]) -> Result<PruneResult, String> {
-    let path = database_path()?;
-    let before = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
-    let mut conn = open(false)?;
-    let mut removed_rows = 0i64;
-    {
-        let tx = conn.transaction().map_err(|error| error.to_string())?;
-        for (_, selector) in rules_for(rules, archived) {
-            removed_rows += tx
-                .execute(&format!("DELETE FROM event WHERE rowid IN ({selector})"), [])
-                .map_err(|error| error.to_string())? as i64;
-        }
-        if rules.orphan_events {
-            tx.execute(
-                "DELETE FROM event_sequence WHERE aggregate_id NOT IN (SELECT id FROM session)",
-                [],
-            )
-            .map_err(|error| error.to_string())?;
-        }
-        tx.commit().map_err(|error| error.to_string())?;
-    }
-    checkpoint(&conn);
-    let page_size = scalar(&conn, "PRAGMA page_size")?;
-    let free_bytes = scalar(&conn, "PRAGMA freelist_count")? * page_size;
-    let after = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
-    Ok(PruneResult {
-        removed_rows,
-        freed_bytes: (before - after).max(0),
-        free_bytes,
-    })
+/// Rewrites the database to give its free pages back to the disk. The caller refuses while a
+/// conversation runs: the rewrite holds the database for its whole length.
+pub fn compact(location: &Location) -> Result<PruneResult, String> {
+    let before = location.total_bytes();
+    let conn = open(&location.database(), false)?;
+    conn.execute_batch("VACUUM").map_err(|error| format!("could not compact the database (it is in use): {error}"))?;
+    // The rewrite went through the log; folding it back is what makes the file smaller on disk.
+    let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+    Ok(PruneResult { removed_rows: 0, freed_bytes: (before - location.total_bytes()).max(0), free_bytes: free_bytes(&conn)? })
 }
 
-/// Rewrites the database to release free pages back to the filesystem.
-///
-/// VACUUM needs exclusive access, so this fails while the engine holds the database open. The error
-/// is surfaced verbatim so the UI can tell the user to close their sessions and retry.
-pub fn compact() -> Result<PruneResult, String> {
-    let path = database_path()?;
-    let before = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
-    let conn = open(false)?;
-    conn.execute_batch("VACUUM").map_err(|error| {
-        format!("could not compact the database (it is in use): {error}")
-    })?;
-    checkpoint(&conn);
-    let page_size = scalar(&conn, "PRAGMA page_size")?;
-    let after = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
-    Ok(PruneResult {
-        removed_rows: 0,
-        freed_bytes: (before - after).max(0),
-        free_bytes: scalar(&conn, "PRAGMA freelist_count")? * page_size,
-    })
-}
-
-/// Session ids Drift has archived, used to widen the archive rules beyond the engine's own flag.
+/// Session ids Drift has archived, counted as archived beside the engine's own flag.
 pub fn archived_ids(store: &Store) -> Vec<String> {
-    store
-        .archived()
-        .map(|rows| rows.into_iter().map(|row| row.session_id).collect())
-        .unwrap_or_default()
+    store.archived().map(|rows| rows.into_iter().map(|row| row.session_id).collect()).unwrap_or_default()
 }
 
 #[cfg(test)]

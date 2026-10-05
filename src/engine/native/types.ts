@@ -724,6 +724,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspaces/{id}/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deletes every conversation of a workspace the user removed: the seven-day purge's last step,
+         *     after which the shell forgets the workspace. 409 while it is in use again or one of them runs.
+         */
+        post: operations["purgeWorkspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1277,6 +1297,10 @@ export interface components {
                 [key: string]: components["schemas"]["Model"];
             };
             name: string;
+        };
+        Purged: {
+            /** @description Conversations deleted, subagents and archived ones included. */
+            deleted: number;
         };
         Question: {
             /** @description Whether the user may type an answer that is not one of the options. */
@@ -3041,6 +3065,39 @@ export interface operations {
                 content?: never;
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purgeWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Purged"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -90,12 +90,23 @@ impl Snapshots {
     /// where the directory is now: a session moved elsewhere, or a workspace pointed at a new path,
     /// still finds it. A repo kept under the directory's old path-derived name is taken over once.
     pub fn bind(&self, owner: &str, root: &Path) {
-        let owned = self.root.join(format!("ws-{}", owner.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "-")));
+        let owned = self.owned_dir(owner);
         let legacy = self.path_dir(root);
         if !owned.exists() && legacy.join("HEAD").exists() {
             let _ = std::fs::rename(&legacy, &owned);
         }
         self.owners.lock().unwrap().insert(root.to_path_buf(), owned);
+    }
+
+    fn owned_dir(&self, owner: &str) -> PathBuf {
+        self.root.join(format!("ws-{}", owner.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "-")))
+    }
+
+    /// Deletes a workspace's whole history, once nothing of it is kept: its conversations are gone.
+    pub fn forget(&self, owner: &str) {
+        let owned = self.owned_dir(owner);
+        self.owners.lock().unwrap().retain(|_, dir| *dir != owned);
+        let _ = std::fs::remove_dir_all(owned);
     }
 
     fn git_dir(&self, workspace: &Path) -> PathBuf {

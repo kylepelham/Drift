@@ -5,7 +5,7 @@
 use crate::engine::{reload_engine_config, reload_engine_mcp};
 use crate::mcp;
 use crate::session_search::{self, SessionMatch};
-use crate::storage::{self, PruneResult, PruneRules, RuleEstimate, StorageStats};
+use crate::storage::{self, PruneResult, StorageStats};
 use crate::store::{ArchivedSession, Store, Workspace};
 use serde_json::Value;
 use tauri::State;
@@ -13,42 +13,46 @@ use tauri::State;
 /// Sessions whose transcript contains `query`. Runs off the UI thread: the scan touches the
 /// engine database, which the engine may be writing to at the same time.
 #[tauri::command]
-pub(crate) async fn session_search(query: String, directory: String) -> Result<Vec<SessionMatch>, String> {
-    tauri::async_runtime::spawn_blocking(move || session_search::search(&query, &directory))
+pub(crate) async fn session_search(native: State<'_, crate::native::Native>, query: String, directory: String) -> Result<Vec<SessionMatch>, String> {
+    let database = native.engine().data_dir.join("drift.db");
+    tauri::async_runtime::spawn_blocking(move || session_search::search(&database, &query, &directory))
         .await
         .map_err(|error| error.to_string())?
 }
 
-/// Fast, sampled overview of what is using space in the session database.
+fn storage_location(native: &crate::native::Native) -> storage::Location {
+    storage::Location { data_dir: native.engine().data_dir.clone() }
+}
+
+/// Fast, sampled overview of what is using space: the database and the engine's folders.
 #[tauri::command]
-pub(crate) async fn storage_stats(store: State<'_, Store>) -> Result<StorageStats, String> {
+pub(crate) async fn storage_stats(store: State<'_, Store>, native: State<'_, crate::native::Native>) -> Result<StorageStats, String> {
     let archived = storage::archived_ids(&store);
-    tauri::async_runtime::spawn_blocking(move || storage::stats(&archived))
+    let location = storage_location(&native);
+    tauri::async_runtime::spawn_blocking(move || storage::stats(&location, &archived))
         .await
         .map_err(|error| error.to_string())?
 }
 
-/// Exact reclaimable space per rule. Scans the event table, so callers should show progress.
+/// The engine's housekeeping now: undo history and images nothing refers to, shell output past its week.
 #[tauri::command]
-pub(crate) async fn storage_analyze(store: State<'_, Store>) -> Result<Vec<RuleEstimate>, String> {
-    let archived = storage::archived_ids(&store);
-    tauri::async_runtime::spawn_blocking(move || storage::analyze(&archived))
+pub(crate) async fn storage_prune(native: State<'_, crate::native::Native>) -> Result<PruneResult, String> {
+    let location = storage_location(&native);
+    let before = storage::total_bytes(&location);
+    let images = native.engine().clean_up().await;
+    tauri::async_runtime::spawn_blocking(move || storage::cleaned(&location, before, images))
         .await
         .map_err(|error| error.to_string())?
 }
 
+/// Gives the database's free pages back to the disk; refused while a conversation runs.
 #[tauri::command]
-pub(crate) async fn storage_prune(store: State<'_, Store>, rules: PruneRules) -> Result<PruneResult, String> {
-    let archived = storage::archived_ids(&store);
-    tauri::async_runtime::spawn_blocking(move || storage::prune(rules, &archived))
-        .await
-        .map_err(|error| error.to_string())?
-}
-
-/// Releases free pages back to the filesystem. Fails while the engine holds the database.
-#[tauri::command]
-pub(crate) async fn storage_compact() -> Result<PruneResult, String> {
-    tauri::async_runtime::spawn_blocking(storage::compact)
+pub(crate) async fn storage_compact(native: State<'_, crate::native::Native>) -> Result<PruneResult, String> {
+    if native.engine().turns.any_running() {
+        return Err("a conversation is running; compact once it finishes".into());
+    }
+    let location = storage_location(&native);
+    tauri::async_runtime::spawn_blocking(move || storage::compact(&location))
         .await
         .map_err(|error| error.to_string())?
 }

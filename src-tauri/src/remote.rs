@@ -1009,12 +1009,9 @@ remote_commands! {
             arg(args, "fingerprint")?,
             arg(args, "generation")?,
         )?),
-        "storage_stats" => value(commands::storage_stats(store()).await?),
-        "storage_analyze" => value(commands::storage_analyze(store()).await?),
-        "storage_prune" => {
-            value(commands::storage_prune(store(), arg(args, "rules")?).await?)
-        },
-        "storage_compact" => value(commands::storage_compact().await?),
+        "storage_stats" => value(commands::storage_stats(store(), app.state()).await?),
+        "storage_prune" => value(commands::storage_prune(app.state()).await?),
+        "storage_compact" => value(commands::storage_compact(app.state()).await?),
         "voice_supported" => value(voice::voice_supported()),
         "voice_acceleration" => value(voice::voice_acceleration()),
         "voice_models" => value(voice::voice_models(app.clone())?),

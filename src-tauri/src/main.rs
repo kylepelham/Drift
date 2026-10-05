@@ -145,7 +145,6 @@ fn main() {
             open_webview_devtools,
             commands::session_search,
             commands::storage_stats,
-            commands::storage_analyze,
             commands::storage_prune,
             commands::storage_compact,
             voice::voice_supported,

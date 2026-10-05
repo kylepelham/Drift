@@ -298,6 +298,18 @@ export function createActions(
     }
   }
 
+  /** A removed workspace's purge: true once the engine holds none of its conversations, so its record can go. */
+  async function removeAllSessions(workspaceId: string, eligible: () => boolean) {
+    if (!eligible()) return false
+    try {
+      await requireClient().purgeWorkspace(workspaceId)
+      return true
+    } catch (cause) {
+      // Unknown to the engine means nothing of it is left; in use or busy waits for the next sweep.
+      return cause instanceof EngineError && cause.status === 404
+    }
+  }
+
   async function refreshProviders() {
     const providers = await requireClient().providers().catch(() => undefined)
     if (!providers) return false
@@ -610,8 +622,7 @@ export function createActions(
     spawn,
     moveSession,
     moveWorkspaceSessions,
-    // Pending native work (CHECKLIST): reports nothing deleted, so a removed workspace's purge never completes.
-    removeAllSessions: async (..._args: unknown[]) => false,
+    removeAllSessions,
     switchRetryModel,
     summarize,
     engineSettings,
