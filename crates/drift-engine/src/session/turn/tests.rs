@@ -2735,3 +2735,14 @@ async fn auto_accept_answers_every_ask_and_only_a_deny_rule_still_refuses() {
     h.engine.set_auto_accept_all(true).unwrap();
     assert_eq!(ask(crate::tool::Ask { default_allow: true, ..bash("git push") }), Decision::Allow, "or on for every session");
 }
+#[tokio::test]
+async fn a_subscription_turn_is_priced_at_the_api_rates_it_saves() {
+    let h = harness().await;
+    let far = crate::id::now_ms() + 3_600_000;
+    h.engine.credentials.set("anthropic", &Credential::OAuth { access: "a".into(), refresh: "r".into(), expires_at: far, account: None }).unwrap();
+    h.provider.push(text("hello"));
+    h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+    until_idle(&h).await;
+    let reply = h.engine.store.transcript(&h.session.id).unwrap().pop().unwrap().info;
+    assert!(reply.cost > 0.0, "a signed-in turn shows what the API would have charged: {}", reply.cost);
+}

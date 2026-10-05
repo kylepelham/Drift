@@ -1045,8 +1045,9 @@ opencode projects that had sessions (`Store::import_opencode_workspaces`) and te
 - Claude subscription sign-in is the PKCE flow Claude Code uses (`llm/anthropic/oauth.rs`).
   Requests made with a subscription token must look like Claude Code's:
   `llm/anthropic/claude_code.rs` adds the identity and billing system blocks, prefixes tool
-  names with `mcp_` and the adapter strips the prefix from what comes back. Subscription
-  turns cost nothing, so their `cost` is recorded as zero.
+  names with `mcp_` and the adapter strips the prefix from what comes back. A subscription
+  turn's `cost` is what the same usage would cost at the API's rates, as compaction's already
+  was, so the cost shown is what the subscription saves rather than zero.
 - An API-key Anthropic request with a thinking budget and tools sends `anthropic-beta:
   interleaved-thinking-2025-05-14`, so the model thinks again between tool calls, not only before
   the first; the subscription route already sends it, and adaptive thinking interleaves without it.

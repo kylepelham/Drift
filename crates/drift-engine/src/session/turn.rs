@@ -1135,7 +1135,8 @@ impl Engine {
             }
         };
         message.usage = streamed.usage;
-        message.cost = if matches!(plan.credential, Credential::OAuth { .. }) { 0.0 } else { cost(&plan.model, streamed.usage) };
+        // Priced at the API's rates whatever the sign-in, so a subscription shows what it saves.
+        message.cost = cost(&plan.model, streamed.usage);
         message.status = MessageStatus::Done;
         // A reply that did not end on its own runs nothing, since a call's input may be cut short.
         let ending = match streamed.stop {
