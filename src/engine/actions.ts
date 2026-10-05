@@ -487,9 +487,16 @@ export function createActions(
   async function refreshEngineSettings() {
     const settings = await requireClient().settings()
     set("autoAcceptAll", !!settings.autoAcceptAll)
-    const handed = handOverAutoAccept()
-    if (handed.all && !settings.autoAcceptAll) await setAutoAcceptAll(true)
-    for (const id of handed.sessions) await setAutoAccept(id, true).catch(() => undefined)
+    await handOverAutoAccept(async (kept) => {
+      if (kept.all && !settings.autoAcceptAll) await setAutoAcceptAll(true)
+      const left: string[] = []
+      for (const id of kept.sessions) {
+        // A session the engine no longer has is let go; any other failure is offered again next time.
+        const settled = await setAutoAccept(id, true).then(() => true, (cause) => cause instanceof EngineError && cause.status === 404)
+        if (!settled) left.push(id)
+      }
+      return { all: false, sessions: left }
+    })
   }
 
   /** Moves a session with its subagents; the engine refuses while any of them is running. */

@@ -109,17 +109,27 @@ export const [customSound, setCustomSound] = persisted<CustomSound | null>("drif
 export const [collapseCompaction, setCollapseCompaction] = persisted<boolean>("drift.compaction.collapsible", true)
 export const [compactionCollapsed, setCompactionCollapsed] = persisted<boolean>("drift.compaction.collapsed", true)
 export const [autoUpdate, setAutoUpdate] = persisted<boolean>("drift.autoUpdate", true)
-/** Auto-accept this webview kept before the engine owned it: handed over once, then forgotten. */
-export function handOverAutoAccept(): { all: boolean; sessions: string[] } {
+export type KeptAutoAccept = { all: boolean; sessions: string[] }
+
+function keptAutoAccept(): KeptAutoAccept {
   try {
     const all = localStorage.getItem("drift.autoAccept.global") === "true"
     const listed: unknown = JSON.parse(localStorage.getItem("drift.autoAccept") ?? "[]")
-    localStorage.removeItem("drift.autoAccept.global")
-    localStorage.removeItem("drift.autoAccept")
     return { all, sessions: Array.isArray(listed) ? listed.filter((id): id is string => typeof id === "string") : [] }
   } catch {
     return { all: false, sessions: [] }
   }
+}
+
+/** Auto-accept this webview kept before the engine owned it. `hand` gives it to the engine and returns
+ * what the engine did not take; only what it took is forgotten, and a `hand` that throws forgets nothing. */
+export async function handOverAutoAccept(hand: (kept: KeptAutoAccept) => Promise<KeptAutoAccept>) {
+  const kept = keptAutoAccept()
+  if (!kept.all && !kept.sessions.length) return
+  const left = await hand(kept)
+  if (!left.all) localStorage.removeItem("drift.autoAccept.global")
+  if (left.sessions.length) localStorage.setItem("drift.autoAccept", JSON.stringify(left.sessions))
+  else localStorage.removeItem("drift.autoAccept")
 }
 
 export function setSystemNotification(kind: AttentionKind, enabled: boolean) {

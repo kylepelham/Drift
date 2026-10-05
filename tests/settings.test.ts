@@ -428,7 +428,7 @@ test("code display defaults preserve source and diff structure", async () => {
   expect(codePreferenceBinding(16, 8, true, "dracula").wrap).toBe("wrap")
 })
 
-test("notification defaults stay explicit and old webview auto-accept is handed to the engine once", async () => {
+test("notification defaults stay explicit and old webview auto-accept is forgotten only once the engine takes it", async () => {
   const { handOverAutoAccept, notificationDefaults, soundDefaults } = await import("../src/state/prefs")
   expect(notificationDefaults(true)).toEqual({ agent: true, permission: true, error: true })
   expect(soundDefaults()).toEqual({ agent: "none", permission: "none", error: "none" })
@@ -437,8 +437,14 @@ test("notification defaults stay explicit and old webview auto-accept is handed 
   const saved = { getItem: storage.getItem, setItem: storage.setItem, removeItem: storage.removeItem }
   Object.assign(storage, { getItem: (key: string) => kept.get(key) ?? null, setItem: (key: string, value: string) => kept.set(key, value), removeItem: (key: string) => kept.delete(key) })
   try {
-    expect(handOverAutoAccept()).toEqual({ all: true, sessions: ["s1", "s2"] })
-    expect(handOverAutoAccept()).toEqual({ all: false, sessions: [] })
+    await expect(handOverAutoAccept(async () => Promise.reject(new Error("engine down")))).rejects.toThrow("engine down")
+    expect(kept.size, "a failed hand-over forgets nothing").toBe(2)
+    const seen: unknown[] = []
+    await handOverAutoAccept(async (offered) => (seen.push(offered), { all: false, sessions: ["s2"] }))
+    expect(seen).toEqual([{ all: true, sessions: ["s1", "s2"] }])
+    expect([...kept.entries()], "only what the engine did not take is offered again").toEqual([["drift.autoAccept", JSON.stringify(["s2"])]])
+    await handOverAutoAccept(async () => ({ all: false, sessions: [] }))
+    expect(kept.size).toBe(0)
   } finally {
     Object.assign(storage, saved)
   }
