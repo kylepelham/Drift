@@ -215,6 +215,14 @@ change the plan there when a decision changes.
   - [x] Summary on the conversation's own model with a warm cache is the turn's next request plus the instructions (`step_request`), read at the cached price; otherwise lean (files by mention, tool results cut to 2,000 characters); one-shots retry provider faults with a turn's backoff, a compaction's shown as `session.retry`
   - [x] The system prompt's date is the local one (`platform::clock`)
   - [x] Tool descriptions match the tools (edit/write one-line result, webfetch's 64 KB bound and saved file, read's image limits, task's missing delegation tools), pinned by a test; webfetch's own 100k cut dropped so the saved file holds the whole page
+- [x] Parity gaps after cutover:
+  - [x] `glob` and `grep`'s `include` read patterns as ripgrep's `--glob` (`*.ts` at any depth), one matcher; a Stop ends the glob walk
+  - [x] Language servers: opencode's list where installed (PATH or `node_modules/.bin`), rooted at the nearest project marker, warmed by a read, pull diagnostics
+  - [x] Agents with `mode: all` or no mode are both primary and delegated to; `hidden`, `disable` and `defaultAgent` read; opencode's `default_agent` imported
+  - [x] Files of offered skills read without asking (secrets excepted)
+  - [x] The system prompt lists only skills and subagents the agent may use
+  - [x] Long-prompt pricing from models.dev's context tiers
+  - [x] `read` errors on an offset past the end and says when a file is empty
 - [x] Perf numbers versus M0 baseline (Baselines in `docs/engine-rewrite.md`; `bench:engine` now runs a native turn): cold start 32 ms vs 1012, prompt to provider 4 ms vs 1066, about 4.6k tokens per turn vs 9.4k
 
 ## M5: hook seam
@@ -223,3 +231,6 @@ change the plan there when a decision changes.
 - [ ] Prompt overrides as an internal hook
 - [ ] Background task controls: move a running foreground task to the background; add a follow-up to a running background task
 - [ ] Measure `edit` miss rates per model family before considering any fuzzy fallback
+- [ ] MCP resource templates as a tool (`mcp/resources.rs` lists and reads resources only)
+- [ ] A plan file the plan agent may write (opencode allows `.opencode/plans/*.md`), so a plan survives compaction
+- [ ] Only if the UI or headless use wants them: user-run `!command` turns, `@agent` mention parts, `format: json_schema` structured output, project references
