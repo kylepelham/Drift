@@ -247,6 +247,8 @@ change the plan there when a decision changes.
   - [x] A lean compaction request keeps the workspace's MCP tools defined
   - [x] A workspace's stdio MCP servers run while any window or device has it open (`workspace.open` on the socket); unopened, they stop 5 minutes after their last use
   - [x] "Always" never widens over `AppData` or `Library`
+  - [x] Auto-accept answers every ask (secrets, outside paths and hidden lines included; a deny rule still refuses) and clears asks already waiting; the card shows a command once in a bounded box, with no deny-with-reason field
+- [ ] User testing of the native engine before release
 - [x] Perf numbers versus M0 baseline (Baselines in `docs/engine-rewrite.md`; `bench:engine` now runs a native turn): cold start 32 ms vs 1012, prompt to provider 4 ms vs 1066, about 4.6k tokens per turn vs 9.4k
 
 ## M5: hook seam
