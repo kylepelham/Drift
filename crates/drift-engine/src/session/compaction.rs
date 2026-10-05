@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::convert;
-use super::oneshot::{Action, Answer, Failure, Fallback, OneShot, Resolved};
+use super::oneshot::{Action, Answer, Failure, Fallback, OneShot};
 use super::turn::Plan;
 use super::turn::TurnError;
 use super::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, Role};
@@ -249,7 +249,7 @@ impl Engine {
                 }
             }
         }
-        self.summarise_lean(session_id, &action.resolved, instructions, previous, head, spent).await
+        self.summarise_lean(session_id, action, instructions, previous, head, spent).await
     }
 
     /// Exactly the request the turn's next step would send (same frame, reasoning and tool choice,
@@ -263,7 +263,8 @@ impl Engine {
 
     /// The history before the tail with files by mention and tool results cut, no system prompt;
     /// when it is itself too long, the oldest turns are dropped and it is asked again.
-    async fn summarise_lean(&self, session_id: &str, resolved: &Resolved, instructions: &str, previous: Option<&str>, head: &[&MessageWithParts], spent: &mut Spent) -> Result<String, String> {
+    async fn summarise_lean(&self, session_id: &str, action: &Action, instructions: &str, previous: Option<&str>, head: &[&MessageWithParts], spent: &mut Spent) -> Result<String, String> {
+        let resolved = &action.resolved;
         let starts = turn_starts(head);
         let mut dropped = 0;
         for attempt in 0..=TRIM_ATTEMPTS {
@@ -281,7 +282,7 @@ impl Engine {
             }
             lean(&mut messages);
             convert::push(&mut messages, llm::Role::User, vec![Block::Text(instructions.into())]);
-            let shot = OneShot { system: String::new(), messages, tools: self.tool_specs(resolved.model.profile, None), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT, shown_in: Some(session_id.into()) };
+            let shot = OneShot { system: String::new(), messages, tools: self.tool_specs(resolved.model.profile, Some(&action.workspace)), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT, shown_in: Some(session_id.into()) };
             let failure = match self.complete(resolved, shot).await {
                 Ok(answer) => return Ok(spent.take(&resolved.model, answer)),
                 Err(failure) => failure,

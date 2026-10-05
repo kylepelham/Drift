@@ -40,6 +40,8 @@ pub(crate) struct Action {
     pub conversation: Model,
     /// The conversation's plan, when the action runs on its model, so a request can be built as its turns build theirs.
     pub own: Option<Plan>,
+    /// The conversation's workspace, whose MCP tools its history may call.
+    pub workspace: std::path::PathBuf,
 }
 
 /// A reply's text and the tokens it used, which are paid for.
@@ -116,7 +118,7 @@ impl Engine {
         } else {
             self.resolve(&chosen).await?
         };
-        Ok(Action { resolved, config: (*plan.config).clone(), conversation: plan.model.clone(), own: own.then_some(plan) })
+        Ok(Action { resolved, config: (*plan.config).clone(), conversation: plan.model.clone(), workspace: plan.workspace.clone(), own: own.then_some(plan) })
     }
     /// Everything needed to call `model_ref`, with an expired subscription token refreshed.
     pub(crate) async fn resolve(&self, model_ref: &ModelRef) -> Result<Resolved, TurnError> {

@@ -455,3 +455,21 @@ fn files(h: &Harness) -> (Part, String) {
     let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
     (Part::File { mime: "image/png".into(), name: "shot.png".into(), url: format!("data:image/png;base64,{png}"), path: None }, lines)
 }
+#[tokio::test]
+async fn a_lean_summary_still_defines_the_workspaces_mcp_tools_its_history_may_call() {
+    let h = harness().await;
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
+    let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default(), cwd: None, timeout_seconds: None };
+    h.engine.store.save_mcp_server("echo", &config).unwrap();
+    h.engine.connect_mcp_in("echo", Some(&crate::tool::canonical(&h._dir.join("ws")))).await.unwrap();
+    for (ask, reply) in [("first", "one"), ("second", "two"), ("third", "three")] {
+        h.provider.push(text(reply));
+        turn(&h, ask).await;
+    }
+    h.engine.store.lock().execute("UPDATE message SET finished_at = 1 WHERE role = 'assistant'", []).unwrap();
+    h.provider.push(text("SUMMARY"));
+    h.engine.start_compaction(&h.session.id).unwrap();
+    until_idle(&h).await;
+    let summarised = requests(&h).last().unwrap().clone();
+    assert!(summarised.no_tool_calls && summarised.tools.iter().any(|tool| tool.name == "echo_echo"), "{:?}", summarised.tools.iter().map(|t| &t.name).collect::<Vec<_>>());
+}
