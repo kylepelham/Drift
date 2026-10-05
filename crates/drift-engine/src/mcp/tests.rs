@@ -107,14 +107,16 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
     assert_eq!(shout.run(&ctx, json!({ "text": "hi" })).await.unwrap().output, "HI");
     assert_eq!(shout.run(&ctx, json!({ "text": "fail" })).await.unwrap_err().0, "asked to fail");
 
-    assert!(!echo.stays_read_only(&ctx, &json!({})), "a server's own read-only mark does not open it to read-only agents");
+    assert!(echo.stays_read_only(&ctx, &json!({})), "a new server is trusted");
+    engine.store.set_mcp_read_only_trusted("echo", false).unwrap();
+    assert!(!echo.stays_read_only(&ctx, &json!({})), "untrusted, a server's own read-only mark does not open it to read-only agents");
     engine.store.set_mcp_read_only_trusted("echo", true).unwrap();
     assert!(echo.stays_read_only(&ctx, &json!({})), "the user trusts this server");
     assert!(!shout.stays_read_only(&ctx, &json!({})), "a tool it does not mark read-only still is not");
     let ServerConfig::Stdio { command, args, cwd, timeout_seconds, .. } = echo_config() else { unreachable!() };
     let other = ServerConfig::Stdio { command, args, env: [("TOKEN".to_string(), "other".to_string())].into(), cwd, timeout_seconds };
     engine.store.save_mcp_server("echo", &other).unwrap();
-    assert!(!echo.stays_read_only(&ctx, &json!({})), "another definition under the name, env included, is not trusted");
+    assert!(!echo.stays_read_only(&ctx, &json!({})), "a connection opened from another definition, env included, is not trusted");
 
     assert!(engine.mcp.disconnect("echo", &engine.store, &hub).await);
     assert_eq!(engine.mcp.status_of(saved).state, State::Disconnected);

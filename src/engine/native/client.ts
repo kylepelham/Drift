@@ -111,8 +111,13 @@ export function createClient(target: Target) {
     answerQuestion: (id: string, answers: string[][]) => request<void>("POST", `/questions/${id}/reply`, { answers }),
     rejectQuestion: (id: string) => request<void>("POST", `/questions/${id}/reject`),
     mcpServers: () => request<Json<"listMcpServers", 200>>("GET", "/mcp"),
-    saveMcpServer: (name: string, config: McpServerConfig, create = false) =>
-      request<Json<"saveMcpServer", 200>>("PUT", `/mcp/${name}${create ? "?create=true" : ""}`, config),
+    saveMcpServer: (name: string, config: McpServerConfig, options: { create?: boolean; readOnlyTrusted?: boolean } = {}) => {
+      const query = new URLSearchParams()
+      if (options.create) query.set("create", "true")
+      if (options.readOnlyTrusted !== undefined) query.set("readOnlyTrusted", String(options.readOnlyTrusted))
+      const search = query.size ? `?${query}` : ""
+      return request<Json<"saveMcpServer", 200>>("PUT", `/mcp/${name}${search}`, config)
+    },
     renameMcpServer: (name: string, to: string) => request<Json<"renameMcpServer", 200>>("POST", `/mcp/${name}/rename`, { to }),
     removeMcpServer: (name: string) => request<void>("DELETE", `/mcp/${name}`),
     connectMcpServer: (name: string) => request<Json<"connectMcpServer", 200>>("POST", `/mcp/${name}/connect`),
@@ -120,8 +125,6 @@ export function createClient(target: Target) {
     signInMcpServer: (name: string) => request<Json<"signInMcpServer", 200>>("POST", `/mcp/${name}/signin`),
     signOutMcpServer: (name: string) => request<Json<"signOutMcpServer", 200>>("DELETE", `/mcp/${name}/signin`),
     setMcpServerEnabled: (name: string, enabled: boolean) => request<Json<"setMcpServerEnabled", 200>>("PUT", `/mcp/${name}/enabled`, { enabled }),
-    setMcpServerReadOnlyTrusted: (name: string, trusted: boolean) =>
-      request<Json<"setMcpServerReadOnlyTrusted", 200>>("PUT", `/mcp/${name}/readOnlyTrusted`, { trusted }),
     todos: (id: string) => request<Json<"listTodos", 200>>("GET", `/sessions/${id}/todos`),
     tasks: (id: string) => request<Json<"listTasks", 200>>("GET", `/sessions/${id}/tasks`),
     stopTask: (id: string) => request<Json<"abortTask", 200>>("POST", `/tasks/${id}/abort`),

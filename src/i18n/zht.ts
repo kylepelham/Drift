@@ -1286,7 +1286,6 @@ export const drift = {
   "drift.permission.stopHint": "拒絕此呼叫並結束本輪",
   "drift.permission.note": "選填：告訴模型你拒絕的原因",
   "drift.mcp.readOnlyTrusted": "規劃和探索可以使用其唯讀工具",
-  "drift.mcp.readOnlyTrusted.label": "允許規劃和探索使用 {{name}} 的唯讀工具",
   "drift.mcp.status.connecting": "正在連線...",
   "drift.mcp.status.disconnecting": "正在中斷連線...",
   "drift.message.compactedSummary": "上下文已壓縮 · 摘要",

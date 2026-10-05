@@ -1323,7 +1323,6 @@ export const drift = {
   "drift.permission.stopHint": "Rechazar esta llamada y terminar el turno",
   "drift.permission.note": "Opcional: dile al modelo por qué lo deniegas",
   "drift.mcp.readOnlyTrusted": "Planificación y Exploración pueden usar sus herramientas de solo lectura",
-  "drift.mcp.readOnlyTrusted.label": "Permitir que Planificación y Exploración usen las herramientas de solo lectura de {{name}}",
   "drift.mcp.status.connecting": "conectando...",
   "drift.mcp.status.disconnecting": "desconectando...",
   "drift.message.compactedSummary": "Contexto compactado · resumen",

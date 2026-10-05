@@ -1322,7 +1322,6 @@ export const drift = {
   "drift.permission.stopHint": "Отклонить этот вызов и завершить ход",
   "drift.permission.note": "Необязательно: объясните модели, почему вы отказываете",
   "drift.mcp.readOnlyTrusted": "Планирование и Исследование могут использовать его инструменты только для чтения",
-  "drift.mcp.readOnlyTrusted.label": "Разрешить Планированию и Исследованию использовать инструменты только для чтения из {{name}}",
   "drift.mcp.status.connecting": "подключение...",
   "drift.mcp.status.disconnecting": "отключение...",
   "drift.message.compactedSummary": "Контекст сжат · сводка",

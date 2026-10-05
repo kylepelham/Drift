@@ -17,16 +17,17 @@ pub struct EnabledBody {
     pub enabled: bool,
 }
 
-#[derive(Deserialize, ToSchema)]
-pub struct TrustedBody {
-    pub trusted: bool,
-}
-
 #[derive(Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(rename_all = "camelCase")]
 pub struct SaveQuery {
     /// Adding a server: refused with 409 if one has the name, rather than replacing it.
     #[serde(default)]
     pub create: bool,
+    /// Whether read-only agents (plan, explore) may use the tools it marks read-only; left out, a new
+    /// server is trusted and a saved one keeps what it had.
+    #[serde(default)]
+    pub read_only_trusted: Option<bool>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -53,7 +54,12 @@ pub async fn save(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Q
                 return Err(taken(&name));
             }
             let config = input.resolve(saved.as_ref().map(|row| &row.config)).map_err(|why| ApiError::new(StatusCode::BAD_REQUEST, "secret", why))?;
-            Ok(store.save_mcp_server(&name, &config)?)
+            let mut row = store.save_mcp_server(&name, &config)?;
+            if let Some(trusted) = query.read_only_trusted {
+                store.set_mcp_read_only_trusted(&name, trusted)?;
+                row.read_only_trusted = trusted;
+            }
+            Ok(row)
         })
         .await?;
     if let Some(before) = before {
@@ -154,18 +160,6 @@ pub async fn disconnect(State(engine): State<Arc<Engine>>, Path(name): Path<Stri
     Ok(Json(engine.mcp.status_of(row)))
 }
 
-/// Lets read-only agents (plan, explore) use the tools the server marks read-only, or stops them;
-/// a later save that changes its definition takes this back.
-#[utoipa::path(put, path = "/mcp/{name}/readOnlyTrusted", operation_id = "setMcpServerReadOnlyTrusted", request_body = TrustedBody, responses((status = 200, body = ServerStatus), (status = 404)))]
-pub async fn set_read_only_trusted(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Json(body): Json<TrustedBody>) -> Result<Json<ServerStatus>, ApiError> {
-    readable(&engine, &name)?;
-    if !engine.store.set_mcp_read_only_trusted(&name, body.trusted)? {
-        return Err(ApiError::not_found("mcp server"));
-    }
-    let row = engine.store.mcp_server(&name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
-    Ok(Json(engine.mcp.status_of(row)))
-}
-
 /// A switch changes only a server this build can read; one it cannot is saved again or removed, so nothing is written for it.
 fn readable(engine: &Engine, name: &str) -> Result<(), ApiError> {
     engine.store.mcp_server(name)?.map(|_| ()).ok_or_else(|| ApiError::not_found("mcp server"))
@@ -200,10 +194,9 @@ mod tests {
         engine.store.set_mcp_enabled("newer", false).unwrap();
         engine.store.lock().execute("UPDATE mcp_config SET config_json = '{\"type\":\"future\"}'", []).unwrap();
         let path = || Path("newer".to_string());
-        assert!(set_read_only_trusted(State(engine.clone()), path(), Json(TrustedBody { trusted: true })).await.is_err());
         assert!(set_enabled(State(engine.clone()), path(), Json(EnabledBody { enabled: true })).await.is_err());
-        let (trusted, enabled): (bool, bool) = engine.store.lock().query_row("SELECT read_only_trusted, enabled FROM mcp_config", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
-        assert_eq!((trusted, enabled), (false, false), "refused before anything was written");
+        let enabled: bool = engine.store.lock().query_row("SELECT enabled FROM mcp_config", [], |row| row.get(0)).unwrap();
+        assert!(!enabled, "refused before anything was written");
         std::fs::remove_dir_all(dir).ok();
     }
 }

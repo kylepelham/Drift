@@ -50,17 +50,15 @@ impl Store {
         server_in(&self.lock(), name)
     }
 
+    /// A new server starts trusted by read-only agents; saving over one keeps the trust it has.
     pub fn save_mcp_server(&self, name: &str, config: &ServerConfig) -> rusqlite::Result<ServerRow> {
         let json = serde_json::to_string(config).unwrap();
         let conn = self.lock();
-        // Compared as configs, not text; a stored config that no longer parses counts as different, so the save repairs it.
-        let stored: Option<String> = conn.prepare_cached("SELECT config_json FROM mcp_config WHERE name = ?1")?.query_row([name], |row| row.get(0)).optional()?;
-        let same = stored.and_then(|json| serde_json::from_str::<ServerConfig>(&json).ok()).is_some_and(|stored| stored == *config);
         conn.prepare_cached(
-            "INSERT INTO mcp_config(name, config_json, enabled, updated_at) VALUES(?1, ?2, 1, ?3)
-             ON CONFLICT(name) DO UPDATE SET read_only_trusted = read_only_trusted AND ?4, config_json = ?2, updated_at = ?3, era = NULL",
+            "INSERT INTO mcp_config(name, config_json, enabled, updated_at, read_only_trusted) VALUES(?1, ?2, 1, ?3, 1)
+             ON CONFLICT(name) DO UPDATE SET config_json = ?2, updated_at = ?3, era = NULL",
         )?
-        .execute(params![name, json, id::now_ms(), same])?;
+        .execute(params![name, json, id::now_ms()])?;
         let row = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([name], map_row)?;
         Ok(row)
     }
@@ -192,6 +190,7 @@ mod tests {
         let config = ServerConfig::Stdio { command: "npx".into(), args: vec!["server".into()], env: Default::default(), cwd: None, timeout_seconds: None };
         let row = store.save_mcp_server("docs", &config).unwrap();
         assert!(row.enabled, "a saved server is on and needs nothing more to run");
+        assert!(row.read_only_trusted, "and read-only agents may use its read-only tools");
         let changed = ServerConfig::Stdio { command: "npx".into(), args: vec!["other".into()], env: Default::default(), cwd: None, timeout_seconds: None };
         assert_ne!(store.save_mcp_server("docs", &changed).unwrap().hash, row.hash, "a changed definition is a different connection");
         assert!(matches!(store.rename_mcp_server("docs", "notes").unwrap(), Some(Renamed::To(renamed)) if renamed.config == changed));
@@ -199,13 +198,10 @@ mod tests {
         assert!(!store.set_mcp_era("notes", &config, Some(Era::Legacy)).unwrap(), "an era found under an older config is not kept");
         assert_eq!(store.mcp_server("notes").unwrap().unwrap().era, Some(Era::Stateless));
         assert_eq!(store.save_mcp_server("notes", &changed).unwrap().era, None, "a save forgets it");
-        assert!(store.set_mcp_read_only_trusted("notes", true).unwrap());
-        assert!(store.save_mcp_server("notes", &changed).unwrap().read_only_trusted, "saved as it was, the trust stays");
-        store.lock().execute("UPDATE mcp_config SET config_json = ?1 WHERE name = 'notes'", [serde_json::to_string_pretty(&changed).unwrap()]).unwrap();
-        assert!(store.save_mcp_server("notes", &changed).unwrap().read_only_trusted, "even over the same config written another way");
+        assert!(store.set_mcp_read_only_trusted("notes", false).unwrap());
+        assert!(!store.save_mcp_server("notes", &config).unwrap().read_only_trusted, "a save keeps the trust the user set");
         store.lock().execute("UPDATE mcp_config SET config_json = '{\"type\":\"future\"}' WHERE name = 'notes'", []).unwrap();
-        let repaired = store.save_mcp_server("notes", &changed).unwrap();
-        assert!(repaired.config == changed && !repaired.read_only_trusted, "a config that no longer parses is overwritten, and the trust goes with it");
+        assert!(store.save_mcp_server("notes", &changed).unwrap().config == changed, "a config that no longer parses is overwritten");
         store.save_mcp_server("good", &config).unwrap();
         store.lock().execute("UPDATE mcp_config SET config_json = '{\"type\":\"future\"}' WHERE name = 'notes'", []).unwrap();
         assert_eq!(store.mcp_servers().unwrap().iter().map(|row| row.name.as_str()).collect::<Vec<_>>(), ["good"], "one unreadable server does not hide the rest");
@@ -214,8 +210,6 @@ mod tests {
         assert!(store.rename_mcp_server("notes", "other").unwrap().is_none(), "only a readable server is renamed");
         store.save_mcp_server("notes", &changed).unwrap();
         store.remove_mcp_server("good").unwrap();
-        store.set_mcp_read_only_trusted("notes", true).unwrap();
-        assert!(!store.save_mcp_server("notes", &config).unwrap().read_only_trusted, "another definition is not trusted");
         assert!(store.set_mcp_enabled("notes", false).unwrap());
         assert!(!store.mcp_servers().unwrap()[0].enabled);
         assert!(store.remove_mcp_server("notes").unwrap());

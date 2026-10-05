@@ -305,6 +305,16 @@ test("rows offer connect or disconnect only where the engine can do it", async (
   expect(nextMcpRowName(["a", "b", "c"], "c", "ArrowDown")).toBe("a")
 })
 
+test("a row has one switch and a connect button that stays in place; read-only trust lives in the editor, on for a new server", async () => {
+  const manager = await Bun.file("src/ui/mcp/manager.tsx").text()
+  expect(manager.match(/<Toggle/g)).toHaveLength(1)
+  expect(manager).toContain("disabled={props.disabled || !runtime()}")
+  expect(manager).toContain("mcpSave(name, config, { create: !previous, readOnlyTrusted })")
+  const editor = await Bun.file("src/ui/mcp/editor.tsx").text()
+  expect(editor).toContain("createSignal(props.server?.readOnlyTrusted ?? true)")
+  expect(editor).toContain('label={t("drift.mcp.readOnlyTrusted")}')
+})
+
 test("dismissed notices are forgotten once they expire", async () => {
   const { pruneDismissedNoticeIds } = await import("../src/ui/notifications")
   expect(pruneDismissedNoticeIds(new Set(["kept", "expired"]), new Set(["kept", "new"]))).toEqual(new Set(["kept"]))

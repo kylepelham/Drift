@@ -1724,11 +1724,12 @@ async fn workspace_config_shapes_the_turn() {
 }
 
 #[tokio::test]
-async fn a_read_only_agent_never_calls_an_mcp_tool_even_one_its_server_calls_read_only() {
+async fn a_read_only_agent_never_calls_an_untrusted_servers_mcp_tool_even_one_it_calls_read_only() {
     let h = harness().await;
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
     let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default(), cwd: None, timeout_seconds: None };
     h.engine.store.save_mcp_server("echo", &config).unwrap();
+    h.engine.store.set_mcp_read_only_trusted("echo", false).unwrap();
     h.engine.connect_mcp("echo").await.unwrap();
     h.engine.store.update_session(&h.session.id, None, None, Some("plan")).unwrap();
     h.provider.push(tool_call("echo_echo", r#"{"text": "hi"}"#)).push(text("noted"));

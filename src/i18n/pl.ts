@@ -1242,7 +1242,6 @@ export const drift = {
   "drift.permission.stopHint": "Odrzuć to wywołanie i zakończ turę",
   "drift.permission.note": "Opcjonalnie: powiedz modelowi, dlaczego odmawiasz",
   "drift.mcp.readOnlyTrusted": "Planowanie i Eksploracja mogą używać jego narzędzi tylko do odczytu",
-  "drift.mcp.readOnlyTrusted.label": "Pozwól, aby Planowanie i Eksploracja używały narzędzi tylko do odczytu z {{name}}",
   "drift.mcp.status.connecting": "łączenie...",
   "drift.mcp.status.disconnecting": "rozłączanie...",
   "drift.message.compactedSummary": "Kontekst skompaktowany · podsumowanie",

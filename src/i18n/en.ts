@@ -584,7 +584,6 @@ export const drift = {
   "drift.permission.stopHint": "Refuse this call and end the turn",
   "drift.permission.note": "Optional: tell the model why you deny",
   "drift.mcp.readOnlyTrusted": "Plan and Explore may use its read-only tools",
-  "drift.mcp.readOnlyTrusted.label": "Let Plan and Explore use the read-only tools of {{name}}",
   "drift.mcp.status.connecting": "connecting...",
   "drift.mcp.status.disconnecting": "disconnecting...",
   "drift.message.compactedSummary": "Context compacted · summary",

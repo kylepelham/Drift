@@ -571,9 +571,9 @@ export function createActions(
     return server
   }
 
-  /** `create`: adding a server, which the engine refuses rather than replace one of the same name. */
-  function mcpSave(name: string, config: McpServerConfig, options: { create?: boolean } = {}) {
-    return mcpChange(() => requireClient().saveMcpServer(name, config, !!options.create))
+  /** `create`: adding a server, which the engine refuses rather than replace one of the same name; left out, `readOnlyTrusted` is the engine's default. */
+  function mcpSave(name: string, config: McpServerConfig, options: { create?: boolean; readOnlyTrusted?: boolean } = {}) {
+    return mcpChange(() => requireClient().saveMcpServer(name, config, options))
   }
 
   /** The engine renames in one step and refuses a name already taken, so no other server is ever replaced. */
@@ -644,7 +644,6 @@ export function createActions(
     mcpRename,
     mcpRemove,
     mcpSetEnabled: (name: string, enabled: boolean) => mcpChange(() => requireClient().setMcpServerEnabled(name, enabled)),
-    mcpSetReadOnlyTrusted: (name: string, trusted: boolean) => mcpChange(() => requireClient().setMcpServerReadOnlyTrusted(name, trusted)),
     mcpConnect: (name: string) => mcpChange(() => requireClient().connectMcpServer(name)),
     mcpDisconnect: (name: string) => mcpChange(() => requireClient().disconnectMcpServer(name)),
     /** The page to open in the browser; the server connects by itself once the user comes back. */

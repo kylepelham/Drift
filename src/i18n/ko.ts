@@ -1231,7 +1231,6 @@ export const drift = {
   "drift.permission.stopHint": "이 호출을 거부하고 턴을 종료",
   "drift.permission.note": "선택 사항: 거부하는 이유를 모델에 알려 주세요",
   "drift.mcp.readOnlyTrusted": "계획과 탐색이 이 서버의 읽기 전용 도구를 사용할 수 있음",
-  "drift.mcp.readOnlyTrusted.label": "계획과 탐색이 {{name}}의 읽기 전용 도구를 사용하도록 허용",
   "drift.mcp.status.connecting": "연결 중...",
   "drift.mcp.status.disconnecting": "연결 해제 중...",
   "drift.message.compactedSummary": "컨텍스트 압축됨 · 요약",

@@ -1325,7 +1325,6 @@ export const drift = {
   "drift.permission.stopHint": "Avslå dette kallet og avslutt runden",
   "drift.permission.note": "Valgfritt: fortell modellen hvorfor du avslår",
   "drift.mcp.readOnlyTrusted": "Plan og Utforsk kan bruke de skrivebeskyttede verktøyene",
-  "drift.mcp.readOnlyTrusted.label": "La Plan og Utforsk bruke de skrivebeskyttede verktøyene til {{name}}",
   "drift.mcp.status.connecting": "kobler til...",
   "drift.mcp.status.disconnecting": "kobler fra...",
   "drift.message.compactedSummary": "Kontekst komprimert · sammendrag",

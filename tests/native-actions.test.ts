@@ -302,8 +302,8 @@ test("renaming an MCP server is the engine's one step, and a taken name changes 
       if (to === "taken") throw new EngineError(409, `/mcp/${name}/rename`, "taken", "a server named taken already exists")
       return mcpServer(to, "connected")
     },
-    saveMcpServer: async (name: string, _config: unknown, create: boolean) => {
-      sent.push(["save", name, create])
+    saveMcpServer: async (name: string, _config: unknown, options: { create?: boolean; readOnlyTrusted?: boolean }) => {
+      sent.push(["save", name, options])
       return mcpServer(name)
     },
   } as Partial<Client>)
@@ -312,8 +312,8 @@ test("renaming an MCP server is the engine's one step, and a taken name changes 
   expect(Object.keys(h.state.mcpServers).sort()).toEqual(["old", "taken"])
   await h.actions.mcpRename("old", "new")
   expect(Object.keys(h.state.mcpServers).sort()).toEqual(["new", "taken"])
-  await h.actions.mcpSave("added", { type: "stdio", command: "x" }, { create: true })
-  expect(sent).toEqual([["old", "taken"], ["old", "new"], ["save", "added", true]])
+  await h.actions.mcpSave("added", { type: "stdio", command: "x" }, { create: true, readOnlyTrusted: false })
+  expect(sent).toEqual([["old", "taken"], ["old", "new"], ["save", "added", { create: true, readOnlyTrusted: false }]])
 })
 
 test("action agents are listed for Settings but hidden from the composer, with their pins and prompts", async () => {

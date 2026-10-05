@@ -3,6 +3,7 @@ import { Portal } from "solid-js/web"
 import type { McpServerConfig, McpServerConfigView } from "../../engine/store"
 import { mcpConfigFromForm, mcpFormState, updatePair, type McpFormState, type McpPair } from "../../state/mcp-form"
 import { t } from "../../state/i18n"
+import { Toggle } from "../controls"
 import { IconPlus, IconX } from "../icons"
 import { activateModal, closeOnBackdropPointerDown } from "../modal"
 
@@ -10,14 +11,15 @@ import { activateModal, closeOnBackdropPointerDown } from "../modal"
 export const mcpServerName = /^[A-Za-z0-9_-]{1,128}$/
 
 export function McpEditor(props: {
-  server?: { name: string; config: McpServerConfigView }
+  server?: { name: string; config: McpServerConfigView; readOnlyTrusted: boolean }
   pending: boolean
   onClose: () => void
-  onSave: (name: string, config: McpServerConfig) => Promise<void>
+  onSave: (name: string, config: McpServerConfig, readOnlyTrusted: boolean) => Promise<void>
 }) {
   let dialog!: HTMLDivElement
   const [name, setName] = createSignal(props.server?.name ?? "")
   const [form, setForm] = createSignal(mcpFormState(props.server?.config))
+  const [trusted, setTrusted] = createSignal(props.server?.readOnlyTrusted ?? true)
   const [error, setError] = createSignal("")
   const [submitting, setSubmitting] = createSignal(false)
   onMount(() => onCleanup(activateModal(dialog, props.onClose)))
@@ -32,7 +34,7 @@ export function McpEditor(props: {
     setSubmitting(true)
     setError("")
     try {
-      await props.onSave(serverName, result.config)
+      await props.onSave(serverName, result.config, trusted())
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
@@ -151,6 +153,10 @@ export function McpEditor(props: {
                 mono
               />
             </Field>
+            <div class="flex items-center gap-2.5 text-[0.78rem] text-ink">
+              <Toggle label={t("drift.mcp.readOnlyTrusted")} checked={trusted()} onChange={() => setTrusted((value) => !value)} />
+              <span>{t("drift.mcp.readOnlyTrusted")}</span>
+            </div>
             <Show when={error()}>
               {(value) => (
                 <div role="alert" class="text-xs text-danger">

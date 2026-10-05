@@ -113,26 +113,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/mcp/{name}/readOnlyTrusted": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Lets read-only agents (plan, explore) use the tools the server marks read-only, or stops them;
-         *     a later save that changes its definition takes this back.
-         */
-        put: operations["setMcpServerReadOnlyTrusted"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/mcp/{name}/rename": {
         parameters: {
             query?: never;
@@ -1470,7 +1450,7 @@ export interface components {
             config: components["schemas"]["ServerConfigView"];
             enabled: boolean;
             name: string;
-            /** @description Read-only agents may use the tools it marks read-only (`PUT /mcp/{name}/readOnlyTrusted`). */
+            /** @description Read-only agents may use the tools it marks read-only; set on save (`PUT /mcp/{name}?readOnlyTrusted=`). */
             readOnlyTrusted: boolean;
             /** Format: int64 */
             updatedAt: number;
@@ -1567,9 +1547,6 @@ export interface components {
          * @enum {string}
          */
         Transport: "stdio" | "streamable_http" | "sse";
-        TrustedBody: {
-            trusted: boolean;
-        };
         /** @description The session after an undo or redo, and the files it left alone. */
         Undone: {
             /** @description Changed by someone else since the session last wrote them. */
@@ -1676,6 +1653,11 @@ export interface operations {
             query?: {
                 /** @description Adding a server: refused with 409 if one has the name, rather than replacing it. */
                 create?: boolean;
+                /**
+                 * @description Whether read-only agents (plan, explore) may use the tools it marks read-only; left out, a new
+                 *     server is trusted and a saved one keeps what it had.
+                 */
+                readOnlyTrusted?: boolean | null;
             };
             header?: never;
             path: {
@@ -1802,37 +1784,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EnabledBody"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ServerStatus"];
-                };
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    setMcpServerReadOnlyTrusted: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TrustedBody"];
             };
         };
         responses: {

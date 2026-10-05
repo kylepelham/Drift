@@ -1249,7 +1249,6 @@ export const drift = {
   "drift.permission.stopHint": "Diesen Aufruf ablehnen und den Durchlauf beenden",
   "drift.permission.note": "Optional: dem Modell sagen, warum du ablehnst",
   "drift.mcp.readOnlyTrusted": "Planen und Erkunden dürfen seine schreibgeschützten Werkzeuge nutzen",
-  "drift.mcp.readOnlyTrusted.label": "Planen und Erkunden die schreibgeschützten Werkzeuge von {{name}} nutzen lassen",
   "drift.mcp.status.connecting": "Verbindung wird hergestellt...",
   "drift.mcp.status.disconnecting": "Verbindung wird getrennt...",
   "drift.message.compactedSummary": "Kontext komprimiert · Zusammenfassung",

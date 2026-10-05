@@ -1303,7 +1303,6 @@ export const drift = {
   "drift.permission.stopHint": "ปฏิเสธการเรียกนี้และจบรอบ",
   "drift.permission.note": "ไม่บังคับ: บอกโมเดลว่าทำไมคุณปฏิเสธ",
   "drift.mcp.readOnlyTrusted": "วางแผนและสำรวจใช้เครื่องมือแบบอ่านอย่างเดียวของเซิร์ฟเวอร์นี้ได้",
-  "drift.mcp.readOnlyTrusted.label": "อนุญาตให้วางแผนและสำรวจใช้เครื่องมือแบบอ่านอย่างเดียวของ {{name}}",
   "drift.mcp.status.connecting": "กำลังเชื่อมต่อ...",
   "drift.mcp.status.disconnecting": "กำลังตัดการเชื่อมต่อ...",
   "drift.message.compactedSummary": "ย่อบริบทแล้ว · สรุป",

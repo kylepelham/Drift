@@ -90,7 +90,7 @@ export function McpManagement(props: { embedded?: boolean }) {
       setBusy(null)
     }
   }
-  const save = async (name: string, config: McpServerConfig) => {
+  const save = async (name: string, config: McpServerConfig, readOnlyTrusted: boolean) => {
     const previous = editor()?.server?.name
     setMessage("")
     setFailure("")
@@ -98,7 +98,7 @@ export function McpManagement(props: { embedded?: boolean }) {
     try {
       // Renamed first, so the save that follows keeps its saved secrets; a retry after a failed save saves under the new name.
       if (previous && previous !== name) setEditor({ server: await engine.actions.mcpRename(previous, name) })
-      await engine.actions.mcpSave(name, config, { create: !previous })
+      await engine.actions.mcpSave(name, config, { create: !previous, readOnlyTrusted })
       setEditor(null)
     } finally {
       setBusy(null)
@@ -206,7 +206,6 @@ export function McpManagement(props: { embedded?: boolean }) {
                     onEdit={() => setEditor({ server: server() })}
                     onRemove={() => void remove(name)}
                     onEnabled={(enabled) => void run(name, () => engine.actions.mcpSetEnabled(name, enabled))}
-                    onReadOnlyTrusted={(trusted) => void run(name, () => engine.actions.mcpSetReadOnlyTrusted(name, trusted))}
                     onRuntime={(action) => runtime(server(), action)}
                     onSignIn={() => signIn(name)}
                     onSignOut={() => signOut(name)}
@@ -226,7 +225,7 @@ export function McpManagement(props: { embedded?: boolean }) {
       <Show when={editor()}>
         {(entry) => (
           <McpEditor
-            server={entry().server ? { name: entry().server!.name, config: entry().server!.config } : undefined}
+            server={entry().server ? { name: entry().server!.name, config: entry().server!.config, readOnlyTrusted: entry().server!.readOnlyTrusted } : undefined}
             pending={!!busy()}
             onClose={() => setEditor(null)}
             onSave={save}
@@ -256,7 +255,6 @@ function ServerRow(props: {
   onEdit: () => void
   onRemove: () => void
   onEnabled: (enabled: boolean) => void
-  onReadOnlyTrusted: (trusted: boolean) => void
   onRuntime: (action: RuntimeAction) => void
   onSignIn: () => void
   onSignOut: () => void
@@ -299,16 +297,6 @@ function ServerRow(props: {
             <span class={status().tone}>{status().text}</span>
             <span class="text-ink-faint">{mcpProtocolLabel(props.server)}</span>
           </div>
-          {/* Saving a changed definition clears this in the engine, so the switch always shows the truth. */}
-          <div class="mt-1.5 flex items-center gap-2 text-xs text-ink-faint">
-            <Toggle
-              label={t("drift.mcp.readOnlyTrusted.label", { name: props.server.name })}
-              checked={props.server.readOnlyTrusted}
-              disabled={props.disabled || props.server.unreadable}
-              onChange={() => props.onReadOnlyTrusted(!props.server.readOnlyTrusted)}
-            />
-            <span>{t("drift.mcp.readOnlyTrusted")}</span>
-          </div>
         </div>
         <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
           <Action
@@ -333,13 +321,17 @@ function ServerRow(props: {
           <Action disabled={props.disabled} title={t("common.edit")} onClick={props.onEdit}>
             <IconSquarePen class="size-3.5" />
           </Action>
-          <Show when={runtime()}>
-            {(action) => (
-              <Action disabled={props.disabled} title={t(`common.${action()}`)} onClick={() => props.onRuntime(action())}>
-                {action() === "disconnect" ? <IconPlugOff class="size-3.5" /> : <IconPlug class="size-3.5" />}
-              </Action>
-            )}
-          </Show>
+          {/* Always in its place so rows line up; greyed out while the server is off or connecting. */}
+          <Action
+            disabled={props.disabled || !runtime()}
+            title={t(runtime() === "disconnect" ? "common.disconnect" : "common.connect")}
+            onClick={() => {
+              const action = runtime()
+              if (action) props.onRuntime(action)
+            }}
+          >
+            {runtime() === "disconnect" ? <IconPlugOff class="size-3.5" /> : <IconPlug class="size-3.5" />}
+          </Action>
           <Toggle
             label={t("drift.mcp.enable", { name: props.server.name })}
             checked={props.server.enabled}

@@ -1318,7 +1318,6 @@ export const drift = {
   "drift.permission.stopHint": "Bu çağrıyı reddet ve turu bitir",
   "drift.permission.note": "İsteğe bağlı: modele neden reddettiğini söyle",
   "drift.mcp.readOnlyTrusted": "Planlama ve Keşif salt okunur araçlarını kullanabilir",
-  "drift.mcp.readOnlyTrusted.label": "Planlama ve Keşif'in {{name}} salt okunur araçlarını kullanmasına izin ver",
   "drift.mcp.status.connecting": "bağlanıyor...",
   "drift.mcp.status.disconnecting": "bağlantı kesiliyor...",
   "drift.message.compactedSummary": "Bağlam sıkıştırıldı · özet",

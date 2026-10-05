@@ -15,7 +15,7 @@ pub struct ServerView {
     pub name: String,
     pub config: ServerConfigView,
     pub enabled: bool,
-    /// Read-only agents may use the tools it marks read-only (`PUT /mcp/{name}/readOnlyTrusted`).
+    /// Read-only agents may use the tools it marks read-only; set on save (`PUT /mcp/{name}?readOnlyTrusted=`).
     pub read_only_trusted: bool,
     pub updated_at: i64,
 }

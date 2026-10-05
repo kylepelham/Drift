@@ -1290,7 +1290,6 @@ export const drift = {
   "drift.permission.stopHint": "拒绝此调用并结束本轮",
   "drift.permission.note": "可选：告诉模型你拒绝的原因",
   "drift.mcp.readOnlyTrusted": "规划和探索可以使用其只读工具",
-  "drift.mcp.readOnlyTrusted.label": "允许规划和探索使用 {{name}} 的只读工具",
   "drift.mcp.status.connecting": "正在连接...",
   "drift.mcp.status.disconnecting": "正在断开连接...",
   "drift.message.compactedSummary": "上下文已压缩 · 摘要",

@@ -192,6 +192,7 @@ change the plan there when a decision changes.
 - [x] Import summary shown once in a dialog after a run that brought anything in or left anything out (`opencode_import_summary` hands it out once), left-out items grouped and worded in every locale
 - [x] Usage limits read Drift's own credential (`Engine::current_credential`), renewing an expired sign-in through the engine's refresh lock
 - [x] xAI SuperGrok sign-in (device code, renewed like the others); opencode's xAI sign-in imported
+- [x] MCP rows: one on/off switch, connect button always in place (greyed out while off); read-only trust moved into the edit sheet, on for a new server, kept across saves
 - [ ] LSP diagnostics after edits (replaces what upstream's `edit`, `write` and `apply_patch` reported; the plan's "Dropped" and "Post-edit" rows already say so):
   - Language servers from a built-in table (rust-analyzer, typescript-language-server, pyright, gopls, ...) used only when on PATH; `drift.json` can add, replace or disable one, as with formatters
   - Started lazily per workspace on the first edit of a matching file, adopted into a process tree, shut down when the workspace goes idle or the engine stops

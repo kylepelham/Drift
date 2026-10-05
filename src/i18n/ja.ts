@@ -1233,7 +1233,6 @@ export const drift = {
   "drift.permission.stopHint": "この呼び出しを拒否してターンを終了",
   "drift.permission.note": "任意: 拒否する理由をモデルに伝える",
   "drift.mcp.readOnlyTrusted": "計画と探索がこのサーバーの読み取り専用ツールを使用できます",
-  "drift.mcp.readOnlyTrusted.label": "計画と探索に{{name}}の読み取り専用ツールの使用を許可",
   "drift.mcp.status.connecting": "接続中...",
   "drift.mcp.status.disconnecting": "切断中...",
   "drift.message.compactedSummary": "コンテキスト圧縮済み · 要約",

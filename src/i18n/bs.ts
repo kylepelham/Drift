@@ -1316,7 +1316,6 @@ export const drift = {
   "drift.permission.stopHint": "Odbij ovaj poziv i završi potez",
   "drift.permission.note": "Opcionalno: reci modelu zašto odbijaš",
   "drift.mcp.readOnlyTrusted": "Planiranje i Istraživanje smiju koristiti njegove alate samo za čitanje",
-  "drift.mcp.readOnlyTrusted.label": "Dozvoli da Planiranje i Istraživanje koriste alate samo za čitanje servera {{name}}",
   "drift.mcp.status.connecting": "povezivanje...",
   "drift.mcp.status.disconnecting": "prekidanje veze...",
   "drift.message.compactedSummary": "Kontekst sažet · sažetak",

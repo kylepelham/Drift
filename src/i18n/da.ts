@@ -1308,7 +1308,6 @@ export const drift = {
   "drift.permission.stopHint": "Afvis dette kald og afslut turen",
   "drift.permission.note": "Valgfrit: fortæl modellen hvorfor du afviser",
   "drift.mcp.readOnlyTrusted": "Plan og Udforsk må bruge dens skrivebeskyttede værktøjer",
-  "drift.mcp.readOnlyTrusted.label": "Lad Plan og Udforsk bruge de skrivebeskyttede værktøjer fra {{name}}",
   "drift.mcp.status.connecting": "forbinder...",
   "drift.mcp.status.disconnecting": "afbryder forbindelsen...",
   "drift.message.compactedSummary": "Kontekst komprimeret · resumé",
