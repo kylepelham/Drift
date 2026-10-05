@@ -350,6 +350,14 @@ test("/compact asks the engine to compact and reports a refusal; the auto settin
   expect(await h.actions.setAutoCompact(false)).toEqual({ autoCompact: false })
 })
 
+test("a sign-in hands the panel its device code and no English text, so the panel words it in the user's language", async () => {
+  const h = harness({
+    startOAuth: (id: string) => Promise.resolve(id === "xai" ? { url: "https://accounts.x.ai/device?code=WXYZ-9876", state: "s", method: "auto", userCode: "WXYZ-9876" } : { url: "https://claude.ai/oauth", state: "s", method: "code" }),
+  } as Partial<Client>)
+  expect(await h.actions.providerAuthorize("xai", 0)).toEqual({ url: "https://accounts.x.ai/device?code=WXYZ-9876", method: "auto", instructions: "", code: "WXYZ-9876" })
+  expect(await h.actions.providerAuthorize("anthropic", 0)).toEqual({ url: "https://claude.ai/oauth", method: "code", instructions: "", code: undefined })
+})
+
 test("a removed workspace's purge completes only once the engine holds none of its conversations", async () => {
   const calls: string[] = []
   const h = harness({

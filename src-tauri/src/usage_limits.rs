@@ -80,18 +80,12 @@ fn source(provider: &str) -> Option<Source> {
     })
 }
 
-fn credential(auth: &Value, provider: &str) -> Option<Credential> {
-    let entry = auth.get(provider)?;
-    let text = |key: &str| entry.get(key).and_then(Value::as_str).map(str::to_owned);
-    match entry.get("type")?.as_str()? {
-        "oauth" => Some(Credential::OAuth {
-            access: text("access")?,
-            expires: entry.get("expires").and_then(Value::as_i64).unwrap_or(0),
-            account_id: text("accountId"),
-            enterprise: entry.get("enterpriseUrl").is_some_and(|url| !url.is_null()),
-        }),
-        "api" => Some(Credential::Api { key: text("key")? }),
-        _ => None,
+/// The engine's credential as the usage requests need it; a cloud route's own credentials have no plan.
+fn from_engine(credential: drift_engine::llm::Credential) -> Option<Credential> {
+    match credential {
+        drift_engine::llm::Credential::OAuth { access, expires_at, account, .. } => Some(Credential::OAuth { access, expires: expires_at, account_id: account, enterprise: false }),
+        drift_engine::llm::Credential::ApiKey { key } => Some(Credential::Api { key }),
+        drift_engine::llm::Credential::Ambient { .. } => None,
     }
 }
 
@@ -305,11 +299,6 @@ fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|elapsed| elapsed.as_millis() as i64).unwrap_or(0)
 }
 
-fn read_auth() -> Option<Value> {
-    let path = crate::engine_db::opencode_data_dir().ok()?.join("auth.json");
-    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
-}
-
 fn client() -> Result<&'static reqwest::Client, String> {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     if let Some(client) = CLIENT.get() {
@@ -332,14 +321,18 @@ fn failure_status(code: u16, body: &str) -> Option<UsageStatus> {
     }
 }
 
-/// Plan usage for the provider behind the current model. Credentials stay on this side of the bridge.
+/// Plan usage for the provider behind the current model, with the sign-in the engine holds (renewed
+/// first when it has expired). Credentials stay on this side of the bridge.
 #[tauri::command]
-pub(crate) async fn provider_usage(provider: String) -> Result<Option<ProviderUsage>, String> {
+pub(crate) async fn provider_usage(native: tauri::State<'_, crate::native::Native>, provider: String) -> Result<Option<ProviderUsage>, String> {
     let Some(source) = source(&provider) else { return Ok(None) };
-    let Some(credential) = read_auth().and_then(|auth| credential(&auth, &provider)) else { return Ok(None) };
-    if matches!(credential, Credential::OAuth { expires, .. } if expires > 0 && expires < now_ms()) {
-        return Ok(Some(signed_out(UsageStatus::Expired)));
+    let engine = native.engine().clone();
+    if engine.credentials.get(&provider).is_none() {
+        return Ok(None);
     }
+    let Some(credential) = engine.current_credential(&provider).await.and_then(from_engine) else {
+        return Ok(Some(signed_out(UsageStatus::Expired)));
+    };
     let Some(request) = request(source, &credential) else { return Ok(None) };
     let mut builder = client()?.get(request.url).header("User-Agent", concat!("drift/", env!("CARGO_PKG_VERSION")));
     for (name, value) in request.headers {

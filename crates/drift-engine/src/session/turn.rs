@@ -701,6 +701,16 @@ impl Engine {
         self.renew(provider, credential).await
     }
 
+    /// The provider's stored credential, renewed first when it is a sign-in past its expiry, for
+    /// callers outside a turn (the shell's usage limits); `None` when there is none or it cannot be renewed.
+    pub async fn current_credential(&self, provider: &str) -> Option<Credential> {
+        let stored = self.credentials.get(provider)?;
+        if !stored.is_expired() {
+            return Some(stored);
+        }
+        self.renew(provider, stored).await.ok()
+    }
+
     /// A new token for a sign-in that expired or was refused, refreshed once however many turns ask at the same time.
     pub(super) async fn renew(&self, provider: &str, credential: Credential) -> Result<Credential, TurnError> {
         let lock = self.turns.refresh_lock(provider);
@@ -713,6 +723,7 @@ impl Engine {
         let refreshed = match provider {
             "anthropic" => llm::anthropic::oauth::refresh(&self.http, refresh).await,
             "openai" => llm::openai::oauth::refresh(&self.http, refresh).await,
+            "xai" => llm::xai::refresh(&self.http, refresh).await,
             _ => return Ok(credential),
         };
         let fresh = refreshed.map_err(TurnError::SignInExpired)?;

@@ -46,7 +46,7 @@ export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
 const pageSize = 100
 const sessionPageSize = 200
 /** Sign-in methods per provider, in the order the settings page lists them. */
-const authMethods: Record<string, { type: "oauth" | "api"; label: string; mode?: "max" | "console" | "chatgpt" }[]> = {
+const authMethods: Record<string, { type: "oauth" | "api"; label: string; mode?: "max" | "console" | "chatgpt" | "supergrok" }[]> = {
   anthropic: [
     { type: "oauth", label: "Claude Pro/Max", mode: "max" },
     { type: "oauth", label: "Anthropic Console", mode: "console" },
@@ -54,6 +54,10 @@ const authMethods: Record<string, { type: "oauth" | "api"; label: string; mode?:
   ],
   openai: [
     { type: "oauth", label: "ChatGPT (Plus, Pro, Team)", mode: "chatgpt" },
+    { type: "api", label: "API key" },
+  ],
+  xai: [
+    { type: "oauth", label: "SuperGrok", mode: "supergrok" },
     { type: "api", label: "API key" },
   ],
 }
@@ -386,8 +390,8 @@ export function createActions(
     if (!mode) throw new Error("this method has no sign-in flow")
     const started = await requireClient().startOAuth(id, mode)
     oauthStates.set(id, started.state)
-    const auto = started.method === "auto"
-    return { url: started.url, method: (auto ? "auto" : "code") as "code" | "auto", instructions: auto ? "Finish signing in in the browser." : "Sign in, then paste the code the page shows." }
+    // No instructions text: the settings panel words each step in the user's language, and shows a device code itself.
+    return { url: started.url, method: (started.method === "auto" ? "auto" : "code") as "code" | "auto", instructions: "", code: started.userCode ?? undefined }
   }
 
   async function providerCallback(id: string, _method: number, code?: string): Promise<ProviderAuthResult> {

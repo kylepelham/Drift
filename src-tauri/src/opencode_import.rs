@@ -2,88 +2,155 @@
 //! thread: at startup, and again whenever a workspace is added, since its directory may hold
 //! conversations an earlier run skipped. Each item comes in once (see `drift-migrate`).
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 
 use drift_engine::event::Event;
 use drift_engine::Engine;
+use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::native::Native;
 use crate::store::Store;
 
-pub(crate) struct Importer(mpsc::Sender<()>);
+pub(crate) struct Importer {
+    requests: mpsc::Sender<()>,
+    /// What the last run that brought anything in did, until the window takes it to show once.
+    summary: Arc<Mutex<Option<Summary>>>,
+}
 
 impl Importer {
     /// Asks for another run; requests made while one runs fold into one more.
     pub(crate) fn request(&self) {
-        let _ = self.0.send(());
+        let _ = self.requests.send(());
+    }
+}
+
+/// What a run brought in and left behind, shown to the user once.
+#[derive(Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Summary {
+    conversations: usize,
+    undoable: usize,
+    /// Conversations holding prompts opencode queued but never ran.
+    pending: Vec<String>,
+    /// Folders that are not workspaces, with how many conversations wait for them.
+    waiting: BTreeMap<String, usize>,
+    sign_ins: Vec<String>,
+    servers: Vec<String>,
+    servers_off: Vec<String>,
+    files: usize,
+    left_out: drift_migrate::LeftOut,
+    failed: usize,
+}
+
+impl Summary {
+    fn worth_showing(&self) -> bool {
+        let left = &self.left_out;
+        let left_out = !(left.sign_ins.is_empty() && left.plugins.is_empty() && left.settings.is_empty() && left.servers.is_empty() && left.failed.is_empty());
+        self.conversations > 0 || !self.sign_ins.is_empty() || !self.servers.is_empty() || self.files > 0 || left_out || !self.pending.is_empty() || self.failed > 0
     }
 }
 
 pub(crate) fn start(app: &AppHandle) -> Importer {
     let (requests, received) = mpsc::channel();
-    let app = app.clone();
+    let summary = Arc::new(Mutex::new(None));
+    let (app, kept) = (app.clone(), summary.clone());
     std::thread::spawn(move || {
         while received.recv().is_ok() {
             while received.try_recv().is_ok() {}
-            run(&app);
+            run(&app, &kept);
         }
     });
-    let importer = Importer(requests);
+    let importer = Importer { requests, summary };
     importer.request();
     importer
 }
 
-fn run(app: &AppHandle) {
+/// The last import's summary, once: a second call returns nothing until another run brings something in.
+#[tauri::command]
+pub(crate) fn opencode_import_summary(importer: State<Importer>) -> Option<Summary> {
+    importer.summary.lock().unwrap().take()
+}
+
+fn run(app: &AppHandle, kept: &Mutex<Option<Summary>>) {
     let Ok(dir) = crate::engine_db::opencode_data_dir() else { return };
     let store = app.state::<Store>();
     let engine = app.state::<Native>().engine().clone();
-    import_settings(&engine, &store, &dir);
+    let mut summary = Summary::default();
+    if let Some(report) = import_settings(&engine, &store, &dir) {
+        summary.sign_ins = report.credentials;
+        summary.servers = report.servers;
+        summary.servers_off = report.disabled_servers;
+        summary.files = report.files.len();
+        summary.left_out = report.left_out;
+    }
     for source in sources(&dir) {
-        match store.import_opencode_workspaces(&source) {
-            Ok(0) => {}
-            Ok(_) => {
-                let _ = app.emit("workspaces-changed", ());
-            }
-            Err(error) => eprintln!("opencode import: workspaces from {}: {error}", source.display()),
+        import_source(app, &engine, &store, &source, &mut summary);
+    }
+    if summary.worth_showing() {
+        *kept.lock().unwrap() = Some(summary);
+        let _ = app.emit("opencode-import-done", ());
+    }
+}
+
+/// A folder opencode's own tests or tools made, never one a person works in.
+fn scratch(directory: &str) -> bool {
+    let path = directory.replace('\\', "/").to_lowercase();
+    path.contains("/appdata/local/temp/") || path.starts_with("/tmp/")
+}
+
+fn import_source(app: &AppHandle, engine: &Arc<Engine>, store: &Store, source: &Path, summary: &mut Summary) {
+    match store.import_opencode_workspaces(source) {
+        Ok(0) => {}
+        Ok(_) => {
+            let _ = app.emit("workspaces-changed", ());
         }
-        let archived: HashSet<String> = store.archived().map(|rows| rows.into_iter().map(|row| row.session_id).collect()).unwrap_or_default();
-        let (mut done, mut total) = (0usize, 0usize);
-        // Each conversation is announced as it lands; the window shows how far the import has got.
-        let mut announce = |step: drift_migrate::Progress| {
-            match step {
-                drift_migrate::Progress::Planned(count) => total = count,
-                drift_migrate::Progress::Finished(session) => {
-                    done += 1;
-                    if let Some(session) = session {
-                        engine.hub.publish(Event::SessionCreated { session: session.clone() });
-                    }
+        Err(error) => eprintln!("opencode import: workspaces from {}: {error}", source.display()),
+    }
+    let archived: HashSet<String> = store.archived().map(|rows| rows.into_iter().map(|row| row.session_id).collect()).unwrap_or_default();
+    let (mut done, mut total) = (0usize, 0usize);
+    // Each conversation is announced as it lands; the window shows how far the import has got.
+    let mut announce = |step: drift_migrate::Progress| {
+        match step {
+            drift_migrate::Progress::Planned(count) => total = count,
+            drift_migrate::Progress::Finished(session) => {
+                done += 1;
+                if let Some(session) = session {
+                    engine.hub.publish(Event::SessionCreated { session: session.clone() });
                 }
             }
-            let _ = app.emit("opencode-import", serde_json::json!({ "done": done, "total": total }));
-        };
-        let mut history = match drift_migrate::History::new(&engine.snapshots) {
-            Ok(history) => history,
-            Err(error) => return eprintln!("opencode import: {error}"),
-        };
-        match drift_migrate::import_sessions(&engine.store, &source, &archived, &mut history, &mut announce) {
-            Ok(report) if report.imported > 0 || !report.failed.is_empty() => {
+        }
+        let _ = app.emit("opencode-import", serde_json::json!({ "done": done, "total": total }));
+    };
+    let mut history = match drift_migrate::History::new(&engine.snapshots) {
+        Ok(history) => history,
+        Err(error) => return eprintln!("opencode import: {error}"),
+    };
+    match drift_migrate::import_sessions(&engine.store, source, &archived, &mut history, &mut announce) {
+        Ok(report) => {
+            if report.imported > 0 || !report.failed.is_empty() {
                 eprintln!("opencode import from {}: {} imported ({} edits can be undone), {} failed", source.display(), report.imported, report.undoable, report.failed.len());
                 for (id, error) in &report.failed {
                     eprintln!("opencode import: {id}: {error}");
                 }
             }
-            Ok(_) => {}
-            Err(error) => eprintln!("opencode import from {}: {error}", source.display()),
+            summary.conversations += report.imported;
+            summary.undoable += report.undoable;
+            summary.failed += report.failed.len();
+            summary.pending.extend(report.pending);
+            for (directory, count) in report.unmatched.into_iter().filter(|(directory, _)| !scratch(directory)) {
+                *summary.waiting.entry(directory).or_default() += count;
+            }
         }
+        Err(error) => eprintln!("opencode import from {}: {error}", source.display()),
     }
 }
 
 /// opencode's sign-ins, MCP servers (its own and those Drift's old manager kept) and global config.
-fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) {
+fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Option<drift_migrate::SettingsReport> {
     let read = |path: PathBuf| std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str::<Value>(&drift_engine::config::jsonc::strip(&text)).ok());
     let config_dir = opencode_config_dir();
     let config = config_dir.as_ref().and_then(|dir| read(dir.join("opencode.json")).or_else(|| read(dir.join("opencode.jsonc"))));
@@ -98,7 +165,7 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) {
     servers.extend(config.as_ref().and_then(|config| config["mcp"].as_object()).into_iter().flatten().map(|(name, definition)| server(name, definition)));
     let settings = drift_migrate::Settings { auth: read(data_dir.join("auth.json")), config, config_dir: config_dir.unwrap_or_default(), servers };
     let providers: Vec<String> = engine.catalog.read().unwrap().providers.keys().cloned().collect();
-    let Some(home) = drift_engine::config::home() else { return };
+    let home = drift_engine::config::home()?;
     match drift_migrate::import_settings(&engine.store, &engine.credentials, &providers, &home, &settings) {
         Ok(report) => {
             if !report.credentials.is_empty() {
@@ -114,8 +181,12 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) {
                     eprintln!("opencode import: left out {line}");
                 }
             }
+            Some(report)
         }
-        Err(error) => eprintln!("opencode import: settings: {error}"),
+        Err(error) => {
+            eprintln!("opencode import: settings: {error}");
+            None
+        }
     }
 }
 
@@ -139,6 +210,8 @@ fn sources(dir: &Path) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn the_shared_database_goes_first_and_only_opencode_databases_are_read() {
         let dir = std::env::temp_dir().join(format!("drift-import-sources-{}", drift_engine::id::new("t")));
@@ -149,5 +222,20 @@ mod tests {
         let names: Vec<String> = super::sources(&dir).iter().map(|path| path.file_name().unwrap().to_string_lossy().into_owned()).collect();
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(names, ["opencode.db", "opencode-dev.db", "opencode-master.db"]);
+    }
+
+    #[test]
+    fn temp_folders_never_wait_for_a_workspace() {
+        assert!(scratch("C:\\Users\\Kyle\\AppData\\Local\\Temp\\opencode-test\\repo"));
+        assert!(scratch("/tmp/opencode/repo"));
+        assert!(!scratch("C:\\Users\\Kyle\\Desktop\\C++\\Drift"));
+    }
+
+    #[test]
+    fn a_run_that_brought_nothing_in_shows_nothing() {
+        assert!(!Summary::default().worth_showing());
+        assert!(Summary { conversations: 1, ..Summary::default() }.worth_showing());
+        let left_out = drift_migrate::LeftOut { plugins: vec!["oh-my-opencode".into()], ..Default::default() };
+        assert!(Summary { left_out, ..Summary::default() }.worth_showing());
     }
 }

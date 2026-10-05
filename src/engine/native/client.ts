@@ -103,7 +103,7 @@ export function createClient(target: Target) {
     providers: () => request<Json<"listProviders", 200>>("GET", "/providers"),
     setProviderKey: (id: string, key: string) => request<void>("PUT", `/providers/${id}/key`, { key }),
     removeProviderCredentials: (id: string) => request<void>("DELETE", `/providers/${id}/credentials`),
-    startOAuth: (id: string, mode: "max" | "console" | "chatgpt") => request<Json<"startOAuth", 200>>("POST", `/providers/${id}/oauth`, { mode }),
+    startOAuth: (id: string, mode: "max" | "console" | "chatgpt" | "supergrok") => request<Json<"startOAuth", 200>>("POST", `/providers/${id}/oauth`, { mode }),
     finishOAuth: (id: string, input: string, state?: string) => request<void>("POST", `/providers/${id}/oauth/callback`, { input, state }),
     permissions: () => request<Json<"listPermissions", 200>>("GET", "/permissions"),
     replyPermission: (id: string, body: ReplyBody) => request<void>("POST", `/permissions/${id}/reply`, body),

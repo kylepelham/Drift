@@ -15,6 +15,7 @@ pub mod local;
 pub mod openai;
 pub(crate) mod sse;
 pub mod vertex;
+pub mod xai;
 #[cfg(test)]
 pub(crate) mod tests;
 

@@ -226,11 +226,13 @@ current model, in the style of the Codex and Claude Code desktop apps. Each wind
 bar that turns amber at 70% and red at 90%. The ring in the header uses the same colors
 for context usage.
 
-`provider_usage` (`src-tauri/src/usage_limits.rs`) reads the engine's `auth.json`, calls the
-provider's usage endpoint, and returns normalized windows (kind, optional label, percent
-used, and reset time in epoch milliseconds). Tokens never reach the webview or a remote
-device. Expired OAuth tokens are not refreshed here, because the engine owns refresh and
-refresh tokens can rotate; the popover says the sign-in refreshes on the next request.
+`provider_usage` (`src-tauri/src/usage_limits.rs`) takes the credential from Drift's own
+engine (`Engine::current_credential`, the keyring), calls the provider's usage endpoint, and
+returns normalized windows (kind, optional label, percent used, and reset time in epoch
+milliseconds). Tokens never reach the webview or a remote device. An expired sign-in is
+renewed through the engine's own refresh, behind the same per-provider lock a turn uses, so
+a rotating refresh token is never spent twice; when renewal fails the popover says the
+sign-in has expired.
 The frontend asks at most once a minute per provider, when the popover opens or a
 session goes idle. **Settings > Usage limits** lists every linked provider that reports
 limits, and its Refresh button bypasses the one-minute cache.

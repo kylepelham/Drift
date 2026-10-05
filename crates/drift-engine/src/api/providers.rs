@@ -85,6 +85,8 @@ pub enum OAuthMode {
     Console,
     /// ChatGPT Plus, Pro or Team through Codex.
     Chatgpt,
+    /// A SuperGrok subscription, signed in with a code entered in any browser.
+    Supergrok,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -93,12 +95,16 @@ pub struct OAuthStartBody {
 }
 
 #[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct OAuthStarted {
     /// Open this in a browser.
     pub url: String,
     pub state: String,
     /// `code`: the user pastes what the callback page shows. `auto`: the engine catches the callback itself.
     pub method: String,
+    /// For a device sign-in, what the user enters on the page `url` opens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_code: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -120,10 +126,19 @@ pub async fn oauth_start(State(engine): State<Arc<Engine>>, Path(id): Path<Strin
             let started = codex::start();
             (oauth::Started { url: started.url, state: started.state, verifier: started.verifier }, "auto")
         }
+        ("xai", OAuthMode::Supergrok) => return supergrok_start(&engine).await,
         _ => return Err(ApiError::not_found("oauth provider")),
     };
     engine.oauth.lock().unwrap().insert(started.state.clone(), started.verifier);
-    Ok(Json(OAuthStarted { url: started.url, state: started.state, method: method.into() }))
+    Ok(Json(OAuthStarted { url: started.url, state: started.state, method: method.into(), user_code: None }))
+}
+
+/// Asks xAI for a device code; the finish call waits for the user to enter it.
+async fn supergrok_start(engine: &Arc<Engine>) -> Result<Json<OAuthStarted>, ApiError> {
+    let device = crate::llm::xai::start(&engine.http).await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e))?;
+    let state = crate::random_hex(16);
+    engine.oauth.lock().unwrap().insert(state.clone(), serde_json::to_string(&device).unwrap());
+    Ok(Json(OAuthStarted { url: device.url, state, method: "auto".into(), user_code: Some(device.user_code) }))
 }
 
 #[utoipa::path(post, path = "/providers/{id}/oauth/callback", operation_id = "finishOAuth", request_body = OAuthFinishBody, responses((status = 204), (status = 400), (status = 404)))]
@@ -140,6 +155,12 @@ pub async fn oauth_finish(State(engine): State<Arc<Engine>>, Path(id): Path<Stri
             let verifier = engine.oauth.lock().unwrap().remove(&state).ok_or_else(|| invalid("unknown or expired sign-in state"))?;
             let code = codex::wait_for_callback(&state).await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e))?;
             codex::exchange(&engine.http, &code, &verifier).await
+        }
+        "xai" => {
+            let state = body.state.ok_or_else(|| invalid("state is required"))?;
+            let started = engine.oauth.lock().unwrap().remove(&state).ok_or_else(|| invalid("unknown or expired sign-in state"))?;
+            let device: crate::llm::xai::Device = serde_json::from_str(&started).map_err(|_| invalid("unknown or expired sign-in state"))?;
+            crate::llm::xai::wait(&engine.http, &device).await
         }
         _ => return Err(ApiError::not_found("oauth provider")),
     };

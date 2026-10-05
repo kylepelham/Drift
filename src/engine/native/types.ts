@@ -1176,7 +1176,7 @@ export interface components {
             scopes?: string[];
         };
         /** @enum {string} */
-        OAuthMode: "max" | "console" | "chatgpt";
+        OAuthMode: "max" | "console" | "chatgpt" | "supergrok";
         OAuthStartBody: {
             mode: components["schemas"]["OAuthMode"];
         };
@@ -1186,6 +1186,8 @@ export interface components {
             state: string;
             /** @description Open this in a browser. */
             url: string;
+            /** @description For a device sign-in, what the user enters on the page `url` opens. */
+            userCode?: string | null;
         };
         /** @description A pre-registered app as clients see it: whether it has a secret, never the secret. */
         OAuthView: {

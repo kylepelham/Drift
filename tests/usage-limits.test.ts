@@ -118,7 +118,7 @@ test("the context meter shows usage limits and the breakdown, and remote access 
   expect(await Bun.file("src/ui/header.tsx").text()).toContain("<ContextMeter sessionId=")
   expect(await Bun.file("src/ui/debug.tsx").text()).toContain("<ContextSection sessionId=")
   const remote = await Bun.file("src-tauri/src/remote.rs").text()
-  expect(remote).toContain('"provider_usage" => value(crate::usage_limits::provider_usage(arg(args, "provider")?).await?)')
+  expect(remote).toContain('"provider_usage" => value(crate::usage_limits::provider_usage(app.state(), arg(args, "provider")?).await?)')
   expect(await Bun.file("src-tauri/src/main.rs").text()).toContain("usage_limits::provider_usage,")
 })
 

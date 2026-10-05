@@ -182,6 +182,12 @@ impl Source {
         self.conn.prepare_cached("SELECT id FROM part WHERE message_id = ?1 ORDER BY id")?.query_map([message_id], |row| row.get(0))?.collect()
     }
 
+    /// Conversations holding prompts opencode admitted but never ran; none when its database predates the queue.
+    pub fn pending_inputs(&self) -> std::collections::HashSet<String> {
+        let ids = self.conn.prepare("SELECT DISTINCT session_id FROM session_input WHERE promoted_seq IS NULL").and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect());
+        ids.unwrap_or_default()
+    }
+
     pub fn todos(&self, session_id: &str) -> rusqlite::Result<Vec<OcTodo>> {
         self.conn
             .prepare_cached("SELECT content, status, priority FROM todo WHERE session_id = ?1 ORDER BY position")?

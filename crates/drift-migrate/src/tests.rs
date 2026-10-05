@@ -201,9 +201,28 @@ fn a_conversation_a_stopped_run_left_half_written_is_finished_by_the_next_and_pr
     .unwrap();
     assert_eq!((report.imported, report.known), (2, 0), "{report:?}");
     assert_eq!(steps, ["planned 2", "finished true", "finished true"]);
+    assert!(report.pending.is_empty(), "a database without opencode's queue has nothing pending");
     assert_eq!(store.transcript("ses_a").unwrap().len(), 1, "written whole this time");
     let again = import_sessions(&store, &source, &HashSet::new(), &mut Kept::default(), &mut |_| panic!("nothing left to report")).unwrap();
     assert_eq!(again.known, 2);
+}
+
+#[test]
+fn a_conversation_with_prompts_opencode_queued_but_never_ran_is_named() {
+    let d = dir();
+    let source = d.0.join("opencode.db");
+    let conn = opencode(&source);
+    session(&conn, "ses_a", None, "C:/repo", None);
+    session(&conn, "ses_b", None, "C:/repo", None);
+    conn.execute_batch(
+        "CREATE TABLE session_input(id TEXT PRIMARY KEY, session_id TEXT, prompt TEXT, delivery TEXT, admitted_seq INTEGER, promoted_seq INTEGER, time_created INTEGER);
+         INSERT INTO session_input VALUES('i1', 'ses_a', '{}', 'queue', 1, NULL, 1), ('i2', 'ses_b', '{}', 'queue', 1, 2, 1);",
+    )
+    .unwrap();
+    drop(conn);
+    let store = store_with(&d.0, &["C:/repo"]);
+    let report = import_sessions(&store, &source, &HashSet::new(), &mut Kept::default(), &mut |_| {}).unwrap();
+    assert_eq!(report.pending, ["Title ses_a"], "a prompt that ran is in the transcript; one that never ran is named");
 }
 
 #[test]

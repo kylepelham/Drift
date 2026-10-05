@@ -156,7 +156,8 @@ fn decode(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn encode(value: &str) -> String {
+/// Form encoding for a value in a query or `application/x-www-form-urlencoded` body.
+pub(crate) fn encode(value: &str) -> String {
     value
         .bytes()
         .map(|b| match b {

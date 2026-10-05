@@ -29,6 +29,7 @@ import { DebugPanel } from "./ui/debug"
 import { ChatHeader } from "./ui/header"
 import { Lightbox } from "./ui/lightbox"
 import { FilePreviewHost } from "./ui/file-preview"
+import { ImportSummaryHost } from "./ui/import-summary"
 import { McpServersModal } from "./ui/mcp"
 import { AttentionNotifier, NoticeHost } from "./ui/notifications"
 import { PaletteHost } from "./ui/palette"
@@ -90,6 +91,7 @@ export function App() {
         <SettingsHost />
         <PaletteHost />
         <ToolContextMenuHost />
+        <ImportSummaryHost />
         <NoticeHost>
           <RemoteLinkNotice />
         </NoticeHost>

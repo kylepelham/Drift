@@ -912,10 +912,12 @@ legacy sidecar's start) and tells the UI with `workspaces-changed`.
   as of the import, so the seven-day purge gives it a full week to be restored.
 - **Settings** (`drift_migrate::import_settings`, run first each time). Each item comes in once,
   recorded in the setting `opencodeImported`, so a sign-in the user removes or a server they delete
-  stays gone; the last run's report is `opencodeImportReport`, and the shell logs it.
+  stays gone; the last run's report is `opencodeImportReport`, and the shell logs it. What was
+  left out is also grouped by kind (`LeftOut`: sign-ins, plugins, settings, servers, failed copies)
+  as names only, so the window words it in the user's language.
   - `auth.json`: an API key goes in for a provider Drift has (a local server's placeholder is
-    ignored); an Anthropic or OpenAI sign-in goes in with its refresh token and expiry, since Drift
-    renews those itself. Other sign-ins (xAI) and unknown providers are reported. A provider already
+    ignored); an Anthropic, OpenAI or xAI sign-in goes in with its refresh token and expiry, since
+    Drift renews those itself. Other sign-ins and unknown providers are reported. A provider already
     signed in to Drift keeps its own.
   - MCP servers, from the shell's `mcp_server` table (Drift's old manager) and then opencode's
     `mcp`: `local` becomes stdio (command split from its arguments), `remote` streamable HTTP with
@@ -933,6 +935,14 @@ legacy sidecar's start) and tells the UI with `workspaces-changed`.
     `~/.config/drift/drift.json`, written only when it does not exist yet. Everything else
     (`tools`, `plugin`, `agent`, `provider`, ...) is named in the report; plugins are JavaScript and
     Drift runs none. Project-level opencode files are not read.
+- **Queued prompts.** opencode keeps prompts it queued but never ran in `session_input`; the import
+  names the conversations holding any (`Report.pending`, `source::pending_inputs`) instead of
+  running them, since they were meant for a moment that has passed.
+- **Summary, once.** A run that brought anything in, or left anything out, keeps a summary in the
+  shell (conversations, undoable edits, queued prompts, folders waiting for a workspace with temp
+  folders dropped, sign-ins, servers, copied files, `LeftOut`) and emits `opencode-import-done`.
+  `opencode_import_summary` hands it out once and clears it, so the window shows it in a dialog
+  (`src/ui/import-summary.tsx`) after the run and never again, rather than as a permanent panel.
 - **Prompt cache.** The first message sent in an imported conversation misses the provider's cache
   (Drift's system prompt and tools differ from opencode's), a one-time write for that history;
   turns after it cache as usual.

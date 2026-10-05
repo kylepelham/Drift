@@ -1259,7 +1259,7 @@ function ProviderConnect(props: {
   const [code, setCode] = createSignal("")
   const [pending, setPending] = createSignal<"connect" | "disconnect" | null>(null)
   const [error, setError] = createSignal("")
-  const [authorization, setAuthorization] = createSignal<{ url: string; method: string; instructions: string } | null>(null)
+  const [authorization, setAuthorization] = createSignal<{ url: string; method: string; instructions: string; code?: string } | null>(null)
   const method = () => props.methods[methodIndex()] ?? props.methods[0]
 
   function fail(message: string) {
@@ -1448,8 +1448,8 @@ function ProviderConnect(props: {
   )
 }
 
-function AuthorizationHint(props: { auth: { url: string; method: string; instructions: string }; onCancel: () => void }) {
-  const prompt = () => authorizationPrompt(props.auth.instructions)
+function AuthorizationHint(props: { auth: { url: string; method: string; instructions: string; code?: string }; onCancel: () => void }) {
+  const prompt = () => (props.auth.code ? { code: props.auth.code } : authorizationPrompt(props.auth.instructions))
   const [copied, setCopied] = createSignal(false)
   const fallback = () => (props.auth.method === "code" ? t("drift.provider.pasteCode") : t("drift.provider.finishInBrowser"))
   const copyLink = () => {

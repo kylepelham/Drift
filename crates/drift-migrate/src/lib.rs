@@ -7,7 +7,7 @@ mod settings;
 mod source;
 mod undo;
 
-pub use settings::{import_settings, mcp_config, OcServer, Settings, SettingsReport, REPORT};
+pub use settings::{import_settings, mcp_config, LeftOut, OcServer, Settings, SettingsReport, REPORT};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -57,6 +57,8 @@ pub struct Report {
     pub failed: Vec<(String, String)>,
     /// Imported calls given undo records.
     pub undoable: usize,
+    /// Imported conversations that held prompts opencode queued but never ran; only what ran comes in.
+    pub pending: Vec<String>,
 }
 
 /// How far a run has got, for a progress display.
@@ -95,6 +97,7 @@ pub fn import_sessions(store: &Store, source: &Path, archived: &HashSet<String>,
     }
     progress(Progress::Planned(planned.len()));
     let records = undo::records(&source, &planned, now, blobs)?;
+    let pending = source.pending_inputs();
     let checkpoints = store.import_checkpoints();
     let mut failed: HashSet<&str> = HashSet::new();
     for plan in &planned {
@@ -109,6 +112,9 @@ pub fn import_sessions(store: &Store, source: &Path, archived: &HashSet<String>,
             Ok(Some((session, undoable))) => {
                 report.imported += 1;
                 report.undoable += undoable;
+                if pending.contains(&session.id) {
+                    report.pending.push(session.title.clone());
+                }
                 progress(Progress::Finished(Some(&session)));
             }
             Ok(None) => {

@@ -173,7 +173,6 @@ const pendingTranslation = new Set([
   "drift.message.forkHere",
   ...pendingKeys("drift.about", "row.native.title row.native.description native.connected native.offline"),
   "drift.markdown.linkFailed",
-  ...pendingKeys("drift.provider", "pasteCode enterCode copyCode openAgain copyLink linkCopied"),
   ...pendingKeys("drift.context", "window systemAndTools user assistant tool"),
   ...pendingKeys(
     "drift.usage",

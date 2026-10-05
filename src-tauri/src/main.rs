@@ -106,6 +106,7 @@ fn main() {
             engine::engine_status,
             engine::restart_engine,
             native::native_engine_status,
+            opencode_import::opencode_import_summary,
             updater::check_update,
             updater::install_update,
             usage_limits::provider_usage,
