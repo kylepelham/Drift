@@ -41,6 +41,8 @@ pub struct Client {
     changed: Notify,
     versions: Mutex<HashMap<String, i32>>,
     ready: watch::Sender<bool>,
+    /// The server answers `textDocument/diagnostic` (pull) rather than, or as well as, publishing.
+    pulls: AtomicBool,
     alive: AtomicBool,
     used: Mutex<Instant>,
     process: Mutex<Option<(Child, process::Tree)>>,
@@ -64,6 +66,7 @@ impl Client {
             changed: Notify::new(),
             versions: Mutex::default(),
             ready: watch::channel(false).0,
+            pulls: AtomicBool::new(false),
             alive: AtomicBool::new(true),
             used: Mutex::new(Instant::now()),
             process: Mutex::new(Some((child, tree))),
@@ -99,6 +102,9 @@ impl Client {
             self.sync(file, &key, language, &text).await;
             sent.push((file.clone(), key, before));
         }
+        if self.pulls.load(Ordering::SeqCst) {
+            futures_util::future::join_all(sent.iter().map(|(file, _, _)| self.pull(file, deadline))).await;
+        }
         self.settle(&sent, deadline).await;
         sent.into_iter().filter_map(|(file, key, before)| self.fresh(&key, before).map(|errors| (file, errors))).collect()
     }
@@ -130,13 +136,14 @@ impl Client {
             "rootUri": uri,
             "workspaceFolders": [{ "uri": uri, "name": name }],
             "capabilities": {
-                "textDocument": { "synchronization": { "didSave": true }, "publishDiagnostics": { "versionSupport": true } },
+                "textDocument": { "synchronization": { "didSave": true }, "publishDiagnostics": { "versionSupport": true }, "diagnostic": { "dynamicRegistration": true } },
                 "workspace": { "configuration": true, "workspaceFolders": true },
                 "window": { "workDoneProgress": true },
             },
         });
-        if self.request("initialize", params, INITIALIZE).await.is_none() {
-            return self.kill();
+        let Some(reply) = self.request("initialize", params, INITIALIZE).await else { return self.kill() };
+        if !reply["result"]["capabilities"]["diagnosticProvider"].is_null() {
+            self.pulls.store(true, Ordering::SeqCst);
         }
         let _ = self.notify("initialized", json!({})).await;
         self.ready.send_replace(true);
@@ -179,6 +186,15 @@ impl Client {
         tokio::time::sleep_until((tokio::time::Instant::now() + SETTLE).min(deadline)).await;
     }
 
+    /// Asks for a file's errors, for a server that is asked rather than publishing; the answer is kept as a published one.
+    async fn pull(&self, file: &Path, deadline: tokio::time::Instant) {
+        let wait = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let Some(reply) = self.request("textDocument/diagnostic", json!({ "textDocument": { "uri": super::uri(file) } }), wait).await else { return };
+        if reply["result"]["kind"] == "full" {
+            self.publish(&json!({ "uri": super::uri(file), "diagnostics": reply["result"]["items"] }));
+        }
+    }
+
     fn generation(&self, key: &str) -> u64 {
         self.published.lock().unwrap().get(key).map_or(0, |(generation, _)| *generation)
     }
@@ -215,6 +231,10 @@ impl Client {
     async fn handle(&self, message: Value) {
         match (message.get("id").cloned(), message["method"].as_str()) {
             (Some(id), Some(method)) => {
+                let registers = message["params"]["registrations"].as_array().into_iter().flatten().any(|registration| registration["method"] == "textDocument/diagnostic");
+                if method == "client/registerCapability" && registers {
+                    self.pulls.store(true, Ordering::SeqCst);
+                }
                 let _ = self.send(&json!({ "jsonrpc": "2.0", "id": id, "result": answer(method, &message["params"]) })).await;
             }
             (None, Some("textDocument/publishDiagnostics")) => self.publish(&message["params"]),

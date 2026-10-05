@@ -159,3 +159,20 @@ async fn reading_a_file_starts_its_server_before_the_first_edit() {
     drop(servers);
     std::fs::remove_dir_all(dir).ok();
 }
+#[tokio::test]
+async fn a_server_that_is_asked_rather_than_publishing_still_reports() {
+    let dir = workspace("pull");
+    let file = dir.join("a.fake");
+    std::fs::write(&file, "fine\nERROR pulled").unwrap();
+    let servers = Servers::default();
+    let config = fake(&["pull"]);
+    servers.warm(&dir, &file, &config).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let found = servers.report(&dir, std::slice::from_ref(&file), &config).await;
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].errors, [Diagnostic { line: 2, column: 3, message: "bad: ERROR pulled".into() }]);
+    std::fs::write(&file, "fixed").unwrap();
+    assert!(servers.report(&dir, std::slice::from_ref(&file), &config).await.is_empty(), "asked again after the change");
+    drop(servers);
+    std::fs::remove_dir_all(dir).ok();
+}

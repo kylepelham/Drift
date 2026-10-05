@@ -1,7 +1,10 @@
-// A language server for tests: errors on lines holding ERROR, warnings on WARN. `mute` never initializes.
+// A language server for tests: errors on lines holding ERROR, warnings on WARN. `mute` never initializes;
+// `pull` publishes nothing and answers textDocument/diagnostic instead, registering it after initialize.
 const mute = process.argv[2] === "mute"
+const pull = process.argv[2] === "pull"
 let buffer = Buffer.alloc(0)
 let configured = false
+const texts = new Map()
 
 function send(message) {
   const body = Buffer.from(JSON.stringify(message))
@@ -14,7 +17,7 @@ function respelled(uri) {
   return uri.replace(/^file:\/\/\/([A-Za-z]):/, (_, drive) => `file:///${drive.toLowerCase()}%3A`)
 }
 
-function publish(uri, text) {
+function diagnose(text) {
   const diagnostics = []
   text.split(/\r?\n/).forEach((line, index) => {
     const range = { start: { line: index, character: 2 }, end: { line: index, character: 4 } }
@@ -22,7 +25,12 @@ function publish(uri, text) {
     if (line.includes("WARN")) diagnostics.push({ range, severity: 2, message: "only a warning" })
   })
   if (!configured) diagnostics.push({ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, severity: 1, message: "configuration request unanswered" })
-  send({ jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: { uri: respelled(uri), diagnostics } })
+  return diagnostics
+}
+
+function changed(uri, text) {
+  texts.set(uri, text)
+  if (!pull) send({ jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: { uri: respelled(uri), diagnostics: diagnose(text) } })
 }
 
 function handle(message) {
@@ -30,12 +38,16 @@ function handle(message) {
     if (mute) return
     send({ jsonrpc: "2.0", id: message.id, result: { capabilities: { textDocumentSync: 1 } } })
     send({ jsonrpc: "2.0", id: "cfg-1", method: "workspace/configuration", params: { items: [{}, {}] } })
+    if (pull) send({ jsonrpc: "2.0", id: "reg-1", method: "client/registerCapability", params: { registrations: [{ id: "d", method: "textDocument/diagnostic" }] } })
   } else if (message.id === "cfg-1") {
     configured = Array.isArray(message.result) && message.result.length === 2
   } else if (message.method === "textDocument/didOpen") {
-    publish(message.params.textDocument.uri, message.params.textDocument.text)
+    changed(message.params.textDocument.uri, message.params.textDocument.text)
   } else if (message.method === "textDocument/didChange") {
-    publish(message.params.textDocument.uri, message.params.contentChanges[0].text)
+    changed(message.params.textDocument.uri, message.params.contentChanges[0].text)
+  } else if (message.method === "textDocument/diagnostic") {
+    const items = diagnose(texts.get(message.params.textDocument.uri) ?? "")
+    send({ jsonrpc: "2.0", id: message.id, result: { kind: "full", items } })
   } else if (message.method === "shutdown") {
     send({ jsonrpc: "2.0", id: message.id, result: null })
   } else if (message.method === "exit") {
