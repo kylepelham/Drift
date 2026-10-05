@@ -364,7 +364,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   - Overflow: a provider error recognised as too long (`llm::Error::is_context_overflow`, status
     400 or 413 plus each provider's wording), or a reply that stops because it filled the window
     (Anthropic `model_context_window_exceeded`, kept as an `error` message so it is never
-    replayed), compacts and retries once per turn; a second overflow fails the turn.
+    replayed), compacts and retries once per turn; a second overflow fails the turn. Once the
+    compaction succeeds, a refused reply with no parts is deleted (`message.removed`), so a
+    recovered overflow leaves no error in the transcript; a cut-off reply keeps its text.
   - Manual: `POST /sessions/{id}/compact` (`/compact`) runs as the session's job, 409 while a turn
     runs, cancelled by Stop.
 - **Off switch**: `GET`/`PUT /settings { autoCompact }`, stored in the engine's `setting` table,

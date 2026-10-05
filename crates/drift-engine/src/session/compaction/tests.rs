@@ -266,14 +266,14 @@ async fn a_request_the_provider_rejects_as_too_long_is_compacted_and_retried_onc
     turn(&h, "second").await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let statuses: Vec<(bool, MessageStatus)> = transcript.iter().map(|m| (m.info.summary, m.info.status)).collect();
-    assert!(statuses.contains(&(false, MessageStatus::Error)), "the rejected attempt stays as history");
+    assert!(!statuses.contains(&(false, MessageStatus::Error)), "the refused attempt is gone once the retry answered it");
     assert!(statuses.contains(&(true, MessageStatus::Done)));
     assert_eq!(texts(transcript.last().unwrap()), "two");
 
     h.provider.push_error(too_long()).push(text("SUMMARY 2")).push_error(too_long());
     turn(&h, "third").await;
     let last = h.engine.store.transcript(&h.session.id).unwrap().last().unwrap().clone();
-    assert_eq!(last.info.status, MessageStatus::Error, "a second overflow in the same turn gives up");
+    assert_eq!(last.info.status, MessageStatus::Error, "a second overflow in the same turn gives up, and its error stays");
     assert!(h.provider.responses_left() == 0);
 }
 

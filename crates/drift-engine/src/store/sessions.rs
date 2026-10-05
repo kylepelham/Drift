@@ -124,6 +124,15 @@ impl Store {
         save_message_in(&self.lock(), message)
     }
 
+    /// Deletes a reply that holds nothing, such as a request the provider refused; true when it went.
+    pub fn discard_empty_reply(&self, id: &str) -> rusqlite::Result<bool> {
+        let deleted = self
+            .lock()
+            .prepare_cached("DELETE FROM message WHERE id = ?1 AND role = 'assistant' AND NOT EXISTS (SELECT 1 FROM part WHERE message_id = ?1)")?
+            .execute([id])?;
+        Ok(deleted > 0)
+    }
+
     /// Stores a summary's text and its finished state as one write: a summary is never done without its text.
     pub fn complete_summary(&self, message: &Message, text: &str) -> rusqlite::Result<PartRow> {
         transaction(&self.lock(), |conn| {

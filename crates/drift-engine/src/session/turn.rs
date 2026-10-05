@@ -900,6 +900,7 @@ impl Engine {
             (request, answered) = self.step_request(plan, transcript, started, wrap_up);
             let Ok(message) = self.store.create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });
+            let reply = message.id.clone();
             match self.step(plan, message, &request, abort).await {
                 Step::Done | Step::Continue if wrapping.is_some() => {
                     self.end_wrap_up(plan, wrapping);
@@ -927,7 +928,7 @@ impl Engine {
                 // A request too long for the model is compacted once and retried.
                 Step::Overflow if !recovered => {
                     recovered = true;
-                    if self.compact(&plan.session.id, Trigger::Overflow, abort).await.is_err() {
+                    if !self.recover_from_overflow(&plan.session.id, reply, abort).await {
                         break;
                     }
                 }
@@ -935,6 +936,17 @@ impl Engine {
             }
         }
         answered
+    }
+
+    /// Compacts after a too-long request, then removes the refused reply if it holds nothing, so no error is left behind.
+    async fn recover_from_overflow(self: &Arc<Self>, session_id: &str, reply: String, abort: &CancellationToken) -> bool {
+        if self.compact(session_id, Trigger::Overflow, abort).await.is_err() {
+            return false;
+        }
+        if self.store.discard_empty_reply(&reply).unwrap_or(false) {
+            self.hub.publish(Event::MessageRemoved { session_id: session_id.into(), message_id: reply });
+        }
+        true
     }
 
     /// Before each request: a model, agent or level a prompt chose since the last one, written on the
