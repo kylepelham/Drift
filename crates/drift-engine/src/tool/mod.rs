@@ -135,17 +135,18 @@ impl Context {
         path.starts_with(&self.workspace)
     }
 
-    /// Rules apply everywhere; workspace and scratch operations default to allow.
+    /// Rules apply everywhere; workspace and scratch operations default to allow, as does reading a skill's folder.
     pub fn ask_if_outside(&self, kind: &str, path: &Path, verb: &str) -> Option<Ask> {
         let mut ask = Ask::path(kind, path, &self.workspace, format!("{verb} {}", path.display()));
-        ask.default_allow = self.inside_workspace(path) || in_scratch(path);
+        ask.default_allow = self.inside_workspace(path) || in_scratch(path) || (kind == "read" && self.in_skill(path));
         Some(ask)
     }
 
     /// Reading asks for anything outside the workspace and for any file likely to hold secrets, even
-    /// inside it. Everything else in the workspace, and the scratch directory, is free to read.
+    /// inside it. Everything else in the workspace, the scratch directory and the folders of the
+    /// skills this session was offered (which `skill` names by absolute path) is free to read.
     pub fn ask_to_read(&self, path: &Path, verb: &str) -> Option<Ask> {
-        if self.owns_output(path) || (in_scratch(path) && !sensitive::is_sensitive(path)) {
+        if self.owns_output(path) || ((in_scratch(path) || self.in_skill(path)) && !sensitive::is_sensitive(path)) {
             return Some(Ask::path("read", path, &self.workspace, format!("{verb} {}", display(path, &self.workspace))).allow_by_default());
         }
         read_ask(&self.workspace, path, verb)
@@ -157,6 +158,11 @@ impl Context {
         let mut ask = Ask::path("edit", path, &self.workspace, format!("{verb} {}", display(path, &self.workspace)));
         ask.default_allow = in_scratch(path) || (self.inside_workspace(path) && !guarded(path, &self.workspace));
         Some(ask)
+    }
+
+    /// Inside the folder of a skill this session's config offers, as opencode allows skill directories.
+    fn in_skill(&self, path: &Path) -> bool {
+        self.config.skills.iter().any(|skill| path.starts_with(canonical(Path::new(&skill.path))))
     }
 
     /// Output this session's own calls spilled to disk, which their results name: reading it back asks
@@ -615,6 +621,22 @@ pub(crate) mod tests {
         }
         let outside = canonical(&ws.parent().unwrap().join("elsewhere.txt"));
         assert!(!sandbox.ctx.ask_to_write(&outside, "Edit").unwrap().default_allow);
+    }
+
+    #[test]
+    fn an_offered_skills_files_read_without_asking_and_its_secrets_still_ask() {
+        let mut sandbox = Sandbox::new("skill-read");
+        let skill_dir = canonical(&sandbox.ctx.workspace.parent().unwrap().join("home-skills").join("review"));
+        std::fs::create_dir_all(skill_dir.join("references")).unwrap();
+        let mut config = (*sandbox.ctx.config).clone();
+        config.skills.push(crate::config::Skill { name: "review".into(), description: "d".into(), path: skill_dir.to_string_lossy().into_owned(), instructions: String::new(), argument_hint: None });
+        sandbox.ctx.config = Arc::new(config);
+        let read = |path: &Path| sandbox.ctx.ask_to_read(path, "Read").unwrap().default_allow;
+        assert!(read(&skill_dir.join("references/guide.md")), "a file the skill points at");
+        assert!(!read(&skill_dir.join(".env")), "secrets still ask");
+        assert!(!read(&skill_dir.parent().unwrap().join("other/SKILL.md")), "another, unoffered folder asks");
+        assert!(sandbox.ctx.ask_if_outside("read", &skill_dir, "Search").unwrap().default_allow, "and glob may search it");
+        assert!(!sandbox.ctx.ask_if_outside("edit", &skill_dir, "Edit").unwrap().default_allow, "reading only");
     }
 
     #[test]
