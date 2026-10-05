@@ -69,6 +69,8 @@ pub enum Grant {
     Exact { kind: String, target: String },
     /// A known subcommand with any arguments: `cargo test` covers `cargo test --release`, not `cargo publish`.
     Subcommand { prefix: String },
+    /// Everything under a folder outside the workspace, as opencode's "always" for an external directory.
+    Folder { kind: String, folder: String },
     /// A pattern the client supplied on purpose.
     Pattern(Rule),
 }
@@ -78,6 +80,7 @@ impl Grant {
         match self {
             Grant::Exact { kind: granted, target: exact } => granted == kind && exact == target,
             Grant::Subcommand { prefix } => kind == "bash" && (target == prefix || target.strip_prefix(prefix.as_str()).is_some_and(|rest| rest.starts_with(' '))),
+            Grant::Folder { kind: granted, folder } => granted == kind && std::path::Path::new(target).starts_with(folder),
             Grant::Pattern(rule) => rule.matches_target(kind, target),
         }
     }
@@ -145,6 +148,9 @@ pub struct Request {
     #[serde(flatten)]
     pub ask: Ask,
     pub created_at: i64,
+    /// What answering "always" would allow from now on, for the client to show before it is chosen.
+    #[serde(default)]
+    pub always: Vec<Grant>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -488,8 +494,10 @@ fn fallback(allow: bool) -> Decision {
     if allow { Decision::Allow } else { Decision::Ask }
 }
 
-/// What "always" covers: each command of a shell line on its own, widened only to a known subcommand;
-/// the exact target for everything else, including a shell line that hides what it runs or writes a
+/// What "always" covers, as opencode widens it: each command of a shell line on its own, widened only
+/// to a known subcommand; a fetch's whole site; a path outside the workspace's whole folder (the
+/// folder itself for a search of one). The exact target for everything else: a file that may hold
+/// secrets, a guarded file inside the workspace, a shell line that hides what it runs or writes a
 /// file through a redirection.
 fn always_grants(ask: &Ask) -> Vec<Grant> {
     let exact = |target: &str| Grant::Exact { kind: ask.kind.clone(), target: target.into() };
@@ -501,8 +509,28 @@ fn always_grants(ask: &Ask) -> Vec<Grant> {
                 None => exact(command),
             })
             .collect(),
+        (_, "webfetch") => vec![site(&ask.pattern).unwrap_or_else(|| exact(&ask.pattern))],
+        (_, "read" | "edit") => vec![outside_folder(ask).unwrap_or_else(|| exact(&ask.pattern))],
         _ => vec![exact(&ask.pattern)],
     }
+}
+
+/// Every page of the URL's site: its scheme, host and port.
+fn site(url: &str) -> Option<Grant> {
+    let origin = reqwest::Url::parse(url).ok()?.origin();
+    origin.is_tuple().then(|| Grant::Pattern(Rule { kind: "webfetch".into(), pattern: format!("{}/*", origin.ascii_serialization()), decision: Decision::Allow }))
+}
+
+/// The folder of a path outside the workspace (`relative` is set only inside it), unless the path may
+/// hold secrets or the folder is a drive root or the home folder, which would grant far too much.
+fn outside_folder(ask: &Ask) -> Option<Grant> {
+    let path = std::path::Path::new(&ask.pattern);
+    if ask.relative.is_some() || !path.is_absolute() || crate::tool::sensitive::is_sensitive(path) {
+        return None;
+    }
+    let folder = if path.is_dir() { path } else { path.parent()? };
+    let too_wide = folder.parent().is_none() || crate::config::home().is_some_and(|home| crate::tool::canonical(&home) == folder);
+    (!too_wide).then(|| Grant::Folder { kind: ask.kind.clone(), folder: folder.to_string_lossy().into_owned() })
 }
 
 #[derive(Debug, PartialEq)]
@@ -515,6 +543,7 @@ pub fn new_request(session_id: &str, message_id: &str, call_id: &str, tool: &str
         message_id: message_id.into(),
         call_id: call_id.into(),
         tool: tool.into(),
+        always: always_grants(&ask),
         ask,
         created_at: id::now_ms(),
     }
@@ -572,6 +601,30 @@ mod tests {
     }
 
     #[test]
+    fn always_widens_a_fetch_to_its_site_and_an_outside_path_to_its_folder_but_never_a_secret() {
+        let sibling = std::env::temp_dir().join(format!("drift-sibling-{}", crate::random_hex(4)));
+        std::fs::create_dir_all(sibling.join("src")).unwrap();
+        let file = sibling.join("src").join("lib.rs");
+        std::fs::write(&file, "").unwrap();
+        let outside = Ask::new("read", file.to_string_lossy(), "Read");
+        let [grant] = &always_grants(&outside)[..] else { panic!() };
+        assert_eq!(*grant, Grant::Folder { kind: "read".into(), folder: sibling.join("src").to_string_lossy().into_owned() });
+        assert!(grant.allows("read", &sibling.join("src").join("deep").join("main.rs").to_string_lossy()), "the folder and everything under it");
+        assert!(!grant.allows("read", &sibling.join("Cargo.toml").to_string_lossy()) && !grant.allows("edit", &file.to_string_lossy()), "not beside it, and reading only");
+        let searched = Ask::new("read", sibling.to_string_lossy(), "Search");
+        assert!(matches!(&always_grants(&searched)[..], [Grant::Folder { folder, .. }] if *folder == sibling.to_string_lossy()), "a searched folder is itself");
+        let secret = Ask::new("read", sibling.join(".env").to_string_lossy(), "Read");
+        assert!(matches!(&always_grants(&secret)[..], [Grant::Exact { .. }]), "a secret stays exact");
+        let inside = Ask::path("edit", &sibling.join("src").join("lib.rs"), &sibling, "Edit");
+        assert!(matches!(&always_grants(&inside)[..], [Grant::Exact { .. }]), "a guarded file inside the workspace stays exact");
+        let fetch = always_grants(&Ask::new("webfetch", "https://docs.rs:443/serde/latest/serde/", "Fetch"));
+        let [Grant::Pattern(site)] = &fetch[..] else { panic!("{fetch:?}") };
+        assert_eq!(site.pattern, "https://docs.rs/*");
+        assert!(fetch[0].allows("webfetch", "https://docs.rs/tokio/latest/tokio/") && !fetch[0].allows("webfetch", "https://evil.example/docs.rs/"));
+        std::fs::remove_dir_all(sibling).ok();
+    }
+
+    #[test]
     fn always_covers_each_command_and_widens_only_to_its_subcommand() {
         let none = Policy::default();
         let permissions = Permissions::new(Policy::default());
@@ -611,10 +664,12 @@ mod tests {
         assert_eq!(permissions.decide("ses_1", &none, &hidden), Decision::Allow);
         assert_eq!(permissions.decide("ses_1", &none, &shell("eval \"$OTHER\"")), Decision::Ask);
 
-        let literal = ask("edit", "C:/repo/app/[id].tsx");
+        // Inside the workspace, where "always" grants the file itself (outside it grants the folder).
+        let workspace_file = |name: &str| Ask::path("edit", &std::path::Path::new("C:/repo/app").join(name), std::path::Path::new("C:/repo"), "Edit");
+        let literal = workspace_file("[id].tsx");
         permissions.apply(&new_request("ses_1", "m", "c", "edit", literal.clone()), &ReplyBody { reply: Reply::Always, pattern: None, message: None });
         assert_eq!(permissions.decide("ses_1", &none, &literal), Decision::Allow);
-        assert_eq!(permissions.decide("ses_1", &none, &ask("edit", "C:/repo/app/i.tsx")), Decision::Ask, "a bracketed file name is not a glob");
+        assert_eq!(permissions.decide("ses_1", &none, &workspace_file("i.tsx")), Decision::Ask, "a bracketed file name is not a glob");
     }
 
     #[test]

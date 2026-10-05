@@ -1306,6 +1306,8 @@ export const drift = {
   "drift.permissions.revoke": "Opozovi",
   "drift.permissions.revokeAll": "Opozovi sve",
   "drift.permissions.grant.subcommand": "{{prefix}} s bilo kojim argumentima",
+  "drift.permissions.grant.folder": "{{folder}} i sve u njoj",
+  "drift.permission.alwaysCovers": "Uvijek dozvoljava: {{what}}",
   "drift.settings.prompts.family.all": "Svi modeli",
   "drift.settings.prompts.family.codex": "GPT i Codex",
   "drift.settings.prompts.family.default": "Ostali modeli",

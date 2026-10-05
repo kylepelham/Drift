@@ -1293,6 +1293,8 @@ export const drift = {
   "drift.permissions.revoke": "เพิกถอน",
   "drift.permissions.revokeAll": "เพิกถอนทั้งหมด",
   "drift.permissions.grant.subcommand": "{{prefix}} พร้อมอาร์กิวเมนต์ใดก็ได้",
+  "drift.permissions.grant.folder": "{{folder}} และทุกอย่างในนั้น",
+  "drift.permission.alwaysCovers": "อนุญาตเสมอ: {{what}}",
   "drift.settings.prompts.family.all": "ทุกโมเดล",
   "drift.settings.prompts.family.codex": "GPT และ Codex",
   "drift.settings.prompts.family.default": "โมเดลอื่น",

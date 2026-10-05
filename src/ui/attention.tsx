@@ -1,4 +1,5 @@
 import type { Permission } from "../engine/shapes"
+import type { PermissionGrant } from "../engine/native/client"
 import { createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import type { PermissionResponse } from "../engine/actions"
@@ -17,6 +18,7 @@ import { IconCheck } from "./icons"
 import { Chevron } from "./controls"
 import { DiffPanel, parseDiff } from "./parts"
 import { RevertDock } from "./revert-dock"
+import { grantLabel } from "./settings-permissions"
 import { TaskDock } from "./task-dock"
 
 export function AttentionStrip() {
@@ -117,6 +119,10 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
     void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response, response === "reject" || response === "stop" ? note() : undefined)
   const diff = () => (props.permission.metadata as { diff?: unknown } | undefined)?.diff
   const filename = () => [props.permission.pattern].flat()[0] ?? ""
+  const alwaysCovers = () => {
+    const grants = (props.permission.metadata as { always?: PermissionGrant[] } | undefined)?.always ?? []
+    return grants.length ? t("drift.permission.alwaysCovers", { what: grants.map(grantLabel).join("; ") }) : undefined
+  }
   return (
     <div class="composer-layer-card fade-up rounded-lg border border-warn/40 bg-surface px-3 py-2.5">
       <div class="mb-2 flex items-start justify-between gap-3">
@@ -145,7 +151,7 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
       </Show>
       <div class="flex flex-wrap items-center gap-2">
         <ActionButton label={t("settings.permissions.action.allow")} onClick={() => reply("once")} />
-        <ActionButton label={t("drift.permission.always")} onClick={() => reply("always")} />
+        <ActionButton label={t("drift.permission.always")} title={alwaysCovers()} onClick={() => reply("always")} />
         <ActionButton label={t("settings.permissions.action.deny")} danger onClick={() => reply("reject")} />
         <ActionButton label={t("drift.permission.stop")} title={t("drift.permission.stopHint")} danger onClick={() => reply("stop")} />
         <input

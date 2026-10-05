@@ -1280,6 +1280,8 @@ export const drift = {
   "drift.permissions.revoke": "撤销",
   "drift.permissions.revokeAll": "全部撤销",
   "drift.permissions.grant.subcommand": "带任意参数的 {{prefix}}",
+  "drift.permissions.grant.folder": "{{folder}} 及其中的所有内容",
+  "drift.permission.alwaysCovers": "始终允许：{{what}}",
   "drift.settings.prompts.family.all": "所有模型",
   "drift.settings.prompts.family.codex": "GPT 和 Codex",
   "drift.settings.prompts.family.default": "其他模型",

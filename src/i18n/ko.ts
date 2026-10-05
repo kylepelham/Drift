@@ -1221,6 +1221,8 @@ export const drift = {
   "drift.permissions.revoke": "취소",
   "drift.permissions.revokeAll": "모두 취소",
   "drift.permissions.grant.subcommand": "인수에 관계없이 {{prefix}}",
+  "drift.permissions.grant.folder": "{{folder}} 및 그 안의 모든 항목",
+  "drift.permission.alwaysCovers": "항상 허용: {{what}}",
   "drift.settings.prompts.family.all": "모든 모델",
   "drift.settings.prompts.family.codex": "GPT 및 Codex",
   "drift.settings.prompts.family.default": "기타 모델",

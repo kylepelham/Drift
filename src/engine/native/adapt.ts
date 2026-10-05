@@ -176,7 +176,8 @@ export function adaptPermission(request: NativeRequest, directory: string): Perm
     messageID: request.messageId,
     callID: request.callId ?? undefined,
     title: request.title,
-    metadata: { directory, tool: request.tool, ...(request.diff ? { diff: request.diff } : {}) },
+    // `always` is what answering "always" would grant, decided by the engine.
+    metadata: { directory, tool: request.tool, always: request.always ?? [], ...(request.diff ? { diff: request.diff } : {}) },
     time: { created: request.createdAt },
   }
 }

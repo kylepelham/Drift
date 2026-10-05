@@ -1223,6 +1223,8 @@ export const drift = {
   "drift.permissions.revoke": "取り消す",
   "drift.permissions.revokeAll": "すべて取り消す",
   "drift.permissions.grant.subcommand": "任意の引数付きの {{prefix}}",
+  "drift.permissions.grant.folder": "{{folder}} とその中のすべて",
+  "drift.permission.alwaysCovers": "常に許可: {{what}}",
   "drift.settings.prompts.family.all": "すべてのモデル",
   "drift.settings.prompts.family.codex": "GPT と Codex",
   "drift.settings.prompts.family.default": "その他のモデル",

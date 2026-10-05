@@ -1214,6 +1214,8 @@ export const drift = {
   "drift.permissions.revoke": "إلغاء",
   "drift.permissions.revokeAll": "إلغاء الكل",
   "drift.permissions.grant.subcommand": "{{prefix}} مع أي وسائط",
+  "drift.permissions.grant.folder": "{{folder}} وكل ما فيه",
+  "drift.permission.alwaysCovers": "يسمح دائمًا بـ: {{what}}",
   "drift.settings.prompts.family.all": "كل النماذج",
   "drift.settings.prompts.family.codex": "GPT وCodex",
   "drift.settings.prompts.family.default": "نماذج أخرى",

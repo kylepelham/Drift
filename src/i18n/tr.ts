@@ -1308,6 +1308,8 @@ export const drift = {
   "drift.permissions.revoke": "Geri al",
   "drift.permissions.revokeAll": "Tümünü geri al",
   "drift.permissions.grant.subcommand": "herhangi bir argümanla {{prefix}}",
+  "drift.permissions.grant.folder": "{{folder}} ve içindeki her şey",
+  "drift.permission.alwaysCovers": "Her zaman izin verir: {{what}}",
   "drift.settings.prompts.family.all": "Tüm modeller",
   "drift.settings.prompts.family.codex": "GPT ve Codex",
   "drift.settings.prompts.family.default": "Diğer modeller",

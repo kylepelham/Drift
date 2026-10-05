@@ -1916,7 +1916,13 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     ties each planned session to its workspace; grants are kept in the `permissionGrants:<id>`
     setting), as opencode keeps it for the project. A session with no workspace keeps its grants
     in memory. Answering "always" also answers "once" for every other waiting ask that the new
-    grant now covers, under the policy each was asked under. The card's button reads "Always
+    grant now covers, under the policy each was asked under. What it covers is opencode's reach:
+    each command of a shell line widened to a known subcommand; for a fetch, the whole site
+    (`https://host/*`); for a path outside the workspace, its whole folder (`Grant::Folder`, the
+    folder itself for a search of one), unless the path may hold secrets or the folder is a drive
+    root or the home folder. Secret files, guarded workspace files and lines that hide what they
+    run or redirect stay exact. Each request carries `always`, the grants that answer would make,
+    and the card shows them on the button's tooltip. The card's button reads "Always
     allow in this workspace". `GET /workspaces/{id}/permission-grants` lists them (each tagged
     `grant`: `exact`, `subcommand` or `pattern`); `POST .../permission-grants/revoke` with one as
     listed takes it back (404 if it is not held), `DELETE .../permission-grants` takes back all,

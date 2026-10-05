@@ -23,6 +23,7 @@ export function moveRule(rules: PermissionRule[], index: number, by: number) {
 export function grantLabel(grant: PermissionGrant) {
   if (grant.grant === "exact") return `${grant.kind}: ${grant.target}`
   if (grant.grant === "subcommand") return `bash: ${t("drift.permissions.grant.subcommand", { prefix: grant.prefix })}`
+  if (grant.grant === "folder") return `${grant.kind}: ${t("drift.permissions.grant.folder", { folder: grant.folder })}`
   return `${grant.kind}: ${grant.pattern}`
 }
 

@@ -1245,6 +1245,8 @@ export const drift = {
   "drift.permissions.revoke": "Révoquer",
   "drift.permissions.revokeAll": "Tout révoquer",
   "drift.permissions.grant.subcommand": "{{prefix}} avec n’importe quels arguments",
+  "drift.permissions.grant.folder": "{{folder}} et tout son contenu",
+  "drift.permission.alwaysCovers": "Autorise toujours : {{what}}",
   "drift.settings.prompts.family.all": "Tous les modèles",
   "drift.settings.prompts.family.codex": "GPT et Codex",
   "drift.settings.prompts.family.default": "Autres modèles",

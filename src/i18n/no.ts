@@ -1315,6 +1315,8 @@ export const drift = {
   "drift.permissions.revoke": "Tilbakekall",
   "drift.permissions.revokeAll": "Tilbakekall alle",
   "drift.permissions.grant.subcommand": "{{prefix}} med hvilke som helst argumenter",
+  "drift.permissions.grant.folder": "{{folder}} og alt i den",
+  "drift.permission.alwaysCovers": "Tillater alltid: {{what}}",
   "drift.settings.prompts.family.all": "Alle modeller",
   "drift.settings.prompts.family.codex": "GPT og Codex",
   "drift.settings.prompts.family.default": "Andre modeller",

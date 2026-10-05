@@ -1122,6 +1122,11 @@ export interface components {
             /** @enum {string} */
             grant: "subcommand";
             prefix: string;
+        } | {
+            folder: string;
+            /** @enum {string} */
+            grant: "folder";
+            kind: string;
         } | (components["schemas"]["Rule"] & {
             /** @enum {string} */
             grant: "pattern";
@@ -1377,6 +1382,8 @@ export interface components {
             title?: string | null;
         };
         PermissionRequest: components["schemas"]["Ask"] & {
+            /** @description What answering "always" would allow from now on, for the client to show before it is chosen. */
+            always?: components["schemas"]["Grant"][];
             callId: string;
             /** Format: int64 */
             createdAt: number;
