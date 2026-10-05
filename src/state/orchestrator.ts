@@ -26,6 +26,14 @@ export type OrchestratorState = "working" | "done" | "blocked"
 export type OrchestratorStatus = { state: OrchestratorState; headline?: string }
 
 const statusBlock = /<orchestrator_status>\s*([\s\S]*?)\s*<\/orchestrator_status>/g
+// A block still streaming in has no closing tag yet; it is hidden until it does.
+const openBlock = /<orchestrator_status>[\s\S]*$/
+
+/** A reply's prose without its status blocks, and the status the final one states, for showing apart. */
+export function splitOrchestratorStatus(text: string): { prose: string; status?: OrchestratorStatus } {
+  const prose = text.replace(statusBlock, "").replace(openBlock, "").trimEnd()
+  return { prose, status: parseOrchestratorStatus(text) }
+}
 
 /** Parses the final status block of a reply; the last one wins. Anything invalid is undefined. */
 export function parseOrchestratorStatus(text: string | undefined): OrchestratorStatus | undefined {

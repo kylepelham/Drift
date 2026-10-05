@@ -106,3 +106,13 @@ test("the orchestrator agent is a native built-in with delegation-only tools and
   expect(prompt).toContain("Never ask the user whether to continue")
   expect(prompt).toContain("Never claim done without verification evidence")
 })
+
+test("a reply shows its prose with the status block taken out, even one still streaming in", async () => {
+  const { splitOrchestratorStatus } = await import("../src/state/orchestrator")
+  const done = splitOrchestratorStatus('All four steps passed.\n<orchestrator_status>{"state":"done","headline":"Checklist verified"}</orchestrator_status>')
+  expect(done).toEqual({ prose: "All four steps passed.", status: { state: "done", headline: "Checklist verified" } })
+  expect(splitOrchestratorStatus('Dispatching the draft.\n<orchestrator_status>{"state":"work')).toEqual({ prose: "Dispatching the draft.", status: undefined })
+  expect(splitOrchestratorStatus("No block at all").prose).toBe("No block at all")
+  const midway = splitOrchestratorStatus('<orchestrator_status>{"state":"done"}</orchestrator_status> but then more')
+  expect(midway, "a block that is not last is hidden but states nothing").toEqual({ prose: " but then more", status: undefined })
+})

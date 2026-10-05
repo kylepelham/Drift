@@ -170,7 +170,9 @@ status block. The engine reads it (`session/drive.rs`) and, while it says `worki
 next prompt itself as a `nudge` part in the same turn, so the goal moves on with no client open.
 A reply without a valid block gets a reminder of the protocol instead. The turn ends on `done`,
 `blocked`, a failed reply, a Stop, or after 30 nudges since the user's own prompt; the user's next
-message starts a fresh 30. The app only shows a notice for how the turn ended.
+message starts a fresh 30. The app only shows a notice for how the turn ended. In the transcript
+the block is taken out of the reply's text and shown as a row like a tool's: the state (Working,
+Done, Blocked) and its headline; one still streaming in stays hidden, and copying a reply leaves it out.
 
 Built-in subagents are `general` (the default `task` type, full tools) and `explore` (read-only
 search); a workspace `.drift/agents/<name>.md` with `mode: subagent` adds another. All appear in

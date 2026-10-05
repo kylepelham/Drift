@@ -7,6 +7,7 @@ import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engin
 import { emitMessageRendered } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
 import { agentLabel, t } from "../state/i18n"
+import { splitOrchestratorStatus } from "../state/orchestrator"
 import { collapseCompaction, compactionCollapsed } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { IconBranch, IconCheck, IconCopy, IconUndo } from "./icons"
@@ -394,7 +395,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
             <button
               title={t("drift.message.copyResponse")}
               class="rounded p-0.5 hover:bg-raised hover:text-ink"
-              onClick={() => void navigator.clipboard.writeText(messageText(props.entry))}
+              onClick={() => void navigator.clipboard.writeText(splitOrchestratorStatus(messageText(props.entry)).prose)}
             >
               <IconCopy class="size-3.5" />
             </button>

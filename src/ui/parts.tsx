@@ -18,6 +18,7 @@ import { ToolDuration } from "./tool-duration"
 import { resolveAttachmentKind } from "../attachments"
 import { resolveFileLanguage } from "../syntax-language"
 import { citationFileGroups } from "./citation-files"
+import { splitOrchestratorStatus, type OrchestratorStatus } from "../state/orchestrator"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -47,17 +48,25 @@ export function PartView(props: { part: Part; responseID?: string; live?: boolea
         {(part) => <PluginPartView part={part()} />}
       </Match>
       <Match when={visibleText(props.part)}>
-        {(part) => (
-          <Markdown
-            text={part().text}
-            directory={engine.state.sessions[part().sessionID]?.directory}
-            fileGroups={() => citationFileGroups(engine.state, part().sessionID, part().messageID, part().id)}
-            done={!!part().time?.end}
-            responseID={props.responseID}
-            live={props.live}
-            revision={props.revision}
-          />
-        )}
+        {(part) => {
+          const split = createMemo(() => splitOrchestratorStatus(part().text))
+          return (
+            <>
+              <Show when={split().prose}>
+                <Markdown
+                  text={split().prose}
+                  directory={engine.state.sessions[part().sessionID]?.directory}
+                  fileGroups={() => citationFileGroups(engine.state, part().sessionID, part().messageID, part().id)}
+                  done={!!part().time?.end}
+                  responseID={props.responseID}
+                  live={props.live}
+                  revision={props.revision}
+                />
+              </Show>
+              <Show when={split().status}>{(status) => <OrchestratorStatusRow status={status()} />}</Show>
+            </>
+          )
+        }}
       </Match>
       <Match when={showReasoning() && props.part.type === "reasoning" && (props.part as ReasoningPart)}>
         {(part) => <ReasoningView part={part()} revision={props.revision} />}
@@ -113,8 +122,34 @@ function ToolContextTarget(props: { part: ToolPart; children: JSX.Element }) {
 }
 
 function visibleText(part: Part) {
-  if (part.type !== "text" || part.synthetic || part.ignored || !part.text.trim()) return undefined
-  return part
+  if (part.type !== "text" || part.synthetic || part.ignored) return undefined
+  const split = splitOrchestratorStatus(part.text)
+  return split.prose.trim() || split.status ? part : undefined
+}
+
+const statusLabels = { working: "drift.orchestrator.state.working", done: "drift.orchestrator.state.done", blocked: "drift.orchestrator.state.blocked" } as const
+
+/** The orchestrator's end-of-reply status, as a row like a tool's rather than the JSON it wrote. */
+function OrchestratorStatusRow(props: { status: OrchestratorStatus }) {
+  return (
+    <div class="flex min-h-8 min-w-0 items-center gap-2 px-1.5 text-sm">
+      <Switch>
+        <Match when={props.status.state === "done"}>
+          <IconCheck class="size-3.5 shrink-0 text-ok" />
+        </Match>
+        <Match when={props.status.state === "blocked"}>
+          <span class="size-1.5 shrink-0 rounded-full bg-warn" />
+        </Match>
+        <Match when={props.status.state === "working"}>
+          <IconArrowUpRight class="size-3.5 shrink-0 text-accent/70" />
+        </Match>
+      </Switch>
+      <span class="shrink-0 font-semibold text-ink">{t(statusLabels[props.status.state])}</span>
+      <Show when={props.status.headline}>
+        <span class="min-w-0 truncate text-[0.85rem] text-ink-faint" title={props.status.headline}>{props.status.headline}</span>
+      </Show>
+    </div>
+  )
 }
 
 export function partVisible(part: Part) {
