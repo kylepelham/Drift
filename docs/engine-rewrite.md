@@ -286,8 +286,13 @@ Every job the engine does can run on its own model, chosen under Settings > Agen
 - Titles: the first message becomes the title at once; the title model's answer replaces it in the
   background, only while the title is still that placeholder, so a rename wins. Any failure keeps
   the placeholder.
-- Signed reasoning is replayed only to the model that produced it; any other model, including an
-  action's, gets the history without it.
+- Signed reasoning is replayed as reasoning only to the model that produced it
+  (`convert::Target`): the same catalog entry, or one that runs the same model, a mode and its base
+  (`Catalog::same_model`: Claude Opus 5.5 and Claude Opus 5.5 Fast send one id). Any other model,
+  an action's included, reads each finished thought as plain text in its place, as opencode sends
+  it, since it cannot check the signature; a thought cut off mid-stream and a redacted one (nothing
+  to read) are left out. A signed thought counts as finished even in a reply stopped later, since
+  the signature arrives when the thought ends.
 
 #### Compaction
 

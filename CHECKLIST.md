@@ -193,6 +193,7 @@ change the plan there when a decision changes.
 - [x] Usage limits read Drift's own credential (`Engine::current_credential`), renewing an expired sign-in through the engine's refresh lock
 - [x] xAI SuperGrok sign-in (device code, renewed like the others); opencode's xAI sign-in imported
 - [x] Model modes back in the catalog (fast, ultrafast, flex, pro from models.dev `experimental.modes`, as opencode listed them): own entries and prices, the base model on the wire with the mode's body fields and headers
+- [x] A mode and its base take each other's signed reasoning (one model on the wire); another model reads earlier finished thoughts as plain text, as opencode sends them
 - [x] MCP rows: one on/off switch, connect button always in place (greyed out while off); read-only trust moved into the edit sheet, on for a new server, kept across saves
 - [ ] LSP diagnostics after edits (replaces what upstream's `edit`, `write` and `apply_patch` reported; the plan's "Dropped" and "Post-edit" rows already say so):
   - Language servers from a built-in table (rust-analyzer, typescript-language-server, pyright, gopls, ...) used only when on PATH; `drift.json` can add, replace or disable one, as with formatters

@@ -840,7 +840,8 @@ impl Engine {
             let provider = plan.model_ref.provider.as_str();
             let (max_tokens, reasoning) = budgets(&plan.model, plan.reasoning().or_else(|| catalog::default_reasoning(provider, &plan.model)));
             let sampling = catalog::sampling(&plan.model);
-            let mut messages = compaction::request_messages(&transcript, &plan.model_ref, &lead);
+            let target = super::convert::OnCatalog { model: &plan.model_ref, catalog: &plan.catalog };
+            let mut messages = compaction::request_messages(&transcript, &target, &lead);
             if let Some(wrap_up) = wrapping {
                 super::convert::push(&mut messages, llm::Role::User, vec![llm::Block::Text(wrap_up.instruction())]);
             }

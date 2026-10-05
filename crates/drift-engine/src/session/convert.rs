@@ -1,5 +1,6 @@
 //! Stored transcript to model messages. Tool results become the user turn that follows each call.
 
+use crate::llm::catalog::Catalog;
 use crate::llm::{Block, ChatMessage, Role as LlmRole};
 use crate::session::types::{MessageStatus, ModelRef, MessageWithParts, Part, Role, ToolStatus};
 
@@ -8,15 +9,38 @@ fn replayable(message: &MessageWithParts) -> bool {
     message.info.role == Role::User || matches!(message.info.status, MessageStatus::Done | MessageStatus::Aborted)
 }
 
-/// Converts `transcript` onto `out`, merging with what is already there. `target` is the model the
-/// messages are for: reasoning signatures only validate with the model that made them.
-pub fn append<'a>(out: &mut Vec<ChatMessage>, transcript: impl IntoIterator<Item = &'a MessageWithParts>, target: &ModelRef) {
+/// The model a request's history is for: reasoning signatures validate only with the model that made them.
+pub trait Target {
+    fn wrote(&self, model: &ModelRef) -> bool;
+}
+
+/// Exactly this entry.
+impl Target for ModelRef {
+    fn wrote(&self, model: &ModelRef) -> bool {
+        self == model
+    }
+}
+
+/// This entry or any that runs the same model, a mode and its base (`Catalog::same_model`).
+pub struct OnCatalog<'a> {
+    pub model: &'a ModelRef,
+    pub catalog: &'a Catalog,
+}
+
+impl Target for OnCatalog<'_> {
+    fn wrote(&self, model: &ModelRef) -> bool {
+        self.catalog.same_model(self.model, model)
+    }
+}
+
+/// Converts `transcript` onto `out`, merging with what is already there, for `target`.
+pub fn append<'a>(out: &mut Vec<ChatMessage>, transcript: impl IntoIterator<Item = &'a MessageWithParts>, target: &impl Target) {
     let mut used = std::collections::HashSet::new();
     for message in transcript.into_iter().filter(|m| replayable(m)) {
         match message.info.role {
             Role::User => push(out, LlmRole::User, user_blocks(message)),
             Role::Assistant => {
-                let mut calls = assistant_blocks(message, message.info.model.as_ref() == Some(target));
+                let mut calls = assistant_blocks(message, message.info.model.as_ref().is_some_and(|model| target.wrote(model)));
                 let mut results = result_blocks(message);
                 unique_ids(&mut used, &mut calls, &mut results);
                 push(out, LlmRole::Assistant, calls);
@@ -102,20 +126,25 @@ pub(super) fn drop_earlier_reasoning(transcript: &mut [MessageWithParts], starte
     }
 }
 
-/// Reasoning goes back only to the model that wrote it: signed or redacted always, unsigned (Chat
-/// Completions `reasoning_content`) only from a finished reply; each adapter keeps what its wire takes.
+/// Reasoning goes back as reasoning only to the model that wrote it: signed or redacted always,
+/// unsigned (Chat Completions `reasoning_content`) only from a finished reply; each adapter keeps what
+/// its wire takes. Another model reads a finished thought as plain text, as opencode sends it, since it
+/// cannot check the signature.
 fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> {
     let finished = message.info.status == MessageStatus::Done;
     message
         .parts
         .iter()
         .filter_map(|row| {
+            let signed = row.provider_signature.is_some();
             let block = match &row.part {
             // An empty signed text part matters only to the model that signed it; others refuse empty text.
-            Part::Text { text } if !text.is_empty() || (same_model && row.provider_signature.is_some()) => Some(Block::Text(text.clone())),
-            Part::Reasoning { text, signature, redacted } if same_model && (row.provider_signature.is_some() || signature.is_some() || redacted.is_some() || (finished && !text.is_empty())) => {
+            Part::Text { text } if !text.is_empty() || (same_model && signed) => Some(Block::Text(text.clone())),
+            Part::Reasoning { text, signature, redacted } if same_model && (signed || signature.is_some() || redacted.is_some() || (finished && !text.is_empty())) => {
                 Some(Block::Reasoning { text: text.clone(), signature: signature.clone(), redacted: redacted.clone() })
             }
+            // A signature arrives when the thought ends, so a signed one is whole even in a reply cut off later.
+            Part::Reasoning { text, signature, .. } if !same_model && !text.trim().is_empty() && (finished || signed || signature.is_some()) => Some(Block::Text(text.clone())),
             Part::ToolCall { metadata: Some(metadata), .. } if metadata["engineCommand"].is_string() => None,
             Part::ToolCall { call_id, name, input, status, output, .. } => {
                 replayed_input(input, *status, output.as_deref()).map(|input| Block::ToolUse { id: call_id.clone(), name: name.clone(), input })
@@ -301,12 +330,31 @@ mod tests {
     }
 
     #[test]
-    fn signed_reasoning_goes_back_only_to_the_model_that_made_it() {
+    fn signed_reasoning_goes_back_signed_only_to_the_model_that_made_it_and_as_text_to_another() {
         let signed = Part::Reasoning { text: "hm".into(), signature: Some("sig".into()), redacted: None };
         let transcript = vec![message(Role::User, vec![Part::Text { text: "a".into() }]), message(Role::Assistant, vec![signed, Part::Text { text: "x".into() }])];
-        assert_eq!(messages(&transcript, &target())[1].blocks.len(), 2);
+        assert!(matches!(&messages(&transcript, &target())[1].blocks[0], Block::Reasoning { signature: Some(_), .. }));
         let other = ModelRef { provider: "openai".into(), model: "gpt-5".into() };
-        assert_eq!(messages(&transcript, &other)[1].blocks, vec![Block::Text("x".into())]);
+        assert_eq!(messages(&transcript, &other)[1].blocks, vec![Block::Text("hm".into()), Block::Text("x".into())], "read, not checked");
+        let cut_off = vec![message_with(Role::Assistant, MessageStatus::Aborted, vec![Part::Reasoning { text: "whole".into(), signature: Some("sig".into()), redacted: None }])];
+        assert_eq!(messages(&cut_off, &other)[0].blocks, vec![Block::Text("whole".into())], "a signed thought was whole before the reply was cut");
+        let hidden = vec![message(Role::Assistant, vec![Part::Reasoning { text: String::new(), signature: None, redacted: Some("opaque".into()) }, Part::Text { text: "x".into() }])];
+        assert_eq!(messages(&hidden, &other)[0].blocks, vec![Block::Text("x".into())], "a redacted thought has nothing to read");
+    }
+
+    #[test]
+    fn a_mode_and_its_base_take_each_others_signed_reasoning() {
+        let catalog = crate::llm::catalog::Catalog::bundled();
+        let base = ModelRef { provider: "anthropic".into(), model: "claude-opus-5-5".into() };
+        let fast = ModelRef { provider: "anthropic".into(), model: "claude-opus-5-5-fast".into() };
+        let mut reply = message(Role::Assistant, vec![Part::Reasoning { text: "hm".into(), signature: Some("sig".into()), redacted: None }]);
+        reply.info.model = Some(fast.clone());
+        let mut out = Vec::new();
+        append(&mut out, [&reply], &OnCatalog { model: &base, catalog: &catalog });
+        assert!(matches!(&out[0].blocks[0], Block::Reasoning { signature: Some(_), .. }), "the same model, run fast");
+        let mut sibling = Vec::new();
+        append(&mut sibling, [&reply], &OnCatalog { model: &ModelRef { provider: "anthropic".into(), model: "claude-opus-5".into() }, catalog: &catalog });
+        assert_eq!(sibling[0].blocks, vec![Block::Text("hm".into())], "another model in the family reads it as text");
     }
 
     #[test]
@@ -337,9 +385,10 @@ mod tests {
         assert_eq!(out[0].blocks, vec![Block::Text("a".into()), Block::Text("b".into())]);
         assert_eq!(out[1].blocks, vec![Block::Reasoning { text: "hm".into(), signature: None, redacted: None }, Block::Text("x".into())], "for wires that take reasoning_content");
         let other = ModelRef { provider: "openai".into(), model: "gpt-5".into() };
-        assert_eq!(messages(&transcript, &other)[1].blocks, vec![Block::Text("x".into())], "never to another model");
+        assert_eq!(messages(&transcript, &other)[1].blocks, vec![Block::Text("hm".into()), Block::Text("x".into())], "another model reads it as text");
         let aborted = vec![message_with(Role::Assistant, MessageStatus::Aborted, vec![thought(), Part::Text { text: "x".into() }])];
         assert_eq!(messages(&aborted, &target())[0].blocks, vec![Block::Text("x".into())], "a cut-off thought is not replayed");
+        assert_eq!(messages(&aborted, &other)[0].blocks, vec![Block::Text("x".into())], "not even as text");
     }
 }
 

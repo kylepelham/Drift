@@ -66,7 +66,7 @@ pub(super) fn view(transcript: &[MessageWithParts]) -> View<'_> {
 
 /// The request history for `target`: the summary as the opening user turn (with `lead`, reminders for
 /// a prompt the summary stands for), then the kept messages.
-pub(super) fn request_messages(transcript: &[MessageWithParts], target: &ModelRef, lead: &[String]) -> Vec<ChatMessage> {
+pub(super) fn request_messages(transcript: &[MessageWithParts], target: &impl convert::Target, lead: &[String]) -> Vec<ChatMessage> {
     let view = view(transcript);
     let mut out = Vec::new();
     if let Some(summary) = &view.summary {
@@ -233,7 +233,10 @@ impl Engine {
             if dropped > 0 {
                 convert::push(&mut messages, llm::Role::User, vec![Block::Text("(The oldest part of the conversation was left out to fit.)".into())]);
             }
-            convert::append(&mut messages, head[from..].iter().copied(), &resolved.model_ref);
+            {
+                let catalog = self.catalog.read().unwrap();
+                convert::append(&mut messages, head[from..].iter().copied(), &convert::OnCatalog { model: &resolved.model_ref, catalog: &catalog });
+            }
             convert::push(&mut messages, llm::Role::User, vec![Block::Text(instructions.into())]);
             let shot = OneShot { system: String::new(), messages, tools: self.tool_specs(resolved.model.profile), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT };
             match self.complete(resolved, shot).await {

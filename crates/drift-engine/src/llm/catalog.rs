@@ -251,6 +251,13 @@ impl Catalog {
         self.providers.get(provider)?.models.get(model)
     }
 
+    /// Whether two entries run one model, so each takes the other's signed reasoning: the same entry,
+    /// or a mode and its base (Claude Opus 5.5 and Claude Opus 5.5 Fast). An entry no longer listed is only itself.
+    pub fn same_model(&self, a: &ModelRef, b: &ModelRef) -> bool {
+        let wire = |of: &ModelRef| self.model(&of.provider, &of.model).map_or(of.model.clone(), |model| model.wire(&of.model).to_string());
+        a.provider == b.provider && wire(a) == wire(b)
+    }
+
     /// The user's providers over models.dev's: a base URL re-points one, listed models join it, and a
     /// new id becomes an OpenAI-compatible route.
     pub fn with_user(mut self, user: &BTreeMap<String, ProviderConfig>) -> Self {
@@ -707,6 +714,11 @@ mod tests {
         assert!(catalog.model("openai", "gpt-5.5-fast").is_some());
         let small = catalog.small_model(&ModelRef { provider: "openai".into(), model: "gpt-5.5".into() }).unwrap();
         assert!(catalog.model("openai", &small.model).unwrap().mode.is_none(), "{small:?} is a mode; flex is slow");
+        let model = |provider: &str, model: &str| ModelRef { provider: provider.into(), model: model.into() };
+        assert!(catalog.same_model(&model("anthropic", "claude-opus-5-5"), &model("anthropic", "claude-opus-5-5-fast")), "a mode runs its base model");
+        assert!(!catalog.same_model(&model("anthropic", "claude-opus-5-5"), &model("anthropic", "claude-opus-5")), "a sibling in the family does not");
+        assert!(!catalog.same_model(&model("anthropic", "claude-opus-5-5"), &model("amazon-bedrock", "claude-opus-5-5")));
+        assert!(catalog.same_model(&model("anthropic", "retired"), &model("anthropic", "retired")) && !catalog.same_model(&model("anthropic", "retired"), &model("anthropic", "gone")));
     }
 
     #[test]
