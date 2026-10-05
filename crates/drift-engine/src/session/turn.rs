@@ -342,6 +342,11 @@ impl Plan {
         self.offer.tool(name)
     }
 
+    /// The system prompt and tools this plan's requests open with.
+    pub(super) fn frame(&self) -> (String, Vec<llm::ToolSpec>) {
+        (self.offer.system.clone(), self.offer.specs())
+    }
+
     /// What the variant asks of the model now planned; a name this model does not offer asks nothing.
     fn reasoning(&self) -> Option<Reasoning> {
         reasoning_in(&self.model.variants, self.variant.as_deref())
@@ -1800,7 +1805,7 @@ fn waits(call: &CallTrace) -> bool {
     call.name == "bash" && command.split(|c: char| !c.is_ascii_alphanumeric() && c != '-').any(|word| WAITS.contains(&word))
 }
 
-struct Retry {
+pub(super) struct Retry {
     /// The provider's words, for the UI.
     message: String,
     /// The wait the provider asked for, if it named one.
@@ -1808,7 +1813,7 @@ struct Retry {
 }
 
 impl Retry {
-    fn from(error: &llm::Error) -> Option<Self> {
+    pub(super) fn from(error: &llm::Error) -> Option<Self> {
         match error {
             llm::Error::Api { retryable: true, retry_after, .. } => Some(Self { message: error.to_string(), after: *retry_after }),
             llm::Error::Transport(_) => Some(Self { message: error.to_string(), after: None }),
@@ -1817,12 +1822,12 @@ impl Retry {
     }
 
     /// Worth waiting for: attempts remain and the provider did not ask for longer than we will wait.
-    fn allowed(&self, retries: u32) -> bool {
+    pub(super) fn allowed(&self, retries: u32) -> bool {
         retries < MAX_RETRIES && self.after.is_none_or(|after| after <= MAX_REQUESTED_WAIT)
     }
 
     /// The provider's wait when it named one, else doubling backoff with jitter, capped.
-    fn delay(&self, attempt: u32) -> Duration {
+    pub(super) fn delay(&self, attempt: u32) -> Duration {
         if let Some(after) = self.after {
             return after;
         }

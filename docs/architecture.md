@@ -233,8 +233,9 @@ collapsible transcript row. Session-level engine errors defensively end busy act
 and render after the virtualized transcript unless the assistant message already owns
 the same visible error state.
 
-Compaction retains complete recent turns within a 15,000-token ceiling instead of
-splitting messages or keeping only two turns. Its structured update prompt carries
+Compaction keeps up to two recent turns verbatim within a quarter of what the
+conversation's model may use before compacting, held between 2,000 and 8,000 tokens, so a
+small local model does not compact again on the next step. Its structured update prompt carries
 forward unresolved objectives, constraints, decisions, and parallel work while Drift's
 overflow recovery continues from that summary without duplicating the failed request.
 

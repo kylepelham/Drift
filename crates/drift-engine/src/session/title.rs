@@ -36,11 +36,11 @@ impl Engine {
     }
 
     async fn model_title(&self, session_id: &str, text: &str) -> Option<String> {
-        let (resolved, config) = self.action_model(session_id, "title", Fallback::Small).await.ok()?;
-        let system = config.agent("title").map(|agent| agent.prompt.clone()).unwrap_or_default();
+        let action = self.action_model(session_id, "title", Fallback::Small).await.ok()?;
+        let system = action.config.agent("title").map(|agent| agent.prompt.clone()).unwrap_or_default();
         let message = ChatMessage { role: crate::llm::Role::User, blocks: vec![Block::Text(text.chars().take(INPUT_CHARS).collect())] };
-        let shot = OneShot { system, messages: vec![message], tools: Vec::new(), max_tokens: TITLE_MAX_TOKENS, timeout: TITLE_TIMEOUT };
-        clean(&self.complete(&resolved, shot).await.ok()?)
+        let shot = OneShot { system, messages: vec![message], tools: Vec::new(), max_tokens: TITLE_MAX_TOKENS, timeout: TITLE_TIMEOUT, cache_key: None };
+        clean(&self.complete(&action.resolved, shot).await.ok()?)
     }
 
     fn first_prompt(&self, session_id: &str) -> Option<String> {

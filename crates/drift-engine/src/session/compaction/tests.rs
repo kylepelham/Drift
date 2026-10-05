@@ -309,7 +309,9 @@ async fn the_compaction_model_pinned_in_settings_writes_the_summary() {
     h.provider.push(text("SUMMARY"));
     h.engine.start_compaction(&h.session.id).unwrap();
     until_idle(&h).await;
-    assert_eq!(requests(&h).last().unwrap().model, pinned);
+    let summary = requests(&h).last().unwrap().clone();
+    assert_eq!(summary.model, pinned);
+    assert!(summary.system.is_empty() && summary.cache_key.is_none(), "another model has no cached prefix of this conversation to reuse");
 }
 
 #[tokio::test]
@@ -352,4 +354,48 @@ async fn a_fork_of_a_compacted_conversation_sees_the_same_history() {
     };
     assert_eq!(shape(&copy), shape(&source));
     assert_eq!(shape(&copy).1, ["second", "two", "third", "three"]);
+}
+
+#[test]
+fn the_kept_tail_scales_with_the_conversations_model() {
+    let model = |context: u64, output: u64| {
+        let mut model = crate::llm::catalog::Catalog::bundled().model("anthropic", "claude-sonnet-4-5").unwrap().clone();
+        model.limit = crate::llm::catalog::Limit { context, output, input: 0 };
+        model
+    };
+    assert_eq!(tail_budget(&model(32_000, 0)), 6_000, "a 32k local model compacts at 24k and keeps a quarter of that");
+    assert_eq!(tail_budget(&model(8_192, 0)), 2_000, "never less than 2k");
+    assert_eq!(tail_budget(&model(1_000_000, 64_000)), 8_000, "never more than 8k");
+    assert_eq!(tail_budget(&model(0, 0)), 2_000, "an unknown window keeps the least");
+}
+
+#[tokio::test]
+async fn a_summary_on_the_conversations_model_shares_its_frame_drops_files_cuts_long_results_and_retries_an_overload() {
+    let h = harness().await;
+    let lines: String = (0..400).map(|n| format!("line {n} of a long file that the summary does not need whole\n")).collect();
+    std::fs::write(h._dir.join("ws/big.txt"), &lines).unwrap();
+    let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    let image = Part::File { mime: "image/png".into(), name: "shot.png".into(), url: format!("data:image/png;base64,{png}"), path: None };
+    h.provider.push(crate::session::turn::tests::tool_call("read", r#"{"path":"big.txt"}"#)).push(text("seen"));
+    h.engine.submit(&h.session.id, crate::session::turn::Prompt { parts: vec![image, Part::Text { text: "look".into() }], ..prompt("") }).await.unwrap();
+    until_idle(&h).await;
+    for (ask, reply) in [("second", "two"), ("third", "three")] {
+        h.provider.push(text(reply));
+        turn(&h, ask).await;
+    }
+    h.provider.push_error(crate::llm::Error::api(529, "overloaded_error", "busy")).push(text("SUMMARY"));
+    h.engine.start_compaction(&h.session.id).unwrap();
+    until_idle(&h).await;
+    let all = requests(&h);
+    let (conversation, summary) = (&all[0], all.last().unwrap());
+    assert_eq!(all.len(), 6, "the overloaded summary request was sent again");
+    assert_eq!(texts(h.engine.store.transcript(&h.session.id).unwrap().last().unwrap()), "SUMMARY");
+    assert_eq!(summary.system, conversation.system, "the conversation's own system prompt opens it");
+    assert_eq!(summary.tools.iter().map(|t| &t.name).collect::<Vec<_>>(), conversation.tools.iter().map(|t| &t.name).collect::<Vec<_>>());
+    assert_eq!(summary.cache_key.as_deref(), Some(h.session.id.as_str()));
+    let blocks: Vec<&Block> = summary.messages.iter().flat_map(|m| m.blocks.iter()).collect();
+    assert!(!blocks.iter().any(|b| matches!(b, Block::Image { .. } | Block::Pdf { .. } | Block::Stored { .. })), "no file goes to the summary");
+    assert!(blocks.iter().any(|b| matches!(b, Block::Text(t) if t.contains("image/png file was attached"))));
+    let result = blocks.iter().find_map(|b| match b { Block::ToolResult { content, .. } => Some(content.clone()), _ => None }).unwrap();
+    assert!(result.ends_with("[... cut for the summary]") && result.chars().count() < 2_100, "{}", result.len());
 }

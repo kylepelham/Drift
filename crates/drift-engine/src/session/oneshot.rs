@@ -26,7 +26,26 @@ pub(crate) struct OneShot {
     pub messages: Vec<ChatMessage>,
     pub tools: Vec<ToolSpec>,
     pub max_tokens: u32,
+    /// For each attempt; a provider fault is retried as a turn's is.
     pub timeout: Duration,
+    /// The conversation's, when the request opens as its turns do, so the provider can reuse their cached prefix.
+    pub cache_key: Option<String>,
+}
+
+/// An action's model, with what it needs to know of the conversation it acts on.
+pub(crate) struct Action {
+    pub resolved: Resolved,
+    pub config: Config,
+    /// The conversation's own model, which reads whatever the action leaves behind.
+    pub conversation: Model,
+    /// The conversation's system prompt and tools, when the action runs on the conversation's model.
+    pub frame: Option<(String, Vec<ToolSpec>)>,
+}
+
+/// Why a one-shot failed: a provider fault worth retrying, or anything else.
+enum Failure {
+    Provider(crate::llm::Error),
+    Reply(String),
 }
 
 /// Thinking room a reasoning model without a token budget gets on top of a one-shot answer.
@@ -41,8 +60,7 @@ pub(crate) enum Fallback {
 
 impl Engine {
     /// The model an action runs on: the user's pin for that action in Settings, else its fallback.
-    /// Returns the workspace config too, for the action's prompt.
-    pub(crate) async fn action_model(&self, session_id: &str, action: &str, fallback: Fallback) -> Result<(Resolved, Config), TurnError> {
+    pub(crate) async fn action_model(&self, session_id: &str, action: &str, fallback: Fallback) -> Result<Action, TurnError> {
         let plan = self.plan(session_id, &Prompt { parts: Vec::new(), model: None, variant: None, agent: None, submission_id: None }).await?;
         if let Some(agent) = plan.config.agent(action) {
             agent.usable().map_err(TurnError::Config)?;
@@ -56,12 +74,15 @@ impl Engine {
                 .or_else(|| crate::llm::openai::codex::small_model(&plan.catalog, &plan.model_ref, &plan.credential))
                 .unwrap_or_else(|| plan.model_ref.clone()),
         };
-        let resolved = if chosen == plan.model_ref {
+        let own = chosen == plan.model_ref;
+        let frame = own.then(|| plan.frame());
+        let conversation = plan.model.clone();
+        let resolved = if own {
             Resolved { model_ref: plan.model_ref, model: plan.model, provider: plan.provider, credential: plan.credential }
         } else {
             self.resolve(&chosen).await?
         };
-        Ok((resolved, Arc::unwrap_or_clone(plan.config)))
+        Ok(Action { resolved, config: Arc::unwrap_or_clone(plan.config), conversation, frame })
     }
     /// Everything needed to call `model_ref`, with an expired subscription token refreshed.
     pub(crate) async fn resolve(&self, model_ref: &ModelRef) -> Result<Resolved, TurnError> {
@@ -82,6 +103,7 @@ impl Engine {
 
     /// The reply's text. The request forbids tool calls; a reply that makes one anyway is refused, never run.
     /// A reasoning model runs at its weakest level, with room to think on top of the answer's own.
+    /// A provider fault (overload, rate limit, dropped connection) is retried with a turn's backoff.
     pub(crate) async fn complete(&self, resolved: &Resolved, shot: OneShot) -> Result<String, String> {
         let mut reasoning = resolved.model.variants.first().map(|variant| variant.reasoning.clone());
         let thinking = match &reasoning {
@@ -104,7 +126,7 @@ impl Engine {
             max_tokens,
             reasoning,
             temperature: None,
-            cache_key: None,
+            cache_key: shot.cache_key,
             no_tool_calls: true,
             verbosity: None,
             show_thinking: false,
@@ -112,9 +134,22 @@ impl Engine {
             top_k: None,
             mode: resolved.model.mode.clone(),
         };
-        tokio::time::timeout(shot.timeout, collect_text(&resolved.provider, &request, &resolved.credential))
-            .await
-            .map_err(|_| "the model took too long to answer".to_string())?
+        let mut retries = 0;
+        loop {
+            let attempt = tokio::time::timeout(shot.timeout, collect_text(&resolved.provider, &request, &resolved.credential)).await;
+            let error = match attempt.map_err(|_| "the model took too long to answer".to_string())? {
+                Ok(text) => return Ok(text),
+                Err(Failure::Reply(why)) => return Err(why),
+                Err(Failure::Provider(error)) => error,
+            };
+            match super::turn::Retry::from(&error).filter(|retry| retry.allowed(retries)) {
+                Some(retry) => {
+                    retries += 1;
+                    tokio::time::sleep(retry.delay(retries)).await;
+                }
+                None => return Err(error.to_string()),
+            }
+        }
     }
 }
 
@@ -129,29 +164,30 @@ pub(super) fn refuse_signin_elsewhere(provider: &str, credential: &Credential, a
     }
 }
 
-async fn collect_text(provider: &Provider, request: &Request, credential: &Credential) -> Result<String, String> {
-    let mut chunks = provider.stream(request, credential).await.map_err(|e| e.to_string())?;
+async fn collect_text(provider: &Provider, request: &Request, credential: &Credential) -> Result<String, Failure> {
+    let mut chunks = provider.stream(request, credential).await.map_err(Failure::Provider)?;
     let mut text = String::new();
     let mut stopped = None;
     let mut called_tool = false;
     while let Some(chunk) = chunks.next().await {
-        match chunk.map_err(|e| e.to_string())? {
+        match chunk.map_err(Failure::Provider)? {
             Chunk::TextDelta(delta) => text.push_str(&delta),
             Chunk::Stop(reason) => stopped = Some(reason),
             Chunk::ToolUseStart { .. } => called_tool = true,
             _ => {}
         }
     }
+    let failed = |why: &str| Err(Failure::Reply(why.into()));
     match stopped {
         Some(StopReason::EndTurn) if !called_tool => {},
-        Some(StopReason::MaxTokens) => return Err("the model hit its output limit; the incomplete reply was discarded".into()),
-        Some(StopReason::Refused) => return Err("the model refused the request; its partial reply was discarded".into()),
-        Some(StopReason::ContextFull) => return Err("the reply exhausted its context window; its partial text was discarded".into()),
-        Some(_) => return Err("the model did not complete the text-only request normally".into()),
-        None => return Err("the stream ended without a terminal reason".into()),
+        Some(StopReason::MaxTokens) => return failed("the model hit its output limit; the incomplete reply was discarded"),
+        Some(StopReason::Refused) => return failed("the model refused the request; its partial reply was discarded"),
+        Some(StopReason::ContextFull) => return failed("the reply exhausted its context window; its partial text was discarded"),
+        Some(_) => return failed("the model did not complete the text-only request normally"),
+        None => return failed("the stream ended without a terminal reason"),
     }
     if text.trim().is_empty() {
-        return Err("the model returned no text".into());
+        return failed("the model returned no text");
     }
     Ok(text)
 }

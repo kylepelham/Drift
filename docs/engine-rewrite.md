@@ -281,7 +281,10 @@ Every job the engine does can run on its own model, chosen under Settings > Agen
   with tool calls stays valid, but the request forbids calling them (`Request::no_tool_calls`:
   Anthropic, Bedrock and Vertex Claude `tool_choice: {type: none}`, Responses and Chat Completions
   `tool_choice: "none"`, Gemini `functionCallingConfig.mode: NONE`). A reply that still makes a
-  call, or ends any way but a clean end of turn, is refused and nothing it said is used.
+  call, or ends any way but a clean end of turn, is refused and nothing it said is used. A provider
+  fault (overload, rate limit, a dropped connection) is retried with a turn's backoff and limits
+  (`turn::Retry`), so a 529 during a turn does not fail its compaction outright and count toward
+  the automatic switch-off. The timeout holds for each attempt.
 - Titles: the first message becomes the title at once; the title model's answer replaces it in the
   background, only while the title is still that placeholder, so a rename wins. Any failure keeps
   the placeholder.
@@ -306,8 +309,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - **Publication**: the summary's text and its `done` state are one transaction
   (`Store::complete_summary`). If that write fails the summary is marked failed, no completion is
   published, and the error returns to the caller (counted against automatic compaction).
-- **Tail**: whole turns from the end, at most 2 turns and about 15k estimated tokens (4 chars a
-  token), starting at a user message so tool calls stay with their results, and never reaching the
+- **Tail**: whole turns from the end, at most 2 turns and `tail_budget` estimated tokens (4 chars a
+  token): a quarter of the conversation's model's compaction point, held between 2k and 8k, as
+  opencode does. A fixed 15k let a 32k local model (compacting at 24k, about 4.6k of system prompt
+  and tools) land back over its point after one step. The tail starts at a user message so tool calls stay with their results, and never reaching the
   first message: there is always something to summarise. When even the last turn is over budget
   (one prompt and hundreds of calls, the usual agent run), its newest steps are kept from a reply
   onwards (`split_turn`), as opencode does, and the rest of that turn is summarised. The turn's
@@ -316,8 +321,12 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   them. The request window loads that one prompt beside the tail (`Store::prompt_before`), not the
   turn between them, and a later compaction carries it into the next summary's input.
 - **Summary request**: the `compaction` agent's model and prompt (per-action models above), the
-  previous summary and the history before the tail, one text-only request. If the provider says it
-  is too long, the oldest fifth of its turns is dropped with a note, up to three times.
+  previous summary and the history before the tail, one text-only request. Images and PDFs go as a
+  one-line mention and each tool result is cut to 2,000 characters (`lean`), as opencode sends
+  them. On the conversation's own model the request opens with the conversation's system prompt,
+  tools and cache key (`Plan::frame`), so the provider can serve that prefix from its cache; the
+  cut results end the shared prefix there. Another model gets no system prompt. If the provider
+  says it is too long, the oldest fifth of its turns is dropped with a note, up to three times.
 - **Triggers**
   - Automatic, before each request in a turn: when the last finished reply since the latest summary
     used at least `context - reply room` tokens (`Model::reply_room`: the output limit, else a

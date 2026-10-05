@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::convert;
-use super::oneshot::{Fallback, OneShot, Resolved};
+use super::oneshot::{Action, Fallback, OneShot};
 use super::turn::TurnError;
 use super::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, Role};
 use crate::event::Event;
@@ -16,9 +16,14 @@ use crate::llm::catalog::Model;
 use crate::llm::{self, Block, ChatMessage};
 use crate::Engine;
 
-/// The recent history kept verbatim: at most this many turns, and at most this many estimated tokens.
+/// The recent history kept verbatim: at most this many turns, within [`tail_budget`] estimated tokens.
 const TAIL_TURNS: usize = 2;
-const TAIL_TOKENS: usize = 15_000;
+/// A quarter of what the conversation's model may use before compacting, kept within these bounds,
+/// as opencode does: a small local model must not compact again on the very next step.
+const TAIL_MIN_TOKENS: u64 = 2_000;
+const TAIL_MAX_TOKENS: u64 = 8_000;
+/// Each tool result the summary request carries is cut to this many characters; images and PDFs are named only.
+const SUMMARY_TOOL_CHARS: usize = 2_000;
 const SUMMARY_MAX_TOKENS: u32 = 8_192;
 const SUMMARY_TIMEOUT: Duration = Duration::from_secs(300);
 /// A summary request that is itself too long drops the oldest fifth of its turns, this many times at most.
@@ -162,25 +167,25 @@ impl Engine {
     }
 
     async fn compact_once(&self, session_id: &str, trigger: Trigger, abort: &CancellationToken) -> Result<(), String> {
-        let (resolved, config) = self.action_model(session_id, "compaction", Fallback::Conversation).await.map_err(|e| e.to_string())?;
-        let instructions = config.agent("compaction").map(|agent| agent.prompt.clone()).unwrap_or_default();
+        let action = self.action_model(session_id, "compaction", Fallback::Conversation).await.map_err(|e| e.to_string())?;
+        let instructions = action.config.agent("compaction").map(|agent| agent.prompt.clone()).unwrap_or_default();
         // Only what the view shows is summarised again, so history the last summary covered is not loaded.
         let transcript = self.request_window(session_id).ok_or("the conversation could not be read")?;
         let view = view(&transcript);
-        let tail = tail_start(&view.messages);
+        let tail = tail_start(&view.messages, tail_budget(&action.conversation));
         let head = &view.messages[..tail.unwrap_or(view.messages.len())];
         if head.is_empty() && view.summary.is_none() {
             return Err("there is nothing to compact yet".into());
         }
         let tail_from = tail.map(|i| view.messages[i].info.id.clone());
-        let mut summary = self.open_compaction(session_id, &resolved.model_ref, trigger, tail_from).map_err(|e| e.to_string())?;
+        let mut summary = self.open_compaction(session_id, &action.resolved.model_ref, trigger, tail_from).map_err(|e| e.to_string())?;
         // The prompt a split turn kept verbatim rides with the previous summary, so a second compaction does not lose it.
         let previous = view.summary.as_ref().map(|summary| match &view.request {
             Some(request) => format!("{summary}\n\nThe request still being worked on, as the user wrote it:\n\n{request}"),
             None => summary.clone(),
         });
         let outcome = tokio::select! {
-            outcome = self.summarise(&resolved, &instructions, previous.as_deref(), head) => outcome,
+            outcome = self.summarise(session_id, &action, &instructions, previous.as_deref(), head) => outcome,
             () = abort.cancelled() => Err("aborted".to_string()),
         };
         self.close_compaction(&mut summary, outcome, abort.is_cancelled())
@@ -221,7 +226,12 @@ impl Engine {
     }
 
     /// One summary request; when it is itself too long, the oldest turns are dropped and it is retried.
-    async fn summarise(&self, resolved: &Resolved, instructions: &str, previous: Option<&str>, head: &[&MessageWithParts]) -> Result<String, String> {
+    /// On the conversation's own model it opens with the conversation's system prompt and tools, so
+    /// the provider can serve that prefix from its cache.
+    async fn summarise(&self, session_id: &str, action: &Action, instructions: &str, previous: Option<&str>, head: &[&MessageWithParts]) -> Result<String, String> {
+        let resolved = &action.resolved;
+        let (system, tools) = action.frame.clone().unwrap_or_else(|| (String::new(), self.tool_specs(resolved.model.profile)));
+        let cache_key = action.frame.is_some().then(|| session_id.to_string());
         let starts = turn_starts(head);
         let mut dropped = 0;
         for attempt in 0..=TRIM_ATTEMPTS {
@@ -237,8 +247,9 @@ impl Engine {
                 let catalog = self.catalog.read().unwrap();
                 convert::append(&mut messages, head[from..].iter().copied(), &convert::OnCatalog { model: &resolved.model_ref, catalog: &catalog });
             }
+            lean(&mut messages);
             convert::push(&mut messages, llm::Role::User, vec![Block::Text(instructions.into())]);
-            let shot = OneShot { system: String::new(), messages, tools: self.tool_specs(resolved.model.profile), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT };
+            let shot = OneShot { system: system.clone(), messages, tools: tools.clone(), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT, cache_key: cache_key.clone() };
             match self.complete(resolved, shot).await {
                 Err(error) if attempt < TRIM_ATTEMPTS && llm::mentions_context_overflow(&error) && dropped < starts.len() => {
                     dropped += (starts.len() / 5).max(1);
@@ -248,6 +259,26 @@ impl Engine {
         }
         Err("the conversation is too long to summarise".into())
     }
+}
+
+/// What a summary needs of the history: images and PDFs only by mention, each tool result's start.
+fn lean(messages: &mut [ChatMessage]) {
+    for block in messages.iter_mut().flat_map(|message| message.blocks.iter_mut()) {
+        match block {
+            Block::Image { mime, .. } | Block::Stored { mime, .. } => *block = Block::Text(format!("[a {mime} file was attached here]")),
+            Block::Pdf { .. } => *block = Block::Text("[a PDF was attached here]".into()),
+            Block::ToolResult { content, .. } if content.chars().count() > SUMMARY_TOOL_CHARS => {
+                let kept: String = content.chars().take(SUMMARY_TOOL_CHARS).collect();
+                *content = format!("{kept}\n[... cut for the summary]");
+            }
+            _ => {}
+        }
+    }
+}
+
+/// How much recent history stays verbatim, in estimated tokens, for the model that will read it.
+fn tail_budget(model: &Model) -> usize {
+    usize::try_from((model.compaction_point() / 4).clamp(TAIL_MIN_TOKENS, TAIL_MAX_TOKENS)).unwrap_or(usize::MAX)
 }
 
 /// The summary as the model's opening context.
@@ -281,25 +312,25 @@ fn turn_starts(messages: &[&MessageWithParts]) -> Vec<usize> {
 /// Where the verbatim tail begins: whole turns from the end, within both limits, always leaving
 /// something before it to summarise. When not even the last turn fits (one prompt and hundreds of
 /// calls), its newest steps are kept from a reply onwards. `None` summarises everything.
-fn tail_start(messages: &[&MessageWithParts]) -> Option<usize> {
+fn tail_start(messages: &[&MessageWithParts], budget: usize) -> Option<usize> {
     let starts = turn_starts(messages);
     let mut chosen = None;
     for &start in starts.iter().rev().take(TAIL_TURNS) {
-        if start == 0 || estimate(&messages[start..]) > TAIL_TOKENS {
+        if start == 0 || estimate(&messages[start..]) > budget {
             break;
         }
         chosen = Some(start);
     }
-    chosen.or_else(|| split_turn(messages, starts.last().copied().unwrap_or(0)))
+    chosen.or_else(|| split_turn(messages, starts.last().copied().unwrap_or(0), budget))
 }
 
 /// The earliest reply of the turn starting at `turn` from which the rest fits the tail budget.
-fn split_turn(messages: &[&MessageWithParts], turn: usize) -> Option<usize> {
+fn split_turn(messages: &[&MessageWithParts], turn: usize, budget: usize) -> Option<usize> {
     let mut size = 0;
     let mut chosen = None;
     for index in (turn + 1..messages.len()).rev() {
         size += estimate(&messages[index..=index]);
-        if size > TAIL_TOKENS {
+        if size > budget {
             break;
         }
         if messages[index].info.role == Role::Assistant {
