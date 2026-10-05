@@ -767,6 +767,10 @@ fn clip(text: &str) -> String {
 }
 
 pub fn home() -> Option<PathBuf> {
+    // The engine's own tests never read the real user's agents, commands or providers; they pass a home.
+    if cfg!(test) {
+        return None;
+    }
     std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from)
 }
 
