@@ -1206,6 +1206,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "削除しますか？",
   "drift.permission.always": "このワークスペースで常に許可",
   "drift.mcp.enable": "{{name}}を有効化",
+  "drift.import.progress": "opencode から取り込み中",
+  "drift.import.description": "opencode の会話を取り込んでいます。作業を続けられます。届いたものから表示されます。",
   "drift.permission.change": "提案された変更",
   "drift.permission.stop": "拒否して停止",
   "drift.permission.stopHint": "この呼び出しを拒否してターンを終了",

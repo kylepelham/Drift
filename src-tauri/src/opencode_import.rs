@@ -51,8 +51,19 @@ fn run(app: &AppHandle) {
             Err(error) => eprintln!("opencode import: workspaces from {}: {error}", source.display()),
         }
         let archived: HashSet<String> = store.archived().map(|rows| rows.into_iter().map(|row| row.session_id).collect()).unwrap_or_default();
-        let mut announce = |session: &drift_engine::session::types::Session| {
-            engine.hub.publish(Event::SessionCreated { session: session.clone() });
+        let (mut done, mut total) = (0usize, 0usize);
+        // Each conversation is announced as it lands; the window shows how far the import has got.
+        let mut announce = |step: drift_migrate::Progress| {
+            match step {
+                drift_migrate::Progress::Planned(count) => total = count,
+                drift_migrate::Progress::Finished(session) => {
+                    done += 1;
+                    if let Some(session) = session {
+                        engine.hub.publish(Event::SessionCreated { session: session.clone() });
+                    }
+                }
+            }
+            let _ = app.emit("opencode-import", serde_json::json!({ "done": done, "total": total }));
         };
         let mut history = match drift_migrate::History::new(&engine.snapshots) {
             Ok(history) => history,
@@ -97,8 +108,8 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) {
                 let engine = engine.clone();
                 tauri::async_runtime::spawn(async move { engine.connect_all_mcp() });
             }
-            if !report.credentials.is_empty() || !report.servers.is_empty() || !report.skipped.is_empty() {
-                eprintln!("opencode import: sign-ins {:?}, MCP servers {:?} (off: {:?}), config {:?}", report.credentials, report.servers, report.disabled_servers, report.config_written);
+            if !report.credentials.is_empty() || !report.servers.is_empty() || !report.skipped.is_empty() || !report.files.is_empty() {
+                eprintln!("opencode import: sign-ins {:?}, MCP servers {:?} (off: {:?}), config {:?}, files {:?}", report.credentials, report.servers, report.disabled_servers, report.config_written, report.files);
                 for line in &report.skipped {
                     eprintln!("opencode import: left out {line}");
                 }

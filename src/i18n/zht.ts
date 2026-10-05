@@ -1259,6 +1259,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "確認移除？",
   "drift.permission.always": "在此工作區中始終允許",
   "drift.mcp.enable": "啟用 {{name}}",
+  "drift.import.progress": "正在從 opencode 匯入",
+  "drift.import.description": "正在匯入你的 opencode 對話。可以繼續工作，每個對話到達後即顯示。",
   "drift.permission.change": "建議的變更",
   "drift.permission.stop": "拒絕並停止",
   "drift.permission.stopHint": "拒絕此呼叫並結束本輪",

@@ -407,7 +407,8 @@ impl Config {
         roots.push(workspace.to_path_buf());
         for root in &roots {
             config.apply_file(root, root == workspace, home);
-            config.apply_dir(&root.join(DIR));
+            // A workspace keeps them in `.drift/`; the user's own sit in `~/.config/drift/` itself, beside its `skills`.
+            config.apply_dir(&if root == workspace { root.join(DIR) } else { root.clone() });
         }
         for dir in skill_folders(workspace, home, std::mem::take(&mut config.skill_paths)) {
             config.add_skills(&dir);

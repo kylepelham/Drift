@@ -59,6 +59,9 @@ export function EngineProvider(props: ParentProps) {
   let events: EventStream | undefined
   let directory: string | null = null
   let disposed = false
+  // Workspaces whose conversation list this connection already holds; events keep each current, so
+  // switching back needs no reload. A hydrate starts over.
+  const listed = new Set<string>()
 
   const requireClient = () => {
     if (!client) throw new Error("engine offline")
@@ -76,7 +79,10 @@ export function EngineProvider(props: ParentProps) {
         draft.loaded = {}
       }),
     )
-    await hydrateFrom(actions, directory)
+    listed.clear()
+    const hydrating = directory
+    await hydrateFrom(actions, hydrating)
+    if (hydrating) listed.add(hydrating)
     if (!disposed) set("connection", "online")
   }
 
@@ -139,7 +145,10 @@ export function EngineProvider(props: ParentProps) {
     set("directory", path ?? "")
     if (!path) return
     if (client && state.connection === "online") {
-      void actions.loadSessions(path).catch(() => undefined)
+      if (!listed.has(path)) {
+        listed.add(path)
+        void actions.loadSessions(path).catch(() => listed.delete(path))
+      }
       void actions.refreshAgents().catch(() => undefined)
     }
   }

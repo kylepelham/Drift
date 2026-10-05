@@ -1215,6 +1215,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "Usunąć?",
   "drift.permission.always": "Zawsze zezwalaj w tym obszarze roboczym",
   "drift.mcp.enable": "Włącz {{name}}",
+  "drift.import.progress": "Import z opencode",
+  "drift.import.description": "Przenoszę twoje rozmowy z opencode. Pracuj dalej; każda pojawi się, gdy dotrze.",
   "drift.permission.change": "Proponowana zmiana",
   "drift.permission.stop": "Odmów i zatrzymaj",
   "drift.permission.stopHint": "Odrzuć to wywołanie i zakończ turę",

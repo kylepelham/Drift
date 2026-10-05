@@ -845,6 +845,10 @@ running opencode does not tear a conversation. Before the conversations it adds 
 opencode projects that had sessions (`Store::import_opencode_workspaces`, moved here from the
 legacy sidecar's start) and tells the UI with `workspaces-changed`.
 
+- **Progress.** The shell emits `opencode-import` `{done, total}` for every conversation it
+  finishes, and the sidebar shows "Importing from opencode" with a bar until the last is in.
+  A conversation an interrupted run left half written (`imported_session.complete = 0`) is not
+  counted as already here (`Store::holds_session`): the next run discards it and writes it again.
 - **Order.** The most recently used conversations come first, so the sidebar fills from the top
   within seconds; subagents follow once every conversation that could have started them is in,
   and one giant old conversation (47,269 messages here) no longer holds up everything newer.
@@ -920,6 +924,10 @@ legacy sidecar's start) and tells the UI with `workspaces-changed`.
     only when it was enabled in opencode and approved in Drift's old approval step (its exact
     fingerprint, `mcp_external::fingerprint`), so nothing the user never allowed starts by itself.
     A name Drift already has, or one with characters a server name cannot hold, is reported.
+  - opencode's config folder: its global `AGENTS.md`, `agents/` (or `agent/`), `commands/` (or
+    `command/`) and `skills/` are copied to `~/.config/drift`, where Drift reads the user's own
+    instructions, agents, commands and skills; a file already there is kept. Its `plugins/` are
+    named in the report and not copied. Once copied, a file the user deletes stays deleted.
   - opencode's global config: `model` (`provider/model`), `instructions` (made absolute) and
     `permission` (`read`, `edit`, `bash`, `webfetch`, a decision or a pattern map) become
     `~/.config/drift/drift.json`, written only when it does not exist yet. Everything else
@@ -1590,7 +1598,8 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   straight after each reconnect is retried at 500 ms, 1 s, 2 s and so on up to 30 s. Only a
   connection that held for a minute starts its next reconnects from 500 ms again.
 - **Config.** `Config::load` reads `~/.config/drift/drift.json` then `<workspace>/drift.json`
-  (project rules first, so they win), plus `.drift/agents/*.md`, `.drift/commands/*.md` and
+  (project rules first, so they win), plus agents and commands from `~/.config/drift/agents`,
+  `~/.config/drift/commands`, then the workspace's `.drift/agents/*.md`, `.drift/commands/*.md`, and
   skills (`config::skill_folders`, nearest first so a nearer skill shadows a farther one of its
   name): `.drift/skills`, `.agents/skills` and `.claude/skills` in the workspace and each parent up
   to the repository root, the folders `skillPaths` lists in either drift.json (relative to the file

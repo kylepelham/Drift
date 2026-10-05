@@ -1276,6 +1276,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "ลบหรือไม่?",
   "drift.permission.always": "อนุญาตเสมอในพื้นที่ทำงานนี้",
   "drift.mcp.enable": "เปิดใช้ {{name}}",
+  "drift.import.progress": "กำลังนำเข้าจาก opencode",
+  "drift.import.description": "กำลังนำบทสนทนาจาก opencode เข้ามา ทำงานต่อได้เลย แต่ละรายการจะแสดงเมื่อมาถึง",
   "drift.permission.change": "การเปลี่ยนแปลงที่เสนอ",
   "drift.permission.stop": "ปฏิเสธและหยุด",
   "drift.permission.stopHint": "ปฏิเสธการเรียกนี้และจบรอบ",

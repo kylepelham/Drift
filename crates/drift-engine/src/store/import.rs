@@ -55,6 +55,13 @@ impl Store {
         self.lock().prepare_cached("SELECT 1 FROM imported_session WHERE id = ?1 AND complete = 1")?.exists([session_id])
     }
 
+    /// Whether a conversation is here and is not an import an earlier run left unfinished.
+    pub fn holds_session(&self, session_id: &str) -> rusqlite::Result<bool> {
+        let conn = self.lock();
+        let unfinished = conn.prepare_cached("SELECT 1 FROM imported_session WHERE id = ?1 AND complete = 0")?.exists([session_id])?;
+        Ok(!unfinished && conn.prepare_cached("SELECT 1 FROM session WHERE id = ?1")?.exists([session_id])?)
+    }
+
     /// Starts writing `session`, hidden; `false`, writing nothing, when it was imported before or a
     /// conversation with its id already exists. A start left unfinished by an earlier run is discarded first.
     pub fn begin_import(&self, session: &Session) -> rusqlite::Result<bool> {

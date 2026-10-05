@@ -1228,6 +1228,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "Supprimer ?",
   "drift.permission.always": "Toujours autoriser dans cet espace de travail",
   "drift.mcp.enable": "Activer {{name}}",
+  "drift.import.progress": "Importation depuis opencode",
+  "drift.import.description": "Vos conversations opencode arrivent. Continuez à travailler ; chacune apparaît dès qu’elle est là.",
   "drift.permission.change": "Modification proposée",
   "drift.permission.stop": "Refuser et arrêter",
   "drift.permission.stopHint": "Refuser cet appel et terminer le tour",

@@ -1204,6 +1204,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "제거할까요?",
   "drift.permission.always": "이 작업 공간에서 항상 허용",
   "drift.mcp.enable": "{{name}} 활성화",
+  "drift.import.progress": "opencode에서 가져오는 중",
+  "drift.import.description": "opencode 대화를 가져오는 중입니다. 계속 작업하세요. 도착하는 대로 표시됩니다.",
   "drift.permission.change": "제안된 변경",
   "drift.permission.stop": "거부 후 중지",
   "drift.permission.stopHint": "이 호출을 거부하고 턴을 종료",

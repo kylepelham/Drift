@@ -1263,6 +1263,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "确认移除？",
   "drift.permission.always": "在此工作区中始终允许",
   "drift.mcp.enable": "启用 {{name}}",
+  "drift.import.progress": "正在从 opencode 导入",
+  "drift.import.description": "正在导入你的 opencode 对话。可以继续工作，每个对话到达后即显示。",
   "drift.permission.change": "拟议的更改",
   "drift.permission.stop": "拒绝并停止",
   "drift.permission.stopHint": "拒绝此调用并结束本轮",

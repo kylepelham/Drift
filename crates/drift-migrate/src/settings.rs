@@ -37,11 +37,17 @@ pub struct OcServer {
 }
 
 #[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
 struct Ledger {
     credentials: BTreeSet<String>,
     servers: BTreeSet<String>,
     config: bool,
+    /// opencode's global instructions, agents, commands and skills were copied.
+    files: bool,
 }
+
+/// opencode's folders under its config directory, with the folder Drift reads the same things from.
+const FOLDERS: [(&str, &str); 5] = [("agents", "agents"), ("agent", "agents"), ("commands", "commands"), ("command", "commands"), ("skills", "skills")];
 
 #[derive(Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,6 +59,8 @@ pub struct SettingsReport {
     pub disabled_servers: Vec<String>,
     /// The drift.json written from opencode's config, when one was.
     pub config_written: Option<String>,
+    /// Files copied from opencode's config directory into `~/.config/drift`, relative to it.
+    pub files: Vec<String>,
     /// Everything left behind, each with why.
     pub skipped: Vec<String>,
 }
@@ -94,6 +102,10 @@ pub fn import_settings(store: &Store, credentials: &Credentials, providers: &[St
         report.skipped.append(&mut unmapped);
         report.config_written = write_config(home, file, &mut report.skipped);
         ledger.config = true;
+    }
+    if !ledger.files && settings.config_dir.is_dir() {
+        copy_home(&settings.config_dir, &home.join(".config").join("drift"), &mut report);
+        ledger.files = true;
     }
     store.set_setting(LEDGER, &ledger)?;
     store.set_setting(REPORT, &report)?;
@@ -257,6 +269,50 @@ fn permissions(value: &Value) -> (Vec<Value>, Vec<String>) {
     (rules, unmapped)
 }
 
+/// Copies opencode's global `AGENTS.md`, agents, commands and skills to where Drift reads them,
+/// never over a file already there; its JavaScript plugins are named, not copied.
+fn copy_home(from: &Path, to: &Path, report: &mut SettingsReport) {
+    let mut copied = Vec::new();
+    copy_file(&from.join("AGENTS.md"), &to.join("AGENTS.md"), "AGENTS.md", &mut copied, &mut report.skipped);
+    for (source, target) in FOLDERS {
+        copy_tree(&from.join(source), &to.join(target), target, &mut copied, &mut report.skipped);
+    }
+    for folder in ["plugins", "plugin"] {
+        for entry in std::fs::read_dir(from.join(folder)).into_iter().flatten().flatten() {
+            report.skipped.push(format!("plugin {}: opencode plugins are JavaScript and Drift runs none", entry.file_name().to_string_lossy()));
+        }
+    }
+    report.files = copied;
+}
+
+fn copy_tree(from: &Path, to: &Path, shown: &str, copied: &mut Vec<String>, skipped: &mut Vec<String>) {
+    for entry in std::fs::read_dir(from).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        let shown = format!("{shown}/{name}");
+        if path.is_dir() {
+            copy_tree(&path, &to.join(&name), &shown, copied, skipped);
+        } else {
+            copy_file(&path, &to.join(&name), &shown, copied, skipped);
+        }
+    }
+}
+
+fn copy_file(from: &Path, to: &Path, shown: &str, copied: &mut Vec<String>, skipped: &mut Vec<String>) {
+    if !from.is_file() {
+        return;
+    }
+    if to.exists() {
+        skipped.push(format!("{shown}: you already have one in ~/.config/drift, kept"));
+        return;
+    }
+    let done = to.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::copy(from, to));
+    match done {
+        Ok(_) => copied.push(shown.to_string()),
+        Err(error) => skipped.push(format!("{shown}: could not be copied ({error})")),
+    }
+}
+
 /// Writes drift.json only when something maps and the user has none yet; the path written.
 fn write_config(home: &Path, file: Map<String, Value>, skipped: &mut Vec<String>) -> Option<String> {
     if file.is_empty() {
@@ -354,6 +410,44 @@ mod tests {
         assert!(!saved.contains_key("missing") && !saved.contains_key("bad name"));
         let said = report.skipped.join("\n");
         assert!(said.contains("DRIFT_MIGRATE_UNSET_VAR is not set") && said.contains("bad name: its name") && said.contains("mine: Drift already has"), "{said}");
+    }
+
+    #[test]
+    fn opencodes_instructions_agents_commands_and_skills_are_copied_once_and_drift_reads_them() {
+        let (dir, engine, providers) = setup();
+        let opencode = dir.0.join("opencode");
+        let home = dir.0.join("home");
+        let write = |path: PathBuf, text: &str| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(opencode.join("AGENTS.md"), "Be brief.");
+        write(opencode.join("agents/reviewer.md"), "---\ndescription: Reviews\nmode: subagent\n---\nReview.");
+        write(opencode.join("command/ship.md"), "---\ndescription: Ship it\n---\nShip $ARGUMENTS.");
+        write(opencode.join("skills/impeccable/SKILL.md"), "---\nname: impeccable\ndescription: Design\n---\nDesign well.");
+        write(opencode.join("skills/impeccable/reference/colour.md"), "notes");
+        write(opencode.join("skills/unslop/SKILL.md"), "---\nname: unslop\ndescription: Mine\n---\nTheirs.");
+        write(opencode.join("plugins/gk-hooks.js"), "export default {}");
+        write(home.join(".config/drift/skills/unslop/SKILL.md"), "---\nname: unslop\ndescription: Mine\n---\nMine.");
+        let settings = Settings { auth: None, config: None, config_dir: opencode.clone(), servers: vec![] };
+
+        let report = import_settings(&engine.store, &engine.credentials, &providers, &home, &settings).unwrap();
+        let mut files = report.files.clone();
+        files.sort();
+        assert_eq!(files, ["AGENTS.md", "agents/reviewer.md", "commands/ship.md", "skills/impeccable/SKILL.md", "skills/impeccable/reference/colour.md"]);
+        let said = report.skipped.join("\n");
+        assert!(said.contains("skills/unslop/SKILL.md: you already have one") && said.contains("plugin gk-hooks.js"), "{said}");
+        assert!(std::fs::read_to_string(home.join(".config/drift/skills/unslop/SKILL.md")).unwrap().contains("Mine."), "the user's own copy wins");
+
+        let workspace = dir.0.join("ws");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let config = drift_engine::config::Config::load_with_home(&workspace, Some(&home));
+        assert!(config.agent("reviewer").is_some() && config.commands.iter().any(|c| c.name == "ship") && config.skill("impeccable").is_some());
+        assert!(config.instructions.iter().any(|i| i.text.contains("Be brief.")), "the global instructions apply");
+
+        std::fs::remove_file(home.join(".config/drift/agents/reviewer.md")).unwrap();
+        let again = import_settings(&engine.store, &engine.credentials, &providers, &home, &settings).unwrap();
+        assert!(again.files.is_empty() && !home.join(".config/drift/agents/reviewer.md").exists(), "a copied file the user deleted stays deleted");
     }
 
     #[test]

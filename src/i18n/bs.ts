@@ -1289,6 +1289,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "Ukloniti?",
   "drift.permission.always": "Uvijek dozvoli u ovom radnom prostoru",
   "drift.mcp.enable": "Omogući {{name}}",
+  "drift.import.progress": "Uvoz iz opencodea",
+  "drift.import.description": "Prenose se tvoji razgovori iz opencodea. Nastavi raditi; svaki se pojavi kad stigne.",
   "drift.permission.change": "Predložena izmjena",
   "drift.permission.stop": "Odbij i zaustavi",
   "drift.permission.stopHint": "Odbij ovaj poziv i završi potez",

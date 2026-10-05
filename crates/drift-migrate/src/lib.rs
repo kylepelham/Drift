@@ -59,10 +59,18 @@ pub struct Report {
     pub undoable: usize,
 }
 
-/// Imports every conversation in `source` not yet brought in, calling `imported` with each as it is
-/// listed. `archived` names conversations Drift itself archived; those and the ones opencode archived
-/// arrive archived as of now. Rebuilt versions for undo go to `blobs`.
-pub fn import_sessions(store: &Store, source: &Path, archived: &HashSet<String>, blobs: &mut dyn Blobs, imported: &mut dyn FnMut(&Session)) -> rusqlite::Result<Report> {
+/// How far a run has got, for a progress display.
+pub enum Progress<'a> {
+    /// This many conversations are to be brought in.
+    Planned(usize),
+    /// One of them is done with: listed (`Some`), or found already here or failed (`None`).
+    Finished(Option<&'a Session>),
+}
+
+/// Imports every conversation in `source` not yet brought in, telling `progress` how far it has got.
+/// `archived` names conversations Drift itself archived; those and the ones opencode archived arrive
+/// archived as of now. Rebuilt versions for undo go to `blobs`.
+pub fn import_sessions(store: &Store, source: &Path, archived: &HashSet<String>, blobs: &mut dyn Blobs, progress: &mut dyn FnMut(Progress)) -> rusqlite::Result<Report> {
     let source = source::Source::open(source)?;
     let workspaces: HashMap<String, (String, PathBuf)> = store.workspaces()?.into_iter().map(|workspace| (directory_key(&workspace.path), (workspace.id, PathBuf::from(workspace.path)))).collect();
     let now = drift_engine::id::now_ms();
@@ -71,7 +79,7 @@ pub fn import_sessions(store: &Store, source: &Path, archived: &HashSet<String>,
     let mut planned: Vec<undo::Planned> = Vec::new();
     let mut placed: HashMap<&str, usize> = HashMap::new();
     for session in &sessions {
-        if store.was_imported(&session.id)? || store.session(&session.id)?.is_some() {
+        if store.was_imported(&session.id)? || store.holds_session(&session.id)? {
             report.known += 1;
             continue;
         }
@@ -82,6 +90,10 @@ pub fn import_sessions(store: &Store, source: &Path, archived: &HashSet<String>,
         placed.insert(&session.id, planned.len());
         planned.push(undo::Planned { session, owner, root });
     }
+    if planned.is_empty() {
+        return Ok(report);
+    }
+    progress(Progress::Planned(planned.len()));
     let records = undo::records(&source, &planned, now, blobs)?;
     let checkpoints = store.import_checkpoints();
     let mut failed: HashSet<&str> = HashSet::new();
@@ -89,6 +101,7 @@ pub fn import_sessions(store: &Store, source: &Path, archived: &HashSet<String>,
         if plan.session.parent_id.as_deref().is_some_and(|parent| failed.contains(parent)) {
             failed.insert(&plan.session.id);
             report.failed.push((plan.session.id.clone(), "the conversation that started it did not import".into()));
+            progress(Progress::Finished(None));
             continue;
         }
         let archived_at = (plan.session.archived || archived.contains(&plan.session.id)).then_some(now);
@@ -96,12 +109,16 @@ pub fn import_sessions(store: &Store, source: &Path, archived: &HashSet<String>,
             Ok(Some((session, undoable))) => {
                 report.imported += 1;
                 report.undoable += undoable;
-                imported(&session);
+                progress(Progress::Finished(Some(&session)));
             }
-            Ok(None) => report.known += 1,
+            Ok(None) => {
+                report.known += 1;
+                progress(Progress::Finished(None));
+            }
             Err(error) => {
                 failed.insert(&plan.session.id);
                 report.failed.push((plan.session.id.clone(), error.to_string()));
+                progress(Progress::Finished(None));
             }
         }
     }

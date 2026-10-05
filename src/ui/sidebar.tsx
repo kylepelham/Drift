@@ -2,6 +2,7 @@ import { createSignal, For, onCleanup, Show } from "solid-js"
 import { useEngine } from "../engine"
 import { normalizeDir } from "../engine/store"
 import { pickFolder } from "../state/dialog"
+import { listenOpencodeImport, opencodeImport } from "../state/opencode-import"
 import { persisted } from "../state/persist"
 import { closeMobileDrawer, isNarrowWidth, mobileDrawerOpen } from "../state/navigation"
 import { selectedSession, selectSession } from "../state/selection"
@@ -270,8 +271,24 @@ function SidebarFooter(props: { onSettings: () => void }) {
     if (engine.state.connection === "idle") return t("drift.composer.selectWorkspace")
     return engine.state.connection === "connecting" ? t("common.loading") : t("drift.sidebar.offline")
   }
+  listenOpencodeImport()
   return (
     <div class="shrink-0 px-2 py-2">
+      <Show when={opencodeImport()}>
+        {(progress) => (
+          <div class="mb-1 px-2 py-1.5 text-[0.7rem] text-ink-faint" title={t("drift.import.description")}>
+            <div class="flex justify-between gap-2">
+              <span class="truncate">{t("drift.import.progress")}</span>
+              <span class="tabular-nums">
+                {progress().done.toLocaleString()} / {progress().total.toLocaleString()}
+              </span>
+            </div>
+            <div class="mt-1 h-1 overflow-hidden rounded-full bg-raised">
+              <div class="h-full bg-accent transition-[width]" style={{ width: `${(progress().done / progress().total) * 100}%` }} />
+            </div>
+          </div>
+        )}
+      </Show>
       <button
         data-sidebar-navigation
         class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-ink-muted transition-colors hover:bg-raised hover:text-ink"

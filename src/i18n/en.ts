@@ -563,6 +563,8 @@ export const drift = {
   "drift.markdown.copyCode": "Copy code",
   "drift.permission.always": "Always allow in this workspace",
   "drift.mcp.enable": "Enable {{name}}",
+  "drift.import.progress": "Importing from opencode",
+  "drift.import.description": "Bringing your opencode conversations in. Keep working; each appears as it lands.",
   "drift.permission.change": "Proposed change",
   "drift.permission.stop": "Deny and stop",
   "drift.permission.stopHint": "Refuse this call and end the turn",

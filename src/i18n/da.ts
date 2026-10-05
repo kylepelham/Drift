@@ -1281,6 +1281,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "Fjern?",
   "drift.permission.always": "Tillad altid i dette arbejdsområde",
   "drift.mcp.enable": "Aktivér {{name}}",
+  "drift.import.progress": "Importerer fra opencode",
+  "drift.import.description": "Henter dine samtaler fra opencode. Arbejd videre; hver dukker op, når den er hentet.",
   "drift.permission.change": "Foreslået ændring",
   "drift.permission.stop": "Afvis og stop",
   "drift.permission.stopHint": "Afvis dette kald og afslut turen",

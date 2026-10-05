@@ -159,7 +159,7 @@ fn subagents_follow_their_parent_and_a_rerun_brings_in_only_what_is_new() {
 
     let before = drift_engine::id::now_ms();
     let mut announced = Vec::new();
-    let first = import_sessions(&store, &source, &HashSet::from(["ses_hidden".to_string()]), &mut Kept::default(), &mut |session| announced.push(session.id.clone())).unwrap();
+    let first = import_sessions(&store, &source, &HashSet::from(["ses_hidden".to_string()]), &mut Kept::default(), &mut |step| if let Progress::Finished(Some(session)) = step { announced.push(session.id.clone()) }).unwrap();
     assert_eq!((first.imported, first.unmatched.get("E:/other")), (5, Some(&1)), "{first:?}");
     assert_eq!((announced.len(), announced.last().map(String::as_str)), (5, Some("ses_child")), "each announced as it lands, a subagent after its parent");
     assert_eq!(announced[0], "ses_sub", "the most recently used first");
@@ -177,6 +177,33 @@ fn subagents_follow_their_parent_and_a_rerun_brings_in_only_what_is_new() {
     assert_eq!((second.imported, second.known, second.unmatched.len()), (1, 5, 0), "{second:?}");
     assert!(store.session("ses_away").unwrap().is_some(), "a workspace added since brings its conversations in");
     assert!(store.session("ses_parent").unwrap().is_none(), "a deleted import stays deleted");
+}
+
+#[test]
+fn a_conversation_a_stopped_run_left_half_written_is_finished_by_the_next_and_progress_counts_every_one() {
+    let d = dir();
+    let source = d.0.join("opencode.db");
+    let conn = opencode(&source);
+    session(&conn, "ses_a", None, "C:/repo", None);
+    session(&conn, "ses_b", None, "C:/repo", None);
+    message(&conn, "ses_a", "msg_1", 2000, user(2000), &[json!({ "type": "text", "text": "hello" })]);
+    drop(conn);
+    let store = store_with(&d.0, &["C:/repo"]);
+    let workspace = store.workspaces().unwrap()[0].id.clone();
+    let half = drift_engine::session::types::Session { id: "ses_a".into(), workspace_id: workspace, parent_id: None, visibility: Visibility::Sibling, title: "half".into(), agent: "build".into(), model: None, variant: None, created_at: 1, updated_at: 1, archived_at: None, branch_cutoff: None, revert: None, running: false };
+    assert!(store.begin_import(&half).unwrap(), "a run that stopped after starting this one");
+
+    let mut steps = Vec::new();
+    let report = import_sessions(&store, &source, &HashSet::new(), &mut Kept::default(), &mut |step| steps.push(match step {
+        Progress::Planned(total) => format!("planned {total}"),
+        Progress::Finished(session) => format!("finished {}", session.is_some()),
+    }))
+    .unwrap();
+    assert_eq!((report.imported, report.known), (2, 0), "{report:?}");
+    assert_eq!(steps, ["planned 2", "finished true", "finished true"]);
+    assert_eq!(store.transcript("ses_a").unwrap().len(), 1, "written whole this time");
+    let again = import_sessions(&store, &source, &HashSet::new(), &mut Kept::default(), &mut |_| panic!("nothing left to report")).unwrap();
+    assert_eq!(again.known, 2);
 }
 
 #[test]

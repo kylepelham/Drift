@@ -1291,6 +1291,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "Kaldırılsın mı?",
   "drift.permission.always": "Bu çalışma alanında her zaman izin ver",
   "drift.mcp.enable": "{{name}} etkinleştir",
+  "drift.import.progress": "opencode'dan içe aktarılıyor",
+  "drift.import.description": "opencode konuşmaların aktarılıyor. Çalışmaya devam et; her biri geldikçe görünür.",
   "drift.permission.change": "Önerilen değişiklik",
   "drift.permission.stop": "Reddet ve durdur",
   "drift.permission.stopHint": "Bu çağrıyı reddet ve turu bitir",
