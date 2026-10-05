@@ -428,7 +428,7 @@ async fn mcp_servers_connect_as_soon_as_they_are_saved_and_their_tools_reach_the
     let ws = h.engine.store.add_workspace(&dir.to_string_lossy(), "ws", "").unwrap();
     let here = crate::tool::canonical(&dir);
     let saved: Value = h.put(&format!("/mcp/echo?workspace={}", ws.id)).json(&json!({ "type": "stdio", "command": "node", "args": [script] })).send().await.unwrap().json().await.unwrap();
-    assert_eq!(saved["state"], "connected", "nothing to approve");
+    assert_eq!(saved["state"], "connected", "nothing to approve: {}", saved["error"]);
     assert_eq!(saved["tools"][0]["name"], "echo");
     assert!(saved.get("hash").is_none() && saved.get("approved").is_none());
     assert_eq!(until(&mut socket, "mcp.updated").await["server"]["name"], "echo");
