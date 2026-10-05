@@ -234,6 +234,15 @@ change the plan there when a decision changes.
   - [x] `edit` on a missing file says to use `write`; `/share`, `/unshare` and the Shared badge removed
   - [x] MCP image and PDF resources embedded in a call's result reach the model as files
   - [x] Stdio MCP servers run per workspace, in its folder and with it as their root; a user's disconnect holds until they connect again
+- [x] Review of that round:
+  - [x] A shell redirection is judged by the file it names (`>~/.bashrc`, `>../x`, `>/etc/x`, `C:x`), so writing outside the workspace asks again
+  - [x] Stdio MCP servers never run shared or serve another workspace; a removed workspace's stop, and any left unused 10 minutes
+  - [x] The webview's old auto-accept is forgotten only once the engine has taken it
+  - [x] A shell ask says why it asks, and that auto-accept leaves it to the user
+  - [x] "Always" never widens to a folder holding home or inside a hidden folder in home
+  - [x] Tools that declare no permission kinds are hidden by a rule denying their own name
+  - [x] `git clean`, `git reset --hard` and `git push` ask; the docs say plainly what undo does not keep
+  - [x] 809 opencode leftovers dropped from every locale, with a test against new ones
 - [x] Perf numbers versus M0 baseline (Baselines in `docs/engine-rewrite.md`; `bench:engine` now runs a native turn): cold start 32 ms vs 1012, prompt to provider 4 ms vs 1066, about 4.6k tokens per turn vs 9.4k
 
 ## M5: hook seam
@@ -245,5 +254,6 @@ change the plan there when a decision changes.
 - [ ] Charge titles somewhere visible (they have no message of their own)
 - [ ] MCP resource templates as a tool (`mcp/resources.rs` lists and reads resources only)
 - [ ] MCP resources attachable from the composer, as opencode's `@` picker offers them
+- [ ] Translate the 349 English keys each locale lacks (they show in English meanwhile)
 - [ ] A plan file the plan agent may write (opencode allows `.opencode/plans/*.md`), so a plan survives compaction
 - [ ] Only if the UI or headless use wants them: user-run `!command` turns, `@agent` mention parts, `format: json_schema` structured output, project references
