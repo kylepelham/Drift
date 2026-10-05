@@ -209,7 +209,7 @@ change the plan there when a decision changes.
 - [x] Remote gateway collapses into the engine router (in process; the event socket closes when its device is signed out)
 - [x] Docs rewritten for the new engine (README, `docs/engine.md`, architecture, MCP, extensibility, store, remote, CONTRIBUTING; research and comparison docs kept as history)
 - [x] Review after cutover:
-  - [x] Imported opencode permission patterns kept in written order and reversed per kind (opencode's last match wins, drift.json's first)
+  - [x] Imported opencode permission rules kept in written order and the whole list reversed (opencode's last match wins, drift.json's first); `"*"` and a single top-level decision come in as kind `*`, anything else is reported; a broken `opencode.json` falls back to `opencode.jsonc`
   - [x] Orchestrator driven by the engine (`session/drive.rs`, `nudge` parts, 30 per user prompt counted from the transcript); the app only shows how a turn ended
   - [x] Compaction tail a quarter of the model's compaction point, 2k to 15k (a 32k local model no longer compacts every step; large windows keep the 15k they had)
   - [x] Summary on the conversation's own model with a warm cache is the turn's next request plus the instructions (`step_request`), read at the cached price; otherwise lean (files by mention, tool results cut to 2,000 characters); one-shots retry provider faults with a turn's backoff, a compaction's shown as `session.retry`

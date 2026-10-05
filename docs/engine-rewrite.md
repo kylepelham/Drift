@@ -957,9 +957,12 @@ opencode projects that had sessions (`Store::import_opencode_workspaces`) and te
   - opencode's global config: `model` (`provider/model`), `instructions` (made absolute) and
     `permission` (`read`, `edit`, `bash`, `webfetch`, a decision or a pattern map) become
     `~/.config/drift/drift.json`, written only when it does not exist yet. opencode lets the last
-    matching pattern win and drift.json the first, so each kind's patterns are read in the order
-    written (`OcConfig`, not a sorted JSON object) and reversed: `{ "*": "ask", "git *": "allow" }`
-    still allows `git status`. Everything else
+    matching rule win and drift.json the first, so the rules are read in the order written
+    (`OcConfig`, not a sorted JSON object) and the whole list reversed: `{ "*": "ask", "git *":
+    "allow" }` still allows `git status`, and a `"*"` key (every permission, kind `*` in Drift)
+    written before `bash` still loses to it. A single decision (`"permission": "allow"`) is
+    opencode's `{ "*": decision }`; any other value is named in the report. `opencode.json` is read
+    first and `opencode.jsonc` when it is missing or does not parse. Everything else
     (`tools`, `plugin`, `agent`, `provider`, ...) is named in the report; plugins are JavaScript and
     Drift runs none. Project-level opencode files are not read.
 - **Queued prompts.** opencode keeps prompts it queued but never ran in `session_input`; the import

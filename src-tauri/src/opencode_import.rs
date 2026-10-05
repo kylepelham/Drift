@@ -151,10 +151,9 @@ fn import_source(app: &AppHandle, engine: &Arc<Engine>, store: &Store, source: &
 
 /// opencode's sign-ins, MCP servers (its own and those Drift's old manager kept) and global config.
 fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Option<drift_migrate::SettingsReport> {
-    let text = |path: PathBuf| std::fs::read_to_string(path).ok().map(|text| drift_engine::config::jsonc::strip(&text));
-    let read = |path: PathBuf| text(path).and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    let read = |path: PathBuf| read_text(&path).and_then(|text| serde_json::from_str::<Value>(&text).ok());
     let config_dir = opencode_config_dir();
-    let config = config_dir.as_ref().and_then(|dir| text(dir.join("opencode.json")).or_else(|| text(dir.join("opencode.jsonc")))).and_then(|text| drift_migrate::OcConfig::parse(&text));
+    let config = config_dir.as_deref().and_then(read_config);
     let state = store.mcp_state().ok();
     let approved: HashSet<String> = state.iter().flat_map(|state| &state.decisions).filter(|decision| decision.decision == "approved").map(|decision| decision.fingerprint.clone()).collect();
     let server = |name: &str, definition: &Value| drift_migrate::OcServer {
@@ -189,6 +188,15 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Opti
             None
         }
     }
+}
+
+fn read_text(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path).ok().map(|text| drift_engine::config::jsonc::strip(&text))
+}
+
+/// opencode's global config: `opencode.json`, else `opencode.jsonc`; a file that does not parse is passed over as a missing one is.
+fn read_config(dir: &Path) -> Option<drift_migrate::OcConfig> {
+    ["opencode.json", "opencode.jsonc"].into_iter().find_map(|name| read_text(&dir.join(name)).and_then(|text| drift_migrate::OcConfig::parse(&text)))
 }
 
 /// The fingerprint Drift's old MCP approval step recorded for a named definition (`enabled` aside):
@@ -263,6 +271,20 @@ mod tests {
         let names: Vec<String> = super::sources(&dir).iter().map(|path| path.file_name().unwrap().to_string_lossy().into_owned()).collect();
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(names, ["opencode.db", "opencode-dev.db", "opencode-master.db"]);
+    }
+
+    #[test]
+    fn a_broken_opencode_json_falls_back_to_opencode_jsonc() {
+        let dir = std::env::temp_dir().join(format!("drift-import-config-{}", drift_engine::id::new("t")));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("opencode.json"), "{ \"model\": ").unwrap();
+        std::fs::write(dir.join("opencode.jsonc"), "{\n  // mine\n  \"model\": \"anthropic/claude\",\n}").unwrap();
+        let found = read_config(&dir).map(|config| config.value["model"].clone());
+        std::fs::write(dir.join("opencode.json"), "{ \"model\": \"openai/gpt\" }").unwrap();
+        let first = read_config(&dir).map(|config| config.value["model"].clone());
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(found, Some(serde_json::json!("anthropic/claude")));
+        assert_eq!(first, Some(serde_json::json!("openai/gpt")), "a readable opencode.json still comes first");
     }
 
     #[test]

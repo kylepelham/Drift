@@ -33,14 +33,20 @@ pub struct Settings {
 /// since opencode lets the last matching pattern win and a JSON object forgets order.
 pub struct OcConfig {
     pub value: Value,
-    permission: Vec<(String, Setting)>,
+    /// `None` when it is neither a decision nor a map of them.
+    permission: Option<Vec<(String, Setting)>>,
 }
 
 impl OcConfig {
     /// Parses config text with comments already stripped.
     pub fn parse(text: &str) -> Option<Self> {
         let value = serde_json::from_str(text).ok()?;
-        let permission = serde_json::from_str::<Root>(text).ok().and_then(|root| root.permission).map(|kinds| kinds.0).unwrap_or_default();
+        let permission = match serde_json::from_str::<Root>(text).ok().and_then(|root| root.permission) {
+            Some(Permission::Kinds(kinds)) => Some(kinds.0),
+            // As opencode reads it: one decision for every permission.
+            Some(Permission::One(decision)) => Some(vec![("*".into(), Setting::One(decision))]),
+            Some(Permission::Other(_)) | None => None,
+        };
         Some(Self { value, permission })
     }
 }
@@ -48,7 +54,15 @@ impl OcConfig {
 #[derive(Deserialize)]
 struct Root {
     #[serde(default)]
-    permission: Option<Entries<Setting>>,
+    permission: Option<Permission>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Permission {
+    One(String),
+    Kinds(Entries<Setting>),
+    Other(serde::de::IgnoredAny),
 }
 
 /// One kind's permission: a single decision, or patterns in the order written.
@@ -309,12 +323,15 @@ fn config(config: &OcConfig, config_dir: &Path, report: &mut SettingsReport) -> 
                 let paths: Vec<Value> = value.as_array().into_iter().flatten().filter_map(Value::as_str).map(|path| json!(instruction(path, config_dir))).collect();
                 file.insert("instructions".into(), Value::Array(paths));
             }
-            "permission" => {
-                let rules = permissions(&config.permission, report);
-                if !rules.is_empty() {
-                    file.insert("permissions".into(), Value::Array(rules));
+            "permission" => match &config.permission {
+                Some(kinds) => {
+                    let rules = permissions(kinds, report);
+                    if !rules.is_empty() {
+                        file.insert("permissions".into(), Value::Array(rules));
+                    }
                 }
-            }
+                None => report.left("permission", "config permission: neither a decision nor a map of them".into(), |left| &mut left.settings),
+            },
             "plugin" => {
                 for plugin in value.as_array().into_iter().flatten().filter_map(Value::as_str) {
                     report.left(plugin, format!("plugin {plugin}: opencode plugins are JavaScript and Drift runs none"), |left| &mut left.plugins);
@@ -334,18 +351,19 @@ fn instruction(path: &str, config_dir: &Path) -> String {
     config_dir.join(path).to_string_lossy().replace('\\', "/")
 }
 
-/// opencode's `permission` (`edit: "ask"`, `bash: { "*": "ask", "git *": "allow" }`) as Drift rules.
-/// opencode lets the last matching pattern win and drift.json the first, so each kind's patterns are reversed.
+/// opencode's `permission` (`edit: "ask"`, `bash: { "*": "ask", "git *": "allow" }`, `"*"` for every
+/// permission) as Drift rules. opencode lets the last matching rule win and drift.json the first, so
+/// the whole list is reversed: a `"*"` written before `bash` still loses to it.
 fn permissions(kinds: &[(String, Setting)], report: &mut SettingsReport) -> Vec<Value> {
     let mut rules = Vec::new();
     for (kind, setting) in kinds {
-        if !matches!(kind.as_str(), "read" | "edit" | "bash" | "webfetch") {
+        if !matches!(kind.as_str(), "*" | "read" | "edit" | "bash" | "webfetch") {
             report.left(&format!("permission.{kind}"), format!("config permission.{kind}: Drift has no such permission"), |left| &mut left.settings);
             continue;
         }
         let patterns: Vec<(&str, Value)> = match setting {
             Setting::One(decision) => vec![("*", Value::String(decision.clone()))],
-            Setting::Patterns(entries) => entries.0.iter().rev().map(|(pattern, decision)| (pattern.as_str(), decision.clone())).collect(),
+            Setting::Patterns(entries) => entries.0.iter().map(|(pattern, decision)| (pattern.as_str(), decision.clone())).collect(),
             Setting::Other(_) => Vec::new(),
         };
         for (pattern, decision) in patterns {
@@ -355,6 +373,7 @@ fn permissions(kinds: &[(String, Setting)], report: &mut SettingsReport) -> Vec<
             }
         }
     }
+    rules.reverse();
     rules
 }
 
@@ -464,6 +483,29 @@ mod tests {
         assert_eq!(decide("read", "src/.env"), Some(Decision::Deny), "a later pattern in opencode overrides an earlier one");
         assert_eq!(decide("read", "notes.txt"), Some(Decision::Deny));
         assert_eq!(decide("edit", "a.rs"), Some(Decision::Ask));
+    }
+
+    #[test]
+    fn a_permission_for_every_tool_comes_in_and_still_loses_to_a_later_one() {
+        use drift_engine::permission::{Decision, Policy, Rule};
+        let import = |text: &str| {
+            let (dir, engine, providers) = setup();
+            let home = dir.0.join("home");
+            let settings = Settings { auth: None, config: OcConfig::parse(text), config_dir: dir.0.clone(), servers: vec![] };
+            let report = import_settings(&engine.store, &engine.credentials, &providers, &home, &settings).unwrap();
+            let written: Value = std::fs::read_to_string(home.join(".config/drift/drift.json")).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
+            let rules: Vec<Rule> = serde_json::from_value(written["permissions"].clone()).unwrap_or_default();
+            (Policy { rules }, report)
+        };
+        let decide = |policy: &Policy, kind: &str, target: &str| policy.explicit(&drift_engine::tool::Ask::new(kind, target, ""));
+        let (everything, _) = import(r#"{ "permission": "allow" }"#);
+        assert_eq!(decide(&everything, "bash", "rm -rf x"), Some(Decision::Allow), "a single decision is opencode's \"*\" for every permission");
+        let (mixed, _) = import(r#"{ "permission": { "*": "ask", "bash": "allow", "read": { "*.env": "deny" } } }"#);
+        assert_eq!(decide(&mixed, "bash", "ls"), Some(Decision::Allow), "bash, written after *, wins");
+        assert_eq!(decide(&mixed, "edit", "a.rs"), Some(Decision::Ask));
+        assert_eq!(decide(&mixed, "read", ".env"), Some(Decision::Deny));
+        let (none, report) = import(r#"{ "permission": 7 }"#);
+        assert!(none.rules.is_empty() && report.left_out.settings.contains(&"permission".to_string()), "an unreadable value is reported, not dropped in silence");
     }
 
     #[test]
@@ -581,9 +623,9 @@ mod tests {
         assert_eq!(written["model"], json!({ "provider": "anthropic", "model": "claude-opus-5-5" }));
         assert_eq!(written["instructions"], json!([dir.0.join("rules.md").to_string_lossy().replace('\\', "/"), "~/style.md"]));
         assert_eq!(written["permissions"], json!([
+            { "kind": "edit", "pattern": "*", "decision": "ask" },
             { "kind": "bash", "pattern": "rm *", "decision": "deny" },
             { "kind": "bash", "pattern": "git *", "decision": "allow" },
-            { "kind": "edit", "pattern": "*", "decision": "ask" },
         ]));
         let file: drift_engine::config::File = serde_json::from_value(written).unwrap();
         assert_eq!(file.permissions.len(), 3, "Drift reads what was written");
