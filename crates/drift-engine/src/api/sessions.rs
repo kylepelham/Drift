@@ -80,13 +80,14 @@ pub async fn list(State(engine): State<Arc<Engine>>, Query(query): Query<ListQue
 
 #[utoipa::path(post, path = "/sessions", operation_id = "createSession", request_body = NewSessionBody, responses((status = 201, body = Session)))]
 pub async fn create(State(engine): State<Arc<Engine>>, Json(body): Json<NewSessionBody>) -> Result<(StatusCode, Json<Session>), ApiError> {
-    engine.store.workspace(&body.workspace_id)?.ok_or_else(|| ApiError::not_found("workspace"))?;
+    let workspace = engine.store.workspace(&body.workspace_id)?.ok_or_else(|| ApiError::not_found("workspace"))?;
+    let config = body.agent.is_none().then(|| engine.workspace_config(&crate::tool::canonical(std::path::Path::new(&workspace.path))));
     let session = engine.store.create_session(NewSession {
         workspace_id: &body.workspace_id,
         parent_id: None,
         visibility: Visibility::Sibling,
         title: &body.title,
-        agent: body.agent.as_deref().unwrap_or("build"),
+        agent: body.agent.as_deref().or_else(|| config.as_ref().map(|config| config.default_agent())).unwrap_or("build"),
         model: body.model.as_ref(),
     })?;
     engine.hub.publish(Event::SessionCreated { session: session.clone() });

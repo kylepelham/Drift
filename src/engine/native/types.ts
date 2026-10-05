@@ -791,6 +791,8 @@ export interface components {
             background?: boolean | null;
             builtin: boolean;
             description: string;
+            /** @description Front matter `hidden: true`: left out of the composer's list; `task` can still run it. */
+            hidden?: boolean;
             kind?: components["schemas"]["AgentKind"];
             model?: components["schemas"]["ModelRef"] | null;
             name: string;
@@ -817,7 +819,7 @@ export interface components {
             variant?: string | null;
         };
         /** @enum {string} */
-        AgentKind: "primary" | "subagent" | "action";
+        AgentKind: "primary" | "subagent" | "all" | "action";
         AnswerBody: {
             /** @description One list of chosen labels per question, in order. */
             answers: string[][];
@@ -901,6 +903,8 @@ export interface components {
                 [key: string]: components["schemas"]["CheckConfig"];
             };
             commands: components["schemas"]["Command"][];
+            /** @description What drift.json names as `defaultAgent`; [`Config::default_agent`] checks it can run a conversation. */
+            defaultAgent?: string | null;
             formatters: {
                 [key: string]: components["schemas"]["FormatterConfig"];
             };

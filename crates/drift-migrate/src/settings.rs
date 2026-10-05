@@ -319,6 +319,10 @@ fn config(config: &OcConfig, config_dir: &Path, report: &mut SettingsReport) -> 
                 Some((provider, model)) => drop(file.insert("model".into(), json!({ "provider": provider, "model": model }))),
                 None => report.left("model", "config model: not written as provider/model".into(), |left| &mut left.settings),
             },
+            "default_agent" => match value.as_str() {
+                Some(agent) => drop(file.insert("defaultAgent".into(), json!(agent))),
+                None => report.left("default_agent", "config default_agent: not an agent's name".into(), |left| &mut left.settings),
+            },
             "instructions" => {
                 let paths: Vec<Value> = value.as_array().into_iter().flatten().filter_map(Value::as_str).map(|path| json!(instruction(path, config_dir))).collect();
                 file.insert("instructions".into(), Value::Array(paths));
@@ -612,6 +616,7 @@ mod tests {
         let config = json!({
             "$schema": "https://opencode.ai/config.json",
             "model": "anthropic/claude-opus-5-5",
+            "default_agent": "plan",
             "instructions": ["rules.md", "~/style.md"],
             "permission": { "edit": "ask", "bash": { "git *": "allow", "rm *": "deny" }, "doom_loop": "ask" },
             "tools": { "firecrawl_agent": false },
@@ -621,6 +626,7 @@ mod tests {
         let report = import_settings(&engine.store, &engine.credentials, &providers, &home, &settings(&dir.0, json!({}), config.clone(), vec![])).unwrap();
         let written: Value = serde_json::from_str(&std::fs::read_to_string(home.join(".config/drift/drift.json")).unwrap()).unwrap();
         assert_eq!(written["model"], json!({ "provider": "anthropic", "model": "claude-opus-5-5" }));
+        assert_eq!(written["defaultAgent"], "plan");
         assert_eq!(written["instructions"], json!([dir.0.join("rules.md").to_string_lossy().replace('\\', "/"), "~/style.md"]));
         assert_eq!(written["permissions"], json!([
             { "kind": "edit", "pattern": "*", "decision": "ask" },

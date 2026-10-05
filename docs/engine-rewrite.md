@@ -265,11 +265,17 @@ Every job the engine does can run on its own model, chosen under Settings > Agen
 
 | Agent | Kind | Runs | Default model |
 | --- | --- | --- | --- |
-| `build`, `plan`, workspace agents | primary | conversations (picked in the composer); can also take a `task` | the one the conversation was prompted with |
+| `build`, `plan`, workspace agents with `mode: primary` | primary | conversations (picked in the composer); can also take a `task` | the one the conversation was prompted with |
 | `general` (default `task` type), `explore` (read-only search), workspace agents with `mode: subagent` | subagent | `task` subagents only; listed for the model under "# Subagents" in the system prompt when `task` is offered | the parent's |
+| workspace agents with `mode: all` or no `mode` (opencode's default for a user's agent) | all | both: picked in the composer and listed for delegation | as for each use |
 | `title` | action | naming a new conversation | the cheapest priced model from the conversation's provider (the conversation's own model when it is free, as with local providers) |
 | `compaction` | action | summarising a long conversation | the conversation's |
 
+- An agent file with `disable: true` takes that agent away, a built-in of the same name included;
+  `hidden: true` keeps it out of the composer while `task` can still run it. drift.json's
+  `defaultAgent` names the agent a session created without one runs as (`Config::default_agent`;
+  one that cannot run a conversation leaves `build`); the import carries opencode's
+  `default_agent` over. The composer still opens on the agent last picked.
 - Settings overrides are stored by the shell (`prompt_override`, key `agent:<name>`, value
   `{ model: "provider/model", prompt }`). The shell hands them to the engine with
   `Engine::set_agent_overrides` at startup and after every save or reset. An empty `model` means

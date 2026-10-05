@@ -1941,7 +1941,7 @@ fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
 /// Whether a prompt may switch its session to `agent`: only a usable primary agent of the workspace runs a conversation.
 fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
     match config.agent(agent) {
-        Some(found) if found.kind == crate::config::AgentKind::Primary => found.usable().map(|_| ()).map_err(TurnError::Config),
+        Some(found) if found.kind.runs_conversations() => found.usable().map(|_| ()).map_err(TurnError::Config),
         _ => Err(TurnError::UnknownAgent),
     }
 }

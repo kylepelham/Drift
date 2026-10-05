@@ -21,8 +21,8 @@ export type ModelRef = { providerID: string; modelID: string }
 export type AgentInfo = {
   name: string
   description: string
-  mode: "primary" | "subagent"
-  /** Engine actions (titles, compaction): configurable in Settings, never picked in the composer. */
+  mode: "primary" | "subagent" | "all"
+  /** Engine actions (titles, compaction) and agents marked `hidden`: never picked in the composer. */
   hidden: boolean
   builtIn: boolean
   prompt?: string

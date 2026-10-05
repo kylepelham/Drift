@@ -174,7 +174,9 @@ message starts a fresh 30. The app only shows a notice for how the turn ended.
 
 Built-in subagents are `general` (the default `task` type, full tools) and `explore` (read-only
 search); a workspace `.drift/agents/<name>.md` with `mode: subagent` adds another. All appear in
-Settings > Agents with their prompts and model pickers, never in the composer. The engine runs a
+Settings > Agents with their prompts and model pickers, never in the composer. A workspace agent
+with `mode: all`, or no `mode` at all (as opencode reads one), is both: in the composer and offered
+for delegation. `hidden: true` keeps one out of the composer; `disable: true` removes it. The engine runs a
 `task` subagent on its agent's pinned model, falling back to the parent's.
 Threads from `/spawn` start on the source conversation's model.
 

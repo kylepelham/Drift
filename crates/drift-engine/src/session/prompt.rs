@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use super::types::{MessageWithParts, Part, PartRow, Role};
-use crate::config::{Agent, AgentKind, Config};
+use crate::config::{Agent, Config};
 use crate::llm::catalog::PromptFamily;
 
 /// The rules every family's prompt keeps, whatever replaces the rest: tools, `<system-reminder>`, the worktree, the answer's shape.
@@ -56,7 +56,7 @@ pub fn system(setting: &Setting) -> String {
     let Setting { base, workspace, config, agent, delegates, model, servers } = *setting;
     let mut prompt = format!("{}\n\n{}", base.trim(), SHARED.trim());
     // A primary agent's prompt rides on its turns' prompts instead (`remind_agents`), so the system prompt stays the same across a switch.
-    if let Some(agent) = agent.filter(|a| !a.prompt.is_empty() && a.kind != AgentKind::Primary) {
+    if let Some(agent) = agent.filter(|a| !a.prompt.is_empty() && !a.kind.runs_conversations()) {
         prompt.push_str(&format!("\n\n{}", agent.prompt));
     }
     prompt.push_str("\n\n# Environment\n\n");
@@ -76,7 +76,7 @@ pub fn system(setting: &Setting) -> String {
         }
     }
     // A broken subagent would only fail when picked, so it is not offered.
-    let subagents: Vec<&Agent> = config.agents.iter().filter(|a| a.kind == AgentKind::Subagent && a.problem.is_none()).collect();
+    let subagents: Vec<&Agent> = config.agents.iter().filter(|a| a.kind.delegated_to() && a.problem.is_none()).collect();
     if delegates && !subagents.is_empty() {
         prompt.push_str("\n# Subagents\n\nPass one as `subagent_type` to the `task` tool.\n\n");
         for subagent in subagents {
@@ -140,7 +140,7 @@ fn reminders(config: &Config, agent: &str, before: Option<&str>) -> Vec<String> 
 
 /// A primary agent's prompt as a reminder; subagents carry theirs in the system prompt.
 fn agent_prompt(config: &Config, agent: &str) -> Option<String> {
-    let found = config.agent(agent).filter(|found| found.kind == AgentKind::Primary && !found.prompt.is_empty())?;
+    let found = config.agent(agent).filter(|found| found.kind.runs_conversations() && !found.prompt.is_empty())?;
     Some(format!("<system-reminder>\n{}\n</system-reminder>", found.prompt))
 }
 

@@ -32,6 +32,8 @@ const MAX_INSTRUCTION_CHARS: usize = 40_000;
 pub struct File {
     /// Default model for new sessions.
     pub model: Option<ModelRef>,
+    /// The agent a session created without one runs as; a primary agent's name.
+    pub default_agent: Option<String>,
     pub permissions: Vec<Rule>,
     /// Extra instruction files, relative to the file's directory.
     pub instructions: Vec<String>,
@@ -185,6 +187,9 @@ pub struct Agent {
     /// Why this agent cannot run (a broken file or override); only its own turns, tasks and actions are refused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
+    /// Front matter `hidden: true`: left out of the composer's list; `task` can still run it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 impl Agent {
@@ -214,17 +219,30 @@ pub enum AgentKind {
     Primary,
     /// Only runs `task` subagents; never offered in the composer.
     Subagent,
+    /// Both: picked in the composer, and offered to the model for delegation. A user's agent with no `mode` is this, as in opencode.
+    All,
     /// Does one engine job (titles, compaction); never runs a conversation.
     Action,
 }
 
 impl AgentKind {
-    /// Front matter `mode: subagent` marks a workspace agent for delegation only.
+    /// Front matter `mode`: `primary`, `subagent` or `all`; anything else, or none, is `all`.
     fn from_mode(mode: Option<&str>) -> Self {
-        match mode {
+        match mode.map(str::trim) {
+            Some("primary") => Self::Primary,
             Some("subagent") => Self::Subagent,
-            _ => Self::Primary,
+            _ => Self::All,
         }
+    }
+
+    /// Can run a conversation picked in the composer.
+    pub fn runs_conversations(self) -> bool {
+        matches!(self, Self::Primary | Self::All)
+    }
+
+    /// Offered to the model by name for `task`.
+    pub fn delegated_to(self) -> bool {
+        matches!(self, Self::Subagent | Self::All)
     }
 }
 
@@ -381,6 +399,9 @@ pub struct Instruction {
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     pub model: Option<ModelRef>,
+    /// What drift.json names as `defaultAgent`; [`Config::default_agent`] checks it can run a conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_agent: Option<String>,
     pub permissions: Vec<Rule>,
     pub agents: Vec<Agent>,
     pub commands: Vec<Command>,
@@ -482,6 +503,12 @@ impl Config {
         self.agents.iter().find(|a| a.name == name)
     }
 
+    /// The agent a new session runs as: drift.json's `defaultAgent` when it names one that runs conversations, else `build`.
+    pub fn default_agent(&self) -> &str {
+        let named = self.default_agent.as_deref().and_then(|name| self.agent(name)).filter(|agent| agent.kind.runs_conversations() && agent.problem.is_none());
+        named.map_or("build", |agent| agent.name.as_str())
+    }
+
     /// The model an agent is pinned to, if any; unpinned agents inherit from whatever runs them.
     pub fn agent_model(&self, name: &str) -> Option<ModelRef> {
         self.agent(name).and_then(|agent| agent.model.clone())
@@ -566,6 +593,9 @@ impl Config {
         if file.model.is_some() {
             self.model = file.model;
         }
+        if file.default_agent.is_some() {
+            self.default_agent = file.default_agent;
+        }
         // Later files' rules come first, so a project rule beats a home rule for the same pattern.
         let mut rules = file.permissions;
         rules.append(&mut self.permissions);
@@ -608,17 +638,23 @@ impl Config {
         }
     }
 
-    /// A file named after an action customises that action; otherwise `mode` decides, then the agent it replaces.
+    /// A file named after an action customises that action; otherwise `mode` decides, then the agent it
+    /// replaces, then `all`, as opencode reads a user's agent.
     fn workspace_kind(&self, name: &str, mode: Option<&str>) -> AgentKind {
         match self.agent(name).map(|existing| existing.kind) {
             Some(AgentKind::Action) => AgentKind::Action,
-            existing if mode.is_none() => existing.unwrap_or_default(),
+            Some(existing) if mode.is_none() => existing,
             _ => AgentKind::from_mode(mode),
         }
     }
 
     fn apply_dir(&mut self, dir: &Path) {
         for (name, doc) in markdown_files(&dir.join("agents")) {
+            // `disable: true` takes the agent away, a built-in by the same name included.
+            if doc.field("disable").is_some_and(|value| value.trim() == "true") {
+                self.agents.retain(|a| a.name != name);
+                continue;
+            }
             let ignored: Vec<&str> = ["temperature", "top_p", "topP", "options", "provider_options"].into_iter().filter(|key| doc.fields.contains_key(*key)).collect();
             // Agents ported from opencode run; the fields they set are named once and the model's own sampling used.
             if !ignored.is_empty() {
@@ -642,6 +678,7 @@ impl Config {
                 permissions,
                 variant: doc.field("variant"),
                 problem,
+                hidden: doc.field("hidden").is_some_and(|value| value.trim() == "true"),
             };
             self.agents.retain(|a| a.name != name);
             self.agents.push(agent);
@@ -788,6 +825,7 @@ fn builtin_agents() -> Vec<Agent> {
         permissions: Vec::new(),
         variant: None,
         problem: None,
+        hidden: false,
     };
     let read_only = |agent: Agent| Agent { read_only: true, ..agent };
     vec![
@@ -886,6 +924,30 @@ mod tests {
         assert_eq!(choices("design"), expected, "and offers the skill's choices");
         assert!(command("ordinary").subcommands.is_empty() && command("ordinary").usage.is_none(), "a same-name command that calls no skill inherits nothing");
         std::fs::remove_dir_all(ws).ok();
+    }
+
+    #[test]
+    fn agent_modes_hidden_disable_and_the_default_agent_read_as_opencode_reads_them() {
+        let root = std::env::temp_dir().join(format!("drift-modes-{}", crate::random_hex(4)));
+        let ws = root.join("ws");
+        write(&ws, ".drift/agents/helper.md", "---\ndescription: No mode\n---\nHelp.");
+        write(&ws, ".drift/agents/both.md", "---\ndescription: Both\nmode: all\n---\nBoth.");
+        write(&ws, ".drift/agents/lead.md", "---\ndescription: Lead\nmode: primary\n---\nLead.");
+        write(&ws, ".drift/agents/quiet.md", "---\ndescription: Internal\nmode: subagent\nhidden: true\n---\nQuiet.");
+        write(&ws, ".drift/agents/explore.md", "---\ndisable: true\n---\n");
+        write(&ws, ".drift/agents/gone.md", "---\ndescription: Off\ndisable: true\n---\nNever.");
+        write(&ws, "drift.json", r#"{ "defaultAgent": "lead" }"#);
+        let config = Config::load_with_home(&ws, None);
+        let kind = |name: &str| config.agent(name).map(|agent| agent.kind);
+        assert_eq!(kind("helper"), Some(AgentKind::All), "no mode means both, as in opencode");
+        assert_eq!((kind("both"), kind("lead"), kind("quiet")), (Some(AgentKind::All), Some(AgentKind::Primary), Some(AgentKind::Subagent)));
+        assert!(AgentKind::All.runs_conversations() && AgentKind::All.delegated_to() && !AgentKind::Primary.delegated_to() && !AgentKind::Subagent.runs_conversations());
+        assert!(config.agent("quiet").unwrap().hidden && !config.agent("helper").unwrap().hidden);
+        assert!(config.agent("explore").is_none() && config.agent("gone").is_none(), "disable takes an agent away, a built-in included");
+        assert_eq!(config.default_agent(), "lead");
+        write(&ws, "drift.json", r#"{ "defaultAgent": "quiet" }"#);
+        assert_eq!(Config::load_with_home(&ws, None).default_agent(), "build", "a subagent cannot run a conversation, so the default stands");
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

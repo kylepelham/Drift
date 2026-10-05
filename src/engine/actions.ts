@@ -524,8 +524,8 @@ export function createActions(
     const agents: AgentInfo[] = config.agents.map((agent) => ({
       name: agent.name,
       description: agent.description,
-      mode: agent.kind === "subagent" ? "subagent" : "primary",
-      hidden: agent.kind === "action",
+      mode: agent.kind === "subagent" || agent.kind === "all" ? agent.kind : "primary",
+      hidden: agent.kind === "action" || !!agent.hidden,
       builtIn: agent.builtin,
       tools: agent.tools ?? [],
       permissions: agent.permissions ?? [],
