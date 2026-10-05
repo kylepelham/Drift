@@ -18,6 +18,8 @@ pub struct ServerView {
     /// Read-only agents may use the tools it marks read-only; set on save (`PUT /mcp/{name}?readOnlyTrusted=`).
     pub read_only_trusted: bool,
     pub updated_at: i64,
+    /// Workspaces where it is on though the switch is off, or off though the switch is on.
+    pub workspaces: Vec<super::WorkspaceChoice>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -122,7 +124,7 @@ impl ServerView {
                 ServerConfigView::Sse { url: url.clone(), headers: names(headers), oauth: oauth.as_ref().map(OAuthView::of), timeout_seconds: *timeout_seconds }
             }
         };
-        Self { name: row.name.clone(), config, enabled: row.enabled, read_only_trusted: row.read_only_trusted, updated_at: row.updated_at }
+        Self { name: row.name.clone(), config, enabled: row.enabled, read_only_trusted: row.read_only_trusted, updated_at: row.updated_at, workspaces: row.workspaces.clone() }
     }
 }
 
@@ -179,7 +181,7 @@ mod tests {
     use super::*;
 
     fn row(config: ServerConfig) -> ServerRow {
-        ServerRow { name: "docs".into(), config, enabled: true, hash: "0011223344556677".into(), updated_at: 1, era: None, read_only_trusted: false }
+        ServerRow { name: "docs".into(), config, enabled: true, hash: "0011223344556677".into(), updated_at: 1, era: None, read_only_trusted: false, workspaces: Vec::new() }
     }
 
     #[test]

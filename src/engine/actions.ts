@@ -691,7 +691,7 @@ export function createActions(
     mcpRemove,
     mcpSetEnabled: (name: string, enabled: boolean, directory?: string) => mcpChange(() => requireClient().setMcpServerEnabled(name, enabled, workspaceOf(directory))),
     mcpConnect: (name: string, directory?: string) => mcpChange(() => requireClient().connectMcpServer(name, workspaceOf(directory))),
-    mcpDisconnect: (name: string) => mcpChange(() => requireClient().disconnectMcpServer(name)),
+    mcpDisconnect: (name: string, directory?: string) => mcpChange(() => requireClient().disconnectMcpServer(name, workspaceOf(directory))),
     /** The page to open in the browser; the server connects by itself once the user comes back. */
     mcpSignIn: async (name: string) => (await requireClient().signInMcpServer(name)).url,
     mcpSignOut: (name: string) => mcpChange(() => requireClient().signOutMcpServer(name)),

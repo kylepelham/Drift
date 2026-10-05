@@ -13,7 +13,7 @@ if (!("localStorage" in globalThis))
 type McpServer = components["schemas"]["ServerStatus"]
 
 function server(name: string, state: McpServer["state"]): McpServer {
-  return { name, config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] }, enabled: state !== "disabled", readOnlyTrusted: false, updatedAt: 1, state, tools: [], transport: "stdio", needsSignIn: false, signedIn: false, unreadable: false }
+  return { name, config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] }, enabled: state !== "disabled", readOnlyTrusted: false, updatedAt: 1, workspaces: [], state, tools: [], transport: "stdio", needsSignIn: false, signedIn: false, unreadable: false }
 }
 
 test("a server refusing until the user signs in says so instead of showing its raw error", async () => {
@@ -303,6 +303,26 @@ test("rows offer connect or disconnect only where the engine can do it", async (
   expect(mcpRuntimeKeyAction(server("a", "connected"), "ArrowLeft")).toBe("disconnect")
   expect(mcpRuntimeKeyAction(server("a", "disconnected"), "ArrowRight")).toBe("connect")
   expect(nextMcpRowName(["a", "b", "c"], "c", "ArrowDown")).toBe("a")
+})
+
+test("in a workspace, the plug button turns a server on or off there, and the row says where it is on", async () => {
+  const { mcpOnIn, mcpRuntimeAction, mcpScopeLabel, mcpStatusLabel } = await import("../src/ui/mcp/manager")
+  // IDA: off by its switch, turned on in the RE workspace only.
+  const ida = { ...server("ida", "connected"), enabled: false, workspaces: [{ workspaceId: "re", enabled: true }] }
+  expect([mcpOnIn(ida, "re"), mcpOnIn(ida, "web"), mcpOnIn(ida)]).toEqual([true, false, false])
+  expect(mcpRuntimeAction(ida, "re")).toBe("disconnect")
+  expect(mcpRuntimeAction(ida, "web"), "connected elsewhere, it is still turned on here by the plug").toBe("connect")
+  expect(mcpStatusLabel(ida, false, "web").text).toBe("off in this workspace")
+  expect(mcpStatusLabel(ida, false, "re").text).toBe("connected")
+  expect([mcpScopeLabel(ida, "re"), mcpScopeLabel(ida, "web"), mcpScopeLabel(ida)]).toEqual(["on for this workspace only", "on in other workspaces", undefined])
+  // Off everywhere: still turned on here, and says disabled rather than off here.
+  const off = server("ida", "disabled")
+  expect(mcpRuntimeAction(off, "re")).toBe("connect")
+  expect(mcpStatusLabel(off, false, "re").text).toBe("disabled")
+  // On by its switch, turned off in one workspace.
+  const docs = { ...server("docs", "connected"), workspaces: [{ workspaceId: "re", enabled: false }] }
+  expect(mcpStatusLabel(docs, false, "re").text).toBe("off in this workspace")
+  expect(mcpScopeLabel(docs, "web"), "on everywhere by its switch needs no note").toBeUndefined()
 })
 
 test("a row has one switch and a connect button that stays in place; read-only trust lives in the editor, on for a new server", async () => {

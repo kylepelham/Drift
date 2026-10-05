@@ -90,6 +90,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** With a workspace, the server goes off there only; without one, every connection ends until the user connects it again. */
         post: operations["disconnectMcpServer"];
         delete?: never;
         options?: never;
@@ -1609,6 +1610,8 @@ export interface components {
             readOnlyTrusted: boolean;
             /** Format: int64 */
             updatedAt: number;
+            /** @description Workspaces where it is on though the switch is off, or off though the switch is on. */
+            workspaces: components["schemas"]["WorkspaceChoice"][];
         };
         Session: {
             agent: string;
@@ -1741,6 +1744,11 @@ export interface components {
             lastUsed: number;
             name: string;
             path: string;
+        };
+        /** @description A workspace's own choice for a server: on there though off elsewhere, or the reverse. */
+        WorkspaceChoice: {
+            enabled: boolean;
+            workspaceId: string;
         };
     };
     responses: never;
@@ -1885,7 +1893,10 @@ export interface operations {
     connectMcpServer: {
         parameters: {
             query?: {
-                /** @description The active workspace, where a stdio server connects (besides every workspace it already ran in). */
+                /**
+                 * @description The active workspace, where a stdio server connects (besides every workspace it already ran in).
+                 *     On connect and disconnect, the server is turned on or off there, and remembered for it.
+                 */
                 workspace?: string | null;
             };
             header?: never;
@@ -1920,7 +1931,13 @@ export interface operations {
     };
     disconnectMcpServer: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description The active workspace, where a stdio server connects (besides every workspace it already ran in).
+                 *     On connect and disconnect, the server is turned on or off there, and remembered for it.
+                 */
+                workspace?: string | null;
+            };
             header?: never;
             path: {
                 name: string;
@@ -1948,7 +1965,10 @@ export interface operations {
     setMcpServerEnabled: {
         parameters: {
             query?: {
-                /** @description The active workspace, where a stdio server connects (besides every workspace it already ran in). */
+                /**
+                 * @description The active workspace, where a stdio server connects (besides every workspace it already ran in).
+                 *     On connect and disconnect, the server is turned on or off there, and remembered for it.
+                 */
                 workspace?: string | null;
             };
             header?: never;
@@ -1982,7 +2002,10 @@ export interface operations {
     renameMcpServer: {
         parameters: {
             query?: {
-                /** @description The active workspace, where a stdio server connects (besides every workspace it already ran in). */
+                /**
+                 * @description The active workspace, where a stdio server connects (besides every workspace it already ran in).
+                 *     On connect and disconnect, the server is turned on or off there, and remembered for it.
+                 */
                 workspace?: string | null;
             };
             header?: never;

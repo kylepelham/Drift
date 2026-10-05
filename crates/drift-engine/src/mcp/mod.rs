@@ -107,7 +107,7 @@ impl ServerConfig {
 fn unreadable(name: String) -> ServerStatus {
     let config = view::ServerConfigView::Stdio { command: String::new(), args: Vec::new(), env: Vec::new(), cwd: None, timeout_seconds: None };
     ServerStatus {
-        server: ServerView { name, config, enabled: false, read_only_trusted: false, updated_at: 0 },
+        server: ServerView { name, config, enabled: false, read_only_trusted: false, updated_at: 0, workspaces: Vec::new() },
         state: State::Failed,
         error: Some("Its saved definition could not be read, probably because a newer Drift wrote it. Edit and save it again, or remove it.".into()),
         tools: Vec::new(),
@@ -136,6 +136,32 @@ pub struct ServerRow {
     /// The user lets read-only agents (plan, explore) use the tools it marks read-only. A save that
     /// changes its definition, env and headers included, takes this back.
     pub read_only_trusted: bool,
+    /// Workspaces that chose otherwise than `enabled`, which is the choice everywhere else.
+    pub workspaces: Vec<WorkspaceChoice>,
+}
+
+/// A workspace's own choice for a server: on there though off elsewhere, or the reverse.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceChoice {
+    pub workspace_id: String,
+    /// The workspace's folder as stored; matched against a connection's folder, never sent to clients.
+    #[serde(skip)]
+    pub path: String,
+    pub enabled: bool,
+}
+
+impl ServerRow {
+    /// Whether turns in `workspace` (a canonical folder) are offered this server.
+    pub fn on_in(&self, workspace: &Path) -> bool {
+        let chosen = self.workspaces.iter().find(|choice| crate::tool::canonical(Path::new(&choice.path)) == workspace);
+        chosen.map_or(self.enabled, |choice| choice.enabled)
+    }
+
+    /// On somewhere: by its switch, or in a workspace that turned it on.
+    pub fn on_anywhere(&self) -> bool {
+        self.enabled || self.workspaces.iter().any(|choice| choice.enabled)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -539,8 +565,11 @@ impl Slots {
     }
 
     /// The server's live connection for `workspace`: its own there, else a remote server's shared one;
-    /// a stdio server is never used from anywhere but the workspace it runs in. Finding it counts as a use.
-    fn live_for(&self, server: &str, workspace: Option<&Path>) -> Option<(Key, Arc<Live>)> {
+    /// a stdio server is never used from anywhere but the workspace it runs in, and none where it is off. Finding it counts as a use.
+    fn live_for(&self, server: &str, workspace: Option<&Path>, shown: &Shown) -> Option<(Key, Arc<Live>)> {
+        if !shown.allows(server) {
+            return None;
+        }
         let own = workspace.map(|workspace| Key::of(server, Some(workspace)));
         own.into_iter().chain([Key::shared(server)]).find_map(|key| {
             let slot = self.servers.get(&key)?;
@@ -551,14 +580,28 @@ impl Slots {
     }
 
     /// Each server's live connection for `workspace`, by name.
-    fn lives_for(&self, workspace: Option<&Path>) -> Vec<(Key, Arc<Slot>, Arc<Live>)> {
+    fn lives_for(&self, workspace: Option<&Path>, shown: &Shown) -> Vec<(Key, Arc<Slot>, Arc<Live>)> {
         let mut names: Vec<&String> = self.servers.keys().map(|key| &key.server).collect();
         names.sort();
         names.dedup();
         names.into_iter().filter_map(|name| {
-            let (key, live) = self.live_for(name, workspace)?;
+            let (key, live) = self.live_for(name, workspace, shown)?;
             Some((key.clone(), self.servers.get(&key)?.clone(), live))
         }).collect()
+    }
+}
+
+/// The servers turns in a workspace are offered; with no store (a bare registry) or no workspace, every one on anywhere.
+struct Shown(Option<std::collections::HashSet<String>>);
+
+impl Shown {
+    fn of(store: Option<&Store>, workspace: Option<&Path>) -> Self {
+        let Some(rows) = store.and_then(|store| store.mcp_servers().ok()) else { return Self(None) };
+        Self(Some(rows.into_iter().filter(|row| workspace.map_or(row.on_anywhere(), |workspace| row.on_in(workspace))).map(|row| row.name).collect()))
+    }
+
+    fn allows(&self, server: &str) -> bool {
+        self.0.as_ref().is_none_or(|names| names.contains(server))
     }
 }
 
@@ -589,6 +632,8 @@ pub struct Servers {
     sign_ins: Option<Arc<crate::llm::credentials::Credentials>>,
     /// The workspace each connected client (window or device) has open, by socket; their servers never stop for idleness.
     open: Mutex<HashMap<u64, PathBuf>>,
+    /// Where each workspace's choices are read; none in a bare test registry, which offers every server.
+    store: Option<Arc<Store>>,
 }
 
 enum Watch {
@@ -598,8 +643,12 @@ enum Watch {
 }
 
 impl Servers {
-    pub fn new(sign_ins: Arc<crate::llm::credentials::Credentials>) -> Self {
-        Self { sign_ins: Some(sign_ins), ..Self::default() }
+    pub fn new(sign_ins: Arc<crate::llm::credentials::Credentials>, store: Arc<Store>) -> Self {
+        Self { sign_ins: Some(sign_ins), store: Some(store), ..Self::default() }
+    }
+
+    fn shown(&self, workspace: Option<&Path>) -> Shown {
+        Shown::of(self.store.as_deref(), workspace)
     }
 
     fn lock(&self) -> MutexGuard<'_, Slots> {
@@ -619,7 +668,7 @@ impl Servers {
         let slots = self.lock();
         let keys = slots.keys_of(&row.name);
         let live = keys.iter().find_map(|key| slots.live(key));
-        let Transient { state, error, needs_sign_in } = if !row.enabled {
+        let Transient { state, error, needs_sign_in } = if !row.on_anywhere() {
             Transient::new(State::Disabled, None)
         } else if live.is_some() {
             Transient::new(State::Connected, None)
@@ -692,8 +741,8 @@ impl Servers {
             _ if slots.held.contains(&key.server) => return Err("the user disconnected it".into()),
             _ => {}
         }
-        if !row.enabled {
-            return Err("server is disabled".into());
+        if !key.workspace.as_deref().map_or(row.on_anywhere(), |workspace| row.on_in(workspace)) {
+            return Err(if row.on_anywhere() { "it is off in this workspace" } else { "server is disabled" }.into());
         }
         let attempt = Attempt { id: self.next_attempt.fetch_add(1, Ordering::Relaxed), generation, cancel: CancellationToken::new() };
         if let Some(earlier) = slots.attempts.insert(key.clone(), attempt.clone()) {
@@ -729,10 +778,15 @@ impl Servers {
 
     /// Writes the server's row and, in the same step, ends every connection of it and any connect in flight. A write that refuses changes nothing.
     fn detach<R, E>(&self, name: &str, store: &Store, ending: Ending, write: impl FnOnce(&Store) -> Result<R, E>) -> Result<(Vec<Arc<Live>>, R), E> {
+        self.detach_where(name, store, ending, |_| true, write)
+    }
+
+    /// [`Self::detach`] for the connections `ends` picks.
+    fn detach_where<R, E>(&self, name: &str, store: &Store, ending: Ending, ends: impl Fn(&Key) -> bool, write: impl FnOnce(&Store) -> Result<R, E>) -> Result<(Vec<Arc<Live>>, R), E> {
         let mut slots = self.lock();
         let written = write(store)?;
         let mut lives = Vec::new();
-        for key in slots.keys_of(name) {
+        for key in slots.keys_of(name).into_iter().filter(|key| ends(key)) {
             *slots.generation.entry(key.clone()).or_default() += 1;
             if let Some(attempt) = slots.attempts.remove(&key) {
                 attempt.cancel.cancel();
@@ -768,6 +822,18 @@ impl Servers {
         let was_live = !lives.is_empty();
         self.retire(name, store, hub, lives).await;
         was_live
+    }
+
+    /// The user turning a server off in one workspace: `write` records it, then its connection there ends; a
+    /// remote server's shared one ends only once no workspace has it on. No other workspace is touched.
+    pub async fn disconnect_in<E>(&self, name: &str, workspace: &Path, store: &Store, hub: &Hub, write: impl FnOnce(&Store) -> Result<bool, E>) -> Result<bool, E> {
+        let ends = |key: &Key| match &key.workspace {
+            Some(own) => own == workspace,
+            None => !store.mcp_server(name).ok().flatten().is_some_and(|row| row.on_anywhere()),
+        };
+        let (lives, found) = self.detach_where(name, store, Ending::Keep, ends, write)?;
+        self.retire(name, store, hub, lives).await;
+        Ok(found)
     }
 
     /// Ends one connection (a workspace removed or left idle); the next turn there starts it again. A
@@ -873,7 +939,8 @@ impl Servers {
     /// shared one), named `server_tool` so the model can tell them apart; the names are kept in
     /// `store`, so a tool keeps its name for good ([`wire_names`]).
     pub fn tools(&self, store: &Store, workspace: Option<&Path>) -> Vec<Arc<dyn crate::tool::Tool>> {
-        let lives = self.lock().lives_for(workspace);
+        let shown = self.shown(workspace);
+        let lives = self.lock().lives_for(workspace, &shown);
         let resources = lives.iter().any(|(_, _, live)| live.resources);
         let listed: Vec<(Key, rmcp::model::Tool, Arc<Live>, Arc<Slot>)> =
             lives.into_iter().flat_map(|(key, slot, live)| live.tools().into_iter().map(move |tool| (key.clone(), tool, live.clone(), slot.clone()))).collect();
@@ -910,21 +977,25 @@ impl Servers {
 
     /// The own instructions of each server connected for `workspace`, by server name.
     pub fn instructions(&self, workspace: Option<&Path>) -> Vec<(String, String)> {
-        self.lock().lives_for(workspace).into_iter().filter_map(|(key, _, live)| Some((key.server, live.instructions.clone()?))).collect()
+        let shown = self.shown(workspace);
+        self.lock().lives_for(workspace, &shown).into_iter().filter_map(|(key, _, live)| Some((key.server, live.instructions.clone()?))).collect()
     }
 
     fn live(&self, server: &str, workspace: Option<&Path>) -> Result<Arc<Live>, String> {
-        self.lock().live_for(server, workspace).map(|(_, live)| live).ok_or_else(|| format!("the {server} MCP server is not connected"))
+        let shown = self.shown(workspace);
+        self.lock().live_for(server, workspace, &shown).map(|(_, live)| live).ok_or_else(|| format!("the {server} MCP server is not connected"))
     }
 
     /// Servers connected for `workspace` that serve resources, by name.
     pub fn with_resources(&self, workspace: Option<&Path>) -> Vec<String> {
-        self.lock().lives_for(workspace).into_iter().filter(|(_, _, live)| live.resources).map(|(key, _, _)| key.server).collect()
+        let shown = self.shown(workspace);
+        self.lock().lives_for(workspace, &shown).into_iter().filter(|(_, _, live)| live.resources).map(|(key, _, _)| key.server).collect()
     }
 
     /// The prompts of every server connected for `workspace`, as `(server, prompt)`.
     pub fn prompts(&self, workspace: Option<&Path>) -> Vec<(String, rmcp::model::Prompt)> {
-        let mut all: Vec<(String, rmcp::model::Prompt)> = self.lock().lives_for(workspace).into_iter().flat_map(|(key, _, live)| live.prompts.iter().map(|prompt| (key.server.clone(), prompt.clone())).collect::<Vec<_>>()).collect();
+        let shown = self.shown(workspace);
+        let mut all: Vec<(String, rmcp::model::Prompt)> = self.lock().lives_for(workspace, &shown).into_iter().flat_map(|(key, _, live)| live.prompts.iter().map(|prompt| (key.server.clone(), prompt.clone())).collect::<Vec<_>>()).collect();
         all.sort_by(|a, b| (&a.0, &a.1.name).cmp(&(&b.0, &b.1.name)));
         all
     }
@@ -1222,7 +1293,7 @@ impl crate::Engine {
     /// turn there is planned ([`Self::start_workspace_mcp`]).
     pub fn connect_all_mcp(self: &Arc<Self>) {
         let Ok(rows) = self.store.mcp_servers() else { return };
-        for row in rows.into_iter().filter(|row| row.enabled && row.config.is_remote()) {
+        for row in rows.into_iter().filter(|row| row.on_anywhere() && row.config.is_remote()) {
             self.begin_mcp(Key::shared(&row.name));
         }
     }
@@ -1230,7 +1301,7 @@ impl crate::Engine {
     /// Starts each enabled stdio server's connection for `workspace` that is not live, connecting or failed.
     pub(crate) fn start_workspace_mcp(self: &Arc<Self>, workspace: &Path) {
         let Ok(rows) = self.store.mcp_servers() else { return };
-        for row in rows.into_iter().filter(|row| row.enabled && !row.config.is_remote()) {
+        for row in rows.into_iter().filter(|row| !row.config.is_remote() && row.on_in(workspace)) {
             self.begin_mcp(Key::of(&row.name, Some(workspace)));
         }
     }

@@ -14,15 +14,22 @@ type RuntimeAction = "connect" | "disconnect"
 type RowKey = "ArrowUp" | "ArrowDown" | "Home" | "End"
 type EditorEntry = { server?: McpServerStatus }
 
-/** Connect and disconnect apply only to an enabled server whose definition this build can read. */
-export function mcpRuntimeAction(server: McpServerStatus): RuntimeAction | undefined {
+/** Whether turns in workspace `workspaceId` are offered the server: that workspace's own choice, else the server's switch. */
+export function mcpOnIn(server: Pick<McpServerStatus, "enabled" | "workspaces">, workspaceId?: string) {
+  const chosen = workspaceId === undefined ? undefined : server.workspaces.find((choice) => choice.workspaceId === workspaceId)
+  return chosen ? chosen.enabled : server.enabled
+}
+
+/** Connect and disconnect apply to a server this build can read; in a workspace that has it off, connect turns it on there. */
+export function mcpRuntimeAction(server: McpServerStatus, workspaceId?: string): RuntimeAction | undefined {
   if (server.unreadable) return undefined
+  if (workspaceId !== undefined && !mcpOnIn(server, workspaceId)) return "connect"
   if (server.state === "connected") return "disconnect"
   if (server.state === "disconnected" || server.state === "failed") return "connect"
 }
 
-export function mcpRuntimeKeyAction(server: McpServerStatus, key: string): RuntimeAction | undefined {
-  const action = mcpRuntimeAction(server)
+export function mcpRuntimeKeyAction(server: McpServerStatus, key: string, workspaceId?: string): RuntimeAction | undefined {
+  const action = mcpRuntimeAction(server, workspaceId)
   if (key === "ArrowLeft") return action === "disconnect" ? action : undefined
   if (key === "ArrowRight") return action === "connect" ? action : undefined
   if (key === "Enter") return action
@@ -50,6 +57,7 @@ export function McpManagement(props: { embedded?: boolean }) {
   const rowElements = new Map<string, HTMLDivElement>()
   const offline = () => engine.state.connection !== "online"
   const here = () => activeWorkspace()?.path
+  const hereId = () => activeWorkspace()?.id
   const locked = () => offline() || !!busy()
   const rowNames = createMemo(() => Object.keys(engine.state.mcpServers).sort((a, b) => a.localeCompare(b)))
   const moveRow = (key: RowKey, current = selected()) => {
@@ -111,7 +119,7 @@ export function McpManagement(props: { embedded?: boolean }) {
     if (await run(name, () => engine.actions.mcpRemove(name), t("drift.mcp.removed", { name }))) setConfirmRemove("")
   }
   const runtime = (server: McpServerStatus, action: RuntimeAction) =>
-    void run(server.name, () => (action === "connect" ? engine.actions.mcpConnect(server.name, here()) : engine.actions.mcpDisconnect(server.name)))
+    void run(server.name, () => (action === "connect" ? engine.actions.mcpConnect(server.name, here()) : engine.actions.mcpDisconnect(server.name, here())))
   const signIn = (name: string) =>
     void run(name, async () => openExternal(await engine.actions.mcpSignIn(name)), t("drift.mcp.signInOpened", { name }))
   const signOut = (name: string) => void run(name, () => engine.actions.mcpSignOut(name))
@@ -197,6 +205,7 @@ export function McpManagement(props: { embedded?: boolean }) {
                 {(server) => (
                   <ServerRow
                     server={server()}
+                    workspaceId={hereId()}
                     selected={selected() === name}
                     embedded={props.embedded}
                     disabled={locked()}
@@ -246,6 +255,7 @@ export function mcpProtocolLabel(server: Pick<McpServerStatus, "transport" | "pr
 
 function ServerRow(props: {
   server: McpServerStatus
+  workspaceId?: string
   selected: boolean
   embedded?: boolean
   disabled: boolean
@@ -261,8 +271,9 @@ function ServerRow(props: {
   onSignIn: () => void
   onSignOut: () => void
 }) {
-  const status = () => mcpStatusLabel(props.server, props.busy)
-  const runtime = () => mcpRuntimeAction(props.server)
+  const status = () => mcpStatusLabel(props.server, props.busy, props.workspaceId)
+  const runtime = () => mcpRuntimeAction(props.server, props.workspaceId)
+  const scope = () => mcpScopeLabel(props.server, props.workspaceId)
   return (
     <div
       ref={props.rowRef}
@@ -286,7 +297,7 @@ function ServerRow(props: {
           props.onNavigate(event.key as RowKey)
           return
         }
-        const action = props.disabled ? undefined : mcpRuntimeKeyAction(props.server, event.key)
+        const action = props.disabled ? undefined : mcpRuntimeKeyAction(props.server, event.key, props.workspaceId)
         if (!action) return
         event.preventDefault()
         props.onRuntime(action)
@@ -297,6 +308,7 @@ function ServerRow(props: {
           <div class="truncate text-sm font-medium text-ink">{props.server.name}</div>
           <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
             <span class={status().tone}>{status().text}</span>
+            <Show when={scope()}>{(text) => <span class="text-ink-muted">{text()}</span>}</Show>
             <span class="text-ink-faint">{mcpProtocolLabel(props.server)}</span>
           </div>
         </div>
@@ -323,10 +335,10 @@ function ServerRow(props: {
           <Action disabled={props.disabled} title={t("common.edit")} onClick={props.onEdit}>
             <IconSquarePen class="size-3.5" />
           </Action>
-          {/* Always in its place so rows line up; greyed out while the server is off or connecting. */}
+          {/* Always in its place so rows line up; in a workspace it turns the server on or off there only. */}
           <Action
             disabled={props.disabled || !runtime()}
-            title={t(runtime() === "disconnect" ? "common.disconnect" : "common.connect")}
+            title={mcpRuntimeTitle(runtime(), props.workspaceId)}
             onClick={() => {
               const action = runtime()
               if (action) props.onRuntime(action)
@@ -336,6 +348,7 @@ function ServerRow(props: {
           </Action>
           <Toggle
             label={t("drift.mcp.enable", { name: props.server.name })}
+            title={t("drift.mcp.switchHint")}
             checked={props.server.enabled}
             disabled={props.disabled || props.server.unreadable}
             onChange={() => props.onEnabled(!props.server.enabled)}
@@ -346,8 +359,22 @@ function ServerRow(props: {
   )
 }
 
-export function mcpStatusLabel(server: McpServerStatus, busy: boolean) {
+/** The plug button's words: in a workspace it turns the server on or off there; with none open, it connects or disconnects. */
+function mcpRuntimeTitle(action: RuntimeAction | undefined, workspaceId?: string) {
+  if (workspaceId === undefined) return t(action === "disconnect" ? "common.disconnect" : "common.connect")
+  return t(action === "disconnect" ? "drift.mcp.offHere" : "drift.mcp.onHere")
+}
+
+/** A server whose workspaces chose otherwise than its switch says where it is on, as seen from `workspaceId`. */
+export function mcpScopeLabel(server: Pick<McpServerStatus, "enabled" | "workspaces">, workspaceId?: string) {
+  if (workspaceId === undefined || server.enabled) return undefined
+  if (mcpOnIn(server, workspaceId)) return t("drift.mcp.scope.chosen")
+  return server.workspaces.some((choice) => choice.enabled) ? t("drift.mcp.scope.elsewhere") : undefined
+}
+
+export function mcpStatusLabel(server: McpServerStatus, busy: boolean, workspaceId?: string) {
   if (busy) return { text: t("common.loading"), tone: "text-ink-faint" }
+  if (workspaceId !== undefined && server.state !== "disabled" && !mcpOnIn(server, workspaceId)) return { text: t("drift.mcp.status.offHere"), tone: "text-ink-faint" }
   switch (server.state) {
     case "connected":
       return { text: t("mcp.status.connected"), tone: "text-ok" }

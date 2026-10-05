@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use super::sessions::transaction;
 use super::Store;
 use crate::id;
-use crate::mcp::{wire_names, Era, Given, ServerConfig, ServerRow};
+use crate::mcp::{wire_names, Era, Given, ServerConfig, ServerRow, WorkspaceChoice};
 
 const COLUMNS: &str = "name, config_json, enabled, updated_at, era, read_only_trusted";
 
@@ -41,8 +41,8 @@ impl Store {
     fn stored_servers(&self) -> rusqlite::Result<Vec<Stored>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config ORDER BY name"))?;
-        let rows = stmt.query_map([], stored)?;
-        rows.collect()
+        let rows = stmt.query_map([], stored)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().map(|stored| with_choices(&conn, stored)).collect()
     }
 
     /// The server, or `None` when there is none or its definition cannot be read.
@@ -60,7 +60,7 @@ impl Store {
         )?
         .execute(params![name, json, id::now_ms()])?;
         let row = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([name], map_row)?;
-        Ok(row)
+        choices_of(&conn, row)
     }
 
     /// Remembers the era a server answered in, only while it still has the config it answered under.
@@ -79,12 +79,22 @@ impl Store {
         Ok(changed > 0)
     }
 
+    /// The server's switch: on or off in every workspace, so the workspaces' own choices go.
     pub fn set_mcp_enabled(&self, name: &str, enabled: bool) -> rusqlite::Result<bool> {
-        let changed = self
-            .lock()
-            .prepare_cached("UPDATE mcp_config SET enabled = ?2, updated_at = ?3 WHERE name = ?1")?
-            .execute(params![name, enabled, id::now_ms()])?;
-        Ok(changed > 0)
+        transaction(&self.lock(), |conn| {
+            conn.prepare_cached("DELETE FROM mcp_workspace WHERE server = ?1")?.execute([name])?;
+            Ok(conn.prepare_cached("UPDATE mcp_config SET enabled = ?2, updated_at = ?3 WHERE name = ?1")?.execute(params![name, enabled, id::now_ms()])? > 0)
+        })
+    }
+
+    /// The server on or off in one workspace; kept only where it differs from the switch. False when there is no such server.
+    pub fn set_mcp_choice(&self, name: &str, workspace_id: &str, enabled: bool) -> rusqlite::Result<bool> {
+        transaction(&self.lock(), |conn| {
+            conn.prepare_cached("DELETE FROM mcp_workspace WHERE server = ?1 AND workspace_id = ?2")?.execute([name, workspace_id])?;
+            conn.prepare_cached("INSERT INTO mcp_workspace(server, workspace_id, enabled) SELECT name, ?2, ?3 FROM mcp_config WHERE name = ?1 AND enabled != ?3")?
+                .execute(params![name, workspace_id, enabled])?;
+            conn.prepare_cached("SELECT 1 FROM mcp_config WHERE name = ?1")?.exists([name])
+        })
     }
 
     /// Removes the server and the names its tools were given, which a later server may then use.
@@ -110,7 +120,7 @@ impl Store {
         // Its tools are named after it, so they take new names; the old ones are free again.
         conn.prepare_cached("DELETE FROM mcp_tool_name WHERE server = ?1")?.execute([from])?;
         let row = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([to], map_row)?;
-        Ok(Some(Renamed::To(Box::new(row))))
+        Ok(Some(Renamed::To(Box::new(choices_of(&conn, row)?))))
     }
 }
 
@@ -128,14 +138,14 @@ fn config_hash(config: &ServerConfig) -> String {
 
 /// A saved server, or the name of one whose definition does not parse.
 enum Stored {
-    Row(ServerRow),
+    Row(Box<ServerRow>),
     Unreadable(String),
 }
 
 impl Stored {
     fn readable(self) -> Option<ServerRow> {
         match self {
-            Self::Row(row) => Some(row),
+            Self::Row(row) => Some(*row),
             Self::Unreadable(_) => None,
         }
     }
@@ -143,7 +153,7 @@ impl Stored {
 
 fn stored(row: &Row) -> rusqlite::Result<Stored> {
     match map_row(row) {
-        Ok(server) => Ok(Stored::Row(server)),
+        Ok(server) => Ok(Stored::Row(Box::new(server))),
         Err(rusqlite::Error::FromSqlConversionFailure(1, ..)) => Ok(Stored::Unreadable(row.get(0)?)),
         Err(error) => Err(error),
     }
@@ -151,7 +161,23 @@ fn stored(row: &Row) -> rusqlite::Result<Stored> {
 
 fn server_in(conn: &Connection, name: &str) -> rusqlite::Result<Option<ServerRow>> {
     let found = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?.query_row([name], stored).optional()?;
-    Ok(found.and_then(Stored::readable))
+    found.and_then(Stored::readable).map(|row| choices_of(conn, row)).transpose()
+}
+
+fn with_choices(conn: &Connection, stored: Stored) -> rusqlite::Result<Stored> {
+    match stored {
+        Stored::Row(row) => Ok(Stored::Row(Box::new(choices_of(conn, *row)?))),
+        unreadable => Ok(unreadable),
+    }
+}
+
+/// The row with the workspaces that chose otherwise than its switch, and their folders.
+fn choices_of(conn: &Connection, mut row: ServerRow) -> rusqlite::Result<ServerRow> {
+    row.workspaces = conn
+        .prepare_cached("SELECT c.workspace_id, w.path, c.enabled FROM mcp_workspace c JOIN workspace w ON w.id = c.workspace_id WHERE c.server = ?1 ORDER BY c.workspace_id")?
+        .query_map([&row.name], |r| Ok(WorkspaceChoice { workspace_id: r.get(0)?, path: r.get(1)?, enabled: r.get(2)? }))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(row)
 }
 
 fn map_row(row: &Row) -> rusqlite::Result<ServerRow> {
@@ -159,13 +185,37 @@ fn map_row(row: &Row) -> rusqlite::Result<ServerRow> {
     let config = serde_json::from_str(&json).map_err(|e| rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e)))?;
     let hash = config_hash(&config);
     let era = row.get::<_, Option<String>>(4)?.as_deref().and_then(Era::parse);
-    Ok(ServerRow { name: row.get(0)?, config, enabled: row.get(2)?, hash, updated_at: row.get(3)?, era, read_only_trusted: row.get(5)? })
+    Ok(ServerRow { name: row.get(0)?, config, enabled: row.get(2)?, hash, updated_at: row.get(3)?, era, read_only_trusted: row.get(5)?, workspaces: Vec::new() })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::store::tests::store;
+
+    #[test]
+    fn a_workspace_keeps_only_a_choice_that_differs_from_the_switch_and_the_switch_clears_them() {
+        let store = store();
+        let config = ServerConfig::Stdio { command: "node".into(), args: vec![], env: Default::default(), cwd: None, timeout_seconds: None };
+        store.save_mcp_server("ida", &config).unwrap();
+        let re = store.add_workspace("C:/re", "re", "").unwrap();
+        let web = store.add_workspace("C:/web", "web", "").unwrap();
+        store.set_mcp_enabled("ida", false).unwrap();
+        assert!(store.set_mcp_choice("ida", &re.id, true).unwrap());
+        assert!(store.set_mcp_choice("ida", &web.id, false).unwrap(), "the same as the switch");
+        let row = store.mcp_server("ida").unwrap().unwrap();
+        assert_eq!(row.workspaces, [WorkspaceChoice { workspace_id: re.id.clone(), path: "C:/re".into(), enabled: true }], "only the choice that differs is kept");
+        assert!(row.on_anywhere() && !row.enabled);
+        assert!(!store.set_mcp_choice("missing", &re.id, true).unwrap());
+
+        let Some(Renamed::To(renamed)) = store.rename_mcp_server("ida", "ida-pro").unwrap() else { panic!() };
+        assert_eq!(renamed.workspaces.len(), 1, "a rename keeps the workspaces' choices");
+        store.set_mcp_enabled("ida-pro", true).unwrap();
+        assert!(store.mcp_server("ida-pro").unwrap().unwrap().workspaces.is_empty(), "the switch is on everywhere, so the choices go");
+        store.set_mcp_choice("ida-pro", &web.id, false).unwrap();
+        store.remove_mcp_server("ida-pro").unwrap();
+        assert_eq!(store.lock().query_row("SELECT count(*) FROM mcp_workspace", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    }
 
     #[test]
     fn tool_names_are_kept_across_calls() {

@@ -138,6 +138,7 @@ impl Engine {
         if store.setting::<bool>(AUTO_ACCEPT_ALL_KEY)?.unwrap_or(false) {
             permissions.set_auto_accept(&Hub::new(0), None, true);
         }
+        let mcp = mcp::Servers::new(credentials.clone(), store.clone());
         Ok(Arc::new_cyclic(|me| Self {
             me: me.clone(),
             data_dir: data_dir.to_path_buf(),
@@ -147,7 +148,7 @@ impl Engine {
             permissions,
             questions: question::Questions::default(),
             tools: Registry::builtin(),
-            mcp: mcp::Servers::new(credentials.clone()),
+            mcp,
             credentials,
             catalog: RwLock::new(catalog),
             snapshots: Snapshots::new(data_dir),

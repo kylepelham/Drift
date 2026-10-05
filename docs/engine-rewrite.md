@@ -1655,7 +1655,12 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   server's row reports one state across its connections. Connect, save, rename and enable take the
   active workspace (`?workspace=<id>`) and start the server there and in every workspace it already
   runs in; a stdio server running nowhere and given no workspace is refused (409 `workspace` on
-  Connect; a save or enable just waits for a workspace). A user's disconnect ends every connection
+  Connect; a save or enable just waits for a workspace). Connect and disconnect with
+  `?workspace=<id>` are that workspace's choice: on there, or off there, remembered in
+  `mcp_workspace` (only where it differs from the server's switch; the switch clears them all).
+  A server is offered to a turn, started for a workspace and listed for its prompts and resources
+  only where it is on (`ServerRow::on_in`); a remote server's shared connection ends once no
+  workspace has it on. A disconnect with no workspace ends every connection
   and holds the server: no turn or workspace starts it again until the user connects it. As opencode
   keeps a project's servers while the project is open, a workspace's connection runs for as long as
   any client has the workspace open: each socket says which folder its window or device shows

@@ -18,9 +18,15 @@ a remote device see the same servers.
 - A remote server that asks for OAuth is signed in from its row; the token is kept in the
   operating system's credential store and renewed by the engine. A pre-registered OAuth app
   (client id, secret, scopes) can be set in the server's edit sheet.
-- The row's switch turns a server on or off. The plug button connects or disconnects one
-  that is on without changing its setting, and stays in place, greyed out, while the server
-  is off. Saving a changed definition reconnects it.
+- The row's switch turns a server on or off in every workspace. The plug button acts on the
+  open workspace only: it turns the server on there (and connects it) or off there (ending its
+  connection there), and the choice is remembered for that workspace across restarts
+  (`mcp_workspace`, kept only where it differs from the switch). So a reverse-engineering
+  server can stay off by its switch and on in the one workspace that needs it, and no other
+  workspace's turns are offered its tools. Flipping the switch clears every workspace's choice.
+  A remote server keeps one shared connection while any workspace has it on; a workspace that
+  has it off is never offered its tools, prompts or resources. Saving a changed definition
+  reconnects it. With no workspace open, the plug connects or disconnects everywhere.
 - A stdio server runs once per workspace, in that folder (unless it sets its own working folder),
   with the folder as its root; it starts the first time a workspace needs it and keeps running
   while any window or device has that workspace open. It stops when the workspace is removed, or

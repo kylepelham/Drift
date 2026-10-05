@@ -135,7 +135,7 @@ export function createClient(target: Target) {
     renameMcpServer: (name: string, to: string, workspace?: string) => request<Json<"renameMcpServer", 200>>("POST", `/mcp/${name}/rename${inWorkspace(workspace)}`, { to }),
     removeMcpServer: (name: string) => request<void>("DELETE", `/mcp/${name}`),
     connectMcpServer: (name: string, workspace?: string) => request<Json<"connectMcpServer", 200>>("POST", `/mcp/${name}/connect${inWorkspace(workspace)}`),
-    disconnectMcpServer: (name: string) => request<Json<"disconnectMcpServer", 200>>("POST", `/mcp/${name}/disconnect`),
+    disconnectMcpServer: (name: string, workspace?: string) => request<Json<"disconnectMcpServer", 200>>("POST", `/mcp/${name}/disconnect${inWorkspace(workspace)}`),
     signInMcpServer: (name: string) => request<Json<"signInMcpServer", 200>>("POST", `/mcp/${name}/signin`),
     signOutMcpServer: (name: string) => request<Json<"signOutMcpServer", 200>>("DELETE", `/mcp/${name}/signin`),
     setMcpServerEnabled: (name: string, enabled: boolean, workspace?: string) => request<Json<"setMcpServerEnabled", 200>>("PUT", `/mcp/${name}/enabled${inWorkspace(workspace)}`, { enabled }),

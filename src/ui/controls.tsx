@@ -26,11 +26,12 @@ export function Chevron(props: { open: boolean }) {
  * Switch-style toggle. Pointer and click events are stopped so the toggle stays usable inside
  * draggable or clickable rows without triggering the row's own handler.
  */
-export function Toggle(props: { label: string; checked: boolean; disabled?: boolean; onChange: () => void }) {
+export function Toggle(props: { label: string; title?: string; checked: boolean; disabled?: boolean; onChange: () => void }) {
   return (
     <button
       role="switch"
       aria-label={props.label}
+      title={props.title}
       aria-checked={props.checked}
       disabled={props.disabled}
       class="shrink-0 disabled:opacity-50"

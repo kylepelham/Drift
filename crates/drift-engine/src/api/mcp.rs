@@ -38,6 +38,7 @@ pub struct SaveQuery {
 #[into_params(rename_all = "camelCase")]
 pub struct ConnectQuery {
     /// The active workspace, where a stdio server connects (besides every workspace it already ran in).
+    /// On connect and disconnect, the server is turned on or off there, and remembered for it.
     #[serde(default)]
     pub workspace: Option<String>,
 }
@@ -162,6 +163,9 @@ pub async fn remove(State(engine): State<Arc<Engine>>, Path(name): Path<String>)
 #[utoipa::path(post, path = "/mcp/{name}/connect", operation_id = "connectMcpServer", params(ConnectQuery), responses((status = 200, body = ServerStatus), (status = 404), (status = 409)))]
 pub async fn connect_route(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Query(query): Query<ConnectQuery>) -> Result<Json<ServerStatus>, ApiError> {
     engine.store.mcp_server(&name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
+    if let Some(id) = query.workspace.as_deref().filter(|id| workspace_path(&engine, Some(id)).is_some()) {
+        engine.store.set_mcp_choice(&name, id, true)?;
+    }
     // A stdio server with no workspace to run in is refused; any other failure shows on the status.
     if let Err(why) = engine.connect_mcp_in(&name, workspace_path(&engine, query.workspace.as_deref()).as_deref()).await {
         if why == crate::mcp::NEEDS_WORKSPACE {
@@ -183,9 +187,18 @@ fn status(engine: &Engine, name: &str) -> Result<Json<ServerStatus>, ApiError> {
     Ok(Json(engine.mcp.status_of(row)))
 }
 
-#[utoipa::path(post, path = "/mcp/{name}/disconnect", operation_id = "disconnectMcpServer", responses((status = 200, body = ServerStatus), (status = 404)))]
-pub async fn disconnect(State(engine): State<Arc<Engine>>, Path(name): Path<String>) -> Result<Json<ServerStatus>, ApiError> {
-    engine.mcp.disconnect(&name, &engine.store, &engine.hub).await;
+/// With a workspace, the server goes off there only; without one, every connection ends until the user connects it again.
+#[utoipa::path(post, path = "/mcp/{name}/disconnect", operation_id = "disconnectMcpServer", params(ConnectQuery), responses((status = 200, body = ServerStatus), (status = 404)))]
+pub async fn disconnect(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Query(query): Query<ConnectQuery>) -> Result<Json<ServerStatus>, ApiError> {
+    match query.workspace.as_deref().and_then(|id| Some((id, workspace_path(&engine, Some(id))?))) {
+        Some((id, path)) => {
+            let off = |store: &crate::store::Store| store.set_mcp_choice(&name, id, false);
+            if !engine.mcp.disconnect_in(&name, &path, &engine.store, &engine.hub, off).await? {
+                return Err(ApiError::not_found("mcp server"));
+            }
+        }
+        None => drop(engine.mcp.disconnect(&name, &engine.store, &engine.hub).await),
+    }
     let row = engine.store.mcp_server(&name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
     Ok(Json(engine.mcp.status_of(row)))
 }
@@ -214,6 +227,58 @@ pub async fn set_enabled(State(engine): State<Arc<Engine>>, Path(name): Path<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The tools a turn in `workspace` is offered from `server`.
+    fn offered(engine: &Engine, workspace: &std::path::Path, server: &str) -> usize {
+        engine.mcp.tools(&engine.store, Some(workspace)).iter().filter(|tool| tool.server() == Some(server)).count()
+    }
+
+    #[tokio::test]
+    async fn a_server_turned_on_in_one_workspace_is_offered_there_only_and_remembered() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let dir = std::env::temp_dir().join(format!("drift-api-mcp-{}", crate::random_hex(4)));
+        let (re_dir, web_dir) = (dir.join("re"), dir.join("web"));
+        std::fs::create_dir_all(&re_dir).unwrap();
+        std::fs::create_dir_all(&web_dir).unwrap();
+        let engine = Engine::open_with(&dir.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
+        let re = engine.store.add_workspace(&re_dir.to_string_lossy(), "re", "").unwrap();
+        let web = engine.store.add_workspace(&web_dir.to_string_lossy(), "web", "").unwrap();
+        let (re_path, web_path) = (crate::tool::canonical(&re_dir), crate::tool::canonical(&web_dir));
+        let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
+        let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default(), cwd: None, timeout_seconds: None };
+        engine.store.save_mcp_server("ida", &config).unwrap();
+        engine.store.set_mcp_enabled("ida", false).unwrap();
+        let path = || Path("ida".to_string());
+        let query = |id: &str| Query(ConnectQuery { workspace: Some(id.to_string()) });
+
+        let status = connect_route(State(engine.clone()), path(), query(&re.id)).await.unwrap().0;
+        assert_eq!(status.state, crate::mcp::State::Connected, "{:?}", status.error);
+        engine.start_workspace_mcp(&web_path);
+        engine.mcp.wait_ready(std::time::Duration::from_secs(5)).await;
+        assert!(offered(&engine, &re_path, "ida") > 0);
+        assert_eq!(offered(&engine, &web_path, "ida"), 0, "off by its switch, and the other workspace never chose it");
+        assert!(!engine.mcp.connecting(), "nothing started for the workspace that did not choose it");
+
+        let reopened = Engine::open_with(&dir.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
+        let row = reopened.store.mcp_server("ida").unwrap().unwrap();
+        assert!(row.on_in(&re_path) && !row.on_in(&web_path), "the choice outlives a restart");
+        drop(reopened);
+
+        let status = disconnect(State(engine.clone()), path(), query(&re.id)).await.unwrap().0;
+        assert_eq!(status.state, crate::mcp::State::Disabled, "off in its only workspace, it is off everywhere");
+        assert_eq!(offered(&engine, &re_path, "ida"), 0);
+
+        let _ = set_enabled(State(engine.clone()), path(), query(&web.id), Json(EnabledBody { enabled: true })).await.unwrap();
+        let _ = disconnect(State(engine.clone()), path(), query(&web.id)).await.unwrap();
+        engine.start_workspace_mcp(&re_path);
+        engine.mcp.wait_ready(std::time::Duration::from_secs(5)).await;
+        assert!(offered(&engine, &re_path, "ida") > 0, "on by its switch everywhere else");
+        assert_eq!(offered(&engine, &web_path, "ida"), 0, "turned off in this workspace only");
+        engine.start_workspace_mcp(&web_path);
+        assert!(!engine.mcp.connecting(), "a workspace that turned it off does not start it again");
+        drop(engine);
+        std::fs::remove_dir_all(dir).ok();
+    }
 
     #[tokio::test]
     async fn switches_on_a_server_that_does_not_parse_write_nothing() {
