@@ -316,8 +316,6 @@ export const drift = {
   "drift.about.group.credits": "致謝",
   "drift.about.row.app.title": "Drift 版本",
   "drift.about.row.app.description": "此應用程式建置的版本。",
-  "drift.about.row.engine.title": "引擎版本",
-  "drift.about.row.engine.description": "由內嵌的 OpenCode 引擎即時回報。",
   "drift.about.row.updates.title": "自動更新",
   "drift.about.row.updates.installed": "這是已安裝的副本，因此可以自行更新。",
   "drift.about.row.updates.local": "這是本機建置。已安裝的副本可以自行更新，此建置不能。",

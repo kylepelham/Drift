@@ -214,6 +214,8 @@ function replaceRequired(content: string, pattern: RegExp, replacement: string, 
   return content.replace(pattern, replacement)
 }
 
+const workspaceCrates = ["drift", "drift-engine", "drift-engined", "drift-migrate"]
+
 export function stampReleaseVersion(tag: string, root = path.resolve(import.meta.dirname, "..")) {
   const version = versionFromTag(tag)
   for (const relative of ["package.json", "src-tauri/tauri.conf.json"]) {
@@ -223,22 +225,21 @@ export function stampReleaseVersion(tag: string, root = path.resolve(import.meta
     writeFileSync(file, `${JSON.stringify(contents, null, 2)}\n`)
   }
 
-  const cargoManifest = path.join(root, "src-tauri/Cargo.toml")
+  // Every crate inherits the workspace's version, so the engine reports the same one as the shell.
+  const cargoManifest = path.join(root, "Cargo.toml")
   writeFileSync(cargoManifest, replaceRequired(
     readFileSync(cargoManifest, "utf8"),
-    /(^\[package\][\s\S]*?^version = ")[^"]+("$)/m,
+    /(^\[workspace\.package\][\s\S]*?^version = ")[^"]+("$)/m,
     `$1${version}$2`,
     cargoManifest,
   ))
 
-  // The shell is one member of the Cargo workspace, whose lock file is at the root.
   const cargoLock = path.join(root, "Cargo.lock")
-  writeFileSync(cargoLock, replaceRequired(
-    readFileSync(cargoLock, "utf8"),
-    /(^\[\[package\]\]\r?\nname = "drift"\r?\nversion = ")[^"]+("$)/m,
-    `$1${version}$2`,
-    cargoLock,
-  ))
+  let lock = readFileSync(cargoLock, "utf8")
+  for (const crate of workspaceCrates) {
+    lock = replaceRequired(lock, new RegExp(`(^\\[\\[package\\]\\]\\r?\\nname = "${crate}"\\r?\\nversion = ")[^"]+("$)`, "m"), `$1${version}$2`, cargoLock)
+  }
+  writeFileSync(cargoLock, lock)
   return version
 }
 

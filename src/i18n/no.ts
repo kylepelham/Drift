@@ -319,8 +319,6 @@ export const drift = {
   "drift.about.group.credits": "Krediteringer",
   "drift.about.row.app.title": "Drift-versjon",
   "drift.about.row.app.description": "Versjonen av dette app-buildet.",
-  "drift.about.row.engine.title": "Motorversjon",
-  "drift.about.row.engine.description": "Rapporteres live av den innebygde OpenCode-motoren.",
   "drift.about.row.updates.title": "Automatiske oppdateringer",
   "drift.about.row.updates.installed": "Dette er en installert kopi, så den kan oppdatere seg selv.",
   "drift.about.row.updates.local": "Dette er et lokalt build. Installerte kopier oppdaterer seg selv; dette kan ikke.",

@@ -317,8 +317,6 @@ export const drift = {
   "drift.about.group.credits": "Zasluge",
   "drift.about.row.app.title": "Verzija Drifta",
   "drift.about.row.app.description": "Verzija ovog builda aplikacije.",
-  "drift.about.row.engine.title": "Verzija motora",
-  "drift.about.row.engine.description": "Prijavljuje je ugrađeni OpenCode motor u stvarnom vremenu.",
   "drift.about.row.updates.title": "Automatske nadogradnje",
   "drift.about.row.updates.installed": "Ovo je instalirana kopija, pa se može sama nadograditi.",
   "drift.about.row.updates.local": "Ovo je lokalni build. Instalirane kopije se nadograđuju same, ova ne može.",

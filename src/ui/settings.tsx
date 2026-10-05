@@ -315,7 +315,7 @@ const settingsSearchDefinitions = {
   ],
   About: [
     { title: "drift.about.row.app.title", description: "drift.about.row.app.description" },
-    { title: "drift.about.row.engine.title", description: "drift.about.row.engine.description" },
+    { title: "drift.about.row.native.title", description: "drift.about.row.native.description" },
     { title: "drift.about.row.updates.title", description: "drift.about.row.updates.installed" },
     { title: "drift.about.row.website.title", description: "drift.about.row.website.description" },
     { title: "drift.about.group.credits", description: "drift.about.credits.engine" },
@@ -1829,10 +1829,8 @@ const websiteUrl = "https://driftagent.dev"
 
 function AboutSection() {
   const engine = useEngine()
-  const engineVersion = () =>
-    engine.state.version || (engine.state.startupError ? t("drift.about.failed") : t("drift.about.starting"))
   const nativeVersion = () => {
-    if (!engine.state.nativeVersion) return t("drift.about.starting")
+    if (!engine.state.nativeVersion) return engine.state.startupError ? t("drift.about.failed") : t("drift.about.starting")
     const link = engine.state.nativeOnline ? t("drift.about.native.connected") : t("drift.about.native.offline")
     return `${engine.state.nativeVersion} (${link})`
   }
@@ -1848,9 +1846,6 @@ function AboutSection() {
       <SettingsGroup title={t("drift.about.group.build")}>
         <SettingsRow title={t("drift.about.row.app.title")} description={t("drift.about.row.app.description")}>
           <span class="font-mono text-[0.75rem] text-ink-muted">{__DRIFT_VERSION__}</span>
-        </SettingsRow>
-        <SettingsRow title={t("drift.about.row.engine.title")} description={t("drift.about.row.engine.description")}>
-          <span class="font-mono text-[0.75rem] text-ink-muted">{engineVersion()}</span>
         </SettingsRow>
         <SettingsRow title={t("drift.about.row.native.title")} description={t("drift.about.row.native.description")}>
           <span class="font-mono text-[0.75rem] text-ink-muted">{nativeVersion()}</span>

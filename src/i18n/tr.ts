@@ -318,8 +318,6 @@ export const drift = {
   "drift.about.group.credits": "Katkılar",
   "drift.about.row.app.title": "Drift sürümü",
   "drift.about.row.app.description": "Bu uygulama derlemesinin sürümü.",
-  "drift.about.row.engine.title": "Motor sürümü",
-  "drift.about.row.engine.description": "Gömülü OpenCode motoru tarafından canlı olarak bildirilir.",
   "drift.about.row.updates.title": "Otomatik güncellemeler",
   "drift.about.row.updates.installed": "Bu kurulu bir kopya, bu yüzden kendini güncelleyebilir.",
   "drift.about.row.updates.local": "Bu yerel bir derleme. Kurulu kopyalar kendini günceller, bu güncelleyemez.",

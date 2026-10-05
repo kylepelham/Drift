@@ -321,8 +321,6 @@ export const drift = {
   "drift.about.group.credits": "Благодарности",
   "drift.about.row.app.title": "Версия Drift",
   "drift.about.row.app.description": "Версия этой сборки приложения.",
-  "drift.about.row.engine.title": "Версия движка",
-  "drift.about.row.engine.description": "Сообщается напрямую встроенным движком OpenCode.",
   "drift.about.row.updates.title": "Автоматические обновления",
   "drift.about.row.updates.installed": "Это установленная копия, поэтому она может обновляться сама.",
   "drift.about.row.updates.local": "Это локальная сборка. Установленные копии обновляются сами, эта не может.",

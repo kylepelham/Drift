@@ -287,8 +287,6 @@ export const drift = {
   "drift.about.group.credits": "Podziękowania",
   "drift.about.row.app.title": "Wersja Drift",
   "drift.about.row.app.description": "Wersja tej kompilacji aplikacji.",
-  "drift.about.row.engine.title": "Wersja silnika",
-  "drift.about.row.engine.description": "Zgłaszana na bieżąco przez wbudowany silnik OpenCode.",
   "drift.about.row.updates.title": "Aktualizacje automatyczne",
   "drift.about.row.updates.installed": "To jest zainstalowana kopia, więc może się sama aktualizować.",
   "drift.about.row.updates.local": "To jest kompilacja lokalna. Zainstalowane kopie aktualizują się same, ta nie może.",

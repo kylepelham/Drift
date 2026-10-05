@@ -283,8 +283,6 @@ export const drift = {
   "drift.about.group.credits": "شكر وتقدير",
   "drift.about.row.app.title": "إصدار Drift",
   "drift.about.row.app.description": "إصدار هذه النسخة من التطبيق.",
-  "drift.about.row.engine.title": "إصدار المحرك",
-  "drift.about.row.engine.description": "يبلّغ عنه محرك OpenCode المدمج مباشرة.",
   "drift.about.row.updates.title": "التحديثات التلقائية",
   "drift.about.row.updates.installed": "هذه نسخة مثبّتة، لذا يمكنها تحديث نفسها.",
   "drift.about.row.updates.local": "هذه نسخة مبنية محليًا. النسخ المثبتة تحدّث نفسها، أما هذه فلا تستطيع.",

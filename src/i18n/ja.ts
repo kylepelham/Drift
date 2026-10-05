@@ -285,8 +285,6 @@ export const drift = {
   "drift.about.group.credits": "クレジット",
   "drift.about.row.app.title": "Drift のバージョン",
   "drift.about.row.app.description": "このアプリのビルドのバージョンです。",
-  "drift.about.row.engine.title": "エンジンのバージョン",
-  "drift.about.row.engine.description": "組み込みの OpenCode エンジンがリアルタイムで報告します。",
   "drift.about.row.updates.title": "自動アップデート",
   "drift.about.row.updates.installed": "これはインストール済みのコピーなので、自身を更新できます。",
   "drift.about.row.updates.local": "これはローカルビルドです。インストール済みのコピーは自身を更新できますが、これはできません。",

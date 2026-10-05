@@ -284,8 +284,6 @@ export const drift = {
   "drift.about.group.credits": "크레딧",
   "drift.about.row.app.title": "Drift 버전",
   "drift.about.row.app.description": "이 앱 빌드의 버전입니다.",
-  "drift.about.row.engine.title": "엔진 버전",
-  "drift.about.row.engine.description": "내장된 OpenCode 엔진이 실시간으로 알려줍니다.",
   "drift.about.row.updates.title": "자동 업데이트",
   "drift.about.row.updates.installed": "설치된 사본이므로 스스로 업데이트할 수 있습니다.",
   "drift.about.row.updates.local": "로컬 빌드입니다. 설치된 사본은 스스로 업데이트하지만 이 빌드는 할 수 없습니다.",

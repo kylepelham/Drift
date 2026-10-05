@@ -317,8 +317,6 @@ export const drift = {
   "drift.about.group.credits": "Подяки",
   "drift.about.row.app.title": "Версія Drift",
   "drift.about.row.app.description": "Версія цієї збірки застосунку.",
-  "drift.about.row.engine.title": "Версія рушія",
-  "drift.about.row.engine.description": "Повідомляється у реальному часі вбудованим рушієм OpenCode.",
   "drift.about.row.updates.title": "Автоматичні оновлення",
   "drift.about.row.updates.installed": "Це встановлена копія, тому вона може оновлюватися сама.",
   "drift.about.row.updates.local": "Це локальна збірка. Встановлені копії оновлюються самі, ця не може.",

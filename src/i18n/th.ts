@@ -317,8 +317,6 @@ export const drift = {
   "drift.about.group.credits": "เครดิต",
   "drift.about.row.app.title": "เวอร์ชัน Drift",
   "drift.about.row.app.description": "เวอร์ชันของบิลด์แอปนี้",
-  "drift.about.row.engine.title": "เวอร์ชันเอนจิน",
-  "drift.about.row.engine.description": "รายงานสดโดยเอนจิน OpenCode ที่ฝังอยู่",
   "drift.about.row.updates.title": "อัปเดตอัตโนมัติ",
   "drift.about.row.updates.installed": "นี่คือสำเนาที่ติดตั้งไว้ จึงอัปเดตตัวเองได้",
   "drift.about.row.updates.local": "นี่คือบิลด์ในเครื่อง สำเนาที่ติดตั้งไว้จะอัปเดตตัวเอง แต่บิลด์นี้ทำไม่ได้",
