@@ -521,6 +521,8 @@ export type Session = {
     projectID: string;
     directory: string;
     parentID?: string;
+    /** Answers its own asks, and its subagents', except secrets and anything outside the workspace. */
+    autoAccept?: boolean;
     summary?: {
         additions: number;
         deletions: number;

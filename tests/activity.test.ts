@@ -883,14 +883,17 @@ test("current ask events update immediately and retain their workspace directory
   reduce(
     set,
     {
-      type: "permission.asked",
+      type: "permission.updated",
       properties: {
         id: "perm-1",
         sessionID: "s1",
-        permission: "bash",
-        patterns: ["git status"],
-        metadata: { title: "Run command" },
-        tool: { messageID: "m1", callID: "c1" },
+        type: "bash",
+        pattern: ["git status"],
+        title: "Run command",
+        messageID: "m1",
+        callID: "c1",
+        metadata: {},
+        time: { created: 1 },
       },
     } as never,
     "C:/repo",

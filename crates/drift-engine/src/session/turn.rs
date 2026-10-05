@@ -648,6 +648,7 @@ impl Engine {
         let mut session = self.store.session(session_id)?.ok_or(TurnError::NoSession)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
         self.bind_permissions(&session.id, &session.workspace_id);
+        self.permissions.load_auto_accept(&session.id, session.auto_accept);
         let workspace_path = crate::tool::canonical(Path::new(&workspace.path));
         let config = config.cloned().unwrap_or_else(|| self.workspace_config(&workspace_path));
         if let Some(problem) = config.problems.first() {

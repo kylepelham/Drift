@@ -113,6 +113,7 @@ fn grants_key(workspace_id: &str) -> String {
 
 /// The rules the user keeps in Settings, for every workspace, checked after drift.json's.
 const PERMISSION_RULES_KEY: &str = "permissionRules";
+const AUTO_ACCEPT_ALL_KEY: &str = "autoAcceptAll";
 
 impl Engine {
     pub fn open(data_dir: &Path) -> Result<Arc<Self>, Error> {
@@ -132,6 +133,9 @@ impl Engine {
         permissions.save_grants_with(Box::new(move |workspace, grants| {
             let _ = saving.set_setting(&grants_key(workspace), &grants);
         }));
+        if store.setting::<bool>(AUTO_ACCEPT_ALL_KEY)?.unwrap_or(false) {
+            permissions.set_auto_accept(&Hub::new(0), None, true);
+        }
         Ok(Arc::new(Self {
             data_dir: data_dir.to_path_buf(),
             store,
@@ -176,6 +180,25 @@ impl Engine {
     /// Ties a session's permission checks to its workspace's "always" grants, loading them on first use.
     pub(crate) fn bind_permissions(&self, session_id: &str, workspace_id: &str) {
         self.permissions.bind(session_id, workspace_id, || self.stored_grants(workspace_id));
+    }
+
+    /// Whether every session answers its own asks (Settings), else only those that chose to.
+    pub fn auto_accept_all(&self) -> bool {
+        self.store.setting(AUTO_ACCEPT_ALL_KEY).ok().flatten().unwrap_or(false)
+    }
+
+    /// Auto-accept for one session, stored on it; `None` when there is no such session.
+    pub fn set_session_auto_accept(&self, session_id: &str, on: bool) -> rusqlite::Result<Option<session::types::Session>> {
+        let Some(session) = self.store.set_session_auto_accept(session_id, on)? else { return Ok(None) };
+        self.permissions.set_auto_accept(&self.hub, Some(session_id), on);
+        Ok(Some(session))
+    }
+
+    /// Auto-accept for every session (Settings).
+    pub fn set_auto_accept_all(&self, on: bool) -> rusqlite::Result<()> {
+        self.store.set_setting(AUTO_ACCEPT_ALL_KEY, &on)?;
+        self.permissions.set_auto_accept(&self.hub, None, on);
+        Ok(())
     }
 
     fn stored_grants(&self, workspace_id: &str) -> Vec<permission::Grant> {

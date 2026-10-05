@@ -109,15 +109,17 @@ export const [customSound, setCustomSound] = persisted<CustomSound | null>("drif
 export const [collapseCompaction, setCollapseCompaction] = persisted<boolean>("drift.compaction.collapsible", true)
 export const [compactionCollapsed, setCompactionCollapsed] = persisted<boolean>("drift.compaction.collapsed", true)
 export const [autoUpdate, setAutoUpdate] = persisted<boolean>("drift.autoUpdate", true)
-export const [autoAcceptGlobal, setAutoAcceptGlobal] = persisted<boolean>("drift.autoAccept.global", false)
-
-export const [autoAcceptSessions, setAutoAcceptSessions] = persisted<string[]>("drift.autoAccept", [])
-
-export function toggleAutoAccept(sessionId: string) {
-  const current = autoAcceptSessions()
-  setAutoAcceptSessions(
-    current.includes(sessionId) ? current.filter((id) => id !== sessionId) : [...current, sessionId],
-  )
+/** Auto-accept this webview kept before the engine owned it: handed over once, then forgotten. */
+export function handOverAutoAccept(): { all: boolean; sessions: string[] } {
+  try {
+    const all = localStorage.getItem("drift.autoAccept.global") === "true"
+    const listed: unknown = JSON.parse(localStorage.getItem("drift.autoAccept") ?? "[]")
+    localStorage.removeItem("drift.autoAccept.global")
+    localStorage.removeItem("drift.autoAccept")
+    return { all, sessions: Array.isArray(listed) ? listed.filter((id): id is string => typeof id === "string") : [] }
+  } catch {
+    return { all: false, sessions: [] }
+  }
 }
 
 export function setSystemNotification(kind: AttentionKind, enabled: boolean) {
@@ -126,16 +128,6 @@ export function setSystemNotification(kind: AttentionKind, enabled: boolean) {
 
 export function setAlertSound(kind: AttentionKind, sound: AlertSound) {
   setAlertSounds({ ...soundDefaults(), ...alertSounds(), [kind]: sound })
-}
-
-export function autoAcceptAllowed(
-  global: boolean,
-  sessions: string[],
-  sessionId: string,
-  workerOf?: string,
-) {
-  if (global || sessions.includes(sessionId)) return true
-  return !!(workerOf && sessions.includes(workerOf))
 }
 
 /** Choices made in the composer for a session and not yet sent; an accepted send clears them. */

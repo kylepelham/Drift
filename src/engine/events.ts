@@ -2,12 +2,6 @@ import type { Event, Message, Part, Permission, Session, SessionStatus } from ".
 import type { SetStoreFunction } from "solid-js/store"
 import { produce } from "solid-js/store"
 import { clearQuestionDraft } from "../state/question-drafts"
-import {
-  clearPermissionAttention,
-  clearPermissionAttentionFor,
-  observePermission,
-  type DriftPermission,
-} from "../state/permission-attention"
 import { errorText } from "./error"
 import {
   bumpAskRevision,
@@ -30,7 +24,7 @@ import {
 
 type SetEngineState = SetStoreFunction<EngineState>
 
-export function reduce(set: SetEngineState, event: Event, directory?: string, state?: EngineState, reconcile?: (sessionID: string) => void) {
+export function reduce(set: SetEngineState, event: Event, directory?: string, reconcile?: (sessionID: string) => void) {
   // These events are newer than the generated v1 SDK's Event union.
   const raw = event as { id?: string; type: string; properties: Record<string, unknown> }
   if (raw.type === "question.v2.asked" || raw.type === "question.asked")
@@ -42,13 +36,6 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, st
     raw.type === "question.rejected"
   )
     return dropQuestion(set, raw.properties.sessionID as string, raw.properties.requestID as string, directory)
-  if (raw.type === "permission.asked" || raw.type === "permission.v2.asked")
-    return addPermission(
-      set,
-      permissionFromEvent(raw.properties, directory, raw.type === "permission.v2.asked"),
-      directory,
-      state,
-    )
   if (raw.type === "permission.v2.replied" || raw.type === "permission.replied")
     return dropPermission(
       set,
@@ -122,7 +109,7 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, st
     case "message.part.removed":
       return dropPart(set, event.properties)
     case "permission.updated":
-      return addPermission(set, event.properties, directory, state)
+      return addPermission(set, event.properties, directory)
     case "permission.replied":
       return dropPermission(set, event.properties.sessionID, event.properties.permissionID, directory)
     case "todo.updated":
@@ -142,7 +129,6 @@ function dropSession(set: SetEngineState, info: Session) {
 // The session revision bump outlives the purge so an in-flight snapshot taken before the
 // deletion cannot resurrect the session.
 export function purgeSession(draft: EngineState, id: string) {
-  clearPermissionAttentionFor(draft.permissions[id] ?? [])
   delete draft.sessions[id]
   delete draft.transcripts[id]
   delete draft.loaded[id]
@@ -443,14 +429,13 @@ function dropQuestion(set: SetEngineState, sessionID: string, requestID: string,
   )
 }
 
-function addPermission(set: SetEngineState, permission: Permission, directory?: string, state?: EngineState) {
+function addPermission(set: SetEngineState, permission: Permission, directory?: string) {
   const resolvedDirectory =
     typeof permission.metadata?.directory === "string" ? permission.metadata.directory : directory
   const entry =
     resolvedDirectory && !permission.metadata?.directory
       ? { ...permission, metadata: { ...permission.metadata, directory: resolvedDirectory } }
       : permission
-  observePermission(entry, state)
   set(
     produce((draft) => {
       bumpAskRevision(draft, "permission", resolvedDirectory)
@@ -461,33 +446,7 @@ function addPermission(set: SetEngineState, permission: Permission, directory?: 
   )
 }
 
-function permissionFromEvent(properties: Record<string, unknown>, directory?: string, v2 = false): DriftPermission {
-  const source = properties.source as { messageID?: string; callID?: string } | undefined
-  const tool = properties.tool as { messageID?: string; callID?: string } | undefined
-  const metadata = (properties.metadata as Record<string, unknown> | undefined) ?? {}
-  const type = String(properties.permission ?? properties.action ?? "permission")
-  const patterns = properties.patterns ?? properties.resources
-  const always = v2 ? properties.save : properties.always
-  return {
-    id: String(properties.id),
-    type,
-    pattern: Array.isArray(patterns) ? patterns.map(String) : undefined,
-    sessionID: String(properties.sessionID),
-    messageID: tool?.messageID ?? source?.messageID ?? "",
-    callID: tool?.callID ?? source?.callID,
-    title: String(metadata.title ?? type),
-    metadata: {
-      ...metadata,
-      ...(Array.isArray(always) ? { always: always.map(String) } : {}),
-      ...(directory ? { directory } : {}),
-    },
-    time: { created: Date.now() },
-    ...(v2 ? { driftProtocol: "v2" as const } : {}),
-  }
-}
-
 function dropPermission(set: SetEngineState, sessionID: string, permissionID: string, directory?: string) {
-  clearPermissionAttention(permissionID)
   set(
     produce((draft) => {
       const list = draft.permissions[sessionID]

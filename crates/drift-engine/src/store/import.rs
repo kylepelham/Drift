@@ -172,7 +172,7 @@ mod tests {
     use crate::store::SessionFilter;
 
     fn session(id: &str) -> Session {
-        Session { id: id.into(), workspace_id: "w".into(), parent_id: None, visibility: Visibility::Sibling, title: "Old talk".into(), agent: "build".into(), model: None, variant: Some("high".into()), created_at: 10, updated_at: 20, archived_at: None, branch_cutoff: None, revert: None, running: false }
+        Session { id: id.into(), workspace_id: "w".into(), parent_id: None, visibility: Visibility::Sibling, title: "Old talk".into(), agent: "build".into(), model: None, variant: Some("high".into()), created_at: 10, updated_at: 20, archived_at: None, branch_cutoff: None, revert: None, auto_accept: false, running: false }
     }
 
     fn page(session_id: &str, n: u64) -> Vec<MessageWithParts> {

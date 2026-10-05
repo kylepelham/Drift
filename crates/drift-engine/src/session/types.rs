@@ -44,6 +44,9 @@ pub struct Session {
     /// Set while the user has undone the conversation back to a message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub revert: Option<Revert>,
+    /// Answers its own asks, and its subagents', except for secrets and anything outside the workspace.
+    #[serde(default)]
+    pub auto_accept: bool,
     /// Whether a turn is in flight right now; set by the API, never stored.
     #[serde(default)]
     pub running: bool,

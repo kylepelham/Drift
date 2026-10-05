@@ -471,7 +471,7 @@ export const dict = {
   "toast.workspace.disabled.title": "Espaces de travail désactivés",
   "toast.workspace.disabled.description": "Seul le worktree principal est affiché dans la barre latérale",
   "toast.permissions.autoaccept.on.title": "Acceptation automatique des permissions",
-  "toast.permissions.autoaccept.on.description": "Les demandes de permission seront approuvées automatiquement",
+  "toast.permissions.autoaccept.on.description": "Les demandes d'autorisation sont approuvées automatiquement, sauf pour les fichiers secrets et tout ce qui est hors de l'espace de travail",
   "toast.permissions.autoaccept.off.title": "Acceptation automatique des permissions arrêtée",
   "toast.permissions.autoaccept.off.description": "Les demandes de permission nécessiteront une approbation",
   "toast.model.none.title": "Aucun modèle sélectionné",

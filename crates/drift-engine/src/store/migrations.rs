@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 34] = [
+pub(super) const MIGRATIONS: [&str; 35] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -175,6 +175,8 @@ pub(super) const MIGRATIONS: [&str; 34] = [
     ) STRICT, WITHOUT ROWID;",
     // An import is written in pages; one interrupted before its last page is redone from the start.
     "ALTER TABLE imported_session ADD COLUMN complete INTEGER NOT NULL DEFAULT 1 CHECK(complete IN (0, 1));",
+    // Asks a session answers by itself (secrets and anything outside the workspace still ask).
+    "ALTER TABLE session ADD COLUMN auto_accept INTEGER NOT NULL DEFAULT 0 CHECK(auto_accept IN (0, 1));",
 ];
 
 #[cfg(test)]

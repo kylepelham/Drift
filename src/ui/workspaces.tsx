@@ -11,7 +11,7 @@ import type { Workspace } from "../state/store"
 import { fixedMenuPosition } from "../state/zoom"
 import { t } from "../state/i18n"
 import { Chevron } from "./controls"
-import { permissionRequiresAttention, sidebarWorkers } from "../state/permission-attention"
+import { sidebarWorkers } from "../state/permission-attention"
 import { dragReorder } from "./drag-reorder"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import {
@@ -283,10 +283,7 @@ export function archiveFailed(engine: Engine, cause: unknown) {
 
 function StatusDot(props: { sessionId: string }) {
   const engine = useEngine()
-  const permissions = () =>
-    (engine.state.permissions[props.sessionId] ?? []).filter((permission) =>
-      permissionRequiresAttention(permission, engine.state),
-    )
+  const permissions = () => engine.state.permissions[props.sessionId] ?? []
   const attention = () =>
     permissions().length > 0 || (engine.state.questions[props.sessionId]?.length ?? 0) > 0
   const attentionTitle = () =>

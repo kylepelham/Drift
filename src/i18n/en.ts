@@ -205,7 +205,7 @@ export const dict = {
   "sound.option.yup04": "Yup 04",
   "sound.option.yup05": "Yup 05",
   "sound.option.yup06": "Yup 06",
-  "toast.permissions.autoaccept.on.description": "Permission requests will be automatically approved",
+  "toast.permissions.autoaccept.on.description": "Permission requests are approved automatically, except for secret files and anything outside the workspace",
   "drift.settings.code": "Code",
   "drift.code.syntax": "Syntax",
   "drift.code.layout": "Code layout",

@@ -470,7 +470,7 @@ export const dict = {
   "toast.workspace.disabled.title": "Przestrzenie robocze wyłączone",
   "toast.workspace.disabled.description": "Tylko główny worktree jest wyświetlany na pasku bocznym",
   "toast.permissions.autoaccept.on.title": "Automatyczne akceptowanie uprawnień",
-  "toast.permissions.autoaccept.on.description": "Żądania uprawnień będą automatycznie zatwierdzane",
+  "toast.permissions.autoaccept.on.description": "Prośby o uprawnienia są zatwierdzane automatycznie, z wyjątkiem plików z sekretami i wszystkiego poza obszarem roboczym",
   "toast.permissions.autoaccept.off.title": "Zatrzymano automatyczne akceptowanie uprawnień",
   "toast.permissions.autoaccept.off.description": "Żądania uprawnień będą wymagały zatwierdzenia",
   "toast.model.none.title": "Nie wybrano modelu",

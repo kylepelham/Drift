@@ -423,7 +423,7 @@ export const dict = {
   "toast.workspace.disabled.description": "Kun hoved-worktree vises i sidefeltet",
 
   "toast.permissions.autoaccept.on.title": "Aksepterer tillatelser automatisk",
-  "toast.permissions.autoaccept.on.description": "Forespørsler om tillatelse vil bli godkjent automatisk",
+  "toast.permissions.autoaccept.on.description": "Tillatelsesforespørsler godkjennes automatisk, unntatt hemmelige filer og alt utenfor arbeidsområdet",
   "toast.permissions.autoaccept.off.title": "Stoppet automatisk akseptering av tillatelser",
   "toast.permissions.autoaccept.off.description": "Forespørsler om tillatelse vil kreve godkjenning",
 

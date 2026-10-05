@@ -9,7 +9,7 @@ use crate::session::types::{
     Visibility,
 };
 
-pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant";
+pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant, auto_accept";
 const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending";
 
 pub struct NewSession<'a> {
@@ -97,6 +97,12 @@ impl Store {
         let at = archived.then(id::now_ms);
         conn.prepare_cached("UPDATE session SET archived_at = ?2 WHERE id = ?1")?
             .execute(params![id, at])?;
+        session_in(&conn, id)
+    }
+
+    pub fn set_session_auto_accept(&self, id: &str, on: bool) -> rusqlite::Result<Option<Session>> {
+        let conn = self.lock();
+        conn.prepare_cached("UPDATE session SET auto_accept = ?2 WHERE id = ?1")?.execute(params![id, on])?;
         session_in(&conn, id)
     }
 
@@ -316,6 +322,7 @@ pub(super) fn map_session(row: &Row) -> rusqlite::Result<Session> {
         archived_at: row.get(10)?,
         branch_cutoff: row.get(11)?,
         revert: row.get::<_, Option<String>>(12)?.and_then(|json| serde_json::from_str(&json).ok()),
+        auto_accept: row.get(14)?,
         running: false,
     })
 }
@@ -735,6 +742,7 @@ pub(super) fn session_from(new: NewSession, cutoff: Option<&str>) -> Session {
         archived_at: None,
         branch_cutoff: cutoff.map(Into::into),
         revert: None,
+        auto_accept: false,
         running: false,
     }
 }

@@ -3,15 +3,12 @@ import { useEngine } from "../engine"
 import { modelInfo, resolveModel, savedChoice, sessionBusy, type QuestionRequest } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
 import {
-  autoAcceptGlobal,
-  autoAcceptSessions,
   clearEdits,
   modelVisible,
   orderedModelProviderIds,
   prefsFor,
   seedPrefs,
   sendableVariant,
-  toggleAutoAccept,
   updatePrefs,
 } from "../state/prefs"
 import { onKeybind } from "../state/keybinds"
@@ -37,7 +34,6 @@ import { shellInvoke } from "../shell"
 import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
 import { normalizeDir, smallContextTokens } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"
-import { permissionRequiresAttention, permissionShouldAutoReply } from "../state/permission-attention"
 import { AttentionStrip, PermissionCard, QuestionCard } from "./attention"
 import { IconMic, IconPaperclip, IconShieldCheck, IconX } from "./icons"
 import { dictationEnabled, dictationModel } from "../state/voice"
@@ -80,10 +76,6 @@ import { dragHasFiles, dropStagesAttachment, dropTargetActive, nextDragDepth, sp
 const maxComposerHeightPx = 200
 // The OS clipboard is written after the browser finishes its own copy, so ours lands last and wins.
 const clipboardRepublishDelayMs = 100
-
-export function firstManualPermission(permissions: Permission[], autoAccepted: (permission: Permission) => boolean) {
-  return permissions.find((permission) => !autoAccepted(permission))
-}
 
 const localProviders = ["ollama", "lmstudio"]
 
@@ -543,30 +535,22 @@ export function Composer() {
     setTimeout(() => void invoke("clipboard_write_text", { text }).catch(() => undefined), clipboardRepublishDelayMs)
   }
 
-  const autoAcceptOn = () => {
+  // The engine answers auto-accepted asks itself, with no window open; this only shows and switches it.
+  const sessionAutoAccept = () => !!engine.state.sessions[selectedSession() ?? ""]?.autoAccept
+  const autoAcceptOn = () => engine.state.autoAcceptAll || sessionAutoAccept()
+  const toggleAutoAccept = () => {
     const id = selectedSession()
-    return autoAcceptGlobal() || (!!id && autoAcceptSessions().includes(id))
+    if (id && !engine.state.autoAcceptAll) void engine.actions.setAutoAccept(id, !sessionAutoAccept())
   }
 
   onMount(() => {
     if (dictationEnabled()) void refreshVoiceModels()
-    return onKeybind("autoAccept", () => {
-      if (autoAcceptGlobal()) return
-      const id = selectedSession()
-      if (id) toggleAutoAccept(id)
-    })
-  })
-
-  createEffect(() => {
-    for (const permission of Object.values(engine.state.permissions).flat()) {
-      if (!permissionShouldAutoReply(permission, engine.state)) continue
-      untrack(() => void engine.actions.replyPermission(permission.sessionID, permission.id, "once"))
-    }
+    return onKeybind("autoAccept", toggleAutoAccept)
   })
 
   const permissions = () => Object.values(engine.state.permissions).flat()
   const questions = () => Object.values(engine.state.questions).flat()
-  const pendingPermission = () => firstManualPermission(permissions(), (permission) => !permissionRequiresAttention(permission, engine.state))
+  const pendingPermission = (): Permission | undefined => permissions()[0]
   const pendingQuestion = () => focusedQuestion(questions(), focusedQuestionID())
   const pendingAsk = () => localAsks()[0]
 
@@ -804,10 +788,10 @@ export function Composer() {
             <Show when={autoAcceptOn()}>
               <button
                 class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
-                title={autoAcceptGlobal() ? t("drift.permissions.autoGlobal") : t("drift.permissions.autoThread")}
+                title={engine.state.autoAcceptAll ? t("drift.permissions.autoGlobal") : t("drift.permissions.autoThread")}
                 aria-label={t("command.permissions.autoaccept.disable")}
-                disabled={autoAcceptGlobal()}
-                onClick={() => toggleAutoAccept(selectedSession()!)}
+                disabled={engine.state.autoAcceptAll}
+                onClick={toggleAutoAccept}
               >
                 <IconShieldCheck class="size-3.5" />
               </button>

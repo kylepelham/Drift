@@ -32,6 +32,7 @@ pub fn session(session: &OcSession, workspace_id: &str) -> Session {
         archived_at: None,
         branch_cutoff: None,
         revert: None,
+        auto_accept: false,
         running: false,
     }
 }

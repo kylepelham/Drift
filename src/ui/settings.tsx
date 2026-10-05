@@ -36,7 +36,6 @@ import {
   alertSounds,
   animateResponses,
   attentionKinds,
-  autoAcceptGlobal,
   autoUpdate,
   collapseCompaction,
   compactionCollapsed,
@@ -46,7 +45,6 @@ import {
   responseAnimationSpeedMin,
   setAlertSound,
   setAnimateResponses,
-  setAutoAcceptGlobal,
   setAutoUpdate,
   setCollapseCompaction,
   setCompactionCollapsed,
@@ -608,13 +606,13 @@ function GeneralSection() {
   const engine = useEngine()
   // The engine owns this preference; null until it answers.
   const [autoCompact, setAutoCompactShown] = createSignal<boolean | null>(null)
-  onMount(() => void engine.actions.engineSettings().then((settings) => setAutoCompactShown(settings.autoCompact)).catch(() => undefined))
+  onMount(() => void engine.actions.engineSettings().then((settings) => setAutoCompactShown(settings.autoCompact ?? true)).catch(() => undefined))
   function toggleAutoCompact() {
     const next = !autoCompact()
     setAutoCompactShown(next)
     void engine.actions
       .setAutoCompact(next)
-      .then((settings) => setAutoCompactShown(settings.autoCompact))
+      .then((settings) => setAutoCompactShown(settings.autoCompact ?? next))
       .catch(() => setAutoCompactShown(!next))
   }
   return (
@@ -716,12 +714,12 @@ function GeneralSection() {
         <SettingsRow
           title={t("command.permissions.autoaccept.enable")}
           description={t("toast.permissions.autoaccept.on.description")}
-          onClick={() => setAutoAcceptGlobal(!autoAcceptGlobal())}
+          onClick={() => void engine.actions.setAutoAcceptAll(!engine.state.autoAcceptAll)}
         >
           <Toggle
             label={t("command.permissions.autoaccept.enable")}
-            checked={autoAcceptGlobal()}
-            onChange={() => setAutoAcceptGlobal(!autoAcceptGlobal())}
+            checked={engine.state.autoAcceptAll}
+            onChange={() => void engine.actions.setAutoAcceptAll(!engine.state.autoAcceptAll)}
           />
         </SettingsRow>
         <SettingsRow

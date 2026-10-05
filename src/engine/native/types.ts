@@ -985,8 +985,10 @@ export interface components {
         Ending: "length" | "refused" | "limit";
         /** @description Engine-wide preferences the user changes in Settings. */
         EngineSettings: {
-            /** @description Compact a conversation automatically when it nears its model's context window. */
-            autoCompact: boolean;
+            /** @description Every session answers its own asks, except secrets and anything outside the workspace. Left out of a PUT, it stays as it is. */
+            autoAcceptAll?: boolean | null;
+            /** @description Compact a conversation automatically when it nears its model's context window. Left out of a PUT, it stays as it is. */
+            autoCompact?: boolean | null;
             /** @description Let `task` run subagents in the background. Left out of a PUT, it stays as it is. */
             backgroundTasks?: boolean | null;
         };
@@ -1378,6 +1380,8 @@ export interface components {
         PatchSession: {
             agent?: string | null;
             archived?: boolean | null;
+            /** @description Answer this session's asks, and its subagents', except secrets and anything outside the workspace. */
+            autoAccept?: boolean | null;
             model?: components["schemas"]["ModelRef"] | null;
             title?: string | null;
         };
@@ -1600,6 +1604,8 @@ export interface components {
             agent: string;
             /** Format: int64 */
             archivedAt?: number | null;
+            /** @description Answers its own asks, and its subagents', except for secrets and anything outside the workspace. */
+            autoAccept?: boolean;
             /** @description For a spawned thread, the last source message copied into it. */
             branchCutoff?: string | null;
             /** Format: int64 */

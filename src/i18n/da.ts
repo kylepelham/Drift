@@ -500,7 +500,7 @@ export const dict = {
   "toast.scheme.title": "Farveskema",
 
   "toast.permissions.autoaccept.on.title": "Accepterer tilladelser automatisk",
-  "toast.permissions.autoaccept.on.description": "Anmodninger om tilladelse godkendes automatisk",
+  "toast.permissions.autoaccept.on.description": "Anmodninger om tilladelse godkendes automatisk, undtagen hemmelige filer og alt uden for arbejdsområdet",
   "toast.permissions.autoaccept.off.title": "Stoppet med at acceptere tilladelser automatisk",
   "toast.permissions.autoaccept.off.description": "Anmodninger om tilladelse vil kræve godkendelse",
 

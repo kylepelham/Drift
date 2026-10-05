@@ -506,7 +506,7 @@ export const dict = {
   "toast.workspace.disabled.description": "Kenar çubuğunda yalnızca ana çalışma ağacı gösterilecek",
 
   "toast.permissions.autoaccept.on.title": "Düzenlemeler otomatik kabul ediliyor",
-  "toast.permissions.autoaccept.on.description": "Düzenleme ve yazma izinleri otomatik olarak onaylanacak",
+  "toast.permissions.autoaccept.on.description": "İzin istekleri otomatik olarak onaylanır; gizli dosyalar ve çalışma alanının dışındaki her şey hariç",
   "toast.permissions.autoaccept.off.title": "Otomatik kabul durduruldu",
   "toast.permissions.autoaccept.off.description": "Düzenleme ve yazma izinleri onay gerektirecek",
 

@@ -2,7 +2,6 @@ import { createContext, onCleanup, untrack, useContext, type ParentProps } from 
 import { produce, reconcile } from "solid-js/store"
 import { normalizeDir as normalizeWorkspacePath } from "./store"
 import { workspaces } from "../state/workspaces"
-import { clearPermissionAttentionFor } from "../state/permission-attention"
 import { seedProviderCatalog } from "../state/provider-cache"
 import { createActions, errorMessage, type EngineActions } from "./actions"
 import { reduce } from "./events"
@@ -41,9 +40,10 @@ function workspaceIndex(): WorkspaceIndex {
 }
 
 /** Replaces local state from HTTP. Any failure rejects, so the socket keeps its cursor and retries. */
-export async function hydrateFrom(actions: Pick<EngineActions, "refreshProviders" | "loadSessions" | "refreshPermissions" | "refreshAgents" | "refreshMcp">, directory: string | null) {
+export async function hydrateFrom(actions: Pick<EngineActions, "refreshProviders" | "loadSessions" | "refreshPermissions" | "refreshAgents" | "refreshMcp" | "refreshEngineSettings">, directory: string | null) {
   const [providers] = await Promise.all([
     actions.refreshProviders(),
+    actions.refreshEngineSettings(),
     directory ? actions.loadSessions(directory) : Promise.resolve(),
     directory ? actions.refreshAgents() : Promise.resolve(),
     actions.refreshMcp(),
@@ -99,7 +99,7 @@ export function EngineProvider(props: ParentProps) {
         if (envelope.type === "mcp.updated") set("mcpServers", envelope.server.name, reconcile(envelope.server))
         if (envelope.type === "mcp.removed") set("mcpServers", produce((servers) => void delete servers[envelope.name]))
         const legacy = adaptEvent(envelope, workspaceIndex())
-        if (legacy) reduce(set, legacy, directory ?? undefined, state, (id) => void actions.reconcileSession(id))
+        if (legacy) reduce(set, legacy, directory ?? undefined, (id) => void actions.reconcileSession(id))
       },
       online: (online) => {
         set("nativeOnline", online)
@@ -171,7 +171,6 @@ export function EngineProvider(props: ParentProps) {
   onCleanup(() => {
     disposed = true
     events?.close()
-    clearPermissionAttentionFor(Object.values(state.permissions).flat())
   })
 
   return (

@@ -1,108 +1,21 @@
-import { afterEach, expect, test } from "bun:test"
-import type { Permission } from "../src/engine/shapes"
+import { expect, test } from "bun:test"
 import { createEngineState } from "../src/engine/store"
-import {
-  beginPermissionReply,
-  clearPermissionAttention,
-  failPermissionReply,
-  observePermission,
-  permissionRequiresAttention,
-  sidebarWorkers,
-  type DriftPermission,
-} from "../src/state/permission-attention"
+import { sessionNeedsAttention, sidebarWorkers } from "../src/state/permission-attention"
 
-const ids = new Set<string>()
-afterEach(() => {
-  for (const id of ids) clearPermissionAttention(id)
-  ids.clear()
-})
-
-function permission(id: string, sessionID: string, type = "bash"): Permission {
-  ids.add(id)
-  return {
-    id,
-    sessionID,
-    type,
-    messageID: "m1",
-    callID: id,
-    title: type,
-    metadata: {},
-    time: { created: 1 },
-  }
-}
-
-test("permission attention follows global, thread and subagent auto-accept, but branches stand alone", () => {
+test("every ask that arrives waits on the user: the engine already answered what auto-accept and always cover", () => {
   const [state, set] = createEngineState()
-  set("sessions", "child", { id: "child", parentID: "parent" } as never)
-  set("links", "linked-child", "linked")
-
-  expect(permissionRequiresAttention(permission("global", "other"), state, { global: true, sessions: [] })).toBeFalse()
-  expect(permissionRequiresAttention(permission("thread", "thread"), state, { global: false, sessions: ["thread"] })).toBeFalse()
-  expect(permissionRequiresAttention(permission("child", "child"), state, { global: false, sessions: ["parent"] })).toBeFalse()
-  expect(
-    permissionRequiresAttention(permission("linked-child", "linked-child"), state, { global: false, sessions: ["linked"] }),
-  ).toBeTrue()
-  expect(permissionRequiresAttention(permission("manual", "other"), state, { global: false, sessions: [] })).toBeTrue()
+  expect(sessionNeedsAttention(state, "s1")).toBeFalse()
+  set("permissions", "s1", [{ id: "p1", sessionID: "s1", type: "bash", messageID: "m1", title: "bash", metadata: {}, time: { created: 1 } }])
+  expect(sessionNeedsAttention(state, "s1")).toBeTrue()
+  set("permissions", "s1", [])
+  set("questions", "s1", [{ id: "q1", sessionID: "s1", questions: [] }] as never)
+  expect(sessionNeedsAttention(state, "s1")).toBeTrue()
 })
 
-test("failed automatic replies become manual attention", () => {
-  const [state] = createEngineState()
-  const request = permission("automatic", "s1")
-  beginPermissionReply(request, "once", [request])
-  expect(permissionRequiresAttention(request, state, { global: false, sessions: [] })).toBeFalse()
-  failPermissionReply(request.id)
-  expect(permissionRequiresAttention(request, state, { global: true, sessions: [] })).toBeTrue()
-})
-
-test("a stuck automatic reply is promoted to manual attention", async () => {
-  const [state] = createEngineState()
-  const request = permission("stuck", "s1")
-  beginPermissionReply(request, "once", [request], 1)
-  expect(permissionRequiresAttention(request, state, { global: true, sessions: [] })).toBeFalse()
-  await Bun.sleep(5)
-  expect(permissionRequiresAttention(request, state, { global: true, sessions: [] })).toBeTrue()
-})
-
-test("always replies stabilize queued and immediately following matching requests", () => {
-  const [state] = createEngineState()
-  const original = permission("original", "s1")
-  const queued = permission("queued", "s1")
-  original.pattern = "src/first.ts"
-  original.metadata.always = ["src/**"]
-  queued.pattern = "src/second.ts"
-  const unrelated = permission("unrelated", "s1")
-  unrelated.pattern = "tests/**"
-  beginPermissionReply(original, "always", [original, queued, unrelated])
-  expect(permissionRequiresAttention(queued, state, { global: false, sessions: [] })).toBeFalse()
-  expect(permissionRequiresAttention(unrelated, state, { global: false, sessions: [] })).toBeTrue()
-
-  const immediate = permission("immediate", "s1")
-  immediate.pattern = "src/third.ts"
-  observePermission(immediate)
-  expect(permissionRequiresAttention(immediate, state, { global: false, sessions: [] })).toBeFalse()
-  failPermissionReply(immediate.id)
-  expect(permissionRequiresAttention(immediate, state, { global: false, sessions: [] })).toBeTrue()
-  observePermission(immediate)
-  expect(permissionRequiresAttention(immediate, state, { global: false, sessions: [] })).toBeTrue()
-})
-
-test("v2 always grants stabilize matching requests across sessions in one location", () => {
-  const [state] = createEngineState()
-  const original = permission("v2-original", "s1") as DriftPermission
-  original.driftProtocol = "v2"
-  original.pattern = "git status"
-  original.metadata = { directory: "C:/work", always: ["git *"] }
-  const queued = permission("v2-queued", "s2") as DriftPermission
-  queued.driftProtocol = "v2"
-  queued.pattern = "git diff"
-  queued.metadata.directory = "c:\\work\\"
-  const legacy = permission("v1-queued", "s2")
-  legacy.pattern = "git log"
-  legacy.metadata.directory = "C:/work"
-
-  beginPermissionReply(original, "always", [original, queued, legacy])
-  expect(permissionRequiresAttention(queued, state, { global: false, sessions: [] })).toBeFalse()
-  expect(permissionRequiresAttention(legacy, state, { global: false, sessions: [] })).toBeTrue()
+test("the webview no longer answers asks or keeps an always rule of its own", async () => {
+  const composer = await Bun.file("src/ui/composer.tsx").text()
+  expect(composer).not.toContain("replyPermission(")
+  expect(await Bun.file("src/state/permission-attention.ts").text()).not.toContain("metadata.always")
 })
 
 test("the sidebar shows a subagent while it runs, waits on the user, or is open", () => {

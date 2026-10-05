@@ -2701,3 +2701,30 @@ fn a_request_with_a_long_prompt_costs_its_tier_counting_cached_input() {
     let small = cost(&model, Usage { input: 100_000, output: 0, cache_read: 0, cache_write: 0 });
     assert!((small - 0.3).abs() < 1e-9, "{small}");
 }
+#[tokio::test]
+async fn auto_accept_answers_a_rules_asks_but_never_a_secret_or_a_path_outside() {
+    let h = harness().await;
+    asks_for(&h, "bash");
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider.push(tool_call("bash", r#"{"command": "echo inside"}"#)).push(text("done"));
+    h.engine.submit(&h.session.id, prompt("go")).await.await_ok();
+    let waiting = next_ask(&mut rx).await;
+    assert_eq!(waiting.ask.pattern, "echo inside", "a rule asks");
+    // Turning it on answers the ask already waiting.
+    assert!(h.engine.set_session_auto_accept(&h.session.id, true).unwrap().unwrap().auto_accept, "stored on the session");
+    until_idle(&h).await;
+    let Part::ToolCall { status, .. } = &h.engine.store.transcript(&h.session.id).unwrap()[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Done);
+    let ask = |ask: crate::tool::Ask| h.engine.permissions.decide_now(&h.session.id, &Policy::default(), &ask);
+    let ws = h._dir.join("ws");
+    let bash = |line: &str| crate::tool::Ask::shell(crate::tool::command::Dialect::Bash, line, line);
+    assert_eq!(ask(crate::tool::Ask { default_allow: true, ..bash("git push") }), Decision::Allow, "what only a rule asks about");
+    assert_eq!(ask(crate::tool::Ask::path("edit", &ws.join("drift.json"), &ws, "Edit")), Decision::Allow, "a guarded workspace file");
+    assert_eq!(ask(crate::tool::Ask::path("read", &ws.join(".env"), &ws, "Read")), Decision::Ask, "a secret still asks");
+    assert_eq!(ask(crate::tool::Ask::path("edit", &h._dir.join("elsewhere.txt"), &ws, "Edit")), Decision::Ask, "outside the workspace still asks");
+    assert_eq!(ask(bash("cat ../notes")), Decision::Ask, "a line reaching outside still asks");
+    h.engine.set_session_auto_accept(&h.session.id, false).unwrap();
+    assert_eq!(ask(crate::tool::Ask { default_allow: true, ..bash("git push") }), Decision::Ask, "off again");
+    h.engine.set_auto_accept_all(true).unwrap();
+    assert_eq!(ask(crate::tool::Ask { default_allow: true, ..bash("git push") }), Decision::Allow, "or on for every session");
+}

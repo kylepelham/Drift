@@ -165,6 +165,8 @@ export type EngineState = {
   startupError: string
   engineError: string
   engineRestarting: boolean
+  /** Every session answers its own asks (Settings), as the engine has it. */
+  autoAcceptAll: boolean
 }
 
 let storedLinks: Record<string, string> | undefined
@@ -223,6 +225,7 @@ export function createEngineState() {
     startupError: "",
     engineError: "",
     engineRestarting: false,
+    autoAcceptAll: false,
     cursors: {},
     revisions: {},
     version: "",

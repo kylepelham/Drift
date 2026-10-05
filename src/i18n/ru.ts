@@ -502,7 +502,7 @@ export const dict = {
   "toast.scheme.title": "Цветовая схема",
 
   "toast.permissions.autoaccept.on.title": "Разрешения принимаются автоматически",
-  "toast.permissions.autoaccept.on.description": "Запросы на разрешения будут одобряться автоматически",
+  "toast.permissions.autoaccept.on.description": "Запросы разрешений одобряются автоматически, кроме секретных файлов и всего, что вне рабочей области",
   "toast.permissions.autoaccept.off.title": "Автоматическое принятие разрешений остановлено",
   "toast.permissions.autoaccept.off.description": "Запросы на разрешения будут требовать одобрения",
 

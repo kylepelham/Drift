@@ -467,7 +467,7 @@ export const dict = {
   "toast.workspace.disabled.title": "تم تعطيل مساحات العمل",
   "toast.workspace.disabled.description": "يتم عرض worktree الرئيسي فقط في الشريط الجانبي",
   "toast.permissions.autoaccept.on.title": "يتم قبول الأذونات تلقائيًا",
-  "toast.permissions.autoaccept.on.description": "ستتم الموافقة على طلبات الأذونات تلقائيًا",
+  "toast.permissions.autoaccept.on.description": "تتم الموافقة على طلبات الأذونات تلقائيًا، باستثناء الملفات السرية وأي شيء خارج مساحة العمل",
   "toast.permissions.autoaccept.off.title": "تم إيقاف قبول الأذونات تلقائيًا",
   "toast.permissions.autoaccept.off.description": "ستتطلب طلبات الأذونات موافقة",
   "toast.model.none.title": "لم يتم تحديد نموذج",

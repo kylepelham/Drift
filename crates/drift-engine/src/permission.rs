@@ -192,6 +192,10 @@ pub struct Permissions {
     parents: Mutex<HashMap<String, String>>,
     /// Each waiting ask with the workspace policy it was asked under, so a later "always" can settle it.
     pending: Mutex<Vec<(Request, Policy, oneshot::Sender<ReplyBody>)>>,
+    /// Sessions answering their own asks (`Session::auto_accept`); their subagents too.
+    auto: Mutex<std::collections::HashSet<String>>,
+    /// Every session answers its own asks.
+    auto_all: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -217,7 +221,36 @@ impl Permissions {
             saver: std::sync::OnceLock::new(),
             parents: Mutex::default(),
             pending: Mutex::default(),
+            auto: Mutex::default(),
+            auto_all: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// Turns auto-accept on or off for one session, or for all of them; turning it on answers the
+    /// waiting asks it now covers, as "always" does.
+    pub fn set_auto_accept(&self, hub: &Hub, session_id: Option<&str>, on: bool) {
+        match session_id {
+            Some(id) if on => drop(self.auto.lock().unwrap().insert(id.into())),
+            Some(id) => drop(self.auto.lock().unwrap().remove(id)),
+            None => self.auto_all.store(on, std::sync::atomic::Ordering::SeqCst),
+        }
+        if on {
+            self.settle_covered(hub);
+        }
+    }
+
+    /// Records a session's stored setting when it is planned, without settling anything.
+    pub fn load_auto_accept(&self, session_id: &str, on: bool) {
+        let mut auto = self.auto.lock().unwrap();
+        if on { auto.insert(session_id.into()); } else { auto.remove(session_id); }
+    }
+
+    fn auto_accepts(&self, session_id: &str) -> bool {
+        if self.auto_all.load(std::sync::atomic::Ordering::SeqCst) {
+            return true;
+        }
+        let auto = self.auto.lock().unwrap();
+        self.lineage(session_id).iter().any(|session| auto.contains(session))
     }
 
     /// Where "always" grants are written; set once, when the engine opens.
@@ -309,6 +342,15 @@ impl Permissions {
     /// allowed by an exact approval of the whole line; a wildcard rule never covers it. Reading a file
     /// that may hold secrets is held to the same bar, so `read *` never quietly covers `.env`.
     fn decide(&self, session_id: &str, workspace: &Policy, ask: &Ask) -> Decision {
+        let decision = self.decide_by_rules(session_id, workspace, ask);
+        // Auto-accept answers what the user would only be asked, never a deny, a secret or anything outside the workspace.
+        if decision == Decision::Ask && within_auto_accept(ask) && self.auto_accepts(session_id) {
+            return Decision::Allow;
+        }
+        decision
+    }
+
+    fn decide_by_rules(&self, session_id: &str, workspace: &Policy, ask: &Ask) -> Decision {
         if ask.kind == "read" && crate::tool::sensitive::is_sensitive(std::path::Path::new(&ask.pattern)) {
             return self.decide_target(session_id, workspace, "read", &ask.targets(), false, fallback(ask.default_allow));
         }
@@ -488,6 +530,13 @@ fn grants_for(request: &Request, reply: &ReplyBody) -> Vec<Grant> {
         Some(pattern) => vec![Grant::Pattern(Rule { kind: request.ask.kind.clone(), pattern: pattern.clone(), decision: Decision::Allow })],
         None => always_grants(&request.ask),
     }
+}
+
+/// What auto-accept may answer: an ask the tool would allow by itself (a rule made it ask), or a file
+/// inside the workspace that is not a secret (a guarded one such as `drift.json`). A shell line or
+/// path reaching outside, or a secret, the tool never allows by itself, so those still ask.
+fn within_auto_accept(ask: &Ask) -> bool {
+    ask.default_allow || (ask.relative.is_some() && !crate::tool::sensitive::is_sensitive(std::path::Path::new(&ask.pattern)))
 }
 
 fn fallback(allow: bool) -> Decision {

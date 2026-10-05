@@ -190,7 +190,7 @@ fn a_conversation_a_stopped_run_left_half_written_is_finished_by_the_next_and_pr
     drop(conn);
     let store = store_with(&d.0, &["C:/repo"]);
     let workspace = store.workspaces().unwrap()[0].id.clone();
-    let half = drift_engine::session::types::Session { id: "ses_a".into(), workspace_id: workspace, parent_id: None, visibility: Visibility::Sibling, title: "half".into(), agent: "build".into(), model: None, variant: None, created_at: 1, updated_at: 1, archived_at: None, branch_cutoff: None, revert: None, running: false };
+    let half = drift_engine::session::types::Session { id: "ses_a".into(), workspace_id: workspace, parent_id: None, visibility: Visibility::Sibling, title: "half".into(), agent: "build".into(), model: None, variant: None, created_at: 1, updated_at: 1, archived_at: None, branch_cutoff: None, revert: None, auto_accept: false, running: false };
     assert!(store.begin_import(&half).unwrap(), "a run that stopped after starting this one");
 
     let mut steps = Vec::new();

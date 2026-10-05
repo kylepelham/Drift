@@ -50,6 +50,9 @@ pub struct PatchSession {
     pub model: Option<ModelRef>,
     pub agent: Option<String>,
     pub archived: Option<bool>,
+    /// Answer this session's asks, and its subagents', except secrets and anything outside the workspace.
+    #[serde(default)]
+    pub auto_accept: Option<bool>,
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -113,6 +116,9 @@ pub async fn update(State(engine): State<Arc<Engine>>, Path(id): Path<String>, J
             engine.permissions.forget_session(&id);
         }
         session = engine.store.set_session_archived(&id, archived)?.ok_or_else(|| ApiError::not_found("session"))?;
+    }
+    if let Some(on) = body.auto_accept {
+        session = engine.set_session_auto_accept(&id, on)?.ok_or_else(|| ApiError::not_found("session"))?;
     }
     engine.hub.publish(Event::SessionUpdated { session: session.clone() });
     // A model or agent chosen now may be what an owed result was waiting for.

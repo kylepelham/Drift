@@ -6,7 +6,6 @@ import {
   systemNotifications,
   type AttentionKind,
 } from "../state/prefs"
-import { permissionRequiresAttention } from "../state/permission-attention"
 import { selectSession } from "../state/selection"
 import { t } from "../state/i18n"
 import { shellInvoke } from "../shell"
@@ -34,7 +33,7 @@ export function AttentionNotifier(props: { engine: Engine }) {
   const seen = new Set<string>()
   createEffect(() => {
     const pending = Object.values(props.engine.state.permissions).flat()
-    const all = pending.filter((permission) => permissionRequiresAttention(permission, props.engine.state))
+    const all = pending
     const present = new Set(pending.map((permission) => permission.id))
     for (const id of seen) if (!present.has(id)) seen.delete(id)
     for (const permission of all) {

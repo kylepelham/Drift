@@ -3,6 +3,7 @@ import type { Permission, Session } from "./shapes"
 import { untrack } from "solid-js"
 import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
+import { handOverAutoAccept } from "../state/prefs"
 import { applyProviderCatalog } from "../state/provider-cache"
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events"
 import { adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptQuestion, adaptSession, adaptTodos, type NativeMessageWithParts, type WorkspaceIndex } from "./native/adapt"
@@ -475,6 +476,26 @@ export function createActions(
     return requireClient().putSettings({ autoCompact })
   }
 
+  /** The engine answers this session's asks, and its subagents', except secrets and anything outside the workspace. */
+  async function setAutoAccept(id: string, autoAccept: boolean) {
+    const updated = await requireClient().updateSession(id, { autoAccept })
+    putSession(set, adaptSession(updated, workspaces()))
+  }
+
+  async function setAutoAcceptAll(autoAcceptAll: boolean) {
+    const settings = await requireClient().putSettings({ autoAcceptAll })
+    set("autoAcceptAll", !!settings.autoAcceptAll)
+  }
+
+  /** Settings the UI shows from the engine; auto-accept the webview once kept is handed over the first time. */
+  async function refreshEngineSettings() {
+    const settings = await requireClient().settings()
+    set("autoAcceptAll", !!settings.autoAcceptAll)
+    const handed = handOverAutoAccept()
+    if (handed.all && !settings.autoAcceptAll) await setAutoAcceptAll(true)
+    for (const id of handed.sessions) await setAutoAccept(id, true).catch(() => undefined)
+  }
+
   /** Moves a session with its subagents; the engine refuses while any of them is running. */
   async function moveSession(id: string, destination: string): Promise<SessionMoveResult> {
     const workspaceId = workspaces().id(destination)
@@ -649,6 +670,9 @@ export function createActions(
     summarize,
     engineSettings,
     setAutoCompact,
+    setAutoAccept,
+    setAutoAcceptAll,
+    refreshEngineSettings,
     basePrompts: () => requireClient().basePrompts(),
     saveBasePrompt: (id: string, text: string) => requireClient().saveBasePrompt(id, text),
     resetBasePrompt: (id: string) => requireClient().resetBasePrompt(id),

@@ -13,7 +13,6 @@ import { classifyMarkdownLink } from "./markdown-links"
 import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../state/code"
 import { TextShimmer } from "./text-shimmer"
 import { openToolContextMenu } from "./tool-context-menu"
-import { permissionRequiresAttention } from "../state/permission-attention"
 import { childrenOf, taskActive, taskForCall, type EngineState } from "../engine/store"
 import { ToolDuration } from "./tool-duration"
 import { resolveAttachmentKind } from "../attachments"
@@ -375,7 +374,7 @@ function argsPreview(input: Record<string, unknown> | undefined) {
 function awaitingPermission(state: EngineState, part: ToolPart) {
   return (
     (state.permissions[part.sessionID] ?? []).some(
-      (permission) => permission.callID === part.callID && permissionRequiresAttention(permission, state),
+      (permission) => permission.callID === part.callID,
     ) ||
     (state.questions[part.sessionID] ?? []).some((question) => !question.async && question.tool?.callID === part.callID)
   )

@@ -428,14 +428,20 @@ test("code display defaults preserve source and diff structure", async () => {
   expect(codePreferenceBinding(16, 8, true, "dracula").wrap).toBe("wrap")
 })
 
-test("notification migration and global auto-accept stay explicit", async () => {
-  const { autoAcceptAllowed, notificationDefaults, soundDefaults } = await import("../src/state/prefs")
+test("notification defaults stay explicit and old webview auto-accept is handed to the engine once", async () => {
+  const { handOverAutoAccept, notificationDefaults, soundDefaults } = await import("../src/state/prefs")
   expect(notificationDefaults(true)).toEqual({ agent: true, permission: true, error: true })
   expect(soundDefaults()).toEqual({ agent: "none", permission: "none", error: "none" })
-  expect(autoAcceptAllowed(true, [], "child")).toBeTrue()
-  expect(autoAcceptAllowed(false, ["thread"], "thread")).toBeTrue()
-  expect(autoAcceptAllowed(false, ["parent"], "child", "parent")).toBeTrue()
-  expect(autoAcceptAllowed(false, ["other"], "child", "parent")).toBeFalse()
+  const kept = new Map([["drift.autoAccept.global", "true"], ["drift.autoAccept", JSON.stringify(["s1", 7, "s2"])]])
+  const storage = localStorage as Storage
+  const saved = { getItem: storage.getItem, setItem: storage.setItem, removeItem: storage.removeItem }
+  Object.assign(storage, { getItem: (key: string) => kept.get(key) ?? null, setItem: (key: string, value: string) => kept.set(key, value), removeItem: (key: string) => kept.delete(key) })
+  try {
+    expect(handOverAutoAccept()).toEqual({ all: true, sessions: ["s1", "s2"] })
+    expect(handOverAutoAccept()).toEqual({ all: false, sessions: [] })
+  } finally {
+    Object.assign(storage, saved)
+  }
 })
 
 test("shell timeout preferences normalize and persist explicit no-timeout", async () => {

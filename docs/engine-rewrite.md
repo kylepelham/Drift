@@ -1899,6 +1899,14 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     `rm -rf dist`, `ls > out.txt` and `git commit` run, while `cat .env`, `ls ..`, `rm ../*`,
     `git show HEAD:.env` and `echo $HOME` ask. A rule still decides first. (Before, only lines
     that only read ran; opencode asks for none.)
+  - Auto-accept is the engine's (`Session::auto_accept`, set with `PATCH /sessions/{id}`, and
+    `autoAcceptAll` in `/settings` for every session), so it works with no window open. It answers
+    what would only be asked: an ask the tool allows by itself that a rule turned into a question,
+    or a guarded workspace file such as `drift.json`. A deny still denies, and a secret file or
+    anything outside the workspace still asks (`within_auto_accept`). A subagent runs under its
+    parent's. Turning it on answers the asks already waiting that it covers. The webview's old
+    switches (`drift.autoAccept`, `drift.autoAccept.global` in localStorage) are handed to the
+    engine once on connect and removed; the webview no longer replies to asks itself.
   - A tool every call of which the rules deny is not offered at all, as opencode leaves it out of
     the request (`Tool::denied_outright`): the first rule for one of its kinds (`Tool::permissions`:
     `edit` for edit, write and apply_patch; `read` and `glob` or `grep` for the searches) that

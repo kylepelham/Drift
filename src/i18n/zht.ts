@@ -498,7 +498,7 @@ export const dict = {
   "toast.workspace.disabled.description": "側邊欄只顯示主工作樹",
 
   "toast.permissions.autoaccept.on.title": "正在自動接受權限",
-  "toast.permissions.autoaccept.on.description": "權限請求將被自動批准",
+  "toast.permissions.autoaccept.on.description": "權限請求會自動核准，但機密檔案和工作區以外的內容除外",
   "toast.permissions.autoaccept.off.title": "已停止自動接受權限",
   "toast.permissions.autoaccept.off.description": "權限請求將需要批准",
 
