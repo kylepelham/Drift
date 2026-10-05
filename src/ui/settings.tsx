@@ -318,7 +318,6 @@ const settingsSearchDefinitions = {
     { title: "drift.about.row.native.title", description: "drift.about.row.native.description" },
     { title: "drift.about.row.updates.title", description: "drift.about.row.updates.installed" },
     { title: "drift.about.row.website.title", description: "drift.about.row.website.description" },
-    { title: "drift.about.group.credits", description: "drift.about.credits.engine" },
   ],
 } satisfies Record<Section, SettingsSearchDefinition[]>
 
@@ -1882,12 +1881,6 @@ function AboutSection() {
             driftagent.dev
           </button>
         </SettingsRow>
-      </SettingsGroup>
-
-      <SettingsGroup title={t("drift.about.group.credits")}>
-        <div class="space-y-2 px-1 py-2.5 text-[0.74rem] leading-relaxed text-ink-muted">
-          <p>{t("drift.about.credits.engine")}</p>
-        </div>
       </SettingsGroup>
     </div>
   )
