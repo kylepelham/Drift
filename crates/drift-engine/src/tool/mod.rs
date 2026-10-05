@@ -334,11 +334,34 @@ pub struct Ask {
     /// Default decision when no explicit rule or approval matches; never skips policy evaluation.
     #[serde(skip)]
     pub default_allow: bool,
+    /// Why a shell line would not run unasked, for the approval to say (auto-accept never answers it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<Reason>,
+}
+
+/// Why a shell line asks when no rule says to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum Reason {
+    /// A path it names resolves outside the workspace.
+    Outside,
+    /// A variable or `~` whose value is not known until it runs.
+    Unresolved,
+    /// A file that may hold secrets.
+    Secret,
+    /// A recursive content search, which would read secret files too.
+    Searches,
+    /// `git clean`, `git reset --hard` or `git push`, which undo cannot put back.
+    BeyondUndo,
+    /// A change of directory out of the workspace, or one that cannot be read.
+    Moves,
+    /// Substitution, a subshell or a launcher, which hides what it runs.
+    Hidden,
 }
 
 impl Ask {
     pub fn new(kind: &str, pattern: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None, writes: Vec::new(), canonical: Vec::new(), relative: None, diff: None, default_allow: false }
+        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None, writes: Vec::new(), canonical: Vec::new(), relative: None, diff: None, default_allow: false, reason: None }
     }
 
     pub fn allow_by_default(mut self) -> Self {
@@ -433,13 +456,16 @@ pub trait Tool: Send + Sync {
     fn starts_early(&self) -> bool {
         false
     }
-    /// The permission kinds every call of this tool is judged under.
+    /// The permission kinds every call of this tool is judged under; none means its own name, as `asks` judges it.
     fn permissions(&self) -> &'static [&'static str] {
         &[]
     }
     /// Whether the rules refuse every call this tool could make, so it is not offered at all, as opencode leaves such a tool out.
     fn denied_outright(&self, rules: &crate::permission::Compiled) -> bool {
-        self.permissions().iter().any(|kind| rules.denies_all(kind))
+        match self.permissions() {
+            [] => rules.denies_all(&self.spec().name),
+            kinds => kinds.iter().any(|kind| rules.denies_all(kind)),
+        }
     }
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a>;
 }

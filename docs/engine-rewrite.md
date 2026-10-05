@@ -1904,17 +1904,30 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     except for files that would widen what the agent may do or hold secrets: `drift.json` anywhere,
     anything under `.drift/`, version-control internals (`.git`, `.hg`, `.svn`, `.jj`) and files
     likely to hold secrets (`tool::guarded`). Writes outside the workspace still ask.
-  - A shell line runs without asking, writing or not (undo puts workspace changes back), when no
-    move out of the workspace is left in it, it uses no content searcher over a directory (`grep`,
-    `rg`, `git grep`, `Select-String`, which would read `.env` too; the `grep` tool skips such
-    files), and every word stays inside the workspace and names no secret file: no variable or
-    `~`, no path resolving outside, a glob judged by the folder before its first wildcard, with
-    `--flag=value` and `rev:path` judged by their path parts (`bash::stays_inside`); a redirection
-    is judged as one of its words. Any word that names something on disk is judged where it
-    resolves, so `cat notes`, with `notes` a link out of the workspace, asks. So `cargo test`,
-    `rm -rf dist`, `ls > out.txt` and `git commit` run, while `cat .env`, `ls ..`, `rm ../*`,
-    `git show HEAD:.env` and `echo $HOME` ask. A rule still decides first. (Before, only lines
-    that only read ran; opencode asks for none.)
+  - A shell line runs without asking, writing or not, as opencode's default does, when no move out
+    of the workspace is left in it, it uses no content searcher over a directory (`grep`, `rg`,
+    `git grep`, `Select-String`, which would read `.env` too; the `grep` tool skips such files), it
+    is not `git clean`, `git reset --hard` or `git push` (git's real subcommand, past `-C dir`),
+    and every word stays inside the workspace and names no secret file: no variable or `~`, no
+    path resolving outside (a drive-relative `C:x` included), a glob judged by the folder before
+    its first wildcard, with `--flag=value` and `rev:path` judged by their path parts
+    (`bash::why_it_asks`). A redirection is judged by the file it names, glued to its operator or
+    not (`>~/.bashrc`, `2>../err`, `<>rw`, `</etc/passwd`; `command::redirect_target`), stream
+    sinks such as `/dev/null` and `$null` excepted, and every target in `Ask::writes` is judged
+    the same way. Any word that names something on disk is judged where it resolves, so
+    `cat notes`, with `notes` a link out of the workspace, asks. So `cargo test`, `rm -rf dist`,
+    `ls > out.txt` and `git commit` run, while `cat .env`, `ls ..`, `rm ../*`, `ls > ../x`,
+    `echo x >> ~/.bashrc`, `git show HEAD:.env` and `echo $HOME` ask. A rule still decides first.
+    Undo does not make this safe on its own: it keeps the workspace's tracked and untracked files
+    as they were, but not gitignored files, git refs, anything outside the workspace or anything
+    beyond the filesystem (a database, a deploy, a remote). `rm -rf build` with `build/`
+    ignored, or a script that writes elsewhere, runs unasked and cannot be undone, as in
+    opencode; the git commands above are the ones that ask for that reason alone. (Before, only
+    lines that only read ran.)
+  - Each such ask carries `reason` (`tool::Reason`: `outside`, `unresolved`, `secret`,
+    `searches`, `beyondUndo`, `moves`, `hidden`), and the card says it in a line under the title,
+    adding that auto-accept leaves it to the user when auto-accept is on, so `echo $PATH` asking
+    with auto-accept on is explained rather than looking broken.
   - Auto-accept is the engine's (`Session::auto_accept`, set with `PATCH /sessions/{id}`, and
     `autoAcceptAll` in `/settings` for every session), so it works with no window open. It answers
     what would only be asked: an ask the tool allows by itself that a rule turned into a question,
@@ -1922,11 +1935,15 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     anything outside the workspace still asks (`within_auto_accept`). A subagent runs under its
     parent's. Turning it on answers the asks already waiting that it covers. The webview's old
     switches (`drift.autoAccept`, `drift.autoAccept.global` in localStorage) are handed to the
-    engine once on connect and removed; the webview no longer replies to asks itself.
+    engine on connect and removed only once the engine has taken them (a session the engine no
+    longer has is let go; any other failure is offered again next connect); the webview no longer
+    replies to asks itself.
   - A tool every call of which the rules deny is not offered at all, as opencode leaves it out of
     the request (`Tool::denied_outright`): the first rule for one of its kinds (`Tool::permissions`:
     `edit` for edit, write and apply_patch; `read` and `glob` or `grep` for the searches) that
-    covers `*` denies, and nothing narrower before it allows or asks (`Compiled::denies_all`). An
+    covers `*` denies, and nothing narrower before it allows or asks (`Compiled::denies_all`). A
+    tool that declares no kinds (todowrite, question, task_output, task_stop, read_thread, the MCP
+    resource tools) is judged under its own name, as its calls are, so `todowrite: deny` hides it. An
     MCP tool asks one fixed thing, so a rule denying `server/tool` removes it. An agent imported
     with `edit: deny` is no longer offered edit and write only to have them refused.
   - Rules for every workspace are kept in Settings > Permissions: an ordered list (kind, glob,
@@ -1944,7 +1961,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     each command of a shell line widened to a known subcommand; for a fetch, the whole site
     (`https://host/*`); for a path outside the workspace, its whole folder (`Grant::Folder`, the
     folder itself for a search of one), unless the path may hold secrets or the folder is a drive
-    root or the home folder. Secret files, guarded workspace files and lines that hide what they
+    root, the home folder or any folder holding it (`C:\Users` or `/home` would cover every
+    user's home), or a hidden folder in home or below (`~/.ssh`, `~/.aws`, where tools keep their
+    sign-ins). Secret files, guarded workspace files and lines that hide what they
     run or redirect stay exact. Each request carries `always`, the grants that answer would make,
     and the card shows them on the button's tooltip. The card's button reads "Always
     allow in this workspace". `GET /workspaces/{id}/permission-grants` lists them (each tagged

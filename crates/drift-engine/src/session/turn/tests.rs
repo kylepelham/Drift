@@ -234,6 +234,9 @@ async fn explicit_rules_restrict_default_allowed_tools() {
         ("glob", r#"{"pattern":"*.txt"}"#),
         ("skill", r#"{"name":"private"}"#),
         ("task", r#"{"description":"inspect","prompt":"inspect files","subagent_type":"explore"}"#),
+        // Tools that declare no kinds are judged under their own name, so their own rule hides them too.
+        ("todowrite", r#"{"todos":[]}"#),
+        ("question", r#"{"questions":[]}"#),
     ] {
         let h = harness().await;
         std::fs::write(h._dir.join("ws/a.txt"), "secret contents").unwrap();

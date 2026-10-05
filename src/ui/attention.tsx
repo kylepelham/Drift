@@ -1,5 +1,6 @@
 import type { Permission } from "../engine/shapes"
 import type { PermissionGrant } from "../engine/native/client"
+import type { components } from "../engine/native/types"
 import { createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import type { PermissionResponse } from "../engine/actions"
@@ -112,6 +113,27 @@ function ThreadAttribution(props: { thread?: ThreadLink }) {
   )
 }
 
+type AskReason = components["schemas"]["Reason"]
+
+/** Why the engine asks about a shell line no rule decided, as the card says it. */
+const REASONS = {
+  outside: "drift.permission.reason.outside",
+  unresolved: "drift.permission.reason.unresolved",
+  secret: "drift.permission.reason.secret",
+  searches: "drift.permission.reason.searches",
+  beyondUndo: "drift.permission.reason.beyondUndo",
+  moves: "drift.permission.reason.moves",
+  hidden: "drift.permission.reason.hidden",
+} as const satisfies Record<AskReason, string>
+
+/** Auto-accept on for the session or any session above it, which its subagents run under. */
+type AutoAccepting = { autoAccept?: boolean; parentID?: string }
+
+function autoAcceptsUp(sessions: Record<string, AutoAccepting | undefined>, id: string) {
+  for (let session = sessions[id]; session; session = session.parentID ? sessions[session.parentID] : undefined) if (session.autoAccept) return true
+  return false
+}
+
 export function PermissionCard(props: { permission: Permission; thread?: ThreadLink }) {
   const engine = useEngine()
   const [note, setNote] = createSignal("")
@@ -123,6 +145,8 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
     const grants = (props.permission.metadata as { always?: PermissionGrant[] } | undefined)?.always ?? []
     return grants.length ? t("drift.permission.alwaysCovers", { what: grants.map(grantLabel).join("; ") }) : undefined
   }
+  const reason = () => (props.permission.metadata as { reason?: AskReason } | undefined)?.reason
+  const autoAccepting = () => engine.state.autoAcceptAll || autoAcceptsUp(engine.state.sessions, props.permission.sessionID)
   return (
     <div class="composer-layer-card fade-up rounded-lg border border-warn/40 bg-surface px-3 py-2.5">
       <div class="mb-2 flex items-start justify-between gap-3">
@@ -137,6 +161,14 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
         </div>
         <ThreadAttribution thread={props.thread} />
       </div>
+      <Show when={reason()}>
+        {(why) => (
+          <div class="mb-2 text-xs text-ink-faint">
+            {t(REASONS[why()])}
+            <Show when={autoAccepting()}> {t("drift.permission.reason.autoAccept")}</Show>
+          </div>
+        )}
+      </Show>
       <Show when={typeof diff() === "string" && (diff() as string)}>
         {(change) => (
           <div class="mb-2" aria-label={t("drift.permission.change")}>

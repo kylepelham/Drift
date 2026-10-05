@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use tokio::io::AsyncReadExt;
 
 use super::spool::{Spool, Spooled};
-use super::{command, required_str, Ask, Context, Output, Progress, RunFuture, Tool, ToolError};
+use super::{command, required_str, Ask, Context, Output, Progress, Reason, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
 
 /// Until the user's Settings value arrives.
@@ -141,7 +141,8 @@ impl Tool for Bash {
         let dir = workdir(ctx, input).unwrap_or_else(|_| ctx.workspace.clone());
         drop_moves_within(ctx, &dir, &mut ask);
         // As opencode: a line runs without asking unless it reaches outside the workspace or at a secret file.
-        ask.default_allow = stays_inside(ctx, &dir, &ask);
+        ask.reason = why_it_asks(ctx, &dir, &ask);
+        ask.default_allow = ask.reason.is_none();
         Some(ask)
     }
 
@@ -315,49 +316,84 @@ const MOVES: [&str; 6] = ["cd", "chdir", "set-location", "sl", "pushd", "push-lo
 /// `grep` tool skips, so a line using one always asks.
 const SEARCHERS: [&str; 3] = ["grep", "rg", "select-string"];
 
-/// Whether a line stays inside the workspace and names no file that may hold secrets: no move is
-/// left (one leaving the workspace, or one that cannot be read, stays in the ask), no recursive
-/// content search, no variable, and every argument that names a path (a glob by the folder it
-/// starts from) resolves inside the workspace. `--flag=value` and `rev:path` are judged by their
-/// path parts too.
-fn stays_inside(ctx: &Context, dir: &std::path::Path, ask: &Ask) -> bool {
-    let Some(commands) = &ask.commands else { return false };
-    commands.iter().all(|command| {
-        let words: Vec<&str> = command.split(' ').collect();
-        let program = words[0].rsplit(['/', '\\']).next().unwrap_or(words[0]).trim_end_matches(".exe").to_ascii_lowercase();
-        let searches = SEARCHERS.contains(&program.as_str()) || (program == "git" && words.get(1) == Some(&"grep"));
-        !MOVES.contains(&program.as_str()) && !searches && words[1..].iter().all(|word| word_inside(ctx, dir, word))
-    }) && ask.writes.iter().all(|target| target_inside(ctx, dir, target))
+/// Why a line cannot run unasked, or `None` when it stays inside the workspace and names no file
+/// that may hold secrets: no move is left (one leaving the workspace, or one that cannot be read,
+/// stays in the ask), no recursive content search, nothing undo cannot put back, no variable, and
+/// every argument that names a path (a glob by the folder it starts from) resolves inside the
+/// workspace. `--flag=value`, `rev:path` and redirections are judged by their path parts.
+fn why_it_asks(ctx: &Context, dir: &std::path::Path, ask: &Ask) -> Option<Reason> {
+    let Some(commands) = &ask.commands else { return Some(Reason::Hidden) };
+    let mut reasons = commands.iter().filter_map(|command| command_reason(ctx, dir, command));
+    reasons.next().or_else(|| ask.writes.iter().find_map(|target| target_reason(ctx, dir, target)))
+}
+
+fn command_reason(ctx: &Context, dir: &std::path::Path, command: &str) -> Option<Reason> {
+    let words: Vec<&str> = command.split(' ').collect();
+    let program = words[0].rsplit(['/', '\\']).next().unwrap_or(words[0]).trim_end_matches(".exe").to_ascii_lowercase();
+    let git = (program == "git").then(|| git_subcommand(&words[1..])).flatten();
+    if MOVES.contains(&program.as_str()) {
+        return Some(Reason::Moves);
+    }
+    if SEARCHERS.contains(&program.as_str()) || git == Some("grep") {
+        return Some(Reason::Searches);
+    }
+    if git.is_some_and(|sub| beyond_undo(sub, &words)) {
+        return Some(Reason::BeyondUndo);
+    }
+    words[1..].iter().find_map(|word| word_reason(ctx, dir, word))
+}
+
+/// Git's subcommand, past its global options (`git -C sub push` is a push).
+fn git_subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match *arg {
+            "-C" | "-c" | "--git-dir" | "--work-tree" | "--namespace" => drop(args.next()),
+            option if option.starts_with('-') => {}
+            subcommand => return Some(subcommand),
+        }
+    }
+    None
+}
+
+/// What undo cannot put back, so it asks however inside the workspace it stays: `git clean` deletes
+/// ignored and untracked files undo never kept, `git reset --hard` moves refs, a push changes a remote.
+fn beyond_undo(subcommand: &str, words: &[&str]) -> bool {
+    matches!(subcommand, "clean" | "push") || (subcommand == "reset" && words.contains(&"--hard"))
 }
 
 /// A redirection word is judged by the file it names, so `>~/.bashrc` is judged as `~/.bashrc`.
-fn word_inside(ctx: &Context, dir: &std::path::Path, word: &str) -> bool {
+fn word_reason(ctx: &Context, dir: &std::path::Path, word: &str) -> Option<Reason> {
     match super::command::redirect_target(word) {
-        Some(target) => target_inside(ctx, dir, target),
-        None => path_inside(ctx, dir, word),
+        Some(target) => target_reason(ctx, dir, target),
+        None => path_reason(ctx, dir, word),
     }
 }
 
-fn target_inside(ctx: &Context, dir: &std::path::Path, target: &str) -> bool {
-    target.is_empty() || super::command::is_sink(target) || path_inside(ctx, dir, target)
+fn target_reason(ctx: &Context, dir: &std::path::Path, target: &str) -> Option<Reason> {
+    (!target.is_empty() && !super::command::is_sink(target)).then(|| path_reason(ctx, dir, target)).flatten()
 }
 
-fn path_inside(ctx: &Context, dir: &std::path::Path, word: &str) -> bool {
+fn path_reason(ctx: &Context, dir: &std::path::Path, word: &str) -> Option<Reason> {
     let word = word.trim_matches(['\'', '"']);
     if word.starts_with('~') || word.contains(['$', '%', '`']) {
-        return false;
+        return Some(Reason::Unresolved);
     }
     // A glob is judged by the literal path before its first wildcard: `dist/*` by `dist/`, `../*` by `../`.
     let word = word.split(['*', '?', '[']).next().unwrap_or_default();
     let value = word.split_once('=').map_or(word, |(_, value)| value);
     let parts = [word, value, value.rsplit_once(':').map_or(value, |(_, path)| path)];
-    parts.iter().filter(|part| !part.is_empty()).all(|part| {
+    parts.iter().filter(|part| !part.is_empty()).find_map(|part| {
         let path = super::canonical(&dir.join(part));
         // Anything on disk is judged where it resolves, so a plain `notes` linking outside the workspace still asks.
         let exists = std::fs::symlink_metadata(dir.join(part)).is_ok();
         let rooted = std::path::Path::new(part).components().next().is_some_and(|c| matches!(c, std::path::Component::Prefix(_) | std::path::Component::RootDir));
         let names_path = exists || rooted || part.contains(['/', '\\']) || part.starts_with('.');
-        !super::sensitive::is_sensitive(&path) && (!names_path || ctx.inside_workspace(&path))
+        if super::sensitive::is_sensitive(&path) {
+            Some(Reason::Secret)
+        } else {
+            (names_path && !ctx.inside_workspace(&path)).then_some(Reason::Outside)
+        }
     })
 }
 
@@ -588,7 +624,7 @@ mod tests {
         let bash = Bash::with(Shell::Bash("bash".into()));
         let decide = |line: &str| sandbox.ctx.engine.permissions.decide_now("ses_test", &crate::permission::Policy::default(), &bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap());
         let reads = ["git status", "git log --oneline -10", "ls src", "cat README.md", "cd src && ls", "git diff HEAD~1..HEAD -- src/a.rs", "wc -l src/a.rs"];
-        // As opencode: writing inside the workspace runs too, since undo can put it back.
+        // As opencode: writing inside the workspace runs too.
         let writes = ["cargo test", "ls > out.txt", "ls >out.txt", "ls 2>&1 >src/out.txt", "make >/dev/null 2>&1", "cat <> src/a.rs", "rm -rf dist", "rm src/*.log", "ls *", "npm install", "git commit -m wip"];
         for line in reads.iter().chain(&writes) {
             assert_eq!(decide(line), crate::permission::Decision::Allow, "{line}");
@@ -603,6 +639,19 @@ mod tests {
         }
         for drive in drives {
             assert_eq!(decide(&format!("ls >{drive}")), crate::permission::Decision::Ask, "{drive}");
+        }
+        let reason = |line: &str| bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap().reason;
+        use super::Reason::*;
+        for (line, why) in [("ls ..", Outside), ("echo $PATH", Unresolved), ("cat .env", Secret), ("rg token", Searches), ("git push", BeyondUndo), ("cd ~ && ls", Moves), ("echo $(whoami)", Hidden), ("echo hi >> ~/.bashrc", Unresolved), ("ls > ../x", Outside)] {
+            assert_eq!(reason(line), Some(why), "the approval says why {line} asks");
+        }
+        assert_eq!(reason("cargo test"), None);
+        // Undo keeps workspace files only; these reach what it never kept.
+        for line in ["git clean -fdx", "git push", "git push --force origin main", "git -C src push", "git reset --hard HEAD~1", "cargo test && git push"] {
+            assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
+        }
+        for line in ["git reset HEAD a.rs", "git commit -m push", "git log --grep=clean"] {
+            assert_eq!(decide(line), crate::permission::Decision::Allow, "{line}");
         }
         let outside = sandbox.ctx.workspace.parent().unwrap().join("outside-dir");
         std::fs::create_dir_all(&outside).unwrap();

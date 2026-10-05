@@ -842,6 +842,7 @@ export interface components {
             kind: string;
             /** @description The thing being touched: a path, a command. Rules match it with globs. */
             pattern: string;
+            reason?: components["schemas"]["Reason"] | null;
             title: string;
             /**
              * @description Files the shell line's redirections write. Any at all and only an exact approval of the whole
@@ -1449,6 +1450,11 @@ export interface components {
             questions: components["schemas"]["Question"][];
             sessionId: string;
         };
+        /**
+         * @description Why a shell line asks when no rule says to.
+         * @enum {string}
+         */
+        Reason: "outside" | "unresolved" | "secret" | "searches" | "beyondUndo" | "moves" | "hidden";
         /** @description What one reasoning level asks of the provider: an effort its API names, or a thinking token budget. */
         Reasoning: {
             /** @enum {string} */
@@ -1895,6 +1901,12 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
