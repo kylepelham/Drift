@@ -1,4 +1,4 @@
-import type { Permission } from "@opencode-ai/sdk/client"
+import type { Permission } from "../engine/shapes"
 import { createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import type { PermissionResponse } from "../engine/actions"

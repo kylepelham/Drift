@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import type { Message, ToolPart } from "@opencode-ai/sdk/client"
+import type { Message, ToolPart } from "../src/engine/shapes"
 import { nextUserMessage, previousUserMessage, type MessageEntry } from "../src/engine/store"
 
 if (!("localStorage" in globalThis))

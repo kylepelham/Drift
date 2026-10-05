@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import type { Message, Part } from "@opencode-ai/sdk/client"
+import type { Message, Part } from "../src/engine/shapes"
 import type { MessageEntry } from "../src/engine/store"
 
 if (!("localStorage" in globalThis))

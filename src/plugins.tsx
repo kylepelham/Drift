@@ -1,4 +1,4 @@
-import type { Part, ToolPart } from "@opencode-ai/sdk/client"
+import type { Part, ToolPart } from "./engine/shapes"
 import { createEffect, createSignal, onCleanup, onMount, untrack } from "solid-js"
 import type { Engine } from "./engine"
 import type { QuestionInfo } from "./engine/store"

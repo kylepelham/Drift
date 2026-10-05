@@ -1,4 +1,4 @@
-import type { AssistantMessage, Part, SessionStatus } from "@opencode-ai/sdk/client"
+import type { AssistantMessage, Part, SessionStatus } from "../engine/shapes"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
 import {

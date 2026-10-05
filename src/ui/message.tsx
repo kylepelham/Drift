@@ -1,4 +1,4 @@
-import type { AssistantMessage, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/client"
+import type { AssistantMessage, Part, ToolPart, UserMessage } from "../engine/shapes"
 import { createMemo, createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 import { createStore, reconcile, unwrap } from "solid-js/store"
 import { useEngine } from "../engine"

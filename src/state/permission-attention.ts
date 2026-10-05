@@ -1,4 +1,4 @@
-import type { Permission } from "@opencode-ai/sdk/client"
+import type { Permission } from "../engine/shapes"
 import { createSignal } from "solid-js"
 import { childrenOf, sessionBusy, type EngineState } from "../engine/store"
 import { autoAcceptAllowed, autoAcceptGlobal, autoAcceptSessions } from "./prefs"

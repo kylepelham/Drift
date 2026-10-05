@@ -1,4 +1,4 @@
-import type { Event, Message, Part, Permission, Session, SessionStatus } from "@opencode-ai/sdk/client"
+import type { Event, Message, Part, Permission, Session, SessionStatus } from "./shapes"
 import type { SetStoreFunction } from "solid-js/store"
 import { produce } from "solid-js/store"
 import { clearQuestionDraft } from "../state/question-drafts"

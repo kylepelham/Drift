@@ -1,4 +1,4 @@
-import type { ToolPart } from "@opencode-ai/sdk/client"
+import type { ToolPart } from "./engine/shapes"
 import { backendInvoke } from "./backend"
 import { activeWorkspace } from "./state/workspaces"
 

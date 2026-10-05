@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import type { Event } from "@opencode-ai/sdk/client"
+import type { Event } from "../src/engine/shapes"
 import { reduce } from "../src/engine/events"
 import { createEngineState } from "../src/engine/store"
 

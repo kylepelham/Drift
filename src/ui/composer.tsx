@@ -16,7 +16,7 @@ import {
 } from "../state/prefs"
 import { onKeybind } from "../state/keybinds"
 import { agentLabel, reasoningLevelLabel, t } from "../state/i18n"
-import type { Permission } from "@opencode-ai/sdk/client"
+import type { Permission } from "../engine/shapes"
 import {
   canNavigateComposerHistory,
   clearComposerDraft,

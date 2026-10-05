@@ -1,4 +1,4 @@
-import type { FilePart, Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
+import type { FilePart, Part, ReasoningPart, ToolPart } from "../engine/shapes"
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, untrack, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"

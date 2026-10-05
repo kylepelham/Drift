@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import type { Permission } from "@opencode-ai/sdk/client"
+import type { Permission } from "../src/engine/shapes"
 import { createEngineState } from "../src/engine/store"
 import {
   beginPermissionReply,

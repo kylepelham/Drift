@@ -8,7 +8,7 @@ import type {
   SessionStatus,
   Todo,
   ToolPart,
-} from "@opencode-ai/sdk/client"
+} from "./shapes"
 import { createStore, produce, type SetStoreFunction } from "solid-js/store"
 import type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord } from "./native/client"
 export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord }

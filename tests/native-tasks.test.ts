@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import type { ToolPart } from "@opencode-ai/sdk/client"
+import type { ToolPart } from "../src/engine/shapes"
 import { createActions } from "../src/engine/actions"
 import type { Client, TaskRecord } from "../src/engine/native/client"
 import { createEngineState, mergeTasks, putTasks } from "../src/engine/store"

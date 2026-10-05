@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import type { ToolPart } from "@opencode-ai/sdk/client"
+import type { ToolPart } from "../src/engine/shapes"
 import { createEngineState } from "../src/engine/store"
 
 if (!("localStorage" in globalThis))

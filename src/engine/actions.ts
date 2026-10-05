@@ -1,5 +1,5 @@
 // Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
-import type { Permission, Session } from "@opencode-ai/sdk/client"
+import type { Permission, Session } from "./shapes"
 import { untrack } from "solid-js"
 import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"

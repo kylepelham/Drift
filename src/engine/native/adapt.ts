@@ -1,5 +1,5 @@
 // Native engine shapes to the shapes the UI was built on. Dies at M4 when the UI adopts native types.
-import type { AssistantMessage, Event, Message, Part, Permission, Session, ToolPart } from "@opencode-ai/sdk/client"
+import type { AssistantMessage, Event, Message, Part, Permission, Session, ToolPart } from "../shapes"
 import type { ModelInfo, ProviderInfo, QuestionRequest } from "../store"
 import type { components } from "./types"
 
