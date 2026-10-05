@@ -3,7 +3,7 @@ import { t } from "../state/i18n"
 
 const sources =
   typeof import.meta.glob === "function"
-    ? (import.meta.glob("../../engine/upstream/packages/ui/src/assets/audio/*.aac", {
+    ? (import.meta.glob("../assets/audio/*.aac", {
         eager: true,
         query: "?no-inline",
         import: "default",

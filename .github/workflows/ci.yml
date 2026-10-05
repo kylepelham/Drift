@@ -23,7 +23,6 @@ jobs:
       - name: Install dependencies
         run: |
           bun install --frozen-lockfile
-          bun install --frozen-lockfile --cwd engine/opencode
 
       - name: Typecheck
         run: bun run typecheck
@@ -57,14 +56,6 @@ jobs:
       - name: Install dependencies
         run: |
           bun install --frozen-lockfile
-          bun install --frozen-lockfile --ignore-scripts --cwd engine/upstream
-          bun install --frozen-lockfile --cwd engine/opencode
-
-      - name: Engine tests
-        run: bun run test:engine
-
-      - name: Build engine
-        run: bun run build:engine
 
       # The sidecars only change when the build script does, so a hit skips both the SDK and the build.
       - name: Cache speech recognizer

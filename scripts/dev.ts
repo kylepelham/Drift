@@ -1,51 +1,25 @@
-import { randomBytes } from "node:crypto"
-import { existsSync, rmSync } from "node:fs"
+// Browser dev loop: a headless engine (drift-engined) on a scratch data directory, and Vite pointed at it.
+import { mkdtempSync, rmSync } from "node:fs"
+import os from "node:os"
 import path from "node:path"
-import { engineBinary, engineEnv, prepareRuntime } from "./engine-runtime"
 
 const root = path.resolve(import.meta.dirname, "..")
-if (!existsSync(engineBinary)) {
-  console.error("drift-engine binary missing. Run: bun run build:engine")
-  process.exit(1)
-}
-
-// Off 4096 so a dev build runs beside an installed Drift.
-const port = process.env.DRIFT_ENGINE_PORT ?? "4196"
-const password = process.env.OPENCODE_SERVER_PASSWORD ?? randomBytes(32).toString("hex")
-const runtime = await prepareRuntime()
-const engine = Bun.spawn([engineBinary, "serve", "--hostname", "127.0.0.1", "--port", port], {
-  cwd: root,
-  stdout: "inherit",
-  stderr: "inherit",
-  env: engineEnv(runtime, password),
-})
-// The native engine runs beside the legacy one until M1; browser dev reaches it through env.
+const runtime = mkdtempSync(path.join(os.tmpdir(), "drift-dev-"))
 Bun.spawnSync(["cargo", "build", "-q", "-p", "drift-engined"], { cwd: root, stdout: "inherit", stderr: "inherit" })
 // Run a copy so cargo can rebuild the real binary while dev is up.
-const nativeBinary = path.join(runtime, "drift-engined.exe")
-await Bun.write(nativeBinary, Bun.file(path.join(root, "target", "debug", "drift-engined.exe")))
-const native = Bun.spawn([nativeBinary, "--data-dir", path.join(runtime, "native")], {
-  cwd: root,
-  stdout: "pipe",
-  stderr: "inherit",
-})
-const nativeTarget = await readNativeTarget(native.stdout)
+const binary = path.join(runtime, "drift-engined.exe")
+await Bun.write(binary, Bun.file(path.join(root, "target", "debug", "drift-engined.exe")))
+const engine = Bun.spawn([binary, "--data-dir", path.join(runtime, "data")], { cwd: root, stdout: "pipe", stderr: "inherit" })
+const target = await readTarget(engine.stdout)
 
 const vite = Bun.spawn([process.execPath, "x", "vite"], {
   cwd: root,
   stdout: "inherit",
   stderr: "inherit",
-  env: {
-    ...process.env,
-    VITE_ENGINE_URL: `http://127.0.0.1:${port}`,
-    VITE_ENGINE_USERNAME: process.env.OPENCODE_SERVER_USERNAME ?? "opencode",
-    VITE_ENGINE_PASSWORD: password,
-    VITE_NATIVE_ENGINE_URL: nativeTarget.url,
-    VITE_NATIVE_ENGINE_TOKEN: nativeTarget.token,
-  },
+  env: { ...process.env, VITE_NATIVE_ENGINE_URL: target.url, VITE_NATIVE_ENGINE_TOKEN: target.token },
 })
 
-async function readNativeTarget(stdout: ReadableStream<Uint8Array>) {
+async function readTarget(stdout: ReadableStream<Uint8Array>) {
   const found: Record<string, string> = {}
   let buffered = ""
   for await (const chunk of stdout) {
@@ -61,13 +35,12 @@ async function readNativeTarget(stdout: ReadableStream<Uint8Array>) {
 
 async function shutdown() {
   engine.kill()
-  native.kill()
   vite.kill()
-  await Promise.all([engine.exited, native.exited, vite.exited])
+  await Promise.all([engine.exited, vite.exited])
   rmSync(runtime, { recursive: true, force: true })
   process.exit(0)
 }
 process.on("SIGINT", () => void shutdown())
 process.on("SIGTERM", () => void shutdown())
-await Promise.race([engine.exited, native.exited, vite.exited])
+await Promise.race([engine.exited, vite.exited])
 await shutdown()

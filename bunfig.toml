@@ -1,3 +1,3 @@
-# Keeps a bare `bun test` away from engine/upstream, whose tests touch the real ~/.config/opencode.
+# A bare `bun test` runs the app's tests only, never anything under examples/ or node_modules.
 [test]
 root = "tests"
