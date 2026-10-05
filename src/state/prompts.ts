@@ -1,10 +1,8 @@
 import { backendInvoke } from "../backend"
 
-export type PromptFamily = { id: string; original: string; default: string; variants?: PromptFamily[] }
-export type PromptCatalogAgent = { name: string; prompt: string }
-export type PromptCatalog = { version: number; families: PromptFamily[]; agents: PromptCatalogAgent[] }
+/** An agent's saved Settings override (`agent:<name>`); base prompts are the engine's own. */
 export type PromptOverride = { key: string; value: unknown; original?: unknown; updatedAt: number }
-export type PromptSnapshot = { catalog: PromptCatalog; overrides: PromptOverride[] }
+export type PromptSnapshot = { overrides: PromptOverride[] }
 
 export function loadPromptSnapshot() {
   const invoke = backendInvoke()

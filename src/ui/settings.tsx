@@ -1620,7 +1620,7 @@ function PromptEditorSection() {
   createEffect(() => {
     if (agentDirty()) return
     const storedOverride = override(`agent:${agentName()}`)
-    loadAgentEditors(agentConfig(currentAgent(), snapshot(), storedOverride))
+    loadAgentEditors(agentConfig(currentAgent(), storedOverride))
   })
 
   async function mutate(action: () => Promise<void>, clean: () => void) {
@@ -1671,7 +1671,7 @@ function PromptEditorSection() {
     )
     // A baseline stored before the engine narrowed agent overrides still names retired fields, which the shell now refuses.
     const recorded = storedOverride?.original
-    const original = recorded && typeof recorded === "object" ? applicableOverride(recorded as Record<string, unknown>) : agentConfig(currentAgent(), snapshot())
+    const original = recorded && typeof recorded === "object" ? applicableOverride(recorded as Record<string, unknown>) : agentConfig(currentAgent())
     const action = Object.keys(value).length
       ? () => savePromptOverride(key, value, original)
       : () => resetPromptOverride(key)
@@ -1689,7 +1689,7 @@ function PromptEditorSection() {
         setAgentBehaviorBaseline(agentBehavior())
       })
     }
-    loadAgentEditors(agentConfig(currentAgent(), snapshot()))
+    loadAgentEditors(agentConfig(currentAgent()))
   }
 
   return (
@@ -1809,14 +1809,14 @@ function PromptActions(props: {
 }
 
 /** The agent as the engine runs it, in the fields Settings can change: nothing shown here goes unapplied. */
-function agentConfig(agent: AgentInfo | undefined, snapshot: PromptSnapshot | null, storedOverride?: PromptOverride) {
+function agentConfig(agent: AgentInfo | undefined, storedOverride?: PromptOverride) {
   const restored =
     storedOverride?.value && typeof storedOverride.value === "object"
       ? applicableOverride(storedOverride.value as Record<string, unknown>)
       : undefined
   if (!agent) return restored ? { ...restored } : {}
   return {
-    prompt: agent.prompt ?? snapshot?.catalog.agents.find((item) => item.name === agent.name)?.prompt,
+    prompt: agent.prompt,
     model: agent.model ? `${agent.model.providerID}/${agent.model.modelID}` : undefined,
     steps: agent.steps,
     permissions: agent.permissions?.length ? agent.permissions : undefined,

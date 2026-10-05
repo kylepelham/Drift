@@ -87,19 +87,19 @@ test("generated steering prompts never count as a fresh goal", () => {
   expect(isGeneratedUserEntry([{ type: "file" }])).toBeFalse()
 })
 
-test("the orchestrator agent is defined with delegation-only tools and the status protocol", async () => {
-  const config = JSON.parse(await Bun.file("engine/opencode/opencode.json").text()) as {
-    agent?: Record<string, { mode?: string; prompt?: string; tools?: Record<string, boolean> }>
-  }
-  const agent = config.agent?.[ORCHESTRATOR_AGENT]
-  expect(agent).toBeDefined()
-  expect(agent!.mode).toBe("primary")
-  // Implementation tools are denied so all substantial work flows through subagents.
-  expect(agent!.tools).toMatchObject({ edit: false, write: false, apply_patch: false, bash: false })
-  expect(agent!.prompt).toContain("<orchestrator_status>")
-  expect(agent!.prompt).toContain('"working"')
-  expect(agent!.prompt).toContain("Never ask the user whether to continue")
-  expect(agent!.prompt).toContain("Never claim done without verification evidence")
+test("the orchestrator agent is a native built-in with delegation-only tools and the status protocol", async () => {
+  const builtins = await Bun.file("crates/drift-engine/src/config/mod.rs").text()
+  const defined = builtins.split("\n").find((line) => line.includes(`agent("${ORCHESTRATOR_AGENT}",`))
+  expect(defined).toBeDefined()
+  expect(defined).toContain("AgentKind::Primary")
+  // An allowlist without the implementation tools, so all substantial work flows through subagents.
+  for (const tool of ['"edit"', '"write"', '"apply_patch"', '"bash"']) expect(defined).not.toContain(tool)
+  expect(defined).toContain('"task"')
+  const prompt = await Bun.file("crates/drift-engine/src/config/prompts/orchestrator.txt").text()
+  expect(prompt).toContain("<orchestrator_status>")
+  expect(prompt).toContain('"working"')
+  expect(prompt).toContain("Never ask the user whether to continue")
+  expect(prompt).toContain("Never claim done without verification evidence")
 })
 
 test("the driver is wired into the app and reacts to status transitions", async () => {

@@ -76,7 +76,7 @@ pub(crate) fn opencode_import_summary(importer: State<Importer>) -> Option<Summa
 }
 
 fn run(app: &AppHandle, kept: &Mutex<Option<Summary>>) {
-    let Ok(dir) = crate::engine_db::opencode_data_dir() else { return };
+    let Some(dir) = opencode_data_dir() else { return };
     let store = app.state::<Store>();
     let engine = app.state::<Native>().engine().clone();
     let mut summary = Summary::default();
@@ -159,7 +159,7 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Opti
     let server = |name: &str, definition: &Value| drift_migrate::OcServer {
         name: name.into(),
         definition: definition.clone(),
-        approved: crate::mcp_external::fingerprint(name, definition).is_some_and(|fingerprint| approved.contains(&fingerprint)),
+        approved: fingerprint(name, definition).is_some_and(|fingerprint| approved.contains(&fingerprint)),
     };
     let mut servers: Vec<drift_migrate::OcServer> = state.iter().flat_map(|state| &state.servers).map(|row| server(&row.name, &row.config)).collect();
     servers.extend(config.as_ref().and_then(|config| config["mcp"].as_object()).into_iter().flatten().map(|(name, definition)| server(name, definition)));
@@ -190,6 +190,38 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Opti
     }
 }
 
+/// The fingerprint Drift's old MCP approval step recorded for a named definition (`enabled` aside):
+/// a server is imported switched on only when this matches an approval.
+fn fingerprint(name: &str, definition: &Value) -> Option<String> {
+    use sha2::Digest;
+    let effective: serde_json::Map<String, Value> = definition.as_object()?.iter().filter(|(key, _)| key.as_str() != "enabled").map(|(key, value)| (key.clone(), value.clone())).collect();
+    let serialized = canonical(&Value::Array(vec![Value::String(name.to_string()), Value::Object(effective)]))?;
+    Some(format!("sha256:{:x}", sha2::Sha256::digest(serialized.as_bytes())))
+}
+
+/// As the approval step serialized it: keys sorted by UTF-16 code unit, numbers as `JSON.stringify` writes them.
+fn canonical(value: &Value) -> Option<String> {
+    match value {
+        Value::Null | Value::Bool(_) | Value::String(_) => serde_json::to_string(value).ok(),
+        Value::Number(number) => match number.as_f64().filter(|float| float.fract() == 0.0 && float.abs() <= 9_007_199_254_740_991.0) {
+            Some(whole) => Some(format!("{}", whole as i64)),
+            None => serde_json::to_string(number).ok(),
+        },
+        Value::Array(items) => Some(format!("[{}]", items.iter().map(canonical).collect::<Option<Vec<_>>>()?.join(","))),
+        Value::Object(entries) => {
+            let mut sorted: Vec<(&String, &Value)> = entries.iter().collect();
+            sorted.sort_by_key(|(key, _)| key.encode_utf16().collect::<Vec<_>>());
+            let parts = sorted.into_iter().map(|(key, item)| Some(format!("{}:{}", serde_json::to_string(key).ok()?, canonical(item)?))).collect::<Option<Vec<_>>>()?;
+            Some(format!("{{{}}}", parts.join(",")))
+        }
+    }
+}
+
+/// Where opencode keeps its databases and `auth.json`, as opencode looks for it.
+fn opencode_data_dir() -> Option<PathBuf> {
+    std::env::var_os("XDG_DATA_HOME").map(|root| PathBuf::from(root).join("opencode")).or_else(|| drift_engine::config::home().map(|home| home.join(".local").join("share").join("opencode")))
+}
+
 /// Where opencode keeps its global config, as opencode looks for it.
 fn opencode_config_dir() -> Option<PathBuf> {
     std::env::var_os("XDG_CONFIG_HOME").map(|root| PathBuf::from(root).join("opencode")).or_else(|| drift_engine::config::home().map(|home| home.join(".config").join("opencode")))
@@ -211,6 +243,14 @@ fn sources(dir: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn approvals_match_the_fingerprint_drifts_old_approval_step_recorded() {
+        let definition = serde_json::json!({ "type": "remote", "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer x" }, "enabled": true, "timeout": 30000 });
+        assert_eq!(fingerprint("docs", &definition).as_deref(), Some("sha256:933d9f99f6458ef8004d9f0e9b5fe8768211fe67a62e7baa87b08d8e9a5220dd"), "the vector the old plugin and locator shared");
+        let disabled = serde_json::json!({ "type": "remote", "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer x" }, "enabled": false, "timeout": 30000.0 });
+        assert_eq!(fingerprint("docs", &disabled), fingerprint("docs", &definition), "enabled is left out and a whole float reads as the integer");
+    }
 
     #[test]
     fn the_shared_database_goes_first_and_only_opencode_databases_are_read() {

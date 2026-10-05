@@ -301,45 +301,6 @@ fn an_imported_project_without_a_name_is_named_by_its_folder_as_adding_one_does(
 }
 
 #[test]
-fn mcp_decisions_are_global_and_survive_definition_changes() {
-    let dir = test_dir("mcp-store");
-    let store = open_at(&dir.join("drift.db")).unwrap();
-    let first = serde_json::json!({ "type": "local", "command": ["one"] });
-    let second = serde_json::json!({ "type": "local", "command": ["two"] });
-
-    assert_eq!(store.save_mcp_server("server", None, &first).unwrap(), 1);
-    assert_eq!(
-        store
-            .decide_mcp(
-                "server",
-                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                "approved"
-            )
-            .unwrap(),
-        2
-    );
-    store.save_mcp_server("server", None, &second).unwrap();
-    store.save_mcp_server("server", None, &first).unwrap();
-    let state = store.mcp_state().unwrap();
-    assert_eq!(state.decisions.len(), 1);
-    assert_eq!(state.decisions[0].decision, "approved");
-
-    store
-        .decide_mcp(
-            "server",
-            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "rejected",
-        )
-        .unwrap();
-    assert_eq!(store.mcp_state().unwrap().decisions.len(), 2);
-    store
-        .revoke_mcp("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-        .unwrap();
-    assert_eq!(store.mcp_state().unwrap().decisions[0].decision, "rejected");
-    std::fs::remove_dir_all(dir).ok();
-}
-
-#[test]
 fn legacy_remote_access_key_survives_for_older_builds_and_devices_round_trip() {
     let dir = test_dir("remote-legacy");
     {

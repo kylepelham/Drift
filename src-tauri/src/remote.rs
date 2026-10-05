@@ -1,6 +1,6 @@
 use crate::remote_auth::{self, Auth, PendingLink};
 use crate::store::{RemoteDevice, Store};
-use crate::{commands, config, editor, engine, file_preview, mcp, tool_routing, ui_state, voice};
+use crate::{commands, config, editor, file_preview, prompts, ui_state, voice};
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Extension, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
@@ -680,7 +680,7 @@ struct RpcRequest {
 
 macro_rules! remote_commands {
     (
-        |$app:ident, $args:ident, $store:ident, $runtime:ident|;
+        |$app:ident, $args:ident, $store:ident|;
         $($name:literal => $handler:expr),+ $(,)?
     ) => {
         fn rpc_allowed(command: &str) -> bool {
@@ -693,7 +693,6 @@ macro_rules! remote_commands {
             $args: &Value,
         ) -> Result<Value, String> {
             let $store = || $app.state::<Store>();
-            let $runtime = || $app.state::<mcp::McpRuntime>();
             match command {
                 $($name => $handler,)+
                 _ => Err("command is not available remotely".into()),
@@ -728,8 +727,7 @@ async fn invoke_rpc(
 }
 
 remote_commands! {
-    |app, args, store, runtime|;
-        "restart_engine" => value(engine::restart_engine(app.clone())?),
+    |app, args, store|;
         "config_read" => value(config::config_read(app.state(), arg(args, "path")?)?),
         "pick_folder" => value(editor::pick_folder().await),
         "open_file" => value(editor::open_file(
@@ -797,92 +795,15 @@ remote_commands! {
             store(),
             arg(args, "before")?,
         )?),
-        "mcp_snapshot" => value(commands::mcp_snapshot(
-            runtime(),
-            store(),
-            arg(args, "directory")?,
-        )?),
-        "prompt_snapshot" => value(commands::prompt_snapshot(runtime(), store())?),
-        "prompt_save" => value(commands::prompt_save(
+        "prompt_snapshot" => value(prompts::prompt_snapshot(store())?),
+        "prompt_save" => value(prompts::prompt_save(
             app.clone(),
-            runtime(),
             store(),
             arg(args, "key")?,
             arg(args, "value")?,
             optional(args, "original")?,
         )?),
-        "prompt_reset" => value(commands::prompt_reset(
-            app.clone(),
-            runtime(),
-            store(),
-            arg(args, "key")?,
-        )?),
-        "mcp_save" => value(commands::mcp_save(
-            app.clone(),
-            runtime(),
-            store(),
-            arg(args, "name")?,
-            optional(args, "previousName")?,
-            arg(args, "config")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_remove" => value(commands::mcp_remove(
-            app.clone(),
-            runtime(),
-            store(),
-            arg(args, "name")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_external_config" => value(commands::mcp_external_config(
-            runtime(),
-            store(),
-            arg(args, "name")?,
-            arg(args, "fingerprint")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_external_save" => value(commands::mcp_external_save(
-            runtime(),
-            store(),
-            arg(args, "name")?,
-            arg(args, "previousName")?,
-            arg(args, "fingerprint")?,
-            arg(args, "config")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_external_remove" => value(commands::mcp_external_remove(
-            runtime(),
-            store(),
-            arg(args, "name")?,
-            arg(args, "fingerprint")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_approve" => value(commands::mcp_approve(
-            app.clone(),
-            runtime(),
-            store(),
-            arg(args, "directory")?,
-            arg(args, "name")?,
-            arg(args, "fingerprint")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_reject" => value(commands::mcp_reject(
-            app.clone(),
-            runtime(),
-            store(),
-            arg(args, "directory")?,
-            arg(args, "name")?,
-            arg(args, "fingerprint")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_revoke" => value(commands::mcp_revoke(
-            app.clone(),
-            runtime(),
-            store(),
-            arg(args, "directory")?,
-            arg(args, "name")?,
-            arg(args, "fingerprint")?,
-            arg(args, "generation")?,
-        )?),
+        "prompt_reset" => value(prompts::prompt_reset(app.clone(), store(), arg(args, "key")?)?),
         "storage_stats" => value(commands::storage_stats(store(), app.state()).await?),
         "storage_prune" => value(commands::storage_prune(app.state()).await?),
         "storage_compact" => value(commands::storage_compact(app.state()).await?),
@@ -919,9 +840,6 @@ remote_commands! {
         "shell_timeout_snapshot" => {
             value(ui_state::shell_timeout_snapshot(app.state())?)
         },
-        "tool_routing_snapshot" => value(tool_routing::tool_routing_snapshot(store())?),
-        "tool_routing_status" => value(tool_routing::tool_routing_status(app.state())),
-        "tool_routing_update" => value(tool_routing::tool_routing_update(app.clone(), app.state(), store(), arg(args, "policy")?)?),
         "shell_timeout_update" => value(ui_state::shell_timeout_update(
             app.clone(),
             app.state(),

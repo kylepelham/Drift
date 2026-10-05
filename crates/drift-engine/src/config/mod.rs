@@ -796,6 +796,8 @@ fn builtin_agents() -> Vec<Agent> {
         read_only(agent("plan", "Explores and proposes; changes nothing.", include_str!("prompts/plan.txt"), &[], AgentKind::Primary)),
         agent("general", "General-purpose subagent for multi-step work: researching, and making changes. The default for task.", include_str!("prompts/general.txt"), &[], AgentKind::Subagent),
         read_only(agent("explore", "Fast read-only subagent for finding files and code and answering questions about a codebase.", include_str!("prompts/explore.txt"), &["read", "glob", "grep", "bash", "webfetch", "skill"], AgentKind::Subagent)),
+        // Delegates every change and command to subagents, so it is offered no tool that writes or runs anything itself.
+        agent("orchestrator", "Drives a goal to completion by delegating to subagents, verifying results, and correcting course", include_str!("prompts/orchestrator.txt"), &["read", "glob", "grep", "webfetch", "todowrite", "skill", "question", "task", "task_output", "task_stop", "read_thread"], AgentKind::Primary),
         agent("title", "Names new conversations. Default model: a small one from the conversation's provider.", include_str!("prompts/title.txt"), &[], AgentKind::Action),
         agent("compaction", "Summarises long conversations to free context. Default model: the conversation's.", include_str!("prompts/compaction.txt"), &[], AgentKind::Action),
     ]
@@ -914,7 +916,7 @@ mod tests {
         assert_eq!(config.policy().decide(&crate::tool::Ask::new("bash", "git push origin", "")), Decision::Deny);
 
         let names: Vec<&str> = config.agents.iter().map(|a| a.name.as_str()).collect();
-        assert_eq!(names, ["build", "general", "compaction", "explore", "plan", "reviewer", "title"]);
+        assert_eq!(names, ["build", "general", "orchestrator", "compaction", "explore", "plan", "reviewer", "title"]);
         assert_eq!(config.agent("reviewer").unwrap().kind, AgentKind::Subagent, "mode: subagent keeps it out of the composer");
         assert_eq!(config.agent("explore").unwrap().kind, AgentKind::Subagent, "replacing a subagent without a mode keeps its kind");
         assert_eq!(config.agent("plan").unwrap().kind, AgentKind::Primary);
@@ -954,11 +956,15 @@ mod tests {
                 ("plan", AgentKind::Primary),
                 ("general", AgentKind::Subagent),
                 ("explore", AgentKind::Subagent),
+                ("orchestrator", AgentKind::Primary),
                 ("title", AgentKind::Action),
                 ("compaction", AgentKind::Action),
             ]
         );
         assert!(!config.agent("explore").unwrap().tools.contains(&"edit".to_string()), "explore is read-only");
+        let orchestrator = config.agent("orchestrator").unwrap();
+        assert!(["edit", "write", "apply_patch", "bash"].iter().all(|tool| !orchestrator.allows_tool(tool)) && orchestrator.allows_tool("task"), "the orchestrator delegates; it never changes or runs anything itself");
+        assert!(orchestrator.prompt.contains("<orchestrator_status>"));
         assert!(config.agent("plan").unwrap().read_only && config.agent("explore").unwrap().read_only);
         assert!(config.commands.is_empty() && config.skills.is_empty() && config.instructions.is_empty());
         std::fs::remove_dir_all(ws).ok();

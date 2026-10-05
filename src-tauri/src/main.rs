@@ -4,14 +4,11 @@ mod clipboard;
 mod commands;
 mod config;
 mod editor;
-mod engine;
-mod engine_db;
 mod file_preview;
-mod mcp;
-mod mcp_external;
 mod native;
 mod opencode_import;
 mod permissions;
+mod prompts;
 mod remote;
 mod remote_auth;
 mod remote_tls;
@@ -19,15 +16,12 @@ mod session_search;
 mod startup;
 mod storage;
 mod store;
-mod tool_routing;
 mod ui_state;
 mod updater;
 mod usage_limits;
 mod voice;
-mod watcher;
 
 use config::ConfigRoot;
-use engine::Engine;
 use tauri::{Manager, RunEvent};
 use voice::VoiceDownload;
 
@@ -97,14 +91,11 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(Engine::default())
         .manage(VoiceDownload::default())
         .manage(permissions::DictationConsent::default())
         // Commands are named by full path: generate_handler! resolves helper macros in the
         // module that defines each command, so a plain `use` re-export is not enough.
         .invoke_handler(tauri::generate_handler![
-            engine::engine_status,
-            engine::restart_engine,
             native::native_engine_status,
             opencode_import::opencode_import_summary,
             updater::check_update,
@@ -129,19 +120,9 @@ fn main() {
             commands::store_archive_session,
             commands::store_unarchive_session,
             commands::store_expired_archived,
-            commands::mcp_snapshot,
-            commands::prompt_snapshot,
-            commands::prompt_save,
-            commands::prompt_reset,
-            commands::mcp_save,
-            commands::mcp_remove,
-            commands::mcp_approve,
-            commands::mcp_reject,
-            commands::mcp_revoke,
-            watcher::watcher_set_skill_paths,
-            commands::mcp_external_config,
-            commands::mcp_external_save,
-            commands::mcp_external_remove,
+            prompts::prompt_snapshot,
+            prompts::prompt_save,
+            prompts::prompt_reset,
             show_main_window,
             open_webview_devtools,
             commands::session_search,
@@ -167,10 +148,7 @@ fn main() {
             ui_state::ui_state_update,
             ui_state::shell_timeout_initialize,
             ui_state::shell_timeout_snapshot,
-            ui_state::shell_timeout_update,
-            tool_routing::tool_routing_snapshot,
-            tool_routing::tool_routing_status,
-            tool_routing::tool_routing_update
+            ui_state::shell_timeout_update
         ])
         .setup(|app| {
             startup::mark("setup-start");
@@ -194,20 +172,9 @@ fn main() {
             let dictation_enabled = store.dictation_enabled().unwrap_or(false);
             app.state::<permissions::DictationConsent>()
                 .set(dictation_enabled);
-            let extensions = engine::engine_extensions().expect("embedded engine extensions not found");
-            let mcp_runtime = mcp::McpRuntime::new(&data_dir, extensions);
-            mcp_runtime
-                .materialize(&store)
-                .expect("failed to prepare Drift MCP policy");
-            let engine_config = mcp_runtime.config_dir().to_path_buf();
-            let tool_routing = tool_routing::ToolRouting::new(&engine_config, &store)
-                .expect("failed to prepare tool routing policy");
-            app.manage(tool_routing);
             app.manage(store);
             app.manage(ui_state);
             app.manage(shell_timeout);
-            app.manage(mcp_runtime);
-            app.manage(watcher::SkillWatchRoots::default());
             app.manage(opencode_import::start(app.handle()));
             #[cfg(windows)]
             permissions::install(app)?;
@@ -215,17 +182,9 @@ fn main() {
                 .expect("failed to load remote access settings");
             let start_remote = remote_access.should_start();
             app.manage(remote_access);
-            engine::start_engine(app.handle().clone(), engine_config);
-            watcher::watch_engine_configs(app.handle().clone());
             if start_remote {
                 let app = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    for _ in 0..150 {
-                        if app.state::<Engine>().current_url().is_some() {
-                            break;
-                        }
-                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                    }
                     let access = app.state::<remote::RemoteAccess>();
                     if let Err(error) = access.start(app.clone()).await {
                         access.set_error(error);
@@ -247,7 +206,6 @@ fn main() {
         .run(|app, event| {
             if let RunEvent::Exit = event {
                 app.state::<remote::RemoteAccess>().stop_on_exit();
-                engine::stop_engine_on_exit(app);
                 native::stop(app);
             }
         });

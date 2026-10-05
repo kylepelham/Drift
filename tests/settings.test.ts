@@ -141,19 +141,15 @@ test("agent overrides retain only values changed from upstream", async () => {
   ).toEqual({ prompt: "Custom", mode: "subagent" })
 })
 
-test("prompt saves and resets publish a runtime reload for desktop and companion callers", async () => {
-  const commands = await Bun.file("src-tauri/src/commands.rs").text()
+test("agent overrides saved or reset reach the engine for desktop and companion callers", async () => {
+  const prompts = await Bun.file("src-tauri/src/prompts.rs").text()
   const remote = await Bun.file("src-tauri/src/remote.rs").text()
-  for (const [command, method] of [["prompt_save", "save_prompt"], ["prompt_reset", "reset_prompt"]]) {
-    const body = commands.slice(commands.indexOf(`pub(crate) fn ${command}(`)).split("\n}")[0]!
-    expect(body).toContain("app: tauri::AppHandle")
-    expect(body).toContain(`runtime.${method}(`)
-    expect(body).toContain("?;\n    publish_prompt_change(&app)")
-    expect(body.indexOf(`runtime.${method}(`)).toBeLessThan(body.indexOf("publish_prompt_change(&app)"))
-    expect(remote).toContain(`commands::${command}(\n            app.clone(),`)
+  for (const command of ["prompt_save", "prompt_reset"]) {
+    const body = prompts.slice(prompts.indexOf(`pub(crate) fn ${command}(`)).split("\n}")[0]!
+    expect(body).toContain("app: AppHandle")
+    expect(body.trimEnd().endsWith("crate::native::push_agent_overrides(&app, &store)")).toBeTrue()
+    expect(remote).toContain(`prompts::${command}(`)
   }
-  expect(commands).toContain("reload_engine_config(app).map_err")
-  expect(commands).toContain("Settings saved, but the engine reload failed.")
   const ui = await Bun.file("src/ui/settings.tsx").text()
   expect(ui).toContain("await action()\n      await engine.actions.refreshAgents()")
   expect(ui).toContain('t("drift.settings.prompts.saved")')

@@ -63,7 +63,6 @@ pub struct RemoteDevice {
 
 #[derive(Clone)]
 pub struct McpState {
-    pub generation: i64,
     pub servers: Vec<McpServer>,
     pub decisions: Vec<McpDecision>,
 }
@@ -611,7 +610,6 @@ impl Store {
 
     pub fn mcp_state(&self) -> rusqlite::Result<McpState> {
         let conn = self.0.lock();
-        let generation = current_mcp_generation(&conn)?;
         let servers = conn
             .prepare_cached(
                 "SELECT name, config_json, updated_at FROM mcp_server ORDER BY name COLLATE NOCASE",
@@ -645,144 +643,8 @@ impl Store {
                 })
             })?
             .collect::<Result<_, _>>()?;
-        Ok(McpState {
-            generation,
-            servers,
-            decisions,
-        })
+        Ok(McpState { servers, decisions })
     }
-
-    pub fn save_mcp_server(
-        &self,
-        name: &str,
-        previous: Option<&str>,
-        config: &Value,
-    ) -> rusqlite::Result<i64> {
-        let mut conn = self.0.lock();
-        let tx = conn.transaction()?;
-        if let Some(previous) = previous.filter(|previous| *previous != name) {
-            tx.execute("DELETE FROM mcp_server WHERE name = ?1", [previous])?;
-        }
-        tx.execute(
-            "INSERT INTO mcp_server(name, config_json, updated_at) VALUES(?1, ?2, ?3)
-             ON CONFLICT(name) DO UPDATE SET config_json = ?2, updated_at = ?3",
-            params![name, serde_json::to_string(config).unwrap(), now()],
-        )?;
-        next_mcp_generation(&tx)?;
-        let generation = current_mcp_generation(&tx)?;
-        tx.commit()?;
-        Ok(generation)
-    }
-
-    pub fn remove_mcp_server(&self, name: &str) -> rusqlite::Result<i64> {
-        let mut conn = self.0.lock();
-        let tx = conn.transaction()?;
-        tx.execute("DELETE FROM mcp_server WHERE name = ?1", [name])?;
-        next_mcp_generation(&tx)?;
-        let generation = current_mcp_generation(&tx)?;
-        tx.commit()?;
-        Ok(generation)
-    }
-
-    pub fn decide_mcp(
-        &self,
-        name: &str,
-        fingerprint: &str,
-        decision: &str,
-    ) -> rusqlite::Result<i64> {
-        let mut conn = self.0.lock();
-        let tx = conn.transaction()?;
-        tx.execute(
-            "INSERT INTO mcp_decision(name, fingerprint, decision, decided_at) VALUES(?1, ?2, ?3, ?4)
-             ON CONFLICT(fingerprint) DO UPDATE SET name = ?1, decision = ?3, decided_at = ?4",
-            params![name, fingerprint, decision, now()],
-        )?;
-        next_mcp_generation(&tx)?;
-        let generation = current_mcp_generation(&tx)?;
-        tx.commit()?;
-        Ok(generation)
-    }
-
-    pub fn revoke_mcp(&self, fingerprint: &str) -> rusqlite::Result<i64> {
-        let mut conn = self.0.lock();
-        let tx = conn.transaction()?;
-        if tx.execute(
-            "DELETE FROM mcp_decision WHERE fingerprint = ?1",
-            [fingerprint],
-        )? != 1
-        {
-            return Err(rusqlite::Error::QueryReturnedNoRows);
-        }
-        next_mcp_generation(&tx)?;
-        let generation = current_mcp_generation(&tx)?;
-        tx.commit()?;
-        Ok(generation)
-    }
-
-    pub fn advance_mcp_generation(&self) -> rusqlite::Result<i64> {
-        let conn = self.0.lock();
-        next_mcp_generation(&conn)?;
-        current_mcp_generation(&conn)
-    }
-
-    pub fn restore_mcp_state(&self, state: &McpState) -> rusqlite::Result<i64> {
-        let mut conn = self.0.lock();
-        let tx = conn.transaction()?;
-        tx.execute("DELETE FROM mcp_server", [])?;
-        tx.execute("DELETE FROM mcp_decision", [])?;
-        for server in &state.servers {
-            tx.execute(
-                "INSERT INTO mcp_server(name, config_json, updated_at) VALUES(?1, ?2, ?3)",
-                params![
-                    server.name,
-                    serde_json::to_string(&server.config).unwrap(),
-                    server.updated_at
-                ],
-            )?;
-        }
-        for decision in &state.decisions {
-            tx.execute(
-                "INSERT INTO mcp_decision(name, fingerprint, decision, decided_at) VALUES(?1, ?2, ?3, ?4)",
-                params![
-                    decision.name,
-                    decision.fingerprint,
-                    decision.decision,
-                    decision.decided_at
-                ],
-            )?;
-        }
-        next_mcp_generation(&tx)?;
-        let generation = current_mcp_generation(&tx)?;
-        tx.commit()?;
-        Ok(generation)
-    }
-
-    pub fn mark_mcp_materialized(&self, generation: i64) -> rusqlite::Result<()> {
-        let changed = self.0.lock().execute(
-            "UPDATE mcp_state SET materialized_generation = ?1 WHERE id = 1 AND generation = ?1",
-            [generation],
-        )?;
-        if changed == 1 {
-            return Ok(());
-        }
-        Err(rusqlite::Error::QueryReturnedNoRows)
-    }
-}
-
-fn next_mcp_generation(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute(
-        "UPDATE mcp_state SET generation = generation + 1 WHERE id = 1",
-        [],
-    )?;
-    Ok(())
-}
-
-/// Reads the current MCP generation counter. Callers pass it back on the next mutation so a stale
-/// frontend cannot overwrite a decision made since it last read.
-fn current_mcp_generation(conn: &Connection) -> rusqlite::Result<i64> {
-    conn.query_row("SELECT generation FROM mcp_state WHERE id = 1", [], |row| {
-        row.get(0)
-    })
 }
 
 /// Reads a workspace row. Column order must match `WORKSPACE_COLUMNS`.
