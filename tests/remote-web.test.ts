@@ -174,3 +174,14 @@ test("remote settings drop the redundant gateway rows and keep linking in number
   expect(section).toContain('id="remote-link-code"')
   expect(section.match(/<Step number=\{\d\}>/g)).toHaveLength(3)
 })
+
+test("in the companion the native client reaches the engine through the gateway and holds no engine token", async () => {
+  const saved = (globalThis as { window?: unknown }).window
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { location: { pathname: "/companion", origin: "https://192.168.1.8:41718" } } })
+  try {
+    const { resolveTarget } = await import("../src/engine/native/target")
+    expect(await resolveTarget()).toEqual({ url: "https://192.168.1.8:41718/engine", token: "" })
+  } finally {
+    Object.defineProperty(globalThis, "window", { configurable: true, value: saved })
+  }
+})

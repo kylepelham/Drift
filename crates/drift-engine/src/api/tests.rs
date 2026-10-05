@@ -635,3 +635,29 @@ async fn settings_rules_apply_at_once_survive_a_restart_and_refuse_what_could_ne
     }
     assert_eq!(h.get("/permission-rules").send().await.unwrap().json::<Value>().await.unwrap(), rules, "a refused save changes nothing");
 }
+#[tokio::test]
+async fn a_socket_a_host_leases_closes_when_the_lease_is_cancelled() {
+    let h = harness().await;
+    let lease = tokio_util::sync::CancellationToken::new();
+    let held = lease.clone();
+    let router = super::router(h.engine.clone()).layer(axum::middleware::from_fn(move |mut request: axum::extract::Request, next: axum::middleware::Next| {
+        request.extensions_mut().insert(super::Lease(held.clone()));
+        next.run(request)
+    }));
+    let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/events?token={}", h.engine.token)).await.unwrap();
+    assert!(matches!(socket.next().await, Some(Ok(Message::Text(_)))), "hello arrives while the lease holds");
+    lease.cancel();
+    let ended = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            match socket.next().await {
+                None | Some(Err(_)) | Some(Ok(Message::Close(_))) => return,
+                Some(Ok(_)) => {}
+            }
+        }
+    })
+    .await;
+    assert!(ended.is_ok(), "the socket closed once the host took the lease back");
+}

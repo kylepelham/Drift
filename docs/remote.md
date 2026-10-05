@@ -1,6 +1,6 @@
 # Remote Access
 
-Remote Access serves Drift's complete SolidJS interface to your phone, tablet, or another computer on the same network. The remote UI uses the same host OpenCode engine, global SSE stream, Drift SQLite data, workspaces, archives, MCP policy, prompts, storage tools, provider state, and voice sidecars as the desktop app.
+Remote Access serves Drift's complete SolidJS interface to your phone, tablet, or another computer on the same network. The remote UI uses the same Drift engine, event stream, Drift SQLite data, workspaces, archives, MCP policy, prompts, storage tools, provider state, and voice sidecars as the desktop app.
 
 Remote Access is off by default. Traffic is always encrypted with HTTPS, and only devices you approve can connect.
 
@@ -21,7 +21,7 @@ Passwords are stored as PBKDF2-HMAC-SHA256 with a random 16-byte salt and 600,00
 
 ### Linked devices
 
-**Devices** lists every signed-in device with how it signed in and when it was last active. **Sign out** revokes one device; **Sign out all devices** revokes all of them. Revocation closes open streams immediately, and the device returns to the sign-in page on its next request. A remote device can also sign itself out from its own **Settings > Remote Access**.
+**Devices** lists every signed-in device with how it signed in and when it was last active. **Sign out** revokes one device; **Sign out all devices** revokes all of them. Revocation closes open streams and the engine event socket immediately, and the device returns to the sign-in page on its next request. A remote device can also sign itself out from its own **Settings > Remote Access**.
 
 Each device holds its own random 256-bit session token in an `HttpOnly; Secure; SameSite=Strict` cookie that lasts 400 days. Drift stores only the token's SHA-256 in the `remote_device` table, so the database never contains a usable credential. API clients may send the same token as `Authorization: Bearer <token>`.
 
@@ -62,29 +62,28 @@ phone browser / WebView
 Tauri-owned Remote Access gateway
         |-- /auth/*                 sign-in page API, device codes, password, certificate
         |-- /companion + /assets/*  embedded Vite dist (sign-in page when signed out)
-        |-- /engine/*               streaming reverse proxy + injected engine Basic auth
+        |-- /engine/*               the engine's own router, in process, with its token added
         |-- /api/invoke             explicit host-command allowlist
         |-- UDP :41717              credential-free address discovery
         v
-loopback-only OpenCode engine on a random port
+the Drift engine (also on loopback for the desktop window)
 ```
 
-- `src-tauri/src/remote.rs` owns listener lifecycle, the TLS accept loop and HTTP redirect, security headers, static assets, the streaming proxy, RPC dispatch, and discovery.
+- `src-tauri/src/remote.rs` owns listener lifecycle, the TLS accept loop and HTTP redirect, security headers, static assets, the engine mount, RPC dispatch, and discovery.
 - `src-tauri/src/remote_auth.rs` owns devices, link codes, password sign-in, throttling, and the `/auth/*` handlers. The signed-out page is the self-contained `remote_sign_in.html`, English only because it loads before the app bundle.
 - `src-tauri/src/remote_tls.rs` owns the certificate authority and per-address leaf configurations.
 - `src/state/remote-access.ts` and `src/ui/settings-remote-access.tsx` hold the desktop management UI and the remote device's sign-out; `src/ui/remote-link-notice.tsx` shows the waiting-device notice.
 
-`src/runtime.ts` detects `/companion`; `src/backend.ts` selects Tauri invoke on desktop or same-origin RPC remotely, and returns to the sign-in page when RPC answers 401. The Vite production output is embedded in the Rust binary with `rust-embed`. In debug builds the gateway checks the local `dist/` first, so run `bun run build` after frontend changes before testing Remote Access through a native development build.
+`src/runtime.ts` detects `/companion`, and the native client then targets the gateway's `/engine` with no token of its own (`src/engine/native/target.ts`); `src/backend.ts` selects Tauri invoke on desktop or same-origin RPC remotely, and returns to the sign-in page when RPC answers 401. The Vite production output is embedded in the Rust binary with `rust-embed`. In debug builds the gateway checks the local `dist/` first, so run `bun run build` after frontend changes before testing Remote Access through a native development build.
 
 ## Security Model
 
 Remote Access is for your own network. It is not an Internet-facing service.
 
-- The engine remains on `127.0.0.1` with a random port and random Basic password.
+- The engine never listens beyond `127.0.0.1`. The gateway serves its router in process (`native_engine`): after the device is signed in, it removes the device's cookies, adds the engine's random token itself, so no device ever holds it, and strips the `/engine` prefix. The event WebSocket carries a `Lease` the gateway cancels when the device's credentials change, so a signed-out device's socket closes at once, and an HTTP response still streaming is cut the same way.
 - Everything except the sign-in routes (`/auth/options`, `/auth/link`, `/auth/link/{id}`, `/auth/login`, `/auth/certificate`) requires a device session. Signed-out navigations to `/` or `/companion` get the sign-in page; other requests get 401.
 - Management commands (enable, link, revoke, password) are desktop-only Tauri commands and are not in the remote RPC allowlist.
-- Browser `Authorization`, cookies, Origin, Referer, connection headers, and other hop-by-hop headers are stripped before proxying. The gateway injects only the private engine credential.
-- Request bodies are capped, redirects are disabled in the engine proxy, CORS is not enabled, and same-origin `https` requests are expected.
+- A request to the engine carries at most 32 MB (attachments ride in prompts); other routes at most 10 MB. Same-origin `https` requests are expected.
 - Host/Origin checks run before authentication. The host comes from HTTP/2's `:authority` or HTTP/1.1's `Host` header; browsers negotiate HTTP/2, so checking `Host` alone rejects every browser request.
 - `no-referrer`, `nosniff`, frame restrictions, `no-store`, and a restrictive Permissions Policy are applied at the gateway.
 
@@ -94,7 +93,7 @@ Upgrading from the shared access key: the old `?token=` URL and its cookie no lo
 
 ## Remote Limitations
 
-- Android WebView file inputs work and attachments are sent through the engine proxy.
+- Android WebView file inputs work and attachments are sent to the engine through the gateway.
 - Clipboard, notifications, and microphone capture follow browser policy; they are most reliable once the certificate is installed.
 - Opening a code file is an explicit action on the host. Adding a workspace remotely asks for a host filesystem path because a host-native folder dialog is not useful on the remote device.
 - Desktop window controls and application updates are hidden remotely and remain host-only.

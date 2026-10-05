@@ -1,4 +1,6 @@
-// Where the native engine lives: the shell reports it once bound; browser dev reads env from drift-engined.
+// Where the native engine lives: the shell reports it once bound; the companion reaches it through the
+// gateway, which signs the device in and adds the engine's token itself; browser dev reads env from drift-engined.
+import { remoteEngineBase } from "../../runtime"
 import { shellInvoke, type ShellInvoke } from "../../shell"
 import type { Target } from "./client"
 
@@ -10,6 +12,8 @@ const pollMs = 100
 export async function resolveTarget(): Promise<Target> {
   const invoke = shellInvoke()
   if (invoke) return waitForShell(invoke)
+  const gateway = remoteEngineBase()
+  if (gateway) return { url: gateway, token: "" }
   const url = import.meta.env.VITE_NATIVE_ENGINE_URL
   const token = import.meta.env.VITE_NATIVE_ENGINE_TOKEN
   if (!url || !token) throw new Error("VITE_NATIVE_ENGINE_URL and VITE_NATIVE_ENGINE_TOKEN are required outside the shell")

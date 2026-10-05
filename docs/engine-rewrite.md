@@ -832,7 +832,7 @@ these async criteria are new pending M3 work.
   below). The Settings base-prompt override (global or per family, CHECKLIST) edits these same
   recipes.
 - Rename env vars and paths. Delete `engine/*`, `@opencode-ai/sdk`, overlays, build scripts.
-- Remote gateway collapses into the engine router; device auth and TLS stay in `src-tauri`.
+- Remote gateway collapses into the engine router (done): `/engine/*` is the engine's own router served in the gateway's process, the engine's token added after device sign-in, and the event socket leased to the device's credentials (`api::Lease`); device auth and TLS stay in `src-tauri` (`docs/remote.md`).
 - Docs rewritten. Perf numbers against the M0 baseline published in release notes.
 
 #### Importing opencode conversations

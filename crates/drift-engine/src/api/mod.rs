@@ -4,6 +4,7 @@ mod auth;
 mod cors;
 mod error;
 mod events;
+pub use events::Lease;
 mod health;
 mod mcp;
 mod permissions;

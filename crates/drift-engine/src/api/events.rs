@@ -49,6 +49,17 @@ pub struct EventsQuery {
     pub cursor: Option<u64>,
 }
 
+/// Set by a host that serves the engine to others (the remote gateway): the socket closes once it is
+/// cancelled, as when the device that opened it is signed out, so nothing it holds outlives its access.
+#[derive(Clone, Default)]
+pub struct Lease(pub tokio_util::sync::CancellationToken);
+
+impl Lease {
+    pub fn cancel(&self) {
+        self.0.cancel();
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/events",
@@ -59,9 +70,11 @@ pub struct EventsQuery {
 pub async fn get(
     State(engine): State<Arc<Engine>>,
     Query(query): Query<EventsQuery>,
+    lease: Option<axum::Extension<Lease>>,
     ws: WebSocketUpgrade,
 ) -> Response {
-    ws.on_upgrade(move |socket| run(engine, socket, query.cursor))
+    let lease = lease.map(|axum::Extension(Lease(token))| token).unwrap_or_default();
+    ws.on_upgrade(move |socket| run(engine, socket, query.cursor, lease))
 }
 
 struct Client {
@@ -101,7 +114,7 @@ impl Client {
     }
 }
 
-async fn run(engine: Arc<Engine>, socket: WebSocket, cursor: Option<u64>) {
+async fn run(engine: Arc<Engine>, socket: WebSocket, cursor: Option<u64>, lease: tokio_util::sync::CancellationToken) {
     let attached = engine.hub.attach(cursor);
     let mut rx = attached.rx;
     let mut client = Client {
@@ -119,6 +132,7 @@ async fn run(engine: Arc<Engine>, socket: WebSocket, cursor: Option<u64>) {
     let (results, mut finished) = mpsc::unbounded_channel();
     loop {
         tokio::select! {
+            () = lease.cancelled() => return,
             Some(result) = finished.recv() => if !client.send(&Frame::Control(result)).await { return },
             received = rx.recv() => match received {
                 Ok(envelope) => if !client.send_event(envelope).await { return },

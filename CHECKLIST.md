@@ -206,7 +206,7 @@ change the plan there when a decision changes.
 - [ ] i18n sweep: drop keys the native UI no longer uses from every locale (done so far: `drift.mcp.description`, `drift.mcp.authenticate`, `drift.settings.prompts.astraDescription`)
 - [ ] `DRIFT_*` env vars and `drift` data paths
 - [ ] Delete `engine/*`, `@opencode-ai/sdk`, overlays, `build-engine.ts`, `build-extensions.ts`
-- [ ] Remote gateway collapses into the engine router
+- [x] Remote gateway collapses into the engine router (in process; the event socket closes when its device is signed out)
 - [ ] Docs rewritten for the new engine
 - [ ] Perf numbers versus M0 baseline in release notes
 

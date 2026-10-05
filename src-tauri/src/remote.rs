@@ -10,7 +10,6 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use futures_util::StreamExt;
-use reqwest::redirect::Policy;
 use rust_embed::RustEmbed;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -36,7 +35,8 @@ const DISCOVERY_PROBE: &[u8] = b"OPENCODE_COMPANION_DISCOVERY";
 const MAX_CONCURRENT_PASSWORD_CHECKS: usize = 2;
 const TLS_HANDSHAKE_RECORD: u8 = 0x16;
 const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-const MAX_PROXY_BODY: usize = 32 * 1024 * 1024;
+/// What one request to the engine may carry (attachments ride in prompts).
+const MAX_ENGINE_BODY: usize = 32 * 1024 * 1024;
 const MAX_RPC_BODY: usize = 10 * 1024 * 1024;
 
 #[derive(RustEmbed)]
@@ -423,8 +423,8 @@ fn router(app: tauri::AppHandle) -> Router {
         .route("/auth/login", post(remote_auth::login))
         .route("/auth/logout", post(remote_auth::logout))
         .route("/auth/me", get(remote_auth::me))
-        .route("/engine", any(proxy_engine))
-        .route("/engine/{*path}", any(proxy_engine))
+        .route("/engine", any(native_engine).layer(DefaultBodyLimit::max(MAX_ENGINE_BODY)))
+        .route("/engine/{*path}", any(native_engine).layer(DefaultBodyLimit::max(MAX_ENGINE_BODY)))
         .route("/api/invoke", post(invoke_rpc))
         .route("/api/ui-state/events", get(ui_state_events))
         .fallback(static_asset)
@@ -616,123 +616,48 @@ fn static_path(path: &str) -> Option<&str> {
     Some(raw)
 }
 
-async fn proxy_engine(
+/// The native engine, served in this process. The gateway has already signed the device in, so the
+/// engine's own token goes in here and never reaches a device; a socket is leased to the device's
+/// credentials, so signing the device out closes what it holds open.
+async fn native_engine(
     State(app): State<tauri::AppHandle>,
     Extension(mut auth): Extension<watch::Receiver<u64>>,
-    request: Request,
+    mut request: Request,
 ) -> Response {
-    let (parts, body) = request.into_parts();
-    if parts
-        .headers
-        .get(header::CONTENT_LENGTH)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<usize>().ok())
-        .is_some_and(|length| length > MAX_PROXY_BODY)
-    {
-        return (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "engine request body is too large",
-        )
-            .into_response();
-    }
-    let (engine_url, password) = {
-        let engine = app.state::<engine::Engine>();
-        let url = engine.current_url();
-        (url, engine.password.clone())
+    let engine = app.state::<crate::native::Native>().engine().clone();
+    let Ok(bearer) = HeaderValue::from_str(&format!("Bearer {}", engine.token)) else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
-    let Some(engine_url) = engine_url else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "embedded engine is starting",
-        )
-            .into_response();
+    request.headers_mut().insert(header::AUTHORIZATION, bearer);
+    request.headers_mut().remove(header::COOKIE);
+    let path = request.uri().path().strip_prefix("/engine").filter(|rest| !rest.is_empty()).unwrap_or("/");
+    let target = match request.uri().query() {
+        Some(query) => format!("{path}?{query}"),
+        None => path.to_string(),
     };
-    let suffix = parts
-        .uri
-        .path()
-        .strip_prefix("/engine")
-        .unwrap_or(parts.uri.path());
-    let mut target = format!("{engine_url}{suffix}");
-    if let Some(query) = parts.uri.query() {
-        target.push('?');
-        target.push_str(query);
-    }
-    let method = match reqwest::Method::from_bytes(parts.method.as_str().as_bytes()) {
-        Ok(method) => method,
-        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    let Ok(uri) = target.parse::<Uri>() else {
+        return StatusCode::BAD_REQUEST.into_response();
     };
-    let mut size = 0usize;
-    let stream = body.into_data_stream().map(move |chunk| {
-        let chunk = chunk.map_err(std::io::Error::other)?;
-        size += chunk.len();
-        if size > MAX_PROXY_BODY {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "request body limit exceeded",
-            ));
-        }
-        Ok(chunk)
-    });
-    let client = match proxy_client() {
-        Ok(client) => client,
-        Err(error) => return (StatusCode::BAD_GATEWAY, error).into_response(),
-    };
-    let mut outgoing = client
-        .request(method, target)
-        .body(reqwest::Body::wrap_stream(stream))
-        .header(
-            header::AUTHORIZATION.as_str(),
-            format!(
-                "Basic {}",
-                engine::basic_authorization("opencode", &password)
-            ),
-        );
-    for (name, value) in &parts.headers {
-        if request_header_allowed(name, &parts.headers) {
-            outgoing = outgoing.header(name.as_str(), value.as_bytes());
-        }
+    *request.uri_mut() = uri;
+    let router = ENGINE_ROUTER.get_or_init(|| drift_engine::api::router(engine)).clone();
+    if request.headers().contains_key(header::UPGRADE) {
+        let lease = drift_engine::api::Lease::default();
+        request.extensions_mut().insert(lease.clone());
+        tokio::spawn(async move {
+            let _ = auth.changed().await;
+            lease.cancel();
+        });
+        return router.oneshot(request).await.into_response();
     }
     let response = tokio::select! {
-        changed = auth.changed() => {
-            let _ = changed;
-            return (StatusCode::UNAUTHORIZED, "remote access credentials changed").into_response();
-        }
-        response = outgoing.send() => match response {
-            Ok(response) => response,
-            Err(error) => return (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
-        }
+        _ = auth.changed() => return (StatusCode::UNAUTHORIZED, "remote access credentials changed").into_response(),
+        response = router.oneshot(request) => response.into_response(),
     };
-    let status =
-        StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-    let response_headers = response.headers().clone();
-    let stream = revoke_on_auth_change(response.bytes_stream(), auth)
-        .map(|chunk| chunk.map_err(std::io::Error::other));
-    let mut proxied = Response::new(Body::from_stream(stream));
-    *proxied.status_mut() = status;
-    for (name, value) in &response_headers {
-        if response_header_allowed(name, &response_headers) {
-            proxied.headers_mut().append(name.clone(), value.clone());
-        }
-    }
-    proxied.headers_mut().insert(
-        HeaderName::from_static("x-accel-buffering"),
-        HeaderValue::from_static("no"),
-    );
-    proxied
+    let (parts, body) = response.into_parts();
+    Response::from_parts(parts, Body::from_stream(revoke_on_auth_change(body.into_data_stream(), auth)))
 }
 
-static PROXY_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-
-fn proxy_client() -> Result<&'static reqwest::Client, String> {
-    if let Some(client) = PROXY_CLIENT.get() {
-        return Ok(client);
-    }
-    let client = reqwest::Client::builder()
-        .redirect(Policy::none())
-        .build()
-        .map_err(|error| error.to_string())?;
-    Ok(PROXY_CLIENT.get_or_init(|| client))
-}
+static ENGINE_ROUTER: OnceLock<Router> = OnceLock::new();
 
 fn revoke_on_auth_change<S>(
     stream: S,
@@ -744,57 +669,6 @@ where
     stream.take_until(async move {
         let _ = auth.changed().await;
     })
-}
-
-fn request_header_allowed(name: &HeaderName, headers: &HeaderMap) -> bool {
-    !matches!(
-        name.as_str(),
-        "authorization"
-            | "cookie"
-            | "host"
-            | "origin"
-            | "referer"
-            | "connection"
-            | "proxy-connection"
-            | "keep-alive"
-            | "transfer-encoding"
-            | "upgrade"
-            | "te"
-            | "trailer"
-    ) && !connection_names(headers)
-        .iter()
-        .any(|item| item == name.as_str())
-}
-
-fn response_header_allowed(name: &HeaderName, headers: &HeaderMap) -> bool {
-    !matches!(
-        name.as_str(),
-        "connection"
-            | "proxy-authenticate"
-            | "proxy-authorization"
-            | "keep-alive"
-            | "transfer-encoding"
-            | "upgrade"
-            | "te"
-            | "trailer"
-            | "set-cookie"
-            | "access-control-allow-origin"
-    ) && !connection_names(headers)
-        .iter()
-        .any(|item| item == name.as_str())
-}
-
-fn connection_names(headers: &HeaderMap) -> Vec<String> {
-    headers
-        .get(header::CONNECTION)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value
-                .split(',')
-                .map(|item| item.trim().to_ascii_lowercase())
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 #[derive(Deserialize)]
@@ -1134,6 +1008,7 @@ pub(crate) fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reqwest::redirect::Policy;
 
     #[test]
     fn disabled_status_has_no_listening_urls_or_code() {
@@ -1373,32 +1248,5 @@ mod tests {
         h2.insert(header::ORIGIN, HeaderValue::from_static("https://192.168.1.20:41718"));
         assert!(valid_host_origin(&h2, Some("192.168.1.20:41718")), "HTTP/2 sends the host as :authority");
         assert!(!valid_host_origin(&h2, Some("evil.example")));
-    }
-
-    #[test]
-    fn proxy_headers_strip_credentials_and_hop_by_hop_names() {
-        let mut headers = HeaderMap::new();
-        headers.insert(header::CONNECTION, HeaderValue::from_static("x-private"));
-        headers.insert(
-            header::AUTHORIZATION,
-            HeaderValue::from_static("Bearer remote"),
-        );
-        headers.insert(
-            HeaderName::from_static("x-private"),
-            HeaderValue::from_static("no"),
-        );
-        headers.insert(
-            HeaderName::from_static("x-next-cursor"),
-            HeaderValue::from_static("yes"),
-        );
-        assert!(!request_header_allowed(&header::AUTHORIZATION, &headers));
-        assert!(!request_header_allowed(
-            &HeaderName::from_static("x-private"),
-            &headers
-        ));
-        assert!(response_header_allowed(
-            &HeaderName::from_static("x-next-cursor"),
-            &headers
-        ));
     }
 }
