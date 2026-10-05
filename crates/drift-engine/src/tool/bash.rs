@@ -140,7 +140,8 @@ impl Tool for Bash {
         // A workdir outside the workspace is refused when the call runs, so moves are judged from inside.
         let dir = workdir(ctx, input).unwrap_or_else(|_| ctx.workspace.clone());
         drop_moves_within(ctx, &dir, &mut ask);
-        ask.default_allow = command::reads_only(self.dialect(), command) && reads_inside(ctx, &dir, &ask);
+        // As opencode: a line runs without asking unless it reaches outside the workspace or at a secret file.
+        ask.default_allow = stays_inside(ctx, &dir, &ask);
         Some(ask)
     }
 
@@ -314,11 +315,12 @@ const MOVES: [&str; 6] = ["cd", "chdir", "set-location", "sl", "pushd", "push-lo
 /// `grep` tool skips, so a line using one always asks.
 const SEARCHERS: [&str; 3] = ["grep", "rg", "select-string"];
 
-/// Whether a line already known to only read stays inside the workspace and names no file that may
-/// hold secrets: no move is left (one leaving the workspace, or one that cannot be read, stays in the
-/// ask), no recursive content search, no glob, no variable, and every argument that names a path
-/// resolves inside the workspace. `--flag=value` and `rev:path` are judged by their path parts too.
-fn reads_inside(ctx: &Context, dir: &std::path::Path, ask: &Ask) -> bool {
+/// Whether a line stays inside the workspace and names no file that may hold secrets: no move is
+/// left (one leaving the workspace, or one that cannot be read, stays in the ask), no recursive
+/// content search, no variable, and every argument that names a path (a glob by the folder it
+/// starts from) resolves inside the workspace. `--flag=value` and `rev:path` are judged by their
+/// path parts too.
+fn stays_inside(ctx: &Context, dir: &std::path::Path, ask: &Ask) -> bool {
     let Some(commands) = &ask.commands else { return false };
     commands.iter().all(|command| {
         let words: Vec<&str> = command.split(' ').collect();
@@ -330,9 +332,11 @@ fn reads_inside(ctx: &Context, dir: &std::path::Path, ask: &Ask) -> bool {
 
 fn word_inside(ctx: &Context, dir: &std::path::Path, word: &str) -> bool {
     let word = word.trim_matches(['\'', '"']);
-    if word.starts_with('~') || word.contains(['$', '%', '*', '?', '[', '`']) {
+    if word.starts_with('~') || word.contains(['$', '%', '`']) {
         return false;
     }
+    // A glob is judged by the literal path before its first wildcard: `dist/*` by `dist/`, `../*` by `../`.
+    let word = word.split(['*', '?', '[']).next().unwrap_or_default();
     let value = word.split_once('=').map_or(word, |(_, value)| value);
     let parts = [word, value, value.rsplit_once(':').map_or(value, |(_, path)| path)];
     parts.iter().filter(|part| !part.is_empty()).all(|part| {
@@ -565,15 +569,18 @@ mod tests {
     }
 
     #[test]
-    fn reading_lines_inside_the_workspace_run_without_asking_and_anything_else_asks() {
+    fn lines_inside_the_workspace_run_without_asking_and_anything_reaching_out_or_at_secrets_asks() {
         let sandbox = Sandbox::new("bash-reads");
         std::fs::create_dir_all(sandbox.ctx.workspace.join("src")).unwrap();
         let bash = Bash::with(Shell::Bash("bash".into()));
         let decide = |line: &str| sandbox.ctx.engine.permissions.decide_now("ses_test", &crate::permission::Policy::default(), &bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap());
-        for line in ["git status", "git log --oneline -10", "ls src", "cat README.md", "cd src && ls", "git diff HEAD~1..HEAD -- src/a.rs", "wc -l src/a.rs"] {
+        let reads = ["git status", "git log --oneline -10", "ls src", "cat README.md", "cd src && ls", "git diff HEAD~1..HEAD -- src/a.rs", "wc -l src/a.rs"];
+        // As opencode: writing inside the workspace runs too, since undo can put it back.
+        let writes = ["cargo test", "ls > out.txt", "rm -rf dist", "rm src/*.log", "ls *", "npm install", "git commit -m wip"];
+        for line in reads.iter().chain(&writes) {
             assert_eq!(decide(line), crate::permission::Decision::Allow, "{line}");
         }
-        for line in ["cat .env", "ls ..", "cat /etc/passwd", "grep -r token .", "rg token", "ls *", "git show HEAD:.env", "echo $HOME", "cargo test", "cd .. && ls", "ls > out.txt", "cat ~/.ssh/config"] {
+        for line in ["cat .env", "ls ..", "cat /etc/passwd", "grep -r token .", "rg token", "git show HEAD:.env", "echo $HOME", "cd .. && ls", "rm -rf ../other", "cp .env* /tmp", "cat ~/.ssh/config", "rm ../*"] {
             assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
         }
         let outside = sandbox.ctx.workspace.parent().unwrap().join("outside-dir");

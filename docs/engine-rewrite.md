@@ -1878,21 +1878,27 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   policy), then "always" answers, then the other rules, then the operation's default. A deny comes
   first because "always" is kept for the workspace with no end: a `git push*` deny added after an
   "always" for `git push` still holds.
-  - Policy evaluation is separate from an approval dialog. Ordinary workspace reads, scratch
-    access, searches, skills, delegation and read-only MCP calls carry an allow-by-default policy
-    request. Explicit deny/ask rules still apply; an unmatched default request produces no dialog.
+  - Policy evaluation is separate from an approval dialog. The defaults are opencode's: everything
+    runs without asking except what reaches outside the workspace and files likely to hold
+    secrets. Workspace reads, scratch access, searches, skills, delegation, fetches (`webfetch`)
+    and every MCP call (a read-only hint matters only to read-only agents) carry an
+    allow-by-default request. Explicit deny/ask rules still apply; an unmatched default request
+    produces no dialog.
   - Workspace edits (edit, write, apply_patch) allow by default too, since undo can put them back,
     except for files that would widen what the agent may do or hold secrets: `drift.json` anywhere,
     anything under `.drift/`, version-control internals (`.git`, `.hg`, `.svn`, `.jj`) and files
     likely to hold secrets (`tool::guarded`). Writes outside the workspace still ask.
-  - A shell line runs without asking when it only reads (`command::reads_only`), no move out of
-    the workspace is left in it, it uses no content searcher over a directory (`grep`, `rg`,
-    `git grep`, `Select-String`, which would read `.env` too; the `grep` tool skips such files),
-    and every word stays inside the workspace and names no secret file: no glob, variable or `~`,
-    no path resolving outside, with `--flag=value` and `rev:path` judged by their path parts
-    (`bash::reads_inside`). Any word that names something on disk is judged where it resolves, so
-    `cat notes`, with `notes` a link out of the workspace, asks. So `git status`, `git log`, `ls src` and `cat README.md` run, while
-    `cat .env`, `ls ..`, `git show HEAD:.env` and `cargo test` ask. A rule still decides first.
+  - A shell line runs without asking, writing or not (undo puts workspace changes back), when no
+    move out of the workspace is left in it, it uses no content searcher over a directory (`grep`,
+    `rg`, `git grep`, `Select-String`, which would read `.env` too; the `grep` tool skips such
+    files), and every word stays inside the workspace and names no secret file: no variable or
+    `~`, no path resolving outside, a glob judged by the folder before its first wildcard, with
+    `--flag=value` and `rev:path` judged by their path parts (`bash::stays_inside`); a redirection
+    is judged as one of its words. Any word that names something on disk is judged where it
+    resolves, so `cat notes`, with `notes` a link out of the workspace, asks. So `cargo test`,
+    `rm -rf dist`, `ls > out.txt` and `git commit` run, while `cat .env`, `ls ..`, `rm ../*`,
+    `git show HEAD:.env` and `echo $HOME` ask. A rule still decides first. (Before, only lines
+    that only read ran; opencode asks for none.)
   - A tool every call of which the rules deny is not offered at all, as opencode leaves it out of
     the request (`Tool::denied_outright`): the first rule for one of its kinds (`Tool::permissions`:
     `edit` for edit, write and apply_patch; `read` and `glob` or `grep` for the searches) that

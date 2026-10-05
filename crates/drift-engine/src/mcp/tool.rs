@@ -149,11 +149,9 @@ impl Tool for McpTool {
         }
     }
 
-    /// Read-only hints set the default decision, without bypassing explicit MCP policy.
+    /// As opencode: a call runs without asking unless a rule says otherwise; the read-only hint matters to read-only agents.
     fn ask(&self, _ctx: &Context, _input: &Value) -> Option<Ask> {
-        let mut ask = Ask::new("mcp", format!("{}/{}", self.server, self.tool.name), format!("Call {} on {}", self.tool.name, self.server));
-        ask.default_allow = self.read_only();
-        Some(ask)
+        Some(Ask::new("mcp", format!("{}/{}", self.server, self.tool.name), format!("Call {} on {}", self.tool.name, self.server)).allow_by_default())
     }
 
     /// Every call asks the same thing, so a rule denying it denies the tool.

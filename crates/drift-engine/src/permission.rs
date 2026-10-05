@@ -312,14 +312,14 @@ impl Permissions {
         let Some(commands) = &ask.commands else {
             return self.decide_target(session_id, workspace, "bash", &[&ask.pattern], false, Decision::Ask);
         };
-        // A line `Bash::ask` judged to only read inside the workspace runs unless a rule or grant says otherwise.
+        // A line `Bash::ask` judged to stay inside the workspace runs unless a rule or grant says otherwise.
         let default = fallback(ask.default_allow);
         let decisions: Vec<Decision> = commands.iter().enumerate().map(|(index, command)| self.decide_command(session_id, workspace, command, ask.canonical.get(index), default)).collect();
         if decisions.contains(&Decision::Deny) {
             Decision::Deny
         } else if !ask.writes.is_empty() {
-            // A redirection that writes a file needs the line itself approved, never a grant for its program.
-            self.decide_target(session_id, workspace, "bash", &[&ask.pattern], false, Decision::Ask)
+            // A redirection that writes a file is judged as the whole line, never by a grant for its program.
+            self.decide_target(session_id, workspace, "bash", &[&ask.pattern], false, default)
         } else if decisions.iter().all(|d| *d == Decision::Allow) {
             Decision::Allow
         } else {

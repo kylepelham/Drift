@@ -48,6 +48,8 @@ mod tests {
     async fn shell_lines_run_as_checked_calls_and_at_files_are_mentioned() {
         let h = harness().await;
         h.engine.store.update_session(&h.session.id, None, Some(&model()), None).unwrap();
+        let ask_publish = crate::permission::Rule { kind: "bash".into(), pattern: "cargo publish*".into(), decision: crate::permission::Decision::Ask };
+        h.engine.permissions.set_policy(crate::permission::Policy { rules: vec![ask_publish] });
         std::fs::create_dir_all(h._dir.join("ws/.drift/commands")).unwrap();
         std::fs::write(h._dir.join("ws/NOTES.md"), "NOTE BODY").unwrap();
         std::fs::write(h._dir.join("ws/.drift/commands/brief.md"), "Read @NOTES.md, then look at !`echo SHELL OUTPUT` and !`cargo publish`.").unwrap();
@@ -60,7 +62,7 @@ mod tests {
                 break request;
             }
         };
-        assert_eq!(ask.ask.pattern, "cargo publish", "a writing line asks; the reading one ran without asking");
+        assert_eq!(ask.ask.pattern, "cargo publish", "the line a rule asks about asks; the other ran without asking");
         h.engine.permissions.reply(&h.engine.hub, &ask.id, crate::permission::ReplyBody { reply: crate::permission::Reply::Deny, pattern: None, message: None }).unwrap();
         until_idle(&h).await;
         let sent = format!("{:?}", h.provider.requests.lock().unwrap()[0].messages);

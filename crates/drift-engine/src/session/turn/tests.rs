@@ -186,7 +186,7 @@ async fn permission_denial_is_reported_to_the_model() {
     assert!(matches!(&requests[1].messages[2].blocks[0], llm::Block::ToolResult { is_error: true, content, .. } if content == "A permission rule forbids this call."), "a rule, not the user");
 }
 
-/// Workspace edits and reading shell lines run without asking by default; tests of the asking itself say so.
+/// Workspace edits, shell lines inside the workspace, fetches and MCP calls run without asking by default; tests of the asking itself say so.
 pub(crate) fn asks_for(h: &Harness, kind: &str) {
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: kind.into(), pattern: "*".into(), decision: Decision::Ask }] });
 }
@@ -309,6 +309,7 @@ async fn ordinary_reads_allow_by_default_but_explicit_ask_requires_approval() {
 #[tokio::test]
 async fn a_refusal_tells_the_model_what_the_user_said_and_the_turn_goes_on() {
     let h = harness().await;
+    asks_for(&h, "bash");
     let mut rx = h.engine.hub.attach(None).rx;
     h.provider.push(tool_call("bash", r#"{"command": "rm -rf build"}"#)).push(text("Using cargo clean instead"));
     h.engine.submit(&h.session.id, prompt("clean up")).await.await_ok();
@@ -324,6 +325,7 @@ async fn a_refusal_tells_the_model_what_the_user_said_and_the_turn_goes_on() {
 #[tokio::test]
 async fn deny_and_stop_ends_the_turn() {
     let h = harness().await;
+    asks_for(&h, "bash");
     let mut rx = h.engine.hub.attach(None).rx;
     h.provider.push(tool_call("bash", r#"{"command": "rm -rf build"}"#)).push(text("never asked"));
     h.engine.submit(&h.session.id, prompt("clean up")).await.await_ok();
@@ -340,6 +342,7 @@ async fn deny_and_stop_ends_the_turn() {
 #[tokio::test]
 async fn a_stop_mid_batch_leaves_no_call_pending() {
     let h = harness().await;
+    asks_for(&h, "bash");
     let mut rx = h.engine.hub.attach(None).rx;
     let call = |id: &str, command: &str| vec![Chunk::ToolUseStart { id: id.into(), name: "bash".into() }, Chunk::ToolInputDelta(format!(r#"{{"command": "{command}"}}"#)), Chunk::BlockStop];
     h.provider.push([call("t1", "rm -rf build"), call("t2", "rm -rf dist"), vec![Chunk::Stop(StopReason::ToolUse)]].concat());
@@ -402,6 +405,7 @@ async fn a_patch_in_a_real_turn_keeps_its_display_diff_beside_undos_record() {
 #[tokio::test]
 async fn always_holds_for_the_workspace_across_sessions_and_restarts_and_settles_asks_it_covers() {
     let h = harness().await;
+    asks_for(&h, "bash");
     let mut rx = h.engine.hub.attach(None).rx;
     let other = h.engine.store.create_session(NewSession { workspace_id: &h.session.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: "Other", agent: "build", model: None }).unwrap();
     h.provider.push(tool_call("bash", r#"{"command": "cargo --version"}"#)).push(tool_call("bash", r#"{"command": "cargo --version"}"#)).push(text("one")).push(text("two"));
@@ -440,6 +444,7 @@ async fn always_holds_for_the_workspace_across_sessions_and_restarts_and_settles
 #[tokio::test]
 async fn a_subagent_runs_under_its_parents_approvals() {
     let h = harness().await;
+    asks_for(&h, "bash");
     let mut rx = h.engine.hub.attach(None).rx;
     h.provider
         .push(tool_call("bash", r#"{"command": "cargo --version"}"#))
