@@ -12,6 +12,10 @@ use crate::store::Store;
 pub struct ApplyPatch;
 
 impl Tool for ApplyPatch {
+    fn permissions(&self) -> &'static [&'static str] {
+        &["edit"]
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "apply_patch".into(),

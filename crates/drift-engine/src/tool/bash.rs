@@ -113,6 +113,10 @@ fn windows_powershell(path: &std::path::Path) -> bool {
 }
 
 impl Tool for Bash {
+    fn permissions(&self) -> &'static [&'static str] {
+        &["bash"]
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "bash".into(),

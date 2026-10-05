@@ -11,6 +11,10 @@ pub(super) const MAX_BYTES: usize = 5 * 1024 * 1024;
 pub struct WebFetch;
 
 impl Tool for WebFetch {
+    fn permissions(&self) -> &'static [&'static str] {
+        &["webfetch"]
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "webfetch".into(),

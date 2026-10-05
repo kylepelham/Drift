@@ -8,6 +8,10 @@ use crate::llm::ToolSpec;
 pub struct Write;
 
 impl Tool for Write {
+    fn permissions(&self) -> &'static [&'static str] {
+        &["edit"]
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "write".into(),

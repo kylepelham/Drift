@@ -12,6 +12,10 @@ const MAX_RESULTS: usize = 100;
 pub struct Glob;
 
 impl Tool for Glob {
+    fn permissions(&self) -> &'static [&'static str] {
+        &["glob", "read"]
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "glob".into(),

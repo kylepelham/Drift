@@ -1893,6 +1893,12 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     (`bash::reads_inside`). Any word that names something on disk is judged where it resolves, so
     `cat notes`, with `notes` a link out of the workspace, asks. So `git status`, `git log`, `ls src` and `cat README.md` run, while
     `cat .env`, `ls ..`, `git show HEAD:.env` and `cargo test` ask. A rule still decides first.
+  - A tool every call of which the rules deny is not offered at all, as opencode leaves it out of
+    the request (`Tool::denied_outright`): the first rule for one of its kinds (`Tool::permissions`:
+    `edit` for edit, write and apply_patch; `read` and `glob` or `grep` for the searches) that
+    covers `*` denies, and nothing narrower before it allows or asks (`Compiled::denies_all`). An
+    MCP tool asks one fixed thing, so a rule denying `server/tool` removes it. An agent imported
+    with `edit: deny` is no longer offered edit and write only to have them refused.
   - Rules for every workspace are kept in Settings > Permissions: an ordered list (kind, glob,
     allow/ask/deny) in the `permissionRules` setting, loaded into the engine's global policy at
     startup and replaced whole by `PUT /permission-rules` (`GET` reads it). They are checked after

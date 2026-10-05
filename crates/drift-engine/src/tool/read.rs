@@ -17,6 +17,10 @@ const MAX_ENTRIES: usize = 1000;
 pub struct Read;
 
 impl Tool for Read {
+    fn permissions(&self) -> &'static [&'static str] {
+        &["read"]
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "read".into(),

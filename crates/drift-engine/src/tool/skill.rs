@@ -6,6 +6,10 @@ use crate::llm::ToolSpec;
 pub struct Skill;
 
 impl Tool for Skill {
+    fn permissions(&self) -> &'static [&'static str] {
+        &["skill"]
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "skill".into(),

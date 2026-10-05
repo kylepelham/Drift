@@ -20,6 +20,10 @@ const SUMMARY_CHARS: usize = 4_000;
 pub struct Task;
 
 impl Tool for Task {
+    fn permissions(&self) -> &'static [&'static str] {
+        &["task"]
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "task".into(),

@@ -18,6 +18,10 @@ const MAX_LINE_CHARS: usize = 300;
 pub struct Grep;
 
 impl Tool for Grep {
+    fn permissions(&self) -> &'static [&'static str] {
+        &["grep", "read"]
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "grep".into(),

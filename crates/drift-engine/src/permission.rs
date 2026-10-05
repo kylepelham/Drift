@@ -103,7 +103,7 @@ impl Policy {
 pub struct Compiled(Vec<(Rule, Option<globset::GlobMatcher>)>);
 
 impl Compiled {
-    fn new(rules: impl IntoIterator<Item = Rule>) -> Self {
+    pub(crate) fn new(rules: impl IntoIterator<Item = Rule>) -> Self {
         Self(rules.into_iter().map(|rule| {
             let glob = GlobBuilder::new(&rule.pattern).literal_separator(false).build().ok().map(|glob| glob.compile_matcher());
             (rule, glob)
@@ -116,6 +116,20 @@ impl Compiled {
             .iter()
             .find(|(rule, glob)| (rule.kind == ask.kind || rule.kind == "*") && glob.as_ref().is_some_and(|glob| targets.iter().any(|target| glob.is_match(target))))
             .map(|(rule, _)| rule.decision)
+    }
+
+    /// Whether every ask of `kind` is denied: the first rule for it that covers everything (`*`)
+    /// denies, and no rule before it allows or asks about anything narrower.
+    pub fn denies_all(&self, kind: &str) -> bool {
+        for (rule, _) in self.0.iter().filter(|(rule, _)| rule.kind == kind || rule.kind == "*") {
+            if rule.pattern == "*" {
+                return rule.decision == Decision::Deny;
+            }
+            if rule.decision != Decision::Deny {
+                return false;
+            }
+        }
+        false
     }
 }
 

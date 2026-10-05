@@ -977,6 +977,7 @@ impl Engine {
     fn offer(&self, plan: &Plan) -> Offer {
         let agent = plan.config.agent(&plan.session.agent).cloned();
         let subagent = plan.session.visibility == Visibility::Hidden;
+        let rules = self.permissions.compiled(&plan.config.policy(), &plan.config.agent_policy(&plan.session.agent));
         let tools: Vec<_> = self.tools
             .offered(plan.model.profile)
             .into_iter()
@@ -984,11 +985,12 @@ impl Engine {
             .chain(plan.mcp_tools.iter().cloned())
             .filter(|(spec, _)| agent.as_ref().is_none_or(|agent| agent.allows_tool(&spec.name)))
             .filter(|(spec, _)| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))
+            // A tool every call of which a rule denies would only waste a step and its schema's tokens.
+            .filter(|(_, tool)| !tool.denied_outright(&rules))
             .collect();
         // A server's instructions come only with its tools, so an agent without them is not told about it.
         let servers: Vec<(String, String)> = plan.mcp_servers.iter().filter(|(server, _)| tools.iter().any(|(_, tool)| tool.server() == Some(server.as_str()))).cloned().collect();
         let base = prompt::base_for(&self.store, plan.model.prompt);
-        let rules = self.permissions.compiled(&plan.config.policy(), &plan.config.agent_policy(&plan.session.agent));
         let denied = |kind: &str, name: &str| rules.explicit(&crate::tool::Ask::new(kind, name, "")) == Some(crate::permission::Decision::Deny);
         let setting = prompt::Setting {
             base: &base,

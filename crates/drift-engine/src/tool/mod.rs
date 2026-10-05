@@ -433,6 +433,14 @@ pub trait Tool: Send + Sync {
     fn starts_early(&self) -> bool {
         false
     }
+    /// The permission kinds every call of this tool is judged under.
+    fn permissions(&self) -> &'static [&'static str] {
+        &[]
+    }
+    /// Whether the rules refuse every call this tool could make, so it is not offered at all, as opencode leaves such a tool out.
+    fn denied_outright(&self, rules: &crate::permission::Compiled) -> bool {
+        self.permissions().iter().any(|kind| rules.denies_all(kind))
+    }
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a>;
 }
 

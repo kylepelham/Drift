@@ -156,6 +156,11 @@ impl Tool for McpTool {
         Some(ask)
     }
 
+    /// Every call asks the same thing, so a rule denying it denies the tool.
+    fn denied_outright(&self, rules: &crate::permission::Compiled) -> bool {
+        rules.explicit(&Ask::new("mcp", format!("{}/{}", self.server, self.tool.name), "")) == Some(crate::permission::Decision::Deny)
+    }
+
     fn mutates(&self) -> bool {
         !self.read_only()
     }

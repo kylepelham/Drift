@@ -175,7 +175,7 @@ async fn an_early_read_of_a_reply_that_fails_counts_for_nothing() {
 #[tokio::test]
 async fn permission_denial_is_reported_to_the_model() {
     let h = harness().await;
-    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Deny }] });
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "rm *".into(), decision: Decision::Deny }] });
     h.provider.push(tool_call("bash", r#"{"command": "rm -rf /"}"#)).push(text("Understood"));
     h.engine.submit(&h.session.id, prompt("wipe it")).await.await_ok();
     until_idle(&h).await;
@@ -241,12 +241,25 @@ async fn explicit_rules_restrict_default_allowed_tools() {
         h.provider.push(tool_call(kind, input)).push(text("done"));
         h.engine.submit(&h.session.id, prompt("inspect")).await.await_ok();
         until_idle(&h).await;
+        let offered: Vec<String> = h.provider.requests.lock().unwrap()[0].tools.iter().map(|tool| tool.name.clone()).collect();
+        assert!(!offered.contains(&kind.to_string()), "a tool every call of which is denied is not offered: {kind}");
         let transcript = h.engine.store.transcript(&h.session.id).unwrap();
-        let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
-        assert_eq!(*status, ToolStatus::Denied, "{kind}");
-        assert_eq!(output.as_deref(), Some("A permission rule forbids this call."), "{kind}");
+        let Part::ToolCall { status, .. } = &transcript[1].parts[0].part else { panic!() };
+        assert_ne!(*status, ToolStatus::Done, "and a call to it anyway does not run: {kind}");
         assert_eq!(h.engine.store.session_tree(&h.session.id).unwrap().len(), 1, "no task starts when delegation is denied");
     }
+}
+
+#[test]
+fn a_tool_is_denied_outright_only_when_nothing_before_the_blanket_rule_lets_a_call_through() {
+    let rules = |list: &[(&str, &str, Decision)]| Policy { rules: list.iter().map(|(kind, pattern, decision)| Rule { kind: kind.to_string(), pattern: pattern.to_string(), decision: *decision }).collect() };
+    let compiled = |list: &[(&str, &str, Decision)]| crate::permission::Compiled::new(rules(list).rules);
+    assert!(compiled(&[("edit", "*", Decision::Deny)]).denies_all("edit"), "opencode's edit: deny");
+    assert!(compiled(&[("*", "*", Decision::Deny)]).denies_all("bash"));
+    assert!(compiled(&[("bash", "rm *", Decision::Deny), ("bash", "*", Decision::Deny)]).denies_all("bash"));
+    assert!(!compiled(&[("bash", "git *", Decision::Allow), ("bash", "*", Decision::Deny)]).denies_all("bash"), "git still runs");
+    assert!(!compiled(&[("bash", "*", Decision::Ask)]).denies_all("bash"));
+    assert!(!compiled(&[("bash", "rm *", Decision::Deny)]).denies_all("bash"), "only part of it");
 }
 
 #[tokio::test]
@@ -1698,7 +1711,7 @@ async fn a_drift_json_that_cannot_be_read_stops_the_turn_instead_of_dropping_its
 async fn workspace_config_shapes_the_turn() {
     let h = harness().await;
     let ws = h._dir.join("ws");
-    std::fs::write(ws.join("drift.json"), r#"{ "permissions": [{ "kind": "bash", "pattern": "*", "decision": "deny" }] }"#).unwrap();
+    std::fs::write(ws.join("drift.json"), r#"{ "permissions": [{ "kind": "bash", "pattern": "echo *", "decision": "deny" }] }"#).unwrap();
     std::fs::create_dir_all(ws.join(".drift/skills/tidy")).unwrap();
     std::fs::write(ws.join(".drift/skills/tidy/SKILL.md"), "---\ndescription: Tidies\n---\nTidy up.").unwrap();
 

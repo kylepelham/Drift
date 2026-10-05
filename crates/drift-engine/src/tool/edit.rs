@@ -13,6 +13,10 @@ const NEAR_CONTEXT: usize = 3;
 pub struct Edit;
 
 impl Tool for Edit {
+    fn permissions(&self) -> &'static [&'static str] {
+        &["edit"]
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "edit".into(),
