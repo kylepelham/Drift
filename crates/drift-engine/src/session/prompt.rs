@@ -46,6 +46,10 @@ pub struct Setting<'a> {
     pub agent: Option<&'a Agent>,
     /// Whether the `task` tool is offered; only then are the subagents listed.
     pub delegates: bool,
+    /// Whether the `skill` tool is offered; only then are the skills listed.
+    pub loads_skills: bool,
+    /// Whether a rule denies a permission (`skill`, `task`) for a name; a denied skill or subagent is not listed.
+    pub denied: &'a dyn Fn(&str, &str) -> bool,
     /// The model's name as the catalog gives it.
     pub model: &'a str,
     /// Instructions from the MCP servers whose tools are offered, by server.
@@ -53,7 +57,7 @@ pub struct Setting<'a> {
 }
 
 pub fn system(setting: &Setting) -> String {
-    let Setting { base, workspace, config, agent, delegates, model, servers } = *setting;
+    let Setting { base, workspace, config, agent, delegates, loads_skills, denied, model, servers } = *setting;
     let mut prompt = format!("{}\n\n{}", base.trim(), SHARED.trim());
     // A primary agent's prompt rides on its turns' prompts instead (`remind_agents`), so the system prompt stays the same across a switch.
     if let Some(agent) = agent.filter(|a| !a.prompt.is_empty() && !a.kind.runs_conversations()) {
@@ -69,14 +73,16 @@ pub fn system(setting: &Setting) -> String {
     for (server, text) in servers {
         prompt.push_str(&format!("\n# Instructions from the {server} MCP server\n\n{text}\n"));
     }
-    if !config.skills.is_empty() {
+    // Only what this agent can use is listed: a skill it may load, a subagent it may delegate to.
+    let skills: Vec<&crate::config::Skill> = config.skills.iter().filter(|skill| loads_skills && !denied("skill", &skill.name)).collect();
+    if !skills.is_empty() {
         prompt.push_str("\n# Skills\n\nLoad one with the `skill` tool when its description matches the task.\n\n");
-        for skill in &config.skills {
+        for skill in skills {
             prompt.push_str(&format!("- {}: {}\n", skill.name, skill.description));
         }
     }
     // A broken subagent would only fail when picked, so it is not offered.
-    let subagents: Vec<&Agent> = config.agents.iter().filter(|a| a.kind.delegated_to() && a.problem.is_none()).collect();
+    let subagents: Vec<&Agent> = config.agents.iter().filter(|a| a.kind.delegated_to() && a.problem.is_none() && !denied("task", &a.name)).collect();
     if delegates && !subagents.is_empty() {
         prompt.push_str("\n# Subagents\n\nPass one as `subagent_type` to the `task` tool.\n\n");
         for subagent in subagents {
@@ -148,6 +154,8 @@ fn agent_prompt(config: &Config, agent: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    const NONE_DENIED: fn(&str, &str) -> bool = |_, _| false;
+
     #[test]
     fn includes_identity_environment_and_agents_file() {
         let workspace = std::env::temp_dir().join(format!("drift-prompt-{}", crate::random_hex(4)));
@@ -156,7 +164,7 @@ mod tests {
         std::fs::write(workspace.join("AGENTS.md"), "agent rules").unwrap();
         let config = Config::load_with_home(&workspace, None);
         let servers = [("web-test".to_string(), "Start a session first.".to_string())];
-        let setting = |agent: &str, delegates: bool| Setting { base: family_prompt(PromptFamily::Claude), workspace: &workspace, config: &config, agent: config.agent(agent), delegates, model: "Claude Opus", servers: &servers };
+        let setting = |agent: &str, delegates: bool| Setting { base: family_prompt(PromptFamily::Claude), workspace: &workspace, config: &config, agent: config.agent(agent), delegates, loads_skills: true, denied: &NONE_DENIED, model: "Claude Opus", servers: &servers };
         let prompt = system(&setting("plan", false));
         assert!(prompt.starts_with("You are Drift"));
         assert!(!prompt.contains("# Plan mode"), "a primary agent's prompt rides on its prompts, not here");
@@ -179,10 +187,26 @@ mod tests {
     }
 
     #[test]
+    fn only_skills_and_subagents_the_agent_can_use_are_listed() {
+        let mut config = Config::load_with_home(&std::env::temp_dir().join("drift-no-such-ws"), None);
+        let skill = |name: &str| crate::config::Skill { name: name.into(), description: format!("{name} skill"), path: String::new(), instructions: String::new(), argument_hint: None };
+        config.skills = vec![skill("review"), skill("deploy")];
+        let workspace = std::env::temp_dir();
+        let deny = |kind: &str, name: &str| (kind, name) == ("skill", "deploy") || (kind, name) == ("task", "explore");
+        let built = |loads_skills: bool, denied: &dyn Fn(&str, &str) -> bool| system(&Setting { base: "b", workspace: &workspace, config: &config, agent: None, delegates: true, loads_skills, denied, model: "m", servers: &[] });
+        let all = built(true, &NONE_DENIED);
+        assert!(all.contains("- review: ") && all.contains("- deploy: ") && all.contains("- explore: "));
+        let ruled = built(true, &deny);
+        assert!(ruled.contains("- review: ") && !ruled.contains("- deploy: "), "a denied skill is not offered");
+        assert!(ruled.contains("- general: ") && !ruled.contains("- explore: "), "nor a subagent a task rule denies");
+        assert!(!built(false, &NONE_DENIED).contains("# Skills"), "no skill tool, no skill list");
+    }
+
+    #[test]
     fn every_family_has_its_own_prompt_and_all_keep_the_shared_rules() {
         let config = Config::default();
         let workspace = std::env::temp_dir();
-        let built = |family| system(&Setting { base: family_prompt(family), workspace: &workspace, config: &config, agent: None, delegates: false, model: "m", servers: &[] });
+        let built = |family| system(&Setting { base: family_prompt(family), workspace: &workspace, config: &config, agent: None, delegates: false, loads_skills: true, denied: &NONE_DENIED, model: "m", servers: &[] });
         let prompts: Vec<String> = PromptFamily::ALL.into_iter().map(built).collect();
         for (family, prompt) in PromptFamily::ALL.into_iter().zip(&prompts) {
             assert!(prompt.starts_with("You are Drift"), "{family:?}");
@@ -192,7 +216,7 @@ mod tests {
         }
         assert_eq!(prompts.iter().collect::<std::collections::HashSet<_>>().len(), 4, "each family reads differently");
         assert!(prompts[0].contains("`apply_patch`") && !prompts[0].contains("`edit` requires"), "Codex edits with the tool it is offered");
-        let replaced = system(&Setting { base: "You are my agent.", workspace: &workspace, config: &config, agent: None, delegates: false, model: "m", servers: &[] });
+        let replaced = system(&Setting { base: "You are my agent.", workspace: &workspace, config: &config, agent: None, delegates: false, loads_skills: true, denied: &NONE_DENIED, model: "m", servers: &[] });
         assert!(replaced.starts_with("You are my agent.\n\n# Tools") && replaced.contains("`<system-reminder>` blocks"), "a replacement keeps the shared rules");
     }
 

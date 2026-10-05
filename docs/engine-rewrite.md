@@ -1771,7 +1771,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   (`commandModel`), read into `Context::command_model`; `task` has no model parameter, so the
   model can never send a worker to a provider of its choosing. MCP prompts (`server:prompt`)
   still fill from the server.
-- **Skills** are listed in the system prompt by name and description; the `skill` tool
+- **Skills** are listed in the system prompt by name and description, only when the agent is
+  offered `skill` and only those no rule denies (`skill` rules by name), as opencode filters them;
+  subagents a `task` rule denies are left out of "# Subagents" the same way. The `skill` tool
   returns SKILL.md's body, its directory and up to ten of the files beside it (walked as git lists
   them), and takes optional `arguments` that fill the body as
   a command template does. Every skill is also a command (`Command::skill`) unless a command of

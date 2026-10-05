@@ -988,12 +988,16 @@ impl Engine {
         // A server's instructions come only with its tools, so an agent without them is not told about it.
         let servers: Vec<(String, String)> = plan.mcp_servers.iter().filter(|(server, _)| tools.iter().any(|(_, tool)| tool.server() == Some(server.as_str()))).cloned().collect();
         let base = prompt::base_for(&self.store, plan.model.prompt);
+        let rules = self.permissions.compiled(&plan.config.policy(), &plan.config.agent_policy(&plan.session.agent));
+        let denied = |kind: &str, name: &str| rules.explicit(&crate::tool::Ask::new(kind, name, "")) == Some(crate::permission::Decision::Deny);
         let setting = prompt::Setting {
             base: &base,
             workspace: &plan.workspace,
             config: &plan.config,
             agent: agent.as_ref(),
             delegates: tools.iter().any(|(spec, _)| spec.name == "task"),
+            loads_skills: tools.iter().any(|(spec, _)| spec.name == "skill"),
+            denied: &denied,
             model: &plan.model.name,
             servers: &servers,
         };
