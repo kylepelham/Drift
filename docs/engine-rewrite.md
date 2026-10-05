@@ -271,10 +271,12 @@ Every job the engine does can run on its own model, chosen under Settings > Agen
 | `title` | action | naming a new conversation | the cheapest priced model from the conversation's provider (the conversation's own model when it is free, as with local providers) |
 | `compaction` | action | summarising a long conversation | the conversation's |
 
-- An agent file with `disable: true` takes that agent away, a built-in of the same name included;
+- An agent file with `disable: true` takes that agent away, a built-in of the same name included,
+  except the action agents (`title`, `compaction`), which the engine needs: there it is a warning;
   `hidden: true` keeps it out of the composer while `task` can still run it. drift.json's
   `defaultAgent` names the agent a session created without one runs as (`Config::default_agent`;
-  one that cannot run a conversation leaves `build`); the import carries opencode's
+  one that cannot run a conversation leaves `build`, and with `build` disabled the first visible agent
+  that runs conversations, as opencode falls back); the import carries opencode's
   `default_agent` over. The composer still opens on the agent last picked.
 - Settings overrides are stored by the shell (`prompt_override`, key `agent:<name>`, value
   `{ model: "provider/model", prompt }`). The shell hands them to the engine with

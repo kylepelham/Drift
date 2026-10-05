@@ -503,10 +503,13 @@ impl Config {
         self.agents.iter().find(|a| a.name == name)
     }
 
-    /// The agent a new session runs as: drift.json's `defaultAgent` when it names one that runs conversations, else `build`.
+    /// The agent a new session runs as: drift.json's `defaultAgent` when it names one that runs
+    /// conversations, else `build`, else (`build` disabled) the first visible one that does, as opencode falls back.
     pub fn default_agent(&self) -> &str {
-        let named = self.default_agent.as_deref().and_then(|name| self.agent(name)).filter(|agent| agent.kind.runs_conversations() && agent.problem.is_none());
-        named.map_or("build", |agent| agent.name.as_str())
+        let runs = |agent: &&Agent| agent.kind.runs_conversations() && agent.problem.is_none();
+        let named = self.default_agent.as_deref().and_then(|name| self.agent(name)).filter(runs);
+        let fallback = || self.agent("build").filter(runs).or_else(|| self.agents.iter().filter(|agent| !agent.hidden).find(runs));
+        named.or_else(fallback).map_or("build", |agent| agent.name.as_str())
     }
 
     /// The model an agent is pinned to, if any; unpinned agents inherit from whatever runs them.
@@ -650,9 +653,13 @@ impl Config {
 
     fn apply_dir(&mut self, dir: &Path) {
         for (name, doc) in markdown_files(&dir.join("agents")) {
-            // `disable: true` takes the agent away, a built-in by the same name included.
+            // `disable: true` takes the agent away, a built-in by the same name included; the engine's own jobs need theirs.
             if doc.field("disable").is_some_and(|value| value.trim() == "true") {
-                self.agents.retain(|a| a.name != name);
+                if self.agent(&name).is_some_and(|agent| agent.kind == AgentKind::Action) {
+                    self.warnings.push(format!("agent {name}: disable ignored; Drift needs it for {name}s"));
+                } else {
+                    self.agents.retain(|a| a.name != name);
+                }
                 continue;
             }
             let ignored: Vec<&str> = ["temperature", "top_p", "topP", "options", "provider_options"].into_iter().filter(|key| doc.fields.contains_key(*key)).collect();
@@ -947,6 +954,12 @@ mod tests {
         assert_eq!(config.default_agent(), "lead");
         write(&ws, "drift.json", r#"{ "defaultAgent": "quiet" }"#);
         assert_eq!(Config::load_with_home(&ws, None).default_agent(), "build", "a subagent cannot run a conversation, so the default stands");
+        write(&ws, ".drift/agents/build.md", "---\ndisable: true\n---\n");
+        write(&ws, ".drift/agents/compaction.md", "---\ndisable: true\n---\n");
+        let without_build = Config::load_with_home(&ws, None);
+        assert_eq!(without_build.default_agent(), "plan", "build disabled: the first agent that runs conversations");
+        assert!(without_build.agent("compaction").is_some_and(|agent| !agent.prompt.is_empty()), "the engine's own jobs keep their agents");
+        assert!(without_build.warnings.iter().any(|warning| warning.starts_with("agent compaction: disable ignored")), "{:?}", without_build.warnings);
         std::fs::remove_dir_all(root).ok();
     }
 
