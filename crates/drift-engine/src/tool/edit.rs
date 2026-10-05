@@ -59,6 +59,10 @@ impl Tool for Edit {
             if old == new {
                 return Err(ToolError("old_string and new_string are identical".into()));
             }
+            // A missing file first: reading it would only fail too, and `write` is what creates one.
+            if tokio::fs::metadata(&path).await.is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) {
+                return Err(ToolError(format!("{name} does not exist; use write to create it")));
+            }
             if !ctx.files.was_read(&path) {
                 return Err(ToolError(format!("{name} has not been read this session; read it before editing")));
             }
@@ -273,6 +277,8 @@ mod tests {
         sandbox.file("u.txt", "a\n");
         let err = edit(&sandbox, json!({ "path": "u.txt", "old_string": "a", "new_string": "b" })).await.unwrap_err();
         assert!(err.0.contains("has not been read"));
+        let missing = Edit.run(&sandbox.ctx, json!({ "path": "new.txt", "old_string": "a", "new_string": "b" })).await.unwrap_err();
+        assert_eq!(missing.0, "new.txt does not exist; use write to create it", "said before asking for a read that would fail too");
     }
 
     #[tokio::test]

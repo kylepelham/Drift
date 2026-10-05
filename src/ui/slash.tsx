@@ -45,8 +45,6 @@ const builtins: SlashItem[] = [
   { name: "undo", description: "command.session.undo.description", needsSession: true },
   { name: "redo", description: "command.session.redo.description", needsSession: true },
   { name: "compact", description: "command.session.compact.description", needsSession: true },
-  { name: "share", description: "command.session.share.description", needsSession: true },
-  { name: "unshare", description: "command.session.unshare.description", needsSession: true },
   { name: "theme", description: "command.theme.cycle" },
   { name: "mcp", description: "drift.slash.mcp" },
 ]
@@ -129,12 +127,6 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
   if (item.name === "compact" && current) {
     return engine.actions.summarize(current, resolveModel(engine.state, prefsFor(current, savedChoice(engine.state, current)).model))
   }
-  if (item.name === "share" && current) {
-    const url = await engine.actions.share(current)
-    if (url) await navigator.clipboard.writeText(url)
-    return
-  }
-  if (item.name === "unshare" && current) return engine.actions.unshare(current)
   if (item.name === "undo" && current) {
     const marker = engine.state.sessions[current]?.revert?.messageID
     const target = previousUserMessage(engine.state.transcripts[current] ?? [], marker)

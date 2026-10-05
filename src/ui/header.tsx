@@ -98,17 +98,6 @@ export function ChatHeader() {
                 </button>
               </Show>
               <ContextMeter sessionId={current().id} />
-              <Show when={current().share?.url}>
-                {(url) => (
-                  <button
-                    class="shrink-0 rounded-full border border-edge px-2 py-0.5 text-[0.65rem] text-ink-faint transition-colors hover:border-edge-strong hover:text-ink"
-                    title={t("drift.thread.copyShareLink", { url: url() })}
-                    onClick={() => void navigator.clipboard.writeText(url())}
-                  >
-                    {t("drift.thread.shared")}
-                  </button>
-                )}
-              </Show>
             </div>
           )}
         </Show>

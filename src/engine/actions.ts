@@ -86,10 +86,6 @@ export function createActions(
     })
   }
 
-  function unavailable(feature: string) {
-    notice({ id: `unavailable-${feature}`, title: "Not available yet", message: `${feature} is not part of the native engine yet.`, variant: "info" })
-  }
-
   function entries(messages: NativeMessageWithParts[], directory: string): MessageEntry[] {
     return messages.map(({ parts, ...info }) => ({ info: adaptMessage(info, directory), parts: parts.map(adaptPart) }))
   }
@@ -628,11 +624,6 @@ export function createActions(
     set("mcpServers", produce((servers) => void delete servers[name]))
   }
 
-  const notYet = (feature: string) => async (..._args: unknown[]) => {
-    unavailable(feature)
-    return undefined
-  }
-
   return {
     openSession,
     reconcileSession,
@@ -680,11 +671,6 @@ export function createActions(
     savePermissionRules: (rules: PermissionRule[]) => requireClient().savePermissionRules(rules),
     workspaceGrants,
     revokeGrant,
-    share: async (..._args: unknown[]): Promise<string | undefined> => {
-      unavailable("Sharing")
-      return undefined
-    },
-    unshare: notYet("Sharing"),
     runCommand,
     revert,
     unrevert,
