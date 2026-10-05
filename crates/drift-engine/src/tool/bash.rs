@@ -622,6 +622,24 @@ mod tests {
     }
 
     #[test]
+    fn odd_lines_never_panic_anywhere_a_line_is_read() {
+        let sandbox = Sandbox::new("bash-odd");
+        let odd = ["", " ", ";", ";;", "&&", "|", "| cat", "A=1", "A=1;", "A=1 | B=2", "A=1 > x", "> x", "2>&1", "cd", "cd ;", "git", "git -C", "git -C dir", "sed", "sed -n", "sed -n '1p'", "cat", "head -3", "\\(", "( )", "'", "\"", "`", "$", "~", "B=\"x\"; cat a.rs", "FOO= git push", "=x", "x=", "<>", ">", ">>", "&>", "a >&", "find . -printf '%p\\n'"];
+        for (dialect, shell) in [(command::Dialect::Bash, Shell::Bash("bash".into())), (command::Dialect::PowerShell, Shell::PowerShell("pwsh".into()))] {
+            let bash = Bash::with(shell);
+            for line in odd {
+                let _ = command::files_read(dialect, line);
+                for command in command::split(dialect, line).map(|split| split.commands).unwrap_or_default() {
+                    let _ = command::subcommand(&command);
+                }
+                if let Some(ask) = bash.ask(&sandbox.ctx, &json!({ "command": line })) {
+                    let _ = crate::permission::new_request("s", "m", "c", "bash", ask);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn lines_inside_the_workspace_run_without_asking_and_anything_reaching_out_or_at_secrets_asks() {
         let sandbox = Sandbox::new("bash-reads");
         std::fs::create_dir_all(sandbox.ctx.workspace.join("src")).unwrap();
@@ -832,3 +850,4 @@ mod tree_tests {
         assert!(!sandbox.ctx.workspace.join("dropped.txt").exists(), "a descendant survived the future being dropped");
     }
 }
+
