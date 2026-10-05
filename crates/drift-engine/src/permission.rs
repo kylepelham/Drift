@@ -559,7 +559,7 @@ fn always_grants(ask: &Ask) -> Vec<Grant> {
             })
             .collect(),
         (_, "webfetch") => vec![site(&ask.pattern).unwrap_or_else(|| exact(&ask.pattern))],
-        (_, "read" | "edit") => vec![outside_folder(ask).unwrap_or_else(|| exact(&ask.pattern))],
+        (_, "read" | "edit") => vec![outside_folder(ask, crate::config::home().as_deref()).unwrap_or_else(|| exact(&ask.pattern))],
         _ => vec![exact(&ask.pattern)],
     }
 }
@@ -571,15 +571,23 @@ fn site(url: &str) -> Option<Grant> {
 }
 
 /// The folder of a path outside the workspace (`relative` is set only inside it), unless the path may
-/// hold secrets or the folder is a drive root or the home folder, which would grant far too much.
-fn outside_folder(ask: &Ask) -> Option<Grant> {
+/// hold secrets or the folder would grant far too much: a drive root, the home folder or any folder
+/// holding it (`/home` holds every user's), or a hidden folder in home (`~/.ssh`, `~/.aws`) and below.
+fn outside_folder(ask: &Ask, home: Option<&std::path::Path>) -> Option<Grant> {
     let path = std::path::Path::new(&ask.pattern);
     if ask.relative.is_some() || !path.is_absolute() || crate::tool::sensitive::is_sensitive(path) {
         return None;
     }
     let folder = if path.is_dir() { path } else { path.parent()? };
-    let too_wide = folder.parent().is_none() || crate::config::home().is_some_and(|home| crate::tool::canonical(&home) == folder);
+    let home = home.map(crate::tool::canonical);
+    let too_wide = folder.parent().is_none() || home.is_some_and(|home| home.starts_with(folder) || in_hidden_folder(&home, folder));
     (!too_wide).then(|| Grant::Folder { kind: ask.kind.clone(), folder: folder.to_string_lossy().into_owned() })
+}
+
+/// Whether `folder` is a dot folder directly in `home`, or inside one, where tools keep their sign-ins.
+fn in_hidden_folder(home: &std::path::Path, folder: &std::path::Path) -> bool {
+    let first = folder.strip_prefix(home).ok().and_then(|rest| rest.components().next());
+    first.is_some_and(|first| first.as_os_str().to_string_lossy().starts_with('.'))
 }
 
 #[derive(Debug, PartialEq)]
@@ -666,6 +674,14 @@ mod tests {
         assert!(matches!(&always_grants(&secret)[..], [Grant::Exact { .. }]), "a secret stays exact");
         let inside = Ask::path("edit", &sibling.join("src").join("lib.rs"), &sibling, "Edit");
         assert!(matches!(&always_grants(&inside)[..], [Grant::Exact { .. }]), "a guarded file inside the workspace stays exact");
+        std::fs::create_dir_all(sibling.join("Users").join("me")).unwrap();
+        let home = crate::tool::canonical(&sibling.join("Users").join("me"));
+        for wide in [home.join("notes.txt"), home.parent().unwrap().join("notes.txt"), home.join(".ssh").join("config"), home.join(".aws").join("sso").join("cache.json")] {
+            let ask = Ask::new("read", wide.to_string_lossy(), "Read");
+            assert_eq!(outside_folder(&ask, Some(&home)), None, "{} grants too much as a folder", wide.display());
+        }
+        let plain = Ask::new("read", home.join("notes").join("a.md").to_string_lossy(), "Read");
+        assert!(outside_folder(&plain, Some(&home)).is_some(), "a plain folder in home is fine");
         let fetch = always_grants(&Ask::new("webfetch", "https://docs.rs:443/serde/latest/serde/", "Fetch"));
         let [Grant::Pattern(site)] = &fetch[..] else { panic!("{fetch:?}") };
         assert_eq!(site.pattern, "https://docs.rs/*");
