@@ -24,9 +24,63 @@ const SIGN_INS: [&str; 3] = ["anthropic", "openai", "xai"];
 /// What opencode holds: its `auth.json`, its global config and where that lives (for `{file:...}`), and MCP servers.
 pub struct Settings {
     pub auth: Option<Value>,
-    pub config: Option<Value>,
+    pub config: Option<OcConfig>,
     pub config_dir: PathBuf,
     pub servers: Vec<OcServer>,
+}
+
+/// opencode's global config, with its `permission` section also kept in the order written,
+/// since opencode lets the last matching pattern win and a JSON object forgets order.
+pub struct OcConfig {
+    pub value: Value,
+    permission: Vec<(String, Setting)>,
+}
+
+impl OcConfig {
+    /// Parses config text with comments already stripped.
+    pub fn parse(text: &str) -> Option<Self> {
+        let value = serde_json::from_str(text).ok()?;
+        let permission = serde_json::from_str::<Root>(text).ok().and_then(|root| root.permission).map(|kinds| kinds.0).unwrap_or_default();
+        Some(Self { value, permission })
+    }
+}
+
+#[derive(Deserialize)]
+struct Root {
+    #[serde(default)]
+    permission: Option<Entries<Setting>>,
+}
+
+/// One kind's permission: a single decision, or patterns in the order written.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Setting {
+    One(String),
+    Patterns(Entries<Value>),
+    Other(serde::de::IgnoredAny),
+}
+
+/// A JSON object read as its entries in order.
+struct Entries<T>(Vec<(String, T)>);
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Entries<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visit<T>(std::marker::PhantomData<T>);
+        impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Visit<T> {
+            type Value = Entries<T>;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("an object")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(self, mut map: M) -> Result<Entries<T>, M::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = map.next_entry()? {
+                    entries.push(entry);
+                }
+                Ok(Entries(entries))
+            }
+        }
+        deserializer.deserialize_map(Visit(std::marker::PhantomData))
+    }
 }
 
 /// An MCP server in opencode's shape; `approved` when the user allowed it in Drift's old approval step.
@@ -242,9 +296,9 @@ fn expand(path: &str, base: &Path) -> PathBuf {
 }
 
 /// opencode keys with a Drift equivalent, as drift.json; every other key goes in the report by name.
-fn config(config: &Value, config_dir: &Path, report: &mut SettingsReport) -> Map<String, Value> {
+fn config(config: &OcConfig, config_dir: &Path, report: &mut SettingsReport) -> Map<String, Value> {
     let mut file = Map::new();
-    for (key, value) in config.as_object().into_iter().flatten() {
+    for (key, value) in config.value.as_object().into_iter().flatten() {
         match key.as_str() {
             "$schema" | "mcp" => {}
             "model" => match value.as_str().and_then(|model| model.split_once('/')) {
@@ -256,7 +310,7 @@ fn config(config: &Value, config_dir: &Path, report: &mut SettingsReport) -> Map
                 file.insert("instructions".into(), Value::Array(paths));
             }
             "permission" => {
-                let rules = permissions(value, report);
+                let rules = permissions(&config.permission, report);
                 if !rules.is_empty() {
                     file.insert("permissions".into(), Value::Array(rules));
                 }
@@ -280,18 +334,19 @@ fn instruction(path: &str, config_dir: &Path) -> String {
     config_dir.join(path).to_string_lossy().replace('\\', "/")
 }
 
-/// opencode's `permission` (`edit: "ask"`, `bash: { "git *": "allow" }`) as Drift rules.
-fn permissions(value: &Value, report: &mut SettingsReport) -> Vec<Value> {
+/// opencode's `permission` (`edit: "ask"`, `bash: { "*": "ask", "git *": "allow" }`) as Drift rules.
+/// opencode lets the last matching pattern win and drift.json the first, so each kind's patterns are reversed.
+fn permissions(kinds: &[(String, Setting)], report: &mut SettingsReport) -> Vec<Value> {
     let mut rules = Vec::new();
-    for (kind, setting) in value.as_object().into_iter().flatten() {
+    for (kind, setting) in kinds {
         if !matches!(kind.as_str(), "read" | "edit" | "bash" | "webfetch") {
             report.left(&format!("permission.{kind}"), format!("config permission.{kind}: Drift has no such permission"), |left| &mut left.settings);
             continue;
         }
-        let patterns: Vec<(&str, &Value)> = match setting {
-            Value::String(_) => vec![("*", setting)],
-            Value::Object(map) => map.iter().map(|(pattern, decision)| (pattern.as_str(), decision)).collect(),
-            _ => Vec::new(),
+        let patterns: Vec<(&str, Value)> = match setting {
+            Setting::One(decision) => vec![("*", Value::String(decision.clone()))],
+            Setting::Patterns(entries) => entries.0.iter().rev().map(|(pattern, decision)| (pattern.as_str(), decision.clone())).collect(),
+            Setting::Other(_) => Vec::new(),
         };
         for (pattern, decision) in patterns {
             match decision.as_str().filter(|decision| matches!(*decision, "allow" | "ask" | "deny")) {
@@ -388,7 +443,27 @@ mod tests {
     }
 
     fn settings(dir: &Path, auth: Value, config: Value, servers: Vec<OcServer>) -> Settings {
-        Settings { auth: Some(auth), config: Some(config), config_dir: dir.to_path_buf(), servers }
+        Settings { auth: Some(auth), config: OcConfig::parse(&config.to_string()), config_dir: dir.to_path_buf(), servers }
+    }
+
+    #[test]
+    fn opencodes_last_matching_pattern_still_wins_once_imported() {
+        use drift_engine::permission::{Decision, Policy, Rule};
+        let (dir, engine, providers) = setup();
+        let home = dir.0.join("home");
+        let text = r#"{ "permission": { "bash": { "*": "ask", "git *": "allow" }, "read": { "*": "deny", "src/*": "allow", "*.env": "deny" }, "edit": "ask" } }"#;
+        let settings = Settings { auth: None, config: OcConfig::parse(text), config_dir: dir.0.clone(), servers: vec![] };
+        import_settings(&engine.store, &engine.credentials, &providers, &home, &settings).unwrap();
+        let written: Value = serde_json::from_str(&std::fs::read_to_string(home.join(".config/drift/drift.json")).unwrap()).unwrap();
+        let rules: Vec<Rule> = serde_json::from_value(written["permissions"].clone()).unwrap();
+        let policy = Policy { rules };
+        let decide = |kind: &str, target: &str| policy.explicit(&drift_engine::tool::Ask::new(kind, target, ""));
+        assert_eq!(decide("bash", "git status"), Some(Decision::Allow), "opencode's documented allow-list keeps working");
+        assert_eq!(decide("bash", "rm -rf x"), Some(Decision::Ask));
+        assert_eq!(decide("read", "src/a.rs"), Some(Decision::Allow));
+        assert_eq!(decide("read", "src/.env"), Some(Decision::Deny), "a later pattern in opencode overrides an earlier one");
+        assert_eq!(decide("read", "notes.txt"), Some(Decision::Deny));
+        assert_eq!(decide("edit", "a.rs"), Some(Decision::Ask));
     }
 
     #[test]
@@ -506,8 +581,8 @@ mod tests {
         assert_eq!(written["model"], json!({ "provider": "anthropic", "model": "claude-opus-5-5" }));
         assert_eq!(written["instructions"], json!([dir.0.join("rules.md").to_string_lossy().replace('\\', "/"), "~/style.md"]));
         assert_eq!(written["permissions"], json!([
-            { "kind": "bash", "pattern": "git *", "decision": "allow" },
             { "kind": "bash", "pattern": "rm *", "decision": "deny" },
+            { "kind": "bash", "pattern": "git *", "decision": "allow" },
             { "kind": "edit", "pattern": "*", "decision": "ask" },
         ]));
         let file: drift_engine::config::File = serde_json::from_value(written).unwrap();

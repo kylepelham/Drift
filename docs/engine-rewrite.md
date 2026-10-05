@@ -930,7 +930,10 @@ opencode projects that had sessions (`Store::import_opencode_workspaces`) and te
     named in the report and not copied. Once copied, a file the user deletes stays deleted.
   - opencode's global config: `model` (`provider/model`), `instructions` (made absolute) and
     `permission` (`read`, `edit`, `bash`, `webfetch`, a decision or a pattern map) become
-    `~/.config/drift/drift.json`, written only when it does not exist yet. Everything else
+    `~/.config/drift/drift.json`, written only when it does not exist yet. opencode lets the last
+    matching pattern win and drift.json the first, so each kind's patterns are read in the order
+    written (`OcConfig`, not a sorted JSON object) and reversed: `{ "*": "ask", "git *": "allow" }`
+    still allows `git status`. Everything else
     (`tools`, `plugin`, `agent`, `provider`, ...) is named in the report; plugins are JavaScript and
     Drift runs none. Project-level opencode files are not read.
 - **Queued prompts.** opencode keeps prompts it queued but never ran in `session_input`; the import

@@ -7,7 +7,7 @@ mod settings;
 mod source;
 mod undo;
 
-pub use settings::{import_settings, mcp_config, LeftOut, OcServer, Settings, SettingsReport, REPORT};
+pub use settings::{import_settings, mcp_config, LeftOut, OcConfig, OcServer, Settings, SettingsReport, REPORT};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};

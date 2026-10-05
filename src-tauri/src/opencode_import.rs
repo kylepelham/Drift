@@ -151,9 +151,10 @@ fn import_source(app: &AppHandle, engine: &Arc<Engine>, store: &Store, source: &
 
 /// opencode's sign-ins, MCP servers (its own and those Drift's old manager kept) and global config.
 fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Option<drift_migrate::SettingsReport> {
-    let read = |path: PathBuf| std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str::<Value>(&drift_engine::config::jsonc::strip(&text)).ok());
+    let text = |path: PathBuf| std::fs::read_to_string(path).ok().map(|text| drift_engine::config::jsonc::strip(&text));
+    let read = |path: PathBuf| text(path).and_then(|text| serde_json::from_str::<Value>(&text).ok());
     let config_dir = opencode_config_dir();
-    let config = config_dir.as_ref().and_then(|dir| read(dir.join("opencode.json")).or_else(|| read(dir.join("opencode.jsonc"))));
+    let config = config_dir.as_ref().and_then(|dir| text(dir.join("opencode.json")).or_else(|| text(dir.join("opencode.jsonc")))).and_then(|text| drift_migrate::OcConfig::parse(&text));
     let state = store.mcp_state().ok();
     let approved: HashSet<String> = state.iter().flat_map(|state| &state.decisions).filter(|decision| decision.decision == "approved").map(|decision| decision.fingerprint.clone()).collect();
     let server = |name: &str, definition: &Value| drift_migrate::OcServer {
@@ -162,7 +163,7 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Opti
         approved: fingerprint(name, definition).is_some_and(|fingerprint| approved.contains(&fingerprint)),
     };
     let mut servers: Vec<drift_migrate::OcServer> = state.iter().flat_map(|state| &state.servers).map(|row| server(&row.name, &row.config)).collect();
-    servers.extend(config.as_ref().and_then(|config| config["mcp"].as_object()).into_iter().flatten().map(|(name, definition)| server(name, definition)));
+    servers.extend(config.as_ref().and_then(|config| config.value["mcp"].as_object()).into_iter().flatten().map(|(name, definition)| server(name, definition)));
     let settings = drift_migrate::Settings { auth: read(data_dir.join("auth.json")), config, config_dir: config_dir.unwrap_or_default(), servers };
     let providers: Vec<String> = engine.catalog.read().unwrap().providers.keys().cloned().collect();
     let home = drift_engine::config::home()?;
