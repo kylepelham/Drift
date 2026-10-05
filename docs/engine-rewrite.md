@@ -2060,19 +2060,37 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
 
 ## Baselines
 
-Medians of five runs on the development machine (`bun run bench:engine`, release build, a stub
-OpenAI-compatible provider that answers at once, so only engine time is measured). The opencode
-numbers were recorded at M0 and are the target the native engine had to beat; the M4 column is the
-native engine at cutover, with a user provider and the default family's base prompt.
+`bun run bench:engine [runs] --legacy <Drift 1.3 install folder>` starts both engines in turn on the
+same stub OpenAI-compatible provider, which answers at once (so only engine time is measured), and
+runs the same workloads on each: a first prompt, 50 more turns in one conversation, five turns that
+call `read` on a workspace file, 200 sessions, and repeated listing and history reads. Drift 1.3's
+engine is its bundled opencode with Drift's plugins, started as its shell started it, in throwaway
+data and config folders. Medians of three runs on the development machine, 2026-10-05 (1.3.8
+against 2.0.0); memory and processor time are the engine process's own, as Windows counts them.
 
-| Measure | opencode 1.18.33 (M0) | native (M0) | native (M4) |
+| Measure | Drift 1.3 | Drift 2.0 | |
 |---|---|---|---|
-| Cold start, process spawn to first event frame | 1012 ms | 26 ms | 32 ms |
-| Prompt accepted to provider request sent | 1066 ms | | 4 ms |
-| Provider response to text event delivered | 49 ms | | under 1 ms |
-| System prompt per turn | 12,089 chars | | 3,549 chars |
-| Tool schemas per turn | 25,369 chars | | 14,705 chars |
-| Approximate tokens per turn (chars / 4) | 9,365 | | 4,564 |
+| Cold start, spawn to first event | 1052 ms | 73 ms | 14x |
+| First prompt to provider request | 805 ms | 3.8 ms | 212x |
+| Later prompt to provider request | 25.8 ms | 3.7 ms | 7x |
+| Provider reply to UI event | 13 ms | 0.5 ms | 26x |
+| Whole turn, prompt to idle | 40.2 ms | 4.8 ms | 8x |
+| Tool call to the next provider request (`read`) | 40.2 ms | 2.2 ms | 18x |
+| Load a history of about 115 messages | 10.6 ms | 0.5 ms | 21x |
+| List 200 sessions | 4.8 ms | 0.7 ms | 7x |
+| Create a session | 1.5 ms | 0.7 ms | 2x |
+| Processor time while idle, per 10 s | 344 ms | 0 ms | |
+| Memory after the workload | 689 MB | 33 MB | 21x |
+| Peak memory | 1209 MB | 47 MB | 26x |
+| System prompt per turn | 12,300 chars | 3,556 chars | 3.5x |
+| Tool schemas per turn | 25,370 chars | 15,001 chars | 1.7x |
+| Approximate tokens per turn (chars / 4) | 9,418 | 4,639 | 2x |
+| App and engine on disk (voice models aside) | 165 MB | 35 MB | 4.7x |
+
+The cold start median of a native-only run of five is 46 ms; from an existing data folder, as the
+app starts every launch, the engine is ready in about 27 ms (a fresh one also creates the database).
+The whole-app start was not measured head to head, since both apps share the data folder; the
+engine's start is what 1.3 waited on.
 
 ## Testing
 

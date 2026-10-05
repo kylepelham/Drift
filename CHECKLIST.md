@@ -248,6 +248,8 @@ change the plan there when a decision changes.
   - [x] A workspace's stdio MCP servers run while any window or device has it open (`workspace.open` on the socket); unopened, they stop 5 minutes after their last use
   - [x] "Always" never widens over `AppData` or `Library`
   - [x] Auto-accept answers every ask (secrets, outside paths and hidden lines included; a deny rule still refuses) and clears asks already waiting; the card shows a command once in a bounded box, with no deny-with-reason field
+- [x] Head-to-head with Drift 1.3 (`bench:engine --legacy`): faster on every measure, from 8x per turn to 212x for a first prompt, with a twentieth of the memory and no idle processor use
+- [x] Remote access loads history again (the gateway mounts the engine with `nest_service`); the sidebar reorders on a finished reply; the OpenCode credits are gone
 - [ ] User testing of the native engine before release
 - [x] Perf numbers versus M0 baseline (Baselines in `docs/engine-rewrite.md`; `bench:engine` now runs a native turn): cold start 32 ms vs 1012, prompt to provider 4 ms vs 1066, about 4.6k tokens per turn vs 9.4k
 
