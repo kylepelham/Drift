@@ -194,7 +194,8 @@ impl Engine {
     pub(crate) async fn execute_command(self: &Arc<Self>, id: &str, name: &str, arguments: &str, model: Option<ModelRef>) -> Result<Receipt, CommandError> {
         let session = self.store.session(id)?.ok_or(TurnError::NoSession)?;
         let workspace = self.store.workspace(&session.workspace_id)?.ok_or(TurnError::NoWorkspace)?;
-        let config = self.command_config(id, &crate::tool::canonical(std::path::Path::new(&workspace.path)));
+        let workspace = crate::tool::canonical(std::path::Path::new(&workspace.path));
+        let config = self.command_config(id, &workspace);
         if let Some(problem) = config.problems.first() { return Err(TurnError::Config(problem.clone()).into()); }
         let command = config.commands.iter().find(|command| command.name == name).ok_or(CommandError::Missing)?;
         let agent = command.agent.as_deref().unwrap_or(&session.agent);
@@ -207,7 +208,7 @@ impl Engine {
         let text = match &command.server {
             Some(server) => {
                 let prompt = command.name.split_once(':').map_or(command.name.as_str(), |(_, name)| name);
-                self.mcp.get_prompt(server, prompt, command.named_arguments(arguments)).await.map_err(CommandError::Mcp)?
+                self.mcp.get_prompt(server, Some(&workspace), prompt, command.named_arguments(arguments)).await.map_err(CommandError::Mcp)?
             }
             None => command.expand(arguments),
         };
@@ -227,7 +228,7 @@ impl Engine {
         // Its own agent and model run this turn only; a delegated or skill command runs on the session's.
         let chosen = !routed && (command.agent.is_some() || model.is_some());
         let shown = if routed { format!("/{name} {arguments}").trim_end().to_string() } else { text };
-        let mentioned = if routed { Vec::new() } else { mentions(std::path::Path::new(&workspace.path), &shown) };
+        let mentioned = if routed { Vec::new() } else { mentions(&workspace, &shown) };
         let prompt = Prompt {
             parts: std::iter::once(Part::Text { text: shown }).chain(mentioned).collect(),
             model: if chosen { model.or_else(|| definition.model.clone()) } else { None },

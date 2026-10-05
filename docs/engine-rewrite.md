@@ -1512,8 +1512,8 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
 ## M2 behaviour
 
 - **MCP.** Servers live in the engine's `mcp_config` table (`PUT /mcp/{name}` with a stdio or
-  http config). There is no approval step: a saved, enabled server connects at once, at startup
-  and on demand through rmcp (an earlier approval gate was removed; migration 20 drops its column
+  http config). There is no approval step: a saved, enabled remote server connects at startup, a stdio one when a
+  workspace first needs it (see MCP per workspace), and either on demand through rmcp (an earlier approval gate was removed; migration 20 drops its column
   and key). A saved definition this build cannot parse (written by a newer Drift) never takes
   the others down: it is left out of startup and tool lists and shown as a failed row with an
   empty definition (`unreadable` on its status), which the editor can save over (trust cleared)
@@ -1531,9 +1531,8 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   which frees its names: a server that connects later and would
   clash gets the hash itself, so no tool a transcript already calls is renamed. Two new tools that
   clash with each other are both hashed. Which server a tool came from is asked of the tool (`Tool::server`), never read back
-  from its name; tools the server marks read-only run without asking,
-  the rest ask under kind `mcp` with pattern `<server>/<tool>`, and "always" therefore
-  covers the whole server. Every save, disable, disconnect and remove bumps the server's
+  from its name; calls run without asking, as in opencode, unless a rule for kind `mcp` and pattern
+  `<server>/<tool>` says ask or deny (a server's "always" then covers the whole server). Every save, disable, disconnect and remove bumps the server's
   generation; a connect that began under an older generation closes what it opened and
   publishes nothing.
 - **MCP sign-in.** A remote server whose connect is refused with a 401 or 403 reports
@@ -1597,8 +1596,8 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   connect in the kept era that the server refuses tries the other era (stdio) or probes (HTTP) at
   once and keeps the new answer; one that only timed out is not retried, so a stuck server is not
   waited on twice.
-- Drift answers no server-to-client requests: sampling, elicitation and roots are declined (the
-  roots list is empty). A 2026-07-28 server asks for them in an `input_required` result; rmcp
+- Drift answers `roots/list` with the workspace a stdio connection runs in (none for a shared or
+  remote one) and declines the other server-to-client requests, sampling and elicitation. A 2026-07-28 server asks for them in an `input_required` result; rmcp
   answers with the refusal and retries, and a server that keeps asking past rmcp's 10 rounds fails
   the call with "the server kept asking for input Drift does not give".
 - **MCP connections.** A stdio server and a pre-2026 HTTP server keep a connection open (the
@@ -1633,6 +1632,16 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   changes (save, disable, disconnect, remove), so a deliberate disconnect is never undone and a
   reconnect started under an old definition is discarded. A tool's own failure (`isError`) is not a
   lost connection. Saving an enabled server reconnects it at once (reload).
+- **MCP per workspace.** A stdio server runs once per workspace that uses it, as opencode runs one
+  per project: its connection is keyed by server and workspace (`mcp::Key`), started when a turn
+  is planned there or the workspace's config is read (`Engine::start_workspace_mcp`), run in that
+  folder unless the server sets its own `cwd`, and told that folder as its one root. Remote servers
+  have one shared connection. The startup sweep starts remote servers only. A turn uses its
+  workspace's connection, else the shared one. The server's row reports one state across its
+  connections. Connect, save, rename and enable take the active workspace (`?workspace=<id>`) and
+  start the server there and in every workspace it already runs in; with no workspace and no prior
+  connection it runs shared, where Drift runs. A user's disconnect ends every connection and holds
+  the server: no turn or workspace starts it again until the user connects it.
 - **MCP tools in running turns.** A server has one slot from enable to disable or remove, and every
   tool object made from it holds that slot and the client it was planned with. A call uses the
   slot's current client when it serves the same definition (same config hash), so a running turn

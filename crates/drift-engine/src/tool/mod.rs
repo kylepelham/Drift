@@ -491,9 +491,9 @@ impl Registry {
 }
 
 impl crate::Engine {
-    /// Every tool a turn starting now could be offered: the built-ins for the profile, then every connected server's.
+    /// Every tool a turn starting now could be offered: the built-ins for the profile, then every connected server's (their shared connections).
     pub fn offered_tools(&self, profile: ToolProfile) -> Vec<Arc<dyn Tool>> {
-        self.tools.offered(profile).into_iter().chain(self.mcp.tools(&self.store)).collect()
+        self.tools.offered(profile).into_iter().chain(self.mcp.tools(&self.store, None)).collect()
     }
 
     pub fn tool_specs(&self, profile: ToolProfile) -> Vec<ToolSpec> {

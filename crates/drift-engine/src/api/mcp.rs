@@ -28,6 +28,24 @@ pub struct SaveQuery {
     /// server is trusted and a saved one keeps what it had.
     #[serde(default)]
     pub read_only_trusted: Option<bool>,
+    /// The active workspace, where a stdio server connects (besides every workspace it already ran in).
+    #[serde(default)]
+    pub workspace: Option<String>,
+}
+
+#[derive(Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(rename_all = "camelCase")]
+pub struct ConnectQuery {
+    /// The active workspace, where a stdio server connects (besides every workspace it already ran in).
+    #[serde(default)]
+    pub workspace: Option<String>,
+}
+
+/// A workspace id as the folder a stdio server runs in; an unknown one is none.
+fn workspace_path(engine: &Engine, id: Option<&str>) -> Option<std::path::PathBuf> {
+    let workspace = engine.store.workspace(id?).ok().flatten()?;
+    Some(crate::tool::canonical(std::path::Path::new(&workspace.path)))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -65,12 +83,12 @@ pub async fn save(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Q
     if let Some(before) = before {
         crate::mcp::forget_if_moved(&engine.credentials, &name, &before.config, &row.config);
     }
-    reconnected(&engine, row).await
+    reconnected(&engine, row, query.workspace.as_deref()).await
 }
 
 /// Renames a server, saved secrets included. 409 if the new name is taken: nothing is replaced.
-#[utoipa::path(post, path = "/mcp/{name}/rename", operation_id = "renameMcpServer", request_body = RenameBody, responses((status = 200, body = ServerStatus), (status = 404), (status = 409)))]
-pub async fn rename(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Json(body): Json<RenameBody>) -> Result<Json<ServerStatus>, ApiError> {
+#[utoipa::path(post, path = "/mcp/{name}/rename", operation_id = "renameMcpServer", params(ConnectQuery), request_body = RenameBody, responses((status = 200, body = ServerStatus), (status = 404), (status = 409)))]
+pub async fn rename(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Query(query): Query<ConnectQuery>, Json(body): Json<RenameBody>) -> Result<Json<ServerStatus>, ApiError> {
     valid_name(&body.to)?;
     // Its tools are named after it, so the old name's tools end as they would on a remove.
     let row = engine
@@ -84,7 +102,7 @@ pub async fn rename(State(engine): State<Arc<Engine>>, Path(name): Path<String>,
     // A sign-in belongs to the server, not to its old name.
     crate::mcp::move_sign_in(&engine.credentials, &name, &row.name);
     engine.hub.publish(Event::McpRemoved { name });
-    reconnected(&engine, row).await
+    reconnected(&engine, row, query.workspace.as_deref()).await
 }
 
 #[derive(serde::Serialize, ToSchema)]
@@ -111,9 +129,9 @@ pub async fn sign_out(State(engine): State<Arc<Engine>>, Path(name): Path<String
 }
 
 /// An enabled server connects under the row just written; a disabled one is reported as it stands.
-async fn reconnected(engine: &Arc<Engine>, row: ServerRow) -> Result<Json<ServerStatus>, ApiError> {
+async fn reconnected(engine: &Arc<Engine>, row: ServerRow, workspace: Option<&str>) -> Result<Json<ServerStatus>, ApiError> {
     if row.enabled {
-        return connect(engine, &row.name).await;
+        return connect(engine, &row.name, workspace).await;
     }
     let status = engine.mcp.status_of(row);
     engine.hub.publish(Event::McpUpdated { server: status.clone() });
@@ -141,14 +159,14 @@ pub async fn remove(State(engine): State<Arc<Engine>>, Path(name): Path<String>)
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[utoipa::path(post, path = "/mcp/{name}/connect", operation_id = "connectMcpServer", responses((status = 200, body = ServerStatus), (status = 404)))]
-pub async fn connect_route(State(engine): State<Arc<Engine>>, Path(name): Path<String>) -> Result<Json<ServerStatus>, ApiError> {
-    connect(&engine, &name).await
+#[utoipa::path(post, path = "/mcp/{name}/connect", operation_id = "connectMcpServer", params(ConnectQuery), responses((status = 200, body = ServerStatus), (status = 404)))]
+pub async fn connect_route(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Query(query): Query<ConnectQuery>) -> Result<Json<ServerStatus>, ApiError> {
+    connect(&engine, &name, query.workspace.as_deref()).await
 }
 
-async fn connect(engine: &Arc<Engine>, name: &str) -> Result<Json<ServerStatus>, ApiError> {
+async fn connect(engine: &Arc<Engine>, name: &str, workspace: Option<&str>) -> Result<Json<ServerStatus>, ApiError> {
     engine.store.mcp_server(name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
-    let _ = engine.connect_mcp(name).await;
+    let _ = engine.connect_mcp_in(name, workspace_path(engine, workspace).as_deref()).await;
     let row = engine.store.mcp_server(name)?.ok_or_else(|| ApiError::not_found("mcp server"))?;
     Ok(Json(engine.mcp.status_of(row)))
 }
@@ -165,8 +183,8 @@ fn readable(engine: &Engine, name: &str) -> Result<(), ApiError> {
     engine.store.mcp_server(name)?.map(|_| ()).ok_or_else(|| ApiError::not_found("mcp server"))
 }
 
-#[utoipa::path(put, path = "/mcp/{name}/enabled", operation_id = "setMcpServerEnabled", request_body = EnabledBody, responses((status = 200, body = ServerStatus), (status = 404)))]
-pub async fn set_enabled(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Json(body): Json<EnabledBody>) -> Result<Json<ServerStatus>, ApiError> {
+#[utoipa::path(put, path = "/mcp/{name}/enabled", operation_id = "setMcpServerEnabled", params(ConnectQuery), request_body = EnabledBody, responses((status = 200, body = ServerStatus), (status = 404)))]
+pub async fn set_enabled(State(engine): State<Arc<Engine>>, Path(name): Path<String>, Query(query): Query<ConnectQuery>, Json(body): Json<EnabledBody>) -> Result<Json<ServerStatus>, ApiError> {
     readable(&engine, &name)?;
     if !body.enabled {
         if !engine.mcp.close(&name, &engine.store, &engine.hub, |store| store.set_mcp_enabled(&name, false)).await? {
@@ -178,7 +196,7 @@ pub async fn set_enabled(State(engine): State<Arc<Engine>>, Path(name): Path<Str
     if !engine.store.set_mcp_enabled(&name, true)? {
         return Err(ApiError::not_found("mcp server"));
     }
-    connect(&engine, &name).await
+    connect(&engine, &name, query.workspace.as_deref()).await
 }
 
 #[cfg(test)]
@@ -194,7 +212,7 @@ mod tests {
         engine.store.set_mcp_enabled("newer", false).unwrap();
         engine.store.lock().execute("UPDATE mcp_config SET config_json = '{\"type\":\"future\"}'", []).unwrap();
         let path = || Path("newer".to_string());
-        assert!(set_enabled(State(engine.clone()), path(), Json(EnabledBody { enabled: true })).await.is_err());
+        assert!(set_enabled(State(engine.clone()), path(), Query(ConnectQuery { workspace: None }), Json(EnabledBody { enabled: true })).await.is_err());
         let enabled: bool = engine.store.lock().query_row("SELECT enabled FROM mcp_config", [], |row| row.get(0)).unwrap();
         assert!(!enabled, "refused before anything was written");
         std::fs::remove_dir_all(dir).ok();

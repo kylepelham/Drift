@@ -3,6 +3,7 @@ import { useEngine } from "../../engine"
 import type { McpServerConfig, McpServerStatus } from "../../engine/store"
 import { registryInstallName, type RegistryServer } from "../../mcp-registry"
 import { t } from "../../state/i18n"
+import { activeWorkspace } from "../../state/workspaces"
 import { openExternal } from "../../shell"
 import { Toggle } from "../controls"
 import { IconPlug, IconPlugOff, IconPlus, IconSquarePen, IconTrash } from "../icons"
@@ -48,6 +49,7 @@ export function McpManagement(props: { embedded?: boolean }) {
   const [selected, setSelected] = createSignal("")
   const rowElements = new Map<string, HTMLDivElement>()
   const offline = () => engine.state.connection !== "online"
+  const here = () => activeWorkspace()?.path
   const locked = () => offline() || !!busy()
   const rowNames = createMemo(() => Object.keys(engine.state.mcpServers).sort((a, b) => a.localeCompare(b)))
   const moveRow = (key: RowKey, current = selected()) => {
@@ -97,8 +99,8 @@ export function McpManagement(props: { embedded?: boolean }) {
     setBusy(name)
     try {
       // Renamed first, so the save that follows keeps its saved secrets; a retry after a failed save saves under the new name.
-      if (previous && previous !== name) setEditor({ server: await engine.actions.mcpRename(previous, name) })
-      await engine.actions.mcpSave(name, config, { create: !previous, readOnlyTrusted })
+      if (previous && previous !== name) setEditor({ server: await engine.actions.mcpRename(previous, name, here()) })
+      await engine.actions.mcpSave(name, config, { create: !previous, readOnlyTrusted, directory: here() })
       setEditor(null)
     } finally {
       setBusy(null)
@@ -109,7 +111,7 @@ export function McpManagement(props: { embedded?: boolean }) {
     if (await run(name, () => engine.actions.mcpRemove(name), t("drift.mcp.removed", { name }))) setConfirmRemove("")
   }
   const runtime = (server: McpServerStatus, action: RuntimeAction) =>
-    void run(server.name, () => (action === "connect" ? engine.actions.mcpConnect(server.name) : engine.actions.mcpDisconnect(server.name)))
+    void run(server.name, () => (action === "connect" ? engine.actions.mcpConnect(server.name, here()) : engine.actions.mcpDisconnect(server.name)))
   const signIn = (name: string) =>
     void run(name, async () => openExternal(await engine.actions.mcpSignIn(name)), t("drift.mcp.signInOpened", { name }))
   const signOut = (name: string) => void run(name, () => engine.actions.mcpSignOut(name))
@@ -117,7 +119,7 @@ export function McpManagement(props: { embedded?: boolean }) {
   const install = async (server: RegistryServer, config: McpServerConfig) => {
     const name = registryInstallName(server)
     const done = await run(name, async () => {
-      const status = await engine.actions.mcpSave(name, config, { create: true })
+      const status = await engine.actions.mcpSave(name, config, { create: true, directory: here() })
       if (status.needsSignIn) openExternal(await engine.actions.mcpSignIn(name))
       setMessage(t(status.needsSignIn ? "drift.mcp.signInOpened" : "drift.mcp.installed", { name: server.title ?? name }))
     })
@@ -205,7 +207,7 @@ export function McpManagement(props: { embedded?: boolean }) {
                     onNavigate={(key) => moveRow(key, name)}
                     onEdit={() => setEditor({ server: server() })}
                     onRemove={() => void remove(name)}
-                    onEnabled={(enabled) => void run(name, () => engine.actions.mcpSetEnabled(name, enabled))}
+                    onEnabled={(enabled) => void run(name, () => engine.actions.mcpSetEnabled(name, enabled, here()))}
                     onRuntime={(action) => runtime(server(), action)}
                     onSignIn={() => signIn(name)}
                     onSignOut={() => signOut(name)}

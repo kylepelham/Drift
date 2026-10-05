@@ -23,8 +23,18 @@ const call = (message) => {
   }
   if (text === "hang") return
   if (text === "cwd") return reply(message.id, { content: [{ type: "text", text: process.cwd() }] })
+  // "roots" asks the client for its roots and answers with them, or with the client's refusal.
+  if (text === "roots") {
+    asking = message.id
+    return process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: "roots-1", method: "roots/list" }) + "\n")
+  }
   const out = message.params.name === "shout" ? text.toUpperCase() : text
   reply(message.id, { content: [{ type: "text", text: out }] })
+}
+let asking
+const answered = (message) => {
+  const text = message.error ? `declined: ${message.error.message}` : JSON.stringify(message.result.roots)
+  reply(asking, { content: [{ type: "text", text }] })
 }
 // RICH: also serve one resource of each kind and one prompt with two arguments.
 const rich = !!process.env.RICH
@@ -54,6 +64,7 @@ const listed = () => {
 const handle = (line) => {
   const message = JSON.parse(line)
   if (process.env.METHOD_LOG) fs.appendFileSync(process.env.METHOD_LOG, `${message.method}\n`)
+  if (message.id === "roots-1" && message.method === undefined) return answered(message)
   if (message.method === "server/discover") return probed(message)
   const stamped = message.params?._meta?.["io.modelcontextprotocol/protocolVersion"]
   if (era === "v2" && message.id !== undefined && !stamped) return fail(message.id, -32602, "every request carries its protocol version in _meta")

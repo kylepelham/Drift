@@ -3,13 +3,15 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use super::{Answer, CallError, Live, Slot, REPLACEMENT_WAIT};
+use super::{Answer, CallError, Key, Live, Slot, REPLACEMENT_WAIT};
 use crate::llm::ToolSpec;
 use crate::tool::{Ask, Context, Output, RunFuture, Tool, ToolError};
 
 /// A server's tool as a turn was offered it: the client it was planned with, and the server's slot for what came after.
 pub struct McpTool {
     server: String,
+    /// The connection it came from: the server's shared one, or its own for a workspace.
+    key: Key,
     tool: rmcp::model::Tool,
     pinned: Arc<Live>,
     slot: Arc<Slot>,
@@ -18,8 +20,8 @@ pub struct McpTool {
 }
 
 impl McpTool {
-    pub(super) fn new(server: &str, tool: rmcp::model::Tool, pinned: Arc<Live>, slot: Arc<Slot>, name: String) -> Self {
-        Self { server: server.into(), tool, pinned, slot, name }
+    pub(super) fn new(key: &Key, tool: rmcp::model::Tool, pinned: Arc<Live>, slot: Arc<Slot>, name: String) -> Self {
+        Self { server: key.server.clone(), key: key.clone(), tool, pinned, slot, name }
     }
 
     fn read_only(&self) -> bool {
@@ -65,7 +67,7 @@ impl McpTool {
             true => lost.clone(),
             false => {
                 if lost.holds_nothing_open() {
-                    ctx.engine.recheck_mcp(&self.server, lost);
+                    ctx.engine.recheck_mcp(&self.key, lost);
                 }
                 self.slot.replacement(lost, REPLACEMENT_WAIT).await.ok_or_else(lost_again)?
             }

@@ -309,7 +309,7 @@ test("a row has one switch and a connect button that stays in place; read-only t
   const manager = await Bun.file("src/ui/mcp/manager.tsx").text()
   expect(manager.match(/<Toggle/g)).toHaveLength(1)
   expect(manager).toContain("disabled={props.disabled || !runtime()}")
-  expect(manager).toContain("mcpSave(name, config, { create: !previous, readOnlyTrusted })")
+  expect(manager).toContain("mcpSave(name, config, { create: !previous, readOnlyTrusted, directory: here() })")
   const editor = await Bun.file("src/ui/mcp/editor.tsx").text()
   expect(editor).toContain("createSignal(props.server?.readOnlyTrusted ?? true)")
   expect(editor).toContain('label={t("drift.mcp.readOnlyTrusted")}')

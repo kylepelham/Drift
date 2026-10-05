@@ -226,6 +226,14 @@ change the plan there when a decision changes.
   - [x] One language server per root however many reads ask at once; a failed start's cooldown is per root
   - [x] `disable` never removes the engine's action agents; with `build` disabled new sessions take the first conversational agent
   - [x] Compaction summaries charged like replies (failed attempts included); the UI's cost total sums message costs
+- [x] Where native was worse than opencode:
+  - [x] Permission defaults as opencode's: tools run unasked except paths outside the workspace, secret files, recursive searchers, guarded files and explicit rules
+  - [x] A tool a rule denies outright is not offered (MCP tools matched exactly)
+  - [x] "Always" widens to the site of a fetch and the folder of an outside path (never a drive root or home); the button says what it covers
+  - [x] Auto-accept kept by the engine, per session and globally, never covering secrets or outside paths
+  - [x] `edit` on a missing file says to use `write`; `/share`, `/unshare` and the Shared badge removed
+  - [x] MCP image and PDF resources embedded in a call's result reach the model as files
+  - [x] Stdio MCP servers run per workspace, in its folder and with it as their root; a user's disconnect holds until they connect again
 - [x] Perf numbers versus M0 baseline (Baselines in `docs/engine-rewrite.md`; `bench:engine` now runs a native turn): cold start 32 ms vs 1012, prompt to provider 4 ms vs 1066, about 4.6k tokens per turn vs 9.4k
 
 ## M5: hook seam
@@ -236,5 +244,6 @@ change the plan there when a decision changes.
 - [ ] Measure `edit` miss rates per model family before considering any fuzzy fallback
 - [ ] Charge titles somewhere visible (they have no message of their own)
 - [ ] MCP resource templates as a tool (`mcp/resources.rs` lists and reads resources only)
+- [ ] MCP resources attachable from the composer, as opencode's `@` picker offers them
 - [ ] A plan file the plan agent may write (opencode allows `.opencode/plans/*.md`), so a plan survives compaction
 - [ ] Only if the UI or headless use wants them: user-run `!command` turns, `@agent` mention parts, `format: json_schema` structured output, project references

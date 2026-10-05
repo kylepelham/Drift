@@ -46,6 +46,9 @@ export class EngineError extends Error {
   }
 }
 
+/** The active workspace a stdio MCP server connects in, as a query string. */
+const inWorkspace = (workspace?: string) => (workspace ? `?${new URLSearchParams({ workspace })}` : "")
+
 export function createClient(target: Target) {
   const request = async <T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
     const response = await fetch(`${target.url}${path}`, {
@@ -120,20 +123,21 @@ export function createClient(target: Target) {
     answerQuestion: (id: string, answers: string[][]) => request<void>("POST", `/questions/${id}/reply`, { answers }),
     rejectQuestion: (id: string) => request<void>("POST", `/questions/${id}/reject`),
     mcpServers: () => request<Json<"listMcpServers", 200>>("GET", "/mcp"),
-    saveMcpServer: (name: string, config: McpServerConfig, options: { create?: boolean; readOnlyTrusted?: boolean } = {}) => {
+    saveMcpServer: (name: string, config: McpServerConfig, options: { create?: boolean; readOnlyTrusted?: boolean; workspace?: string } = {}) => {
       const query = new URLSearchParams()
       if (options.create) query.set("create", "true")
       if (options.readOnlyTrusted !== undefined) query.set("readOnlyTrusted", String(options.readOnlyTrusted))
+      if (options.workspace) query.set("workspace", options.workspace)
       const search = query.size ? `?${query}` : ""
       return request<Json<"saveMcpServer", 200>>("PUT", `/mcp/${name}${search}`, config)
     },
-    renameMcpServer: (name: string, to: string) => request<Json<"renameMcpServer", 200>>("POST", `/mcp/${name}/rename`, { to }),
+    renameMcpServer: (name: string, to: string, workspace?: string) => request<Json<"renameMcpServer", 200>>("POST", `/mcp/${name}/rename${inWorkspace(workspace)}`, { to }),
     removeMcpServer: (name: string) => request<void>("DELETE", `/mcp/${name}`),
-    connectMcpServer: (name: string) => request<Json<"connectMcpServer", 200>>("POST", `/mcp/${name}/connect`),
+    connectMcpServer: (name: string, workspace?: string) => request<Json<"connectMcpServer", 200>>("POST", `/mcp/${name}/connect${inWorkspace(workspace)}`),
     disconnectMcpServer: (name: string) => request<Json<"disconnectMcpServer", 200>>("POST", `/mcp/${name}/disconnect`),
     signInMcpServer: (name: string) => request<Json<"signInMcpServer", 200>>("POST", `/mcp/${name}/signin`),
     signOutMcpServer: (name: string) => request<Json<"signOutMcpServer", 200>>("DELETE", `/mcp/${name}/signin`),
-    setMcpServerEnabled: (name: string, enabled: boolean) => request<Json<"setMcpServerEnabled", 200>>("PUT", `/mcp/${name}/enabled`, { enabled }),
+    setMcpServerEnabled: (name: string, enabled: boolean, workspace?: string) => request<Json<"setMcpServerEnabled", 200>>("PUT", `/mcp/${name}/enabled${inWorkspace(workspace)}`, { enabled }),
     todos: (id: string) => request<Json<"listTodos", 200>>("GET", `/sessions/${id}/todos`),
     tasks: (id: string) => request<Json<"listTasks", 200>>("GET", `/sessions/${id}/tasks`),
     stopTask: (id: string) => request<Json<"abortTask", 200>>("POST", `/tasks/${id}/abort`),

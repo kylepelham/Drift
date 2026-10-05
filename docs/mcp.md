@@ -21,13 +21,17 @@ a remote device see the same servers.
 - The row's switch turns a server on or off. The plug button connects or disconnects one
   that is on without changing its setting, and stays in place, greyed out, while the server
   is off. Saving a changed definition reconnects it.
+- A stdio server runs once per workspace, in that folder (unless it sets its own working folder),
+  with the folder as its root; it starts the first time a workspace needs it. Connecting from the
+  manager starts it in the active workspace. Disconnecting stops it everywhere until you connect
+  it again. A remote server has one connection for all workspaces.
 
 ## Tools, prompts and permissions
 
 - A server's tools reach the model as `<server>_<tool>`, in characters every provider takes,
   and keep their names for the rest of the conversation once given.
-- A call is asked like any other (permission kind `mcp`, pattern `<server>/<tool>`), except
-  that a tool the server marks read-only runs without asking unless a rule says otherwise.
+- A call runs without asking unless a rule for permission kind `mcp` (pattern
+  `<server>/<tool>`) says ask or deny; a tool a rule denies outright is never offered.
 - Read-only agents (plan, explore) may use a server's read-only tools only when the server is
   trusted: the switch "Plan and Explore may use its read-only tools" in its edit sheet, on for
   a new server. A server's own read-only mark is its claim; the trust is the user's. A call is

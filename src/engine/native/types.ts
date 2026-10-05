@@ -1810,6 +1810,8 @@ export interface operations {
                  *     server is trusted and a saved one keeps what it had.
                  */
                 readOnlyTrusted?: boolean | null;
+                /** @description The active workspace, where a stdio server connects (besides every workspace it already ran in). */
+                workspace?: string | null;
             };
             header?: never;
             path: {
@@ -1872,7 +1874,10 @@ export interface operations {
     };
     connectMcpServer: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The active workspace, where a stdio server connects (besides every workspace it already ran in). */
+                workspace?: string | null;
+            };
             header?: never;
             path: {
                 name: string;
@@ -1926,7 +1931,10 @@ export interface operations {
     };
     setMcpServerEnabled: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The active workspace, where a stdio server connects (besides every workspace it already ran in). */
+                workspace?: string | null;
+            };
             header?: never;
             path: {
                 name: string;
@@ -1957,7 +1965,10 @@ export interface operations {
     };
     renameMcpServer: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The active workspace, where a stdio server connects (besides every workspace it already ran in). */
+                workspace?: string | null;
+            };
             header?: never;
             path: {
                 name: string;

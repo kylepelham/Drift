@@ -29,11 +29,11 @@ impl Tool for ListResources {
         Box::pin(async move {
             let servers = match input["server"].as_str() {
                 Some(server) => vec![server.to_string()],
-                None => ctx.engine.mcp.with_resources(),
+                None => ctx.engine.mcp.with_resources(Some(&ctx.workspace)),
             };
             let mut lines = Vec::new();
             for server in &servers {
-                for resource in ctx.engine.mcp.list_resources(server).await.map_err(ToolError)? {
+                for resource in ctx.engine.mcp.list_resources(server, Some(&ctx.workspace)).await.map_err(ToolError)? {
                     let about = resource.description.as_deref().map(|d| format!(": {d}")).unwrap_or_default();
                     let kind = resource.mime_type.as_deref().map(|m| format!(" ({m})")).unwrap_or_default();
                     lines.push(format!("{server} {} {}{kind}{about}", resource.uri, resource.name));
@@ -68,7 +68,7 @@ impl Tool for ReadResource {
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let (server, uri) = (required_str(&input, "server")?, required_str(&input, "uri")?);
-            let answer = ctx.engine.mcp.read_resource(server, uri).await.map_err(ToolError)?;
+            let answer = ctx.engine.mcp.read_resource(server, Some(&ctx.workspace), uri).await.map_err(ToolError)?;
             let mut metadata = json!({ "server": server, "uri": uri });
             if !answer.images.is_empty() {
                 metadata["images"] = crate::tool::image::metadata(&answer.images);

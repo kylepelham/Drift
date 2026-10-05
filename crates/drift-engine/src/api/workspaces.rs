@@ -96,6 +96,8 @@ pub async fn config(State(engine): State<Arc<Engine>>, axum::extract::Path(id): 
     let workspace = engine.store.workspace(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
     let path = crate::tool::canonical(std::path::Path::new(&workspace.path));
     let mut config = engine.workspace_config(&path);
-    config.commands.extend(engine.mcp.prompt_commands());
+    // As opencode starts a project's MCP servers when it opens, a workspace's stdio servers start when its config is first asked for.
+    engine.start_workspace_mcp(&path);
+    config.commands.extend(engine.mcp.prompt_commands(Some(&path)));
     Ok(Json(config))
 }

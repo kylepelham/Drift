@@ -607,13 +607,19 @@ export function createActions(
   }
 
   /** `create`: adding a server, which the engine refuses rather than replace one of the same name; left out, `readOnlyTrusted` is the engine's default. */
-  function mcpSave(name: string, config: McpServerConfig, options: { create?: boolean; readOnlyTrusted?: boolean } = {}) {
-    return mcpChange(() => requireClient().saveMcpServer(name, config, options))
+  function mcpSave(name: string, config: McpServerConfig, options: { create?: boolean; readOnlyTrusted?: boolean; directory?: string } = {}) {
+    const { directory, ...rest } = options
+    return mcpChange(() => requireClient().saveMcpServer(name, config, { ...rest, workspace: workspaceOf(directory) }))
+  }
+
+  /** The engine's id for the folder a stdio server should connect in, if it knows the folder. */
+  function workspaceOf(directory?: string) {
+    return directory ? workspaces().id(directory) : undefined
   }
 
   /** The engine renames in one step and refuses a name already taken, so no other server is ever replaced. */
-  async function mcpRename(from: string, to: string) {
-    const renamed = await requireClient().renameMcpServer(from, to)
+  async function mcpRename(from: string, to: string, directory?: string) {
+    const renamed = await requireClient().renameMcpServer(from, to, workspaceOf(directory))
     set("mcpServers", produce((servers) => void delete servers[from]))
     set("mcpServers", renamed.name, reconcile(renamed))
     return renamed
@@ -678,8 +684,8 @@ export function createActions(
     mcpSave,
     mcpRename,
     mcpRemove,
-    mcpSetEnabled: (name: string, enabled: boolean) => mcpChange(() => requireClient().setMcpServerEnabled(name, enabled)),
-    mcpConnect: (name: string) => mcpChange(() => requireClient().connectMcpServer(name)),
+    mcpSetEnabled: (name: string, enabled: boolean, directory?: string) => mcpChange(() => requireClient().setMcpServerEnabled(name, enabled, workspaceOf(directory))),
+    mcpConnect: (name: string, directory?: string) => mcpChange(() => requireClient().connectMcpServer(name, workspaceOf(directory))),
     mcpDisconnect: (name: string) => mcpChange(() => requireClient().disconnectMcpServer(name)),
     /** The page to open in the browser; the server connects by itself once the user comes back. */
     mcpSignIn: async (name: string) => (await requireClient().signInMcpServer(name)).url,

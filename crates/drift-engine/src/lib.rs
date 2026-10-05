@@ -102,8 +102,10 @@ pub struct Engine {
     local_models: std::sync::Mutex<std::collections::BTreeMap<String, Vec<llm::catalog::Model>>>,
     /// Ollama models' own windows, asked once per installed build.
     local_shown: llm::local::Shown,
-    /// Language servers per workspace, started on the first write to a file one handles.
+    /// Language servers per project root, started when a file one handles is read or written.
     pub lsp: lsp::Servers,
+    /// The engine itself, for work started from a call that only borrows it (a workspace's MCP servers, from planning).
+    me: std::sync::Weak<Engine>,
 }
 
 /// Where a workspace's "always" permission grants are kept.
@@ -136,7 +138,8 @@ impl Engine {
         if store.setting::<bool>(AUTO_ACCEPT_ALL_KEY)?.unwrap_or(false) {
             permissions.set_auto_accept(&Hub::new(0), None, true);
         }
-        Ok(Arc::new(Self {
+        Ok(Arc::new_cyclic(|me| Self {
+            me: me.clone(),
             data_dir: data_dir.to_path_buf(),
             store,
             hub: Hub::new(options.event_history),

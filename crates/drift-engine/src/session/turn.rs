@@ -684,12 +684,15 @@ impl Engine {
             bootstrap: Vec::new(),
             turn_only,
         };
-        // A server connecting right now would otherwise be missing from this turn's tools.
+        // The workspace's stdio servers start now if they are not running; one connecting right now would otherwise be missing from this turn's tools.
+        if let Some(engine) = self.me.upgrade() {
+            engine.start_workspace_mcp(&plan.workspace);
+        }
         self.mcp.wait_ready(crate::mcp::READY_WAIT).await;
         self.mcp.refresh_stale(&self.store, &self.hub).await;
-        plan.mcp_tools = self.mcp.tools(&self.store).into_iter().map(|tool| (tool.spec(), tool)).collect();
-        plan.mcp_servers = self.mcp.instructions();
-        plan.mcp_commands = self.mcp.prompt_commands();
+        plan.mcp_tools = self.mcp.tools(&self.store, Some(&plan.workspace)).into_iter().map(|tool| (tool.spec(), tool)).collect();
+        plan.mcp_servers = self.mcp.instructions(Some(&plan.workspace));
+        plan.mcp_commands = self.mcp.prompt_commands(Some(&plan.workspace));
         plan.offer = self.offer(&plan);
         Ok(plan)
     }
@@ -798,7 +801,7 @@ impl Engine {
         let running = self.turns.steering.lock().unwrap().get(session_id).cloned();
         let (mut config, commands) = match running {
             Some(running) => ((*running.config).clone(), running.mcp_commands),
-            None => (self.workspace_config(workspace), self.mcp.prompt_commands()),
+            None => (self.workspace_config(workspace), self.mcp.prompt_commands(Some(workspace))),
         };
         config.commands.extend(commands);
         config

@@ -28,8 +28,8 @@ async fn a_server_this_build_cannot_read_is_listed_failed_and_the_rest_still_con
     assert_eq!(statuses.iter().map(|s| (s.server.name.as_str(), s.state)).collect::<Vec<_>>(), [("echo", State::Disconnected), ("newer", State::Failed)]);
     assert!(statuses[1].unreadable && !statuses[0].unreadable);
     assert!(statuses[1].error.as_deref().is_some_and(|e| e.contains("could not be read")), "{:?}", statuses[1].error);
-    engine.mcp.connect("echo", &engine.store, &hub, Start::User).await.unwrap();
-    assert!(engine.mcp.tools(&engine.store).iter().any(|t| t.spec().name == "echo_echo"), "the readable server works");
+    engine.mcp.connect(&Key::shared("echo"), &engine.store, &hub, Start::User).await.unwrap();
+    assert!(engine.mcp.tools(&engine.store, None).iter().any(|t| t.spec().name == "echo_echo"), "the readable server works");
     engine.mcp.disconnect("echo", &engine.store, &hub).await;
 }
 
@@ -73,12 +73,12 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
     let hub = Hub::new(32);
     let saved = engine.store.save_mcp_server("echo", &echo_config()).unwrap();
     assert_eq!(engine.mcp.status_of(saved.clone()).state, State::Disconnected, "nothing to approve: it is ready to connect");
-    engine.mcp.connect("echo", &engine.store, &hub, Start::User).await.unwrap();
+    engine.mcp.connect(&Key::shared("echo"), &engine.store, &hub, Start::User).await.unwrap();
     let status = engine.mcp.status_of(saved.clone());
     assert_eq!(status.state, State::Connected);
     assert_eq!(status.tools.iter().map(|t| (t.name.as_str(), t.read_only)).collect::<Vec<_>>(), [("echo", true), ("shout", false)]);
 
-    let tools = engine.mcp.tools(&engine.store);
+    let tools = engine.mcp.tools(&engine.store, None);
     let names: Vec<String> = tools.iter().map(|t| t.spec().name).collect();
     assert_eq!(names, ["echo_echo", "echo_shout"]);
     let ctx = Context {
@@ -120,7 +120,7 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
 
     assert!(engine.mcp.disconnect("echo", &engine.store, &hub).await);
     assert_eq!(engine.mcp.status_of(saved).state, State::Disconnected);
-    assert!(engine.mcp.tools(&engine.store).is_empty());
+    assert!(engine.mcp.tools(&engine.store, None).is_empty());
 }
 
 fn context(engine: &Arc<crate::Engine>) -> Context {
@@ -235,7 +235,7 @@ async fn a_bad_command_reports_failed() {
     let hub = Hub::new(8);
     let config = ServerConfig::Stdio { command: "definitely-not-a-program".into(), args: vec![], env: Default::default(), cwd: None, timeout_seconds: None };
     let row = engine.store.save_mcp_server("broken", &config).unwrap();
-    assert!(engine.mcp.connect("broken", &engine.store, &hub, Start::User).await.is_err());
+    assert!(engine.mcp.connect(&Key::shared("broken"), &engine.store, &hub, Start::User).await.is_err());
     let status = engine.mcp.status_of(row);
     assert_eq!(status.state, State::Failed);
     assert!(status.error.unwrap().contains("definitely-not-a-program was not found on PATH"));
@@ -252,7 +252,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
     let connecting = tokio::spawn({
         let engine = engine.clone();
         let hub = Hub::new(8);
-        async move { engine.mcp.connect("probe", &engine.store, &hub, Start::User).await.map(|_| ()) }
+        async move { engine.mcp.connect(&Key::shared("probe"), &engine.store, &hub, Start::User).await.map(|_| ()) }
     });
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let replaced = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("TOOL_NAME".to_string(), "new_tool".to_string())].into(), cwd: None, timeout_seconds: None };
@@ -262,7 +262,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
     let status = engine.mcp.status_of(row);
     assert_ne!(status.state, State::Connected);
     assert!(status.tools.is_empty(), "no tools from the discarded connection");
-    assert!(engine.mcp.tools(&engine.store).is_empty());
+    assert!(engine.mcp.tools(&engine.store, None).is_empty());
 }
 
 /// A slow server that records its pid and a grandchild's in a file, so a test can see them die.
@@ -394,13 +394,15 @@ async fn the_startup_sweep_never_cancels_a_connect_already_under_way() {
 }
 
 #[tokio::test]
-async fn at_startup_every_server_connects_at_once_and_a_dead_one_holds_up_no_other() {
+async fn a_workspaces_servers_connect_at_once_and_a_dead_one_holds_up_no_other() {
     let engine = engine();
     let (mute, _) = traced(&[("SLOW_MS", "600000")]);
     saved_legacy(&engine, "mute", &mute).await;
     let fine = saved(&engine, "echo", &echo_config()).await;
     let started = std::time::Instant::now();
     engine.connect_all_mcp();
+    assert!(!engine.mcp.connecting(), "the startup sweep starts remote servers only; stdio ones start per workspace");
+    engine.start_workspace_mcp(&std::env::temp_dir());
     assert!(engine.mcp.connecting(), "every connect has begun before the sweep returns");
     until("echo connects", || engine.mcp.status_of(fine.clone()).state == State::Connected).await;
     assert!(started.elapsed() < STEP_LIMIT, "echo did not wait for the server that never answers: {:?}", started.elapsed());
@@ -443,7 +445,7 @@ async fn resources_are_listed_and_read_and_prompts_become_commands() {
     saved(&engine, "notes", &ServerConfig::Stdio { command, args, env: [("RICH".to_string(), "1".to_string())].into(), cwd: None, timeout_seconds: None }).await;
     engine.connect_mcp("notes").await.unwrap();
     let ctx = context(&engine);
-    let names: Vec<String> = engine.mcp.tools(&engine.store).iter().map(|t| t.spec().name).collect();
+    let names: Vec<String> = engine.mcp.tools(&engine.store, None).iter().map(|t| t.spec().name).collect();
     assert!(names.contains(&"mcp_resources".to_string()) && names.contains(&"mcp_read_resource".to_string()), "{names:?}");
     let listed = tool(&engine, "mcp_resources").run(&ctx, json!({})).await.unwrap().output;
     assert!(listed.contains("notes note://readme readme (text/plain): The notes"), "{listed}");
@@ -452,9 +454,9 @@ async fn resources_are_listed_and_read_and_prompts_become_commands() {
     let shot = read.run(&ctx, json!({ "server": "notes", "uri": "note://shot" })).await.unwrap();
     assert_eq!(crate::tool::image::returned(&shot.metadata)[0].mime, "image/png", "an image resource comes back to look at");
 
-    let commands = engine.mcp.prompt_commands();
+    let commands = engine.mcp.prompt_commands(None);
     assert_eq!((commands[0].name.as_str(), commands[0].arguments.clone()), ("notes:review", vec!["file".to_string(), "focus".to_string()]));
-    let filled = engine.mcp.get_prompt("notes", "review", commands[0].named_arguments("src/a.rs error handling")).await.unwrap();
+    let filled = engine.mcp.get_prompt("notes", None, "review", commands[0].named_arguments("src/a.rs error handling")).await.unwrap();
     assert_eq!(filled, "Review src/a.rs for error handling", "one word each, the last taking the rest");
 }
 
@@ -741,7 +743,7 @@ async fn a_v2_server_is_found_by_its_probe_and_spoken_to_without_a_handshake() {
     engine.connect_mcp("modern").await.unwrap();
     let status = engine.mcp.status_of(row);
     assert_eq!((status.protocol.as_deref(), status.era), (Some("2026-07-28"), Some(Era::Stateless)));
-    assert!(engine.mcp.instructions().iter().any(|(server, text)| server == "modern" && text.contains("Echo repeats")), "instructions come with discovery");
+    assert!(engine.mcp.instructions(None).iter().any(|(server, text)| server == "modern" && text.contains("Echo repeats")), "instructions come with discovery");
     // The fixture refuses any request without its protocol version in _meta, so a working call proves rmcp sends it.
     assert_eq!(tool(&engine, "modern_echo").run(&context(&engine), json!({ "text": "hi" })).await.unwrap().output, "hi");
     let methods = calls(&log);
@@ -1016,4 +1018,34 @@ fn reconnect_backoff_resets_only_after_a_connection_that_held() {
     let carried = FIRST_RETRY * 8;
     assert_eq!(after_loss(STABLE / 2, carried), carried, "a connection that dropped at once keeps backing off");
     assert_eq!(after_loss(STABLE, carried), FIRST_RETRY);
+}
+
+#[tokio::test]
+async fn a_stdio_server_runs_in_each_workspace_that_uses_it_and_is_told_it_as_its_root() {
+    let engine = engine();
+    let row = saved(&engine, "echo", &echo_config()).await;
+    let (one, two) = (crate::tool::canonical(&std::env::temp_dir().join(format!("drift-mcp-ws1-{}", crate::random_hex(3)))), crate::tool::canonical(&std::env::temp_dir().join(format!("drift-mcp-ws2-{}", crate::random_hex(3)))));
+    for dir in [&one, &two] {
+        std::fs::create_dir_all(dir).unwrap();
+        engine.start_workspace_mcp(dir);
+    }
+    until("both connect", || engine.mcp.lock().live(&Key::of("echo", Some(&one))).is_some() && engine.mcp.lock().live(&Key::of("echo", Some(&two))).is_some()).await;
+    assert_eq!(engine.mcp.status_of(row.clone()).state, State::Connected, "one row for the server");
+    let ask = |dir: &std::path::PathBuf, text: &'static str| {
+        let tools = engine.mcp.tools(&engine.store, Some(dir));
+        let echo = tools.into_iter().find(|tool| tool.spec().name == "echo_echo").unwrap();
+        let ctx = Context { workspace: dir.clone(), ..context(&engine) };
+        async move { echo.run(&ctx, json!({ "text": text })).await.unwrap().output }
+    };
+    let same = |a: &str, b: &std::path::Path| crate::tool::canonical(std::path::Path::new(a)) == b;
+    assert!(same(&ask(&one, "cwd").await, &one) && same(&ask(&two, "cwd").await, &two), "each runs in its own workspace");
+    let roots = ask(&one, "roots").await;
+    let uri = reqwest::Url::from_directory_path(&one).unwrap().to_string();
+    assert!(roots.contains(&uri), "the workspace is its root: {roots}");
+    assert!(engine.mcp.disconnect("echo", &engine.store, &engine.hub).await);
+    engine.start_workspace_mcp(&one);
+    assert!(!engine.mcp.connecting(), "a server the user disconnected stays disconnected until they connect it");
+    for dir in [one, two] {
+        std::fs::remove_dir_all(dir).ok();
+    }
 }
