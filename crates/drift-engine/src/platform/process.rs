@@ -296,7 +296,7 @@ fn registry_string(root: windows_sys::Win32::System::Registry::HKEY, key: &str, 
     Some(text.trim_end_matches('\0').to_string())
 }
 
-fn find_in(program: &str, dirs: impl Iterator<Item = std::path::PathBuf>) -> Option<std::path::PathBuf> {
+pub fn find_in(program: &str, dirs: impl Iterator<Item = std::path::PathBuf>) -> Option<std::path::PathBuf> {
     let named = std::path::Path::new(program);
     if named.components().count() > 1 {
         return named.is_file().then(|| named.to_path_buf());

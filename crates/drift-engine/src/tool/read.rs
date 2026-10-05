@@ -64,23 +64,37 @@ impl Tool for Read {
             let text = String::from_utf8_lossy(&bytes);
             let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
             let total = text.lines().count();
+            let name = display(&path, &ctx.workspace);
+            if total > 0 && offset > total {
+                return Err(ToolError(format!("{name} has {total} lines, so offset {offset} is past its end")));
+            }
+            warm_servers(ctx, &path);
             // The reminders come first in the budget, so the page fits beside them within one result.
             let reminders = reminders(ctx, &path);
             let body = page(text, offset, limit, PAGE_BYTES.saturating_sub(reminders.len()));
             let shown = body.len();
-            let mut output = body.join("\n");
+            let mut output = if total == 0 { "(the file is empty)".to_string() } else { body.join("\n") };
             if offset - 1 + shown < total {
                 output.push_str(&format!("\n\n({} more lines; read with offset {})", total - (offset - 1 + shown), offset + shown));
             }
             output.push_str(&reminders);
             ctx.files.mark_read(&path);
             Ok(Output {
-                title: display(&path, &ctx.workspace),
+                title: name,
                 output,
                 metadata: json!({ "lines": total, "shown": shown }),
             })
         })
     }
+}
+
+/// Starts the language servers for a workspace file being read, so they are ready by its first edit, as opencode does.
+fn warm_servers(ctx: &Context, path: &std::path::Path) {
+    if !path.starts_with(&ctx.workspace) {
+        return;
+    }
+    let (engine, workspace, file, config) = (ctx.engine.clone(), ctx.workspace.clone(), path.to_path_buf(), ctx.config.clone());
+    tokio::spawn(async move { engine.lsp.warm(&workspace, &file, &config.lsp).await });
 }
 
 /// Reads a bounded page from a large text file, without scanning the rest for a line count.
@@ -407,6 +421,18 @@ mod tests {
         let out = Read.run(&sandbox.ctx, json!({ "path": "many" })).await.unwrap();
         assert_eq!(out.output.lines().filter(|l| l.starts_with('f')).count(), MAX_ENTRIES);
         assert!(out.output.ends_with("(200 more entries; use glob with a pattern to narrow it)"));
+    }
+
+    #[tokio::test]
+    async fn an_empty_file_says_so_and_an_offset_past_the_end_is_an_error() {
+        let sandbox = Sandbox::new("read-ends");
+        sandbox.file("empty.txt", "");
+        sandbox.file("three.txt", "a\nb\nc\n");
+        let empty = Read.run(&sandbox.ctx, json!({ "path": "empty.txt" })).await.unwrap();
+        assert_eq!(empty.output, "(the file is empty)");
+        let past = Read.run(&sandbox.ctx, json!({ "path": "three.txt", "offset": 9 })).await.unwrap_err();
+        assert_eq!(past.0, "three.txt has 3 lines, so offset 9 is past its end");
+        assert_eq!(Read.run(&sandbox.ctx, json!({ "path": "three.txt", "offset": 3 })).await.unwrap().output, "3: c", "the last line is still in range");
     }
 
     #[test]

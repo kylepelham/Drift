@@ -47,13 +47,11 @@ pub struct Client {
 }
 
 impl Client {
-    /// Starts `command` in `root` and initializes it in the background; `Err` when it cannot start at all.
-    pub async fn start(command: &[String], root: &Path) -> std::io::Result<Arc<Self>> {
-        let named = command.first().ok_or_else(|| std::io::Error::other("no command"))?;
-        let program = process::which(named).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("{named} is not on PATH")))?;
+    /// Starts `program` in `root` and initializes it in the background; `Err` when it cannot start at all.
+    pub async fn start(program: &Path, args: &[String], root: &Path) -> std::io::Result<Arc<Self>> {
         let mut spawn = tokio::process::Command::new(program);
         process::use_current_path(&mut spawn, &Default::default());
-        spawn.args(&command[1..]).current_dir(root).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+        spawn.args(args).current_dir(root).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         #[cfg(windows)]
         spawn.creation_flags(0x0800_0000);
         let (mut child, tree) = process::spawn_owned(&mut spawn).await?;

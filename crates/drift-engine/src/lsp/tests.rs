@@ -57,10 +57,11 @@ async fn a_missing_or_silent_server_never_holds_up_the_call() {
 
 #[test]
 fn a_project_file_can_turn_a_server_off_but_never_name_one() {
-    assert!(BUILTIN.iter().any(|(name, command, _)| *name == "clangd" && command == &["clangd"]), "C and C++ are covered when clangd is installed");
+    let named = |name: &str| table::BUILTIN.iter().find(|server| server.name == name);
+    assert!(named("clangd").is_some() && named("csharp").is_some_and(|server| server.extensions.contains(&".cs")), "C, C++ and C# are covered when installed");
     let config = BTreeMap::from([("rust-analyzer".to_string(), LspConfig::Custom { command: vec!["ra-nightly".into()], extensions: vec![".rs".into()], language: Some("rust".into()) }), ("gopls".to_string(), LspConfig::Enabled(false))]);
     let specs = resolve(&config);
-    assert_eq!(specs.iter().map(|spec| (spec.name.as_str(), spec.command.clone())).collect::<Vec<_>>(), [("rust-analyzer", vec!["ra-nightly".to_string()])], "replaced, and the one turned off is gone");
+    assert_eq!(specs.iter().map(|spec| (spec.name.as_str(), spec.commands.clone())).collect::<Vec<_>>(), [("rust-analyzer", vec![vec!["ra-nightly".to_string()]])], "replaced, and the one turned off is gone");
     let root = workspace("config");
     std::fs::write(root.join("drift.json"), r#"{ "lsp": { "gopls": false, "evil": { "command": ["calc"], "extensions": [".rs"] } } }"#).unwrap();
     let loaded = crate::config::Config::load_with_home(&root, None);
@@ -91,4 +92,70 @@ fn file_uris_round_trip_however_a_server_spells_them() {
     }
     assert_eq!(path_of("file:///home/me/a%20b.rs"), Some(PathBuf::from("/home/me/a b.rs")));
     assert_eq!(path_of("untitled:1"), None);
+}
+
+#[test]
+fn servers_root_at_the_nearest_project_not_the_workspace() {
+    use table::{root_for, Root};
+    let ws = workspace("roots");
+    let put = |path: &str, text: &str| {
+        let path = ws.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    put("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]");
+    put("crates/a/Cargo.toml", "[package]");
+    put("crates/a/src/lib.rs", "");
+    put("tools/solo/Cargo.toml", "[package]");
+    put("tools/solo/src/main.rs", "");
+    put("packages/web/package-lock.json", "{}");
+    put("packages/web/src/app.ts", "");
+    put("edge/deno.json", "{}");
+    put("edge/main.ts", "");
+    put("svc/Api.csproj", "<Project/>");
+    put("svc/Program.cs", "");
+    put("loose.java", "");
+    let rule = |name: &str| table::BUILTIN.iter().find(|server| server.name == name).unwrap();
+    let root = |name: &str, file: &str| root_for(&rule(name).root, rule(name).unless, &ws.join(file), &ws);
+    assert_eq!(root("rust-analyzer", "crates/a/src/lib.rs"), Some(ws.clone()), "a member crate opens the Cargo workspace");
+    assert_eq!(root("rust-analyzer", "tools/solo/src/main.rs"), Some(ws.clone()), "a crate under a Cargo workspace folder still opens it, as opencode does");
+    assert_eq!(root("typescript", "packages/web/src/app.ts"), Some(ws.join("packages/web")), "a monorepo package gets its own server");
+    assert_eq!(root("typescript", "edge/main.ts"), None, "Deno's project is Deno's");
+    assert_eq!(root("deno", "edge/main.ts"), Some(ws.join("edge")));
+    assert_eq!(root("deno", "packages/web/src/app.ts"), None, "Deno only under its own config");
+    assert_eq!(root("csharp", "svc/Program.cs"), Some(ws.join("svc")), "*.csproj names any project file");
+    assert_eq!(root("java", "loose.java"), None, "jdtls needs a build file");
+    assert_eq!(root_for(&Root::Nearest(&[]), &[], &ws.join("svc/Program.cs"), &ws), Some(ws.clone()));
+    std::fs::remove_dir_all(ws).ok();
+}
+
+#[test]
+fn a_project_installed_server_is_found_in_node_modules() {
+    let ws = workspace("node-bin");
+    let bin = ws.join("node_modules/.bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(ws.join("packages/web")).unwrap();
+    let name = format!("drift-test-ls-{}", crate::random_hex(3));
+    std::fs::write(bin.join(if cfg!(windows) { format!("{name}.cmd") } else { name.clone() }), "").unwrap();
+    let found = table::installed(&[vec!["definitely-missing-ls".into()], vec![name.clone(), "--stdio".into()]], &ws.join("packages/web"), &ws);
+    let (program, args) = found.expect("found below the workspace");
+    assert!(program.starts_with(&bin) && args == ["--stdio"], "{program:?} {args:?}");
+    assert!(table::installed(&[vec![name]], ws.parent().unwrap(), &ws).is_none(), "never above the workspace");
+    std::fs::remove_dir_all(ws).ok();
+}
+
+#[tokio::test]
+async fn reading_a_file_starts_its_server_before_the_first_edit() {
+    let dir = workspace("warm");
+    let file = dir.join("a.fake");
+    std::fs::write(&file, "ERROR first").unwrap();
+    let servers = Servers::default();
+    let config = fake(&[]);
+    servers.warm(&dir, &file, &config).await;
+    assert_eq!(servers.running.lock().unwrap().len(), 1, "started by the read, before any write");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let found = servers.report(&dir, std::slice::from_ref(&file), &config).await;
+    assert_eq!(found.len(), 1, "the first edit hears back: {found:?}");
+    drop(servers);
+    std::fs::remove_dir_all(dir).ok();
 }

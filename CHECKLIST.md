@@ -196,8 +196,8 @@ change the plan there when a decision changes.
 - [x] A mode and its base take each other's signed reasoning (one model on the wire); another model reads earlier finished thoughts as plain text, as opencode sends them
 - [x] MCP rows: one on/off switch, connect button always in place (greyed out while off); read-only trust moved into the edit sheet, on for a new server, kept across saves
 - [x] LSP diagnostics after edits (`lsp` module; a project's drift.json may only turn a server off) (replaces what upstream's `edit`, `write` and `apply_patch` reported; the plan's "Dropped" and "Post-edit" rows already say so):
-  - Language servers from a built-in table (rust-analyzer, typescript-language-server, pyright, gopls, ...) used only when on PATH; `drift.json` can add, replace or disable one, as with formatters
-  - Started lazily per workspace on the first edit of a matching file, adopted into a process tree, shut down when the workspace goes idle or the engine stops
+  - Language servers from a built-in table of about thirty (opencode's, without its downloads), used only when installed on PATH or in a project's `node_modules/.bin`; `drift.json` can add, replace or disable one, as with formatters
+  - Rooted at the nearest project marker (Cargo workspace, lockfile, `go.mod`, `*.csproj`, ...), one per root; started when a matching file is first read, so ready by the first edit; adopted into a process tree, shut down when idle or the engine stops
   - After a writing call (and after formatters), report the touched files' errors within a short wait, bounded in count and size, appended to the call's result and kept in its metadata
   - A server that is missing, crashes or answers late never fails or delays the call beyond the wait; the result just carries no diagnostics
   - No model-facing `lsp` tool for now; revisit once diagnostics prove useful

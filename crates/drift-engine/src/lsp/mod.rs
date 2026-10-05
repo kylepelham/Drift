@@ -1,8 +1,10 @@
-//! Language servers: started for a workspace on the first write to a file one handles, they report
-//! the errors a writing call left behind, within a short wait. A server that is missing, crashes or
-//! answers late never fails or holds up a call; the result just carries no diagnostics.
+//! Language servers: started when a file one handles is first read or written, rooted at the
+//! nearest project marker, they report the errors a writing call left behind, within a short wait.
+//! A server that is missing, crashes or answers late never fails or holds up a call; the result
+//! just carries no diagnostics.
 
 mod client;
+mod table;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -27,35 +29,36 @@ const MAX_PER_FILE: usize = 10;
 const MAX_TOTAL: usize = 30;
 const MAX_MESSAGE_CHARS: usize = 300;
 
-/// Servers used when on PATH, each over stdio: name, command, the extensions it handles.
-const BUILTIN: [(&str, &[&str], &[&str]); 5] = [
-    ("rust-analyzer", &["rust-analyzer"], &[".rs"]),
-    ("typescript", &["typescript-language-server", "--stdio"], &[".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]),
-    ("pyright", &["pyright-langserver", "--stdio"], &[".py", ".pyi"]),
-    ("gopls", &["gopls"], &[".go"]),
-    ("clangd", &["clangd"], &[".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx"]),
-];
-
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Spec {
     pub name: String,
-    pub command: Vec<String>,
+    /// Commands to try in order; the first installed one runs.
+    pub commands: Vec<Vec<String>>,
     pub extensions: Vec<String>,
     pub language: Option<String>,
+    root: &'static table::Root,
+    unless: &'static [&'static str],
 }
+
+/// A server the user names in drift.json roots at the workspace.
+static WORKSPACE: table::Root = table::Root::Nearest(&[]);
 
 /// The built-ins less those the config turns off or replaces, then the config's own.
 pub fn resolve(config: &BTreeMap<String, LspConfig>) -> Vec<Spec> {
     // The engine's own tests write source files; they never start whatever servers this machine has.
-    let table: &[(&str, &[&str], &[&str])] = if cfg!(test) { &[] } else { &BUILTIN };
-    let builtin = table.iter().filter(|(name, _, _)| !config.contains_key(*name)).map(|(name, command, extensions)| Spec {
-        name: name.to_string(),
-        command: command.iter().map(|part| part.to_string()).collect(),
-        extensions: extensions.iter().map(|ext| ext.to_string()).collect(),
+    let table: &[table::Builtin] = if cfg!(test) { &[] } else { table::BUILTIN };
+    let builtin = table.iter().filter(|server| !config.contains_key(server.name)).map(|server| Spec {
+        name: server.name.to_string(),
+        commands: server.commands.iter().map(|command| command.iter().map(|part| part.to_string()).collect()).collect(),
+        extensions: server.extensions.iter().map(|ext| ext.to_string()).collect(),
         language: None,
+        root: &server.root,
+        unless: server.unless,
     });
     let custom = config.iter().filter_map(|(name, server)| match server {
-        LspConfig::Custom { command, extensions, language } if !command.is_empty() => Some(Spec { name: name.clone(), command: command.clone(), extensions: extensions.clone(), language: language.clone() }),
+        LspConfig::Custom { command, extensions, language } if !command.is_empty() => {
+            Some(Spec { name: name.clone(), commands: vec![command.clone()], extensions: extensions.clone(), language: language.clone(), root: &WORKSPACE, unless: &[] })
+        }
         _ => None,
     });
     builtin.chain(custom).collect()
@@ -80,7 +83,23 @@ fn language(spec: &Spec, file: &Path) -> String {
         "jsx" => "javascriptreact",
         "py" | "pyi" => "python",
         "c" | "h" => "c",
-        "cc" | "cpp" | "cxx" | "hpp" | "hh" | "hxx" => "cpp",
+        "cc" | "cpp" | "cxx" | "c++" | "hpp" | "hh" | "hxx" | "h++" => "cpp",
+        "cs" | "csx" => "csharp",
+        "fs" | "fsi" | "fsx" | "fsscript" => "fsharp",
+        "rb" | "rake" | "gemspec" | "ru" => "ruby",
+        "ex" | "exs" => "elixir",
+        "zon" => "zig",
+        "yml" => "yaml",
+        "ml" => "ocaml",
+        "mli" => "ocaml.interface",
+        "hs" | "lhs" => "haskell",
+        "clj" | "cljs" | "cljc" | "edn" => "clojure",
+        "sh" | "bash" | "zsh" | "ksh" => "shellscript",
+        "tf" | "tfvars" => "terraform",
+        "tex" => "latex",
+        "bib" => "bibtex",
+        "typ" | "typc" => "typst",
+        "" if file.file_name().is_some_and(|name| name.eq_ignore_ascii_case("dockerfile")) => "dockerfile",
         other => other,
     };
     id.to_string()
@@ -94,9 +113,10 @@ pub struct Found {
     pub errors: Vec<Diagnostic>,
 }
 
+/// Running servers by the folder they are rooted at and their name.
 type Running = Arc<Mutex<HashMap<(PathBuf, String), Arc<Client>>>>;
 
-/// The servers running for each workspace; dropping it (the engine stopping) ends them all.
+/// The servers running for each project root; dropping it (the engine stopping) ends them all.
 #[derive(Default)]
 pub struct Servers {
     running: Running,
@@ -111,21 +131,35 @@ impl Servers {
         let specs = resolve(config);
         let mut checks = Vec::new();
         for spec in &specs {
-            let handled: Vec<(PathBuf, String)> = files.iter().filter(|file| handles(spec, file)).map(|file| (file.clone(), language(spec, file))).collect();
-            if handled.is_empty() {
-                continue;
+            let mut by_root: BTreeMap<PathBuf, Vec<(PathBuf, String)>> = BTreeMap::new();
+            for file in files.iter().filter(|file| handles(spec, file)) {
+                if let Some(root) = table::root_for(spec.root, spec.unless, file, workspace) {
+                    by_root.entry(root).or_default().push((file.clone(), language(spec, file)));
+                }
             }
-            if let Some(client) = self.client(workspace, spec).await {
-                checks.push(async move { (spec.name.clone(), client.check(&handled, deadline).await) });
+            for (root, handled) in by_root {
+                if let Some(client) = self.client(workspace, &root, spec).await {
+                    checks.push(async move { (spec.name.clone(), client.check(&handled, deadline).await) });
+                }
             }
         }
         let reported = futures_util::future::join_all(checks).await;
         reported.into_iter().flat_map(|(server, files)| files.into_iter().filter(|(_, errors)| !errors.is_empty()).map(move |(file, errors)| Found { file, server: server.clone(), errors })).collect()
     }
 
-    /// The workspace's running server for `spec`, started now if it is not running and did not fail to start lately.
-    async fn client(&self, workspace: &Path, spec: &Spec) -> Option<Arc<Client>> {
-        let slot = (workspace.to_path_buf(), spec.name.clone());
+    /// Starts the servers that would handle `file` (a read, ahead of the first edit), so they have
+    /// initialized by then; it does not wait for them.
+    pub async fn warm(&self, workspace: &Path, file: &Path, config: &BTreeMap<String, LspConfig>) {
+        for spec in resolve(config).iter().filter(|spec| handles(spec, file)) {
+            if let Some(root) = table::root_for(spec.root, spec.unless, file, workspace) {
+                let _ = self.client(workspace, &root, spec).await;
+            }
+        }
+    }
+
+    /// The running server for `spec` at `root`, started now if it is not running and did not fail to start lately.
+    async fn client(&self, workspace: &Path, root: &Path, spec: &Spec) -> Option<Arc<Client>> {
+        let slot = (root.to_path_buf(), spec.name.clone());
         if let Some(client) = self.running.lock().unwrap().get(&slot).filter(|client| client.alive()) {
             return Some(client.clone());
         }
@@ -133,7 +167,11 @@ impl Servers {
         if tried {
             return None;
         }
-        match Client::start(&spec.command, workspace).await {
+        let started = match table::installed(&spec.commands, root, workspace) {
+            Some((program, args)) => Client::start(&program, &args, root).await,
+            None => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "not installed")),
+        };
+        match started {
             Ok(client) => {
                 self.running.lock().unwrap().insert(slot, client.clone());
                 self.reap_idle();
