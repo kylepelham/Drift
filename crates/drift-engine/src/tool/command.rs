@@ -28,12 +28,12 @@ const SCRIPT_RUNNERS: [&str; 3] = ["npm run", "pnpm run", "yarn run"];
 
 /// PowerShell's built-in aliases for cmdlets a rule is likely to name, so `rm x` meets a rule for
 /// `Remove-Item *`.
-const POWERSHELL_ALIASES: [(&str, &str); 30] = [
+const POWERSHELL_ALIASES: [(&str, &str); 31] = [
     ("ls", "Get-ChildItem"), ("dir", "Get-ChildItem"), ("gci", "Get-ChildItem"),
     ("rm", "Remove-Item"), ("del", "Remove-Item"), ("erase", "Remove-Item"), ("ri", "Remove-Item"), ("rmdir", "Remove-Item"), ("rd", "Remove-Item"),
     ("cp", "Copy-Item"), ("copy", "Copy-Item"), ("cpi", "Copy-Item"),
     ("mv", "Move-Item"), ("move", "Move-Item"), ("mi", "Move-Item"),
-    ("cat", "Get-Content"), ("gc", "Get-Content"), ("type", "Get-Content"),
+    ("cat", "Get-Content"), ("gc", "Get-Content"), ("type", "Get-Content"), ("sls", "Select-String"),
     ("sc", "Set-Content"), ("ac", "Add-Content"), ("ni", "New-Item"),
     ("iwr", "Invoke-WebRequest"), ("curl", "Invoke-WebRequest"), ("wget", "Invoke-WebRequest"), ("irm", "Invoke-RestMethod"),
     ("kill", "Stop-Process"), ("spps", "Stop-Process"), ("start", "Start-Process"), ("saps", "Start-Process"), ("icm", "Invoke-Command"),

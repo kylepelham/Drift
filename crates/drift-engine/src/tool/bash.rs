@@ -323,24 +323,28 @@ const SEARCHERS: [&str; 3] = ["grep", "rg", "select-string"];
 /// workspace. `--flag=value`, `rev:path` and redirections are judged by their path parts.
 fn why_it_asks(ctx: &Context, dir: &std::path::Path, ask: &Ask) -> Option<Reason> {
     let Some(commands) = &ask.commands else { return Some(Reason::Hidden) };
-    let mut reasons = commands.iter().filter_map(|command| command_reason(ctx, dir, command));
+    let mut reasons = commands.iter().enumerate().filter_map(|(index, command)| command_reason(ctx, dir, command, ask.canonical.get(index)));
     reasons.next().or_else(|| ask.writes.iter().find_map(|target| target_reason(ctx, dir, target)))
 }
 
-fn command_reason(ctx: &Context, dir: &std::path::Path, command: &str) -> Option<Reason> {
-    let words: Vec<&str> = command.split(' ').collect();
-    let program = words[0].rsplit(['/', '\\']).next().unwrap_or(words[0]).trim_end_matches(".exe").to_ascii_lowercase();
-    let git = (program == "git").then(|| git_subcommand(&words[1..])).flatten();
+/// The program and its subcommand are read as the command runs (`FOO=1 git push` is a push, `sls`
+/// is `Select-String`); every written word but the program is judged as a path, assignments too.
+fn command_reason(ctx: &Context, dir: &std::path::Path, command: &str, canonical: Option<&String>) -> Option<Reason> {
+    let written: Vec<&str> = command.split(' ').collect();
+    let runs: Vec<&str> = canonical.filter(|c| !c.is_empty()).map_or_else(|| written.clone(), |c| c.split(' ').collect());
+    let program_at = written.len().saturating_sub(runs.len());
+    let program = runs[0].rsplit(['/', '\\']).next().unwrap_or(runs[0]).trim_end_matches(".exe").to_ascii_lowercase();
+    let git = (program == "git").then(|| git_subcommand(&runs[1..])).flatten();
     if MOVES.contains(&program.as_str()) {
         return Some(Reason::Moves);
     }
     if SEARCHERS.contains(&program.as_str()) || git == Some("grep") {
         return Some(Reason::Searches);
     }
-    if git.is_some_and(|sub| beyond_undo(sub, &words)) {
+    if git.is_some_and(|sub| beyond_undo(sub, &runs)) {
         return Some(Reason::BeyondUndo);
     }
-    words[1..].iter().find_map(|word| word_reason(ctx, dir, word))
+    written.iter().enumerate().filter(|(index, _)| *index != program_at).find_map(|(_, word)| word_reason(ctx, dir, word))
 }
 
 /// Git's subcommand, past its global options (`git -C sub push` is a push).
@@ -650,6 +654,13 @@ mod tests {
         for line in ["git clean -fdx", "git push", "git push --force origin main", "git -C src push", "git reset --hard HEAD~1", "cargo test && git push"] {
             assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
         }
+        // An assignment before the program changes nothing about what runs.
+        for (line, why) in [("FOO=1 git push", BeyondUndo), ("LC_ALL=C grep -r token .", Searches), ("FOO=1 cd .. && ls", Moves), ("GIT_DIR=../other git commit -m x", Outside), ("A=1 B=2 git -C src clean -fdx", BeyondUndo)] {
+            assert_eq!(reason(line), Some(why), "{line}");
+        }
+        assert_eq!(decide("RUST_LOG=debug cargo test"), crate::permission::Decision::Allow);
+        let powershell = Bash::with(Shell::PowerShell("pwsh".into()));
+        assert_eq!(powershell.ask(&sandbox.ctx, &json!({ "command": "sls token -Path ." })).unwrap().reason, Some(Searches), "an alias is read as its cmdlet");
         for line in ["git reset HEAD a.rs", "git commit -m push", "git log --grep=clean"] {
             assert_eq!(decide(line), crate::permission::Decision::Allow, "{line}");
         }
