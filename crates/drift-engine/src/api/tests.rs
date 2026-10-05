@@ -619,3 +619,19 @@ async fn base_prompts_are_replaced_for_every_model_or_one_family_and_the_shared_
     assert_eq!(h.put("/prompts/claude").json(&json!({ "text": "  " })).send().await.unwrap().status(), 400);
     assert_eq!(h.put("/prompts/nope").json(&json!({ "text": "x" })).send().await.unwrap().status(), 404);
 }
+#[tokio::test]
+async fn settings_rules_apply_at_once_survive_a_restart_and_refuse_what_could_never_match() {
+    let h = harness().await;
+    assert_eq!(h.get("/permission-rules").send().await.unwrap().json::<Value>().await.unwrap(), json!([]));
+    let rules = json!([{ "kind": "bash", "pattern": "git push*", "decision": "deny" }, { "kind": "webfetch", "pattern": "*", "decision": "ask" }]);
+    let saved: Value = h.put("/permission-rules").json(&rules).send().await.unwrap().json().await.unwrap();
+    assert_eq!(saved, rules);
+    let push = crate::tool::Ask::new("bash", "git push origin", "");
+    assert_eq!(h.engine.permissions.decide_now("s", &crate::permission::Policy::default(), &push), crate::permission::Decision::Deny, "the next call follows them");
+    let reopened = Engine::open_with(&h._dir.0, crate::Options { file_credentials: true, ..Default::default() }).unwrap();
+    assert_eq!(serde_json::to_value(reopened.permission_rules()).unwrap(), rules, "kept across a restart");
+    for bad in [json!([{ "kind": "Bash!", "pattern": "*", "decision": "deny" }]), json!([{ "kind": "bash", "pattern": " ", "decision": "deny" }]), json!([{ "kind": "read", "pattern": "a[", "decision": "deny" }])] {
+        assert_eq!(h.put("/permission-rules").json(&bad).send().await.unwrap().status(), 400, "{bad}");
+    }
+    assert_eq!(h.get("/permission-rules").send().await.unwrap().json::<Value>().await.unwrap(), rules, "a refused save changes nothing");
+}

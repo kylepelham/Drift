@@ -6,7 +6,7 @@ import { t } from "../state/i18n"
 import { applyProviderCatalog } from "../state/provider-cache"
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events"
 import { adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptQuestion, adaptSession, adaptTodos, type NativeMessageWithParts, type WorkspaceIndex } from "./native/adapt"
-import { EngineError, type Client } from "./native/client"
+import { EngineError, type Client, type PermissionGrant, type PermissionRule } from "./native/client"
 import type { components } from "./native/types"
 import {
   captureRevisions,
@@ -576,6 +576,19 @@ export function createActions(
     return server
   }
 
+  /** A workspace folder's "always" grants; a folder the engine has no workspace for has none. */
+  async function workspaceGrants(directory: string): Promise<PermissionGrant[]> {
+    const id = workspaces().id(directory)
+    return id ? requireClient().permissionGrants(id) : []
+  }
+
+  /** Takes back one grant, or every grant of the folder's workspace when `grant` is left out. */
+  async function revokeGrant(directory: string, grant?: PermissionGrant) {
+    const id = workspaces().id(directory)
+    if (!id) return
+    await (grant ? requireClient().revokePermissionGrant(id, grant) : requireClient().revokePermissionGrants(id))
+  }
+
   /** `create`: adding a server, which the engine refuses rather than replace one of the same name; left out, `readOnlyTrusted` is the engine's default. */
   function mcpSave(name: string, config: McpServerConfig, options: { create?: boolean; readOnlyTrusted?: boolean } = {}) {
     return mcpChange(() => requireClient().saveMcpServer(name, config, options))
@@ -639,6 +652,10 @@ export function createActions(
     basePrompts: () => requireClient().basePrompts(),
     saveBasePrompt: (id: string, text: string) => requireClient().saveBasePrompt(id, text),
     resetBasePrompt: (id: string) => requireClient().resetBasePrompt(id),
+    permissionRules: () => requireClient().permissionRules(),
+    savePermissionRules: (rules: PermissionRule[]) => requireClient().savePermissionRules(rules),
+    workspaceGrants,
+    revokeGrant,
     share: async (..._args: unknown[]): Promise<string | undefined> => {
       unavailable("Sharing")
       return undefined

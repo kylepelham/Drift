@@ -5,8 +5,31 @@ use axum::http::StatusCode;
 use axum::Json;
 
 use super::error::ApiError;
-use crate::permission::{Grant, ReplyBody, Request};
+use crate::permission::{Grant, ReplyBody, Request, Rule};
 use crate::Engine;
+
+/// Every rule is checked on every call; past this the list is a mistake, not a policy.
+const MAX_RULES: usize = 200;
+
+/// The rules kept in Settings for every workspace, in the order they are checked: the first that
+/// matches decides, after the rules in drift.json.
+#[utoipa::path(get, path = "/permission-rules", operation_id = "listPermissionRules", responses((status = 200, body = Vec<Rule>)))]
+pub async fn rules(State(engine): State<Arc<Engine>>) -> Json<Vec<Rule>> {
+    Json(engine.permission_rules())
+}
+
+/// Replaces the whole ordered list; calls checked from now on follow it. A rule that could never match is refused, naming it.
+#[utoipa::path(put, path = "/permission-rules", operation_id = "savePermissionRules", request_body = Vec<Rule>, responses((status = 200, body = Vec<Rule>), (status = 400)))]
+pub async fn save_rules(State(engine): State<Arc<Engine>>, Json(rules): Json<Vec<Rule>>) -> Result<Json<Vec<Rule>>, ApiError> {
+    if rules.len() > MAX_RULES {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "too_many", format!("at most {MAX_RULES} rules")));
+    }
+    if let Some(problem) = rules.iter().find_map(Rule::problem) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid", problem));
+    }
+    engine.set_permission_rules(rules)?;
+    Ok(Json(engine.permission_rules()))
+}
 
 /// The workspace's "always" grants, newest last.
 #[utoipa::path(get, path = "/workspaces/{id}/permission-grants", operation_id = "listPermissionGrants", responses((status = 200, body = Vec<Grant>), (status = 404)))]

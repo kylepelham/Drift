@@ -130,7 +130,7 @@ change the plan there when a decision changes.
 - [x] Agent Settings apply what they show: overrides carry prompt, model, steps and tools (applied natively), any other field refused; editor projects the native agent
 - [x] Model-family prompt editor states it is not applied and is read-only (no native family prompts)
 - [x] Native base-prompt override (global or per model family) so the Prompts editor can save again (`/prompts`; a family's own wins over All models; the shared rules always follow)
-- [ ] Permission rules editor in Settings: list, add, reorder and delete the global rules (kind, pattern, allow/ask/deny), and the workspace's "always" grants with a way to revoke them
+- [x] Permission rules editor in Settings: list, add, reorder and delete the global rules (kind, pattern, allow/ask/deny), and the workspace's "always" grants with a way to revoke them (`/permission-rules`, checked after drift.json)
 - [x] Archive and restore (sidebar, `/archive`, Archive dialog) archive in the engine first, with its Stop, then update the shell record
 - [x] Bounded fork reachable (Fork from here on a finished reply); a resent prompt keeps its submission id until the engine answers for sure
 - [x] Jev tool routing removed from Settings (toggle, state module and status polling)

@@ -47,6 +47,18 @@ impl Rule {
     fn has_wildcards(&self) -> bool {
         self.pattern.contains(['*', '?', '[', '{'])
     }
+
+    /// Why the rule could never match as written: a kind that names no operation, or a pattern that is no glob.
+    pub fn problem(&self) -> Option<String> {
+        let kind_ok = self.kind == "*" || (!self.kind.is_empty() && self.kind.chars().all(|c| c.is_ascii_lowercase() || c == '-' || c == '_'));
+        if !kind_ok {
+            return Some(format!("\"{}\" is not a permission kind", self.kind));
+        }
+        if self.pattern.trim().is_empty() {
+            return Some(format!("a {} rule needs a pattern; use * for every target", self.kind));
+        }
+        GlobBuilder::new(&self.pattern).build().err().map(|error| format!("\"{}\" is not a valid pattern: {error}", self.pattern))
+    }
 }
 
 /// What the user approved with "always": kept for the workspace, across sessions and restarts.
@@ -266,6 +278,10 @@ impl Permissions {
 
     pub fn set_policy(&self, policy: Policy) {
         *self.policy.lock().unwrap() = policy;
+    }
+
+    pub fn policy(&self) -> Policy {
+        self.policy.lock().unwrap().clone()
     }
 
     /// A shell line is judged command by command: any denied command denies it, and only a line whose

@@ -1839,6 +1839,13 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     (`bash::reads_inside`). Any word that names something on disk is judged where it resolves, so
     `cat notes`, with `notes` a link out of the workspace, asks. So `git status`, `git log`, `ls src` and `cat README.md` run, while
     `cat .env`, `ls ..`, `git show HEAD:.env` and `cargo test` ask. A rule still decides first.
+  - Rules for every workspace are kept in Settings > Permissions: an ordered list (kind, glob,
+    allow/ask/deny) in the `permissionRules` setting, loaded into the engine's global policy at
+    startup and replaced whole by `PUT /permission-rules` (`GET` reads it). They are checked after
+    the rules in drift.json and the first match wins, so a project's file still decides first. A
+    rule whose kind names no operation or whose pattern is no glob is refused with the reason, and
+    the list holds at most 200. The same section lists the active workspace's "always" grants with
+    Revoke and Revoke all, through the routes below.
   - "Always" holds for the workspace, in every session and across restarts (`Permissions::bind`
     ties each planned session to its workspace; grants are kept in the `permissionGrants:<id>`
     setting), as opencode keeps it for the project. A session with no workspace keeps its grants

@@ -69,7 +69,7 @@ test("selected language dictionaries translate settings without loading every lo
 
 test("prompt and agent editors are separate Server settings with inherited-value styling", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
-  expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents"]')
+  expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions"]')
   expect(source).toContain("<BasePromptsSection />")
   expect(source).toContain("<PromptEditorSection />")
   expect(source).toContain('"text-ink-faint": !agentPromptModified()')
@@ -590,4 +590,18 @@ test("the About mascot stays light: preloaded from the nav, compiled off-thread,
   })
   expect(vertices).toBeGreaterThan(5_000)
   expect(vertices).toBeLessThan(12_000)
+})
+
+test("permission rules reorder within the list and grants read as what was approved", async () => {
+  const { loadDictionary } = await import("../src/state/i18n")
+  await loadDictionary("en")
+  const { moveRule, grantLabel } = await import("../src/ui/settings-permissions")
+  const rule = (pattern: string) => ({ kind: "bash", pattern, decision: "ask" as const })
+  const rules = [rule("a"), rule("b"), rule("c")]
+  expect(moveRule(rules, 2, -1).map((r) => r.pattern)).toEqual(["a", "c", "b"])
+  expect(moveRule(rules, 0, -1).map((r) => r.pattern)).toEqual(["a", "b", "c"], "the first stays first")
+  expect(moveRule(rules, 2, 1).map((r) => r.pattern)).toEqual(["a", "b", "c"])
+  expect(grantLabel({ grant: "exact", kind: "edit", target: "src/[id].tsx" })).toBe("edit: src/[id].tsx")
+  expect(grantLabel({ grant: "subcommand", prefix: "cargo test" })).toBe("bash: cargo test with any arguments")
+  expect(grantLabel({ grant: "pattern", kind: "read", pattern: "docs/**", decision: "allow" })).toBe("read: docs/**")
 })

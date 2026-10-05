@@ -472,3 +472,19 @@ test("re-pointing a workspace folder moves nothing but waits for running threads
   const running = harness({ sessions: () => Promise.resolve([{ ...session("ses_1"), running: true }]) } as Partial<Client>)
   expect((await running.actions.moveWorkspaceSessions("C:/repo", "D:/repo")).ok).toBeFalse()
 })
+
+test("a folder's always-grants are read and revoked through its engine workspace; a folder with none has nothing to revoke", async () => {
+  const calls: unknown[] = []
+  const grant = { grant: "subcommand" as const, prefix: "cargo test" }
+  const h = harness({
+    permissionGrants: async (id: string) => (calls.push(["list", id]), [grant]),
+    revokePermissionGrant: async (id: string, revoked: unknown) => void calls.push(["revoke", id, revoked]),
+    revokePermissionGrants: async (id: string) => void calls.push(["revokeAll", id]),
+  } as Partial<Client>)
+  expect(await h.actions.workspaceGrants("C:/repo")).toEqual([grant])
+  expect(await h.actions.workspaceGrants("C:/elsewhere")).toEqual([])
+  await h.actions.revokeGrant("C:/repo", grant)
+  await h.actions.revokeGrant("C:/repo")
+  await h.actions.revokeGrant("C:/elsewhere")
+  expect(calls).toEqual([["list", "w1"], ["revoke", "w1", grant], ["revokeAll", "w1"]])
+})

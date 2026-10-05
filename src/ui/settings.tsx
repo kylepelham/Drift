@@ -143,6 +143,7 @@ import { ProviderIcon } from "./provider-icon"
 import { authorizationPrompt } from "../engine/provider-auth"
 import { Picker } from "./picker"
 import { BasePromptsSection } from "./settings-base-prompts"
+import { PermissionsSection } from "./settings-permissions"
 import { Chevron } from "./controls"
 import { playAlertSound, soundOptions } from "./sounds"
 
@@ -160,7 +161,7 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Storage", "Remote Access", "About"] as const
+const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions", "Storage", "Remote Access", "About"] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
@@ -175,13 +176,14 @@ const sectionLabels: Record<Section, string> = {
   MCP: "dialog.mcp.title",
   Prompts: "drift.settings.prompts",
   Agents: "settings.agents.title",
+  Permissions: "drift.settings.permissions",
   Storage: "drift.storage",
   "Remote Access": "drift.remote.title",
   About: "drift.settings.about",
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
   { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts"] },
-  { label: "settings.section.server", items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents"] },
+  { label: "settings.section.server", items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions"] },
   { label: "drift.settings.section", items: ["Storage", "Remote Access", "About"] },
 ]
 
@@ -288,6 +290,10 @@ const settingsSearchDefinitions = {
     { title: "command.category.model" },
     { title: "drift.settings.prompts.agentPrompt", description: "drift.settings.prompts.inheritsFamily" },
     { title: "drift.settings.prompts.behavior" },
+  ],
+  Permissions: [
+    { title: "drift.permissions.rules", description: "drift.permissions.rulesDescription" },
+    { title: "drift.permissions.grants" },
   ],
   Storage: [
     { title: "drift.storage.sessions.total", description: "drift.storage.sessions.total.description" },
@@ -543,6 +549,9 @@ function SettingsModal(props: { onClose: () => void }) {
                   </Match>
                   <Match when={section() === "Agents"}>
                     <PromptEditorSection />
+                  </Match>
+                  <Match when={section() === "Permissions"}>
+                    <PermissionsSection />
                   </Match>
                   <Match when={section() === "Storage"}>
                     <StorageSection />
@@ -2152,6 +2161,7 @@ function SectionIcon(props: { section: Section }) {
     if (props.section === "MCP") return <IconShieldCheck />
     if (props.section === "Prompts") return <IconCode />
     if (props.section === "Agents") return <IconSliders />
+    if (props.section === "Permissions") return <IconShieldCheck />
     if (props.section === "Storage") return <IconArchive />
     if (props.section === "Remote Access") return <IconShieldCheck />
     return <IconInfo />

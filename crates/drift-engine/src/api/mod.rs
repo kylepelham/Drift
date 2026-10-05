@@ -63,6 +63,7 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(permissions::reply))
         .routes(routes!(permissions::grants, permissions::revoke_all))
         .routes(routes!(permissions::revoke))
+        .routes(routes!(permissions::rules, permissions::save_rules))
         .routes(routes!(questions::list))
         .routes(routes!(questions::reply))
         .routes(routes!(questions::reject))

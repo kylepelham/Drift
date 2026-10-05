@@ -108,6 +108,9 @@ fn grants_key(workspace_id: &str) -> String {
     format!("permissionGrants:{workspace_id}")
 }
 
+/// The rules the user keeps in Settings, for every workspace, checked after drift.json's.
+const PERMISSION_RULES_KEY: &str = "permissionRules";
+
 impl Engine {
     pub fn open(data_dir: &Path) -> Result<Arc<Self>, Error> {
         Self::open_with(data_dir, Options::default())
@@ -121,7 +124,7 @@ impl Engine {
         let _ = std::fs::create_dir_all(std::env::temp_dir().join("Drift"));
         let credentials = Arc::new(Credentials::open(data_dir, options.file_credentials));
         let catalog = with_user_providers(Catalog::load(data_dir), &credentials);
-        let permissions = Permissions::new(Policy::default());
+        let permissions = Permissions::new(Policy { rules: store.setting(PERMISSION_RULES_KEY)?.unwrap_or_default() });
         let saving = store.clone();
         permissions.save_grants_with(Box::new(move |workspace, grants| {
             let _ = saving.set_setting(&grants_key(workspace), &grants);
@@ -185,6 +188,18 @@ impl Engine {
         self.store.remove_setting(&grants_key(workspace_id))?;
         self.store.remove_setting(&session::trust::key(workspace_id))?;
         self.permissions.forget_workspace(workspace_id);
+        Ok(())
+    }
+
+    /// The rules kept in Settings, in the order they are checked.
+    pub fn permission_rules(&self) -> Vec<permission::Rule> {
+        self.permissions.policy().rules
+    }
+
+    /// Replaces the rules kept in Settings; calls checked from now on follow them.
+    pub fn set_permission_rules(&self, rules: Vec<permission::Rule>) -> rusqlite::Result<()> {
+        self.store.set_setting(PERMISSION_RULES_KEY, &rules)?;
+        self.permissions.set_policy(Policy { rules });
         Ok(())
     }
 
