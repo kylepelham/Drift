@@ -126,19 +126,9 @@ const REASONS = {
   hidden: "drift.permission.reason.hidden",
 } as const satisfies Record<AskReason, string>
 
-/** Auto-accept on for the session or any session above it, which its subagents run under. */
-type AutoAccepting = { autoAccept?: boolean; parentID?: string }
-
-function autoAcceptsUp(sessions: Record<string, AutoAccepting | undefined>, id: string) {
-  for (let session = sessions[id]; session; session = session.parentID ? sessions[session.parentID] : undefined) if (session.autoAccept) return true
-  return false
-}
-
 export function PermissionCard(props: { permission: Permission; thread?: ThreadLink }) {
   const engine = useEngine()
-  const [note, setNote] = createSignal("")
-  const reply = (response: PermissionResponse) =>
-    void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response, response === "reject" || response === "stop" ? note() : undefined)
+  const reply = (response: PermissionResponse) => void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response)
   const diff = () => (props.permission.metadata as { diff?: unknown } | undefined)?.diff
   const filename = () => [props.permission.pattern].flat()[0] ?? ""
   const alwaysCovers = () => {
@@ -146,28 +136,23 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
     return grants.length ? t("drift.permission.alwaysCovers", { what: grants.map(grantLabel).join("; ") }) : undefined
   }
   const reason = () => (props.permission.metadata as { reason?: AskReason } | undefined)?.reason
-  const autoAccepting = () => engine.state.autoAcceptAll || autoAcceptsUp(engine.state.sessions, props.permission.sessionID)
+  const target = () => [props.permission.pattern].flat().filter(Boolean).join(", ")
+  // A call with no description of its own is titled with its target; that is shown once, below.
+  const title = () => (props.permission.title === target() ? "" : props.permission.title)
   return (
     <div class="composer-layer-card fade-up rounded-lg border border-warn/40 bg-surface px-3 py-2.5">
       <div class="mb-2 flex items-start justify-between gap-3">
         <div class="min-w-0 text-sm">
           <span class="text-warn">{t("notification.permission.title")}</span>{" "}
-          <span class="text-ink">{props.permission.title}</span>
-          <Show when={props.permission.pattern}>
-            <code class="ml-2 rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-ink-muted">
-              {[props.permission.pattern].flat().join(", ")}
-            </code>
-          </Show>
+          <span class="text-ink">{title()}</span>
         </div>
         <ThreadAttribution thread={props.thread} />
       </div>
+      <Show when={target()}>
+        <pre class="mb-2 max-h-32 overflow-auto rounded bg-raised px-2 py-1 font-mono text-xs whitespace-pre-wrap break-all text-ink-muted">{target()}</pre>
+      </Show>
       <Show when={reason()}>
-        {(why) => (
-          <div class="mb-2 text-xs text-ink-faint">
-            {t(REASONS[why()])}
-            <Show when={autoAccepting()}> {t("drift.permission.reason.autoAccept")}</Show>
-          </div>
-        )}
+        {(why) => <div class="mb-2 text-xs text-ink-faint">{t(REASONS[why()])}</div>}
       </Show>
       <Show when={typeof diff() === "string" && (diff() as string)}>
         {(change) => (
@@ -186,17 +171,6 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
         <ActionButton label={t("drift.permission.always")} title={alwaysCovers()} onClick={() => reply("always")} />
         <ActionButton label={t("settings.permissions.action.deny")} danger onClick={() => reply("reject")} />
         <ActionButton label={t("drift.permission.stop")} title={t("drift.permission.stopHint")} danger onClick={() => reply("stop")} />
-        <input
-          class="min-w-40 flex-1 rounded-md border border-edge bg-surface px-2 py-1 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-accent/70"
-          placeholder={t("drift.permission.note")}
-          aria-label={t("drift.permission.note")}
-          value={note()}
-          onInput={(event) => setNote(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            event.stopPropagation()
-            if (event.key === "Enter" && note().trim()) reply("reject")
-          }}
-        />
       </div>
     </div>
   )

@@ -2705,7 +2705,7 @@ fn a_request_with_a_long_prompt_costs_its_tier_counting_cached_input() {
     assert!((small - 0.3).abs() < 1e-9, "{small}");
 }
 #[tokio::test]
-async fn auto_accept_answers_a_rules_asks_but_never_a_secret_or_a_path_outside() {
+async fn auto_accept_answers_every_ask_and_only_a_deny_rule_still_refuses() {
     let h = harness().await;
     asks_for(&h, "bash");
     let mut rx = h.engine.hub.attach(None).rx;
@@ -2723,9 +2723,13 @@ async fn auto_accept_answers_a_rules_asks_but_never_a_secret_or_a_path_outside()
     let bash = |line: &str| crate::tool::Ask::shell(crate::tool::command::Dialect::Bash, line, line);
     assert_eq!(ask(crate::tool::Ask { default_allow: true, ..bash("git push") }), Decision::Allow, "what only a rule asks about");
     assert_eq!(ask(crate::tool::Ask::path("edit", &ws.join("drift.json"), &ws, "Edit")), Decision::Allow, "a guarded workspace file");
-    assert_eq!(ask(crate::tool::Ask::path("read", &ws.join(".env"), &ws, "Read")), Decision::Ask, "a secret still asks");
-    assert_eq!(ask(crate::tool::Ask::path("edit", &h._dir.join("elsewhere.txt"), &ws, "Edit")), Decision::Ask, "outside the workspace still asks");
-    assert_eq!(ask(bash("cat ../notes")), Decision::Ask, "a line reaching outside still asks");
+    assert_eq!(ask(crate::tool::Ask::path("read", &ws.join(".env"), &ws, "Read")), Decision::Allow, "a secret");
+    assert_eq!(ask(crate::tool::Ask::path("edit", &h._dir.join("elsewhere.txt"), &ws, "Edit")), Decision::Allow, "outside the workspace");
+    assert_eq!(ask(bash("cat ../notes")), Decision::Allow, "a line reaching outside");
+    assert_eq!(ask(crate::tool::Ask::shell(crate::tool::command::Dialect::Bash, "powershell.exe -Command \"Get-Process\"", "run")), Decision::Allow, "a line that hides what it runs");
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "rm *".into(), decision: Decision::Deny }] });
+    assert_eq!(ask(bash("rm -rf dist")), Decision::Deny, "a deny rule never asks, so auto-accept never answers it");
+    asks_for(&h, "bash");
     h.engine.set_session_auto_accept(&h.session.id, false).unwrap();
     assert_eq!(ask(crate::tool::Ask { default_allow: true, ..bash("git push") }), Decision::Ask, "off again");
     h.engine.set_auto_accept_all(true).unwrap();

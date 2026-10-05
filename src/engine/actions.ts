@@ -350,11 +350,9 @@ export function createActions(
     set(produce((draft) => void (draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter((q) => q.id !== requestID))))
   }
 
-  /** `message`, on a refusal, is what the model is told about why. */
-  async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse, message?: string) {
-    const note = message?.trim()
+  async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
     try {
-      await requireClient().replyPermission(permissionID, { reply: response === "reject" ? "deny" : response, ...(note ? { message: note } : {}) })
+      await requireClient().replyPermission(permissionID, { reply: response === "reject" ? "deny" : response })
     } catch (cause) {
       if (cause instanceof EngineError && cause.status === 404) {
         set(produce((draft) => void (draft.permissions[sessionID] = (draft.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID))))

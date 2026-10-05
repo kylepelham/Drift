@@ -1933,15 +1933,13 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     opencode; the git commands above are the ones that ask for that reason alone. (Before, only
     lines that only read ran.)
   - Each such ask carries `reason` (`tool::Reason`: `outside`, `unresolved`, `secret`,
-    `searches`, `beyondUndo`, `moves`, `hidden`), and the card says it in a line under the title,
-    adding that auto-accept leaves it to the user when auto-accept is on, so `echo $PATH` asking
-    with auto-accept on is explained rather than looking broken.
+    `searches`, `beyondUndo`, `moves`, `hidden`), and the card says it in a line under the title.
+    The card shows the command once, in a box of limited height, and has no deny-with-reason field.
   - Auto-accept is the engine's (`Session::auto_accept`, set with `PATCH /sessions/{id}`, and
     `autoAcceptAll` in `/settings` for every session), so it works with no window open. It answers
-    what would only be asked: an ask the tool allows by itself that a rule turned into a question,
-    or a guarded workspace file such as `drift.json`. A deny still denies, and a secret file or
-    anything outside the workspace still asks (`within_auto_accept`). A subagent runs under its
-    parent's. Turning it on answers the asks already waiting that it covers. The webview's old
+    every ask, secrets, paths outside the workspace and lines that hide what they run included; only
+    a deny rule still refuses, since it never asks. A subagent runs under its parent's. Turning it on
+    answers every ask already waiting. The webview's old
     switches (`drift.autoAccept`, `drift.autoAccept.global` in localStorage) are handed to the
     engine on connect and removed only once the engine has taken them (a session the engine no
     longer has is let go; any other failure is offered again next connect); the webview no longer

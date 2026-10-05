@@ -343,8 +343,8 @@ impl Permissions {
     /// that may hold secrets is held to the same bar, so `read *` never quietly covers `.env`.
     fn decide(&self, session_id: &str, workspace: &Policy, ask: &Ask) -> Decision {
         let decision = self.decide_by_rules(session_id, workspace, ask);
-        // Auto-accept answers what the user would only be asked, never a deny, a secret or anything outside the workspace.
-        if decision == Decision::Ask && within_auto_accept(ask) && self.auto_accepts(session_id) {
+        // Auto-accept answers everything the user would be asked; only a deny rule still refuses.
+        if decision == Decision::Ask && self.auto_accepts(session_id) {
             return Decision::Allow;
         }
         decision
@@ -532,12 +532,6 @@ fn grants_for(request: &Request, reply: &ReplyBody) -> Vec<Grant> {
     }
 }
 
-/// What auto-accept may answer: an ask the tool would allow by itself (a rule made it ask), or a file
-/// inside the workspace that is not a secret (a guarded one such as `drift.json`). A shell line or
-/// path reaching outside, or a secret, the tool never allows by itself, so those still ask.
-fn within_auto_accept(ask: &Ask) -> bool {
-    ask.default_allow || (ask.relative.is_some() && !crate::tool::sensitive::is_sensitive(std::path::Path::new(&ask.pattern)))
-}
 
 fn fallback(allow: bool) -> Decision {
     if allow { Decision::Allow } else { Decision::Ask }
