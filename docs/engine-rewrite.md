@@ -845,6 +845,11 @@ running opencode does not tear a conversation. Before the conversations it adds 
 opencode projects that had sessions (`Store::import_opencode_workspaces`, moved here from the
 legacy sidecar's start) and tells the UI with `workspaces-changed`.
 
+- **Order.** The most recently used conversations come first, so the sidebar fills from the top
+  within seconds; subagents follow once every conversation that could have started them is in,
+  and one giant old conversation (47,269 messages here) no longer holds up everything newer.
+  A workspace row made from an opencode project without a name takes its folder's name, as adding
+  a folder does.
 - **Which conversations.** One lands in the workspace whose directory it ran in, else in the one
   holding its opencode project's repository root; directories compare without case, slash style or
   a trailing slash. A subagent goes with its parent and is listed `hidden`. A conversation with no

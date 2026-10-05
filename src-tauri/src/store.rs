@@ -390,10 +390,14 @@ impl Store {
             params![temp_prefix],
         )?;
         // Skip temp directories and any canonical path that already has a row, active or removed.
+        // Named as adding a folder in the UI names it: its last path segment, unless opencode named it.
         let result = conn.execute(
             "INSERT OR IGNORE INTO workspace(id, path, name, icon, last_used)
              SELECT project.id, project.worktree,
-                    COALESCE(NULLIF(project.name, ''), project.worktree), '',
+                    COALESCE(NULLIF(project.name, ''), (
+                        SELECT NULLIF(REPLACE(trimmed, RTRIM(trimmed, REPLACE(trimmed, '/', '')), ''), '')
+                        FROM (SELECT RTRIM(REPLACE(project.worktree, '\\', '/'), '/') AS trimmed)
+                    ), project.worktree), '',
                     MAX(COALESCE(session.time_updated, project.time_updated, 0))
               FROM opencode_import.project project
               JOIN opencode_import.session session ON session.project_id = project.id

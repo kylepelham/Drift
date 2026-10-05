@@ -153,7 +153,7 @@ fn subagents_follow_their_parent_and_a_rerun_brings_in_only_what_is_new() {
     session(&conn, "ses_old", None, "C:/repo", Some(500));
     session(&conn, "ses_hidden", None, "C:/repo", None);
     session(&conn, "ses_sub", None, "C:/repo/crates/core", None);
-    conn.execute_batch("INSERT INTO project VALUES('p_repo', 'C:/repo'); UPDATE session SET project_id = 'p_repo' WHERE id = 'ses_sub';").unwrap();
+    conn.execute_batch("INSERT INTO project VALUES('p_repo', 'C:/repo'); UPDATE session SET project_id = 'p_repo', time_updated = 9999 WHERE id = 'ses_sub';").unwrap();
     drop(conn);
     let store = store_with(&d.0, &["C:/repo"]);
 
@@ -162,6 +162,7 @@ fn subagents_follow_their_parent_and_a_rerun_brings_in_only_what_is_new() {
     let first = import_sessions(&store, &source, &HashSet::from(["ses_hidden".to_string()]), &mut Kept::default(), &mut |session| announced.push(session.id.clone())).unwrap();
     assert_eq!((first.imported, first.unmatched.get("E:/other")), (5, Some(&1)), "{first:?}");
     assert_eq!((announced.len(), announced.last().map(String::as_str)), (5, Some("ses_child")), "each announced as it lands, a subagent after its parent");
+    assert_eq!(announced[0], "ses_sub", "the most recently used first");
     assert_eq!(store.session("ses_sub").unwrap().unwrap().workspace_id, store.workspaces().unwrap()[0].id, "run inside the repository the workspace holds");
     let child = store.session("ses_child").unwrap().unwrap();
     assert_eq!((child.visibility, child.parent_id.as_deref()), (Visibility::Hidden, Some("ses_parent")));

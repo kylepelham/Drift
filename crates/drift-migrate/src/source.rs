@@ -99,11 +99,12 @@ impl Source {
         Ok(Self { conn })
     }
 
-    /// Every conversation, parents before the subagents they started.
+    /// Every conversation, the most recently used first so the sidebar fills from the top, and every
+    /// subagent after all the conversations that could have started it.
     pub fn sessions(&self) -> rusqlite::Result<Vec<OcSession>> {
         let mut statement = self.conn.prepare(
             "SELECT s.id, s.parent_id, s.directory, s.title, s.agent, s.model, s.time_created, s.time_updated, s.time_archived IS NOT NULL, p.worktree
-             FROM session s LEFT JOIN project p ON p.id = s.project_id ORDER BY s.parent_id IS NOT NULL, s.time_created, s.id",
+             FROM session s LEFT JOIN project p ON p.id = s.project_id ORDER BY s.parent_id IS NOT NULL, s.time_updated DESC, s.id",
         )?;
         let rows = statement.query_map([], |row| {
             Ok(OcSession {

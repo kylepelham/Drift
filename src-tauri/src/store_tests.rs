@@ -277,6 +277,30 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
 }
 
 #[test]
+fn an_imported_project_without_a_name_is_named_by_its_folder_as_adding_one_does() {
+    let dir = test_dir("import-names");
+    let source = dir.join("opencode.db");
+    let conn = Connection::open(&source).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
+         CREATE TABLE session(id TEXT PRIMARY KEY, project_id TEXT, time_updated INTEGER);
+         INSERT INTO project VALUES('a', 'C:/Users/Kyle/Desktop/C++/Drift', NULL, 1);
+         INSERT INTO project VALUES('b', 'D:\\Games\\AddOns\\', '', 1);
+         INSERT INTO project VALUES('c', 'E:', NULL, 1);
+         INSERT INTO project VALUES('d', 'S:/named', 'Given', 1);
+         INSERT INTO session VALUES('s1', 'a', 2), ('s2', 'b', 2), ('s3', 'c', 2), ('s4', 'd', 2);",
+    )
+    .unwrap();
+    drop(conn);
+    let store = open_at(&dir.join("drift.db")).unwrap();
+    assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 4);
+    let mut names: Vec<String> = store.workspaces().unwrap().into_iter().map(|workspace| workspace.name).collect();
+    names.sort();
+    assert_eq!(names, ["AddOns", "Drift", "E:", "Given"]);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn mcp_decisions_are_global_and_survive_definition_changes() {
     let dir = test_dir("mcp-store");
     let store = open_at(&dir.join("drift.db")).unwrap();
