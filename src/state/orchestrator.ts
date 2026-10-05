@@ -6,6 +6,22 @@
 
 export const ORCHESTRATOR_AGENT = "orchestrator"
 
+/** The engine's `drive::MAX_ROUNDS`: nudges it sends per prompt of the user's own. */
+export const ORCHESTRATOR_MAX_ROUNDS = 30
+
+type EntryPart = { type: string; synthetic?: boolean; metadata?: Record<string, unknown> }
+
+/** Nudges since the user's newest prompt of their own (text they typed, or a file), as the engine counts them. */
+export function nudgesSincePrompt(entries: Array<{ info: { role: string }; parts: EntryPart[] }>) {
+  let count = 0
+  for (const entry of [...entries].reverse()) {
+    if (entry.info.role !== "user") continue
+    if (entry.parts.some((part) => part.type === "file" || (part.type === "text" && !part.synthetic && !part.metadata))) return count
+    if (entry.parts.some((part) => part.metadata?.generated === true)) count++
+  }
+  return count
+}
+
 export type OrchestratorState = "working" | "done" | "blocked"
 export type OrchestratorStatus = { state: OrchestratorState; headline?: string }
 
@@ -42,13 +58,16 @@ export type OrchestratorEndInput = {
   /** Subagent sessions are the orchestrator's workers and never driven. */
   parentID?: string
   lastMessage?: { role: string; completed: boolean; errored: boolean; text: string }
+  /** Nudges the engine sent since the user's own prompt. */
+  rounds: number
 }
 
 export type OrchestratorNotice = { title: string; message: string; variant: "success" | "warning" }
 
 /**
- * How a driven turn ended, as a notice; null when there is nothing to say. The engine ends a
- * clean turn that still says `working` (or has no valid status) only at its round limit.
+ * How a driven turn ended, as a notice; null when there is nothing to say. A clean reply that
+ * still says `working` names the round limit only when the nudges reached it; otherwise a Stop
+ * or a refused nudge ended the turn, and the user already knows or sees why.
  */
 export function orchestratorNotice(input: OrchestratorEndInput): OrchestratorNotice | null {
   if (input.agent !== ORCHESTRATOR_AGENT || input.parentID || input.status !== "idle") return null
@@ -60,6 +79,7 @@ export function orchestratorNotice(input: OrchestratorEndInput): OrchestratorNot
     return { title: "Orchestrator finished", message: status.headline ?? "The goal was reported complete.", variant: "success" }
   if (status?.state === "blocked")
     return { title: "Orchestrator blocked", message: status.headline ?? "The orchestrator needs your input to continue.", variant: "warning" }
+  if (input.rounds < ORCHESTRATOR_MAX_ROUNDS) return null
   return {
     title: "Orchestrator paused",
     message: "The round limit was reached for this goal. Send a message to keep going.",

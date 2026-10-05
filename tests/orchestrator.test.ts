@@ -5,7 +5,8 @@ if (!("localStorage" in globalThis))
     value: { getItem: () => null, setItem: () => undefined },
   })
 
-const { ORCHESTRATOR_AGENT, orchestratorNotice, parseOrchestratorStatus } = await import("../src/state/orchestrator")
+const { nudgesSincePrompt, ORCHESTRATOR_AGENT, ORCHESTRATOR_MAX_ROUNDS, orchestratorNotice, parseOrchestratorStatus } =
+  await import("../src/state/orchestrator")
 
 const block = (body: string) => `<orchestrator_status>\n${body}\n</orchestrator_status>`
 
@@ -33,22 +34,23 @@ test("status parsing is strict, takes the last block, and fails closed on anythi
   expect(parseOrchestratorStatus(undefined)).toBeUndefined()
 })
 
-
 const clean = {
   previousStatus: "busy",
   status: "idle",
   agent: ORCHESTRATOR_AGENT,
   parentID: undefined,
   lastMessage: { role: "assistant", completed: true, errored: false, text: block('{"state":"done","headline":"all green"}') },
+  rounds: 3,
 }
 
 test("a driven turn's ending becomes one notice, and only for a clean orchestrator turn", () => {
   expect(orchestratorNotice(clean)).toEqual({ title: "Orchestrator finished", message: "all green", variant: "success" })
-  const said = (text: string) => orchestratorNotice({ ...clean, lastMessage: { ...clean.lastMessage, text } })
+  const said = (text: string, rounds = clean.rounds) => orchestratorNotice({ ...clean, rounds, lastMessage: { ...clean.lastMessage, text } })
   expect(said(block('{"state":"blocked"}'))?.title).toBe("Orchestrator blocked")
-  // The engine only ends a clean turn that still says working at its round limit.
-  expect(said(block('{"state":"working"}'))?.title).toBe("Orchestrator paused")
-  expect(said("no block")?.title).toBe("Orchestrator paused")
+  // Still working only means the round limit when the nudges reached it; a Stop or a refused nudge says nothing.
+  expect(said(block('{"state":"working"}'), ORCHESTRATOR_MAX_ROUNDS)?.title).toBe("Orchestrator paused")
+  expect(said("no block", ORCHESTRATOR_MAX_ROUNDS)?.title).toBe("Orchestrator paused")
+  expect(said(block('{"state":"working"}'))).toBeNull()
   expect(orchestratorNotice({ ...clean, previousStatus: "retry" })).not.toBeNull()
   expect(orchestratorNotice({ ...clean, agent: "build" })).toBeNull()
   expect(orchestratorNotice({ ...clean, parentID: "parent" })).toBeNull()
@@ -57,6 +59,18 @@ test("a driven turn's ending becomes one notice, and only for a clean orchestrat
   expect(orchestratorNotice({ ...clean, lastMessage: undefined })).toBeNull()
   expect(orchestratorNotice({ ...clean, lastMessage: { ...clean.lastMessage, errored: true } })).toBeNull()
   expect(orchestratorNotice({ ...clean, lastMessage: { ...clean.lastMessage, completed: false } })).toBeNull()
+})
+
+test("rounds are counted as the engine counts them, against the engine's limit", async () => {
+  const user = (...parts: Array<{ type: string; synthetic?: boolean; metadata?: Record<string, unknown> }>) => ({ info: { role: "user" }, parts })
+  const reply = { info: { role: "assistant" }, parts: [{ type: "text" }] }
+  const nudge = user({ type: "text", metadata: { generated: true } })
+  const entries = [user({ type: "text" }), reply, nudge, reply, user({ type: "text", synthetic: true }), reply, nudge, reply]
+  expect(nudgesSincePrompt(entries)).toBe(2)
+  expect(nudgesSincePrompt([...entries, user({ type: "file" }), reply, nudge, reply])).toBe(1)
+  expect(nudgesSincePrompt([...entries, user({ type: "text", metadata: { driftClarification: {} } }), reply, nudge])).toBe(3)
+  const drive = await Bun.file("crates/drift-engine/src/session/drive.rs").text()
+  expect(drive).toContain(`pub const MAX_ROUNDS: usize = ${ORCHESTRATOR_MAX_ROUNDS};`)
 })
 
 test("the engine drives the orchestrator; the app only reports how a turn ended", async () => {

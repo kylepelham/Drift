@@ -10,7 +10,7 @@ import { bindTheme } from "./state/theme"
 import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation"
 import { initZoom } from "./state/zoom"
 import { bindShellTimeoutPolicy } from "./state/prefs"
-import { orchestratorNotice } from "./state/orchestrator"
+import { nudgesSincePrompt, orchestratorNotice } from "./state/orchestrator"
 import { initDevtoolsShortcut } from "./state/devtools"
 import { listenMirrorLiveError } from "./state/mirror"
 import { activeWorkspace, initWorkspaces, purgeAll, workspaces } from "./state/workspaces"
@@ -151,6 +151,7 @@ function OrchestratorBinding() {
         errored: !!(last.info as { error?: unknown }).error,
         text: messageText(last),
       },
+      rounds: nudgesSincePrompt(entries as never),
     })
     if (notice) engine.actions.notice(notice)
   }
