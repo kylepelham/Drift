@@ -423,8 +423,8 @@ fn router(app: tauri::AppHandle) -> Router {
         .route("/auth/login", post(remote_auth::login))
         .route("/auth/logout", post(remote_auth::logout))
         .route("/auth/me", get(remote_auth::me))
-        .route("/engine", any(native_engine).layer(DefaultBodyLimit::max(MAX_ENGINE_BODY)))
-        .route("/engine/{*path}", any(native_engine).layer(DefaultBodyLimit::max(MAX_ENGINE_BODY)))
+        // Nested rather than routed by a `{*path}` capture, which the engine's own `Path` extractors would also see.
+        .nest_service("/engine", any(native_engine).layer(DefaultBodyLimit::max(MAX_ENGINE_BODY)).with_state(app.clone()))
         .route("/api/invoke", post(invoke_rpc))
         .route("/api/ui-state/events", get(ui_state_events))
         .fallback(static_asset)
@@ -616,9 +616,10 @@ fn static_path(path: &str) -> Option<&str> {
     Some(raw)
 }
 
-/// The native engine, served in this process. The gateway has already signed the device in, so the
-/// engine's own token goes in here and never reaches a device; a socket is leased to the device's
-/// credentials, so signing the device out closes what it holds open.
+/// The native engine, served in this process under `/engine` (stripped before it gets here). The
+/// gateway has already signed the device in, so the engine's own token goes in here and never
+/// reaches a device; a socket is leased to the device's credentials, so signing the device out
+/// closes what it holds open.
 async fn native_engine(
     State(app): State<tauri::AppHandle>,
     Extension(mut auth): Extension<watch::Receiver<u64>>,
@@ -630,15 +631,6 @@ async fn native_engine(
     };
     request.headers_mut().insert(header::AUTHORIZATION, bearer);
     request.headers_mut().remove(header::COOKIE);
-    let path = request.uri().path().strip_prefix("/engine").filter(|rest| !rest.is_empty()).unwrap_or("/");
-    let target = match request.uri().query() {
-        Some(query) => format!("{path}?{query}"),
-        None => path.to_string(),
-    };
-    let Ok(uri) = target.parse::<Uri>() else {
-        return StatusCode::BAD_REQUEST.into_response();
-    };
-    *request.uri_mut() = uri;
     let router = ENGINE_ROUTER.get_or_init(|| drift_engine::api::router(engine)).clone();
     if request.headers().contains_key(header::UPGRADE) {
         let lease = drift_engine::api::Lease::default();
@@ -927,6 +919,26 @@ pub(crate) fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 mod tests {
     use super::*;
     use reqwest::redirect::Policy;
+
+    /// The engine's routes read their own path parameters; the gateway's mount must add none of its own.
+    #[tokio::test]
+    async fn the_engine_mounted_under_the_gateway_sees_only_its_own_path_parameters() {
+        use axum::extract::Path;
+        let engine = || Router::new().route("/sessions/{id}/messages", get(|Path(id): Path<String>| async move { id }));
+        let ask = |router: Router| async move {
+            let request = Request::builder().uri("/engine/sessions/ses_1/messages?limit=5").body(Body::empty()).unwrap();
+            let response = router.oneshot(request).await.unwrap();
+            (response.status(), String::from_utf8(axum::body::to_bytes(response.into_body(), 1024).await.unwrap().to_vec()).unwrap())
+        };
+        let nested = Router::new().nest_service("/engine", any(move |request: Request| async move { engine().oneshot(request).await.unwrap() }));
+        assert_eq!(ask(nested).await, (StatusCode::OK, "ses_1".to_string()));
+        let captured = Router::new().route("/engine/{*path}", any(move |request: Request| async move {
+            let (mut parts, body) = request.into_parts();
+            parts.uri = parts.uri.path().trim_start_matches("/engine").parse().unwrap();
+            engine().oneshot(Request::from_parts(parts, body)).await.unwrap()
+        }));
+        assert_eq!(ask(captured).await.0, StatusCode::INTERNAL_SERVER_ERROR, "a capture route leaks its parameter, which is what broke history on the phone");
+    }
 
     #[test]
     fn disabled_status_has_no_listening_urls_or_code() {
