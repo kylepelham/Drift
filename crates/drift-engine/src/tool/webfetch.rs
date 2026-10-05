@@ -6,8 +6,7 @@ use super::{image, required_str, Ask, Context, Output, RunFuture, Tool, ToolErro
 use crate::llm::ToolSpec;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
-const MAX_BYTES: usize = 5 * 1024 * 1024;
-const MAX_CHARS: usize = 100_000;
+pub(super) const MAX_BYTES: usize = 5 * 1024 * 1024;
 
 pub struct WebFetch;
 
@@ -70,7 +69,7 @@ impl Tool for WebFetch {
             } else {
                 body.into_owned()
             };
-            Ok(Output { title: url.into(), output: clip(text.trim()), metadata: json!({ "contentType": content_type, "bytes": bytes.len() }) })
+            Ok(Output { title: url.into(), output: text.trim().into(), metadata: json!({ "contentType": content_type, "bytes": bytes.len() }) })
         })
     }
 }
@@ -187,12 +186,6 @@ fn strip_tags(html: &str) -> String {
     out.split('\n').map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n")
 }
 
-fn clip(text: &str) -> String {
-    if text.chars().count() <= MAX_CHARS {
-        return text.into();
-    }
-    format!("{}\n\n(truncated at {MAX_CHARS} characters)", text.chars().take(MAX_CHARS).collect::<String>())
-}
 
 #[cfg(test)]
 mod tests {

@@ -598,4 +598,22 @@ pub(crate) mod tests {
         let outside = canonical(&ws.parent().unwrap().join("elsewhere.txt"));
         assert!(!sandbox.ctx.ask_to_write(&outside, "Edit").unwrap().default_allow);
     }
+
+    #[test]
+    fn descriptions_promise_only_what_the_tools_do() {
+        let mb = |bytes: usize| format!("{} MB", bytes / 1024 / 1024);
+        let kb = |bytes: usize| format!("{} KB", bytes / 1024);
+        for text in [include_str!("prompts/edit.txt"), include_str!("prompts/write.txt")] {
+            assert!(!text.contains("unified diff") && text.contains("not the diff"), "{text}");
+        }
+        let fetch = include_str!("prompts/webfetch.txt");
+        assert!(fetch.contains(&kb(spool::MAX_RESULT_BYTES)) && fetch.contains(&kb(spool::HEAD_BYTES)) && fetch.contains(&mb(webfetch::MAX_BYTES)), "{fetch}");
+        assert_eq!(spool::HEAD_BYTES, spool::TAIL_BYTES, "the text says first and last of one size");
+        let read = include_str!("prompts/read.txt");
+        for promise in [mb(image::MAX_SOURCE_BYTES), format!("{} pixels", image::MAX_SIDE), mb(image::MAX_IMAGE_BYTES), mb(image::MAX_PDF_BYTES)] {
+            assert!(read.contains(&promise), "read.txt should say {promise}");
+        }
+        let task = include_str!("prompts/task.txt");
+        assert!(task::DELEGATION.iter().all(|tool| task.contains(&format!("`{tool}`"))) && !task.contains("the same tools"), "{task}");
+    }
 }

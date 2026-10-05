@@ -1,4 +1,4 @@
-Hands a self-contained job to a subagent and returns its final reply. The subagent works in the same workspace with its own fresh conversation and the same tools; it does not see this chat.
+Hands a self-contained job to a subagent and returns its final reply. The subagent works in the same workspace with its own fresh conversation and its agent's tools minus `task`, `task_output`, `task_stop` and `read_thread`; it does not see this chat.
 
 - Use it for work you can describe completely up front and whose result you can use without watching it happen: a broad search, a review of a diff, a change in a part of the codebase you do not need to keep in your own context.
 - Put everything it needs in `prompt`: the goal, constraints, and exactly what to return. Ask for a compact result; you only get its last message back.
