@@ -63,7 +63,7 @@ pub fn system(setting: &Setting) -> String {
     prompt.push_str(&format!("Working directory: {}\n", workspace.display()));
     prompt.push_str(&format!("Git repository: {}\n", if crate::config::in_repository(workspace) { "yes" } else { "no" }));
     prompt.push_str(&format!("Platform: {}\n", std::env::consts::OS));
-    prompt.push_str(&format!("Date: {}\n", today()));
+    prompt.push_str(&format!("Date: {}\n", crate::platform::clock::local_date()));
     prompt.push_str(&format!("Model: {model}\n"));
     prompt.push_str(&format!("Scratch directory: {} (read and write there without asking; put temporary files there, not in the workspace)\n", crate::tool::scratch_dir().display()));
     for (server, text) in servers {
@@ -144,29 +144,6 @@ fn agent_prompt(config: &Config, agent: &str) -> Option<String> {
     Some(format!("<system-reminder>\n{}\n</system-reminder>", found.prompt))
 }
 
-fn today() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let days = secs / 86_400;
-    let (year, month, day) = civil_from_days(days as i64);
-    format!("{year:04}-{month:02}-{day:02}")
-}
-
-/// Howard Hinnant's algorithm; avoids pulling a date crate in for one line.
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    (year, month, day)
-}
 
 #[cfg(test)]
 mod tests {
@@ -273,11 +250,5 @@ mod tests {
         let target = super::super::types::ModelRef { provider: "anthropic".into(), model: "claude".into() };
         let sent = format!("{:?}", super::super::compaction::request_messages(&compacted, &target, &lead)[0]);
         assert!(sent.contains("what happened") && sent.contains("# Plan mode"), "{sent}");
-    }
-
-    #[test]
-    fn dates_are_civil() {
-        assert_eq!(civil_from_days(0), (1970, 1, 1));
-        assert_eq!(civil_from_days(20_000), (2024, 10, 4));
     }
 }

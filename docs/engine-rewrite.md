@@ -2036,7 +2036,8 @@ native engine at cutover, with a user provider and the default family's base pro
   replaces the family's part: it tells the model not to revert changes it did not make in a dirty
   worktree, what `<system-reminder>` blocks are, and how to shape a final answer. The agent's
   prompt follows as before. The environment section
-  gives the working directory, whether it is a git repository, platform, date and the model's
+  gives the working directory, whether it is a git repository, platform, the date (local, as
+  opencode gives it: `platform::clock`, so a US evening is not already tomorrow) and the model's
   catalog name, and the scratch directory (`tool::scratch_dir`: `Drift` in the system temp
   directory, made when the engine opens), where reading, writing, editing and patching ask
   nothing (secret files still do), so temporary files stay out of the workspace. `task`'s text
