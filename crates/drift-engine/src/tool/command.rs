@@ -50,6 +50,24 @@ const LAUNCHERS: [&str; 22] = [
 const BASH_SINKS: [&str; 5] = ["/dev/null", "/dev/stdout", "/dev/stderr", "/dev/fd/1", "/dev/fd/2"];
 const POWERSHELL_SINKS: [&str; 1] = ["$null"];
 
+/// Whether a redirection target discards or passes on output rather than writing a file, in either shell.
+pub fn is_sink(target: &str) -> bool {
+    BASH_SINKS.iter().chain(&POWERSHELL_SINKS).any(|sink| sink.eq_ignore_ascii_case(target))
+}
+
+/// The file a redirection word of a split command names (`>~/.bashrc`, `2>>log`, `<>rw`, `<in`), or
+/// `None` for an ordinary word; a stream duplication (`2>&1`) names an empty one.
+pub fn redirect_target(word: &str) -> Option<&str> {
+    let rest = word.trim_start_matches(|c: char| c.is_ascii_digit() || c == '*' || c == '&');
+    let rest = rest.strip_prefix('<').or_else(|| rest.strip_prefix('>'))?;
+    let target = rest.trim_start_matches(['>', '|']);
+    Some(match target.strip_prefix('&') {
+        Some(stream) if stream.chars().all(|c| c.is_ascii_digit() || c == '-') => "",
+        Some(file) => file,
+        None => target,
+    })
+}
+
 /// A shell line read for permission: the simple commands it runs, each normalised to its words
 /// joined by single spaces with its redirections last, and the files its redirections write.
 /// `canonical` holds each command as deny rules see it: leading `NAME=value` assignments dropped and

