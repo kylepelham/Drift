@@ -243,6 +243,8 @@ async fn collect(child: &mut tokio::process::Child, spool: &mut Spool, progress:
     let drain = tokio::time::sleep(Duration::MAX);
     tokio::pin!(drain);
     let mut tick = tokio::time::interval(SHOW_EVERY);
+    // A busy loop must not catch up on missed ticks in a burst, or output would show more often than SHOW_EVERY.
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut shown = 0;
     loop {
         if let (Some(code), false, false) = (exited, out_open, err_open) {
@@ -501,6 +503,29 @@ mod tests {
         bash.run(&sandbox.ctx, json!({ "command": fail })).await.unwrap();
         assert!(sandbox.ctx.files.was_read(&shown), "edit may follow a shell read");
         assert!(!sandbox.ctx.files.was_read(&missed), "a line that failed is not trusted to have shown it");
+    }
+
+    /// When each output update was shown, for a command run as `node -e <script>`.
+    async fn shows_for(script: &str) -> Vec<std::time::Instant> {
+        let mut child = tokio::process::Command::new("node").args(["-e", script]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true).spawn().unwrap();
+        let shown = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let record = shown.clone();
+        let progress = Progress::new(move |_| record.lock().unwrap().push(std::time::Instant::now()));
+        let mut spool = Spool::new(None);
+        collect(&mut child, &mut spool, &progress).await;
+        let times = shown.lock().unwrap().clone();
+        times
+    }
+
+    #[tokio::test]
+    async fn a_noisy_command_shows_its_output_at_most_every_show_every_and_a_quiet_one_once() {
+        let noisy = shows_for("let i = 0; const t = setInterval(() => { console.log('line ' + i++); if (i >= 60) clearInterval(t) }, 25)").await;
+        assert!((2..=5).contains(&noisy.len()), "about 1.5 s of output, shown every 500 ms: {} times", noisy.len());
+        for pair in noisy.windows(2) {
+            assert!(pair[1] - pair[0] >= SHOW_EVERY - Duration::from_millis(50), "two updates {:?} apart", pair[1] - pair[0]);
+        }
+        let quiet = shows_for("console.log('once'); setTimeout(() => {}, 1600)").await;
+        assert_eq!(quiet.len(), 1, "output that stopped growing is not shown again on every tick");
     }
 
     #[tokio::test]

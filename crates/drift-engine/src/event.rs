@@ -244,6 +244,28 @@ mod tests {
         assert_eq!(hub.attach(Some(9)).replay, Replay::Stale);
     }
 
+    /// What a socket does when its receiver lags (`api::events`): attach again at the last `seq` it sent.
+    #[tokio::test]
+    async fn a_socket_that_lags_catches_up_from_the_window_or_resyncs() {
+        let hub = Hub::new(4);
+        let mut slow = hub.attach(None).rx;
+        hub.publish(workspace("kept"));
+        for _ in 0..6 {
+            hub.publish_transient(workspace("live output"));
+        }
+        assert!(matches!(slow.recv().await, Err(broadcast::error::RecvError::Lagged(_))), "more than the receiver holds went unread");
+        let Replay::Events(missed) = hub.attach(Some(0)).replay else { panic!("live output crowded the receiver, not the window") };
+        assert_eq!(missed.iter().map(|e| e.seq).collect::<Vec<_>>(), [1], "the durable event is replayed; live output is not, by design");
+
+        let mut stalled = hub.attach(None).rx;
+        let last = hub.seq();
+        for name in ["a", "b", "c", "d", "e", "f"] {
+            hub.publish(workspace(name));
+        }
+        assert!(matches!(stalled.recv().await, Err(broadcast::error::RecvError::Lagged(_))));
+        assert_eq!(hub.attach(Some(last)).replay, Replay::Stale, "the window moved past it: the client resyncs and hydrates");
+    }
+
     #[test]
     fn cursor_older_than_ring_is_stale() {
         let hub = Hub::new(2);
