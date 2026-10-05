@@ -793,16 +793,12 @@ impl Servers {
     pub fn prompt_commands(&self) -> Vec<crate::config::Command> {
         self.prompts()
             .into_iter()
-            .map(|(server, prompt)| crate::config::Command {
-                name: format!("{server}:{}", prompt.name),
-                description: prompt.description.clone().unwrap_or_else(|| format!("A prompt from the {server} MCP server")),
-                template: String::new(),
-                arguments: prompt.arguments.iter().flatten().map(|argument| argument.name.clone()).collect(),
-                server: Some(server),
-                agent: None,
-                model: None,
-                subtask: None,
-                skill: None,
+            .map(|(server, prompt)| {
+                let description = prompt.description.clone().unwrap_or_else(|| format!("A prompt from the {server} MCP server"));
+                let mut command = crate::config::Command::new(format!("{server}:{}", prompt.name), description, String::new());
+                command.arguments = prompt.arguments.iter().flatten().map(|argument| argument.name.clone()).collect();
+                command.server = Some(server);
+                command
             })
             .collect()
     }

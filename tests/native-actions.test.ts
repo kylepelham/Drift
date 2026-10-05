@@ -338,6 +338,24 @@ test("action agents are listed for Settings but hidden from the composer, with t
   expect(title!.model).toEqual({ providerID: "openai", modelID: "gpt-5-nano" })
 })
 
+test("a skill's documented choices reach the slash menu, and an MCP prompt's arguments are its usage", async () => {
+  const config = {
+    agents: [],
+    commands: [
+      { name: "design", description: "Design", template: "t", usage: "[audit|polish] [target]", subcommands: [{ name: "audit", description: "Check it", usage: "[target]" }, { name: "polish", description: "Finish it" }] },
+      { name: "docs:search", description: "Search docs", template: "", server: "docs", arguments: ["query", "limit"] },
+      { name: "plain", description: "Plain", template: "Do it." },
+    ],
+    skills: [],
+  }
+  const h = harness({ workspaceConfig: () => Promise.resolve(config) } as Partial<Client>)
+  await h.actions.refreshAgents()
+  const [design, search, plain] = h.state.commands
+  expect(design).toEqual({ name: "design", description: "Design", template: "t", usage: "[audit|polish] [target]", subcommands: [{ name: "audit", description: "Check it", usage: "[target]" }, { name: "polish", description: "Finish it" }] })
+  expect(search!.usage).toBe("<query> <limit>")
+  expect(plain).toEqual({ name: "plain", description: "Plain", template: "Do it." })
+})
+
 test("/compact asks the engine to compact and reports a refusal; the auto setting round-trips", async () => {
   const h = harness({
     compactSession: (id: string) => (id === "ses_busy" ? Promise.reject(new EngineError(409, "/sessions/ses_busy/compact", "busy", "a turn is running")) : Promise.resolve(undefined)),

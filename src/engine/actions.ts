@@ -1,5 +1,5 @@
 // Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
-import type { Command, Permission, Session } from "@opencode-ai/sdk/client"
+import type { Permission, Session } from "@opencode-ai/sdk/client"
 import { untrack } from "solid-js"
 import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
@@ -17,6 +17,7 @@ import {
   putTasks,
   savedChoice,
   type AgentInfo,
+  type CommandInfo,
   type EngineState,
   type McpServerConfig,
   type McpServerStatus,
@@ -534,13 +535,17 @@ export function createActions(
       ...(agent.steps ? { steps: agent.steps } : {}),
       ...(agent.model ? { model: { providerID: agent.model.provider, modelID: agent.model.model } } : {}),
     }))
-    // An MCP prompt's arguments become its usage hint, filled word by word.
-    const commands: Command[] = config.commands.map((command) => ({
-      name: command.name,
-      description: command.description,
-      template: command.template,
-      ...(command.arguments?.length ? { usage: command.arguments.map((argument) => `<${argument}>`).join(" ") } : {}),
-    }))
+    // A skill's documented usage and choices fill the slash menu; an MCP prompt's arguments become its usage, filled word by word.
+    const commands: CommandInfo[] = config.commands.map((command) => {
+      const usage = command.usage ?? (command.arguments?.length ? command.arguments.map((argument) => `<${argument}>`).join(" ") : undefined)
+      return {
+        name: command.name,
+        description: command.description,
+        template: command.template,
+        ...(usage ? { usage } : {}),
+        ...(command.subcommands?.length ? { subcommands: command.subcommands.map((choice) => ({ name: choice.name, description: choice.description, ...(choice.usage ? { usage: choice.usage } : {}) })) } : {}),
+      }
+    })
     // A config file that cannot be read stops every turn here until it is fixed; say so before the first send.
     for (const problem of config.problems ?? []) notice({ id: `config-${workspace}`, title: "Couldn't read the workspace config", message: problem, variant: "error", duration: 15_000 })
     for (const warning of config.warnings ?? []) notice({ id: `config-warning-${workspace}-${warning}`, title: "Part of the workspace config is ignored", message: warning, variant: "warning", duration: 10_000 })

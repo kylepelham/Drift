@@ -103,16 +103,15 @@ Tab completes a command or subcommand in the composer without executing it. Ente
 highlighted choice or runs the completed command. Skill subcommand selections fill the draft first,
 leaving room to add a target. Arrow keys navigate the scrollable list; Escape dismisses it.
 
-The engine preserves a skill's `argument-hint` frontmatter as command usage. It discovers subcommands
-from explicit alternatives such as `[audit|polish]`, Markdown tables with `Command` and `Description`
-columns, and inline invocations such as `/my-skill audit [target]`. Fenced examples and unrelated
-commands are excluded. This metadata is exposed as optional `usage` and `subcommands` fields on the
-legacy command endpoint by `zz-skill-command-arguments.patch`; no skill needs to execute for its
-argument list to appear. Free-form hints such as `[target]` remain usage help, not invented choices.
-Command wrappers that explicitly call `skill({ name: "..." })` inherit that skill's completion
-metadata, even when the wrapper shadows the skill name or uses an alias. The wrapper's template,
-agent, model, and subtask settings remain authoritative. Ordinary same-name commands do not inherit
-unrelated skill choices. Argument choices use the same compact rows as `/fork`.
+The engine keeps a skill's `argument-hint` front matter as command usage. It finds subcommands in
+explicit alternatives such as `[audit|polish]`, Markdown tables with `Command` and `Description`
+columns, and inline invocations such as `/my-skill audit [target]` (`config::arguments`). Fenced
+examples and other skills' commands are skipped. The workspace config (`GET /workspaces/{id}/config`)
+returns them as each command's `usage` and `subcommands`, so no skill has to run for its argument
+list to appear. Free-form hints such as `[target]` stay usage help, not invented choices. A command
+whose template calls exactly one skill (`skill({ name: "..." })`) offers that skill's choices, even
+under another name; its own template, agent, model and subtask settings still apply. A same-name
+command that calls no skill inherits nothing. Argument choices use the same compact rows as `/fork`.
 Argument names and descriptions stay on one line with ellipses. The disclosure arrow expands
 the full details without selecting or running the command. At the end of the input, Right Arrow
 expands the highlighted argument and Left Arrow collapses it. Editing the draft resets expansion.

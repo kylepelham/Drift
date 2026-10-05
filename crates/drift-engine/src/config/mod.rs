@@ -1,5 +1,6 @@
 //! What a workspace tells the engine: drift.json, agents, commands, skills and instruction files.
 
+mod arguments;
 mod frontmatter;
 pub mod jsonc;
 mod overrides;
@@ -231,11 +232,22 @@ pub struct Command {
     pub subtask: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill: Option<String>,
+    /// How to call it, from its skill's `argument-hint` (`[audit|polish] [target]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<String>,
+    /// The choices its skill documents, which the slash menu offers (`config::arguments`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subcommands: Vec<arguments::Subcommand>,
 }
 
 impl Command {
     pub fn new(name: String, description: String, template: String) -> Self {
-        Self { name, description, template, server: None, arguments: Vec::new(), agent: None, model: None, subtask: None, skill: None }
+        Self { name, description, template, server: None, arguments: Vec::new(), agent: None, model: None, subtask: None, skill: None, usage: None, subcommands: Vec::new() }
+    }
+
+    /// Takes the usage and choices `skill` documents, keeping its own template and settings.
+    fn document(&mut self, skill: &Skill) {
+        (self.usage, self.subcommands) = arguments::skill_arguments(&skill.name, &skill.instructions, skill.argument_hint.as_deref());
     }
     /// `arguments` split for this command's named arguments: one word each, the last taking the rest.
     pub fn named_arguments(&self, arguments: &str) -> serde_json::Map<String, serde_json::Value> {
@@ -336,6 +348,9 @@ pub struct Skill {
     /// SKILL.md's body as it was when the config was read, so a turn loads the skill it was offered.
     #[serde(skip)]
     pub instructions: String,
+    /// Front matter `argument-hint`.
+    #[serde(skip)]
+    pub argument_hint: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -413,14 +428,28 @@ impl Config {
         for dir in skill_folders(workspace, home, std::mem::take(&mut config.skill_paths)) {
             config.add_skills(&dir);
         }
-        for skill in &config.skills {
-            if config.commands.iter().any(|command| command.name == skill.name) { continue; }
-            let mut command = Command::new(skill.name.clone(), skill.description.clone(), skill.instructions.clone());
-            command.skill = Some(skill.name.clone());
-            config.commands.push(command);
-        }
+        config.add_skill_commands();
         config.add_instructions(workspace, home);
         config
+    }
+
+    /// Each skill is a command unless one already has its name. A command that calls exactly one skill
+    /// (`skill({ name: "design" })`, under any name) offers that skill's choices with its own template.
+    fn add_skill_commands(&mut self) {
+        for command in self.commands.iter_mut().filter(|command| command.server.is_none()) {
+            if let Some(skill) = arguments::referenced_skill(&command.template).and_then(|name| self.skills.iter().find(|skill| skill.name == name)) {
+                command.document(skill);
+            }
+        }
+        for skill in &self.skills {
+            if self.commands.iter().any(|command| command.name == skill.name) {
+                continue;
+            }
+            let mut command = Command::new(skill.name.clone(), skill.description.clone(), skill.instructions.clone());
+            command.skill = Some(skill.name.clone());
+            command.document(skill);
+            self.commands.push(command);
+        }
     }
 
     pub fn policy(&self) -> Policy {
@@ -608,7 +637,8 @@ impl Config {
                 continue;
             }
             let instructions = body(&text);
-            self.skills.push(Skill { name, description: doc.field("description").unwrap_or_default(), path: folder.to_string_lossy().into_owned(), instructions });
+            let argument_hint = doc.field("argument-hint").filter(|hint| !hint.trim().is_empty());
+            self.skills.push(Skill { name, description: doc.field("description").unwrap_or_default(), path: folder.to_string_lossy().into_owned(), instructions, argument_hint });
         }
     }
 
@@ -802,6 +832,27 @@ mod tests {
         let (formatters, checks) = config.only_allowed(|line| line.starts_with("check "));
         assert!(checks.contains_key("theirs") && !formatters.contains_key("prettier"), "each command is judged on its own");
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn skill_commands_and_the_wrappers_that_call_them_offer_the_skills_choices() {
+        let ws = std::env::temp_dir().join(format!("drift-config-arguments-{}", crate::random_hex(4)));
+        let skill = "---\nname: test-skill\ndescription: Skill description\nargument-hint: \"[audit|polish] [target]\"\n---\n| Command | Description |\n|---|---|\n| audit [target] | Check accessibility |\n| polish [target] | Final quality pass |";
+        write(&ws, ".drift/skills/test-skill/SKILL.md", skill);
+        write(&ws, ".drift/skills/ordinary/SKILL.md", &skill.replace("name: test-skill", "name: ordinary"));
+        let template = r#"Call skill({ name: "test-skill" }) and follow its Commands section to handle $ARGUMENTS."#;
+        write(&ws, ".drift/commands/design.md", &format!("---\ndescription: Wrapper\nagent: build\nsubtask: true\n---\n{template}"));
+        write(&ws, ".drift/commands/ordinary.md", "---\ndescription: Ordinary command\n---\nDo ordinary work.");
+        let config = Config::load_with_home(&ws, None);
+        let command = |name: &str| config.commands.iter().find(|command| command.name == name).unwrap();
+        let choices = |name: &str| command(name).subcommands.iter().map(|s| (s.name.clone(), s.description.clone(), s.usage.clone())).collect::<Vec<_>>();
+        let expected = vec![("audit".to_string(), "Check accessibility".to_string(), Some("[target]".to_string())), ("polish".into(), "Final quality pass".into(), Some("[target]".into()))];
+        assert_eq!((command("test-skill").usage.as_deref(), choices("test-skill")), (Some("[audit|polish] [target]"), expected.clone()));
+        let design = command("design");
+        assert_eq!((design.template.as_str(), design.agent.as_deref(), design.subtask), (template, Some("build"), Some(true)), "the wrapper keeps its own settings");
+        assert_eq!(choices("design"), expected, "and offers the skill's choices");
+        assert!(command("ordinary").subcommands.is_empty() && command("ordinary").usage.is_none(), "a same-name command that calls no skill inherits nothing");
+        std::fs::remove_dir_all(ws).ok();
     }
 
     #[test]

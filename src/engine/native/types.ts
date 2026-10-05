@@ -813,9 +813,13 @@ export interface components {
             /** @description For an MCP server's prompt (`server:prompt`): the server that fills it; the template is unused. */
             server?: string | null;
             skill?: string | null;
+            /** @description The choices its skill documents, which the slash menu offers (`config::arguments`). */
+            subcommands?: components["schemas"]["Subcommand"][];
             subtask?: boolean | null;
             /** @description The prompt; see [`Command::expand`] for how what follows the command fills it. */
             template: string;
+            /** @description How to call it, from its skill's `argument-hint` (`[audit|polish] [target]`). */
+            usage?: string | null;
         };
         CommandBody: {
             arguments?: string;
@@ -1510,6 +1514,11 @@ export interface components {
         };
         /** @enum {string} */
         State: "disabled" | "disconnected" | "connecting" | "connected" | "failed";
+        Subcommand: {
+            description: string;
+            name: string;
+            usage?: string | null;
+        };
         /** @description One worker: who launched it, how it runs and why, how it ended, and whether its parent has it. */
         TaskRecord: {
             agent: string;
