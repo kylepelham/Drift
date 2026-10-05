@@ -572,7 +572,8 @@ fn site(url: &str) -> Option<Grant> {
 
 /// The folder of a path outside the workspace (`relative` is set only inside it), unless the path may
 /// hold secrets or the folder would grant far too much: a drive root, the home folder or any folder
-/// holding it (`/home` holds every user's), or a hidden folder in home (`~/.ssh`, `~/.aws`) and below.
+/// holding it (`/home` holds every user's), or where tools keep their sign-ins in home and below:
+/// its hidden folders (`~/.ssh`, `~/.aws`), Windows' `AppData` and macOS's `Library`.
 fn outside_folder(ask: &Ask, home: Option<&std::path::Path>) -> Option<Grant> {
     let path = std::path::Path::new(&ask.pattern);
     if ask.relative.is_some() || !path.is_absolute() || crate::tool::sensitive::is_sensitive(path) {
@@ -580,14 +581,17 @@ fn outside_folder(ask: &Ask, home: Option<&std::path::Path>) -> Option<Grant> {
     }
     let folder = if path.is_dir() { path } else { path.parent()? };
     let home = home.map(crate::tool::canonical);
-    let too_wide = folder.parent().is_none() || home.is_some_and(|home| home.starts_with(folder) || in_hidden_folder(&home, folder));
+    let too_wide = folder.parent().is_none() || home.is_some_and(|home| home.starts_with(folder) || in_sign_in_folder(&home, folder));
     (!too_wide).then(|| Grant::Folder { kind: ask.kind.clone(), folder: folder.to_string_lossy().into_owned() })
 }
 
-/// Whether `folder` is a dot folder directly in `home`, or inside one, where tools keep their sign-ins.
-fn in_hidden_folder(home: &std::path::Path, folder: &std::path::Path) -> bool {
+/// Whether `folder` is, or is inside, a folder of `home` where tools keep their sign-ins.
+fn in_sign_in_folder(home: &std::path::Path, folder: &std::path::Path) -> bool {
     let first = folder.strip_prefix(home).ok().and_then(|rest| rest.components().next());
-    first.is_some_and(|first| first.as_os_str().to_string_lossy().starts_with('.'))
+    first.is_some_and(|first| {
+        let name = first.as_os_str().to_string_lossy();
+        name.starts_with('.') || name.eq_ignore_ascii_case("AppData") || name.eq_ignore_ascii_case("Library")
+    })
 }
 
 #[derive(Debug, PartialEq)]
@@ -676,7 +680,7 @@ mod tests {
         assert!(matches!(&always_grants(&inside)[..], [Grant::Exact { .. }]), "a guarded file inside the workspace stays exact");
         std::fs::create_dir_all(sibling.join("Users").join("me")).unwrap();
         let home = crate::tool::canonical(&sibling.join("Users").join("me"));
-        for wide in [home.join("notes.txt"), home.parent().unwrap().join("notes.txt"), home.join(".ssh").join("config"), home.join(".aws").join("sso").join("cache.json")] {
+        for wide in [home.join("notes.txt"), home.parent().unwrap().join("notes.txt"), home.join(".ssh").join("config"), home.join(".aws").join("sso").join("cache.json"), home.join("AppData").join("Roaming").join("gcloud").join("x"), home.join("AppData").join("Roaming").join("GitHub CLI").join("hosts.yml"), home.join("Library").join("Application Support").join("x")] {
             let ask = Ask::new("read", wide.to_string_lossy(), "Read");
             assert_eq!(outside_folder(&ask, Some(&home)), None, "{} grants too much as a folder", wide.display());
         }
